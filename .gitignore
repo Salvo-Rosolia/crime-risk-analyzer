@@ -1,0 +1,65 @@
+# ─────────────────────────────────────────────────────────────
+# Python (backend)
+# ─────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+# ─────────────────────────────────────────────────────────────
+# Node / Frontend
+# ─────────────────────────────────────────────────────────────
+node_modules/
+.cache/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# ─────────────────────────────────────────────────────────────
+# Ambiente / segreti
+# ─────────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ─────────────────────────────────────────────────────────────
+# OS / editor
+# ─────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+*~
+
+# ─────────────────────────────────────────────────────────────
+# Dati e modelli pesanti — zona ghost (vedi backend/data/README.md)
+# ─────────────────────────────────────────────────────────────
+backend/data/**
+!backend/data/
+!backend/data/README.md
+!backend/data/.gitkeep
+
+# Estensioni pesanti ovunque (geo / archivi / modelli / embeddings)
+*.pbf
+*.osm
+*.gpkg
+*.parquet
+*.bin
+*.pt
+*.pth
+*.gguf
+*.safetensors
