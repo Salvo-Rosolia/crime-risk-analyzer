@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+            frontend:
+              - 'frontend/**'
+
+  backend:
+    needs: changes
+    if: ${{ needs.changes.outputs.backend == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - name: Install dependencies
+        run: uv sync
+      - name: Format check (ruff)
+        run: uv run ruff format --check .
+      - name: Lint (ruff)
+        run: uv run ruff check .
+      - name: Type check (pyright)
+        run: uv run pyright
+      - name: Tests (pytest)
+        run: uv run pytest
+
+  frontend:
+    needs: changes
+    if: ${{ needs.changes.outputs.frontend == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect frontend tooling
+        id: tooling
+        run: |
+          if [ -f package.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "package.json trovato: eseguo lint + test."
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "Tooling FE non ancora presente (nessun package.json): skip-pass."
+          fi
+      - name: Setup Node
+        if: ${{ steps.tooling.outputs.present == 'true' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        if: ${{ steps.tooling.outputs.present == 'true' }}
+        run: npm ci
+      - name: Lint
+        if: ${{ steps.tooling.outputs.present == 'true' }}
+        run: npm run lint
+      - name: Tests
+        if: ${{ steps.tooling.outputs.present == 'true' }}
+        run: npm test
+
+  ci-gate:
+    needs: [changes, backend, frontend]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify lane results
+        run: |
+          changes_result="${{ needs.changes.result }}"
+          backend_result="${{ needs.backend.result }}"
+          frontend_result="${{ needs.frontend.result }}"
+          echo "changes  = $changes_result"
+          echo "backend  = $backend_result"
+          echo "frontend = $frontend_result"
+          for r in "$changes_result" "$backend_result" "$frontend_result"; do
+            if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
+              echo "::error::Un job CI non e stato superato ($r). Gate ROSSO."
+              exit 1
+            fi
+          done
+          echo "Tutti i job sono success o skipped. Gate VERDE."
