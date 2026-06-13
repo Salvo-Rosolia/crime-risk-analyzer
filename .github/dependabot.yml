@@ -1,0 +1,33 @@
+version: 2
+updates:
+  # GitHub Actions: tiene aggiornati i pin a SHA delle action usate in ci.yml.
+  # Dependabot apre PR che spostano lo SHA al commit del nuovo tag, mantenendo
+  # il commento del tag leggibile. Le PR passano comunque da ci-gate.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  # Dipendenze Python del backend (gestite con uv: pyproject.toml + uv.lock).
+  # Si attiva quando backend/ con i manifest arriva su main (PR #38).
+  # Minor e patch raggruppate in un'unica PR per ridurre il rumore; i major
+  # restano PR singole per valutarli uno a uno.
+  - package-ecosystem: "uv"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(backend)"
+    groups:
+      backend-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
