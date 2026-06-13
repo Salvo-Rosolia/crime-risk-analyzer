@@ -1,39 +1,59 @@
 # Backend — Crime Risk Analyzer
 
 API e logica di dominio del sistema: query geospaziali, ragionamento ontologico
-(SPARQL) e pipeline RAG. Lo scaffolding di FastAPI arriva con la story **#7**; questa
-cartella definisce per ora solo lo **scheletro**.
+(SPARQL) e pipeline RAG. Lo scaffolding FastAPI (story **#7**) fornisce per ora
+l'ossatura runnable con il solo endpoint `GET /health`; gli endpoint di dominio
+(`/analyze`, `/cities`, `/scenarios`) arrivano in fase P2.
 
 ## Requisiti
 
-- Python 3.11+
+- Python 3.11+ (la macchina di sviluppo usa 3.12, fissato in `.python-version`)
+- [`uv`](https://docs.astral.sh/uv/) per ambiente, dipendenze e lockfile
 
 ## Setup
 
 ```bash
 # dalla cartella backend/
-python -m venv .venv
-source .venv/bin/activate          # Windows PowerShell: .venv\Scripts\Activate.ps1
-# Le dipendenze (FastAPI, ecc.) verranno aggiunte con #7:
-# pip install -r requirements.txt
+uv sync
 ```
+
+`uv sync` crea il virtualenv `.venv`, installa runtime + dev dependencies dal
+`uv.lock` e installa il package `crime_risk_analyzer` in editable mode.
 
 ## Avvio
 
-L'applicazione FastAPI non è ancora presente (arriva con #7). Una volta aggiunta, il
-comando sarà tipo:
+```bash
+uv run uvicorn crime_risk_analyzer.main:app --reload
+```
+
+L'app espone `GET /health` → `{"status": "ok"}`.
+
+## Test
 
 ```bash
-# placeholder fino a #7
-# uvicorn src.main:app --reload
+uv run pytest
+```
+
+## Quality gate
+
+```bash
+uv run ruff format .          # formattazione
+uv run ruff check --fix .     # lint
+uv run pyright                # type check (strict)
+uv run pytest                 # test
 ```
 
 ## Struttura
 
 ```
 backend/
-├── src/         # codice applicativo (API, servizi, modelli di dominio)
-├── ontology/    # ontologia RDF, query SPARQL, mapping OSM
-├── data/        # dataset e modelli pesanti — NON versionati (zona ghost)
-└── tests/       # test automatici
+├── pyproject.toml        # progetto + dipendenze (uv) + config ruff/pyright/pytest
+├── .python-version       # interprete pinnato (3.12)
+├── src/
+│   └── crime_risk_analyzer/   # package applicativo (src-layout)
+│       ├── __init__.py        # __version__
+│       └── main.py            # create_app() + app + GET /health
+├── ontology/             # ontologia RDF, query SPARQL, mapping OSM (vuota per ora)
+├── data/                 # dataset e modelli pesanti — NON versionati (zona ghost)
+└── tests/                # test automatici (pytest)
 ```
