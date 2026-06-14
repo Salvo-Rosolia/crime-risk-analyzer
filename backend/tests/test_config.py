@@ -3,7 +3,7 @@
 import pytest
 from pydantic import SecretStr, ValidationError
 
-from crime_risk_analyzer.config import Settings
+from crime_risk_analyzer.config import Settings, get_settings
 
 # `_env_file` è un kwarg runtime di pydantic-settings (`BaseSettings.__init__`
 # lo accetta via **values per disattivare il caricamento del `.env` reale e
@@ -66,3 +66,14 @@ def test_secrets_not_leaked() -> None:
     assert "sk-ant-supersecret" not in str(settings)
     assert settings.anthropic_api_key is not None
     assert settings.anthropic_api_key.get_secret_value() == "sk-ant-supersecret"
+
+
+def test_get_settings_cached() -> None:
+    """get_settings() restituisce sempre la stessa istanza (lru_cache)."""
+    get_settings.cache_clear()
+
+    first = get_settings()
+    second = get_settings()
+
+    assert isinstance(first, Settings)
+    assert first is second

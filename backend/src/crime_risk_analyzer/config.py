@@ -7,6 +7,7 @@ layer LLM (fase P2), dove servono davvero. I valori segreti usano
 ``SecretStr`` per evitare leak accidentali in log e ``repr``.
 """
 
+from functools import lru_cache
 from typing import Literal
 
 from pydantic import SecretStr
@@ -28,3 +29,14 @@ class Settings(BaseSettings):
     llm_provider: Literal["claude", "groq"] = "claude"
     cache_enabled: bool = True
     default_city: str = "Roma"
+
+
+@lru_cache
+def get_settings() -> Settings:
+    """Restituisce un'istanza singola di :class:`Settings`.
+
+    Cacheata con ``lru_cache`` così l'app la costruisce una sola volta.
+    Iniettabile negli endpoint con ``Depends(get_settings)`` e overridabile
+    nei test via ``app.dependency_overrides``.
+    """
+    return Settings()
