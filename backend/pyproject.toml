@@ -14,6 +14,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest",
+    "pytest-cov",
     "httpx",
     "ruff",
     "pyright",
@@ -28,17 +29,23 @@ packages = ["src/crime_risk_analyzer"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra"
+pythonpath = ["."]
+addopts = "-ra --cov=crime_risk_analyzer --cov-report=term-missing"
 
 [tool.ruff]
 target-version = "py311"
-src = ["src", "tests"]
+src = ["src", "tests", "scripts"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.format]
+# Stile di default di Ruff (già in uso e verificato in CI dal lane backend).
+# Sezione esplicita per documentare che `ruff format` è il formatter ufficiale
+# del backend. Nessun override: non altera la formattazione esistente.
+
 [tool.pyright]
-include = ["src", "tests"]
+include = ["src", "tests", "scripts"]
 pythonVersion = "3.11"
 typeCheckingMode = "strict"
 venvPath = "."
