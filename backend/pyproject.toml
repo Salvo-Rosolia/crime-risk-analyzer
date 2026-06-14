@@ -14,6 +14,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest",
+    "pytest-cov",
     "httpx",
     "ruff",
     "pyright",
@@ -28,7 +29,7 @@ packages = ["src/crime_risk_analyzer"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra"
+addopts = "-ra --cov=crime_risk_analyzer --cov-report=term-missing"
 
 [tool.ruff]
 target-version = "py311"
