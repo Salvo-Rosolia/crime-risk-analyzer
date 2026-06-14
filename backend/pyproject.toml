@@ -38,6 +38,11 @@ src = ["src", "tests"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.format]
+# Stile di default di Ruff (già in uso e verificato in CI dal lane backend).
+# Sezione esplicita per documentare che `ruff format` è il formatter ufficiale
+# del backend. Nessun override: non altera la formattazione esistente.
+
 [tool.pyright]
 include = ["src", "tests"]
 pythonVersion = "3.11"
