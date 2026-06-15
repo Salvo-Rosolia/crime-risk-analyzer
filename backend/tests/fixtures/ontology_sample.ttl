@@ -1,0 +1,8 @@
+@prefix tc:   <http://example.org/terminus-crime#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+
+tc:POI           a owl:Class .
+tc:Bank          a owl:Class ; rdfs:subClassOf tc:POI .
+tc:Hospital      a owl:Class ; rdfs:subClassOf tc:POI .
+tc:PoliceStation a owl:Class ; rdfs:subClassOf tc:POI .
