@@ -19,3 +19,25 @@ def test_health_returns_ok() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_lifespan_loads_ontology() -> None:
+    """Avviando l'app via TestClient il lifespan carica l'ontologia (fail-fast).
+
+    Versione rafforzata: non chiama ``get_ontology()`` a mano prima di entrare nel
+    contesto, così l'unico modo perché la cache risulti popolata è che il warm-up
+    avvenga nel ``lifespan``. Senza warm-up ``currsize`` resterebbe 0 (RED reale).
+    """
+    from fastapi.testclient import TestClient
+
+    from crime_risk_analyzer.main import app
+    from crime_risk_analyzer.ontology import get_ontology
+
+    get_ontology.cache_clear()
+    assert get_ontology.cache_info().currsize == 0
+    with TestClient(app):  # entra/esce dal lifespan
+        # Nessuna chiamata esplicita: se la cache è popolata, l'ha fatto il lifespan.
+        assert get_ontology.cache_info().currsize == 1
+        graph = get_ontology()
+        assert len(graph) > 0
+    get_ontology.cache_clear()

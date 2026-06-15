@@ -8,6 +8,7 @@ dependencies = [
     "fastapi",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.0",
+    "rdflib>=7.6.0",
     "uvicorn[standard]",
 ]
 
