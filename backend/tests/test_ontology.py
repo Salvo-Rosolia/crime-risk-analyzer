@@ -5,7 +5,11 @@ from pathlib import Path
 import pytest
 from rdflib import Graph
 
-from crime_risk_analyzer.ontology import OntologyLoadError, load_ontology
+from crime_risk_analyzer.ontology import (
+    OntologyLoadError,
+    get_ontology,
+    load_ontology,
+)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "ontology_sample.ttl"
 
@@ -40,3 +44,17 @@ def test_load_ontology_empty(tmp_path: Path) -> None:
 
     with pytest.raises(OntologyLoadError, match="vuota"):
         load_ontology(str(empty))
+
+
+def test_get_ontology_cached() -> None:
+    """get_ontology() ritorna sempre la stessa istanza (lru_cache)."""
+    get_ontology.cache_clear()
+
+    first = get_ontology()
+    second = get_ontology()
+
+    assert isinstance(first, Graph)
+    assert first is second
+    assert len(first) > 0
+
+    get_ontology.cache_clear()
