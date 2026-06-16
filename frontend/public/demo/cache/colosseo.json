@@ -1,0 +1,63 @@
+{
+  "città": "Roma",
+  "zona_normalizzata": "Colosseo",
+  "scenario_id": "colosseo",
+  "poi": [
+    {
+      "id": "1",
+      "name": "Colosseo",
+      "terminus_class": "ArchaeologicalSite",
+      "lat": 41.8908,
+      "lon": 12.4918,
+      "confidence": "confermato",
+      "sparql_path": "ArchaeologicalSite → hasAnthropicHazard → borseggioTuristi"
+    },
+    {
+      "id": "2",
+      "name": "Metro Colosseo (B)",
+      "terminus_class": "TransportHub",
+      "lat": 41.8898,
+      "lon": 12.4926,
+      "confidence": "confermato",
+      "sparql_path": "TransportHub → hasAnthropicHazard → borseggio"
+    },
+    {
+      "id": "3",
+      "name": "Colle Oppio",
+      "terminus_class": "PublicSquare",
+      "lat": 41.8916,
+      "lon": 12.4920,
+      "confidence": "speculativo",
+      "sparql_path": "PublicSquare → hasCriticalEvent → assembramento"
+    }
+  ],
+  "risk_models": [
+    {
+      "poi": "Colosseo",
+      "risks": [
+        { "hazard": "borseggioTuristi", "confidence": "confermato", "tag": "ONTOLOGIA" },
+        { "hazard": "venditaAbusiva",   "confidence": "plausibile",  "tag": "CONTESTO"  },
+        { "hazard": "retiOrganizzate",  "confidence": "speculativo", "tag": "SPECULATIVO" }
+      ]
+    },
+    {
+      "poi": "Metro Colosseo (B)",
+      "risks": [
+        { "hazard": "borseggio",        "confidence": "confermato", "tag": "ONTOLOGIA" },
+        { "hazard": "furtoConDestrezza","confidence": "plausibile",  "tag": "CONTESTO"  }
+      ]
+    },
+    {
+      "poi": "Colle Oppio",
+      "risks": [
+        { "hazard": "assembramento",    "confidence": "speculativo", "tag": "SPECULATIVO" }
+      ]
+    }
+  ],
+  "narrativa": "L'area del Colosseo presenta un profilo di rischio ricostruito a partire dall'ontologia formale e dal contesto ambientale.",
+  "confidence_summary": { "confermato": 2, "plausibile": 0, "speculativo": 1 },
+  "llm_used": "claude-sonnet-4-6",
+  "latenza_ms": 2340,
+  "repro": { "temperature": 0.2, "seed": 42, "prompt_hash": "abc123" },
+  "cache_hit": true
+}

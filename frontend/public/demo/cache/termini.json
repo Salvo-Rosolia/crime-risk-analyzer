@@ -1,0 +1,78 @@
+{
+  "città": "Roma",
+  "zona_normalizzata": "Stazione Termini",
+  "scenario_id": "termini",
+  "poi": [
+    {
+      "id": "1",
+      "name": "Stazione Termini",
+      "terminus_class": "TransportHub",
+      "lat": 41.9009,
+      "lon": 12.5018,
+      "confidence": "confermato",
+      "sparql_path": "TransportHub → hasAnthropicHazard → borseggio"
+    },
+    {
+      "id": "2",
+      "name": "Bar Notturno Via Giolitti",
+      "terminus_class": "NightVenue",
+      "lat": 41.8999,
+      "lon": 12.5034,
+      "confidence": "plausibile",
+      "sparql_path": "NightVenue → hasAnthropicHazard → disturboQuiete"
+    },
+    {
+      "id": "3",
+      "name": "Parcheggio Est",
+      "terminus_class": "ParkingArea",
+      "lat": 41.9016,
+      "lon": 12.5040,
+      "confidence": "speculativo",
+      "sparql_path": "ParkingArea → hasAnthropicHazard → furtoSuVeicolo"
+    },
+    {
+      "id": "4",
+      "name": "Piazza dei Cinquecento",
+      "terminus_class": "PublicSquare",
+      "lat": 41.9001,
+      "lon": 12.5010,
+      "confidence": "plausibile",
+      "sparql_path": "PublicSquare → hasAnthropicHazard → borseggio"
+    }
+  ],
+  "risk_models": [
+    {
+      "poi": "Stazione Termini",
+      "risks": [
+        { "hazard": "borseggio",        "confidence": "confermato", "tag": "ONTOLOGIA" },
+        { "hazard": "furtoConDestrezza","confidence": "confermato", "tag": "ONTOLOGIA" },
+        { "hazard": "distrazione",      "confidence": "plausibile",  "tag": "CONTESTO"  }
+      ]
+    },
+    {
+      "poi": "Bar Notturno Via Giolitti",
+      "risks": [
+        { "hazard": "disturboQuiete",   "confidence": "plausibile",  "tag": "CONTESTO"  },
+        { "hazard": "spaccio",          "confidence": "speculativo", "tag": "SPECULATIVO" }
+      ]
+    },
+    {
+      "poi": "Parcheggio Est",
+      "risks": [
+        { "hazard": "furtoSuVeicolo",   "confidence": "speculativo", "tag": "SPECULATIVO" }
+      ]
+    },
+    {
+      "poi": "Piazza dei Cinquecento",
+      "risks": [
+        { "hazard": "borseggio",        "confidence": "plausibile",  "tag": "CONTESTO"  }
+      ]
+    }
+  ],
+  "narrativa": "L'area della Stazione Termini presenta un profilo di rischio articolato su più classi di POI.",
+  "confidence_summary": { "confermato": 1, "plausibile": 2, "speculativo": 1 },
+  "llm_used": "claude-sonnet-4-6",
+  "latenza_ms": 1980,
+  "repro": { "temperature": 0.2, "seed": 42, "prompt_hash": "def456" },
+  "cache_hit": false
+}
