@@ -1,0 +1,54 @@
+{
+  "version": 0.6,
+  "generator": "Overpass API",
+  "elements": [
+    {
+      "type": "node",
+      "id": 1001,
+      "lat": 41.8902,
+      "lon": 12.4922,
+      "tags": {
+        "amenity": "bank",
+        "name": "Banca Intesa Sanpaolo"
+      }
+    },
+    {
+      "type": "node",
+      "id": 1002,
+      "lat": 41.8911,
+      "lon": 12.4930,
+      "tags": {
+        "tourism": "museum",
+        "name": "Museo Nazionale Romano"
+      }
+    },
+    {
+      "type": "node",
+      "id": 1003,
+      "lat": 41.8895,
+      "lon": 12.4901,
+      "tags": {
+        "amenity": "ice_cream",
+        "name": "Gelateria del Centro"
+      }
+    },
+    {
+      "type": "node",
+      "id": 1004,
+      "lat": 41.8888,
+      "lon": 12.4888
+    },
+    {
+      "type": "way",
+      "id": 2001,
+      "center": {
+        "lat": 41.8920,
+        "lon": 12.4940
+      },
+      "tags": {
+        "railway": "station",
+        "name": "Stazione Termini"
+      }
+    }
+  ]
+}
