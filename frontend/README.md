@@ -11,14 +11,21 @@ CSS**, senza framework.
 
 ## Setup & avvio
 
-In fase iniziale è sufficiente servire i file statici della cartella `public/`:
+Servire i file statici della cartella `public/` **come document root**. Il modulo
+`<script type="module" src="../src/app.js">` in `index.html` usa un path relativo
+che risale di un livello rispetto a `public/`: quando il server è radicato su
+`public/`, `../src/` risolve correttamente in `frontend/src/`.
 
 ```bash
-# dalla cartella frontend/
+# dalla cartella frontend/ (NON da src/)
 python -m http.server 5173 --directory public
 # oppure, con Node:
 # npx serve public
 ```
+
+> Importante: non servire `frontend/` direttamente come document root (senza
+> `--directory public`) perché in quel caso `../src/app.js` uscirebbe fuori dalla
+> cartella frontend, rompendo il caricamento del modulo.
 
 ## Struttura
 
