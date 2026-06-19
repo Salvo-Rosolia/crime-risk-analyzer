@@ -2,16 +2,18 @@
 
 Espone la factory :func:`create_app` e un'istanza ``app`` pronta per Uvicorn
 (``uvicorn crime_risk_analyzer.main:app``). Per ora solo l'ossatura runnable con
-``GET /health``; gli endpoint di dominio (``/analyze``, ``/cities``,
+``GET /health`` e ``GET /cities``; gli altri endpoint di dominio (``/analyze``,
 ``/scenarios``) arrivano in fase P2.
 """
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Annotated
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, Depends, FastAPI
 from pydantic import BaseModel
 
+from crime_risk_analyzer.config import Settings, get_settings
 from crime_risk_analyzer.ontology import get_ontology
 
 
@@ -30,6 +32,17 @@ router = APIRouter()
 async def health() -> HealthResponse:
     """Health-check: segnala che il servizio è in piedi."""
     return HealthResponse(status="ok")
+
+
+@router.get("/cities")
+async def cities(settings: Annotated[Settings, Depends(get_settings)]) -> list[str]:
+    """Elenca le città supportate.
+
+    Roma, Milano e Napoli sono garantite e testate end-to-end; le altre sono
+    best-effort (vedi backend/orchestrator.md). La lista vive nella config
+    centralizzata ed è iniettata via ``Depends`` (niente stato globale).
+    """
+    return settings.supported_cities
 
 
 @asynccontextmanager

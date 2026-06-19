@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     llm_provider: Literal["claude", "groq"] = "claude"
     cache_enabled: bool = True
     default_city: str = "Roma"
+    # Citta supportate da ``GET /cities``. Roma/Milano/Napoli sono garantite e
+    # testate end-to-end (orchestrator.md); le altre sono best-effort.
+    supported_cities: list[str] = ["Roma", "Milano", "Napoli", "Torino", "Firenze"]
 
 
 @lru_cache
