@@ -1,27 +1,12 @@
 // src/app.js — entry point: boots the app, wires DOM events → dispatch, syncs map
 import { dispatch, subscribe, getState, STATES } from './state.js';
 import { render, scrollPoiCardIntoView } from './ui.js';
-import { analyze, getScenarios, analyzeBaseline } from './api.js';
+import { analyze, getScenarios, analyzeBaseline, cacheIdForZona, CACHE_KEYS } from './api.js';
 import { validateInputPanel } from './ui-helpers.js';
 import {
   initMap, renderMarkers, clearMarkers,
   flyToPoi, flyToBounds, resetView, invalidateSize,
 } from './map.js';
-
-// ── Cache key → demo fixture mapping ─────────────────────────────────────────
-// Used for fallback when /analyze is unreachable.
-const CACHE_KEYS = {
-  colosseo:          'colosseo',
-  'stazione termini': 'termini',
-  termini:           'termini',
-  duomo:             'duomo',
-};
-
-function cacheIdForZona(zona) {
-  const lower = zona.toLowerCase();
-  const key   = Object.keys(CACHE_KEYS).find(k => lower.includes(k));
-  return key ? CACHE_KEYS[key] : null;
-}
 
 // ── Suggested scenarios shown on error ───────────────────────────────────────
 const FALLBACK_SUGGESTIONS = [
@@ -212,10 +197,15 @@ async function startAnalysis(zona, domanda = null) {
 }
 
 function startAnalysisFromScenario(sc) {
-  const zona    = sc.zona || `${sc.zone}, ${sc.city}`;
-  const cacheId = sc.id || sc.scenario_id || cacheIdForZona(zona);
+  const zona = sc.zona || `${sc.zone}, ${sc.city}`;
+  // Only pass a cacheId when the scenario's id actually has a cached file.
+  // The 7 scenarios without cache must NOT attempt /demo/cache/<slug>.json (→ 404).
+  const cachedIds = new Set(Object.values(CACHE_KEYS));
+  const cacheId = cachedIds.has(sc.id) ? sc.id
+    : cachedIds.has(sc.scenario_id) ? sc.scenario_id
+    : cacheIdForZona(zona);
   dispatch({ type: 'ANALYZE', zona });
-  analyze(zona, String(cacheId))
+  analyze(zona, cacheId || null)
     .then(data => dispatch({ type: 'LOAD_SUCCESS', data }))
     .catch(err  => dispatch({
       type:        'LOAD_ERROR',
