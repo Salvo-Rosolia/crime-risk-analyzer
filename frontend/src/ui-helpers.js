@@ -2,7 +2,57 @@
 // Separates testable pure logic from DOM-touching render code.
 // Exported pure helpers (all side-effect free):
 //   validateInputPanel, buildNarrativeSections, buildDetailModel, filterVisiblePOIs,
-//   cityColorFor, buildScenarioCardData
+//   cityColorFor, buildScenarioCardData, groupRisksByTag, cacheChipHTML
+// Exported constants: TAG_ORDER
+
+// ── Canonical tag order (single source of truth — imported by ui.js too) ─────
+/**
+ * Canonical display order for risk source tags.
+ * Imported by buildNarrativeSections, buildDetailModel, and ui.js render code.
+ * @type {string[]}
+ */
+export const TAG_ORDER = ['ONTOLOGIA', 'CONTESTO', 'SPECULATIVO'];
+
+// ── groupRisksByTag ─────────────────────────────────────────────────────────
+
+/**
+ * Groups risks from all risk_models by their tag key.
+ * Shared by buildDetailModel and buildNarrativeSections to avoid duplication.
+ *
+ * @param {Array<{ poi: string, risks: Array<{ tag?: string, [key: string]: any }> }>|null|undefined} riskModels
+ * @param {((risk: object) => any)|null} [valueFn] - optional transform applied to each risk before storing.
+ *   When omitted, the raw risk object is stored.
+ * @returns {Record<string, Array>} map of tag → array of risk objects (or valueFn results)
+ */
+export function groupRisksByTag(riskModels, valueFn = null) {
+  const groups = {};
+  for (const model of (riskModels ?? [])) {
+    for (const risk of (model.risks ?? [])) {
+      const tag = risk.tag || 'SPECULATIVO';
+      if (!groups[tag]) groups[tag] = [];
+      groups[tag].push(valueFn ? valueFn(risk) : risk);
+    }
+  }
+  return groups;
+}
+
+// ── cacheChipHTML ────────────────────────────────────────────────────────────
+
+/**
+ * Returns the HTML string for the "dati da cache" chip/banner.
+ * Shown in the header-right area (modalità completo) when state.data._fromCache is true.
+ * In modalità BASE (ablation view) il chip NON viene mostrato by design — quella vista
+ * è volutamente spartana e non espone metriche né indicatori di provenienza dei dati.
+ * Pure function — no DOM access.
+ *
+ * @param {boolean|undefined|null} fromCache
+ * @returns {string} HTML string, or '' when fromCache is falsy
+ */
+export function cacheChipHTML(fromCache) {
+  if (!fromCache) return '';
+  return `<span class="cache-chip" title="I dati provengono dalla cache demo offline — il backend non era raggiungibile.">` +
+    `&#9632; dati da cache offline</span>`;
+}
 
 // ── City colour palette (spec §City color coding) ─────────────────────────────
 // Exported so ui.js and tests share the single source of truth.
@@ -33,7 +83,7 @@ export function cityColorFor(city) {
  * into a stable display object:
  *   { id, city, zone, type, zona, color }
  *
- * `zona` fallback mirrors app.js startAnalysisFromScenario so both paths
+ * `zona` fallback mirrors app.js startAnalysis (scenario path) so both paths
  * produce the same string when zona is absent from the backend response.
  *
  * @param {{ id: string, city: string, zone: string, type: string, zona?: string }|null|undefined} scenario
@@ -80,28 +130,18 @@ export function validateInputPanel({ zona } = {}) {
  * @returns {Array<{ tag: string, hazards: string[] }>}
  */
 export function buildNarrativeSections(riskModels) {
-  /** @type {Map<string, string[]>} */
-  const byTag = new Map();
+  const groups = groupRisksByTag(riskModels, r => r.hazard);
 
-  for (const model of (riskModels ?? [])) {
-    for (const risk of (model.risks ?? [])) {
-      const tag = risk.tag || 'SPECULATIVO';
-      if (!byTag.has(tag)) byTag.set(tag, []);
-      byTag.get(tag).push(risk.hazard);
-    }
-  }
-
-  // Preserve canonical display order: ONTOLOGIA → CONTESTO → SPECULATIVO
-  const ORDER = ['ONTOLOGIA', 'CONTESTO', 'SPECULATIVO'];
   const sections = [];
-  for (const tag of ORDER) {
-    if (byTag.has(tag)) {
-      sections.push({ tag, hazards: byTag.get(tag) });
+  // Preserve canonical display order via TAG_ORDER
+  for (const tag of TAG_ORDER) {
+    if (groups[tag]?.length) {
+      sections.push({ tag, hazards: groups[tag] });
     }
   }
   // Include any unexpected tags at the end
-  for (const [tag, hazards] of byTag) {
-    if (!ORDER.includes(tag)) sections.push({ tag, hazards });
+  for (const tag of Object.keys(groups)) {
+    if (!TAG_ORDER.includes(tag)) sections.push({ tag, hazards: groups[tag] });
   }
 
   return sections;
@@ -131,13 +171,8 @@ export function buildDetailModel(poi, riskModels) {
     : [];
 
   const model = (riskModels ?? []).find(r => r.poi === poi.name);
-  const groups = {};
-
-  for (const risk of (model?.risks ?? [])) {
-    const tag = risk.tag || 'SPECULATIVO';
-    if (!groups[tag]) groups[tag] = [];
-    groups[tag].push(risk);
-  }
+  // Re-use groupRisksByTag on the single matching model's risks (wrapped as one-element array)
+  const groups = model ? groupRisksByTag([model]) : {};
 
   return { poi, sparqlParts, groups };
 }

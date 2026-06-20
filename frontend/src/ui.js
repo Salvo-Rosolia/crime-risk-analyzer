@@ -2,7 +2,7 @@
 // render(state) is idempotent: call it on every state change; it updates only what's needed.
 import { STATES } from './state.js';
 import { CONF, pinColor, coverageBadgeText, deriveCoverage } from './confidence.js';
-import { buildNarrativeSections, buildDetailModel, filterVisiblePOIs, cityColorFor, buildScenarioCardData } from './ui-helpers.js';
+import { buildNarrativeSections, buildDetailModel, filterVisiblePOIs, cityColorFor, buildScenarioCardData, TAG_ORDER, cacheChipHTML } from './ui-helpers.js';
 const SRC_DESC = {
   ONTOLOGIA:   'da ontologia formale',
   CONTESTO:    'da contesto ambientale',
@@ -69,6 +69,9 @@ function renderHeaderRight(state) {
   const isCompleto = state.mode === 'completo';
   let html = '';
 
+  // Il blocco coverage + cache chip compare SOLO in modalità completo (isCompleto && data).
+  // In modalità BASE (ablation view, state.mode === 'base') non viene mostrato by design:
+  // quella vista è volutamente spartana e non espone metriche di copertura né chip cache.
   if (isCompleto && data) {
     // Derive coverage from canonical fields only — no backend `coverage` field.
     // spec-frontend §Allineamenti tecnici #4.
@@ -78,6 +81,10 @@ function renderHeaderRight(state) {
     );
     const txt = coverageBadgeText(total, anchored);
     html += `<div class="coverage-badge"><span>▣</span><span>${txt}</span></div>`;
+    // _fromCache chip: non-invasive indicator when data comes from demo cache (#30 M-2).
+    // Mostrato solo qui (modalità completo) — in BASE non compare by design (vedi sopra).
+    const chipHtml = cacheChipHTML(data._fromCache);
+    if (chipHtml) html += chipHtml;
     html += `<div style="width:1px;height:24px;background:var(--separator);flex-shrink:0;"></div>`;
 
     html += `<div class="conf-chips">`;
@@ -377,7 +384,7 @@ function renderDetailPanel(state) {
       <div>
         <div class="eyebrow" style="margin-bottom:11px;">Fattori di rischio · per fonte</div>
         <div style="display:flex;flex-direction:column;gap:13px;">
-          ${['ONTOLOGIA', 'CONTESTO', 'SPECULATIVO']
+          ${TAG_ORDER
             .filter(tag => groups[tag]?.length)
             .map(tag => `
               <div>
@@ -545,8 +552,11 @@ export function render(state, { scenarios = [] } = {}) {
       renderPOIPanel(state);
       renderDetailPanel(state);
       renderNarrativeSheet(state);
-      // Focus detail panel for keyboard/screen-reader users
-      setTimeout(() => { const el = $('panel-detail'); if (el) el.focus?.(); }, 60);
+      // Focus detail panel for keyboard/screen-reader users (double rAF: layout then paint)
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        const el = $('panel-detail');
+        if (el) el.focus?.();
+      }));
       break;
 
     case STATES.BASE:

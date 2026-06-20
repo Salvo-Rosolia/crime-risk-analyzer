@@ -30,8 +30,10 @@ export function pinColor(level) {
  * @returns {{ total: number, anchored: number }}
  */
 export function deriveCoverage(confidenceSummary, riskModels) {
-  const total = Object.values(confidenceSummary ?? {})
-    .reduce((acc, n) => acc + (Number(n) || 0), 0);
+  // Somma SOLO le 3 chiavi canoniche del vocabolario chiuso — qualunque chiave
+  // extra nel payload (es. un campo futuro del backend) non deve gonfiare il totale.
+  const total = ['confermato', 'plausibile', 'speculativo']
+    .reduce((acc, k) => acc + (Number(confidenceSummary?.[k]) || 0), 0);
 
   const anchored = (riskModels ?? []).reduce((acc, model) => {
     return acc + (model.risks ?? []).filter(r => r.tag === 'ONTOLOGIA').length;

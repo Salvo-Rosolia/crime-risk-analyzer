@@ -12,6 +12,19 @@ let _layer = null;
 let _onPoiClick = null;
 
 /**
+ * Guards flyToBounds calls so we only re-fit when the data reference has changed.
+ * Exported as a pure function so it can be tested without Leaflet.
+ *
+ * @param {object|null} nextData - the new state.data
+ * @param {object|null} lastData - the previously seen state.data
+ * @returns {boolean} true when flyToBounds should be called
+ */
+export function shouldFlyToBounds(nextData, lastData) {
+  if (!nextData) return false;
+  return nextData !== lastData;
+}
+
+/**
  * Initialise the Leaflet map. Safe to call multiple times — only inits once.
  * @param {string} containerId
  * @param {(id: string) => void} onPoiClick
@@ -36,8 +49,8 @@ export function initMap(containerId, onPoiClick) {
   L.control.zoom({ position: 'bottomright' }).addTo(_map);
   _layer = L.layerGroup().addTo(_map);
 
-  // Ensure map fills its container after initial paint
-  setTimeout(() => _map.invalidateSize(), 200);
+  // Ensure map fills its container after initial paint (double rAF: layout then paint)
+  requestAnimationFrame(() => requestAnimationFrame(() => _map.invalidateSize()));
 }
 
 /**
@@ -120,5 +133,5 @@ export function resetView() {
 
 /** Force a map resize — call after any panel show/hide/transition. */
 export function invalidateSize() {
-  if (_map) setTimeout(() => _map.invalidateSize(), 60);
+  if (_map) requestAnimationFrame(() => _map.invalidateSize());
 }
