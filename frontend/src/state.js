@@ -20,6 +20,7 @@ export const initialState = {
   error:         null,   // string | null
   mode:          'completo', // 'completo'|'base'
   pendingZona:   null,   // string | null — zona being analyzed
+  pendingDomanda: null,  // string | null — domanda being analyzed (for Rigenera re-POST)
   lastQuery:     null,   // string | null — last input value (for error display)
   suggestions:   [],     // suggested scenarios shown on error
   // UI panel open/closed state
@@ -39,15 +40,19 @@ export function transition(state, action) {
     case 'ANALYZE':
       return {
         ...state,
-        screen:      STATES.LOADING,
-        pendingZona: action.zona,
-        error:       null,
-        selectedPoiId: null,
-        filter:      null,
-        lastQuery:   action.zona,
+        screen:         STATES.LOADING,
+        pendingZona:    action.zona,
+        pendingDomanda: action.domanda ?? null,
+        error:          null,
+        selectedPoiId:  null,
+        filter:         null,
+        lastQuery:      action.zona,
       };
 
     case 'LOAD_SUCCESS':
+      // pendingZona is cleared here because zona_normalizzata lives in state.data.
+      // pendingDomanda is intentionally NOT cleared: there is no equivalent field in
+      // state.data, so it must persist for "Rigenera" to re-POST with the same domanda.
       return {
         ...state,
         screen:        STATES.RESULTS,
@@ -59,6 +64,9 @@ export function transition(state, action) {
       };
 
     case 'LOAD_ERROR':
+      // pendingZona cleared (not needed after failure).
+      // pendingDomanda intentionally NOT cleared: user should be able to retry
+      // without losing the question they typed (D3/M1 decision).
       return {
         ...state,
         screen:      STATES.ERROR,

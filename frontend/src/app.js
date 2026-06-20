@@ -2,6 +2,7 @@
 import { dispatch, subscribe, getState, STATES } from './state.js';
 import { render } from './ui.js';
 import { analyze, getScenarios, analyzeBaseline } from './api.js';
+import { validateInputPanel } from './ui-helpers.js';
 import {
   initMap, renderMarkers, clearMarkers,
   flyToPoi, flyToBounds, resetView, invalidateSize,
@@ -65,12 +66,14 @@ function handleClick(e) {
 
   // Analyze button
   if (t.id === 'btn-analyze' || t.closest('#btn-analyze')) {
-    const zona = document.getElementById('input-zona')?.value?.trim();
-    if (!zona) {
-      dispatch({ type: 'LOAD_ERROR', message: 'Inserisci una zona o scegli uno scenario.', suggestions: FALLBACK_SUGGESTIONS });
+    const zona    = document.getElementById('input-zona')?.value?.trim();
+    const domanda = document.getElementById('input-domanda')?.value?.trim() || null;
+    const { ok, error } = validateInputPanel({ zona, domanda });
+    if (!ok) {
+      dispatch({ type: 'LOAD_ERROR', message: error, suggestions: FALLBACK_SUGGESTIONS });
       return;
     }
-    startAnalysis(zona);
+    startAnalysis(zona, domanda);
     return;
   }
 
@@ -80,11 +83,11 @@ function handleClick(e) {
     return;
   }
 
-  // Regenerate narrative (re-POST /analyze)
+  // Regenerate narrative (re-POST /analyze) — reuses pendingDomanda from state
   if (t.id === 'btn-rigenera' || t.closest('#btn-rigenera')) {
     e.stopPropagation();
     const s = getState();
-    if (s.data?.zona_normalizzata) startAnalysis(s.data.zona_normalizzata);
+    if (s.data?.zona_normalizzata) startAnalysis(s.data.zona_normalizzata, s.pendingDomanda);
     return;
   }
 
@@ -159,10 +162,20 @@ function handleKeydown(e) {
   if (e.key !== 'Enter') return;
   const t = e.target;
 
+  // Enter on #input-domanda (textarea) intentionally does NOT trigger analysis:
+  // Enter inserts a newline in the textarea — this is by design (D1).
+  // Do not add analysis logic here to avoid breaking multi-line input.
+
   // Enter on zona input → analyze
   if (t.id === 'input-zona') {
-    const zona = t.value?.trim();
-    if (zona) startAnalysis(zona);
+    const zona    = t.value?.trim();
+    const domanda = document.getElementById('input-domanda')?.value?.trim() || null;
+    const { ok, error } = validateInputPanel({ zona, domanda });
+    if (!ok) {
+      dispatch({ type: 'LOAD_ERROR', message: error, suggestions: FALLBACK_SUGGESTIONS });
+      return;
+    }
+    startAnalysis(zona, domanda);
     return;
   }
 
@@ -183,11 +196,11 @@ function handleKeydown(e) {
 }
 
 // ── Analysis flows ────────────────────────────────────────────────────────────
-async function startAnalysis(zona) {
-  dispatch({ type: 'ANALYZE', zona });
+async function startAnalysis(zona, domanda = null) {
+  dispatch({ type: 'ANALYZE', zona, domanda });
   const cacheId = cacheIdForZona(zona);
   try {
-    const data = await analyze(zona, cacheId);
+    const data = await analyze(zona, cacheId, domanda);
     dispatch({ type: 'LOAD_SUCCESS', data });
   } catch (err) {
     dispatch({
