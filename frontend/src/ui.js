@@ -2,14 +2,7 @@
 // render(state) is idempotent: call it on every state change; it updates only what's needed.
 import { STATES } from './state.js';
 import { CONF, pinColor, coverageBadgeText, deriveCoverage } from './confidence.js';
-import { buildNarrativeSections, buildDetailModel, filterVisiblePOIs } from './ui-helpers.js';
-
-const CITY_COLOR = {
-  Roma:   '#0e7b80',
-  Milano: '#3a5a8c',
-  Napoli: '#b8870a',
-  Torino: '#8a5a2b',
-};
+import { buildNarrativeSections, buildDetailModel, filterVisiblePOIs, cityColorFor, buildScenarioCardData } from './ui-helpers.js';
 const SRC_DESC = {
   ONTOLOGIA:   'da ontologia formale',
   CONTESTO:    'da contesto ambientale',
@@ -190,8 +183,8 @@ function suggestionsHTML(suggestions) {
         ${suggestions.map(s => `
           <button class="suggestion-btn" data-scenario-id="${s.id}">
             <span style="width:8px;height:8px;border-radius:50%;flex-shrink:0;
-              background:${CITY_COLOR[s.city] || '#928d82'};"></span>
-            <span><b style="color:${CITY_COLOR[s.city] || '#928d82'}">${esc(s.city)}</b> — ${esc(s.zone)}</span>
+              background:${cityColorFor(s.city)};"></span>
+            <span><b style="color:${cityColorFor(s.city)}">${esc(s.city)}</b> — ${esc(s.zone)}</span>
             <span style="flex:1"></span>
             <span style="color:var(--mute)">→</span>
           </button>`).join('')}
@@ -220,13 +213,15 @@ function renderScenariosPanel(state, scenarios) {
   if (body) {
     if (open && scenarios.length > 0) {
       body.innerHTML = `<div style="display:grid;gap:8px;">
-        ${scenarios.map(s => `
-          <button class="scenario-card" data-scenario-id="${s.id}"
-            style="border-left-color:${CITY_COLOR[s.city] || '#928d82'}">
-            <div class="city-label" style="color:${CITY_COLOR[s.city] || '#928d82'}">${esc(s.city)}</div>
-            <div class="zone-label">${esc(s.zone)}</div>
-            <div class="type-label">${esc(s.type)}</div>
-          </button>`).join('')}
+        ${scenarios.map(s => {
+          const card = buildScenarioCardData(s);
+          return `<button class="scenario-card" data-scenario-id="${card.id}"
+            style="border-left-color:${card.color}">
+            <div class="city-label" style="color:${card.color}">${esc(card.city)}</div>
+            <div class="zone-label">${esc(card.zone)}</div>
+            <div class="type-label">${esc(card.type)}</div>
+          </button>`;
+        }).join('')}
       </div>`;
     } else if (open && scenarios.length === 0) {
       body.innerHTML = `<div style="padding:12px;font-size:12px;color:var(--mute);">
