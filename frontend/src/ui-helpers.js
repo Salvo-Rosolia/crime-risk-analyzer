@@ -2,6 +2,20 @@
 // Separates testable pure logic from DOM-touching render code.
 
 /**
+ * Validates the input panel fields before submitting an analysis.
+ * Pure function: no DOM access, fully testable.
+ *
+ * @param {{ zona: string, domanda?: string }} fields
+ * @returns {{ ok: boolean, error: string|null }}
+ */
+export function validateInputPanel({ zona, domanda: _domanda } = {}) {
+  if (!zona || !zona.trim()) {
+    return { ok: false, error: 'Inserisci una zona o scegli uno scenario.' };
+  }
+  return { ok: true, error: null };
+}
+
+/**
  * Derives narrative sections from risk_models, grouping risks by tag.
  * No `narrative_sections` backend field needed (spec-frontend §Allineamenti tecnici #4).
  *

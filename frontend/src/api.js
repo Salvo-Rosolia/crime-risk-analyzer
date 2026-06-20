@@ -6,14 +6,17 @@
  * On network/HTTP error, falls back to demo cache if scenarioId is provided.
  * @param {string} zona - zone string from user input
  * @param {string|null} [scenarioId] - optional cache key for fallback (e.g. 'colosseo')
+ * @param {string|null} [domanda] - optional natural-language question (omitted from body if empty)
  * @returns {Promise<object>} parsed AnalyzeResponse
  */
-export async function analyze(zona, scenarioId = null) {
+export async function analyze(zona, scenarioId = null, domanda = null) {
+  const payload = { zona };
+  if (domanda && domanda.trim()) payload.domanda = domanda.trim();
   try {
     const resp = await fetch('/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ zona }),
+      body: JSON.stringify(payload),
     });
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
