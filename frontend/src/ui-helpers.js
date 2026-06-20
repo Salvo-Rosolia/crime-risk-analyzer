@@ -6,9 +6,11 @@
  * Pure function: no DOM access, fully testable.
  *
  * @param {{ zona: string, domanda?: string }} fields
+ *   `domanda` è accettata nella shape (i chiamanti passano l'intero oggetto) ma
+ *   non è validata: è sempre opzionale. Si valida solo `zona`.
  * @returns {{ ok: boolean, error: string|null }}
  */
-export function validateInputPanel({ zona, domanda: _domanda } = {}) {
+export function validateInputPanel({ zona } = {}) {
   if (!zona || !zona.trim()) {
     return { ok: false, error: 'Inserisci una zona o scegli uno scenario.' };
   }
