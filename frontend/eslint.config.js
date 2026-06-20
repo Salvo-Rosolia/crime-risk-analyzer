@@ -24,6 +24,8 @@ export default [
         clearInterval:'readonly',
         clearTimeout: 'readonly',
         globalThis:   'readonly',
+        // Animation frame — browser global used instead of setTimeout for layout sync
+        requestAnimationFrame: 'readonly',
         // Leaflet — loaded from CDN at runtime, not imported
         L:            'readonly',
       },

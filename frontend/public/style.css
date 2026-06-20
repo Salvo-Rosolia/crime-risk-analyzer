@@ -29,6 +29,10 @@
   --city-napoli: #b8870a;
   --city-torino: #8a5a2b;
 
+  /* Borders & separators */
+  --separator:  #4a463d;  /* header separator between badges and chips */
+  --border-mid: #c4c0b6;  /* mid-tone border (base table, filter dropdowns) */
+
   /* Typography */
   --font-sans: 'IBM Plex Sans', sans-serif;
   --font-mono: 'IBM Plex Mono', 'Courier New', monospace;
@@ -184,7 +188,7 @@ button { font-family: var(--font-sans); cursor: pointer; }
 #base-main { flex: 1; display: flex; flex-direction: column; min-height: 0; }
 #base-table-wrap { flex: 1; overflow: auto; }
 #base-table { width: 100%; border-collapse: collapse; font-family: var(--font-sans); font-size: 13px; }
-#base-table thead tr { background: #f0efe9; border-bottom: 2px solid #c4c0b6; }
+#base-table thead tr { background: #f0efe9; border-bottom: 2px solid var(--border-mid); }
 #base-table th {
   padding: 10px 16px; text-align: left; font-weight: 600; color: var(--ink2);
   font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px;

@@ -1,6 +1,6 @@
 // src/app.js — entry point: boots the app, wires DOM events → dispatch, syncs map
 import { dispatch, subscribe, getState, STATES } from './state.js';
-import { render } from './ui.js';
+import { render, scrollPoiCardIntoView } from './ui.js';
 import { analyze, getScenarios, analyzeBaseline } from './api.js';
 import { validateInputPanel } from './ui-helpers.js';
 import {
@@ -277,6 +277,9 @@ function syncMap(state) {
       if (selectedPoiId) {
         const poi = data.poi.find(p => p.id === selectedPoiId);
         if (poi) flyToPoi(poi.lat, poi.lon);
+        // Scroll the matching POI card into view (marker→card coupling — #27).
+        // Double rAF: first frame commits layout, second waits for paint — no fixed timeout.
+        requestAnimationFrame(() => requestAnimationFrame(() => scrollPoiCardIntoView(selectedPoiId)));
       }
     }
   } else if (screen === STATES.INPUT || screen === STATES.ERROR) {

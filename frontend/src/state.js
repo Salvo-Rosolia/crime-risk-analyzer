@@ -79,10 +79,28 @@ export function transition(state, action) {
       return { ...state, screen: STATES.DETAIL, selectedPoiId: action.id };
 
     case 'DESELECT_POI':
-      return { ...state, screen: STATES.RESULTS, selectedPoiId: null };
+      // M2: return to FILTER if a filter is active, otherwise RESULTS.
+      return {
+        ...state,
+        screen: state.filter != null ? STATES.FILTER : STATES.RESULTS,
+        selectedPoiId: null,
+      };
 
-    case 'SET_FILTER':
-      return { ...state, screen: STATES.FILTER, filter: action.level };
+    case 'SET_FILTER': {
+      // m3: if a POI is selected and the new filter excludes it, deselect.
+      const selectedPoi = state.selectedPoiId && state.data?.poi
+        ? state.data.poi.find(p => p.id === state.selectedPoiId)
+        : null;
+      const poiExcluded = selectedPoi && selectedPoi.confidence !== action.level;
+      return {
+        ...state,
+        screen: (state.screen === STATES.DETAIL && !poiExcluded)
+          ? STATES.DETAIL
+          : STATES.FILTER,
+        filter: action.level,
+        selectedPoiId: poiExcluded ? null : state.selectedPoiId,
+      };
+    }
 
     case 'CLEAR_FILTER':
       return { ...state, screen: STATES.RESULTS, filter: null };

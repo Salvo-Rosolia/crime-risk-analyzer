@@ -2,7 +2,7 @@
 // render(state) is idempotent: call it on every state change; it updates only what's needed.
 import { STATES } from './state.js';
 import { CONF, pinColor, coverageBadgeText, deriveCoverage } from './confidence.js';
-import { buildNarrativeSections } from './ui-helpers.js';
+import { buildNarrativeSections, buildDetailModel, filterVisiblePOIs } from './ui-helpers.js';
 
 const CITY_COLOR = {
   Roma:   '#0e7b80',
@@ -85,7 +85,7 @@ function renderHeaderRight(state) {
     );
     const txt = coverageBadgeText(total, anchored);
     html += `<div class="coverage-badge"><span>▣</span><span>${txt}</span></div>`;
-    html += `<div style="width:1px;height:24px;background:#4a463d;flex-shrink:0;"></div>`;
+    html += `<div style="width:1px;height:24px;background:var(--separator);flex-shrink:0;"></div>`;
 
     html += `<div class="conf-chips">`;
     ['confermato', 'plausibile', 'speculativo'].forEach(lv => {
@@ -309,7 +309,8 @@ function renderPOIPanel(state) {
 
   if (body) {
     if (open) {
-      const visCount = filter ? pois.filter(p => p.confidence === filter).length : pois.length;
+      const visible  = filterVisiblePOIs(pois, filter);
+      const visCount = visible.length;
       const eyebrow  = filter
         ? `POI visibili · ${visCount} / ${pois.length}`
         : `POI identificati · ${pois.length}`;
@@ -321,7 +322,7 @@ function renderPOIPanel(state) {
           const dim    = Boolean(filter && p.confidence !== filter);
           const active = state.screen === STATES.DETAIL && selected === p.id;
           return `<div class="poi-row${active ? ' active' : ''}${dim ? ' dim' : ''}"
-            data-poi-id="${p.id}" role="listitem button" tabindex="0"
+            data-poi-id="${p.id}" role="option" tabindex="0"
             aria-label="${esc(p.name)}" aria-selected="${active}">
             <div class="poi-row-top">
               ${dotPinHTML(p.id, p.confidence, { dim })}
@@ -343,22 +344,11 @@ function renderDetailPanel(state) {
   const panel = $('panel-detail');
   if (!panel || !state.data || !state.selectedPoiId) return;
 
-  const poi   = (state.data.poi || []).find(p => p.id === state.selectedPoiId);
+  const poi = (state.data.poi || []).find(p => p.id === state.selectedPoiId);
   if (!poi) return;
-  const model = (state.data.risk_models || []).find(r => r.poi === poi.name);
 
-  // Group risks by tag
-  const groups = {};
-  (model?.risks || []).forEach(r => {
-    const tag = r.tag || 'SPECULATIVO';
-    if (!groups[tag]) groups[tag] = [];
-    groups[tag].push(r);
-  });
-
-  // Parse sparql_path into parts
-  const pathParts = poi.sparql_path
-    ? poi.sparql_path.split(' → ')
-    : [];
+  // Use pure helper: splits sparql_path + groups risks by tag (no inline logic here).
+  const { sparqlParts: pathParts, groups } = buildDetailModel(poi, state.data.risk_models || []);
 
   panel.innerHTML = `
     <div class="panel-header" style="cursor:default;gap:11px;">
@@ -503,7 +493,7 @@ function renderBasePanel(state) {
     filtersEl.innerHTML = ['Tipo POI', 'Città', 'Zona'].map(l => `
       <div>
         <div style="font-size:11px;color:var(--ink2);margin-bottom:3px;">${l}</div>
-        <div style="border:1px solid #c4c0b6;border-radius:3px;padding:7px 9px;font-size:12px;
+        <div style="border:1px solid var(--border-mid);border-radius:3px;padding:7px 9px;font-size:12px;
           color:var(--mute);background:#fff;display:flex;justify-content:space-between;">
           <span>Seleziona…</span><span style="font-size:9px">▼</span>
         </div>
@@ -511,7 +501,7 @@ function renderBasePanel(state) {
       /* TODO(B2): wire to analyzeBaseline() when /analyze/baseline is available (backend #16).
          Currently dispatches BASELINE_SEARCH; app.js handles it with analyzeBaseline(). */
       `<button id="btn-base-search" data-action="base-search"
-        style="border:1px solid #555;border-radius:3px;padding:7px;text-align:center;
+        style="border:1px solid var(--ink2);border-radius:3px;padding:7px;text-align:center;
         font-size:13px;font-weight:600;background:#fff;cursor:pointer;margin-top:3px;width:100%;">
         Cerca
       </button>`;
@@ -569,6 +559,18 @@ export function render(state, { scenarios = [] } = {}) {
       renderBasePanel(state);
       break;
   }
+}
+
+/**
+ * Scrolls the POI row card for the given id into view inside the POI panel.
+ * Called by app.js after SELECT_POI so that a marker click auto-scrolls the list.
+ * No-op if the element is not found or already visible.
+ * @param {string} poiId
+ */
+export function scrollPoiCardIntoView(poiId) {
+  const row = document.querySelector(`[data-poi-id="${poiId}"]`);
+  if (!row) return;
+  row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
 // ── Tiny XSS guard ────────────────────────────────────────────────────────────

@@ -138,3 +138,84 @@ describe('FSM — immutability', () => {
     expect(s.screen).toBe('INPUT');
   });
 });
+
+// ── M2: DESELECT_POI FSM coercion ─────────────────────────────────────────────
+
+describe('FSM — M2: DESELECT_POI returns to FILTER when filter is active', () => {
+  it('FILTER → SELECT_POI → DETAIL → DESELECT_POI returns to FILTER with filter preserved', () => {
+    // Step 1: start in FILTER with an active filter
+    const filterState = {
+      ...initialState,
+      screen: STATES.FILTER,
+      data: { poi: [] },
+      filter: 'confermato',
+    };
+    // Step 2: select a POI → DETAIL
+    const detailState = transition(filterState, { type: 'SELECT_POI', id: '1' });
+    expect(detailState.screen).toBe(STATES.DETAIL);
+    expect(detailState.filter).toBe('confermato'); // filter preserved on SELECT_POI
+
+    // Step 3: deselect → should go back to FILTER (not RESULTS) since filter != null
+    const back = transition(detailState, { type: 'DESELECT_POI' });
+    expect(back.screen).toBe(STATES.FILTER);
+    expect(back.filter).toBe('confermato');
+    expect(back.selectedPoiId).toBeNull();
+  });
+
+  it('DETAIL → DESELECT_POI returns to RESULTS when no filter is active', () => {
+    const detailState = {
+      ...initialState,
+      screen: STATES.DETAIL,
+      data: { poi: [] },
+      selectedPoiId: '2',
+      filter: null,
+    };
+    const back = transition(detailState, { type: 'DESELECT_POI' });
+    expect(back.screen).toBe(STATES.RESULTS);
+    expect(back.selectedPoiId).toBeNull();
+  });
+});
+
+// ── m3: SET_FILTER auto-deselect ──────────────────────────────────────────────
+
+describe('FSM — m3: SET_FILTER closes detail when selected POI is excluded by filter', () => {
+  const POIS = [
+    { id: '1', name: 'Alpha', confidence: 'confermato'  },
+    { id: '2', name: 'Beta',  confidence: 'speculativo' },
+  ];
+  const detailState = {
+    ...initialState,
+    screen: STATES.DETAIL,
+    data: { poi: POIS },
+    selectedPoiId: '2', // speculativo
+    filter: null,
+  };
+
+  it('SET_FILTER that excludes the selected POI → screen=FILTER, selectedPoiId=null', () => {
+    // POI '2' is speculativo; filtering for confermato should deselect it
+    const next = transition(detailState, { type: 'SET_FILTER', level: 'confermato' });
+    expect(next.screen).toBe(STATES.FILTER);
+    expect(next.selectedPoiId).toBeNull();
+    expect(next.filter).toBe('confermato');
+  });
+
+  it('SET_FILTER that includes the selected POI → stays in DETAIL', () => {
+    // POI '2' is speculativo; filtering for speculativo keeps the detail open
+    const next = transition(detailState, { type: 'SET_FILTER', level: 'speculativo' });
+    expect(next.screen).toBe(STATES.DETAIL);
+    expect(next.selectedPoiId).toBe('2');
+    expect(next.filter).toBe('speculativo');
+  });
+
+  it('SET_FILTER from RESULTS (no selection) → always goes to FILTER', () => {
+    const resultsState = {
+      ...initialState,
+      screen: STATES.RESULTS,
+      data: { poi: POIS },
+      selectedPoiId: null,
+    };
+    const next = transition(resultsState, { type: 'SET_FILTER', level: 'confermato' });
+    expect(next.screen).toBe(STATES.FILTER);
+    expect(next.selectedPoiId).toBeNull();
+  });
+});
