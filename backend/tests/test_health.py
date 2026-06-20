@@ -18,7 +18,13 @@ def test_health_returns_ok() -> None:
     response = cast(httpx.Response, client.get("/health"))  # pyright: ignore[reportUnknownMemberType]
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    payload = response.json()
+    assert payload["status"] == "ok"
+    # `ontology_triples` riflette il grafo iniettato via Depends(get_ontology):
+    # l'ontologia di test ha almeno una tripla.
+    assert isinstance(payload["ontology_triples"], int)
+    assert payload["ontology_triples"] > 0
+    assert set(payload) == {"status", "ontology_triples"}
 
 
 def test_lifespan_loads_ontology() -> None:
