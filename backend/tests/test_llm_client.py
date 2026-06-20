@@ -231,7 +231,7 @@ async def test_groq_uses_chat_messages_and_params() -> None:
     await client.generate(_SYSTEM, _USER)
 
     call = fake.calls[0]
-    assert call["model"] == "llama-3.1-70b-versatile"
+    assert call["model"] == "llama-3.3-70b-versatile"
     assert call["max_tokens"] == 1024
     assert call["temperature"] == 0.2
     assert call["seed"] == 42

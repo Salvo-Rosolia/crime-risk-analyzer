@@ -1,0 +1,212 @@
+"""Generation layer RAG: prompt, chiamata LLM, output JSON (#23).
+
+Step finale del ciclo RAG: dato il context **gia' validato dal grounding**
+(`rag/grounding.md`), assembla il prompt (system fisso cachabile + contesto
+variabile), invoca il client LLM provider-agnostico (#20, `llm/client.py`) e
+produce un :class:`GenerationResult` serializzabile in JSON.
+
+Confini (generation.md / grounding.md / retrieval.md):
+- NON fa retrieval ne' grounding: il `context_dict` arriva con i rischi gia'
+  ancorati e con i tag/confidence assegnati (step adiacenti, moduli separati).
+- NON istanzia gli SDK LLM ne' costruisce il system prompt di dominio dentro il
+  client: il system prompt vive qui (parte fissa cachata), il client riceve
+  ``system_prompt``/``user_content`` gia' pronti.
+- NESSUNO scoring numerico di pericolosita': solo narrativa + tag/confidence
+  qualitativi propagati dal grounding (vincoli legali, _project.md).
+
+Riproducibilita' (generation.md §Riproducibilita'): ``temperature``/``seed``/
+``prompt_hash`` arrivano dal :class:`LLMResponse` e vengono esposti nel blocco
+``repro`` cosi' ogni run e' confrontabile (Claude vs Llama) e ricostruibile.
+"""
+
+from __future__ import annotations
+
+import time
+from typing import Any, Protocol
+
+from pydantic import BaseModel, Field
+
+from crime_risk_analyzer.llm.client import LLMResponse
+
+#: System prompt — parte FISSA del prompt, versionata su Git e inviata come
+#: blocco cachabile (``cache_control: ephemeral``) dal client Claude. Contiene
+#: le regole obbligatorie di citation/grounding (generation.md §System prompt).
+SYSTEM_PROMPT = """\
+Sei un analista di sicurezza urbana. Ricevi un contesto strutturato su una zona urbana
+e devi produrre un'analisi del rischio in italiano, chiara e professionale.
+
+REGOLE OBBLIGATORIE:
+1. Per ogni rischio che menzioni, indica la fonte: [ONTOLOGIA] [CONTESTO] [SPECULATIVO]
+2. Non inventare rischi non presenti nel contesto che ti viene fornito
+3. Organizza la risposta per POI, dal piu' al meno critico
+4. Concludi con una sintesi del livello di rischio complessivo della zona
+5. Usa un linguaggio tecnico ma comprensibile per operatori non informatici
+
+LIVELLI DI CONFIDENZA:
+- Confermato: supportato da ontologia + contesto OSM verificabile
+- Plausibile: supportato solo da ontologia, oppure solo dal contesto OSM/input
+- Speculativo: solo ragionamento per analogia su POI non coperti dall'ontologia"""
+
+
+class _LLMClientLike(Protocol):
+    """Superficie minima del client LLM usata dal generation layer.
+
+    Permette di iniettare il :class:`~crime_risk_analyzer.llm.client.LLMClient`
+    reale o un doppio nei test, senza accoppiarsi alla classe concreta (DI).
+    """
+
+    async def generate(self, system_prompt: str, user_content: str) -> LLMResponse: ...
+
+
+class RiskItem(BaseModel):
+    """Singolo rischio per un POI: hazard + confidence + tag fonte.
+
+    Riflette il citation layer: ogni rischio porta un ``tag``
+    (``ONTOLOGIA``/``CONTESTO``/``SPECULATIVO``) e un ``confidence`` qualitativo
+    (mai un punteggio numerico).
+    """
+
+    hazard: str = Field(description="Nome dell'hazard (classe ontologica).")
+    confidence: str = Field(
+        description="Livello qualitativo: Confermato/Plausibile/Speculativo."
+    )
+    tag: str | None = Field(
+        default=None, description="Tag fonte: ONTOLOGIA/CONTESTO/SPECULATIVO."
+    )
+
+
+class RiskModel(BaseModel):
+    """Rischi raggruppati per POI (contributo del generation layer)."""
+
+    poi: str = Field(description="Nome del POI.")
+    risks: list[RiskItem] = Field(
+        default_factory=list[RiskItem], description="Rischi ancorati per il POI."
+    )
+
+
+class Repro(BaseModel):
+    """Blocco di riproducibilita' loggato per ogni run (generation.md)."""
+
+    temperature: float = Field(description="Temperature usata nella generazione.")
+    seed: int = Field(description="Seed usato/loggato.")
+    prompt_hash: str = Field(description="Hash del system prompt versionato.")
+
+
+class GenerationResult(BaseModel):
+    """Contributo del generation layer allo schema canonico di ``/analyze``.
+
+    L'orchestrator unisce questi campi con ``citta``/``zona_normalizzata`` e
+    ``poi[]`` (orchestrator.md); in caso di discrepanza prevale orchestrator.md.
+    """
+
+    narrativa: str = Field(description="Testo dell'analisi generato dal LLM.")
+    risk_models: list[RiskModel] = Field(
+        default_factory=list[RiskModel],
+        description="Rischi per POI (dal context validato).",
+    )
+    confidence_summary: dict[str, int] = Field(
+        default_factory=dict[str, int],
+        description="Conteggio per livello (confermato/plausibile/speculativo).",
+    )
+    llm_used: str = Field(description="Model id esatto che ha prodotto la narrativa.")
+    tokens_input: int = Field(ge=0, description="Token di input fatturati.")
+    tokens_output: int = Field(ge=0, description="Token di output generati.")
+    latenza_ms: int = Field(ge=0, description="Latenza della chiamata LLM in ms.")
+    cache_hit: bool = Field(
+        description="True se la richiesta ha letto dal prompt cache."
+    )
+    repro: Repro = Field(description="Parametri per la riproducibilita' del run.")
+
+
+def build_context_str(context_dict: dict[str, Any]) -> str:
+    """Assembla la parte VARIABILE del prompt dal context validato.
+
+    Segue il formato di generation.md §Contesto per richiesta: zona + un blocco
+    per POI con hazard (tag + confidence), vulnerabilita' e path ontologico.
+    I tag/confidence sono quelli gia' assegnati dal grounding: qui non si
+    rivaluta nulla, si serializza solo per il modello.
+    """
+    zona = str(context_dict.get("zona", ""))
+    lines: list[str] = [f"ZONA: {zona}", "", "POI RILEVANTI:"]
+
+    for poi in context_dict.get("validated_risks", []):
+        name = str(poi.get("poi", ""))
+        terminus = str(poi.get("terminus_class", ""))
+        lines.append(f"  POI: {name} ({terminus})")
+
+        risks = poi.get("risks", [])
+        if risks:
+            lines.append("  Hazard verificati:")
+            for risk in risks:
+                hazard = str(risk.get("hazard", ""))
+                tag = risk.get("tag")
+                confidence = str(risk.get("confidence", ""))
+                tag_str = f"[{tag}] " if tag else ""
+                lines.append(f"    - {tag_str}{hazard} ({confidence})")
+        else:
+            lines.append("  Hazard verificati: nessuno (POI non coperto)")
+
+        vulns = poi.get("vulnerabilities", [])
+        if vulns:
+            lines.append(f"  Vulnerabilita': {', '.join(str(v) for v in vulns)}")
+
+        path = poi.get("sparql_path")
+        if path:
+            lines.append(f"  Path ontologico: {path}")
+        lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _risk_models_from_context(context_dict: dict[str, Any]) -> list[RiskModel]:
+    """Estrae i risk_models per POI dal context validato (no ricalcolo)."""
+    models: list[RiskModel] = []
+    for poi in context_dict.get("validated_risks", []):
+        items = [
+            RiskItem(
+                hazard=str(risk.get("hazard", "")),
+                confidence=str(risk.get("confidence", "")),
+                tag=risk.get("tag"),
+            )
+            for risk in poi.get("risks", [])
+        ]
+        models.append(RiskModel(poi=str(poi.get("poi", "")), risks=items))
+    return models
+
+
+async def generate_analysis(
+    context_dict: dict[str, Any], llm_client: _LLMClientLike
+) -> GenerationResult:
+    """Genera l'analisi del rischio dal context validato.
+
+    Costruisce il prompt (``SYSTEM_PROMPT`` + :func:`build_context_str`), chiama
+    il client LLM iniettato e assembla l'output JSON: narrativa dal modello,
+    ``risk_models``/``confidence_summary`` propagati dal grounding (nessun
+    ricalcolo qui), metadati di token/latenza/cache e blocco ``repro``.
+    """
+    user_content = build_context_str(context_dict)
+
+    start = time.perf_counter()
+    response = await llm_client.generate(SYSTEM_PROMPT, user_content)
+    latenza_ms = int((time.perf_counter() - start) * 1000)
+
+    confidence_summary = {
+        str(k): int(v)
+        for k, v in dict(context_dict.get("confidence_summary", {})).items()
+    }
+
+    return GenerationResult(
+        narrativa=response.text,
+        risk_models=_risk_models_from_context(context_dict),
+        confidence_summary=confidence_summary,
+        llm_used=response.llm_used,
+        tokens_input=response.tokens_input,
+        tokens_output=response.tokens_output,
+        latenza_ms=latenza_ms,
+        cache_hit=response.cache_hit,
+        repro=Repro(
+            temperature=response.temperature,
+            seed=response.seed,
+            prompt_hash=response.prompt_hash,
+        ),
+    )
