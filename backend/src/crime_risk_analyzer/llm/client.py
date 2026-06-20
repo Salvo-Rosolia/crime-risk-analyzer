@@ -27,7 +27,9 @@ from crime_risk_analyzer.config import Settings
 CLAUDE_MODEL = "claude-sonnet-4-6"
 
 #: Modello Llama su Groq per il confronto sperimentale — generation.md.
-GROQ_MODEL = "llama-3.1-70b-versatile"
+#: ``llama-3.1-70b-versatile`` e' stato dismesso da Groq; il sostituto attuale
+#: e' ``llama-3.3-70b-versatile`` (Groq production models, console.groq.com).
+GROQ_MODEL = "llama-3.3-70b-versatile"
 
 #: Parametri fissi condivisi (generation.md §Riproducibilita').
 _MAX_TOKENS = 1024
