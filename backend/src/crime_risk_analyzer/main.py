@@ -2,8 +2,8 @@
 
 Espone la factory :func:`create_app` e un'istanza ``app`` pronta per Uvicorn
 (``uvicorn crime_risk_analyzer.main:app``). Per ora solo l'ossatura runnable con
-``GET /health`` e ``GET /cities``; gli altri endpoint di dominio (``/analyze``,
-``/scenarios``) arrivano in fase P2.
+``GET /health``, ``GET /cities`` e ``GET /scenarios``; gli altri endpoint di
+dominio (``/analyze``) arrivano in fase P2.
 """
 
 from collections.abc import AsyncGenerator
@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from crime_risk_analyzer.config import Settings, get_settings
 from crime_risk_analyzer.ontology import get_ontology
+from crime_risk_analyzer.scenarios import ScenarioPreset, get_scenarios
 
 
 class HealthResponse(BaseModel):
@@ -43,6 +44,19 @@ async def cities(settings: Annotated[Settings, Depends(get_settings)]) -> list[s
     centralizzata ed è iniettata via ``Depends`` (niente stato globale).
     """
     return settings.supported_cities
+
+
+@router.get("/scenarios")
+async def scenarios(
+    presets: Annotated[list[ScenarioPreset], Depends(get_scenarios)],
+) -> list[ScenarioPreset]:
+    """Elenca i 10 scenari demo precaricati (≥3 città, city-agnostic).
+
+    Fonte unica anche per il frontend (vedi backend/orchestrator.md §``/scenarios``).
+    Dati statici e indipendenti dall'ontologia, iniettati via ``Depends``
+    (overridabili nei test, niente stato globale).
+    """
+    return presets
 
 
 @asynccontextmanager
