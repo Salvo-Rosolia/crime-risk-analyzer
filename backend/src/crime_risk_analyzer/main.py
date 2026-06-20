@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, FastAPI
 from pydantic import BaseModel
 
 from crime_risk_analyzer.config import Settings, get_settings
+from crime_risk_analyzer.errors import register_exception_handlers
 from crime_risk_analyzer.ontology import get_ontology
 from crime_risk_analyzer.scenarios import ScenarioPreset, get_scenarios
 
@@ -69,6 +70,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 def create_app() -> FastAPI:
     """Costruisce e configura l'istanza FastAPI."""
     app = FastAPI(title="Crime Risk Analyzer", lifespan=lifespan)
+    register_exception_handlers(app)
     app.include_router(router)
     return app
 
