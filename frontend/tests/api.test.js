@@ -48,7 +48,7 @@ describe('api — getScenarios() success path', () => {
   beforeEach(() => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ([{ id: 1, zona: 'Colosseo, Roma', city: 'Roma', zone: 'Colosseo', type: 'area archeologica' }]),
+      json: async () => ([{ id: 'colosseo', zona: 'Colosseo, Roma', city: 'Roma', zone: 'Colosseo', type: 'area archeologica, alto afflusso' }]),
     });
   });
   afterEach(() => { vi.restoreAllMocks(); });
