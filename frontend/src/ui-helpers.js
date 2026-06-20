@@ -1,5 +1,7 @@
 // src/ui-helpers.js — Pure helper functions for UI derivations.
 // Separates testable pure logic from DOM-touching render code.
+// Exported pure helpers (all side-effect free):
+//   validateInputPanel, buildNarrativeSections, buildDetailModel, filterVisiblePOIs
 
 /**
  * Validates the input panel fields before submitting an analysis.
@@ -55,4 +57,58 @@ export function buildNarrativeSections(riskModels) {
   }
 
   return sections;
+}
+
+/**
+ * Builds the data model for the Detail card (Stato C) from a single POI and
+ * the full risk_models array. Pure function — no DOM access.
+ *
+ * Returns:
+ *   { poi, sparqlParts, groups }
+ *
+ *   - poi        — the input POI object as-is
+ *   - sparqlParts — poi.sparql_path split on " → " (empty array when absent)
+ *   - groups     — risks from the matching risk_model, keyed by tag
+ *                  e.g. { ONTOLOGIA: [{hazard,confidence,tag}], CONTESTO: [...] }
+ *
+ * Spec-frontend §Stato C: path SPARQL lineare + fattori per fonte.
+ *
+ * @param {{ name: string, sparql_path?: string }} poi
+ * @param {Array<{ poi: string, risks: Array<{ hazard: string, confidence: string, tag?: string }> }>} riskModels
+ * @returns {{ poi: object, sparqlParts: string[], groups: Record<string, Array> }}
+ */
+export function buildDetailModel(poi, riskModels) {
+  const sparqlParts = poi.sparql_path
+    ? poi.sparql_path.split(' → ')
+    : [];
+
+  const model = (riskModels ?? []).find(r => r.poi === poi.name);
+  const groups = {};
+
+  for (const risk of (model?.risks ?? [])) {
+    const tag = risk.tag || 'SPECULATIVO';
+    if (!groups[tag]) groups[tag] = [];
+    groups[tag].push(risk);
+  }
+
+  return { poi, sparqlParts, groups };
+}
+
+/**
+ * Returns the subset of POIs visible under the given confidence filter.
+ * When filter is null, all POIs are returned (no filtering).
+ * Does not mutate the original array.
+ *
+ * Used by renderPOIPanel (count/eyebrow), renderMarkers (dim logic),
+ * and the filter-bar "N nascosti" counter.
+ *
+ * Spec-frontend §Stato B·Filtro.
+ *
+ * @param {Array<{ id: string, confidence: string }>} pois
+ * @param {string|null} filter - 'confermato'|'plausibile'|'speculativo'|null
+ * @returns {Array<{ id: string, confidence: string }>}
+ */
+export function filterVisiblePOIs(pois, filter) {
+  if (!filter) return pois.slice();
+  return pois.filter(p => p.confidence === filter);
 }
