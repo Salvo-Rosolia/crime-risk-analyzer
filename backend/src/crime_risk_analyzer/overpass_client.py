@@ -19,7 +19,10 @@ from typing import TypedDict, cast
 
 import httpx
 
+from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.sparql_module.osm_mapping import map_to_terminus
+
+__all__ = ["Bbox", "MAX_POIS", "OverpassError", "Poi", "fetch_pois"]
 
 #: Endpoint Overpass di default (override possibile via parametro).
 DEFAULT_OVERPASS_URL = "https://overpass-api.de/api/interpreter"
@@ -30,9 +33,6 @@ MAX_POIS = 50
 #: Timeout (secondi) del primo tentativo e del retry esteso.
 _TIMEOUT_S = 30.0
 _RETRY_TIMEOUT_S = 60.0
-
-#: Bounding box: (lat_min, lon_min, lat_max, lon_max).
-Bbox = tuple[float, float, float, float]
 
 
 class Poi(TypedDict):

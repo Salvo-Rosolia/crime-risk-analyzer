@@ -12,6 +12,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI
 from pydantic import BaseModel
+from rdflib import Graph
 
 from crime_risk_analyzer.config import Settings, get_settings
 from crime_risk_analyzer.errors import register_exception_handlers
@@ -23,17 +24,21 @@ class HealthResponse(BaseModel):
     """Risposta dell'endpoint di health-check."""
 
     status: str
-    # TODO(#ontologia): aggiungere `ontology_triples: int` quando il loader
-    # del grafo .ttl esiste (vedi backend/orchestrator.md §Response /health).
+    ontology_triples: int
 
 
 router = APIRouter()
 
 
 @router.get("/health")
-async def health() -> HealthResponse:
-    """Health-check: segnala che il servizio è in piedi."""
-    return HealthResponse(status="ok")
+async def health(graph: Annotated[Graph, Depends(get_ontology)]) -> HealthResponse:
+    """Health-check: servizio in piedi + numero di triple dell'ontologia caricata.
+
+    Il grafo arriva via ``Depends(get_ontology)`` (caricato una volta nel
+    ``lifespan``, niente I/O per richiesta): ``ontology_triples`` segnala che
+    l'ontologia e' effettivamente in memoria (vedi backend/orchestrator.md).
+    """
+    return HealthResponse(status="ok", ontology_triples=len(graph))
 
 
 @router.get("/cities")

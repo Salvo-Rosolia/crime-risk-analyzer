@@ -9,6 +9,7 @@ import httpx
 import pytest
 import respx
 
+from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.overpass_client import (
     DEFAULT_OVERPASS_URL,
     MAX_POIS,
@@ -17,7 +18,7 @@ from crime_risk_analyzer.overpass_client import (
 )
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "overpass_sample.json"
-_BBOX = (41.88, 12.48, 41.90, 12.50)
+_BBOX = Bbox(41.88, 12.48, 41.90, 12.50)
 
 
 def _sample() -> dict[str, object]:
@@ -302,6 +303,6 @@ async def test_fetch_pois_skips_non_dict_elements() -> None:
 async def test_fetch_pois_integration_real_overpass() -> None:
     """Integrazione reale con Overpass (skip di default; -m integration per girarlo)."""
     pois = await fetch_pois(
-        (41.889, 12.490, 41.892, 12.494), "Roma", ["amenity", "tourism"]
+        Bbox(41.889, 12.490, 41.892, 12.494), "Roma", ["amenity", "tourism"]
     )
     assert isinstance(pois, list)
