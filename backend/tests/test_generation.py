@@ -39,7 +39,7 @@ class _FakeLLMClient:
 def _llm_response(**overrides: Any) -> LLMResponse:
     base: dict[str, Any] = {
         "text": (
-            "Colosseo: rischio [ONTOLOGIA] MassTouristTargeting (Confermato).\n"
+            "Colosseo: rischio [ONTOLOGIA] MassTouristTargeting (confermato).\n"
             "Sintesi: zona ad alta affluenza turistica."
         ),
         "llm_used": "claude-sonnet-4-6",
@@ -66,13 +66,13 @@ def _context_dict(**overrides: Any) -> dict[str, Any]:
                     {
                         "hazard": "MassTouristTargeting",
                         "tag": "ONTOLOGIA",
-                        "confidence": "Confermato",
+                        "confidence": "confermato",
                         "source": "Heritage -> hasHazard -> MassTouristTargeting",
                     },
                     {
                         "hazard": "PickPocketing",
                         "tag": "ONTOLOGIA",
-                        "confidence": "Plausibile",
+                        "confidence": "plausibile",
                         "source": "Heritage -> hasHazard -> PickPocketing",
                     },
                 ],
@@ -100,7 +100,7 @@ def test_build_context_str_includes_zona_and_poi_fields() -> None:
     assert "PickPocketing" in out
     # tag e confidence vanno forniti al modello per il citation layer
     assert "ONTOLOGIA" in out
-    assert "Confermato" in out
+    assert "confermato" in out
     # path ontologico citato
     assert "hasHazard" in out
 
@@ -167,11 +167,9 @@ async def test_generate_analysis_carries_confidence_summary_from_context() -> No
 
     result = await generate_analysis(ctx, client)
 
-    assert result.confidence_summary == {
-        "confermato": 1,
-        "plausibile": 1,
-        "speculativo": 0,
-    }
+    assert result.confidence_summary.confermato == 1
+    assert result.confidence_summary.plausibile == 1
+    assert result.confidence_summary.speculativo == 0
 
 
 async def test_generate_analysis_builds_risk_models_from_context() -> None:
@@ -186,7 +184,7 @@ async def test_generate_analysis_builds_risk_models_from_context() -> None:
     assert len(rm.risks) == 2
     first = rm.risks[0]
     assert first.hazard == "MassTouristTargeting"
-    assert first.confidence == "Confermato"
+    assert first.confidence == "confermato"
     assert first.tag == "ONTOLOGIA"
 
 

@@ -27,6 +27,7 @@ from typing import Any, Protocol
 from pydantic import BaseModel, Field
 
 from crime_risk_analyzer.llm.client import LLMResponse
+from crime_risk_analyzer.models.vocab import Confidence, ConfidenceSummary, Tag
 
 #: System prompt — parte FISSA del prompt, versionata su Git e inviata come
 #: blocco cachabile (``cache_control: ephemeral``) dal client Claude. Contiene
@@ -43,9 +44,9 @@ REGOLE OBBLIGATORIE:
 5. Usa un linguaggio tecnico ma comprensibile per operatori non informatici
 
 LIVELLI DI CONFIDENZA:
-- Confermato: supportato da ontologia + contesto OSM verificabile
-- Plausibile: supportato solo da ontologia, oppure solo dal contesto OSM/input
-- Speculativo: solo ragionamento per analogia su POI non coperti dall'ontologia"""
+- confermato: supportato da ontologia + contesto OSM verificabile
+- plausibile: supportato solo da ontologia, oppure solo dal contesto OSM/input
+- speculativo: solo ragionamento per analogia su POI non coperti dall'ontologia"""
 
 
 class _LLMClientLike(Protocol):
@@ -67,10 +68,10 @@ class RiskItem(BaseModel):
     """
 
     hazard: str = Field(description="Nome dell'hazard (classe ontologica).")
-    confidence: str = Field(
-        description="Livello qualitativo: Confermato/Plausibile/Speculativo."
+    confidence: Confidence = Field(
+        description="Livello qualitativo: confermato/plausibile/speculativo."
     )
-    tag: str | None = Field(
+    tag: Tag | None = Field(
         default=None, description="Tag fonte: ONTOLOGIA/CONTESTO/SPECULATIVO."
     )
 
@@ -104,8 +105,8 @@ class GenerationResult(BaseModel):
         default_factory=list[RiskModel],
         description="Rischi per POI (dal context validato).",
     )
-    confidence_summary: dict[str, int] = Field(
-        default_factory=dict[str, int],
+    confidence_summary: ConfidenceSummary = Field(
+        default_factory=ConfidenceSummary,
         description="Conteggio per livello (confermato/plausibile/speculativo).",
     )
     llm_used: str = Field(description="Model id esatto che ha prodotto la narrativa.")
@@ -163,10 +164,12 @@ def _risk_models_from_context(context_dict: dict[str, Any]) -> list[RiskModel]:
     models: list[RiskModel] = []
     for poi in context_dict.get("validated_risks", []):
         items = [
-            RiskItem(
-                hazard=str(risk.get("hazard", "")),
-                confidence=str(risk.get("confidence", "")),
-                tag=risk.get("tag"),
+            RiskItem.model_validate(
+                {
+                    "hazard": str(risk.get("hazard", "")),
+                    "confidence": risk.get("confidence"),
+                    "tag": risk.get("tag"),
+                }
             )
             for risk in poi.get("risks", [])
         ]
@@ -190,10 +193,9 @@ async def generate_analysis(
     response = await llm_client.generate(SYSTEM_PROMPT, user_content)
     latenza_ms = int((time.perf_counter() - start) * 1000)
 
-    confidence_summary = {
-        str(k): int(v)
-        for k, v in dict(context_dict.get("confidence_summary", {})).items()
-    }
+    confidence_summary = ConfidenceSummary.model_validate(
+        context_dict.get("confidence_summary", {})
+    )
 
     return GenerationResult(
         narrativa=response.text,

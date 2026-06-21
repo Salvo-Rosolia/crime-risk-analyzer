@@ -22,11 +22,12 @@ from geopy.geocoders import (  # pyright: ignore[reportMissingTypeStubs]
     Nominatim,
 )
 
+from crime_risk_analyzer.models.geo import Bbox
+
+__all__ = ["Bbox", "GeoResult", "GeocodingError", "ZoneNotFoundError", "geocode_zone"]
+
 #: User-agent dedicato, richiesto dalla usage policy di Nominatim.
 _USER_AGENT = "crime-risk-analyzer"
-
-#: Bounding box come (lat_min, lon_min, lat_max, lon_max).
-Bbox = tuple[float, float, float, float]
 
 
 class _Location(Protocol):
@@ -85,7 +86,7 @@ def _parse_bbox(boundingbox: object) -> Bbox:
     if len(values) != 4:
         raise ValueError("boundingbox di lunghezza inattesa")
     lat_min, lat_max, lon_min, lon_max = (float(cast(str, v)) for v in values)
-    return (lat_min, lon_min, lat_max, lon_max)
+    return Bbox(min_lat=lat_min, min_lon=lon_min, max_lat=lat_max, max_lon=lon_max)
 
 
 def geocode_zone(zona: str, citta: str) -> GeoResult:
