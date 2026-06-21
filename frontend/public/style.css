@@ -256,6 +256,14 @@ button { font-family: var(--font-sans); cursor: pointer; }
   padding: 4px 12px; font-size: 12px;
 }
 
+/* ── Cache chip (non-invasive offline-data indicator) ──────── */
+.cache-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1.5px solid var(--conf-speculativo-color); border-radius: 5px;
+  background: var(--conf-speculativo-bg, #fbeee2); color: var(--conf-speculativo-color);
+  padding: 3px 10px; font-size: 11px; font-weight: 500; white-space: nowrap;
+}
+
 /* ── Confidence chips (header) ─────────────────────────────── */
 .conf-chips { display: flex; gap: 6px; }
 .conf-chip {

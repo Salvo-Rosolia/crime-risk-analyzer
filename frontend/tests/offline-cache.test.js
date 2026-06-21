@@ -312,7 +312,7 @@ describe('M-1 — scenario with cache (colosseo) offline → cache attempted', (
     vi.resetModules();
     const { analyze, CACHE_KEYS } = await import('../src/api.js');
 
-    // Simulate what startAnalysisFromScenario does after M-1 fix:
+    // Simulate what startAnalysis (scenario path) does after M-1 fix:
     // sc.id = 'colosseo' is in CACHE_KEYS values → cacheId = 'colosseo'
     const cachedIds = new Set(Object.values(CACHE_KEYS));
     const scId = 'colosseo';
@@ -341,7 +341,7 @@ describe('M-1 — scenario without cache (eur) offline → NO cache fetch, re-th
     vi.resetModules();
     const { analyze, CACHE_KEYS } = await import('../src/api.js');
 
-    // Simulate what startAnalysisFromScenario does after M-1 fix:
+    // Simulate what startAnalysis (scenario path) does after M-1 fix:
     // sc.id = 'eur' is NOT in CACHE_KEYS values → cacheId = null
     const cachedIds = new Set(Object.values(CACHE_KEYS));
     const scId = 'eur';

@@ -5,7 +5,7 @@ import { analyze, getScenarios, analyzeBaseline, cacheIdForZona, CACHE_KEYS } fr
 import { validateInputPanel } from './ui-helpers.js';
 import {
   initMap, renderMarkers, clearMarkers,
-  flyToPoi, flyToBounds, resetView, invalidateSize,
+  flyToPoi, flyToBounds, resetView, invalidateSize, shouldFlyToBounds,
 } from './map.js';
 
 // ── Suggested scenarios shown on error ───────────────────────────────────────
@@ -58,7 +58,7 @@ function handleClick(e) {
       dispatch({ type: 'LOAD_ERROR', message: error, suggestions: FALLBACK_SUGGESTIONS });
       return;
     }
-    startAnalysis(zona, domanda);
+    startAnalysis(zona, { domanda });
     return;
   }
 
@@ -72,7 +72,7 @@ function handleClick(e) {
   if (t.id === 'btn-rigenera' || t.closest('#btn-rigenera')) {
     e.stopPropagation();
     const s = getState();
-    if (s.data?.zona_normalizzata) startAnalysis(s.data.zona_normalizzata, s.pendingDomanda);
+    if (s.data?.zona_normalizzata) startAnalysis(s.data.zona_normalizzata, { domanda: s.pendingDomanda });
     return;
   }
 
@@ -115,7 +115,10 @@ function handleClick(e) {
     const id = scenarioCard.dataset.scenarioId;
     const sc = _scenarios.find(s => String(s.id) === String(id))
             || FALLBACK_SUGGESTIONS.find(s => s.id === id);
-    if (sc) startAnalysisFromScenario(sc);
+    if (sc) {
+      const { zona, cacheId } = scenarioParams(sc);
+      startAnalysis(zona, { cacheId });
+    }
     return;
   }
 
@@ -160,7 +163,7 @@ function handleKeydown(e) {
       dispatch({ type: 'LOAD_ERROR', message: error, suggestions: FALLBACK_SUGGESTIONS });
       return;
     }
-    startAnalysis(zona, domanda);
+    startAnalysis(zona, { domanda });
     return;
   }
 
@@ -181,11 +184,21 @@ function handleKeydown(e) {
 }
 
 // ── Analysis flows ────────────────────────────────────────────────────────────
-async function startAnalysis(zona, domanda = null) {
+
+/**
+ * Unified analysis function for both the manual input path and the scenario card path.
+ *
+ * @param {string} zona - zone string (user input or derived from scenario)
+ * @param {{ cacheId?: string|null, domanda?: string|null }} [opts]
+ *   - cacheId: explicit cache file ID override (used by scenario path)
+ *   - domanda: optional natural-language question (propagated to /analyze and stored for Rigenera)
+ */
+async function startAnalysis(zona, { cacheId = null, domanda = null } = {}) {
+  // Derive cacheId from zona when not explicitly provided (manual input path).
+  const resolvedCacheId = cacheId ?? cacheIdForZona(zona);
   dispatch({ type: 'ANALYZE', zona, domanda });
-  const cacheId = cacheIdForZona(zona);
   try {
-    const data = await analyze(zona, cacheId, domanda);
+    const data = await analyze(zona, resolvedCacheId, domanda);
     dispatch({ type: 'LOAD_SUCCESS', data });
   } catch (err) {
     dispatch({
@@ -196,22 +209,20 @@ async function startAnalysis(zona, domanda = null) {
   }
 }
 
-function startAnalysisFromScenario(sc) {
+/**
+ * Derives the correct cacheId for a scenario card click.
+ * Only passes a cacheId when the scenario ID is in the CACHE_KEYS whitelist
+ * (avoids 404 on the 7 scenarios without a cached file).
+ * @param {{ id?: string, scenario_id?: string, zona?: string, zone?: string, city?: string }} sc
+ * @returns {{ zona: string, cacheId: string|null }}
+ */
+function scenarioParams(sc) {
   const zona = sc.zona || `${sc.zone}, ${sc.city}`;
-  // Only pass a cacheId when the scenario's id actually has a cached file.
-  // The 7 scenarios without cache must NOT attempt /demo/cache/<slug>.json (→ 404).
   const cachedIds = new Set(Object.values(CACHE_KEYS));
   const cacheId = cachedIds.has(sc.id) ? sc.id
     : cachedIds.has(sc.scenario_id) ? sc.scenario_id
     : cacheIdForZona(zona);
-  dispatch({ type: 'ANALYZE', zona });
-  analyze(zona, cacheId || null)
-    .then(data => dispatch({ type: 'LOAD_SUCCESS', data }))
-    .catch(err  => dispatch({
-      type:        'LOAD_ERROR',
-      message:     err.message || 'Errore durante l\'analisi.',
-      suggestions: FALLBACK_SUGGESTIONS,
-    }));
+  return { zona, cacheId: cacheId || null };
 }
 
 /**
@@ -253,13 +264,21 @@ async function startBaselineAnalysis() {
 }
 
 // ── Map sync ──────────────────────────────────────────────────────────────────
+// Track the last data reference for which we already fitted the bounds.
+// A filter change (SET_FILTER) keeps state.data the same reference → no re-fly.
+// A new analysis result always produces a new object reference → re-fly.
+let _lastFitData = null;
+
 function syncMap(state) {
   const { screen, data, filter, selectedPoiId } = state;
 
   if (screen === STATES.RESULTS || screen === STATES.FILTER) {
     if (data?.poi?.length) {
       renderMarkers(data.poi, filter, selectedPoiId);
-      flyToBounds(data.poi);
+      if (shouldFlyToBounds(data, _lastFitData)) {
+        flyToBounds(data.poi);
+        _lastFitData = data;
+      }
     }
   } else if (screen === STATES.DETAIL) {
     if (data?.poi?.length) {
@@ -275,6 +294,7 @@ function syncMap(state) {
   } else if (screen === STATES.INPUT || screen === STATES.ERROR) {
     clearMarkers();
     resetView();
+    _lastFitData = null; // Reset so next analysis re-flies to bounds
   } else if (screen === STATES.BASE) {
     clearMarkers();
   }

@@ -7,7 +7,7 @@
 //   3. FSM: TOGGLE_SCENARIO  — toggles scenarioOpen in state
 //   4. FSM: initialState.scenarioOpen defaults to true
 //   5. Scenarios panel "non disponibili" branch — handled by empty-scenarios guard
-//   6. startAnalysisFromScenario-compatible data shape — zona derivation
+//   6. startAnalysis-compatible data shape — zona derivation
 import { describe, it, expect } from 'vitest';
 
 // ── Shared scenario fixtures (shape returned by GET /scenarios) ───────────────
@@ -166,9 +166,9 @@ describe('buildScenarioCardData — handles edge cases from empty/malformed back
   });
 });
 
-// ── 5. zona derivation compatible with startAnalysisFromScenario ─────────────
+// ── 5. zona derivation compatible with startAnalysis (scenario path) ─────────
 
-describe('zona derivation — compatible with startAnalysisFromScenario in app.js', () => {
+describe('zona derivation — compatible with startAnalysis (scenario path) in app.js', () => {
   // app.js: `const zona = sc.zona || \`${sc.zone}, ${sc.city}\``
   // buildScenarioCardData must produce the same zona so click handler → analysis uses
   // a consistent zona string regardless of which branch is taken.
