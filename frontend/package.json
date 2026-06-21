@@ -1,18 +1,59 @@
 {
-  "name": "cra-frontend",
-  "version": "0.1.0",
-  "private": true,
-  "type": "module",
+  "name": "frontend",
+  "version": "0.0.0",
   "scripts": {
-    "lint": "eslint src tests",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "serve": "npx serve . -p 5173"
+    "ng": "ng",
+    "start": "ng serve --proxy-config proxy.config.json",
+    "build": "ng build",
+    "watch": "ng build --watch --configuration development",
+    "test": "jest",
+    "lint": "ng lint"
+  },
+  "prettier": {
+    "printWidth": 100,
+    "singleQuote": true,
+    "overrides": [
+      {
+        "files": "*.html",
+        "options": {
+          "parser": "angular"
+        }
+      }
+    ]
+  },
+  "private": true,
+  "dependencies": {
+    "@angular/common": "^20.3.0",
+    "@angular/compiler": "^20.3.0",
+    "@angular/core": "^20.3.0",
+    "@angular/forms": "^20.3.0",
+    "@angular/platform-browser": "^20.3.0",
+    "@angular/router": "^20.3.0",
+    "leaflet": "^1.9.4",
+    "rxjs": "~7.8.0",
+    "tslib": "^2.3.0",
+    "zone.js": "~0.15.0"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.0",
-    "eslint": "^10.0.0",
-    "vitest": "^3.2.0",
-    "@vitest/coverage-v8": "^3.2.0"
+    "@angular/build": "^20.3.29",
+    "@angular/cli": "^20.3.29",
+    "@angular/compiler-cli": "^20.3.0",
+    "@types/jest": "^30.0.0",
+    "@types/leaflet": "^1.9.21",
+    "angular-eslint": "21.0.1",
+    "eslint": "^9.39.1",
+    "jest": "^30.4.2",
+    "jest-environment-jsdom": "^30.4.1",
+    "jest-preset-angular": "^17.0.0",
+    "typescript": "~5.9.2",
+    "typescript-eslint": "8.46.4"
+  },
+  "allowScripts": {
+    "@parcel/watcher@2.5.6": true,
+    "esbuild@0.28.0": true,
+    "esbuild@0.27.7": true,
+    "lmdb@3.4.2": true,
+    "msgpackr-extract@3.0.4": true,
+    "unrs-resolver@1.12.2": true
   }
 }
