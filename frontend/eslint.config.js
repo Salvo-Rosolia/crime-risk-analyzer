@@ -1,66 +1,44 @@
-import js from '@eslint/js';
+// @ts-check
+const eslint = require("@eslint/js");
+const { defineConfig } = require("eslint/config");
+const tseslint = require("typescript-eslint");
+const angular = require("angular-eslint");
 
-export default [
-  // Ignore node_modules and lock file
+module.exports = defineConfig([
   {
-    ignores: ['node_modules/**', 'package-lock.json'],
-  },
-
-  // ── src/*.js — ES modules, browser environment, Leaflet CDN global ──────────
-  {
-    files: ['src/**/*.js'],
-    ...js.configs.recommended,
-    languageOptions: {
-      ecmaVersion: 2022,
-      sourceType: 'module',
-      globals: {
-        // Browser globals
-        window:       'readonly',
-        document:     'readonly',
-        console:      'readonly',
-        fetch:        'readonly',
-        setTimeout:   'readonly',
-        setInterval:  'readonly',
-        clearInterval:'readonly',
-        clearTimeout: 'readonly',
-        globalThis:   'readonly',
-        // Animation frame — browser global used instead of setTimeout for layout sync
-        requestAnimationFrame: 'readonly',
-        // Leaflet — loaded from CDN at runtime, not imported
-        L:            'readonly',
-      },
+    files: ["**/*.ts"],
+    extends: [
+      eslint.configs.recommended,
+      tseslint.configs.recommended,
+      tseslint.configs.stylistic,
+      angular.configs.tsRecommended,
+    ],
+    processor: angular.processInlineTemplates,
+    rules: {
+      "@angular-eslint/directive-selector": [
+        "error",
+        {
+          type: "attribute",
+          prefix: "cra",
+          style: "camelCase",
+        },
+      ],
+      "@angular-eslint/component-selector": [
+        "error",
+        {
+          type: "element",
+          prefix: "cra",
+          style: "kebab-case",
+        },
+      ],
     },
   },
-
-  // ── tests/*.test.js — Node environment, vitest via explicit imports ──────────
   {
-    files: ['tests/**/*.test.js'],
-    ...js.configs.recommended,
-    languageOptions: {
-      ecmaVersion: 2022,
-      sourceType: 'module',
-      globals: {
-        // Node/test runner globals
-        globalThis:  'readonly',
-        console:     'readonly',
-        process:     'readonly',
-        // vitest globals are imported explicitly in every test file (no implicit globals needed)
-      },
-    },
-  },
-
-  // ── Config files at root (vitest.config.js etc.) ───────────────────────────
-  {
-    files: ['*.config.js'],
-    ...js.configs.recommended,
-    languageOptions: {
-      ecmaVersion: 2022,
-      sourceType: 'module',
-      globals: {
-        globalThis: 'readonly',
-        console:    'readonly',
-        process:    'readonly',
-      },
-    },
-  },
-];
+    files: ["**/*.html"],
+    extends: [
+      angular.configs.templateRecommended,
+      angular.configs.templateAccessibility,
+    ],
+    rules: {},
+  }
+]);
