@@ -77,4 +77,44 @@ describe('StateStore', () => {
     expect(store.screen()).toBe('ERROR');
     expect(store.error()).toBe('404');
   });
+
+  describe('fromCache computed', () => {
+    it('è false allo stato iniziale', () => {
+      expect(store.fromCache()).toBe(false);
+    });
+
+    it('diventa true dopo LOAD_SUCCESS con data._fromCache === true', async () => {
+      const cached: AnalyzeResponse = { ...data, _fromCache: true };
+      api.analyze.mockResolvedValue(cached);
+      await store.startAnalysis('Colosseo');
+      expect(store.fromCache()).toBe(true);
+    });
+
+    it('diventa true con data.cache_hit === true', async () => {
+      const cached: AnalyzeResponse = { ...data, cache_hit: true };
+      api.analyze.mockResolvedValue(cached);
+      await store.startAnalysis('Colosseo');
+      expect(store.fromCache()).toBe(true);
+    });
+
+    it('resta false con una risposta normale (senza _fromCache né cache_hit)', async () => {
+      api.analyze.mockResolvedValue(data);
+      await store.startAnalysis('Colosseo');
+      expect(store.fromCache()).toBe(false);
+    });
+  });
+
+  describe('startBaselineAnalysis con params.zona undefined', () => {
+    it('dispatcha ANALYZE con pendingZona === "baseline" (stato LOADING prima dell\'await)', async () => {
+      let pendingZonaAtDispatch: string | null = null;
+      api.analyzeBaseline.mockImplementation(() => {
+        // campionamento sincrono: l'ANALYZE è già stato dispatchato, l'AWAIT non è ancora risolto
+        pendingZonaAtDispatch = store.state().pendingZona;
+        return Promise.resolve(data);
+      });
+      await store.startBaselineAnalysis({});
+      expect(pendingZonaAtDispatch).toBe('baseline');
+      expect(store.screen()).toBe('RESULTS');
+    });
+  });
 });

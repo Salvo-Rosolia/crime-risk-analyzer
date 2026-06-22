@@ -96,4 +96,43 @@ describe('transition (FSM)', () => {
   it('TOGGLE_SCENARIO inverte scenarioOpen', () => {
     expect(transition(initialState, { type: 'TOGGLE_SCENARIO' }).scenarioOpen).toBe(false);
   });
+
+  it('SET_FILTER da RESULTS: va in FILTER e imposta il livello', () => {
+    const results: AppState = { ...initialState, screen: 'RESULTS', data };
+    const s = transition(results, { type: 'SET_FILTER', level: 'confermato' });
+    expect(s.screen).toBe('FILTER');
+    expect(s.filter).toBe('confermato');
+  });
+
+  it('ANALYZE da RESULTS: va in LOADING, azzera selectedPoiId e filter, imposta pendingZona/lastQuery; data NON viene toccato', () => {
+    const results: AppState = {
+      ...initialState,
+      screen: 'RESULTS',
+      data,
+      selectedPoiId: '1',
+      filter: 'plausibile',
+    };
+    const s = transition(results, { type: 'ANALYZE', zona: 'Trastevere' });
+    expect(s.screen).toBe('LOADING');
+    expect(s.selectedPoiId).toBeNull();
+    expect(s.filter).toBeNull();
+    expect(s.pendingZona).toBe('Trastevere');
+    expect(s.lastQuery).toBe('Trastevere');
+    // data non è toccato dall'azione ANALYZE: il reducer conserva il valore precedente
+    expect(s.data).toBe(data);
+  });
+
+  it('ANALYZE da ERROR: va in LOADING e azzera error', () => {
+    const error: AppState = {
+      ...initialState,
+      screen: 'ERROR',
+      error: 'zona non trovata',
+      lastQuery: 'Colosseo',
+    };
+    const s = transition(error, { type: 'ANALYZE', zona: 'Prati' });
+    expect(s.screen).toBe('LOADING');
+    expect(s.error).toBeNull();
+    expect(s.pendingZona).toBe('Prati');
+    expect(s.lastQuery).toBe('Prati');
+  });
 });

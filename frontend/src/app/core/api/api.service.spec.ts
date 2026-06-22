@@ -66,4 +66,16 @@ describe('ApiService', () => {
     req.flush(resp);
     await p;
   });
+
+  it('analyze: su errore /analyze E errore cache demo, la Promise viene rigettata e non c\'è _fromCache', async () => {
+    const p = api.analyze('Roma', 'colosseo');
+    // fallisce la POST /analyze
+    http.expectOne('/analyze').flush('boom', { status: 500, statusText: 'Server Error' });
+    // fallisce anche la GET /demo/cache/colosseo.json
+    http.expectOne('/demo/cache/colosseo.json').flush('not found', { status: 404, statusText: 'Not Found' });
+    const err = await p.then(() => null).catch((e: unknown) => e);
+    expect(err).toBeTruthy();
+    // la Promise è rigettata, non c'è _fromCache nel rifiuto
+    await expect(p).rejects.toBeTruthy();
+  });
 });

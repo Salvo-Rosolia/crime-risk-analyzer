@@ -32,6 +32,12 @@ describe('confidence', () => {
     expect(html).toContain('>3<');
   });
 
+  it('pinHTML contiene il numero passato e il colore del livello di confidenza', () => {
+    const html = pinHTML(7, 'plausibile');
+    expect(html).toContain('>7<');
+    expect(html).toContain(CONF.plausibile.color);
+  });
+
   it('pinHTML in dim usa DIM_COLOR e opacità ridotta', () => {
     const html = pinHTML(1, 'confermato', { dim: true });
     expect(html).toContain(DIM_COLOR);

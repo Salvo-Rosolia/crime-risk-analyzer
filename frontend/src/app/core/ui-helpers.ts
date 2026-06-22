@@ -22,7 +22,7 @@ export interface ScenarioCardData {
 }
 
 export function buildScenarioCardData(scenario: ScenarioPreset | null | undefined): ScenarioCardData {
-  const { id, city = '', zone = '', type = '', zona } = scenario ?? ({} as Partial<ScenarioPreset>);
+  const { id, city = '', zone = '', type = '', zona } = scenario ?? {};
   return { id, city, zone, type, zona: zona || `${zone}, ${city}`, color: cityColorFor(city) };
 }
 

@@ -16,11 +16,11 @@ function cacheIdForZona(zona: string): string | null {
   return key ? CACHE_KEYS[key] : null;
 }
 
-const FALLBACK_SUGGESTIONS: ScenarioPreset[] = Object.freeze([
+const FALLBACK_SUGGESTIONS: readonly ScenarioPreset[] = Object.freeze([
   { id: 'colosseo', city: 'Roma', zone: 'Colosseo', type: 'area archeologica', zona: 'Colosseo, Roma' },
   { id: 'termini', city: 'Roma', zone: 'Stazione Termini', type: 'hub trasporti', zona: 'Stazione Termini, Roma' },
   { id: 'duomo', city: 'Milano', zone: 'Duomo', type: 'centro storico', zona: 'Duomo, Milano' },
-]) as ScenarioPreset[];
+]);
 
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;
@@ -38,6 +38,10 @@ export class StateStore {
   readonly filter = computed(() => this._state().filter);
   readonly error = computed(() => this._state().error);
   readonly mode = computed(() => this._state().mode);
+  readonly fromCache = computed(() => {
+    const d = this._state().data;
+    return d?._fromCache ?? d?.cache_hit ?? false;
+  });
 
   /** Dati di riferimento, fuori dalla FSM (come `_scenarios` in app.js). */
   private readonly _scenarios = signal<ScenarioPreset[]>([]);
@@ -54,7 +58,7 @@ export class StateStore {
       const result = await this.api.analyze(zona, cacheId, domanda);
       this.dispatch({ type: 'LOAD_SUCCESS', data: result });
     } catch (err) {
-      this.dispatch({ type: 'LOAD_ERROR', message: errorMessage(err, 'Errore durante l\'analisi.'), suggestions: FALLBACK_SUGGESTIONS });
+      this.dispatch({ type: 'LOAD_ERROR', message: errorMessage(err, 'Errore durante l\'analisi.'), suggestions: [...FALLBACK_SUGGESTIONS] });
     }
   }
 
@@ -66,12 +70,16 @@ export class StateStore {
       const result = await this.api.analyze(zona, cacheId ? String(cacheId) : null, null);
       this.dispatch({ type: 'LOAD_SUCCESS', data: result });
     } catch (err) {
-      this.dispatch({ type: 'LOAD_ERROR', message: errorMessage(err, 'Errore durante l\'analisi.'), suggestions: FALLBACK_SUGGESTIONS });
+      this.dispatch({ type: 'LOAD_ERROR', message: errorMessage(err, 'Errore durante l\'analisi.'), suggestions: [...FALLBACK_SUGGESTIONS] });
     }
   }
 
   async loadScenarios(): Promise<void> {
-    this._scenarios.set(await this.api.getScenarios());
+    try {
+      this._scenarios.set(await this.api.getScenarios());
+    } catch {
+      /* getScenarios già degrada a [], guardia difensiva */
+    }
   }
 
   async startBaselineAnalysis(params: BaselineParams): Promise<void> {
@@ -80,7 +88,7 @@ export class StateStore {
       const result = await this.api.analyzeBaseline(params);
       this.dispatch({ type: 'LOAD_SUCCESS', data: result });
     } catch (err) {
-      this.dispatch({ type: 'LOAD_ERROR', message: errorMessage(err, 'Endpoint /analyze/baseline non ancora disponibile.'), suggestions: FALLBACK_SUGGESTIONS });
+      this.dispatch({ type: 'LOAD_ERROR', message: errorMessage(err, 'Endpoint /analyze/baseline non ancora disponibile.'), suggestions: [...FALLBACK_SUGGESTIONS] });
     }
   }
 }

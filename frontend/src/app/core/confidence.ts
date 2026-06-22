@@ -31,7 +31,7 @@ export function coverageBadgeText(total: number, anchored: number): string {
 }
 
 export function pinHTML(
-  n: number | string,
+  n: number,
   conf: string,
   { focus = false, dim = false }: { focus?: boolean; dim?: boolean } = {},
 ): string {
