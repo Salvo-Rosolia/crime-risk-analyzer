@@ -75,4 +75,25 @@ describe('transition (FSM)', () => {
     expect(out).not.toBe(initialState);
     expect(out.narrOpen).toBe(false);
   });
+
+  it('SELECT_POI → DETAIL con selectedPoiId impostato', () => {
+    const s = transition(initialState, { type: 'SELECT_POI', id: '2' });
+    expect(s.screen).toBe('DETAIL');
+    expect(s.selectedPoiId).toBe('2');
+  });
+
+  it('CLEAR_FILTER → RESULTS e azzera il filtro', () => {
+    const filtered: AppState = { ...initialState, screen: 'FILTER', filter: 'plausibile' };
+    const s = transition(filtered, { type: 'CLEAR_FILTER' });
+    expect(s.screen).toBe('RESULTS');
+    expect(s.filter).toBeNull();
+  });
+
+  it('TOGGLE_POI_PANEL inverte poiPanelOpen', () => {
+    expect(transition(initialState, { type: 'TOGGLE_POI_PANEL' }).poiPanelOpen).toBe(false);
+  });
+
+  it('TOGGLE_SCENARIO inverte scenarioOpen', () => {
+    expect(transition(initialState, { type: 'TOGGLE_SCENARIO' }).scenarioOpen).toBe(false);
+  });
 });
