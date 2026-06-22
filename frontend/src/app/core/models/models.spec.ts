@@ -1,4 +1,4 @@
-import { Action, AnalyzeResponse, AppState } from '@core/models/models';
+import { Action, AnalyzeResponse, AppState, BaselineParams, ScenarioPreset } from '@core/models/models';
 
 describe('models (contratto /analyze)', () => {
   it('un oggetto conforme alla fixture demo è assegnabile a AnalyzeResponse', () => {
@@ -34,5 +34,17 @@ describe('models (contratto /analyze)', () => {
       suggestions: [], poiPanelOpen: true, narrOpen: true, scenarioOpen: true,
     };
     expect(s.screen).toBe('INPUT');
+  });
+
+  it('un preset scenario conforme è assegnabile a ScenarioPreset', () => {
+    const preset: ScenarioPreset = {
+      id: 'colosseo', city: 'Roma', zone: 'Colosseo', type: 'area archeologica', zona: 'Colosseo, Roma',
+    };
+    expect(preset.zona).toBe('Colosseo, Roma');
+  });
+
+  it('parametri baseline sono assegnabili a BaselineParams', () => {
+    const params: BaselineParams = { città: 'Roma', zona: 'Colosseo' };
+    expect(params.città).toBe('Roma');
   });
 });
