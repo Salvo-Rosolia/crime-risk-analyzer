@@ -16,11 +16,11 @@ function cacheIdForZona(zona: string): string | null {
   return key ? CACHE_KEYS[key] : null;
 }
 
-const FALLBACK_SUGGESTIONS: ScenarioPreset[] = [
+const FALLBACK_SUGGESTIONS: ScenarioPreset[] = Object.freeze([
   { id: 'colosseo', city: 'Roma', zone: 'Colosseo', type: 'area archeologica', zona: 'Colosseo, Roma' },
   { id: 'termini', city: 'Roma', zone: 'Stazione Termini', type: 'hub trasporti', zona: 'Stazione Termini, Roma' },
   { id: 'duomo', city: 'Milano', zone: 'Duomo', type: 'centro storico', zona: 'Duomo, Milano' },
-];
+]) as ScenarioPreset[];
 
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback;
@@ -40,7 +40,8 @@ export class StateStore {
   readonly mode = computed(() => this._state().mode);
 
   /** Dati di riferimento, fuori dalla FSM (come `_scenarios` in app.js). */
-  readonly scenarios = signal<ScenarioPreset[]>([]);
+  private readonly _scenarios = signal<ScenarioPreset[]>([]);
+  readonly scenarios = this._scenarios.asReadonly();
 
   dispatch(action: Action): void {
     this._state.update(s => transition(s, action));
@@ -70,7 +71,7 @@ export class StateStore {
   }
 
   async loadScenarios(): Promise<void> {
-    this.scenarios.set(await this.api.getScenarios());
+    this._scenarios.set(await this.api.getScenarios());
   }
 
   async startBaselineAnalysis(params: BaselineParams): Promise<void> {
