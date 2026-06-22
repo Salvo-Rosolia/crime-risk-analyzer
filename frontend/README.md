@@ -1,59 +1,64 @@
-# Frontend
+# Frontend — Crime Risk Analyzer
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 20.3.29.
+UI dell'analizzatore di rischio: mappa interattiva (Leaflet), schede di rischio con
+livelli di *confidence* e citazioni SPARQL. App **Angular 20** standalone con
+*signals*, generata con Angular CLI 20.3.
 
-## Development server
+## Requisiti
 
-To start a local development server, run:
-
-```bash
-ng serve
-```
-
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
-
-## Code scaffolding
-
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+- Node.js 20+
+- npm
 
 ```bash
-ng generate component component-name
+npm install
 ```
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
+## Sviluppo
 
 ```bash
-ng generate --help
+npm start
 ```
 
-## Building
+Avvia il dev server su `http://localhost:4200/` con ricarica automatica. Lo script usa
+`--proxy-config proxy.config.json` per inoltrare le chiamate API al backend FastAPI
+durante lo sviluppo.
 
-To build the project run:
+## Build
 
 ```bash
-ng build
+npm run build
 ```
 
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
+Compila il progetto in `dist/` (build di produzione ottimizzata di default).
 
-## Running unit tests
+## Test
 
-To execute unit tests with the [Karma](https://karma-runner.github.io) test runner, use the following command:
+I test unitari girano con **Jest** (preset `jest-preset-angular`):
 
 ```bash
-ng test
+npm test
 ```
 
-## Running end-to-end tests
-
-For end-to-end (e2e) testing, run:
+## Quality gate
 
 ```bash
-ng e2e
+npm run lint    # ESLint (ng lint)
+npm test        # test unitari (Jest)
 ```
 
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
+## Struttura
 
-## Additional Resources
+```
+frontend/src/app/
+├── core/                 # layer applicativo puro e testabile
+│   ├── models/           # contratto dati /analyze, tipi FSM, Action union
+│   ├── state/            # macchina a stati pura (transition) + signal store
+│   ├── api/              # ApiService (HttpClient) con fallback su cache demo
+│   ├── confidence.ts     # livelli di confidence, colore pin, copertura
+│   └── ui-helpers.ts     # funzioni pure di derivazione/validazione UI
+└── ...                   # componenti e mappa Leaflet (in arrivo)
+```
 
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+## Risorse
+
+Documentazione Angular CLI: [angular.dev/tools/cli](https://angular.dev/tools/cli).
