@@ -1,9 +1,11 @@
 # Backend — Crime Risk Analyzer
 
 API e logica di dominio del sistema: query geospaziali, ragionamento ontologico
-(SPARQL) e pipeline RAG. Lo scaffolding FastAPI (story **#7**) fornisce per ora
-l'ossatura runnable con il solo endpoint `GET /health`; gli endpoint di dominio
-(`/analyze`, `/cities`, `/scenarios`) arrivano in fase P2.
+(SPARQL) e pipeline RAG con ragionamento LLM. L'app FastAPI carica l'ontologia RDF
+in memoria all'avvio ed espone gli endpoint `GET /health`, `GET /cities` e
+`GET /scenarios`. Sono già presenti i moduli di supporto — geocoding, client Overpass,
+mapping OSM→ontologia, client LLM provider-agnostico e pipeline RAG di generazione.
+L'endpoint di dominio `POST /analyze`, che orchestra l'intera pipeline, arriva in fase P2.
 
 ## Requisiti
 
@@ -26,7 +28,8 @@ uv sync
 uv run uvicorn crime_risk_analyzer.main:app --reload
 ```
 
-L'app espone `GET /health` → `{"status": "ok"}`.
+L'app espone, tra gli altri, `GET /health` → `{"status": "ok"}`, `GET /cities`
+(città supportate) e `GET /scenarios` (scenari demo precaricati, city-agnostic).
 
 ## Test
 
@@ -52,8 +55,19 @@ backend/
 ├── src/
 │   └── crime_risk_analyzer/   # package applicativo (src-layout)
 │       ├── __init__.py        # __version__
-│       └── main.py            # create_app() + app + GET /health
-├── ontology/             # ontologia RDF, query SPARQL, mapping OSM (vuota per ora)
+│       ├── main.py            # create_app() + app + endpoint (/health, /cities, /scenarios)
+│       ├── config.py          # Settings (env)
+│       ├── ontology.py        # caricamento ontologia RDF in memoria (rdflib)
+│       ├── geocoding.py       # geocoding zone
+│       ├── overpass_client.py # client Overpass per POI OSM
+│       ├── sparql_module/     # mapping OSM → ontologia
+│       ├── llm/               # client LLM provider-agnostico
+│       ├── rag/               # pipeline RAG di generazione narrativa
+│       ├── scenarios.py       # scenari demo
+│       ├── demo_cache.py      # cache risposte demo
+│       ├── errors.py          # errori di dominio
+│       └── models/            # modelli dati (geo, vocab)
+├── ontology/             # ontologia RDF, query SPARQL, mapping OSM — file NON versionati (zona ghost)
 ├── data/                 # dataset e modelli pesanti — NON versionati (zona ghost)
 └── tests/                # test automatici (pytest)
 ```
