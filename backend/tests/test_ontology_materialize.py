@@ -18,12 +18,11 @@ from rdflib.namespace import OWL, RDFS
 
 from crime_risk_analyzer.ontology import load_ontology
 from crime_risk_analyzer.ontology_materialize import (
-    TERMINUS_IRI,
-    TERMINUS_PREFIX,
     MaterializeError,
     main,
     materialize_owl_to_ttl,
 )
+from crime_risk_analyzer.ontology_namespaces import TERMINUS_IRI, TERMINUS_PREFIX
 
 FIXTURE_OWL = Path(__file__).parent / "fixtures" / "ontology_small.owl"
 FIXTURE_EMPTY_OWL = Path(__file__).parent / "fixtures" / "ontology_empty.owl"
