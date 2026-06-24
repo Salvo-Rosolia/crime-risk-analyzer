@@ -1,0 +1,37 @@
+<?xml version="1.0"?>
+<rdf:RDF
+    xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+    xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+    xmlns:owl="http://www.w3.org/2002/07/owl#"
+    xmlns="http://www.semanticweb.org/sives/ontologies/2021/9/untitled-ontology-34#"
+    xml:base="http://www.enea-terin-sen-apic.it/TERMINUS-crime-v01">
+
+    <owl:Ontology rdf:about="http://www.enea-terin-sen-apic.it/TERMINUS-crime-v01"/>
+
+    <owl:ObjectProperty rdf:about="http://www.enea-terin-sen-apic.it/TERMINUS-crime-v01#havingHazard"/>
+
+    <owl:ObjectProperty rdf:about="http://www.enea-terin-sen-apic.it/TERMINUS-crime-v01#isVulnerableTo"/>
+
+    <owl:Class rdf:about="http://www.enea-terin-sen-apic.it/TERMINUS-crime-v01#POI"/>
+
+    <owl:Class rdf:about="http://www.enea-terin-sen-apic.it/TERMINUS-crime-v01#Bank_robbery"/>
+
+    <owl:Class rdf:about="http://www.enea-terin-sen-apic.it/TERMINUS-crime-v01#Robbery_vulnerability"/>
+
+    <owl:Class rdf:about="http://www.enea-terin-sen-apic.it/TERMINUS-crime-v01#Bank">
+        <rdfs:subClassOf rdf:resource="http://www.enea-terin-sen-apic.it/TERMINUS-crime-v01#POI"/>
+        <rdfs:subClassOf>
+            <owl:Restriction>
+                <owl:onProperty rdf:resource="http://www.enea-terin-sen-apic.it/TERMINUS-crime-v01#havingHazard"/>
+                <owl:someValuesFrom rdf:resource="http://www.enea-terin-sen-apic.it/TERMINUS-crime-v01#Bank_robbery"/>
+            </owl:Restriction>
+        </rdfs:subClassOf>
+        <rdfs:subClassOf>
+            <owl:Restriction>
+                <owl:onProperty rdf:resource="http://www.enea-terin-sen-apic.it/TERMINUS-crime-v01#isVulnerableTo"/>
+                <owl:someValuesFrom rdf:resource="http://www.enea-terin-sen-apic.it/TERMINUS-crime-v01#Robbery_vulnerability"/>
+            </owl:Restriction>
+        </rdfs:subClassOf>
+    </owl:Class>
+
+</rdf:RDF>
