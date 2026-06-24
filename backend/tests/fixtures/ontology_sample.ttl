@@ -1,4 +1,4 @@
-@prefix tc:   <http://example.org/terminus-crime#> .
+@prefix tc:   <http://www.enea-terin-sen-apic.it/TERMINUS-crime-v01#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix owl:  <http://www.w3.org/2002/07/owl#> .
 

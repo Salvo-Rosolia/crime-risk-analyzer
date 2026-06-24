@@ -25,15 +25,14 @@ import argparse
 import logging
 from pathlib import Path
 
-from rdflib import Graph, Namespace
+from rdflib import Graph
+
+from crime_risk_analyzer.ontology_namespaces import (
+    TERMINUS,
+    TERMINUS_PREFIX,
+)
 
 logger = logging.getLogger(__name__)
-
-#: IRI reale dell'ontologia TERMINUS Crime (ENEA). NON il default xmlns
-#: ``untitled-ontology-34`` dichiarato nel file, che e' legacy/fuorviante.
-TERMINUS_IRI = "http://www.enea-terin-sen-apic.it/TERMINUS-crime-v01"
-#: Prefisso leggibile legato a ``TERMINUS_IRI#`` nel Turtle prodotto.
-TERMINUS_PREFIX = "tc"
 
 #: Sorgente/destinazione di default (entrambi gitignored, ghost). L'output
 #: coincide con ``Settings.ontology_path`` (config.py) cosi' che il loader di
@@ -84,9 +83,7 @@ def materialize_owl_to_ttl(src: str, out: str) -> str:
     # usasse davvero, rdflib lo serializzerebbe comunque (come prefisso vuoto o
     # IRI esteso) e questo bind non lo neutralizzerebbe; nasconderlo
     # falsificherebbe i dati, quindi non c'e' codice per "rimuoverlo".
-    graph.namespace_manager.bind(
-        TERMINUS_PREFIX, Namespace(f"{TERMINUS_IRI}#"), override=True, replace=True
-    )
+    graph.namespace_manager.bind(TERMINUS_PREFIX, TERMINUS, override=True, replace=True)
 
     out_path = Path(out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
