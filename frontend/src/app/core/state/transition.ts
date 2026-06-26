@@ -20,10 +20,8 @@ export const initialState: AppState = {
   pendingZona: null,
   pendingDomanda: null,
   lastQuery: null,
-  suggestions: [],
   poiPanelOpen: true,
   narrOpen: true,
-  scenarioOpen: true,
 };
 
 export function transition(state: AppState, action: Action): AppState {
@@ -47,7 +45,6 @@ export function transition(state: AppState, action: Action): AppState {
         screen: 'ERROR',
         error: action.message,
         pendingZona: null,
-        suggestions: action.suggestions ?? state.suggestions ?? [],
       };
     case 'SELECT_POI':
       return { ...state, screen: 'DETAIL', selectedPoiId: action.id };
@@ -77,8 +74,6 @@ export function transition(state: AppState, action: Action): AppState {
       return { ...state, poiPanelOpen: !state.poiPanelOpen };
     case 'TOGGLE_NARR':
       return { ...state, narrOpen: !state.narrOpen };
-    case 'TOGGLE_SCENARIO':
-      return { ...state, scenarioOpen: !state.scenarioOpen };
     default:
       return state;
   }

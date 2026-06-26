@@ -9,14 +9,13 @@ in un punto unico, via ``@app.exception_handler`` (orchestrator.md §"Gestione
 errori"): niente ``try/except`` sparsi nei router.
 
 Mappa (orchestrator.md):
-  * :class:`ZoneNotFoundError`  -> ``422`` + scenari suggeriti (riusa ``/scenarios``)
+  * :class:`ZoneNotFoundError`  -> ``422`` (zona non geocodificabile)
   * :class:`CityNotFoundError`  -> ``400`` + citta' supportate
   * :class:`GeocodingError`     -> ``503`` (servizio di geocoding non raggiungibile)
   * :class:`OverpassError`      -> ``503`` (Overpass non raggiungibile dopo retry)
 
 **``LLMError`` non e' mappato qui di proposito.** In caso di Anthropic 429/5xx la
-spec non prevede un codice HTTP uniforme ma una *decisione*: in demo si serve la
-cache locale (vedi :mod:`~crime_risk_analyzer.demo_cache`), fuori demo si
+spec non prevede un codice HTTP uniforme ma una *decisione*: fuori demo si
 ritornano solo i dati strutturati senza narrativa. **Nessun failover automatico
 su Groq** (lo switch resta manuale via ``LLM_PROVIDER`` — _project.md §Stack,
 spec-root §C1). Quella logica vive nell'orchestrator ``/analyze`` (#18), non
@@ -30,7 +29,6 @@ from fastapi.responses import JSONResponse
 
 from crime_risk_analyzer.geocoding import GeocodingError, ZoneNotFoundError
 from crime_risk_analyzer.overpass_client import OverpassError
-from crime_risk_analyzer.scenarios import get_scenarios
 
 
 class CityNotFoundError(RuntimeError):
@@ -49,15 +47,13 @@ class CityNotFoundError(RuntimeError):
 async def _handle_zone_not_found(
     _request: Request, exc: ZoneNotFoundError
 ) -> JSONResponse:
-    """``ZoneNotFoundError`` -> ``422`` con scenari suggeriti (riusa ``/scenarios``)."""
-    scenari = [preset.model_dump() for preset in get_scenarios()]
+    """``ZoneNotFoundError`` -> ``422`` (zona non geocodificabile)."""
     return JSONResponse(
         status_code=422,
         content={
             "detail": {
                 "errore": "zona_non_geocodificabile",
                 "messaggio": str(exc),
-                "scenari_suggeriti": scenari,
             }
         },
     )

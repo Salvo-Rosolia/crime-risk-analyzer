@@ -21,8 +21,6 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
         "LLM_PROVIDER",
         "CACHE_ENABLED",
         "DEFAULT_CITY",
-        "USE_DEMO_CACHE",
-        "DEMO_CACHE_DIR",
     ):
         monkeypatch.delenv(var, raising=False)
 
@@ -34,10 +32,6 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.llm_provider == "claude"
     assert settings.cache_enabled is True
     assert settings.default_city == "Roma"
-    # Fallback cache demo (#21): disattivo di default; si abilita esplicitamente
-    # in demo (spec-root §C1). Distinto da `cache_enabled` (prompt cache Anthropic).
-    assert settings.use_demo_cache is False
-    assert settings.demo_cache_dir == "demo/cache"
 
 
 def test_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -51,17 +45,6 @@ def test_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.llm_provider == "groq"
     assert settings.cache_enabled is False
     assert settings.default_city == "Milano"
-
-
-def test_use_demo_cache_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``USE_DEMO_CACHE`` abilita il fallback cache demo (#21)."""
-    monkeypatch.setenv("USE_DEMO_CACHE", "true")
-    monkeypatch.setenv("DEMO_CACHE_DIR", "/srv/demo/cache")
-
-    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
-
-    assert settings.use_demo_cache is True
-    assert settings.demo_cache_dir == "/srv/demo/cache"
 
 
 def test_invalid_llm_provider(monkeypatch: pytest.MonkeyPatch) -> None:
