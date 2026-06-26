@@ -54,10 +54,14 @@ tc:Stakeholder             a owl:Class .
 # Gerarchia hazard reale (per testare l'ereditarieta' transitiva subClassOf* #76)
 #   Banknote_acceptor_theft -> Theft -> Anthropic_hazard
 #   Theft_of_ancient_artifacts -> Theft
-#   Bank_robbery / Terrorist_attack -> Anthropic_hazard
+#   Bank_robbery / Customer_robbery / Terrorist_attack -> Anthropic_hazard
+# Bank_robbery e Customer_robbery sono ENTRAMBI havingHazard reali di Bank
+# (verificati nell'.owl reale): la fixture ne porta due per coprire il criterio
+# "Bank -> >=2 hazard reali" di #76 restando fedele al grafo.
 #
 tc:Theft                   a owl:Class ; rdfs:subClassOf tc:Anthropic_hazard .
 tc:Bank_robbery            a owl:Class ; rdfs:subClassOf tc:Anthropic_hazard .
+tc:Customer_robbery        a owl:Class ; rdfs:subClassOf tc:Anthropic_hazard .
 tc:Terrorist_attack        a owl:Class ; rdfs:subClassOf tc:Anthropic_hazard .
 tc:Banknote_acceptor_theft a owl:Class ; rdfs:subClassOf tc:Theft .
 tc:Theft_of_ancient_artifacts a owl:Class ; rdfs:subClassOf tc:Theft .
@@ -80,6 +84,9 @@ tc:Bank a owl:Class ;
     rdfs:subClassOf [ a owl:Restriction ;
         owl:onProperty tc:havingHazard ;
         owl:someValuesFrom tc:Bank_robbery ] ;
+    rdfs:subClassOf [ a owl:Restriction ;
+        owl:onProperty tc:havingHazard ;
+        owl:someValuesFrom tc:Customer_robbery ] ;
     rdfs:subClassOf [ a owl:Restriction ;
         owl:onProperty tc:havingCriticalEvent ;
         owl:someValuesFrom tc:Hostages ] ;
