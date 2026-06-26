@@ -1,5 +1,5 @@
 import {
-  buildDetailModel, buildNarrativeSections, buildScenarioCardData,
+  buildDetailModel, buildNarrativeSections,
   cityColorFor, filterVisiblePOIs, validateInputPanel,
 } from '@core/ui-helpers';
 import { Poi, RiskModel } from '@core/models/models';
@@ -10,14 +10,8 @@ describe('ui-helpers', () => {
     expect(cityColorFor('Atlantide')).toBe('#928d82');
   });
 
-  it('buildScenarioCardData: zona fallback "zone, city" e colore', () => {
-    const out = buildScenarioCardData({ id: 'x', city: 'Roma', zone: 'Colosseo', type: 't' });
-    expect(out.zona).toBe('Colosseo, Roma');
-    expect(out.color).toBe('#0e7b80');
-  });
-
   it('validateInputPanel: zona vuota → errore, valorizzata → ok', () => {
-    expect(validateInputPanel({ zona: '' })).toEqual({ ok: false, error: 'Inserisci una zona o scegli uno scenario.' });
+    expect(validateInputPanel({ zona: '' })).toEqual({ ok: false, error: 'Inserisci una zona.' });
     expect(validateInputPanel({ zona: 'Roma' })).toEqual({ ok: true, error: null });
   });
 

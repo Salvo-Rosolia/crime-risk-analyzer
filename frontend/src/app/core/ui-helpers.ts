@@ -1,4 +1,4 @@
-import { Poi, RiskItem, RiskModel, ScenarioPreset, SourceTag } from '@core/models/models';
+import { Poi, RiskItem, RiskModel, SourceTag } from '@core/models/models';
 
 const CITY_COLOR_MAP: Readonly<Record<string, string>> = Object.freeze({
   Roma: '#0e7b80',
@@ -12,25 +12,11 @@ export function cityColorFor(city: string): string {
   return CITY_COLOR_MAP[city] ?? CITY_COLOR_FALLBACK;
 }
 
-export interface ScenarioCardData {
-  id: string | undefined;
-  city: string;
-  zone: string;
-  type: string;
-  zona: string;
-  color: string;
-}
-
-export function buildScenarioCardData(scenario: ScenarioPreset | null | undefined): ScenarioCardData {
-  const { id, city = '', zone = '', type = '', zona } = scenario ?? {};
-  return { id, city, zone, type, zona: zona || `${zone}, ${city}`, color: cityColorFor(city) };
-}
-
 export function validateInputPanel(
   { zona }: { zona?: string; domanda?: string } = {},
 ): { ok: boolean; error: string | null } {
   if (!zona || !zona.trim()) {
-    return { ok: false, error: 'Inserisci una zona o scegli uno scenario.' };
+    return { ok: false, error: 'Inserisci una zona.' };
   }
   return { ok: true, error: null };
 }

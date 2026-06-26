@@ -1,11 +1,10 @@
-import { Action, AnalyzeResponse, AppState, BaselineParams, ScenarioPreset } from '@core/models/models';
+import { Action, AnalyzeResponse, AppState, BaselineParams } from '@core/models/models';
 
 describe('models (contratto /analyze)', () => {
   it('un oggetto conforme alla fixture demo è assegnabile a AnalyzeResponse', () => {
     const sample: AnalyzeResponse = {
       città: 'Roma',
       zona_normalizzata: 'Colosseo',
-      scenario_id: 'colosseo',
       poi: [{
         id: '1', name: 'Colosseo', terminus_class: 'ArchaeologicalSite',
         lat: 41.8908, lon: 12.4918, confidence: 'confermato',
@@ -31,16 +30,9 @@ describe('models (contratto /analyze)', () => {
     const s: AppState = {
       screen: 'INPUT', data: null, selectedPoiId: null, filter: null, error: null,
       mode: 'completo', pendingZona: null, pendingDomanda: null, lastQuery: null,
-      suggestions: [], poiPanelOpen: true, narrOpen: true, scenarioOpen: true,
+      poiPanelOpen: true, narrOpen: true,
     };
     expect(s.screen).toBe('INPUT');
-  });
-
-  it('un preset scenario conforme è assegnabile a ScenarioPreset', () => {
-    const preset: ScenarioPreset = {
-      id: 'colosseo', city: 'Roma', zone: 'Colosseo', type: 'area archeologica', zona: 'Colosseo, Roma',
-    };
-    expect(preset.zona).toBe('Colosseo, Roma');
   });
 
   it('parametri baseline sono assegnabili a BaselineParams', () => {

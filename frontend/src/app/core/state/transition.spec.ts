@@ -26,14 +26,13 @@ describe('transition (FSM)', () => {
     expect(s.pendingDomanda).toBe('q');
   });
 
-  it('LOAD_ERROR → ERROR, conserva pendingDomanda e setta suggestions', () => {
+  it('LOAD_ERROR → ERROR, setta messaggio e azzera pendingZona', () => {
     const loading: AppState = { ...initialState, screen: 'LOADING', pendingDomanda: 'q' };
-    const sugg = [{ id: 'colosseo', city: 'Roma', zone: 'Colosseo', type: 't' }];
-    const s = transition(loading, { type: 'LOAD_ERROR', message: 'boom', suggestions: sugg });
+    const s = transition(loading, { type: 'LOAD_ERROR', message: 'boom' });
     expect(s.screen).toBe('ERROR');
     expect(s.error).toBe('boom');
     expect(s.pendingDomanda).toBe('q');
-    expect(s.suggestions).toBe(sugg);
+    expect(s.pendingZona).toBeNull();
   });
 
   it('DESELECT_POI torna a FILTER se filtro attivo, altrimenti RESULTS', () => {
@@ -93,10 +92,6 @@ describe('transition (FSM)', () => {
     expect(transition(initialState, { type: 'TOGGLE_POI_PANEL' }).poiPanelOpen).toBe(false);
   });
 
-  it('TOGGLE_SCENARIO inverte scenarioOpen', () => {
-    expect(transition(initialState, { type: 'TOGGLE_SCENARIO' }).scenarioOpen).toBe(false);
-  });
-
   it('SET_FILTER da RESULTS: va in FILTER e imposta il livello', () => {
     const results: AppState = { ...initialState, screen: 'RESULTS', data };
     const s = transition(results, { type: 'SET_FILTER', level: 'confermato' });
@@ -118,7 +113,6 @@ describe('transition (FSM)', () => {
     expect(s.filter).toBeNull();
     expect(s.pendingZona).toBe('Trastevere');
     expect(s.lastQuery).toBe('Trastevere');
-    // data non è toccato dall'azione ANALYZE: il reducer conserva il valore precedente
     expect(s.data).toBe(data);
   });
 

@@ -2,8 +2,8 @@
 
 API e logica di dominio del sistema: query geospaziali, ragionamento ontologico
 (SPARQL) e pipeline RAG con ragionamento LLM. L'app FastAPI carica l'ontologia RDF
-in memoria all'avvio ed espone gli endpoint `GET /health`, `GET /cities` e
-`GET /scenarios`. Sono già presenti i moduli di supporto — geocoding, client Overpass,
+in memoria all'avvio ed espone gli endpoint `GET /health` e `GET /cities`.
+Sono già presenti i moduli di supporto — geocoding, client Overpass,
 mapping OSM→ontologia, client LLM provider-agnostico e pipeline RAG di generazione.
 L'endpoint di dominio `POST /analyze`, che orchestra l'intera pipeline, arriva in fase P2.
 
@@ -28,8 +28,8 @@ uv sync
 uv run uvicorn crime_risk_analyzer.main:app --reload
 ```
 
-L'app espone, tra gli altri, `GET /health` → `{"status": "ok"}`, `GET /cities`
-(città supportate) e `GET /scenarios` (scenari demo precaricati, city-agnostic).
+L'app espone, tra gli altri, `GET /health` → `{"status": "ok"}` e `GET /cities`
+(città supportate).
 
 ## Test
 
@@ -55,7 +55,7 @@ backend/
 ├── src/
 │   └── crime_risk_analyzer/   # package applicativo (src-layout)
 │       ├── __init__.py        # __version__
-│       ├── main.py            # create_app() + app + endpoint (/health, /cities, /scenarios)
+│       ├── main.py            # create_app() + app + endpoint (/health, /cities)
 │       ├── config.py          # Settings (env)
 │       ├── ontology.py        # caricamento ontologia RDF in memoria (rdflib)
 │       ├── geocoding.py       # geocoding zone
@@ -63,8 +63,6 @@ backend/
 │       ├── sparql_module/     # mapping OSM → ontologia
 │       ├── llm/               # client LLM provider-agnostico
 │       ├── rag/               # pipeline RAG di generazione narrativa
-│       ├── scenarios.py       # scenari demo
-│       ├── demo_cache.py      # cache risposte demo
 │       ├── errors.py          # errori di dominio
 │       └── models/            # modelli dati (geo, vocab)
 ├── ontology/             # ontologia RDF, query SPARQL, mapping OSM — file NON versionati (zona ghost)

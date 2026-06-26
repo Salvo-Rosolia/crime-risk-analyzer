@@ -29,14 +29,6 @@ class Settings(BaseSettings):
     llm_provider: Literal["claude", "groq"] = "claude"
     cache_enabled: bool = True
     default_city: str = "Roma"
-    # Fallback cache demo (#21, spec-root §C1, generation.md §"Cache locale per
-    # demo"): se un'API esterna e' down e questo flag e' attivo, l'orchestrator
-    # serve la risposta precalcolata da ``demo_cache_dir/{scenario_id}.json``
-    # invece di fallire. Disattivo di default (si abilita solo in demo). Distinto
-    # da ``cache_enabled``, che governa il prompt caching di Anthropic. Lo switch
-    # Claude/Groq resta manuale (``llm_provider``): nessun failover automatico.
-    use_demo_cache: bool = False
-    demo_cache_dir: str = "demo/cache"
     # Citta supportate da ``GET /cities``. Roma/Milano/Napoli sono garantite e
     # testate end-to-end (orchestrator.md); le altre sono best-effort.
     supported_cities: list[str] = ["Roma", "Milano", "Napoli", "Torino", "Firenze"]

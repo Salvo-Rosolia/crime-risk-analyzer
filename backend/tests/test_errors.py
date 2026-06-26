@@ -4,10 +4,10 @@ Contratto (orchestrator.md §"Gestione errori"): le eccezioni di dominio vengono
 mappate a risposte HTTP esplicite da un exception handler centrale, **non** da
 ``try/except`` sparsi nei router. Qui si verifica:
   * la mappa errore -> status (zona 422, citta' 400, servizi esterni 503);
-  * che il body porti i suggerimenti previsti (scenari per la zona, citta'
-    supportate per la citta');
+  * che il body della zona porti errore e messaggio (senza lista di
+    suggerimenti) e quello della citta' le citta' supportate;
   * che ``LLMError`` **non** sia mappato a un handler generico (il fallback
-    cache/dati-strutturati e' decisione dell'orchestrator #18, e non c'e' alcun
+    dati-strutturati e' decisione dell'orchestrator #18, e non c'e' alcun
     failover automatico su Groq).
 
 I test montano un'app minimale con rotte che sollevano le eccezioni, cosi' si
@@ -68,14 +68,15 @@ def _get(client: TestClient, path: str) -> httpx.Response:
     return cast(httpx.Response, client.get(path))  # pyright: ignore[reportUnknownMemberType]
 
 
-def test_zone_not_found_maps_to_422_with_suggested_scenarios() -> None:
+def test_zone_not_found_maps_to_422_without_suggestions() -> None:
     response = _get(_make_client(), "/raise/zone")
 
     assert response.status_code == 422
     body = response.json()
-    # Lo Stato Errore del frontend riusa la lista /scenarios come suggerimenti.
-    assert "scenari_suggeriti" in body["detail"]
-    assert len(body["detail"]["scenari_suggeriti"]) > 0
+    # Errore semplice: codice errore + messaggio, senza lista di suggerimenti.
+    assert body["detail"]["errore"] == "zona_non_geocodificabile"
+    assert body["detail"]["messaggio"]
+    assert "scenari_suggeriti" not in body["detail"]
 
 
 def test_city_not_found_maps_to_400_with_supported_cities() -> None:

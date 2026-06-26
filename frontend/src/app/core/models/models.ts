@@ -19,7 +19,6 @@ export interface Repro { temperature: number; seed: number; prompt_hash: string;
 export interface AnalyzeResponse {
   città: string;
   zona_normalizzata: string;
-  scenario_id?: string;
   poi: Poi[];
   risk_models: RiskModel[];
   narrativa: string;
@@ -28,17 +27,6 @@ export interface AnalyzeResponse {
   latenza_ms?: number;
   repro?: Repro;
   cache_hit?: boolean;
-  /** Marcato lato client quando la risposta arriva dal fallback cache demo. */
-  _fromCache?: boolean;
-}
-
-export interface ScenarioPreset {
-  id: string;
-  city: string;
-  zone: string;
-  type: string;
-  zona?: string;
-  scenario_id?: string;
 }
 
 export interface BaselineParams { tipo_poi?: string; città?: string; zona?: string; }
@@ -56,16 +44,14 @@ export interface AppState {
   pendingZona: string | null;
   pendingDomanda: string | null;
   lastQuery: string | null;
-  suggestions: ScenarioPreset[];
   poiPanelOpen: boolean;
   narrOpen: boolean;
-  scenarioOpen: boolean;
 }
 
 export type Action =
   | { type: 'ANALYZE'; zona: string; domanda?: string | null }
   | { type: 'LOAD_SUCCESS'; data: AnalyzeResponse }
-  | { type: 'LOAD_ERROR'; message: string; suggestions?: ScenarioPreset[] }
+  | { type: 'LOAD_ERROR'; message: string }
   | { type: 'SELECT_POI'; id: string }
   | { type: 'DESELECT_POI' }
   | { type: 'SET_FILTER'; level: Confidence }
@@ -73,5 +59,4 @@ export type Action =
   | { type: 'TOGGLE_MODE'; mode: Mode }
   | { type: 'RESET' }
   | { type: 'TOGGLE_POI_PANEL' }
-  | { type: 'TOGGLE_NARR' }
-  | { type: 'TOGGLE_SCENARIO' };
+  | { type: 'TOGGLE_NARR' };
