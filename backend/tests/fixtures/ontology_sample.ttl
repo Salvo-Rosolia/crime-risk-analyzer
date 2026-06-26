@@ -1,8 +1,132 @@
+#
+# Fixture Turtle ridotta ma fedele al pattern OWL reale dell'ontologia TERMINUS
+# Crime (ENEA, Minardi et al. 2023 - file reale ontology/terminus-crime.owl,
+# ghost/gitignored). Estratto verificato classe-per-classe contro l'.owl reale:
+# stesso IRI/namespace, stessi nomi di classi e object property, stesso idioma di
+# owl:Restriction. NON sono inventati ne' nomi ne' triple.
+#
+# Usata dai test in CI al posto dell'ontologia reale completa ed e' la base su
+# cui #76 costruira'/testera' l'executor SPARQL (forma di query in
+# docs/specs/tree/backend/sparql.md): chiusura rdfs:subClassOf* sulla classe POI
+# + pattern owl:Restriction (owl:onProperty / owl:someValuesFrom).
+#
+# Note di fedelta':
+#  - I POI sono sottoclassi dirette di tc:System (45 sottoclassi reali, #79).
+#  - I rischi NON sono triple dirette ma owl:Restriction su rdfs:subClassOf.
+#  - Il POI usa havingHazard / havingPerformer / havingCriticalEvent /
+#    isVulnerableTo; havingVulnerability lega invece un System_aspect
+#    (Bank_branch) a una Vulnerability (idioma reale).
+#  - L'ontologia reale NON ha rdfs:label: la fixture non ne inventa.
+#  - Divergenza tracciata: Banknote_acceptor_theft nell'.owl reale e' un hazard
+#    di Petrol_station (non di Bank); qui resta sul suo POI reale.
+#
+
 @prefix tc:   <http://www.enea-terin-sen-apic.it/TERMINUS-crime-v01#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix owl:  <http://www.w3.org/2002/07/owl#> .
 
-tc:POI           a owl:Class .
-tc:Bank          a owl:Class ; rdfs:subClassOf tc:POI .
-tc:Hospital      a owl:Class ; rdfs:subClassOf tc:POI .
-tc:PoliceStation a owl:Class ; rdfs:subClassOf tc:POI .
+<http://www.enea-terin-sen-apic.it/TERMINUS-crime-v01> a owl:Ontology .
+
+#
+# Object property (nomi reali, verbatim dall'.owl)
+#
+tc:havingHazard        a owl:ObjectProperty ;
+    rdfs:domain tc:System ;
+    rdfs:range tc:Anthropic_hazard .
+tc:havingCriticalEvent a owl:ObjectProperty ;
+    rdfs:domain tc:System ;
+    rdfs:range tc:Critical_event_of_system .
+tc:havingPerformer     a owl:ObjectProperty .
+tc:isVulnerableTo      a owl:ObjectProperty .
+tc:havingVulnerability a owl:ObjectProperty .
+
+#
+# Classi astratte radice (nell'.owl reale dichiarate come owl:Class "nude")
+#
+tc:System                  a owl:Class .
+tc:System_aspect           a owl:Class .
+tc:Anthropic_hazard        a owl:Class .
+tc:Critical_event_of_system a owl:Class .
+tc:Vulnerability           a owl:Class .
+tc:Stakeholder             a owl:Class .
+
+#
+# Gerarchia hazard reale (per testare l'ereditarieta' transitiva subClassOf* #76)
+#   Banknote_acceptor_theft -> Theft -> Anthropic_hazard
+#   Theft_of_ancient_artifacts -> Theft
+#   Bank_robbery / Terrorist_attack -> Anthropic_hazard
+#
+tc:Theft                   a owl:Class ; rdfs:subClassOf tc:Anthropic_hazard .
+tc:Bank_robbery            a owl:Class ; rdfs:subClassOf tc:Anthropic_hazard .
+tc:Terrorist_attack        a owl:Class ; rdfs:subClassOf tc:Anthropic_hazard .
+tc:Banknote_acceptor_theft a owl:Class ; rdfs:subClassOf tc:Theft .
+tc:Theft_of_ancient_artifacts a owl:Class ; rdfs:subClassOf tc:Theft .
+
+#
+# Critical event / stakeholder / vulnerability (tipizzati col parent reale)
+#
+tc:Hostages       a owl:Class ; rdfs:subClassOf tc:Critical_event_of_system .
+tc:Bank_customer  a owl:Class ; rdfs:subClassOf tc:Stakeholder .
+tc:Visitor        a owl:Class ; rdfs:subClassOf tc:Stakeholder .
+tc:Poor_surveillance a owl:Class ; rdfs:subClassOf tc:Vulnerability .
+tc:Bank_in_isolated_area a owl:Class ; rdfs:subClassOf tc:Vulnerability .
+tc:Archaeological_site_in_isolated_area a owl:Class ; rdfs:subClassOf tc:Vulnerability .
+
+#
+# POI 1 - Bank (sottoclasse di System; pattern completo di restrizioni)
+#
+tc:Bank a owl:Class ;
+    rdfs:subClassOf tc:System ;
+    rdfs:subClassOf [ a owl:Restriction ;
+        owl:onProperty tc:havingHazard ;
+        owl:someValuesFrom tc:Bank_robbery ] ;
+    rdfs:subClassOf [ a owl:Restriction ;
+        owl:onProperty tc:havingCriticalEvent ;
+        owl:someValuesFrom tc:Hostages ] ;
+    rdfs:subClassOf [ a owl:Restriction ;
+        owl:onProperty tc:havingPerformer ;
+        owl:someValuesFrom tc:Bank_customer ] ;
+    rdfs:subClassOf [ a owl:Restriction ;
+        owl:onProperty tc:isVulnerableTo ;
+        owl:someValuesFrom tc:Poor_surveillance ] ;
+    rdfs:subClassOf [ a owl:Restriction ;
+        owl:onProperty tc:isVulnerableTo ;
+        owl:someValuesFrom tc:Bank_in_isolated_area ] .
+
+#
+# System_aspect reale che usa havingVulnerability (idioma reale: il POI usa
+# isVulnerableTo, il System_aspect usa havingVulnerability)
+#
+tc:Bank_branch a owl:Class ;
+    rdfs:subClassOf tc:System_aspect ;
+    rdfs:subClassOf [ a owl:Restriction ;
+        owl:onProperty tc:havingVulnerability ;
+        owl:someValuesFrom tc:Poor_surveillance ] .
+
+#
+# POI 2 - Archaeological_site (esempio atteso da #76: Terrorist_attack /
+# Theft_of_ancient_artifacts; isVulnerableTo come property secondaria)
+#
+tc:Archaeological_site a owl:Class ;
+    rdfs:subClassOf tc:System ;
+    rdfs:subClassOf [ a owl:Restriction ;
+        owl:onProperty tc:havingHazard ;
+        owl:someValuesFrom tc:Terrorist_attack ] ;
+    rdfs:subClassOf [ a owl:Restriction ;
+        owl:onProperty tc:havingHazard ;
+        owl:someValuesFrom tc:Theft_of_ancient_artifacts ] ;
+    rdfs:subClassOf [ a owl:Restriction ;
+        owl:onProperty tc:havingPerformer ;
+        owl:someValuesFrom tc:Visitor ] ;
+    rdfs:subClassOf [ a owl:Restriction ;
+        owl:onProperty tc:isVulnerableTo ;
+        owl:someValuesFrom tc:Archaeological_site_in_isolated_area ] .
+
+#
+# POI 3 - Petrol_station (home reale di Banknote_acceptor_theft)
+#
+tc:Petrol_station a owl:Class ;
+    rdfs:subClassOf tc:System ;
+    rdfs:subClassOf [ a owl:Restriction ;
+        owl:onProperty tc:havingHazard ;
+        owl:someValuesFrom tc:Banknote_acceptor_theft ] .
