@@ -9,7 +9,9 @@ from crime_risk_analyzer.models.risk import PoiRiskProfile
 from crime_risk_analyzer.orchestrator import (
     _build_poi_list,  # pyright: ignore[reportPrivateUsage]
     _risk_models_from_grounded,  # pyright: ignore[reportPrivateUsage]
+    _structured_response,  # pyright: ignore[reportPrivateUsage]
     run_analysis,
+    run_baseline,
 )
 from crime_risk_analyzer.overpass_client import Poi
 
@@ -165,6 +167,33 @@ def test_risk_models_from_grounded() -> None:
     assert models[1].risks == []
 
 
+def test_structured_response_no_llm() -> None:
+    grounded = {
+        "zona": "Centro",
+        "validated_risks": [_vr("Banca A", "Bank", ["Bank_robbery"])],
+        "confidence_summary": {"confermato": 1, "plausibile": 0, "speculativo": 0},
+    }
+    poi_out = _build_poi_list(
+        {"pois": [_poi("1", "Banca A", "Bank")]},  # type: ignore[arg-type]
+        grounded,  # type: ignore[arg-type]
+    )
+    resp = _structured_response(
+        "Roma",
+        "Centro",
+        poi_out,
+        grounded,  # type: ignore[arg-type]
+        latenza_ms=5,
+        fallback=False,
+    )
+    assert resp.narrativa == ""
+    assert resp.llm_used == ""
+    assert resp.cache_hit is False
+    assert resp.fallback is False
+    assert resp.repro.prompt_hash == ""
+    assert resp.risk_models[0].risks[0].hazard == "Bank_robbery"
+    assert resp.confidence_summary.confermato == 1
+
+
 async def test_run_analysis_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_io(monkeypatch)
     resp = await run_analysis(
@@ -213,3 +242,17 @@ async def test_run_analysis_zero_pois(monkeypatch: pytest.MonkeyPatch) -> None:
     assert resp.confidence_summary.plausibile == 0
     assert resp.confidence_summary.speculativo == 0
     assert resp.fallback is False
+
+
+async def test_run_baseline_no_llm(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_io(monkeypatch)
+    resp = await run_baseline(
+        "Roma", "Centro", executor=_FakeProfiler({"Bank": _BANK_PROFILE})
+    )
+    assert resp.fallback is False
+    assert resp.narrativa == ""
+    assert resp.llm_used == ""
+    assert [m.poi for m in resp.risk_models] == ["Banca A"]
+    assert resp.risk_models[0].risks[0].hazard == "Bank_robbery"
+    assert resp.confidence_summary.confermato == 1
+    assert resp.latenza_ms >= 0

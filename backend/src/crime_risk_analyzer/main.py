@@ -21,7 +21,9 @@ from crime_risk_analyzer.ontology import get_ontology
 from crime_risk_analyzer.orchestrator import (
     AnalyzeRequest,
     AnalyzeResponse,
+    BaselineRequest,
     run_analysis,
+    run_baseline,
 )
 from crime_risk_analyzer.sparql_module.query_executor import (
     RiskQueryExecutor,
@@ -82,6 +84,21 @@ async def analyze(
         executor=executor,
         llm_client=llm_client,
     )
+
+
+@router.post("/analyze/baseline")
+async def analyze_baseline(
+    request: BaselineRequest,
+    settings: Annotated[Settings, Depends(get_settings)],
+    executor: Annotated[RiskQueryExecutor, Depends(get_executor)],
+) -> AnalyzeResponse:
+    """Variante senza LLM per l'ablation: solo dati strutturati dal grounding.
+
+    ``tipo_poi`` e' accettato ma ignorato server-side (filtro lato FE).
+    """
+    if request.citta not in settings.supported_cities:
+        raise CityNotFoundError(request.citta, supported=settings.supported_cities)
+    return await run_baseline(request.citta, request.zona, executor=executor)
 
 
 @asynccontextmanager
