@@ -14,7 +14,7 @@
       "schematics": {},
       "root": "",
       "sourceRoot": "src",
-      "prefix": "app",
+      "prefix": "cra",
       "architect": {
         "build": {
           "builder": "@angular/build:application",
@@ -30,6 +30,7 @@
                 "input": "public"
               }
             ],
+            "allowedCommonJsDependencies": ["leaflet"],
             "styles": [
               "node_modules/leaflet/dist/leaflet.css",
               "src/styles.css"
