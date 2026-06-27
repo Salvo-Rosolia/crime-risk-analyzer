@@ -32,7 +32,7 @@ async def test_fetch_pois_maps_contract_fields() -> None:
         return_value=httpx.Response(200, json=_sample())
     )
 
-    pois = await fetch_pois(_BBOX, "Roma", ["amenity", "tourism", "railway"])
+    pois = await fetch_pois(_BBOX, "Roma")
 
     bank = next(p for p in pois if p["id"] == "1001")
     assert bank == {
@@ -53,7 +53,7 @@ async def test_fetch_pois_enriches_terminus_class() -> None:
         return_value=httpx.Response(200, json=_sample())
     )
 
-    pois = await fetch_pois(_BBOX, "Roma", ["amenity", "tourism", "railway"])
+    pois = await fetch_pois(_BBOX, "Roma")
     by_id = {p["id"]: p for p in pois}
 
     assert by_id["1002"]["terminus_class"] == "Museum"
@@ -68,7 +68,7 @@ async def test_fetch_pois_uses_way_center_and_skips_untagged() -> None:
         return_value=httpx.Response(200, json=_sample())
     )
 
-    pois = await fetch_pois(_BBOX, "Roma", ["amenity", "tourism", "railway"])
+    pois = await fetch_pois(_BBOX, "Roma")
     by_id = {p["id"]: p for p in pois}
 
     assert "1004" not in by_id  # nodo senza tag scartato
@@ -93,7 +93,7 @@ async def test_fetch_pois_caps_at_max() -> None:
         return_value=httpx.Response(200, json={"elements": elements})
     )
 
-    pois = await fetch_pois(_BBOX, "Roma", ["amenity"])
+    pois = await fetch_pois(_BBOX, "Roma")
 
     assert len(pois) == MAX_POIS
 
@@ -108,7 +108,7 @@ async def test_fetch_pois_retries_once_then_succeeds() -> None:
         ]
     )
 
-    pois = await fetch_pois(_BBOX, "Roma", ["amenity"])
+    pois = await fetch_pois(_BBOX, "Roma")
 
     assert route.call_count == 2
     assert len(pois) > 0
@@ -120,7 +120,7 @@ async def test_fetch_pois_raises_after_retry_exhausted() -> None:
     respx.post(DEFAULT_OVERPASS_URL).mock(side_effect=httpx.TimeoutException("slow"))
 
     with pytest.raises(OverpassError):
-        await fetch_pois(_BBOX, "Roma", ["amenity"])
+        await fetch_pois(_BBOX, "Roma")
 
 
 @respx.mock
@@ -131,22 +131,23 @@ async def test_fetch_pois_raises_on_http_error() -> None:
     )
 
     with pytest.raises(OverpassError):
-        await fetch_pois(_BBOX, "Roma", ["amenity"])
+        await fetch_pois(_BBOX, "Roma")
 
 
 @respx.mock
-async def test_fetch_pois_query_contains_bbox_and_tags() -> None:
-    """La query Overpass inviata contiene il bbox e i tag richiesti."""
+async def test_fetch_pois_query_uses_key_value_selectors_and_caps() -> None:
+    """La query usa selettori k=v con un cap 'out center' per-selettore."""
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(200, json={"elements": []})
     )
 
-    await fetch_pois(_BBOX, "Roma", ["amenity", "tourism"])
+    await fetch_pois(_BBOX, "Roma", ["amenity=bank", "tourism=museum"])
 
     body = route.calls.last.request.content.decode()
     assert "41.88,12.48,41.9,12.5" in body
-    assert '"amenity"' in body
-    assert '"tourism"' in body
+    assert 'node["amenity"="bank"]' in body
+    assert 'way["tourism"="museum"]' in body
+    assert "out center 5" in body
 
 
 @respx.mock
@@ -155,7 +156,7 @@ async def test_fetch_pois_raises_on_network_error() -> None:
     respx.post(DEFAULT_OVERPASS_URL).mock(side_effect=httpx.ConnectError("refused"))
 
     with pytest.raises(OverpassError):
-        await fetch_pois(_BBOX, "Roma", ["amenity"])
+        await fetch_pois(_BBOX, "Roma")
 
 
 @respx.mock
@@ -166,7 +167,7 @@ async def test_fetch_pois_raises_on_invalid_json() -> None:
     )
 
     with pytest.raises(OverpassError):
-        await fetch_pois(_BBOX, "Roma", ["amenity"])
+        await fetch_pois(_BBOX, "Roma")
 
 
 # --- parsing edge case (esercitati via API pubblica) ---
@@ -190,7 +191,7 @@ async def test_fetch_pois_tag_priority_amenity_over_shop() -> None:
         return_value=httpx.Response(200, json=payload)
     )
 
-    pois = await fetch_pois(_BBOX, "Roma", ["amenity"])
+    pois = await fetch_pois(_BBOX, "Roma")
 
     assert pois[0]["osm_tags"] == "amenity=bank"
     assert pois[0]["terminus_class"] == "Bank"
@@ -214,7 +215,7 @@ async def test_fetch_pois_unknown_tag_yields_generic() -> None:
         return_value=httpx.Response(200, json=payload)
     )
 
-    pois = await fetch_pois(_BBOX, "Roma", ["leisure"])
+    pois = await fetch_pois(_BBOX, "Roma")
 
     assert pois[0]["osm_tags"] == ""
     assert pois[0]["terminus_class"] == "GenericUrbanPOI"
@@ -232,7 +233,7 @@ async def test_fetch_pois_element_without_coords_or_center_is_skipped() -> None:
         return_value=httpx.Response(200, json=payload)
     )
 
-    assert await fetch_pois(_BBOX, "Roma", ["amenity"]) == []
+    assert await fetch_pois(_BBOX, "Roma") == []
 
 
 @respx.mock
@@ -252,7 +253,7 @@ async def test_fetch_pois_way_without_coords_is_skipped() -> None:
         return_value=httpx.Response(200, json=payload)
     )
 
-    assert await fetch_pois(_BBOX, "Roma", ["amenity"]) == []
+    assert await fetch_pois(_BBOX, "Roma") == []
 
 
 @respx.mock
@@ -261,7 +262,7 @@ async def test_fetch_pois_payload_not_object_raises() -> None:
     respx.post(DEFAULT_OVERPASS_URL).mock(return_value=httpx.Response(200, json=["x"]))
 
     with pytest.raises(OverpassError):
-        await fetch_pois(_BBOX, "Roma", ["amenity"])
+        await fetch_pois(_BBOX, "Roma")
 
 
 @respx.mock
@@ -272,7 +273,7 @@ async def test_fetch_pois_missing_elements_raises() -> None:
     )
 
     with pytest.raises(OverpassError):
-        await fetch_pois(_BBOX, "Roma", ["amenity"])
+        await fetch_pois(_BBOX, "Roma")
 
 
 @respx.mock
@@ -294,7 +295,7 @@ async def test_fetch_pois_skips_non_dict_elements() -> None:
         return_value=httpx.Response(200, json=payload)
     )
 
-    pois = await fetch_pois(_BBOX, "Roma", ["amenity"])
+    pois = await fetch_pois(_BBOX, "Roma")
     assert len(pois) == 1
     assert pois[0]["id"] == "1"
 
@@ -303,6 +304,6 @@ async def test_fetch_pois_skips_non_dict_elements() -> None:
 async def test_fetch_pois_integration_real_overpass() -> None:
     """Integrazione reale con Overpass (skip di default; -m integration per girarlo)."""
     pois = await fetch_pois(
-        Bbox(41.889, 12.490, 41.892, 12.494), "Roma", ["amenity", "tourism"]
+        Bbox(41.889, 12.490, 41.892, 12.494), "Roma", ["amenity=bank", "tourism=museum"]
     )
     assert isinstance(pois, list)

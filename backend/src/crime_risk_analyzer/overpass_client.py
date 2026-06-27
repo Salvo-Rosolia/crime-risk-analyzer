@@ -20,15 +20,23 @@ from typing import TypedDict, cast
 import httpx
 
 from crime_risk_analyzer.models.geo import Bbox
-from crime_risk_analyzer.sparql_module.osm_mapping import map_to_terminus
+from crime_risk_analyzer.sparql_module.osm_mapping import (
+    OSM_SELECTORS,
+    map_to_terminus,
+)
 
-__all__ = ["Bbox", "MAX_POIS", "OverpassError", "Poi", "fetch_pois"]
+__all__ = ["Bbox", "MAX_POIS", "OverpassError", "PER_SELECTOR_CAP", "Poi", "fetch_pois"]
 
 #: Endpoint Overpass di default (override possibile via parametro).
 DEFAULT_OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 
 #: Numero massimo di POI restituiti per richiesta (orchestrator.md / retrieval.md).
 MAX_POIS = 50
+
+#: Cap di elementi restituiti da Overpass PER selettore: evita che selettori densi
+#: (es. highway=bus_stop, amenity=place_of_worship) monopolizzino il budget affamando
+#: le classi rare. La curatela finale/bilanciata e' dell'orchestrator (#79).
+PER_SELECTOR_CAP = 5
 
 #: Timeout (secondi) del primo tentativo e del retry esteso.
 _TIMEOUT_S = 30.0
@@ -51,19 +59,24 @@ class OverpassError(RuntimeError):
     """Overpass non raggiungibile o risposta non valida (mappabile a 503)."""
 
 
-def _build_query(bbox: Bbox, osm_keys: Sequence[str]) -> str:
-    """Costruisce la query Overpass QL per i ``osm_keys`` dentro ``bbox``.
+def _build_query(bbox: Bbox, osm_selectors: Sequence[str]) -> str:
+    """Costruisce la query Overpass QL per i selettori ``key=value`` dentro ``bbox``.
 
-    Overpass usa il bbox nell'ordine ``(south, west, north, east)`` ==
-    ``(lat_min, lon_min, lat_max, lon_max)``. Si interrogano sia ``node`` che
-    ``way`` (con ``out center`` per ottenere un centroide).
+    Ogni selettore ``k=v`` emette un blocco unione node+way seguito da un
+    ``out center PER_SELECTOR_CAP`` locale: cosi' nessun selettore denso satura il
+    risultato. Bbox nell'ordine ``(south, west, north, east)``.
     """
     lat_min, lon_min, lat_max, lon_max = bbox
     bbox_str = f"{lat_min},{lon_min},{lat_max},{lon_max}"
-    selectors = "\n".join(
-        f'  node["{key}"]({bbox_str});\n  way["{key}"]({bbox_str});' for key in osm_keys
-    )
-    return f"[out:json][timeout:25];\n(\n{selectors}\n);\nout center {MAX_POIS};"
+    blocks: list[str] = []
+    for selector in osm_selectors:
+        key, _, value = selector.partition("=")
+        blocks.append(
+            f'(\n  node["{key}"="{value}"]({bbox_str});\n'
+            f'  way["{key}"="{value}"]({bbox_str});\n);\n'
+            f"out center {PER_SELECTOR_CAP};"
+        )
+    return "[out:json][timeout:25];\n" + "\n".join(blocks)
 
 
 def _extract_osm_tag(tags: Mapping[str, object]) -> str:
@@ -158,18 +171,18 @@ async def _post_query(
 async def fetch_pois(
     bbox: Bbox,
     citta: str,
-    osm_keys: Iterable[str],
+    osm_selectors: Iterable[str] = OSM_SELECTORS,
     *,
     overpass_url: str = DEFAULT_OVERPASS_URL,
 ) -> list[Poi]:
-    """Recupera i POI dentro ``bbox`` per le chiavi OSM ``osm_keys``.
+    """Recupera i POI dentro ``bbox`` per i selettori OSM ``osm_selectors``.
 
-    Arricchisce ogni POI con ``terminus_class`` (#13). In caso di timeout esegue
-    un solo retry con timeout esteso; se anche questo fallisce solleva
-    :class:`OverpassError`. Risposte non-2xx -> :class:`OverpassError`.
+    Default: l'intero binding canonico :data:`OSM_SELECTORS`. Arricchisce ogni POI
+    con ``terminus_class`` (#13). Un retry con timeout esteso; poi
+    :class:`OverpassError`.
     """
-    keys = list(osm_keys)
-    query = _build_query(bbox, keys)
+    selectors = list(osm_selectors)
+    query = _build_query(bbox, selectors)
 
     async with httpx.AsyncClient() as client:
         try:
