@@ -5,10 +5,10 @@ description = "Backend del Crime Risk Analyzer: API FastAPI, reasoning ontologic
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "anthropic>=0.111.0",
+    "anthropic>=0.112.0",
     "fastapi",
     "geopy>=2.4.1",
-    "groq>=1.4.0",
+    "groq>=1.5.0",
     "httpx>=0.28.1",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.2",
