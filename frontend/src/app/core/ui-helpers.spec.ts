@@ -44,8 +44,8 @@ describe('ui-helpers', () => {
 
   it('filterVisiblePOIs: null → copia, filtro → sottoinsieme, non muta', () => {
     const pois: Poi[] = [
-      { id: '1', name: 'a', terminus_class: 'x', lat: 0, lon: 0, confidence: 'confermato' },
-      { id: '2', name: 'b', terminus_class: 'x', lat: 0, lon: 0, confidence: 'plausibile' },
+      { id: '1', name: 'a', terminus_class: 'x', lat: 0, lon: 0, confidence: 'confermato', sparql_path: null },
+      { id: '2', name: 'b', terminus_class: 'x', lat: 0, lon: 0, confidence: 'plausibile', sparql_path: null },
     ];
     expect(filterVisiblePOIs(pois, null)).toHaveLength(2);
     expect(filterVisiblePOIs(pois, null)).not.toBe(pois);
