@@ -17,11 +17,12 @@ riproducibilita'.
 from __future__ import annotations
 
 import hashlib
+from functools import lru_cache
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
 
-from crime_risk_analyzer.config import Settings
+from crime_risk_analyzer.config import Settings, get_settings
 
 #: Versione esatta del modello Claude (non un alias) — generation.md §Riproducibilita'.
 CLAUDE_MODEL = "claude-sonnet-4-6"
@@ -285,3 +286,9 @@ def build_llm_client(settings: Settings) -> LLMClient:
     groq_client = AsyncGroq(api_key=settings.groq_api_key.get_secret_value())
     # Stessa ragione del ramo Claude: adattamento SDK->Protocol al confine.
     return LLMClient.for_groq(groq_client)  # pyright: ignore[reportArgumentType]
+
+
+@lru_cache
+def get_llm_client() -> LLMClient:
+    """Provider DI cached del client LLM costruito dal provider configurato."""
+    return build_llm_client(get_settings())

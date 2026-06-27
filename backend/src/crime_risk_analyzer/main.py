@@ -15,8 +15,18 @@ from pydantic import BaseModel
 from rdflib import Graph
 
 from crime_risk_analyzer.config import Settings, get_settings
-from crime_risk_analyzer.errors import register_exception_handlers
+from crime_risk_analyzer.errors import CityNotFoundError, register_exception_handlers
+from crime_risk_analyzer.llm.client import LLMClient, get_llm_client
 from crime_risk_analyzer.ontology import get_ontology
+from crime_risk_analyzer.orchestrator import (
+    AnalyzeRequest,
+    AnalyzeResponse,
+    run_analysis,
+)
+from crime_risk_analyzer.sparql_module.query_executor import (
+    RiskQueryExecutor,
+    get_executor,
+)
 
 
 class HealthResponse(BaseModel):
@@ -49,6 +59,29 @@ async def cities(settings: Annotated[Settings, Depends(get_settings)]) -> list[s
     centralizzata ed è iniettata via ``Depends`` (niente stato globale).
     """
     return settings.supported_cities
+
+
+@router.post("/analyze")
+async def analyze(
+    request: AnalyzeRequest,
+    settings: Annotated[Settings, Depends(get_settings)],
+    executor: Annotated[RiskQueryExecutor, Depends(get_executor)],
+    llm_client: Annotated[LLMClient, Depends(get_llm_client)],
+) -> AnalyzeResponse:
+    """Pipeline completa: geocoding -> OSM -> SPARQL -> grounding -> LLM -> JSON.
+
+    Valida la citta' (``CityNotFoundError`` -> 400). Gli altri errori di dominio
+    propagano agli handler centrali (#21); ``LLMError`` e' gestito in
+    :func:`run_analysis` come fallback strutturato (200).
+    """
+    if request.citta not in settings.supported_cities:
+        raise CityNotFoundError(request.citta, supported=settings.supported_cities)
+    return await run_analysis(
+        request.citta,
+        request.zona,
+        executor=executor,
+        llm_client=llm_client,
+    )
 
 
 @asynccontextmanager

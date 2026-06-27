@@ -1,0 +1,190 @@
+"""Test endpoint POST /analyze (#18)."""
+
+from __future__ import annotations
+
+from typing import cast
+
+import httpx
+import pytest
+from fastapi.testclient import TestClient
+
+from crime_risk_analyzer.geocoding import ZoneNotFoundError
+from crime_risk_analyzer.llm.client import LLMError, LLMResponse, get_llm_client
+from crime_risk_analyzer.main import create_app
+from crime_risk_analyzer.models.geo import Bbox
+from crime_risk_analyzer.models.risk import PoiRiskProfile
+from crime_risk_analyzer.overpass_client import OverpassError, Poi
+from crime_risk_analyzer.rag import retrieval
+from crime_risk_analyzer.sparql_module.query_executor import get_executor
+
+_BANK = PoiRiskProfile(
+    terminus_class="Bank",
+    hazards=["Bank_robbery"],
+    sparql_paths=["Bank → havingHazard → Bank_robbery"],
+)
+
+
+class _FakeProfiler:
+    def profile(self, terminus_class: str) -> PoiRiskProfile:
+        profiles = {"Bank": _BANK}
+        return profiles.get(
+            terminus_class, PoiRiskProfile(terminus_class=terminus_class)
+        )
+
+
+class _FakeLLMClient:
+    async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
+        return LLMResponse(
+            text="Analisi: rischio rapina.",
+            llm_used="claude-sonnet-4-6",
+            tokens_input=5,
+            tokens_output=8,
+            cache_hit=False,
+            temperature=0.2,
+            seed=42,
+            prompt_hash="h",
+        )
+
+
+class _RaisingLLMClient:
+    async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
+        raise LLMError("provider giu'")
+
+
+def _pois(citta: str) -> list[Poi]:
+    return [
+        {
+            "id": "1",
+            "name": "Banca A",
+            "lat": 41.89,
+            "lon": 12.49,
+            "osm_tags": "amenity=bank",
+            "terminus_class": "Bank",
+            "citta": citta,
+        },
+        {
+            "id": "2",
+            "name": "Bar Roma",
+            "lat": 41.90,
+            "lon": 12.50,
+            "osm_tags": "amenity=bar",
+            "terminus_class": "GenericUrbanPOI",
+            "citta": citta,
+        },
+    ]
+
+
+def _patch_io(monkeypatch: pytest.MonkeyPatch) -> None:
+    geo: dict[str, object] = {
+        "lat": 41.89,
+        "lon": 12.49,
+        "bbox": Bbox(41.88, 12.48, 41.90, 12.50),
+    }
+
+    def _fake_geocode(zona: str, citta: str) -> dict[str, object]:
+        return geo
+
+    async def _fake_fetch(
+        bbox: object, citta: str, *args: object, **kwargs: object
+    ) -> list[Poi]:
+        return _pois(citta)
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode)
+    monkeypatch.setattr(retrieval, "fetch_pois", _fake_fetch)
+
+
+def _client(llm: object = None) -> TestClient:
+    app = create_app()
+    app.dependency_overrides[get_executor] = lambda: _FakeProfiler()
+    app.dependency_overrides[get_llm_client] = lambda: llm or _FakeLLMClient()
+    return TestClient(app, raise_server_exceptions=False)
+
+
+def test_analyze_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_io(monkeypatch)
+    resp = cast(
+        httpx.Response,
+        _client().post("/analyze", json={"citta": "Roma", "zona": "Centro"}),  # pyright: ignore[reportUnknownMemberType]
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["citta"] == "Roma"
+    assert body["zona_normalizzata"] == "Centro"
+    assert body["fallback"] is False
+    assert body["narrativa"].startswith("Analisi:")
+    assert [p["confidence"] for p in body["poi"]] == ["confermato", "speculativo"]
+
+
+def test_analyze_city_not_supported() -> None:
+    resp = cast(
+        httpx.Response,
+        _client().post("/analyze", json={"citta": "Atlantide", "zona": "X"}),  # pyright: ignore[reportUnknownMemberType]
+    )
+    assert resp.status_code == 400
+    detail = resp.json()["detail"]
+    assert detail["errore"] == "citta_non_supportata"
+    assert "Roma" in detail["citta_supportate"]
+
+
+def test_analyze_zone_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _raise(zona: str, citta: str) -> dict[str, object]:
+        raise ZoneNotFoundError("zona ignota")
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _raise)
+    resp = cast(
+        httpx.Response,
+        _client().post("/analyze", json={"citta": "Roma", "zona": "Nessundove"}),  # pyright: ignore[reportUnknownMemberType]
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"]["errore"] == "zona_non_geocodificabile"
+
+
+def test_analyze_overpass_down(monkeypatch: pytest.MonkeyPatch) -> None:
+    geo: dict[str, object] = {
+        "lat": 41.89,
+        "lon": 12.49,
+        "bbox": Bbox(41.88, 12.48, 41.90, 12.50),
+    }
+
+    def _fake_geocode(zona: str, citta: str) -> dict[str, object]:
+        return geo
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode)
+
+    async def _raise_fetch(*args: object, **kwargs: object) -> list[Poi]:
+        raise OverpassError("overpass giu'")
+
+    monkeypatch.setattr(retrieval, "fetch_pois", _raise_fetch)
+    resp = cast(
+        httpx.Response,
+        _client().post("/analyze", json={"citta": "Roma", "zona": "Centro"}),  # pyright: ignore[reportUnknownMemberType]
+    )
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["errore"] == "overpass_non_disponibile"
+
+
+def test_analyze_llm_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_io(monkeypatch)
+    resp = cast(
+        httpx.Response,
+        _client(llm=_RaisingLLMClient()).post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze", json={"citta": "Roma", "zona": "Centro"}
+        ),
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["fallback"] is True
+    assert body["narrativa"] == ""
+    assert body["risk_models"][0]["poi"] == "Banca A"
+
+
+def test_analyze_accepts_domanda(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_io(monkeypatch)
+    resp = cast(
+        httpx.Response,
+        _client().post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze",
+            json={"citta": "Roma", "zona": "Centro", "domanda": "Quali rischi?"},
+        ),
+    )
+    assert resp.status_code == 200

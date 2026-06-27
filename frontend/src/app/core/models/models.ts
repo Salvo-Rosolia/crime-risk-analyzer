@@ -8,7 +8,7 @@ export interface Poi {
   lat: number;
   lon: number;
   confidence: Confidence;
-  sparql_path?: string;
+  sparql_path: string | null;
 }
 
 export interface RiskItem { hazard: string; confidence: Confidence; tag: SourceTag; }
@@ -17,19 +17,20 @@ export interface ConfidenceSummary { confermato: number; plausibile: number; spe
 export interface Repro { temperature: number; seed: number; prompt_hash: string; }
 
 export interface AnalyzeResponse {
-  città: string;
+  citta: string;
   zona_normalizzata: string;
   poi: Poi[];
   risk_models: RiskModel[];
   narrativa: string;
   confidence_summary: ConfidenceSummary;
-  llm_used?: string;
-  latenza_ms?: number;
-  repro?: Repro;
-  cache_hit?: boolean;
+  llm_used: string;
+  latenza_ms: number;
+  repro: Repro;
+  cache_hit: boolean;
+  fallback: boolean;
 }
 
-export interface BaselineParams { tipo_poi?: string; città?: string; zona?: string; }
+export interface BaselineParams { tipo_poi?: string; citta?: string; zona?: string; }
 
 export type Screen = 'INPUT' | 'LOADING' | 'RESULTS' | 'DETAIL' | 'ERROR' | 'FILTER' | 'BASE';
 export type Mode = 'completo' | 'base';

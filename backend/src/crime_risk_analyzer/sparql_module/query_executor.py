@@ -35,14 +35,17 @@ consumato dal grounding per il tag ``[ONTOLOGIA]``.
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 from rdflib import Graph, URIRef
 from rdflib.namespace import RDFS
 from rdflib.plugins.sparql import prepareQuery
 
 from crime_risk_analyzer.models.risk import PoiRiskProfile
+from crime_risk_analyzer.ontology import get_ontology
 from crime_risk_analyzer.ontology_namespaces import TERMINUS
 
-__all__ = ["PoiRiskProfile", "RiskQueryExecutor"]
+__all__ = ["PoiRiskProfile", "RiskQueryExecutor", "get_executor"]
 
 #: Le quattro object property TERMINUS che legano un POI ai suoi rischi. La
 #: vulnerabilita' usa DUE property: ``isVulnerableTo`` a livello POI/System e
@@ -181,3 +184,9 @@ class RiskQueryExecutor:
             stakeholders=stakeholders,
             sparql_paths=sparql_paths,
         )
+
+
+@lru_cache
+def get_executor() -> RiskQueryExecutor:
+    """Provider DI cached dell'executor SPARQL (singleton sul grafo cached)."""
+    return RiskQueryExecutor(get_ontology())

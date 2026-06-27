@@ -4,8 +4,11 @@ import { StateStore } from '@core/state/state.store';
 import { AnalyzeResponse } from '@core/models/models';
 
 const data: AnalyzeResponse = {
-  città: 'Roma', zona_normalizzata: 'Colosseo', poi: [], risk_models: [],
+  citta: 'Roma', zona_normalizzata: 'Colosseo', poi: [], risk_models: [],
   narrativa: '', confidence_summary: { confermato: 0, plausibile: 0, speculativo: 0 },
+  llm_used: 'test-model', latenza_ms: 0,
+  repro: { temperature: 0.2, seed: 0, prompt_hash: 'x' },
+  cache_hit: false, fallback: false,
 };
 
 describe('StateStore', () => {
@@ -49,8 +52,8 @@ describe('StateStore', () => {
 
   it('startBaselineAnalysis success → LOAD_SUCCESS', async () => {
     api.analyzeBaseline.mockResolvedValue(data);
-    await store.startBaselineAnalysis({ città: 'Roma' });
-    expect(api.analyzeBaseline).toHaveBeenCalledWith({ città: 'Roma' });
+    await store.startBaselineAnalysis({ citta: 'Roma' });
+    expect(api.analyzeBaseline).toHaveBeenCalledWith({ citta: 'Roma' });
     expect(store.data()).toBe(data);
   });
 
