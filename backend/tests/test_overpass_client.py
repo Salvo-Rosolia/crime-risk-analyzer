@@ -58,7 +58,7 @@ async def test_fetch_pois_enriches_terminus_class() -> None:
 
     assert by_id["1002"]["terminus_class"] == "Museum"
     assert by_id["1003"]["terminus_class"] == "GenericUrbanPOI"
-    assert by_id["2001"]["terminus_class"] == "RailwayStation"
+    assert by_id["2001"]["terminus_class"] == "Railway_station"
 
 
 @respx.mock
