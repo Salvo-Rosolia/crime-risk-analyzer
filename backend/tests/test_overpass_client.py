@@ -202,6 +202,32 @@ async def test_fetch_pois_tag_priority_amenity_over_shop() -> None:
 
 
 @respx.mock
+async def test_fetch_pois_picks_first_mapped_selector_not_first_present() -> None:
+    """Un tag a priorita' alta ma NON mappato non vince: si sceglie il primo mappato."""
+    payload = {
+        "elements": [
+            {
+                "type": "node",
+                "id": 11,
+                "lat": 41.0,
+                "lon": 12.0,
+                "tags": {"amenity": "bar", "building": "warehouse", "name": "Deposito"},
+            }
+        ]
+    }
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json=payload)
+    )
+
+    pois = await fetch_pois(_BBOX, "Roma")
+
+    # amenity=bar e' presente e a priorita' piu' alta ma NON e' nel dict -> si salta;
+    # building=warehouse e' mappato -> vince.
+    assert pois[0]["osm_tags"] == "building=warehouse"
+    assert pois[0]["terminus_class"] == "Warehouse"
+
+
+@respx.mock
 async def test_fetch_pois_unknown_tag_yields_generic() -> None:
     """Elemento con soli tag non mappati -> osm_tags vuoto e GenericUrbanPOI."""
     payload = {

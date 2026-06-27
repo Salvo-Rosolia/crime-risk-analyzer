@@ -21,7 +21,9 @@ import httpx
 
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.sparql_module.osm_mapping import (
+    ORDINE_FAMIGLIE,
     OSM_SELECTORS,
+    OSM_TO_TERMINUS,
     map_to_terminus,
 )
 
@@ -80,15 +82,19 @@ def _build_query(bbox: Bbox, osm_selectors: Sequence[str]) -> str:
 
 
 def _extract_osm_tag(tags: Mapping[str, object]) -> str:
-    """Estrae il tag rappresentativo ``chiave=valore`` da ``tags`` OSM.
+    """Estrae il selettore rappresentativo ``chiave=valore`` da ``tags`` OSM.
 
-    Preferisce le chiavi che alimentano il mapping TERMINUS, nell'ordine di
-    priorita' usato dalle spec. Ritorna stringa vuota se nessuna e' presente.
+    Itera le famiglie in :data:`ORDINE_FAMIGLIE` (priorita') e ritorna il PRIMO
+    ``key=value`` che esiste nel binding :data:`OSM_TO_TERMINUS`. Cosi' un POI
+    multi-tag e' classificato dal tag effettivamente mappato e non da un tag spurio
+    a priorita' piu' alta. Ritorna stringa vuota se nessun tag noto e' presente.
     """
-    for key in ("amenity", "tourism", "railway", "aeroway", "shop"):
-        value = tags.get(key)
+    for family in ORDINE_FAMIGLIE:
+        value = tags.get(family)
         if isinstance(value, str):
-            return f"{key}={value}"
+            selector = f"{family}={value}"
+            if selector in OSM_TO_TERMINUS:
+                return selector
     return ""
 
 
