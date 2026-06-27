@@ -2,10 +2,13 @@ import { initialState, transition } from '@core/state/transition';
 import { AnalyzeResponse, AppState } from '@core/models/models';
 
 const data: AnalyzeResponse = {
-  città: 'Roma', zona_normalizzata: 'Colosseo', poi: [
-    { id: '1', name: 'A', terminus_class: 'x', lat: 0, lon: 0, confidence: 'confermato' },
-    { id: '2', name: 'B', terminus_class: 'x', lat: 0, lon: 0, confidence: 'plausibile' },
+  citta: 'Roma', zona_normalizzata: 'Colosseo', poi: [
+    { id: '1', name: 'A', terminus_class: 'x', lat: 0, lon: 0, confidence: 'confermato', sparql_path: null },
+    { id: '2', name: 'B', terminus_class: 'x', lat: 0, lon: 0, confidence: 'plausibile', sparql_path: null },
   ], risk_models: [], narrativa: '', confidence_summary: { confermato: 1, plausibile: 1, speculativo: 0 },
+  llm_used: 'test-model', latenza_ms: 0,
+  repro: { temperature: 0.2, seed: 0, prompt_hash: 'x' },
+  cache_hit: false, fallback: false,
 };
 
 describe('transition (FSM)', () => {

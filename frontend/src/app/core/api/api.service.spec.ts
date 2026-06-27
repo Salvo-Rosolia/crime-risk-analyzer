@@ -5,8 +5,11 @@ import { ApiService } from '@core/api/api.service';
 import { AnalyzeResponse } from '@core/models/models';
 
 const resp: AnalyzeResponse = {
-  città: 'Roma', zona_normalizzata: 'Colosseo', poi: [], risk_models: [],
+  citta: 'Roma', zona_normalizzata: 'Colosseo', poi: [], risk_models: [],
   narrativa: '', confidence_summary: { confermato: 0, plausibile: 0, speculativo: 0 },
+  llm_used: 'test-model', latenza_ms: 100,
+  repro: { temperature: 0.2, seed: 0, prompt_hash: 'x' },
+  cache_hit: false, fallback: false,
 };
 
 describe('ApiService', () => {
@@ -44,10 +47,10 @@ describe('ApiService', () => {
   });
 
   it('analyzeBaseline: POST /analyze/baseline con i parametri', async () => {
-    const p = api.analyzeBaseline({ città: 'Roma' });
+    const p = api.analyzeBaseline({ citta: 'Roma' });
     const req = http.expectOne('/analyze/baseline');
     expect(req.request.method).toBe('POST');
-    expect(req.request.body).toEqual({ città: 'Roma' });
+    expect(req.request.body).toEqual({ citta: 'Roma' });
     req.flush(resp);
     await p;
   });

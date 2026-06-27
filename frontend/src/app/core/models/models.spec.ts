@@ -3,7 +3,7 @@ import { Action, AnalyzeResponse, AppState, BaselineParams } from '@core/models/
 describe('models (contratto /analyze)', () => {
   it('un oggetto conforme alla fixture demo è assegnabile a AnalyzeResponse', () => {
     const sample: AnalyzeResponse = {
-      città: 'Roma',
+      citta: 'Roma',
       zona_normalizzata: 'Colosseo',
       poi: [{
         id: '1', name: 'Colosseo', terminus_class: 'ArchaeologicalSite',
@@ -16,6 +16,7 @@ describe('models (contratto /analyze)', () => {
       llm_used: 'claude-sonnet-4-6', latenza_ms: 2340,
       repro: { temperature: 0.2, seed: 42, prompt_hash: 'abc123' },
       cache_hit: true,
+      fallback: false,
     };
     expect(sample.poi[0].confidence).toBe('confermato');
   });
@@ -36,7 +37,7 @@ describe('models (contratto /analyze)', () => {
   });
 
   it('parametri baseline sono assegnabili a BaselineParams', () => {
-    const params: BaselineParams = { città: 'Roma', zona: 'Colosseo' };
-    expect(params.città).toBe('Roma');
+    const params: BaselineParams = { citta: 'Roma', zona: 'Colosseo' };
+    expect(params.citta).toBe('Roma');
   });
 });
