@@ -148,6 +148,10 @@ async def test_fetch_pois_query_uses_key_value_selectors_and_caps() -> None:
     assert 'node["amenity"="bank"]' in body
     assert 'way["tourism"="museum"]' in body
     assert "out center 5" in body
+    assert "[out:json][timeout:25]" in body
+    # un 'out center' per selettore: con 2 selettori devono essere
+    # esattamente 2 blocchi.
+    assert body.count("out center 5") == 2
 
 
 @respx.mock
