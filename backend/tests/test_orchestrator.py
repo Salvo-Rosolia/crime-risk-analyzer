@@ -256,3 +256,29 @@ async def test_run_baseline_no_llm(monkeypatch: pytest.MonkeyPatch) -> None:
     assert resp.risk_models[0].risks[0].hazard == "Bank_robbery"
     assert resp.confidence_summary.confermato == 1
     assert resp.latenza_ms >= 0
+
+
+async def test_run_analysis_exposes_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_io(monkeypatch)
+    resp = await run_analysis(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+        llm_client=_FakeLLMClient(_llm_response()),
+    )
+    assert resp.tokens_input == 10
+    assert resp.tokens_output == 20
+
+
+async def test_run_analysis_fallback_zero_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_io(monkeypatch)
+    resp = await run_analysis(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+        llm_client=_RaisingLLMClient(),
+    )
+    assert resp.tokens_input == 0
+    assert resp.tokens_output == 0

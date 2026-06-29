@@ -76,6 +76,16 @@ class AnalyzeResponse(BaseModel):
     confidence_summary: ConfidenceSummary
     llm_used: str
     latenza_ms: int = Field(ge=0)
+    tokens_input: int = Field(
+        default=0,
+        ge=0,
+        description="Token di input fatturati (0 in baseline/fallback).",
+    )
+    tokens_output: int = Field(
+        default=0,
+        ge=0,
+        description="Token di output generati (0 in baseline/fallback).",
+    )
     repro: Repro
     cache_hit: bool
     fallback: bool = Field(
@@ -183,7 +193,11 @@ async def run_analysis(
     poi_out = _build_poi_list(retrieval_ctx, grounded)
     try:
         gen = await generate_analysis(dict(grounded), llm_client)
+        tokens_input = gen.tokens_input
+        tokens_output = gen.tokens_output
     except LLMError:
+        tokens_input = 0
+        tokens_output = 0
         return _structured_response(
             citta, zona, poi_out, grounded, latenza_ms=_elapsed_ms(start), fallback=True
         )
@@ -196,6 +210,8 @@ async def run_analysis(
         confidence_summary=gen.confidence_summary,
         llm_used=gen.llm_used,
         latenza_ms=_elapsed_ms(start),
+        tokens_input=tokens_input,
+        tokens_output=tokens_output,
         repro=gen.repro,
         cache_hit=gen.cache_hit,
         fallback=False,
