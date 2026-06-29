@@ -14,6 +14,9 @@ from crime_risk_analyzer.orchestrator import (
     run_baseline,
 )
 from crime_risk_analyzer.overpass_client import Poi
+from tests.eval._doubles import FakeLLMClient as _FakeLLMClient
+from tests.eval._doubles import FakeProfiler as _FakeProfiler
+from tests.eval._doubles import default_llm_response as _llm_response
 
 
 def _poi(poi_id: str, name: str, terminus_class: str) -> dict[str, object]:
@@ -47,40 +50,9 @@ def _vr(poi: str, terminus_class: str, hazards: list[str]) -> dict[str, object]:
     }
 
 
-class _FakeProfiler:
-    def __init__(self, profiles: dict[str, PoiRiskProfile]) -> None:
-        self._profiles = profiles
-
-    def profile(self, terminus_class: str) -> PoiRiskProfile:
-        return self._profiles.get(
-            terminus_class, PoiRiskProfile(terminus_class=terminus_class)
-        )
-
-
-class _FakeLLMClient:
-    def __init__(self, response: LLMResponse) -> None:
-        self._response = response
-
-    async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
-        return self._response
-
-
 class _RaisingLLMClient:
     async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
         raise LLMError("provider giu'")
-
-
-def _llm_response() -> LLMResponse:
-    return LLMResponse(
-        text="Analisi: Banca A presenta rischio rapina.",
-        llm_used="claude-sonnet-4-6",
-        tokens_input=10,
-        tokens_output=20,
-        cache_hit=False,
-        temperature=0.2,
-        seed=42,
-        prompt_hash="abc123",
-    )
 
 
 def _patch_io(monkeypatch: pytest.MonkeyPatch, pois: list[Poi] | None = None) -> None:
