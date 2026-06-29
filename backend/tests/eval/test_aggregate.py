@@ -1,6 +1,11 @@
 from pathlib import Path
 
-from crime_risk_analyzer.eval.aggregate import load_runs, to_csv, to_markdown
+from crime_risk_analyzer.eval.aggregate import (
+    load_runs,
+    to_csv,
+    to_markdown,
+    write_tables,
+)
 from crime_risk_analyzer.eval.harness import write_record
 from crime_risk_analyzer.eval.schema import Metrics, Provenance, RunRecord, RunStatus
 
@@ -37,14 +42,17 @@ def test_load_runs_filters_by_experiment(tmp_path: Path) -> None:
     write_record(tmp_path, _rec("exp2__a", "exp2"))
     assert {r.experiment for r in load_runs(tmp_path, experiment="exp1")} == {"exp1"}
     assert len(load_runs(tmp_path)) == 2
+    assert load_runs(tmp_path / "nonexistent") == []
 
 
 def test_to_csv_has_header_and_row() -> None:
     csv = to_csv([_rec("r1", "exp")])
     lines = csv.strip().splitlines()
-    assert lines[0].startswith(
-        "run_id,citta,zona,mode,model_id,status,grounding,hallucination,latency_ms,cost_usd"
+    expected_header = (
+        "run_id,citta,zona,mode,model_id,status,"
+        "grounding,hallucination,latency_ms,cost_usd"
     )
+    assert lines[0] == expected_header
     assert "r1" in lines[1]
 
 
@@ -52,3 +60,14 @@ def test_markdown_flags_error(tmp_path: Path) -> None:
     md = to_markdown([_rec("r1", "exp", status=RunStatus.ERROR)])
     assert "error" in md
     assert "|" in md  # tabella markdown
+    assert "fallback" in to_markdown([_rec("r2", "exp", status=RunStatus.FALLBACK)])
+
+
+def test_write_tables_writes_csv_and_md(tmp_path: Path) -> None:
+    write_record(tmp_path, _rec("exp__a", "exp"))
+    csv_path, md_path = write_tables(tmp_path, "exp")
+    assert csv_path == tmp_path / "exp.csv"
+    assert md_path == tmp_path / "exp.md"
+    assert csv_path.exists() and md_path.exists()
+    assert "run_id" in csv_path.read_text(encoding="utf-8")
+    assert "exp__a" in csv_path.read_text(encoding="utf-8")
