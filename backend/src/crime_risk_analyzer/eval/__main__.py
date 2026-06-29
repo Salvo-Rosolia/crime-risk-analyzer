@@ -22,7 +22,8 @@ from crime_risk_analyzer.sparql_module.query_executor import get_executor
 async def _capture(config_path: Path, results_dir: Path) -> None:
     config = load_config(config_path)
     executor = get_executor()
-    llm_client = build_llm_eval_client()
+    # Build the client only when the mode requires it (fix T9: baseline needs no key).
+    llm_client = build_llm_eval_client(config) if config.mode != "baseline" else None
     for case in config.cases:
         run_id = make_run_id(
             config.name, case.citta, case.zona, config.mode, config.model
@@ -33,6 +34,7 @@ async def _capture(config_path: Path, results_dir: Path) -> None:
                 case.citta, case.zona, executor=executor, poi_source=source
             )
         else:
+            assert llm_client is not None  # narrowing: mode != baseline guarantees this
             await run_analysis(
                 case.citta,
                 case.zona,
@@ -44,10 +46,12 @@ async def _capture(config_path: Path, results_dir: Path) -> None:
 
 async def _run(config_path: Path, results_dir: Path) -> None:
     config = load_config(config_path)
+    # Build the client only when mode requires it (fix T9), using config.model (fix I1).
+    client = build_llm_eval_client(config) if config.mode != "baseline" else None
     await run_experiment(
         config,
         executor=get_executor(),
-        llm_client=build_llm_eval_client(),
+        llm_client=client,
         results_dir=results_dir,
         code_commit=code_commit(),
         ontology_hash=ontology_hash(),

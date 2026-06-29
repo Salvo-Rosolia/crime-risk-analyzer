@@ -351,3 +351,30 @@ def test_with_temperature_groq_preserves_provider_and_sdk() -> None:
 
     assert pinned.provider == "groq"
     assert pinned._groq is fake  # pyright: ignore[reportPrivateUsage]
+
+
+# --- (A) build_llm_client con provider override esplicito ---
+
+
+def test_build_llm_client_provider_override_groq_wins_over_settings() -> None:
+    """build_llm_client(settings, provider='groq') costruisce groq anche se
+    settings.llm_provider=='claude', purche' entrambe le chiavi siano presenti."""
+    s = _settings(llm_provider="claude")
+    client = build_llm_client(s, provider="groq")
+    assert client.provider == "groq"
+
+
+def test_build_llm_client_provider_override_claude_wins_over_settings() -> None:
+    """build_llm_client(settings, provider='claude') costruisce claude anche se
+    settings.llm_provider=='groq'."""
+    s = _settings(llm_provider="groq")
+    client = build_llm_client(s, provider="claude")
+    assert client.provider == "claude"
+
+
+def test_build_llm_client_provider_none_falls_back_to_settings() -> None:
+    """provider=None (default) usa settings.llm_provider — retrocompatibilita'."""
+    s_claude = _settings(llm_provider="claude")
+    s_groq = _settings(llm_provider="groq")
+    assert build_llm_client(s_claude).provider == "claude"
+    assert build_llm_client(s_groq).provider == "groq"

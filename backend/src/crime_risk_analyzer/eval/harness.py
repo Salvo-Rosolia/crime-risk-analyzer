@@ -125,15 +125,24 @@ async def run_case(
     config: ExperimentConfig,
     *,
     executor: RiskProfiler,
-    llm_client: _LLMClientLike,
+    llm_client: _LLMClientLike | None = None,
     results_dir: Path,
     code_commit: str,
     ontology_hash: str,
 ) -> RunRecord:
-    """Esegue un caso e ritorna il RunRecord (status=error su eccezione)."""
-    model_id = (
-        "baseline" if config.mode == "baseline" else _model_id_of(llm_client, config)
-    )
+    """Esegue un caso e ritorna il RunRecord (status=error su eccezione).
+
+    ``llm_client`` e' opzionale: richiesto solo per ``mode='analyze'``;
+    per ``mode='baseline'`` puo' essere ``None``.
+    Solleva :class:`ValueError` se ``mode='analyze'`` e ``llm_client is None``.
+    """
+    model_id: str
+    if config.mode == "baseline":
+        model_id = "baseline"
+    else:
+        if llm_client is None:
+            raise ValueError("llm_client required for mode=analyze")
+        model_id = _model_id_of(llm_client, config)
     run_id = make_run_id(config.name, case.citta, case.zona, config.mode, config.model)
     source = replay_source(snapshot_path(results_dir, run_id))
     try:
@@ -142,6 +151,7 @@ async def run_case(
                 case.citta, case.zona, executor=executor, poi_source=source
             )
         else:
+            assert llm_client is not None  # narrowing per pyright strict
             resp = await run_analysis(
                 case.citta,
                 case.zona,
@@ -173,12 +183,16 @@ async def run_experiment(
     config: ExperimentConfig,
     *,
     executor: RiskProfiler,
-    llm_client: _LLMClientLike,
+    llm_client: _LLMClientLike | None = None,
     results_dir: Path,
     code_commit: str,
     ontology_hash: str,
 ) -> list[RunRecord]:
-    """Esegue tutti i casi, scrive i JSON, ritorna i record."""
+    """Esegue tutti i casi, scrive i JSON, ritorna i record.
+
+    ``llm_client`` e' opzionale: puo' essere ``None`` per ``mode='baseline'``;
+    per ``mode='analyze'`` deve essere fornito (propagato a :func:`run_case`).
+    """
     records: list[RunRecord] = []
     for case in config.cases:
         record = await run_case(

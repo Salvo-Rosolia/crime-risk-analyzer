@@ -39,9 +39,16 @@ def ontology_hash() -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def build_llm_eval_client() -> LLMClient:
-    """Client LLM con temperature=0 per il determinismo nella pipeline eval."""
-    return build_llm_client(get_settings()).with_temperature(0.0, 0)
+def build_llm_eval_client(config: ExperimentConfig) -> LLMClient:
+    """Client LLM con temperature=0 per il determinismo nella pipeline eval.
+
+    Rispetta ``config.model`` come provider override, cosi' il ``run_id``
+    riporta il provider effettivamente usato (fix I1). Chiamare solo quando
+    ``config.mode != 'baseline'`` (fix T9): baseline non usa l'LLM.
+    """
+    return build_llm_client(get_settings(), provider=config.model).with_temperature(
+        0.0, 0
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:

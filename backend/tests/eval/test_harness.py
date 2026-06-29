@@ -71,6 +71,55 @@ async def test_run_experiment_writes_records(
     assert records[0].metrics.latency_ms >= 0
 
 
+async def test_run_experiment_baseline_no_llm_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """run_experiment con mode='baseline' e llm_client=None → status=ok (fix T9).
+
+    Baseline non chiama il provider LLM: passare None non deve fallire.
+    """
+    cfg = ExperimentConfig(
+        name="base",
+        mode="baseline",
+        model="claude",
+        cases=[RunCase(citta="Roma", zona="Centro")],
+    )
+    rid = make_run_id("base", "Roma", "Centro", "baseline", "claude")
+    from crime_risk_analyzer.eval.snapshots import save_snapshot
+
+    save_snapshot(
+        tmp_path / "snapshots" / f"{rid}.json",
+        [
+            {
+                "id": "1",
+                "name": "Banca A",
+                "lat": 41.0,
+                "lon": 12.0,
+                "osm_tags": "amenity=bank",
+                "terminus_class": "Bank",
+                "citta": "Roma",
+            }
+        ],
+    )  # type: ignore[arg-type]
+
+    from crime_risk_analyzer.rag import retrieval
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
+
+    from tests.eval._doubles import FakeProfiler
+
+    records = await run_experiment(
+        cfg,
+        executor=FakeProfiler(),
+        llm_client=None,
+        results_dir=tmp_path,
+        code_commit="abc",
+        ontology_hash="def",
+    )
+    assert len(records) == 1
+    assert records[0].status == RunStatus.OK
+
+
 async def test_run_experiment_error_isolation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
