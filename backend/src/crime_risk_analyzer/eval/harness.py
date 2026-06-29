@@ -15,7 +15,12 @@ from crime_risk_analyzer.eval.schema import (
     RunStatus,
 )
 from crime_risk_analyzer.eval.snapshots import replay_source, snapshot_path
-from crime_risk_analyzer.orchestrator import AnalyzeResponse, run_analysis, run_baseline
+from crime_risk_analyzer.orchestrator import (
+    AnalyzeResponse,
+    _LLMClientLike,  # pyright: ignore[reportPrivateUsage]
+    run_analysis,
+    run_baseline,
+)
 from crime_risk_analyzer.rag.retrieval import RiskProfiler
 
 
@@ -105,7 +110,7 @@ def _error_record(
     )
 
 
-def _model_id_of(llm_client: object, config: ExperimentConfig) -> str:
+def _model_id_of(llm_client: _LLMClientLike, config: ExperimentConfig) -> str:
     """Model id dal client se esposto (.model), altrimenti dal config."""
     model = getattr(llm_client, "model", None)
     if isinstance(model, str):
@@ -120,7 +125,7 @@ async def run_case(
     config: ExperimentConfig,
     *,
     executor: RiskProfiler,
-    llm_client: object,
+    llm_client: _LLMClientLike,
     results_dir: Path,
     code_commit: str,
     ontology_hash: str,
@@ -141,7 +146,7 @@ async def run_case(
                 case.citta,
                 case.zona,
                 executor=executor,
-                llm_client=llm_client,  # type: ignore[arg-type]
+                llm_client=llm_client,
                 poi_source=source,
             )
     except Exception:  # noqa: BLE001 — un caso rotto non blocca l'esperimento
@@ -168,7 +173,7 @@ async def run_experiment(
     config: ExperimentConfig,
     *,
     executor: RiskProfiler,
-    llm_client: object,
+    llm_client: _LLMClientLike,
     results_dir: Path,
     code_commit: str,
     ontology_hash: str,
