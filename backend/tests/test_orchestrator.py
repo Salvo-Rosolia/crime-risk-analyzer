@@ -282,3 +282,35 @@ async def test_run_analysis_fallback_zero_tokens(
     )
     assert resp.tokens_input == 0
     assert resp.tokens_output == 0
+
+
+async def test_run_analysis_accepts_poi_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    from crime_risk_analyzer.models.geo import Bbox
+    from crime_risk_analyzer.rag import retrieval
+
+    def _fake_geocode(zona: str, citta: str) -> dict[str, object]:
+        return {"lat": 41.89, "lon": 12.49, "bbox": Bbox(41.88, 12.48, 41.90, 12.50)}
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode)
+
+    async def src(bbox: object, citta: str) -> list[dict[str, object]]:
+        return [
+            {
+                "id": "1",
+                "name": "Banca A",
+                "lat": 41.89,
+                "lon": 12.49,
+                "osm_tags": "amenity=bank",
+                "terminus_class": "Bank",
+                "citta": "Roma",
+            }
+        ]
+
+    resp = await run_analysis(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+        llm_client=_FakeLLMClient(_llm_response()),
+        poi_source=src,  # type: ignore[arg-type]
+    )
+    assert [p.name for p in resp.poi] == ["Banca A"]

@@ -174,3 +174,43 @@ async def test_retrieve_context_has_exact_keys(
 
     assert set(ctx.keys()) == {"citta", "zona", "geo", "pois", "profiles", "stats"}
     assert set(ctx["stats"].keys()) == {"n_pois", "n_classes"}
+
+
+async def test_retrieve_uses_injected_poi_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from crime_risk_analyzer.models.geo import Bbox
+    from crime_risk_analyzer.rag import retrieval
+
+    def _fake_geocode(zona: str, citta: str) -> dict[str, object]:
+        return {"lat": 41.89, "lon": 12.49, "bbox": Bbox(41.88, 12.48, 41.90, 12.50)}
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode)
+    captured: list[str] = []
+
+    async def fake_source(bbox: object, citta: str) -> list[dict[str, object]]:
+        captured.append(citta)
+        return [
+            {
+                "id": "1",
+                "name": "Banca A",
+                "lat": 41.89,
+                "lon": 12.49,
+                "osm_tags": "amenity=bank",
+                "terminus_class": "Bank",
+                "citta": "Roma",
+            }
+        ]
+
+    class _Prof:
+        def profile(self, terminus_class: str) -> PoiRiskProfile:
+            return PoiRiskProfile(terminus_class=terminus_class)
+
+    ctx = await retrieval.retrieve(
+        "Roma",
+        "Centro",
+        executor=_Prof(),
+        poi_source=fake_source,  # type: ignore[arg-type]
+    )
+    assert captured == ["Roma"]
+    assert ctx["pois"][0]["name"] == "Banca A"

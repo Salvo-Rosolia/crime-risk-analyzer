@@ -18,15 +18,26 @@ Gli errori di dominio (:class:`ZoneNotFoundError`, :class:`GeocodingError`,
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Protocol, TypedDict
 
 from fastapi.concurrency import run_in_threadpool
 
 from crime_risk_analyzer.geocoding import GeoResult, geocode_zone
+from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.models.risk import PoiRiskProfile
 from crime_risk_analyzer.overpass_client import Poi, fetch_pois
 
-__all__ = ["RetrievalContext", "RetrievalStats", "RiskProfiler", "retrieve"]
+__all__ = [
+    "PoiSource",
+    "RetrievalContext",
+    "RetrievalStats",
+    "RiskProfiler",
+    "retrieve",
+]
+
+#: Sorgente POI iniettabile (capture-and-replay in eval). Default: Overpass live.
+PoiSource = Callable[[Bbox, str], Awaitable[list[Poi]]]
 
 
 class RiskProfiler(Protocol):
@@ -60,16 +71,24 @@ class RetrievalContext(TypedDict):
 
 
 async def retrieve(
-    citta: str, zona: str, *, executor: RiskProfiler
+    citta: str,
+    zona: str,
+    *,
+    executor: RiskProfiler,
+    poi_source: PoiSource | None = None,
 ) -> RetrievalContext:
     """Assembla il context_dict grezzo per ``zona`` dentro ``citta``.
 
     Caba geocoding -> Overpass -> profilo SPARQL per classe distinta. I POI senza
     rischi (``GenericUrbanPOI`` o profilo vuoto) sono inclusi; zona senza POI ->
     context con ``pois=[]`` senza errore. Gli errori di dominio sono propagati.
+
+    ``poi_source`` consente il capture-and-replay nell'harness di eval: se None
+    usa la sorgente live ``fetch_pois`` (Overpass).
     """
     geo = await run_in_threadpool(geocode_zone, zona, citta)
-    pois = await fetch_pois(geo["bbox"], citta)
+    source = poi_source or fetch_pois
+    pois = await source(geo["bbox"], citta)
     profiles: dict[str, PoiRiskProfile] = {
         terminus_class: executor.profile(terminus_class)
         for terminus_class in {poi["terminus_class"] for poi in pois}

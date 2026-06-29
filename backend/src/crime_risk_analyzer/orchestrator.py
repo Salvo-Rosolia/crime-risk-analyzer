@@ -24,7 +24,7 @@ from crime_risk_analyzer.rag.generation import (
     generate_analysis,
 )
 from crime_risk_analyzer.rag.grounding import GroundedContext, ground
-from crime_risk_analyzer.rag.retrieval import RetrievalContext, retrieve
+from crime_risk_analyzer.rag.retrieval import PoiSource, RetrievalContext, retrieve
 
 
 class AnalyzeRequest(BaseModel):
@@ -180,6 +180,7 @@ async def run_analysis(
     *,
     executor: RiskProfiler,
     llm_client: _LLMClientLike,
+    poi_source: PoiSource | None = None,
 ) -> AnalyzeResponse:
     """Esegue la pipeline completa e assembla la response canonica.
 
@@ -188,7 +189,9 @@ async def run_analysis(
     ``latenza_ms`` e' end-to-end sull'intera pipeline.
     """
     start = time.perf_counter()
-    retrieval_ctx = await retrieve(citta, zona, executor=executor)
+    retrieval_ctx = await retrieve(
+        citta, zona, executor=executor, poi_source=poi_source
+    )
     grounded = ground(retrieval_ctx)
     poi_out = _build_poi_list(retrieval_ctx, grounded)
     try:
@@ -219,11 +222,17 @@ async def run_analysis(
 
 
 async def run_baseline(
-    citta: str, zona: str, *, executor: RiskProfiler
+    citta: str,
+    zona: str,
+    *,
+    executor: RiskProfiler,
+    poi_source: PoiSource | None = None,
 ) -> AnalyzeResponse:
     """Pipeline baseline: retrieve -> ground -> serializza (NESSUN LLM)."""
     start = time.perf_counter()
-    retrieval_ctx = await retrieve(citta, zona, executor=executor)
+    retrieval_ctx = await retrieve(
+        citta, zona, executor=executor, poi_source=poi_source
+    )
     grounded = ground(retrieval_ctx)
     poi_out = _build_poi_list(retrieval_ctx, grounded)
     return _structured_response(
