@@ -1,5 +1,8 @@
+import pytest
+
 from crime_risk_analyzer.eval.metrics import (
     compute_metrics,
+    cost_usd_of,
     grounding,
     hallucination,
     latency_ms,
@@ -81,7 +84,7 @@ def test_latency_passthrough() -> None:
 
 def test_compute_metrics_cost() -> None:
     m = compute_metrics(_resp("[ONTOLOGIA] Banca A rischio.", tokens=(1_000_000, 0)))
-    assert m.cost_usd > 0
+    assert m.cost_usd == pytest.approx(3.0)
     assert 0.0 <= m.grounding <= 1.0
 
 
@@ -89,3 +92,10 @@ def test_empty_narrativa_is_vacuously_grounded() -> None:
     r = _resp("", tokens=(0, 0))
     assert grounding(r) == 1.0
     assert hallucination(r) == 0.0
+
+
+def test_cost_usd_of_zero_when_no_llm() -> None:
+    r = _resp("[ONTOLOGIA] Banca A rischio.", tokens=(1_000_000, 0)).model_copy(
+        update={"llm_used": ""}
+    )
+    assert cost_usd_of(r) == 0.0
