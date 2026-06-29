@@ -1,3 +1,5 @@
+import pytest
+
 from crime_risk_analyzer.eval.schema import (
     ExperimentConfig,
     Metrics,
@@ -34,13 +36,13 @@ def test_run_record_roundtrip() -> None:
         ),
     )
     dumped = rec.model_dump_json()
-    assert RunRecord.model_validate_json(dumped).run_id == rec.run_id
-    assert rec.annotazione_manuale is None
+    deserialized = RunRecord.model_validate_json(dumped)
+    assert deserialized.run_id == rec.run_id
+    assert deserialized.status is RunStatus.OK
+    assert deserialized.annotazione_manuale is None
 
 
 def test_metrics_bounds_validation() -> None:
-    import pytest
-
     with pytest.raises(ValueError):
         Metrics(grounding=1.5, hallucination=0.0, latency_ms=1, cost_usd=0.0)
 
