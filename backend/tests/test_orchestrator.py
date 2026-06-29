@@ -14,6 +14,9 @@ from crime_risk_analyzer.orchestrator import (
     run_baseline,
 )
 from crime_risk_analyzer.overpass_client import Poi
+from tests.eval._doubles import FakeLLMClient as _FakeLLMClient
+from tests.eval._doubles import FakeProfiler as _FakeProfiler
+from tests.eval._doubles import default_llm_response as _llm_response
 
 
 def _poi(poi_id: str, name: str, terminus_class: str) -> dict[str, object]:
@@ -47,40 +50,9 @@ def _vr(poi: str, terminus_class: str, hazards: list[str]) -> dict[str, object]:
     }
 
 
-class _FakeProfiler:
-    def __init__(self, profiles: dict[str, PoiRiskProfile]) -> None:
-        self._profiles = profiles
-
-    def profile(self, terminus_class: str) -> PoiRiskProfile:
-        return self._profiles.get(
-            terminus_class, PoiRiskProfile(terminus_class=terminus_class)
-        )
-
-
-class _FakeLLMClient:
-    def __init__(self, response: LLMResponse) -> None:
-        self._response = response
-
-    async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
-        return self._response
-
-
 class _RaisingLLMClient:
     async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
         raise LLMError("provider giu'")
-
-
-def _llm_response() -> LLMResponse:
-    return LLMResponse(
-        text="Analisi: Banca A presenta rischio rapina.",
-        llm_used="claude-sonnet-4-6",
-        tokens_input=10,
-        tokens_output=20,
-        cache_hit=False,
-        temperature=0.2,
-        seed=42,
-        prompt_hash="abc123",
-    )
 
 
 def _patch_io(monkeypatch: pytest.MonkeyPatch, pois: list[Poi] | None = None) -> None:
@@ -256,3 +228,61 @@ async def test_run_baseline_no_llm(monkeypatch: pytest.MonkeyPatch) -> None:
     assert resp.risk_models[0].risks[0].hazard == "Bank_robbery"
     assert resp.confidence_summary.confermato == 1
     assert resp.latenza_ms >= 0
+
+
+async def test_run_analysis_exposes_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_io(monkeypatch)
+    resp = await run_analysis(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+        llm_client=_FakeLLMClient(_llm_response()),
+    )
+    assert resp.tokens_input == 10
+    assert resp.tokens_output == 20
+
+
+async def test_run_analysis_fallback_zero_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_io(monkeypatch)
+    resp = await run_analysis(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+        llm_client=_RaisingLLMClient(),
+    )
+    assert resp.tokens_input == 0
+    assert resp.tokens_output == 0
+
+
+async def test_run_analysis_accepts_poi_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    from crime_risk_analyzer.models.geo import Bbox
+    from crime_risk_analyzer.rag import retrieval
+
+    def _fake_geocode(zona: str, citta: str) -> dict[str, object]:
+        return {"lat": 41.89, "lon": 12.49, "bbox": Bbox(41.88, 12.48, 41.90, 12.50)}
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode)
+
+    async def src(bbox: object, citta: str) -> list[dict[str, object]]:
+        return [
+            {
+                "id": "1",
+                "name": "Banca A",
+                "lat": 41.89,
+                "lon": 12.49,
+                "osm_tags": "amenity=bank",
+                "terminus_class": "Bank",
+                "citta": "Roma",
+            }
+        ]
+
+    resp = await run_analysis(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+        llm_client=_FakeLLMClient(_llm_response()),
+        poi_source=src,  # type: ignore[arg-type]
+    )
+    assert [p.name for p in resp.poi] == ["Banca A"]

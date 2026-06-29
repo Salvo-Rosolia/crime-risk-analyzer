@@ -311,3 +311,70 @@ def test_build_llm_client_missing_claude_key_raises() -> None:
 def test_build_llm_client_missing_groq_key_raises() -> None:
     with pytest.raises(LLMError):
         build_llm_client(_settings(llm_provider="groq", groq_api_key=None))
+
+
+# --- with_temperature: pinned temperature/seed, same provider and SDK ---
+
+
+def test_with_temperature_returns_new_client_with_pinned_params() -> None:
+    """with_temperature crea un nuovo LLMClient con temperature/seed fissati."""
+    fake = _FakeAnthropic()
+    original = LLMClient.for_claude(fake, temperature=0.2, seed=42)
+
+    pinned = original.with_temperature(0.0, 0)
+
+    assert pinned is not original
+    assert pinned.provider == "claude"
+    assert pinned._temperature == 0.0  # pyright: ignore[reportPrivateUsage]
+    assert pinned._seed == 0  # pyright: ignore[reportPrivateUsage]
+    # L'originale non deve essere mutato (original fu costruito con 0.2/42).
+    assert original._temperature != 0.0 or original._seed != 0  # pyright: ignore[reportPrivateUsage]
+
+
+def test_with_temperature_preserves_same_sdk_double() -> None:
+    """Il client restituito riusa lo stesso SDK (stessa istanza fake)."""
+    fake = _FakeAnthropic()
+    original = LLMClient.for_claude(fake, temperature=0.2, seed=42)
+
+    pinned = original.with_temperature(0.0, 0)
+
+    # Il double condiviso deve essere lo stesso oggetto (stesso SDK iniettato).
+    assert pinned._anthropic is fake  # pyright: ignore[reportPrivateUsage]
+
+
+def test_with_temperature_groq_preserves_provider_and_sdk() -> None:
+    """with_temperature funziona anche con provider groq."""
+    fake = _FakeGroq()
+    original = LLMClient.for_groq(fake, temperature=0.2, seed=42)
+
+    pinned = original.with_temperature(0.0, 0)
+
+    assert pinned.provider == "groq"
+    assert pinned._groq is fake  # pyright: ignore[reportPrivateUsage]
+
+
+# --- (A) build_llm_client con provider override esplicito ---
+
+
+def test_build_llm_client_provider_override_groq_wins_over_settings() -> None:
+    """build_llm_client(settings, provider='groq') costruisce groq anche se
+    settings.llm_provider=='claude', purche' entrambe le chiavi siano presenti."""
+    s = _settings(llm_provider="claude")
+    client = build_llm_client(s, provider="groq")
+    assert client.provider == "groq"
+
+
+def test_build_llm_client_provider_override_claude_wins_over_settings() -> None:
+    """build_llm_client(settings, provider='claude') costruisce claude anche se
+    settings.llm_provider=='groq'."""
+    s = _settings(llm_provider="groq")
+    client = build_llm_client(s, provider="claude")
+    assert client.provider == "claude"
+
+
+def test_build_llm_client_provider_none_falls_back_to_settings() -> None:
+    """provider=None (default) usa settings.llm_provider — retrocompatibilita'."""
+    s_claude = _settings(llm_provider="claude")
+    s_groq = _settings(llm_provider="groq")
+    assert build_llm_client(s_claude).provider == "claude"
+    assert build_llm_client(s_groq).provider == "groq"

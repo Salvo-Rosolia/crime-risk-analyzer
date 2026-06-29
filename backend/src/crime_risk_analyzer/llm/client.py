@@ -161,6 +161,21 @@ class LLMClient:
             seed=seed,
         )
 
+    def with_temperature(self, temperature: float, seed: int = 0) -> LLMClient:
+        """Nuovo client che riusa lo stesso SDK iniettato con temperature/seed fissati.
+
+        Usato dalla pipeline di valutazione per il determinismo (temperature=0).
+        Accedere a ``self._anthropic``/``self._groq`` e' lecito all'interno della
+        stessa classe.
+        """
+        return LLMClient(
+            provider=self._provider,
+            anthropic_client=self._anthropic,
+            groq_client=self._groq,
+            temperature=temperature,
+            seed=seed,
+        )
+
     @property
     def provider(self) -> Provider:
         """Provider attivo (``claude`` o ``groq``)."""
@@ -256,14 +271,20 @@ def _extract_anthropic_text(message: Any) -> str:
     return "".join(parts)
 
 
-def build_llm_client(settings: Settings) -> LLMClient:
+def build_llm_client(settings: Settings, provider: Provider | None = None) -> LLMClient:
     """Costruisce il :class:`LLMClient` dal provider configurato in ``settings``.
 
-    Istanzia l'SDK del provider attivo con la chiave da ``settings`` (mai
+    Se ``provider`` e' fornito esplicitamente, viene usato al posto di
+    ``settings.llm_provider`` (override per la pipeline di eval che rispetta
+    ``ExperimentConfig.model``). Con ``provider=None`` (default) il
+    comportamento e' identico alla versione precedente: retrocompatibile.
+
+    Istanzia l'SDK del provider scelto con la chiave da ``settings`` (mai
     hardcodata). Solleva :class:`LLMError` se la chiave necessaria manca.
     Iniettabile negli endpoint via ``Depends``.
     """
-    if settings.llm_provider == "claude":
+    chosen: Provider = provider if provider is not None else settings.llm_provider
+    if chosen == "claude":
         if settings.anthropic_api_key is None:
             raise LLMError(
                 "ANTHROPIC_API_KEY mancante: necessaria con LLM_PROVIDER=claude"
