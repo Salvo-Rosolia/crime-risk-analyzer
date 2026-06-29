@@ -40,6 +40,17 @@ class AnalyzeRequest(BaseModel):
     )
 
 
+class BaselineRequest(BaseModel):
+    """Body di ``POST /analyze/baseline`` (ablation, senza LLM)."""
+
+    citta: str = Field(description="Citta' tra quelle supportate.")
+    zona: str = Field(description="Zona/quartiere da analizzare.")
+    tipo_poi: str | None = Field(
+        default=None,
+        description="Filtro tipo POI (accettato ma IGNORATO server-side; filtro FE).",
+    )
+
+
 class PoiOut(BaseModel):
     """POI nello schema canonico ``/analyze`` (coords + confidence + path)."""
 
@@ -110,6 +121,37 @@ def _risk_models_from_grounded(grounded: GroundedContext) -> list[RiskModel]:
     return models
 
 
+def _elapsed_ms(start: float) -> int:
+    return int((time.perf_counter() - start) * 1000)
+
+
+def _structured_response(
+    citta: str,
+    zona: str,
+    poi_out: list[PoiOut],
+    grounded: GroundedContext,
+    *,
+    latenza_ms: int,
+    fallback: bool,
+) -> AnalyzeResponse:
+    """Assembla la AnalyzeResponse SENZA LLM (baseline e fallback di /analyze)."""
+    return AnalyzeResponse(
+        citta=citta,
+        zona_normalizzata=zona,
+        poi=poi_out,
+        risk_models=_risk_models_from_grounded(grounded),
+        narrativa="",
+        confidence_summary=ConfidenceSummary.model_validate(
+            grounded["confidence_summary"]
+        ),
+        llm_used="",
+        latenza_ms=latenza_ms,
+        repro=Repro(temperature=0.0, seed=0, prompt_hash=""),
+        cache_hit=False,
+        fallback=fallback,
+    )
+
+
 class RiskProfiler(Protocol):
     """Superficie minima dell'executor SPARQL usata dalla pipeline (DI)."""
 
@@ -139,38 +181,35 @@ async def run_analysis(
     retrieval_ctx = await retrieve(citta, zona, executor=executor)
     grounded = ground(retrieval_ctx)
     poi_out = _build_poi_list(retrieval_ctx, grounded)
-    confidence_summary = ConfidenceSummary.model_validate(
-        grounded["confidence_summary"]
-    )
-
     try:
         gen = await generate_analysis(dict(grounded), llm_client)
-        narrativa = gen.narrativa
-        risk_models = gen.risk_models
-        confidence_summary = gen.confidence_summary
-        llm_used = gen.llm_used
-        repro = gen.repro
-        cache_hit = gen.cache_hit
-        fallback = False
     except LLMError:
-        narrativa = ""
-        risk_models = _risk_models_from_grounded(grounded)
-        llm_used = ""
-        repro = Repro(temperature=0.0, seed=0, prompt_hash="")
-        cache_hit = False
-        fallback = True
-
-    latenza_ms = int((time.perf_counter() - start) * 1000)
+        return _structured_response(
+            citta, zona, poi_out, grounded, latenza_ms=_elapsed_ms(start), fallback=True
+        )
     return AnalyzeResponse(
         citta=citta,
         zona_normalizzata=zona,
         poi=poi_out,
-        risk_models=risk_models,
-        narrativa=narrativa,
-        confidence_summary=confidence_summary,
-        llm_used=llm_used,
-        latenza_ms=latenza_ms,
-        repro=repro,
-        cache_hit=cache_hit,
-        fallback=fallback,
+        risk_models=gen.risk_models,
+        narrativa=gen.narrativa,
+        confidence_summary=gen.confidence_summary,
+        llm_used=gen.llm_used,
+        latenza_ms=_elapsed_ms(start),
+        repro=gen.repro,
+        cache_hit=gen.cache_hit,
+        fallback=False,
+    )
+
+
+async def run_baseline(
+    citta: str, zona: str, *, executor: RiskProfiler
+) -> AnalyzeResponse:
+    """Pipeline baseline: retrieve -> ground -> serializza (NESSUN LLM)."""
+    start = time.perf_counter()
+    retrieval_ctx = await retrieve(citta, zona, executor=executor)
+    grounded = ground(retrieval_ctx)
+    poi_out = _build_poi_list(retrieval_ctx, grounded)
+    return _structured_response(
+        citta, zona, poi_out, grounded, latenza_ms=_elapsed_ms(start), fallback=False
     )
