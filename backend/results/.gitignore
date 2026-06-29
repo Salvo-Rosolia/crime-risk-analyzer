@@ -1,0 +1,6 @@
+# Output rigenerabili (NON versionati): record di run e tabelle.
+runs/
+*.csv
+*.md
+# Le fixture di input (snapshots/) SONO versionate per la riproducibilità.
+!snapshots/

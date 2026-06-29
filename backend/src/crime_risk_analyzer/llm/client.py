@@ -161,6 +161,21 @@ class LLMClient:
             seed=seed,
         )
 
+    def with_temperature(self, temperature: float, seed: int = 0) -> LLMClient:
+        """Nuovo client che riusa lo stesso SDK iniettato con temperature/seed fissati.
+
+        Usato dalla pipeline di valutazione per il determinismo (temperature=0).
+        Accedere a ``self._anthropic``/``self._groq`` e' lecito all'interno della
+        stessa classe.
+        """
+        return LLMClient(
+            provider=self._provider,
+            anthropic_client=self._anthropic,
+            groq_client=self._groq,
+            temperature=temperature,
+            seed=seed,
+        )
+
     @property
     def provider(self) -> Provider:
         """Provider attivo (``claude`` o ``groq``)."""
