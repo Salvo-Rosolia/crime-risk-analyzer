@@ -1,11 +1,14 @@
-import { Component, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { MapComponent } from '@features/map/map.component';
+import { StateStore } from '@core/state/state.store';
 
 @Component({
   selector: 'cra-root',
-  imports: [],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [MapComponent],
   templateUrl: './app.html',
-  styleUrl: './app.css'
+  styleUrl: './app.css',
 })
 export class App {
-  protected readonly title = signal('frontend');
+  protected readonly store = inject(StateStore);
 }

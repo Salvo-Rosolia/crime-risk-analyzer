@@ -1,0 +1,59 @@
+:host {
+  display: block;
+  height: 100vh;
+  position: relative;
+  overflow: hidden;
+}
+
+.cra-header {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: var(--header-height);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-4);
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.cra-title {
+  font-weight: 600;
+}
+
+.cra-tagline {
+  font-size: 0.8rem;
+  opacity: 0.8;
+}
+
+cra-map {
+  position: absolute;
+  inset: var(--header-height) 0 0 0;
+  z-index: 0;
+  display: block;
+}
+
+.cra-panels {
+  position: absolute;
+  inset: var(--header-height) 0 0 0;
+  z-index: 500;
+  pointer-events: none;
+}
+
+.cra-panel {
+  pointer-events: auto;
+  margin: var(--space-4);
+  max-width: var(--panel-max-width);
+  background: var(--panel-bg);
+  border: var(--panel-border) solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: var(--space-4);
+}
+
+.cra-placeholder {
+  color: var(--ink);
+  font-style: italic;
+  opacity: 0.7;
+}
