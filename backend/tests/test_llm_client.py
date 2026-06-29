@@ -325,6 +325,10 @@ def test_with_temperature_returns_new_client_with_pinned_params() -> None:
 
     assert pinned is not original
     assert pinned.provider == "claude"
+    assert pinned._temperature == 0.0  # pyright: ignore[reportPrivateUsage]
+    assert pinned._seed == 0  # pyright: ignore[reportPrivateUsage]
+    # L'originale non deve essere mutato (original fu costruito con 0.2/42).
+    assert original._temperature != 0.0 or original._seed != 0  # pyright: ignore[reportPrivateUsage]
 
 
 def test_with_temperature_preserves_same_sdk_double() -> None:
