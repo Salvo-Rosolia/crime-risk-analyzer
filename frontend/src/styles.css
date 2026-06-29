@@ -1,1 +1,40 @@
-/* You can add global styles to this file, and also import other style files */
+@import '@fontsource/ibm-plex-sans/400.css';
+@import '@fontsource/ibm-plex-sans/500.css';
+@import '@fontsource/ibm-plex-sans/600.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import 'leaflet/dist/leaflet.css';
+
+:root {
+  --ink: #211f1b;
+  --paper: #f4f3ed;
+  --paper-2: #fbfaf6;
+  --accent: #0e7b80;
+  --accent-2: #0a5c60;
+  --c-confermato: #1a7a40;
+  --c-plausibile: #b8870a;
+  --c-speculativo: #c2620a;
+  --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --radius: 8px;
+  --panel-border: 1.5px;
+  --shadow: 0 6px 24px rgba(33, 31, 27, 0.18);
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --header-height: 50px;
+  --panel-max-width: 340px;
+  --panel-bg: rgba(251, 250, 246, 0.98);
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  color: var(--ink);
+  background: var(--paper);
+}
