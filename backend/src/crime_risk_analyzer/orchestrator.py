@@ -24,7 +24,7 @@ from crime_risk_analyzer.rag.generation import (
     generate_analysis,
 )
 from crime_risk_analyzer.rag.grounding import GroundedContext, ground
-from crime_risk_analyzer.rag.retrieval import RetrievalContext, retrieve
+from crime_risk_analyzer.rag.retrieval import PoiSource, RetrievalContext, retrieve
 
 
 class AnalyzeRequest(BaseModel):
@@ -76,6 +76,16 @@ class AnalyzeResponse(BaseModel):
     confidence_summary: ConfidenceSummary
     llm_used: str
     latenza_ms: int = Field(ge=0)
+    tokens_input: int = Field(
+        default=0,
+        ge=0,
+        description="Token di input fatturati (0 in baseline/fallback).",
+    )
+    tokens_output: int = Field(
+        default=0,
+        ge=0,
+        description="Token di output generati (0 in baseline/fallback).",
+    )
     repro: Repro
     cache_hit: bool
     fallback: bool = Field(
@@ -170,6 +180,7 @@ async def run_analysis(
     *,
     executor: RiskProfiler,
     llm_client: _LLMClientLike,
+    poi_source: PoiSource | None = None,
 ) -> AnalyzeResponse:
     """Esegue la pipeline completa e assembla la response canonica.
 
@@ -178,12 +189,18 @@ async def run_analysis(
     ``latenza_ms`` e' end-to-end sull'intera pipeline.
     """
     start = time.perf_counter()
-    retrieval_ctx = await retrieve(citta, zona, executor=executor)
+    retrieval_ctx = await retrieve(
+        citta, zona, executor=executor, poi_source=poi_source
+    )
     grounded = ground(retrieval_ctx)
     poi_out = _build_poi_list(retrieval_ctx, grounded)
     try:
         gen = await generate_analysis(dict(grounded), llm_client)
+        tokens_input = gen.tokens_input
+        tokens_output = gen.tokens_output
     except LLMError:
+        tokens_input = 0
+        tokens_output = 0
         return _structured_response(
             citta, zona, poi_out, grounded, latenza_ms=_elapsed_ms(start), fallback=True
         )
@@ -196,6 +213,8 @@ async def run_analysis(
         confidence_summary=gen.confidence_summary,
         llm_used=gen.llm_used,
         latenza_ms=_elapsed_ms(start),
+        tokens_input=tokens_input,
+        tokens_output=tokens_output,
         repro=gen.repro,
         cache_hit=gen.cache_hit,
         fallback=False,
@@ -203,11 +222,17 @@ async def run_analysis(
 
 
 async def run_baseline(
-    citta: str, zona: str, *, executor: RiskProfiler
+    citta: str,
+    zona: str,
+    *,
+    executor: RiskProfiler,
+    poi_source: PoiSource | None = None,
 ) -> AnalyzeResponse:
     """Pipeline baseline: retrieve -> ground -> serializza (NESSUN LLM)."""
     start = time.perf_counter()
-    retrieval_ctx = await retrieve(citta, zona, executor=executor)
+    retrieval_ctx = await retrieve(
+        citta, zona, executor=executor, poi_source=poi_source
+    )
     grounded = ground(retrieval_ctx)
     poi_out = _build_poi_list(retrieval_ctx, grounded)
     return _structured_response(
