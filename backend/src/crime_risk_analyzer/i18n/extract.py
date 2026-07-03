@@ -73,7 +73,8 @@ def display_label(identifier: str) -> str:
 
 
 def _local(uri: object) -> str:
-    return str(uri).rsplit("#", 1)[-1]
+    text = str(uri)
+    return text.rsplit("#", 1)[-1] if "#" in text else text.rsplit("/", 1)[-1]
 
 
 def _record(identifier: str, category: str) -> LabelRecord:

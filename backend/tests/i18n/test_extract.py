@@ -44,6 +44,11 @@ def test_extract_skips_seeds_absent_from_graph() -> None:
     assert "Hospital" not in ids
 
 
+def test_display_label_normalises_and_fixes_typo() -> None:
+    assert extract.display_label("Brank_branch") == "Branch robbery"
+    assert extract.display_label("Unmanned_access") == "Unmanned access"
+
+
 def test_merge_preserves_existing_it() -> None:
     new = [
         {
