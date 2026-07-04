@@ -21,10 +21,20 @@ def _sentences(text: str) -> list[str]:
 
 
 def _anchors(resp: AnalyzeResponse) -> set[str]:
-    """Token ancorati: nomi POI + hazard strutturati, lowercase."""
-    pois = {p.name.lower() for p in resp.poi}
-    hazards = {r.hazard.lower() for m in resp.risk_models for r in m.risks}
-    return pois | hazards
+    """Token ancorati: nomi POI + hazard (identifier + etichette EN/IT), lowercase.
+
+    Include le etichette italiane controllate (#77) così il match regge quando la
+    narrativa cita l'hazard in italiano (chiude il caveat EN/IT delle metriche).
+    """
+    anchors = {p.name.lower() for p in resp.poi}
+    for model in resp.risk_models:
+        for risk in model.risks:
+            anchors.add(risk.hazard.lower())
+            if risk.hazard_label_it:
+                anchors.add(risk.hazard_label_it.lower())
+            if risk.hazard_label_en:
+                anchors.add(risk.hazard_label_en.lower())
+    return anchors
 
 
 def grounding(resp: AnalyzeResponse) -> float:

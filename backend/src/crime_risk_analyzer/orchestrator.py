@@ -12,8 +12,9 @@ from __future__ import annotations
 import time
 from typing import Protocol
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
+from crime_risk_analyzer.i18n.terminus_labels import label_en, label_it
 from crime_risk_analyzer.llm.client import LLMError, LLMResponse
 from crime_risk_analyzer.models.risk import PoiRiskProfile
 from crime_risk_analyzer.models.vocab import Confidence, ConfidenceSummary
@@ -63,6 +64,20 @@ class PoiOut(BaseModel):
         description="confermato se il POI ha rischi ontologici, altrimenti speculativo."
     )
     sparql_path: str | None = None
+    terminus_label_it: str = Field(
+        default="", description="Etichetta IT controllata della classe (display)."
+    )
+    terminus_label_en: str = Field(
+        default="", description="Etichetta EN corretta della classe (display)."
+    )
+
+    @model_validator(mode="after")
+    def _fill_labels(self) -> PoiOut:
+        if not self.terminus_label_it:
+            self.terminus_label_it = label_it(self.terminus_class)
+        if not self.terminus_label_en:
+            self.terminus_label_en = label_en(self.terminus_class)
+        return self
 
 
 class AnalyzeResponse(BaseModel):

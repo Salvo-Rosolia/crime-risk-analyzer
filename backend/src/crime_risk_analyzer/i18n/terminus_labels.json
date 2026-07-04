@@ -1,0 +1,2252 @@
+[
+  {
+    "identifier": "Archaeological_site",
+    "label_en": "Archaeological site",
+    "label_it": "Sito archeologico",
+    "category": "poi"
+  },
+  {
+    "identifier": "Bank",
+    "label_en": "Bank",
+    "label_it": "Banca",
+    "category": "poi"
+  },
+  {
+    "identifier": "Beach_resort",
+    "label_en": "Beach resort",
+    "label_it": "Stabilimento balneare",
+    "category": "poi"
+  },
+  {
+    "identifier": "Bus_stops",
+    "label_en": "Bus stops",
+    "label_it": "Fermate degli autobus",
+    "category": "poi"
+  },
+  {
+    "identifier": "Cinema",
+    "label_en": "Cinema",
+    "label_it": "Cinema",
+    "category": "poi"
+  },
+  {
+    "identifier": "Drinking_water_system",
+    "label_en": "Drinking water system",
+    "label_it": "Rete idrica potabile",
+    "category": "poi"
+  },
+  {
+    "identifier": "Electric_generator",
+    "label_en": "Electric generator",
+    "label_it": "Generatore elettrico",
+    "category": "poi"
+  },
+  {
+    "identifier": "Electrical_substation",
+    "label_en": "Electrical substation",
+    "label_it": "Cabina elettrica",
+    "category": "poi"
+  },
+  {
+    "identifier": "Fire_station",
+    "label_en": "Fire station",
+    "label_it": "Caserma dei vigili del fuoco",
+    "category": "poi"
+  },
+  {
+    "identifier": "Gas_cylinder_dealer",
+    "label_en": "Gas cylinder dealer",
+    "label_it": "Rivenditore di bombole a gas",
+    "category": "poi"
+  },
+  {
+    "identifier": "Government_office",
+    "label_en": "Government office",
+    "label_it": "Ufficio governativo",
+    "category": "poi"
+  },
+  {
+    "identifier": "Grandstand",
+    "label_en": "Grandstand",
+    "label_it": "Tribuna",
+    "category": "poi"
+  },
+  {
+    "identifier": "Helipad",
+    "label_en": "Helipad",
+    "label_it": "Eliporto",
+    "category": "poi"
+  },
+  {
+    "identifier": "Highways_and_junctions",
+    "label_en": "Highways and junctions",
+    "label_it": "Strade e svincoli",
+    "category": "poi"
+  },
+  {
+    "identifier": "Historical_monument",
+    "label_en": "Historical monument",
+    "label_it": "Monumento storico",
+    "category": "poi"
+  },
+  {
+    "identifier": "Hospital",
+    "label_en": "Hospital",
+    "label_it": "Ospedale",
+    "category": "poi"
+  },
+  {
+    "identifier": "Jewellery",
+    "label_en": "Jewellery",
+    "label_it": "Gioielleria",
+    "category": "poi"
+  },
+  {
+    "identifier": "Kindergarten",
+    "label_en": "Kindergarten",
+    "label_it": "Scuola dell'infanzia",
+    "category": "poi"
+  },
+  {
+    "identifier": "Lighthouse",
+    "label_en": "Lighthouse",
+    "label_it": "Faro",
+    "category": "poi"
+  },
+  {
+    "identifier": "Marketplace",
+    "label_en": "Marketplace",
+    "label_it": "Mercato",
+    "category": "poi"
+  },
+  {
+    "identifier": "Museum",
+    "label_en": "Museum",
+    "label_it": "Museo",
+    "category": "poi"
+  },
+  {
+    "identifier": "National_police",
+    "label_en": "National police",
+    "label_it": "Polizia di Stato",
+    "category": "poi"
+  },
+  {
+    "identifier": "Petrol_station",
+    "label_en": "Petrol station",
+    "label_it": "Stazione di rifornimento",
+    "category": "poi"
+  },
+  {
+    "identifier": "Pharmacy",
+    "label_en": "Pharmacy",
+    "label_it": "Farmacia",
+    "category": "poi"
+  },
+  {
+    "identifier": "Pier",
+    "label_en": "Pier",
+    "label_it": "Molo",
+    "category": "poi"
+  },
+  {
+    "identifier": "Pipeline",
+    "label_en": "Pipeline",
+    "label_it": "Gasdotto/oleodotto",
+    "category": "poi"
+  },
+  {
+    "identifier": "Place_of_worship",
+    "label_en": "Place of worship",
+    "label_it": "Luogo di culto",
+    "category": "poi"
+  },
+  {
+    "identifier": "Playground",
+    "label_en": "Playground",
+    "label_it": "Area giochi",
+    "category": "poi"
+  },
+  {
+    "identifier": "Post_office",
+    "label_en": "Post office",
+    "label_it": "Ufficio postale",
+    "category": "poi"
+  },
+  {
+    "identifier": "Prison",
+    "label_en": "Prison",
+    "label_it": "Carcere",
+    "category": "poi"
+  },
+  {
+    "identifier": "Public_building",
+    "label_en": "Public building",
+    "label_it": "Edificio pubblico",
+    "category": "poi"
+  },
+  {
+    "identifier": "Pyrotechnic_material_for_sale",
+    "label_en": "Pyrotechnic material for sale",
+    "label_it": "Rivenditore di materiale pirotecnico",
+    "category": "poi"
+  },
+  {
+    "identifier": "Railway_station",
+    "label_en": "Railway station",
+    "label_it": "Stazione ferroviaria",
+    "category": "poi"
+  },
+  {
+    "identifier": "School",
+    "label_en": "School",
+    "label_it": "Scuola",
+    "category": "poi"
+  },
+  {
+    "identifier": "Shopping_center",
+    "label_en": "Shopping center",
+    "label_it": "Centro commerciale",
+    "category": "poi"
+  },
+  {
+    "identifier": "Silo",
+    "label_en": "Silo",
+    "label_it": "Silo",
+    "category": "poi"
+  },
+  {
+    "identifier": "Storage_tank",
+    "label_en": "Storage tank",
+    "label_it": "Serbatoio di stoccaggio",
+    "category": "poi"
+  },
+  {
+    "identifier": "Tobacco_store",
+    "label_en": "Tobacco store",
+    "label_it": "Tabaccheria",
+    "category": "poi"
+  },
+  {
+    "identifier": "Town_hall",
+    "label_en": "Town hall",
+    "label_it": "Municipio",
+    "category": "poi"
+  },
+  {
+    "identifier": "Transmission_line",
+    "label_en": "Transmission line",
+    "label_it": "Linea di trasmissione elettrica",
+    "category": "poi"
+  },
+  {
+    "identifier": "Warehouse",
+    "label_en": "Warehouse",
+    "label_it": "Magazzino",
+    "category": "poi"
+  },
+  {
+    "identifier": "Wooded_area",
+    "label_en": "Wooded area",
+    "label_it": "Area boschiva",
+    "category": "poi"
+  },
+  {
+    "identifier": "ATM_out_of_service",
+    "label_en": "ATM out of service",
+    "label_it": "ATM fuori servizio",
+    "category": "hazard"
+  },
+  {
+    "identifier": "ATM_removal",
+    "label_en": "ATM removal",
+    "label_it": "Asportazione del bancomat",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Absence_of_concession",
+    "label_en": "Absence of concession",
+    "label_it": "Assenza di concessione",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Bank_robbery",
+    "label_en": "Bank robbery",
+    "label_it": "Rapina in banca",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Banknote_acceptor_theft",
+    "label_en": "Banknote acceptor theft",
+    "label_it": "Furto dell'accettatore di banconote",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Blocking_access_to_the_hospital",
+    "label_en": "Blocking access to the hospital",
+    "label_it": "Blocco dell'accesso all'ospedale",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Blocking_of_the_road_in_front_of_the_building",
+    "label_en": "Blocking of the road in front of the building",
+    "label_it": "Blocco della strada antistante l'edificio",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Branch_damage",
+    "label_en": "Branch damage",
+    "label_it": "Danneggiamento della filiale",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Building_collapse",
+    "label_en": "Building collapse",
+    "label_it": "Crollo dell'edificio",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Building_theft",
+    "label_en": "Building theft",
+    "label_it": "Furto nell'edificio",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Child_abuse",
+    "label_en": "Child abuse",
+    "label_it": "Abuso su minore",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Child_kidnapping",
+    "label_en": "Child kidnapping",
+    "label_it": "Rapimento di minore",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Cinema_damage",
+    "label_en": "Cinema damage",
+    "label_it": "Danneggiamento del cinema",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Citizen_protest_over_the_proximity_of_the_gas_station_to_homes",
+    "label_en": "Citizen protest over the proximity of the gas station to homes",
+    "label_it": "Protesta dei cittadini per la vicinanza del distributore alle abitazioni",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Copper_theft",
+    "label_en": "Copper theft",
+    "label_it": "Furto di rame",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Counterfeit_fuel",
+    "label_en": "Counterfeit fuel",
+    "label_it": "Carburante contraffatto",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Counterfeiting_of_documents",
+    "label_en": "Counterfeiting of documents",
+    "label_it": "Contraffazione di documenti",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Counterfeiting_of_foodstuffs",
+    "label_en": "Counterfeiting of foodstuffs",
+    "label_it": "Contraffazione di generi alimentari",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Crime_explosion",
+    "label_en": "Crime explosion",
+    "label_it": "Impennata della criminalità",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Customer_robbery",
+    "label_en": "Customer robbery",
+    "label_it": "Rapina ai clienti",
+    "category": "hazard"
+  },
+  {
+    "identifier": "CyberHazard",
+    "label_en": "CyberHazard",
+    "label_it": "Rischio informatico",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Cyber_attack",
+    "label_en": "Cyber attack",
+    "label_it": "Attacco informatico",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Cyber_hazard",
+    "label_en": "Cyber hazard",
+    "label_it": "Minaccia informatica",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Damage_in_hospital",
+    "label_en": "Damage in hospital",
+    "label_it": "Danneggiamento in ospedale",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Damage_in_the_bathing_establishment",
+    "label_en": "Damage in the bathing establishment",
+    "label_it": "Danneggiamento dello stabilimento balneare",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Damage_in_the_building",
+    "label_en": "Damage in the building",
+    "label_it": "Danneggiamento nell'edificio",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Damage_in_the_school",
+    "label_en": "Damage in the school",
+    "label_it": "Danneggiamento nella scuola",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Damage_in_the_warehouse",
+    "label_en": "Damage in the warehouse",
+    "label_it": "Danneggiamento nel magazzino",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Damage_to_electrical_substation",
+    "label_en": "Damage to electrical substation",
+    "label_it": "Danneggiamento della cabina elettrica",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Damage_to_fuel_tanks",
+    "label_en": "Damage to fuel tanks",
+    "label_it": "Danneggiamento dei serbatoi di carburante",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Damage_to_overhead_lines",
+    "label_en": "Damage to overhead lines",
+    "label_it": "Danneggiamento delle linee aeree",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Damage_to_pharmacy",
+    "label_en": "Damage to pharmacy",
+    "label_it": "Danneggiamento della farmacia",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Damage_to_railway_trains",
+    "label_en": "Damage to railway trains",
+    "label_it": "Danneggiamento dei treni ferroviari",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Damage_to_refuelling_column",
+    "label_en": "Damage to refuelling column",
+    "label_it": "Danneggiamento della colonnina di rifornimento",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Damage_to_the_archaeological_site",
+    "label_en": "Damage to the archaeological site",
+    "label_it": "Danneggiamento del sito archeologico",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Damage_to_the_business_premises",
+    "label_en": "Damage to the business premises",
+    "label_it": "Danneggiamento dei locali commerciali",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Damage_to_the_forest_area",
+    "label_en": "Damage to the forest area",
+    "label_it": "Danneggiamento dell'area boschiva",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Damage_to_the_freeway_artery",
+    "label_en": "Damage to the freeway artery",
+    "label_it": "Danneggiamento dell'arteria autostradale",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Damage_to_the_goods",
+    "label_en": "Damage to the goods",
+    "label_it": "Danneggiamento delle merci",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Damage_to_the_jetty",
+    "label_en": "Damage to the jetty",
+    "label_it": "Danneggiamento del molo",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Damage_to_the_monument",
+    "label_en": "Damage to the monument",
+    "label_it": "Danneggiamento del monumento",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Damage_to_the_movie_theater",
+    "label_en": "Damage to the movie theater",
+    "label_it": "Danneggiamento della sala cinematografica",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Damage_to_the_museum",
+    "label_en": "Damage to the museum",
+    "label_it": "Danneggiamento del museo",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Damage_to_the_public_space",
+    "label_en": "Damage to the public space",
+    "label_it": "Danneggiamento dello spazio pubblico",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Damage_to_the_shopping_center",
+    "label_en": "Damage to the shopping center",
+    "label_it": "Danneggiamento del centro commerciale",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Damage_to_the_stopping_area",
+    "label_en": "Damage to the stopping area",
+    "label_it": "Danneggiamento dell'area di sosta",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Damage_to_the_storage_tank",
+    "label_en": "Damage to the storage tank",
+    "label_it": "Danneggiamento del serbatoio di stoccaggio",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Damage_to_the_water_system",
+    "label_en": "Damage to the water system",
+    "label_it": "Danneggiamento della rete idrica",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Damage_to_works_of_art",
+    "label_en": "Damage to works of art",
+    "label_it": "Danneggiamento di opere d'arte",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Demonstration_in_front_of_the_building",
+    "label_en": "Demonstration in front of the building",
+    "label_it": "Manifestazione davanti all'edificio",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Demonstration_with_occupation_of_the_tracks",
+    "label_en": "Demonstration with occupation of the tracks",
+    "label_it": "Manifestazione con occupazione dei binari",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Distribution_system_out_of_service",
+    "label_en": "Distribution system out of service",
+    "label_it": "Sistema di distribuzione fuori servizio",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Drone_overflight_and_crash",
+    "label_en": "Drone overflight and crash",
+    "label_it": "Sorvolo e caduta di drone",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Drone_strike",
+    "label_en": "Drone strike",
+    "label_it": "Attacco con drone",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Drug_theft",
+    "label_en": "Drug theft",
+    "label_it": "Furto di farmaci",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Electrical_substation_out_of_service",
+    "label_en": "Electrical substation out of service",
+    "label_it": "Cabina elettrica fuori servizio",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Electricity_theft",
+    "label_en": "Electricity theft",
+    "label_it": "Furto di energia elettrica",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Equipment_damage",
+    "label_en": "Equipment damage",
+    "label_it": "Danneggiamento delle attrezzature",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Equipment_removal",
+    "label_en": "Equipment removal",
+    "label_it": "Asportazione delle attrezzature",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Equipment_theft",
+    "label_en": "Equipment theft",
+    "label_it": "Furto delle attrezzature",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Explosive_attack",
+    "label_en": "Explosive attack",
+    "label_it": "Attacco esplosivo",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Exposure_to_biological_agent",
+    "label_en": "Exposure to biological agent",
+    "label_it": "Esposizione ad agente biologico",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Forest_fire_anthropic",
+    "label_en": "Forest fire anthropic",
+    "label_it": "Incendio boschivo doloso",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Fuel_theft",
+    "label_en": "Fuel theft",
+    "label_it": "Furto di carburante",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Fuel_theft_from_tanks",
+    "label_en": "Fuel theft from tanks",
+    "label_it": "Furto di carburante dai serbatoi",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Gas_station_strike",
+    "label_en": "Gas station strike",
+    "label_it": "Sciopero del distributore di carburante",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Harm",
+    "label_en": "Harm",
+    "label_it": "Lesione",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Hawker_not_going_to_the_market",
+    "label_en": "Hawker not going to the market",
+    "label_it": "Ambulante assente dal mercato",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Health_personnel_strike",
+    "label_en": "Health personnel strike",
+    "label_it": "Sciopero del personale sanitario",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Helicopter_damage",
+    "label_en": "Helicopter damage",
+    "label_it": "Danneggiamento dell'elicottero",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Helicopter_theft",
+    "label_en": "Helicopter theft",
+    "label_it": "Furto dell'elicottero",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Incendiary_attack",
+    "label_en": "Incendiary attack",
+    "label_it": "Attacco incendiario",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Infrastructure_fire",
+    "label_en": "Infrastructure fire",
+    "label_it": "Incendio a infrastruttura",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Jewelry_theft",
+    "label_en": "Jewelry theft",
+    "label_it": "Furto in gioielleria",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Landslide",
+    "label_en": "Landslide",
+    "label_it": "Frana",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Lighthouse_damage",
+    "label_en": "Lighthouse damage",
+    "label_it": "Danneggiamento del faro",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Mugging",
+    "label_en": "Mugging",
+    "label_it": "Aggressione a scopo di furto",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Occupation_of_the_highway_artery_to_hinder_the_movement_of_vehicles",
+    "label_en": "Occupation of the highway artery to hinder the movement of vehicles",
+    "label_it": "Occupazione dell'arteria autostradale per ostacolare il traffico",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Omission_of_maintenance",
+    "label_en": "Omission of maintenance",
+    "label_it": "Omissione di manutenzione",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Out_of_service_self-service",
+    "label_en": "Out of service self-service",
+    "label_it": "Self-service fuori servizio",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Out_of_service_ticket_office",
+    "label_en": "Out of service ticket office",
+    "label_it": "Biglietteria fuori servizio",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Peddlers_strike",
+    "label_en": "Peddlers strike",
+    "label_it": "Sciopero degli ambulanti",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Pharmacy_robbery",
+    "label_en": "Pharmacy robbery",
+    "label_it": "Rapina in farmacia",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Pipeline_damage",
+    "label_en": "Pipeline damage",
+    "label_it": "Danneggiamento del gasdotto/oleodotto",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Pipeline_theft",
+    "label_en": "Pipeline theft",
+    "label_it": "Furto da gasdotto/oleodotto",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Platform_damage",
+    "label_en": "Platform damage",
+    "label_it": "Danneggiamento della piattaforma",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Post_office_robbery",
+    "label_en": "Post office robbery",
+    "label_it": "Rapina all'ufficio postale",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Power_line_out_of_order",
+    "label_en": "Power line out of order",
+    "label_it": "Linea elettrica fuori servizio",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Power_plant_damage",
+    "label_en": "Power plant damage",
+    "label_it": "Danneggiamento della centrale elettrica",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Power_plant_out_of_service",
+    "label_en": "Power plant out of service",
+    "label_it": "Centrale elettrica fuori servizio",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Prisoner_escape",
+    "label_en": "Prisoner escape",
+    "label_it": "Evasione di detenuto",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Property_damage",
+    "label_en": "Property damage",
+    "label_it": "Danno alla proprietà",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Property_theft",
+    "label_en": "Property theft",
+    "label_it": "Furto di beni",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Purse_snatching",
+    "label_en": "Purse snatching",
+    "label_it": "Scippo",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Railway_station_damage",
+    "label_en": "Railway station damage",
+    "label_it": "Danneggiamento della stazione ferroviaria",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Release_of_foreign_substances_into_the_tanks",
+    "label_en": "Release of foreign substances into the tanks",
+    "label_it": "Immissione di sostanze estranee nei serbatoi",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Release_of_hazardous_substances_into_pipelines",
+    "label_en": "Release of hazardous substances into pipelines",
+    "label_it": "Immissione di sostanze pericolose nelle tubazioni",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Robbery_at_the_jewelry_store",
+    "label_en": "Robbery at the jewelry store",
+    "label_it": "Rapina in gioielleria",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Robbery_at_the_mall",
+    "label_en": "Robbery at the mall",
+    "label_it": "Rapina al centro commerciale",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Robbery_in_the_cinema",
+    "label_en": "Robbery in the cinema",
+    "label_it": "Rapina al cinema",
+    "category": "hazard"
+  },
+  {
+    "identifier": "School_dispersion",
+    "label_en": "School dispersion",
+    "label_it": "Dispersione scolastica",
+    "category": "hazard"
+  },
+  {
+    "identifier": "School_theft",
+    "label_en": "School theft",
+    "label_it": "Furto nella scuola",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Silo_damage",
+    "label_en": "Silo damage",
+    "label_it": "Danneggiamento del silo",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Spare_part_theft",
+    "label_en": "Spare part theft",
+    "label_it": "Furto di ricambi",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Spectator_with_counterfeit_ticket",
+    "label_en": "Spectator with counterfeit ticket",
+    "label_it": "Spettatore con biglietto contraffatto",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Spread_of_pathogenic_germs",
+    "label_en": "Spread of pathogenic germs",
+    "label_it": "Diffusione di agenti patogeni",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Store_damage",
+    "label_en": "Store damage",
+    "label_it": "Danneggiamento del negozio",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Store_robbery",
+    "label_en": "Store robbery",
+    "label_it": "Rapina al negozio",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Terrorist_attack",
+    "label_en": "Terrorist attack",
+    "label_it": "Attacco terroristico",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Theft_at_the_refinery_jetty",
+    "label_en": "Theft at the refinery jetty",
+    "label_it": "Furto al molo della raffineria",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Theft_in_hospital",
+    "label_en": "Theft in hospital",
+    "label_it": "Furto in ospedale",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Theft_in_the_bathing_establishment",
+    "label_en": "Theft in the bathing establishment",
+    "label_it": "Furto nello stabilimento balneare",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Theft_in_the_warehouse",
+    "label_en": "Theft in the warehouse",
+    "label_it": "Furto nel magazzino",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Theft_of_ancient_artifacts",
+    "label_en": "Theft of ancient artifacts",
+    "label_it": "Furto di reperti antichi",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Theft_of_drug_vending_machine",
+    "label_en": "Theft of drug vending machine",
+    "label_it": "Furto del distributore automatico di farmaci",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Theft_of_furniture",
+    "label_en": "Theft of furniture",
+    "label_it": "Furto di arredi",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Theft_of_gas_cylinders",
+    "label_en": "Theft of gas cylinders",
+    "label_it": "Furto di bombole a gas",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Theft_of_goods",
+    "label_en": "Theft of goods",
+    "label_it": "Furto di merci",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Theft_of_pyrotechnic_material",
+    "label_en": "Theft of pyrotechnic material",
+    "label_it": "Furto di materiale pirotecnico",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Theft_of_works_of_art",
+    "label_en": "Theft of works of art",
+    "label_it": "Furto di opere d'arte",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Theft_structure_pieces",
+    "label_en": "Theft structure pieces",
+    "label_it": "Furto di parti strutturali",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Tobacconist's_shop_robbery",
+    "label_en": "Tobacconist's shop robbery",
+    "label_it": "Rapina in tabaccheria",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Transportation_damage",
+    "label_en": "Transportation damage",
+    "label_it": "Danno al trasporto",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Traveler_robbery",
+    "label_en": "Traveler robbery",
+    "label_it": "Rapina al viaggiatore",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Traveller_with_counterfeit_ticket",
+    "label_en": "Traveller with counterfeit ticket",
+    "label_it": "Viaggiatore con biglietto contraffatto",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Unauthorised_strike_by_refinery_employees",
+    "label_en": "Unauthorised strike by refinery employees",
+    "label_it": "Sciopero illegittimo dei dipendenti della raffineria",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Unauthorised_strike_of_prison_staff",
+    "label_en": "Unauthorised strike of prison staff",
+    "label_it": "Sciopero illegittimo del personale carcerario",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Unauthorized_employee_strike",
+    "label_en": "Unauthorized employee strike",
+    "label_it": "Sciopero illegittimo dei dipendenti",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Unauthorized_healt_personnel_strike",
+    "label_en": "Unauthorized healt personnel strike",
+    "label_it": "Sciopero illegittimo del personale sanitario",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Unauthorized_strike_by_cinema_staff",
+    "label_en": "Unauthorized strike by cinema staff",
+    "label_it": "Sciopero illegittimo del personale del cinema",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Unauthorized_strike_of_railway_personnel",
+    "label_en": "Unauthorized strike of railway personnel",
+    "label_it": "Sciopero illegittimo del personale ferroviario",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Unauthorized_strike_of_school_personnel",
+    "label_en": "Unauthorized strike of school personnel",
+    "label_it": "Sciopero illegittimo del personale scolastico",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Unauthorized_strike_of_the_forest_ranger",
+    "label_en": "Unauthorized strike of the forest ranger",
+    "label_it": "Sciopero illegittimo del personale forestale",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Unauthorized_strike_of_transportation_company_employees",
+    "label_en": "Unauthorized strike of transportation company employees",
+    "label_it": "Sciopero illegittimo dei dipendenti dell'azienda di trasporto",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Unauthorized_workers_strike",
+    "label_en": "Unauthorized workers strike",
+    "label_it": "Sciopero illegittimo dei lavoratori",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Unexcused_absence_of_employees",
+    "label_en": "Unexcused absence of employees",
+    "label_it": "Assenza ingiustificata dei dipendenti",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Unexcused_absence_of_staff",
+    "label_en": "Unexcused absence of staff",
+    "label_it": "Assenza ingiustificata del personale",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Vandalism",
+    "label_en": "Vandalism",
+    "label_it": "Vandalismo",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Vegetation_damage",
+    "label_en": "Vegetation damage",
+    "label_it": "Danneggiamento della vegetazione",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Vehicle_Theft",
+    "label_en": "Vehicle Theft",
+    "label_it": "Furto di veicolo",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Vehicle_damage",
+    "label_en": "Vehicle damage",
+    "label_it": "Danneggiamento del veicolo",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Viewer_aggression",
+    "label_en": "Viewer aggression",
+    "label_it": "Aggressione allo spettatore",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Violent_prisoner_revolt",
+    "label_en": "Violent prisoner revolt",
+    "label_it": "Rivolta violenta dei detenuti",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Waiting_for_the_return_of_the_helicopter",
+    "label_en": "Waiting for the return of the helicopter",
+    "label_it": "Attesa del rientro dell'elicottero",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Water_contamination",
+    "label_en": "Water contamination",
+    "label_it": "Contaminazione dell'acqua",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Water_poisoning",
+    "label_en": "Water poisoning",
+    "label_it": "Avvelenamento dell'acqua",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Water_purification_plant_not_functioning",
+    "label_en": "Water purification plant not functioning",
+    "label_it": "Impianto di depurazione idrica non funzionante",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Water_theft_from_pipelines",
+    "label_en": "Water theft from pipelines",
+    "label_it": "Furto d'acqua dalle tubazioni",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Water_theft_from_silo",
+    "label_en": "Water theft from silo",
+    "label_it": "Furto d'acqua dal silo",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Weapon_subtraction",
+    "label_en": "Weapon subtraction",
+    "label_it": "Sottrazione di arma",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Workers_strike",
+    "label_en": "Workers strike",
+    "label_it": "Sciopero dei lavoratori",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Absence_of_money",
+    "label_en": "Absence of money",
+    "label_it": "Assenza di liquidità",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Allergy",
+    "label_en": "Allergy",
+    "label_it": "Allergia",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Blocking_of_vehicle_exits",
+    "label_en": "Blocking of vehicle exits",
+    "label_it": "Blocco delle uscite dei veicoli",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Branch_closure",
+    "label_en": "Branch closure",
+    "label_it": "Chiusura della filiale",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Branch_with_reduced_operations",
+    "label_en": "Branch with reduced operations",
+    "label_it": "Filiale con operatività ridotta",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Building_closure_to_the_public",
+    "label_en": "Building closure to the public",
+    "label_it": "Chiusura dell'edificio al pubblico",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Building_damage",
+    "label_en": "Building damage",
+    "label_it": "Danno all'edificio",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Business_closure",
+    "label_en": "Business closure",
+    "label_it": "Chiusura dell'attività commerciale",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Casualties",
+    "label_en": "Casualties",
+    "label_it": "Vittime",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Cinema_closure",
+    "label_en": "Cinema closure",
+    "label_it": "Chiusura del cinema",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Cinema_shortage",
+    "label_en": "Cinema shortage",
+    "label_it": "Carenza di sale cinematografiche",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "City_market_closure",
+    "label_en": "City market closure",
+    "label_it": "Chiusura del mercato cittadino",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Closing_of_the_monument_to_the_public",
+    "label_en": "Closing of the monument to the public",
+    "label_it": "Chiusura del monumento al pubblico",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Closure_of_offices_to_the_public",
+    "label_en": "Closure of offices to the public",
+    "label_it": "Chiusura degli uffici al pubblico",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Closure_of_the_archaeological_area",
+    "label_en": "Closure of the archaeological area",
+    "label_it": "Chiusura dell'area archeologica",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Closure_of_the_place_of_worship",
+    "label_en": "Closure of the place of worship",
+    "label_it": "Chiusura del luogo di culto",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Closure_of_the_structure",
+    "label_en": "Closure of the structure",
+    "label_it": "Chiusura della struttura",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Damage_to_furniture",
+    "label_en": "Damage to furniture",
+    "label_it": "Danno agli arredi",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Dead_prisoner",
+    "label_en": "Dead prisoner",
+    "label_it": "Detenuto deceduto",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Death",
+    "label_en": "Death",
+    "label_it": "Decesso",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Delayed_intervention",
+    "label_en": "Delayed intervention",
+    "label_it": "Intervento tardivo",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Department_closure",
+    "label_en": "Department closure",
+    "label_it": "Chiusura del reparto",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Destruction_of_the_wooded_area",
+    "label_en": "Destruction of the wooded area",
+    "label_it": "Distruzione dell'area boschiva",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Drownings",
+    "label_en": "Drownings",
+    "label_it": "Annegamenti",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Drug_shortage",
+    "label_en": "Drug shortage",
+    "label_it": "Carenza di farmaci",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Economic_damage",
+    "label_en": "Economic damage",
+    "label_it": "Danno economico",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Economic_losses",
+    "label_en": "Economic losses",
+    "label_it": "Perdite economiche",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Emotional_or_psychological_consequences",
+    "label_en": "Emotional or psychological consequences",
+    "label_it": "Conseguenze emotive o psicologiche",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Evacuation_from_the_building",
+    "label_en": "Evacuation from the building",
+    "label_it": "Evacuazione dall'edificio",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Fear_of_going_to_the_market",
+    "label_en": "Fear of going to the market",
+    "label_it": "Timore di recarsi al mercato",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Forest_area_closure",
+    "label_en": "Forest area closure",
+    "label_it": "Chiusura dell'area boschiva",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Freeway_closure",
+    "label_en": "Freeway closure",
+    "label_it": "Chiusura dell'autostrada",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Fuel_station_closure",
+    "label_en": "Fuel station closure",
+    "label_it": "Chiusura della stazione di rifornimento",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Fuel_station_not_operational",
+    "label_en": "Fuel station not operational",
+    "label_it": "Stazione di rifornimento non operativa",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Fuel_supply_interruption_without_notice",
+    "label_en": "Fuel supply interruption without notice",
+    "label_it": "Interruzione della fornitura di carburante senza preavviso",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Health_and_physical_consequences",
+    "label_en": "Health and physical consequences",
+    "label_it": "Conseguenze fisiche e sanitarie",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Helicopter_rescue_service_not_available",
+    "label_en": "Helicopter rescue service not available",
+    "label_it": "Soccorso in elicottero non disponibile",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Hostages",
+    "label_en": "Hostages",
+    "label_it": "Ostaggi",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Illnesses",
+    "label_en": "Illnesses",
+    "label_it": "Malattie",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Inagibility_of_the_structure",
+    "label_en": "Inagibility of the structure",
+    "label_it": "Inagibilità della struttura",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Infection",
+    "label_en": "Infection",
+    "label_it": "Infezione",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Inhibition_of_access_to_the_wooded_area",
+    "label_en": "Inhibition of access to the wooded area",
+    "label_it": "Inibizione dell'accesso all'area boschiva",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Injured_prisoner",
+    "label_en": "Injured prisoner",
+    "label_it": "Detenuto ferito",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Interruption_of_a_public_service",
+    "label_en": "Interruption of a public service",
+    "label_it": "Interruzione di un servizio pubblico",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Interruption_of_electricity_supply",
+    "label_en": "Interruption of electricity supply",
+    "label_it": "Interruzione della fornitura elettrica",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Interruption_of_supply",
+    "label_en": "Interruption of supply",
+    "label_it": "Interruzione della fornitura",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Intoxication",
+    "label_en": "Intoxication",
+    "label_it": "Intossicazione",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Lack_of_money",
+    "label_en": "Lack of money",
+    "label_it": "Mancanza di liquidità",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Lighthouse_out_of_service",
+    "label_en": "Lighthouse out of service",
+    "label_it": "Faro fuori servizio",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Limited_or_no_hospital_operations",
+    "label_en": "Limited or no hospital operations",
+    "label_it": "Operatività ospedaliera limitata o assente",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Little_personnel_available",
+    "label_en": "Little personnel available",
+    "label_it": "Personale disponibile insufficiente",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Little_staff_available",
+    "label_en": "Little staff available",
+    "label_it": "Staff disponibile insufficiente",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Losses_to_the_artistic_heritage",
+    "label_en": "Losses to the artistic heritage",
+    "label_it": "Perdite al patrimonio artistico",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Mall_closure",
+    "label_en": "Mall closure",
+    "label_it": "Chiusura del centro commerciale",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Museum_closure",
+    "label_en": "Museum closure",
+    "label_it": "Chiusura del museo",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Need_to_restore_highway_infrastructure",
+    "label_en": "Need to restore highway infrastructure",
+    "label_it": "Necessità di ripristino dell'infrastruttura autostradale",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Not_accessible_lighthouse",
+    "label_en": "Not accessible lighthouse",
+    "label_it": "Faro non accessibile",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Out_of_service_refuelling_columns",
+    "label_en": "Out of service refuelling columns",
+    "label_it": "Colonnine di rifornimento fuori servizio",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Panic",
+    "label_en": "Panic",
+    "label_it": "Panico",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Pontoon_out_of_service",
+    "label_en": "Pontoon out of service",
+    "label_it": "Pontile fuori servizio",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Removal_of_works_of_artistic_and_cultural_value",
+    "label_en": "Removal of works of artistic and cultural value",
+    "label_it": "Asportazione di opere di valore artistico e culturale",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Repopulation_costs",
+    "label_en": "Repopulation costs",
+    "label_it": "Costi di rimboschimento",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Rescue_by_helicopter_out_of_service",
+    "label_en": "Rescue by helicopter out of service",
+    "label_it": "Soccorso in elicottero fuori servizio",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Rescue_delay",
+    "label_en": "Rescue delay",
+    "label_it": "Ritardo nei soccorsi",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Resort_closure",
+    "label_en": "Resort closure",
+    "label_it": "Chiusura del resort",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "School_dropout",
+    "label_en": "School dropout",
+    "label_it": "Abbandono scolastico",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Severely_damaged_helicopter",
+    "label_en": "Severely damaged helicopter",
+    "label_it": "Elicottero gravemente danneggiato",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Shortage_of_fireworks_retailers",
+    "label_en": "Shortage of fireworks retailers",
+    "label_it": "Carenza di rivenditori di fuochi d'artificio",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Shortage_of_gas_cylinder_dealers",
+    "label_en": "Shortage of gas cylinder dealers",
+    "label_it": "Carenza di rivenditori di bombole a gas",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Shortage_of_goods",
+    "label_en": "Shortage of goods",
+    "label_it": "Carenza di merci",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Shortage_of_oil_derivatives",
+    "label_en": "Shortage of oil derivatives",
+    "label_it": "Carenza di derivati del petrolio",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Show_cancellation",
+    "label_en": "Show cancellation",
+    "label_it": "Cancellazione dello spettacolo",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Silo_out_of_service",
+    "label_en": "Silo out of service",
+    "label_it": "Silo fuori servizio",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Spectator_evacuation",
+    "label_en": "Spectator evacuation",
+    "label_it": "Evacuazione degli spettatori",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Structure_damage",
+    "label_en": "Structure damage",
+    "label_it": "Danno alla struttura",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Suspension_of_essential_activities",
+    "label_en": "Suspension of essential activities",
+    "label_it": "Sospensione delle attività essenziali",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Suspension_of_religious_services",
+    "label_en": "Suspension of religious services",
+    "label_it": "Sospensione delle funzioni religiose",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Suspension_of_teaching_activities",
+    "label_en": "Suspension of teaching activities",
+    "label_it": "Sospensione delle attività didattiche",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Theft_of_sensitive_data",
+    "label_en": "Theft of sensitive data",
+    "label_it": "Furto di dati sensibili",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Unavailability_for_sale_of_primary_asset",
+    "label_en": "Unavailability for sale of primary asset",
+    "label_it": "Indisponibilità alla vendita del bene primario",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Unavailability_of_transport_service",
+    "label_en": "Unavailability of transport service",
+    "label_it": "Indisponibilità del servizio di trasporto",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Archaeological_site_in_isolated_area",
+    "label_en": "Archaeological site in isolated area",
+    "label_it": "Sito archeologico in zona isolata",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Area_away_from_the_town",
+    "label_en": "Area away from the town",
+    "label_it": "Area lontana dal centro abitato",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Area_of_intervention_difficult_to_reach",
+    "label_en": "Area of intervention difficult to reach",
+    "label_it": "Area di intervento difficile da raggiungere",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Area_with_a_high_crime_rate",
+    "label_en": "Area with a high crime rate",
+    "label_it": "Area ad alto tasso di criminalità",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Bank_in_isolated_area",
+    "label_en": "Bank in isolated area",
+    "label_it": "Banca in zona isolata",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Cinema_very_crowded_with_people",
+    "label_en": "Cinema very crowded with people",
+    "label_it": "Cinema molto affollato",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Contacts_with_illegal_immigrants",
+    "label_en": "Contacts with illegal immigrants",
+    "label_it": "Contatti con immigrati irregolari",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Crowded_area",
+    "label_en": "Crowded area",
+    "label_it": "Area affollata",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Crowding_of_visitors",
+    "label_en": "Crowding of visitors",
+    "label_it": "Affollamento di visitatori",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Cyber_vulnerability",
+    "label_en": "Cyber vulnerability",
+    "label_it": "Vulnerabilità informatica",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Cylinders_crammed_into_small_spaces",
+    "label_en": "Cylinders crammed into small spaces",
+    "label_it": "Bombole stipate in spazi ridotti",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Cylinders_stored_in_easily_accessible_warehouses",
+    "label_en": "Cylinders stored in easily accessible warehouses",
+    "label_it": "Bombole conservate in magazzini facilmente accessibili",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Easily_accessible_electrical_substation",
+    "label_en": "Easily accessible electrical substation",
+    "label_it": "Cabina elettrica facilmente accessibile",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Easily_accessible_fuel_supply_manholes",
+    "label_en": "Easily accessible fuel supply manholes",
+    "label_it": "Pozzetti di rifornimento carburante facilmente accessibili",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Easily_accessible_fuel_tanks",
+    "label_en": "Easily accessible fuel tanks",
+    "label_it": "Serbatoi di carburante facilmente accessibili",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Easily_accessible_power_line",
+    "label_en": "Easily accessible power line",
+    "label_it": "Linea elettrica facilmente accessibile",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Easily_accessible_power_plant",
+    "label_en": "Easily accessible power plant",
+    "label_it": "Centrale elettrica facilmente accessibile",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Easily_accessible_silo",
+    "label_en": "Easily accessible silo",
+    "label_it": "Silo facilmente accessibile",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Easily_accessible_water_system",
+    "label_en": "Easily accessible water system",
+    "label_it": "Rete idrica facilmente accessibile",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Easily_accessible_wharf",
+    "label_en": "Easily accessible wharf",
+    "label_it": "Banchina facilmente accessibile",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Easily_accessible_works_of_art",
+    "label_en": "Easily accessible works of art",
+    "label_it": "Opere d'arte facilmente accessibili",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Failure_to_identify_routes_accessible_only_to_staff",
+    "label_en": "Failure to identify routes accessible only to staff",
+    "label_it": "Mancata identificazione dei percorsi riservati al personale",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "FewMaintenanceWorkers",
+    "label_en": "FewMaintenanceWorkers",
+    "label_it": "Pochi addetti alla manutenzione",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Few_bank_branches_in_the_area",
+    "label_en": "Few bank branches in the area",
+    "label_it": "Poche filiali bancarie nell'area",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Few_checks_on_fuel_quality",
+    "label_en": "Few checks on fuel quality",
+    "label_it": "Scarsi controlli sulla qualità del carburante",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Few_drivers",
+    "label_en": "Few drivers",
+    "label_it": "Pochi conducenti",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Few_employees",
+    "label_en": "Few employees",
+    "label_it": "Pochi dipendenti",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Few_forest_rangers",
+    "label_en": "Few forest rangers",
+    "label_it": "Pochi guardaboschi",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Few_fuel_tanks",
+    "label_en": "Few fuel tanks",
+    "label_it": "Pochi serbatoi di carburante",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Few_helicopter_platform",
+    "label_en": "Few helicopter platform",
+    "label_it": "Poche piattaforme per elicotteri",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Few_maintenance_workers",
+    "label_en": "Few maintenance workers",
+    "label_it": "Pochi addetti alla manutenzione",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Few_post_office_in_the_area",
+    "label_en": "Few post office in the area",
+    "label_it": "Pochi uffici postali nell'area",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Few_self-service_stations",
+    "label_en": "Few self-service stations",
+    "label_it": "Poche stazioni self-service",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Few_supervisors",
+    "label_en": "Few supervisors",
+    "label_it": "Pochi supervisori",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Few_water_controls",
+    "label_en": "Few water controls",
+    "label_it": "Scarsi controlli idrici",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Few_ways_out",
+    "label_en": "Few ways out",
+    "label_it": "Poche vie d'uscita",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Gas_station_in_isolated_area",
+    "label_en": "Gas station in isolated area",
+    "label_it": "Distributore di carburante in zona isolata",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Inappropriate_personnel_selection",
+    "label_en": "Inappropriate personnel selection",
+    "label_it": "Selezione del personale inadeguata",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Intense_marine_traffic",
+    "label_en": "Intense marine traffic",
+    "label_it": "Traffico marittimo intenso",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Lack_of_alternative_procurement_services",
+    "label_en": "Lack of alternative procurement services",
+    "label_it": "Mancanza di servizi di approvvigionamento alternativi",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Lack_of_barriers",
+    "label_en": "Lack of barriers",
+    "label_it": "Assenza di barriere",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Lack_of_controls",
+    "label_en": "Lack of controls",
+    "label_it": "Assenza di controlli",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Lack_of_gas_station_in_the_area",
+    "label_en": "Lack of gas station in the area",
+    "label_it": "Assenza di distributori di carburante nell'area",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Lack_of_protective_structures",
+    "label_en": "Lack of protective structures",
+    "label_it": "Assenza di strutture protettive",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Large_pipelines",
+    "label_en": "Large pipelines",
+    "label_it": "Gasdotti/oleodotti di grandi dimensioni",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Lighthouse_in_isolated_area",
+    "label_en": "Lighthouse in isolated area",
+    "label_it": "Faro in zona isolata",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Long_time_for_issuing_municipal_authorization",
+    "label_en": "Long time for issuing municipal authorization",
+    "label_it": "Tempi lunghi per il rilascio dell'autorizzazione comunale",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Low_turnout_of_citizens",
+    "label_en": "Low turnout of citizens",
+    "label_it": "Scarsa affluenza dei cittadini",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Many_people_inside",
+    "label_en": "Many people inside",
+    "label_it": "Molte persone all'interno",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Mowed_pipelines",
+    "label_en": "Mowed pipelines",
+    "label_it": "Tubazioni esposte",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Museum_in_a_remote_area",
+    "label_en": "Museum in a remote area",
+    "label_it": "Museo in zona remota",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Narrow_exit_routes",
+    "label_en": "Narrow exit routes",
+    "label_it": "Vie d'uscita strette",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Non-fenced_area",
+    "label_en": "Non-fenced area",
+    "label_it": "Area non recintata",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Obsolete_computers",
+    "label_en": "Obsolete computers",
+    "label_it": "Computer obsoleti",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Personnel_shortage",
+    "label_en": "Personnel shortage",
+    "label_it": "Carenza di personale",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Pharmacy_in_a_remote_area",
+    "label_en": "Pharmacy in a remote area",
+    "label_it": "Farmacia in zona remota",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Pipelines_in_isolated_areas",
+    "label_en": "Pipelines in isolated areas",
+    "label_it": "Gasdotti/oleodotti in zone isolate",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Plant_in_isolated_area",
+    "label_en": "Plant in isolated area",
+    "label_it": "Impianto in zona isolata",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Platform_in_isolated_area",
+    "label_en": "Platform in isolated area",
+    "label_it": "Piattaforma in zona isolata",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Play_area_in_isolated_area",
+    "label_en": "Play area in isolated area",
+    "label_it": "Area giochi in zona isolata",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Police_operator_distraction",
+    "label_en": "Police operator distraction",
+    "label_it": "Distrazione dell'operatore di polizia",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Pontoon_in_a_remote_area",
+    "label_en": "Pontoon in a remote area",
+    "label_it": "Pontile in zona remota",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Poor_oversight_of_the_highway_section_operator",
+    "label_en": "Poor oversight of the highway section operator",
+    "label_it": "Scarsa supervisione del gestore del tratto autostradale",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Poor_police_control",
+    "label_en": "Poor police control",
+    "label_it": "Scarso controllo di polizia",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Poor_surveillance",
+    "label_en": "Poor surveillance",
+    "label_it": "Sorveglianza insufficiente",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Post_office_in_isolated_area",
+    "label_en": "Post office in isolated area",
+    "label_it": "Ufficio postale in zona isolata",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Presence_of_explosive_material",
+    "label_en": "Presence of explosive material",
+    "label_it": "Presenza di materiale esplosivo",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Public_crowding",
+    "label_en": "Public crowding",
+    "label_it": "Affollamento di pubblico",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Pyrotechnic_material_crammed_into_small_spaces",
+    "label_en": "Pyrotechnic material crammed into small spaces",
+    "label_it": "Materiale pirotecnico stipato in spazi ridotti",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Pyrotechnic_material_stored_in_inadequate_warehouses",
+    "label_en": "Pyrotechnic material stored in inadequate warehouses",
+    "label_it": "Materiale pirotecnico conservato in magazzini inadeguati",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Resort_in_isolated_area",
+    "label_en": "Resort in isolated area",
+    "label_it": "Resort in zona isolata",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "School_in_isolated_area",
+    "label_en": "School in isolated area",
+    "label_it": "Scuola in zona isolata",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Shortage_of_controllers",
+    "label_en": "Shortage of controllers",
+    "label_it": "Carenza di addetti al controllo",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Shortage_of_crude_oil_supply_points",
+    "label_en": "Shortage of crude oil supply points",
+    "label_it": "Carenza di punti di approvvigionamento del greggio",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Shortage_of_railway_personnel",
+    "label_en": "Shortage of railway personnel",
+    "label_it": "Carenza di personale ferroviario",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Shortage_of_water_supply_sources",
+    "label_en": "Shortage of water supply sources",
+    "label_it": "Carenza di fonti di approvvigionamento idrico",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Silo_in_isolated_areas",
+    "label_en": "Silo in isolated areas",
+    "label_it": "Silo in zone isolate",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Silo_shortage",
+    "label_en": "Silo shortage",
+    "label_it": "Carenza di silos",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Social_context_of_degradation",
+    "label_en": "Social context of degradation",
+    "label_it": "Contesto sociale di degrado",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Stop_located_in_an_isolated_area",
+    "label_en": "Stop located in an isolated area",
+    "label_it": "Fermata in zona isolata",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Storage_in_isolated_place",
+    "label_en": "Storage in isolated place",
+    "label_it": "Deposito in luogo isolato",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Storage_tanks_in_isolated_area",
+    "label_en": "Storage tanks in isolated area",
+    "label_it": "Serbatoi di stoccaggio in zona isolata",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "System_vulnerability",
+    "label_en": "System vulnerability",
+    "label_it": "Vulnerabilità del sistema",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Tobacconist's_shop_very_crowded",
+    "label_en": "Tobacconist's shop very crowded",
+    "label_it": "Tabaccheria molto affollata",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Unmanned_wharf",
+    "label_en": "Unmanned wharf",
+    "label_it": "Banchina senza presidio",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Unsuitable_enclosure",
+    "label_en": "Unsuitable enclosure",
+    "label_it": "Recinzione inadeguata",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Unsuitable_security_system",
+    "label_en": "Unsuitable security system",
+    "label_it": "Sistema di sicurezza inadeguato",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Very_crowded_bus",
+    "label_en": "Very crowded bus",
+    "label_it": "Autobus molto affollato",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Very_crowded_grandstand",
+    "label_en": "Very crowded grandstand",
+    "label_it": "Tribuna molto affollata",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Very_crowded_jewelry_store",
+    "label_en": "Very crowded jewelry store",
+    "label_it": "Gioielleria molto affollata",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Very_crowded_market",
+    "label_en": "Very crowded market",
+    "label_it": "Mercato molto affollato",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Very_crowded_play_area",
+    "label_en": "Very crowded play area",
+    "label_it": "Area giochi molto affollata",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Very_crowded_resort",
+    "label_en": "Very crowded resort",
+    "label_it": "Resort molto affollato",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Very_crowded_school",
+    "label_en": "Very crowded school",
+    "label_it": "Scuola molto affollata",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Very_crowded_shopping_center",
+    "label_en": "Very crowded shopping center",
+    "label_it": "Centro commerciale molto affollato",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Very_crowded_train",
+    "label_en": "Very crowded train",
+    "label_it": "Treno molto affollato",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Very_large_plant",
+    "label_en": "Very large plant",
+    "label_it": "Impianto di grandi dimensioni",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Very_large_wooded_area",
+    "label_en": "Very large wooded area",
+    "label_it": "Area boschiva di grandi dimensioni",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Video_surveillance_system_with_blind_spots",
+    "label_en": "Video surveillance system with blind spots",
+    "label_it": "Sistema di videosorveglianza con zone cieche",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Wooded_area_in_isolated_zone",
+    "label_en": "Wooded area in isolated zone",
+    "label_it": "Area boschiva in zona isolata",
+    "category": "vulnerability"
+  },
+  {
+    "identifier": "Wooded_area_with_poor_surveillance",
+    "label_en": "Wooded area with poor surveillance",
+    "label_it": "Area boschiva con sorveglianza insufficiente",
+    "category": "vulnerability"
+  }
+]
