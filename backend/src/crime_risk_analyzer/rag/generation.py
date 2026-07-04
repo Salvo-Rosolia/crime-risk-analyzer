@@ -26,7 +26,11 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel, Field, model_validator
 
-from crime_risk_analyzer.i18n.terminus_labels import label_en, label_it
+from crime_risk_analyzer.i18n.terminus_labels import (
+    controlled_vocab_for,
+    label_en,
+    label_it,
+)
 from crime_risk_analyzer.llm.client import LLMResponse
 from crime_risk_analyzer.models.vocab import Confidence, ConfidenceSummary, Tag
 
@@ -43,6 +47,7 @@ REGOLE OBBLIGATORIE:
 3. Organizza la risposta per POI, dal piu' al meno critico
 4. Concludi con una sintesi del livello di rischio complessivo della zona
 5. Usa un linguaggio tecnico ma comprensibile per operatori non informatici
+6. Usa ESATTAMENTE i termini del VOCABOLARIO CONTROLLATO per nominare gli hazard
 
 LIVELLI DI CONFIDENZA:
 - confermato: supportato da ontologia + contesto OSM verificabile
@@ -144,9 +149,26 @@ def build_context_str(context_dict: dict[str, Any]) -> str:
     rivaluta nulla, si serializza solo per il modello.
     """
     zona = str(context_dict.get("zona", ""))
-    lines: list[str] = [f"ZONA: {zona}", "", "POI RILEVANTI:"]
+    validated = context_dict.get("validated_risks", [])
 
-    for poi in context_dict.get("validated_risks", []):
+    all_hazards = [
+        str(risk.get("hazard", ""))
+        for poi in validated
+        for risk in poi.get("risks", [])
+    ]
+    vocab = controlled_vocab_for(all_hazards)
+
+    lines: list[str] = [f"ZONA: {zona}", ""]
+    if vocab:
+        lines.append(
+            "VOCABOLARIO CONTROLLATO (usa ESATTAMENTE questi termini italiani "
+            "per nominare gli hazard):"
+        )
+        lines.append("  " + "; ".join(vocab))
+        lines.append("")
+    lines.append("POI RILEVANTI:")
+
+    for poi in validated:
         name = str(poi.get("poi", ""))
         terminus = str(poi.get("terminus_class", ""))
         lines.append(f"  POI: {name} ({terminus})")
@@ -156,10 +178,11 @@ def build_context_str(context_dict: dict[str, Any]) -> str:
             lines.append("  Hazard verificati:")
             for risk in risks:
                 hazard = str(risk.get("hazard", ""))
+                hazard_it = label_it(hazard)
                 tag = risk.get("tag")
                 confidence = str(risk.get("confidence", ""))
                 tag_str = f"[{tag}] " if tag else ""
-                lines.append(f"    - {tag_str}{hazard} ({confidence})")
+                lines.append(f"    - {tag_str}{hazard} / {hazard_it} ({confidence})")
         else:
             lines.append("  Hazard verificati: nessuno (POI non coperto)")
 
