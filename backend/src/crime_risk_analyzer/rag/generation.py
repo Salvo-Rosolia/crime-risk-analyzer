@@ -24,8 +24,9 @@ from __future__ import annotations
 import time
 from typing import Any, Protocol
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
+from crime_risk_analyzer.i18n.terminus_labels import label_en, label_it
 from crime_risk_analyzer.llm.client import LLMResponse
 from crime_risk_analyzer.models.vocab import Confidence, ConfidenceSummary, Tag
 
@@ -64,16 +65,31 @@ class RiskItem(BaseModel):
 
     Riflette il citation layer: ogni rischio porta un ``tag``
     (``ONTOLOGIA``/``CONTESTO``/``SPECULATIVO``) e un ``confidence`` qualitativo
-    (mai un punteggio numerico).
+    (mai un punteggio numerico). Le etichette display EN/IT sono popolate dalla
+    sorgente unica del vocabolario controllato (#77) a partire dall'``hazard``.
     """
 
-    hazard: str = Field(description="Nome dell'hazard (classe ontologica).")
+    hazard: str = Field(description="Nome dell'hazard (classe ontologica reale).")
     confidence: Confidence = Field(
         description="Livello qualitativo: confermato/plausibile/speculativo."
     )
     tag: Tag | None = Field(
         default=None, description="Tag fonte: ONTOLOGIA/CONTESTO/SPECULATIVO."
     )
+    hazard_label_it: str = Field(
+        default="", description="Etichetta IT controllata dell'hazard (display)."
+    )
+    hazard_label_en: str = Field(
+        default="", description="Etichetta EN corretta dell'hazard (display)."
+    )
+
+    @model_validator(mode="after")
+    def _fill_labels(self) -> RiskItem:
+        if not self.hazard_label_it:
+            self.hazard_label_it = label_it(self.hazard)
+        if not self.hazard_label_en:
+            self.hazard_label_en = label_en(self.hazard)
+        return self
 
 
 class RiskModel(BaseModel):
