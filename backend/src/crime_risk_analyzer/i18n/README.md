@@ -20,6 +20,18 @@ Il set EN è estratto in modo deterministico da `i18n/extract.py`
 **curazione d'autore** (vocabolario controllato), non traduzione automatica; la
 ri-esecuzione dell'estrazione conserva le IT già curate (`merge_preserving_it`).
 
-## Refusi noti corretti (solo in `label_en`/`label_it`)
+## Meccanismo di correzione refusi (`_TYPO_FIXES`)
+
+`extract.py` mantiene un dizionario `_TYPO_FIXES` che mappa identifier con refusi
+all'etichetta EN corretta (solo display; l'`identifier` reale viene sempre preservato).
+
+I due esempi illustrativi nel dizionario sono:
 - `Brank_branch` → "Branch robbery"
 - `Buiding_damage` → "Building damage"
+
+**Nota:** il sottografo affiorante **attualmente estratto** non contiene questi refusi —
+le classi del set reale usano le grafie corrette (`Branch_damage`, `Building_damage`
+e simili). Il meccanismo resta come guardia forward-looking: qualora future versioni
+dell'ontologia introducano identifier con refusi, `_TYPO_FIXES` li intercetterà senza
+modifiche al resto della pipeline. Le entry del dizionario sono esercitate anche dai
+test di Task 2 (`tests/i18n/`) che ne verificano il comportamento.

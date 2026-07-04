@@ -32,6 +32,9 @@ _DEFAULT_SRC = "ontology/terminus-crime.owl"
 _DEFAULT_OUT = str(Path(__file__).parent / "terminus_labels.json")
 
 #: Refusi noti dell'ontologia → etichetta EN corretta (solo display).
+#: Le entry sotto sono esempi illustrativi del meccanismo; non compaiono nel
+#: sottografo affiorante corrente (le classi reali usano grafie corrette).
+#: Sono mantenute come guardia forward-looking ed esercitate dai test di Task 2.
 _TYPO_FIXES: dict[str, str] = {
     "Brank_branch": "Branch robbery",
     "Buiding_damage": "Building damage",
