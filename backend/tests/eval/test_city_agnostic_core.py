@@ -78,3 +78,28 @@ def test_build_record_sets_pass_flags() -> None:
     assert rec.pass_derived is True
     assert rec.pass_switch is True
     assert rec.ontology_hash == "hash123"
+
+
+def test_build_record_sets_fail_flags() -> None:
+    # 1 POI su 2 in grafo → verbatim 0.5 (<0.50? no, ==0.5 pass); usiamo classi assenti
+    # per far fallire verbatim e derived, e switch oltre soglia.
+    capture = ca.CityCapture(
+        citta="X",
+        zona="Y",
+        lat=41.0,
+        lon=12.0,
+        bbox=(41.0, 12.0, 41.5, 12.5),
+        switch_ms=6000,
+        pois=[_poi("a", "GenericUrbanPOI"), _poi("b", "GenericUrbanPOI")],
+    )
+    rec = ca.build_record(capture, _graph(), "h")
+    assert rec.coverage_verbatim == 0.0
+    assert rec.coverage_derived == 0.0
+    assert rec.pass_verbatim is False
+    assert rec.pass_derived is False
+    assert rec.pass_switch is False
+    assert rec.boundary_ok is True
+
+
+def test_boundary_ok_false_for_degenerate_lon() -> None:
+    assert ca.boundary_ok((41.0, 12.0, 41.5, 12.0)) is False
