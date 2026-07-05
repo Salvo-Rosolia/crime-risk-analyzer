@@ -9,14 +9,21 @@ retrieval usa il bbox Nominatim, non relation amministrative (finding di #31).
 
 from __future__ import annotations
 
+import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 from pydantic import BaseModel, Field
 from rdflib import OWL, RDF, Graph
 
+from crime_risk_analyzer.geocoding import geocode_zone
+from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.ontology_namespaces import TERMINUS
-from crime_risk_analyzer.overpass_client import Poi
+from crime_risk_analyzer.overpass_client import Poi, fetch_pois
 from crime_risk_analyzer.sparql_module.osm_mapping import GENERIC_FALLBACK
+
+PoiSource = Callable[[Bbox, str], Awaitable[list[Poi]]]
 
 VERBATIM_MIN = 0.50
 DERIVED_MIN = 0.70
@@ -113,4 +120,46 @@ def build_record(
         pass_derived=derived >= DERIVED_MIN,
         pass_switch=capture.switch_ms < SWITCH_MAX_MS,
         ontology_hash=ontology_hash,
+    )
+
+
+def city_slug(citta: str) -> str:
+    """Slug per il nome file dello snapshot."""
+    return citta.strip().lower().replace(" ", "-")
+
+
+def capture_path(results_dir: Path, citta: str) -> Path:
+    """Percorso dello snapshot versionato per una città."""
+    return results_dir / "city_agnostic" / "snapshots" / f"{city_slug(citta)}.json"
+
+
+def save_capture(path: Path, capture: CityCapture) -> None:
+    """Serializza un capture su file (crea le cartelle)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(capture.model_dump_json(indent=2) + "\n", encoding="utf-8")
+
+
+def load_capture(path: Path) -> CityCapture:
+    """Carica un capture da uno snapshot versionato."""
+    return CityCapture.model_validate_json(path.read_text(encoding="utf-8"))
+
+
+async def capture_city(
+    citta: str, zona: str, *, poi_source: PoiSource | None = None
+) -> CityCapture:
+    """Capture live: geocode + fetch POI una volta, misurando la latenza switch."""
+    source = poi_source or fetch_pois
+    start = time.perf_counter()
+    geo = geocode_zone(zona, citta)
+    pois = await source(geo["bbox"], citta)
+    switch_ms = int((time.perf_counter() - start) * 1000)
+    bbox = geo["bbox"]
+    return CityCapture(
+        citta=citta,
+        zona=zona,
+        lat=geo["lat"],
+        lon=geo["lon"],
+        bbox=(bbox.min_lat, bbox.min_lon, bbox.max_lat, bbox.max_lon),
+        switch_ms=switch_ms,
+        pois=pois,
     )
