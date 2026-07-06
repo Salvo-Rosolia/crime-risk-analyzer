@@ -3,8 +3,10 @@
 Due fasi separate (come #34): capture live (geocode+Overpass una volta per città)
 e compute deterministico (ricalcolo copertura dagli snapshot contro il grafo
 ontologia). Metriche riportate con soglie a-priori pass/fail (non fanno fallire
-il gate). La robustezza confini è reinterpretata come bbox valido end-to-end: il
-retrieval usa il bbox Nominatim, non relation amministrative (finding di #31).
+il gate). Il prodotto usa il bbox Nominatim per la zona *by design* (nessuna
+modifica al retrieval); la validazione confini verifica invece il contenimento
+dei POI nel poligono amministrativo reale della città (decisione 3B), con
+`bbox_valid` che resta come semplice sanity check sul bbox non degenere.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 from rdflib import OWL, RDF, Graph
 
+from crime_risk_analyzer.eval.geometry import CityBoundary, point_in_multipolygon
 from crime_risk_analyzer.geocoding import geocode_zone
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.ontology_namespaces import TERMINUS
@@ -28,6 +31,7 @@ PoiSource = Callable[[Bbox, str], Awaitable[list[Poi]]]
 VERBATIM_MIN = 0.50
 DERIVED_MIN = 0.70
 SWITCH_MAX_MS = 5000
+BOUNDARY_MIN = 0.90
 
 
 @dataclass(frozen=True)
@@ -59,6 +63,7 @@ class CityCapture(BaseModel):
     bbox: tuple[float, float, float, float]
     switch_ms: int = Field(ge=0)
     pois: list[Poi]
+    boundary: CityBoundary
 
 
 class CityAgnosticRecord(BaseModel):
@@ -69,15 +74,18 @@ class CityAgnosticRecord(BaseModel):
     n_poi: int = Field(ge=0)
     coverage_verbatim: float
     coverage_derived: float
-    boundary_ok: bool
+    bbox_valid: bool
+    pois_in_boundary: float
     switch_ms: int = Field(ge=0)
     pass_verbatim: bool
     pass_derived: bool
+    pass_boundary: bool
     pass_switch: bool
     ontology_hash: str
     verbatim_min: float = VERBATIM_MIN
     derived_min: float = DERIVED_MIN
     switch_max_ms: int = SWITCH_MAX_MS
+    boundary_min: float = BOUNDARY_MIN
 
 
 def class_exists(graph: Graph, class_name: str) -> bool:
@@ -97,10 +105,20 @@ def compute_coverage(pois: list[Poi], graph: Graph) -> tuple[float, float]:
     return (verbatim, derived)
 
 
-def boundary_ok(bbox: tuple[float, float, float, float]) -> bool:
+def bbox_valid(bbox: tuple[float, float, float, float]) -> bool:
     """True se il bbox è non degenere (area positiva)."""
     min_lat, min_lon, max_lat, max_lon = bbox
     return max_lat > min_lat and max_lon > min_lon
+
+
+def compute_boundary_coverage(pois: list[Poi], boundary: CityBoundary) -> float:
+    """Frazione di POI dentro il poligono amministrativo. Lista vuota → 0.0."""
+    if not pois:
+        return 0.0
+    inside = sum(
+        1 for p in pois if point_in_multipolygon((p["lon"], p["lat"]), boundary)
+    )
+    return inside / len(pois)
 
 
 def build_record(
@@ -108,16 +126,19 @@ def build_record(
 ) -> CityAgnosticRecord:
     """Calcola il record dalle metriche di un capture."""
     verbatim, derived = compute_coverage(capture.pois, graph)
+    boundary_cov = compute_boundary_coverage(capture.pois, capture.boundary)
     return CityAgnosticRecord(
         citta=capture.citta,
         zona=capture.zona,
         n_poi=len(capture.pois),
         coverage_verbatim=verbatim,
         coverage_derived=derived,
-        boundary_ok=boundary_ok(capture.bbox),
+        bbox_valid=bbox_valid(capture.bbox),
+        pois_in_boundary=boundary_cov,
         switch_ms=capture.switch_ms,
         pass_verbatim=verbatim >= VERBATIM_MIN,
         pass_derived=derived >= DERIVED_MIN,
+        pass_boundary=boundary_cov >= BOUNDARY_MIN,
         pass_switch=capture.switch_ms < SWITCH_MAX_MS,
         ontology_hash=ontology_hash,
     )
