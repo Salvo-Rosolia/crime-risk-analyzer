@@ -12,26 +12,76 @@ dei POI nel poligono amministrativo reale della città (decisione 3B), con
 from __future__ import annotations
 
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
+from typing import Literal, Protocol, cast
 
+from geopy.exc import GeocoderServiceError  # pyright: ignore[reportMissingTypeStubs]
+from geopy.geocoders import Nominatim  # pyright: ignore[reportMissingTypeStubs]
 from pydantic import BaseModel, Field
 from rdflib import OWL, RDF, Graph
 
-from crime_risk_analyzer.eval.geometry import CityBoundary, point_in_multipolygon
-from crime_risk_analyzer.geocoding import geocode_zone
+from crime_risk_analyzer.eval.geometry import (
+    CityBoundary,
+    boundary_from_geojson,
+    point_in_multipolygon,
+)
+from crime_risk_analyzer.geocoding import (
+    GeocodingError,
+    ZoneNotFoundError,
+    geocode_zone,
+)
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.ontology_namespaces import TERMINUS
-from crime_risk_analyzer.overpass_client import Poi, fetch_pois
+from crime_risk_analyzer.overpass_client import OverpassError, Poi, fetch_pois
 from crime_risk_analyzer.sparql_module.osm_mapping import GENERIC_FALLBACK
 
 PoiSource = Callable[[Bbox, str], Awaitable[list[Poi]]]
+BoundarySource = Callable[[str], CityBoundary]
 
 VERBATIM_MIN = 0.50
 DERIVED_MIN = 0.70
 SWITCH_MAX_MS = 5000
 BOUNDARY_MIN = 0.90
+
+_BOUNDARY_USER_AGENT = "crime-risk-analyzer-eval"
+
+
+class _BoundaryLocation(Protocol):
+    """Vista tipata minimale del ``geopy.location.Location`` (libreria senza stub)."""
+
+    @property
+    def raw(self) -> dict[str, object]: ...
+
+
+@lru_cache(maxsize=1)
+def _boundary_geolocator() -> Nominatim:
+    return Nominatim(user_agent=_BOUNDARY_USER_AGENT)
+
+
+def fetch_city_boundary(citta: str) -> CityBoundary:
+    """Scarica il poligono amministrativo reale della città via Nominatim.
+
+    Validation-only: usa un geolocator dedicato per non modificare il prodotto.
+    """
+    try:
+        result: object = _boundary_geolocator().geocode(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+            f"{citta}, Italia", geometry="geojson"
+        )
+    except GeocoderServiceError as exc:
+        raise GeocodingError(
+            f"Nominatim non raggiungibile per confine {citta!r}"
+        ) from exc
+    location = cast("_BoundaryLocation | None", result)
+    if location is None:
+        raise ZoneNotFoundError(f"Confine città non trovato: {citta!r}")
+    raw = location.raw
+    geometry = raw.get("geojson")
+    if not isinstance(geometry, Mapping):
+        raise ZoneNotFoundError(f"Confine città privo di geometria: {citta!r}")
+    return boundary_from_geojson(cast("Mapping[str, object]", geometry))
 
 
 @dataclass(frozen=True)
@@ -154,26 +204,42 @@ def capture_path(results_dir: Path, citta: str) -> Path:
     return results_dir / "city_agnostic" / "snapshots" / f"{city_slug(citta)}.json"
 
 
-def save_capture(path: Path, capture: CityCapture) -> None:
-    """Serializza un capture su file (crea le cartelle)."""
+class CaptureOutcome(BaseModel):
+    """Esito di una cattura per città: successo (con capture) o fallimento (errore)."""
+
+    status: Literal["ok", "failed"]
+    citta: str
+    zona: str
+    capture: CityCapture | None = None
+    error_type: str | None = None
+    error: str | None = None
+
+
+def save_outcome(path: Path, outcome: CaptureOutcome) -> None:
+    """Serializza un esito su file (crea le cartelle)."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(capture.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    path.write_text(outcome.model_dump_json(indent=2) + "\n", encoding="utf-8")
 
 
-def load_capture(path: Path) -> CityCapture:
-    """Carica un capture da uno snapshot versionato."""
-    return CityCapture.model_validate_json(path.read_text(encoding="utf-8"))
+def load_outcome(path: Path) -> CaptureOutcome:
+    """Carica un esito da uno snapshot versionato."""
+    return CaptureOutcome.model_validate_json(path.read_text(encoding="utf-8"))
 
 
 async def capture_city(
-    citta: str, zona: str, *, poi_source: PoiSource | None = None
+    citta: str,
+    zona: str,
+    *,
+    poi_source: PoiSource | None = None,
+    boundary_source: BoundarySource = fetch_city_boundary,
 ) -> CityCapture:
-    """Capture live: geocode + fetch POI una volta, misurando la latenza switch."""
+    """Capture live: geocode + fetch POI (cronometrati) + poligono città (non timed)."""
     source = poi_source or fetch_pois
     start = time.perf_counter()
     geo = geocode_zone(zona, citta)
     pois = await source(geo["bbox"], citta)
     switch_ms = int((time.perf_counter() - start) * 1000)
+    boundary = boundary_source(citta)
     bbox = geo["bbox"]
     return CityCapture(
         citta=citta,
@@ -183,4 +249,35 @@ async def capture_city(
         bbox=(bbox.min_lat, bbox.min_lon, bbox.max_lat, bbox.max_lon),
         switch_ms=switch_ms,
         pois=pois,
+        boundary=boundary,
     )
+
+
+async def capture_roster(
+    roster: tuple[RosterCity, ...] = ROSTER,
+    results_dir: Path = Path("results"),
+    *,
+    poi_source: PoiSource | None = None,
+    boundary_source: BoundarySource = fetch_city_boundary,
+) -> None:
+    """Cattura ogni città del roster isolando i fallimenti per-città (M3)."""
+    for city in roster:
+        try:
+            capture = await capture_city(
+                city.citta,
+                city.zona,
+                poi_source=poi_source,
+                boundary_source=boundary_source,
+            )
+            outcome = CaptureOutcome(
+                status="ok", citta=city.citta, zona=city.zona, capture=capture
+            )
+        except (GeocodingError, OverpassError) as exc:
+            outcome = CaptureOutcome(
+                status="failed",
+                citta=city.citta,
+                zona=city.zona,
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
+        save_outcome(capture_path(results_dir, city.citta), outcome)
