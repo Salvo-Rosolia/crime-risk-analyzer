@@ -250,3 +250,14 @@ async def test_capture_city_live_roma() -> None:
     assert capture.pois
     assert ca.bbox_valid(capture.bbox)
     assert capture.boundary.polygons
+
+
+@pytest.mark.integration
+async def test_capture_roster_live_roma(tmp_path: Path) -> None:
+    """Driver reale end-to-end su Roma (skip default; -m integration)."""
+    await ca.capture_roster((ca.RosterCity("Roma", "Colosseo"),), tmp_path)
+    outcome = ca.load_outcome(ca.capture_path(tmp_path, "Roma"))
+    assert outcome.status == "ok"
+    assert outcome.capture is not None
+    assert outcome.capture.boundary.polygons
+    assert outcome.capture.pois
