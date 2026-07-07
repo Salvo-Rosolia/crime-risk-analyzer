@@ -96,3 +96,17 @@ def test_build_llm_eval_client_uses_config_model_claude(
     client = build_llm_eval_client(cfg)
     assert isinstance(client, LLMClient)
     assert client.provider == "claude"
+
+
+def test_parser_city_agnostic_capture() -> None:
+    ns = build_parser().parse_args(["city-agnostic", "capture", "--results", "r"])
+    assert ns.command == "city-agnostic"
+    assert ns.phase == "capture"
+    assert ns.results == "r"
+
+
+def test_parser_city_agnostic_report_defaults_results() -> None:
+    ns = build_parser().parse_args(["city-agnostic", "report"])
+    assert ns.command == "city-agnostic"
+    assert ns.phase == "report"
+    assert ns.results == "results"
