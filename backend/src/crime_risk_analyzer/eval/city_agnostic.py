@@ -81,7 +81,12 @@ def fetch_city_boundary(citta: str) -> CityBoundary:
     geometry = raw.get("geojson")
     if not isinstance(geometry, Mapping):
         raise ZoneNotFoundError(f"Confine città privo di geometria: {citta!r}")
-    return boundary_from_geojson(cast("Mapping[str, object]", geometry))
+    try:
+        return boundary_from_geojson(cast("Mapping[str, object]", geometry))
+    except ValueError as exc:
+        raise ZoneNotFoundError(
+            f"Confine città con geometria non poligonale: {citta!r}"
+        ) from exc
 
 
 @dataclass(frozen=True)
