@@ -233,8 +233,10 @@ async def test_capture_roster_isolates_overpass_failure(
         raise OverpassError("overpass giù")
 
     await ca.capture_roster(
-        (ca.RosterCity("Roma", "Colosseo"),), tmp_path,
-        poi_source=_boom, boundary_source=_fake_boundary,
+        (ca.RosterCity("Roma", "Colosseo"),),
+        tmp_path,
+        poi_source=_boom,
+        boundary_source=_fake_boundary,
     )
     roma = ca.load_outcome(ca.capture_path(tmp_path, "Roma"))
     assert roma.status == "failed"
