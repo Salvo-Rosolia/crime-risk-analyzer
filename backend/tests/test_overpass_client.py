@@ -155,6 +155,18 @@ async def test_fetch_pois_query_uses_key_value_selectors_and_caps() -> None:
 
 
 @respx.mock
+async def test_fetch_pois_sets_explicit_user_agent() -> None:
+    """UA esplicito sulla richiesta Overpass (non il default httpx): evita il 406."""
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json={"elements": []})
+    )
+
+    await fetch_pois(_BBOX, "Roma", ["amenity=bank"])
+
+    assert route.calls.last.request.headers.get("user-agent") == "crime-risk-analyzer"
+
+
+@respx.mock
 async def test_fetch_pois_raises_on_network_error() -> None:
     """Errore di rete non-timeout (es. connessione) -> OverpassError."""
     respx.post(DEFAULT_OVERPASS_URL).mock(side_effect=httpx.ConnectError("refused"))

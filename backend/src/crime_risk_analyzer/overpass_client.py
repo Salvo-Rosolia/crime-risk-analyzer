@@ -44,6 +44,10 @@ PER_SELECTOR_CAP = 5
 _TIMEOUT_S = 30.0
 _RETRY_TIMEOUT_S = 60.0
 
+#: User-agent esplicito richiesto dall'endpoint pubblico Overpass: senza di esso
+#: (default httpx ``python-httpx/...``) overpass-api.de risponde 406.
+_USER_AGENT = "crime-risk-analyzer"
+
 
 class Poi(TypedDict):
     """POI nel contratto di retrieval (pre-grounding)."""
@@ -190,7 +194,7 @@ async def fetch_pois(
     selectors = list(osm_selectors)
     query = _build_query(bbox, selectors)
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(headers={"User-Agent": _USER_AGENT}) as client:
         try:
             response = await _post_query(client, overpass_url, query, _TIMEOUT_S)
         except httpx.TimeoutException:
