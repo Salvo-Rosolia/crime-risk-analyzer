@@ -9,6 +9,7 @@ import httpx
 import pytest
 import respx
 
+from crime_risk_analyzer import overpass_client
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.overpass_client import (
     DEFAULT_OVERPASS_URL,
@@ -23,6 +24,12 @@ _BBOX = Bbox(41.88, 12.48, 41.90, 12.50)
 
 def _sample() -> dict[str, object]:
     return json.loads(_FIXTURE.read_text(encoding="utf-8"))
+
+
+@pytest.fixture(autouse=True)
+def _no_retry_pause(monkeypatch: pytest.MonkeyPatch) -> None:  # pyright: ignore[reportUnusedFunction]
+    """Azzera la pausa di cortesia del retry: nessuno sleep reale, suite veloce."""
+    monkeypatch.setattr(overpass_client, "_RETRY_PAUSE_S", 0.0)
 
 
 @respx.mock
@@ -115,6 +122,22 @@ async def test_fetch_pois_retries_once_then_succeeds() -> None:
 
 
 @respx.mock
+async def test_fetch_pois_retries_on_429_then_succeeds() -> None:
+    """429 alla prima chiamata -> un retry -> successo (429 e' ritentabile)."""
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=[
+            httpx.Response(429, text="rate limited"),
+            httpx.Response(200, json=_sample()),
+        ]
+    )
+
+    pois = await fetch_pois(_BBOX, "Roma")
+
+    assert route.call_count == 2
+    assert len(pois) > 0
+
+
+@respx.mock
 async def test_fetch_pois_raises_after_retry_exhausted() -> None:
     """Timeout su entrambi i tentativi -> OverpassError (mappabile a 503)."""
     respx.post(DEFAULT_OVERPASS_URL).mock(side_effect=httpx.TimeoutException("slow"))
@@ -125,13 +148,28 @@ async def test_fetch_pois_raises_after_retry_exhausted() -> None:
 
 @respx.mock
 async def test_fetch_pois_raises_on_http_error() -> None:
-    """Risposta HTTP non-2xx -> OverpassError."""
-    respx.post(DEFAULT_OVERPASS_URL).mock(
+    """Status 504 (ritentabile) su entrambi i tentativi -> retry esaurito -> errore."""
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(504, text="gateway timeout")
     )
 
     with pytest.raises(OverpassError):
         await fetch_pois(_BBOX, "Roma")
+
+    assert route.call_count == 2
+
+
+@respx.mock
+async def test_fetch_pois_does_not_retry_on_non_retryable_status() -> None:
+    """Status non-2xx NON ritentabile (400) -> OverpassError immediata, nessun retry."""
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(400, text="bad request")
+    )
+
+    with pytest.raises(OverpassError):
+        await fetch_pois(_BBOX, "Roma")
+
+    assert route.call_count == 1
 
 
 @respx.mock
@@ -152,6 +190,18 @@ async def test_fetch_pois_query_uses_key_value_selectors_and_caps() -> None:
     # un 'out center' per selettore: con 2 selettori devono essere
     # esattamente 2 blocchi.
     assert body.count("out center 5") == 2
+
+
+@respx.mock
+async def test_fetch_pois_sets_explicit_user_agent() -> None:
+    """UA esplicito sulla richiesta Overpass (non il default httpx): evita il 406."""
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json={"elements": []})
+    )
+
+    await fetch_pois(_BBOX, "Roma", ["amenity=bank"])
+
+    assert route.calls.last.request.headers.get("user-agent") == "crime-risk-analyzer"
 
 
 @respx.mock
