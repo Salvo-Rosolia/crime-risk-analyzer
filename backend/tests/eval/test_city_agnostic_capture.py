@@ -10,7 +10,9 @@ from crime_risk_analyzer.geocoding import ZoneNotFoundError
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.overpass_client import OverpassError, Poi
 
-_BOUNDARY = CityBoundary(polygons=[[[(11.0, 40.0), (13.0, 40.0), (13.0, 42.0), (11.0, 42.0)]]])
+_BOUNDARY = CityBoundary(
+    polygons=[[[(11.0, 40.0), (13.0, 40.0), (13.0, 42.0), (11.0, 42.0)]]]
+)
 
 
 def _poi() -> Poi:
@@ -52,13 +54,17 @@ def test_capture_path_under_snapshots(tmp_path: Path) -> None:
 
 
 def test_save_and_load_outcome_roundtrip(tmp_path: Path) -> None:
-    outcome = ca.CaptureOutcome(status="ok", citta="Roma", zona="Colosseo", capture=_capture())
+    outcome = ca.CaptureOutcome(
+        status="ok", citta="Roma", zona="Colosseo", capture=_capture()
+    )
     path = ca.capture_path(tmp_path, "Roma")
     ca.save_outcome(path, outcome)
     assert ca.load_outcome(path) == outcome
 
 
-async def test_capture_city_times_and_fetches_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_capture_city_times_and_fetches_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     def _fake_geocode(zona: str, citta: str) -> dict[str, object]:
         return {"lat": 41.89, "lon": 12.49, "bbox": Bbox(41.0, 12.0, 41.5, 12.5)}
 
