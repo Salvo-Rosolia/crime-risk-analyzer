@@ -62,4 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     agg = sub.add_parser("aggregate")
     agg.add_argument("--experiment", required=True)
     agg.add_argument("--results", default="results")
+    ca_parser = sub.add_parser("city-agnostic")
+    ca_parser.add_argument("phase", choices=["capture", "report"])
+    ca_parser.add_argument("--results", default="results")
     return parser
