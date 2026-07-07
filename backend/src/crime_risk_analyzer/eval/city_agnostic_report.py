@@ -36,6 +36,7 @@ _COLUMNS = [
 
 def load_outcomes(results_dir: Path) -> list[CaptureOutcome]:
     """Carica tutti gli esiti di cattura da results/city_agnostic/snapshots/."""
+    # Deriva la cartella snapshots dal path builder condiviso, con una città fittizia
     snapshots_dir = capture_path(results_dir, "x").parent
     outcomes: list[CaptureOutcome] = []
     if not snapshots_dir.exists():
@@ -73,7 +74,10 @@ def _ok_row(rec: CityAgnosticRecord) -> list[str]:
 
 
 def _failed_row(outcome: CaptureOutcome) -> list[str]:
-    return [outcome.citta, outcome.zona, "failed", *([""] * 10), "False"]
+    # 3 colonne iniziali (citta, zona, status) + N vuote + 1 finale (pass_all)
+    # == len(_COLUMNS)
+    n_blank = len(_COLUMNS) - 4
+    return [outcome.citta, outcome.zona, "failed", *([""] * n_blank), "False"]
 
 
 def _to_csv(rows: list[list[str]]) -> str:
@@ -148,7 +152,7 @@ def build_report(
         encoding="utf-8",
     )
     csv_path = out_dir / "report.csv"
-    csv_path.write_text(_to_csv(rows), encoding="utf-8")
+    csv_path.write_text(_to_csv(rows), encoding="utf-8", newline="")
     md_path = out_dir / "report.md"
     md_path.write_text(_to_markdown(rows, summary), encoding="utf-8")
     return records_path, csv_path, md_path

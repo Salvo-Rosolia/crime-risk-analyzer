@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import csv
 import json
 from pathlib import Path
 
 from rdflib import OWL, RDF, Graph
 
 from crime_risk_analyzer.eval import city_agnostic as ca
-from crime_risk_analyzer.eval.city_agnostic_report import build_report, load_outcomes
+from crime_risk_analyzer.eval.city_agnostic_report import (
+    _COLUMNS,  # pyright: ignore[reportPrivateUsage]
+    build_report,
+    load_outcomes,
+)
 from crime_risk_analyzer.eval.geometry import CityBoundary
 from crime_risk_analyzer.ontology_namespaces import TERMINUS
 from crime_risk_analyzer.overpass_client import Poi
@@ -91,3 +96,24 @@ def test_build_report_writes_tables_and_records(tmp_path: Path) -> None:
     md_text = md_path.read_text(encoding="utf-8")
     assert "| citta | zona | status |" in md_text
     assert "città: 2" in md_text
+
+
+def test_build_report_csv_has_no_double_crlf(tmp_path: Path) -> None:
+    _seed_snapshots(tmp_path)
+    _records_path, csv_path, _md_path = build_report(tmp_path, _graph(), "hashZ")
+
+    content = csv_path.read_bytes()
+    assert b"\r\r\n" not in content
+
+
+def test_build_report_csv_rows_are_well_formed(tmp_path: Path) -> None:
+    _seed_snapshots(tmp_path)
+    _records_path, csv_path, _md_path = build_report(tmp_path, _graph(), "hashZ")
+
+    with open(csv_path, newline="", encoding="utf-8") as f:
+        rows = list(csv.reader(f))
+
+    assert len(rows) == 3  # header + Roma (ok) + Napoli (failed)
+    n_columns = len(_COLUMNS)
+    for row in rows:
+        assert len(row) == n_columns
