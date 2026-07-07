@@ -7,13 +7,15 @@ restituisce i POI nel contratto di RETRIEVAL: ogni POI espone ``id``, ``name``,
 grounding/SPARQL a valle.
 
 Vincoli (orchestrator.md): massimo :data:`MAX_POIS` POI per richiesta; in caso di
-timeout un solo retry con timeout esteso, poi :class:`OverpassError` (mappata a
-503 dall'orchestrator). Le chiamate sono async (``httpx.AsyncClient``): nessun
+timeout **o** di status ritentabile (429/5xx) un solo retry (breve pausa di
+cortesia + timeout esteso), poi :class:`OverpassError` (mappata a 503
+dall'orchestrator). Le chiamate sono async (``httpx.AsyncClient``): nessun
 I/O bloccante.
 """
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterable, Mapping, Sequence
 from typing import TypedDict, cast
 
@@ -43,6 +45,15 @@ PER_SELECTOR_CAP = 5
 #: Timeout (secondi) del primo tentativo e del retry esteso.
 _TIMEOUT_S = 30.0
 _RETRY_TIMEOUT_S = 60.0
+
+#: Status HTTP ritentabili: 429 (rate limit) e 5xx di gateway/overload. Una
+#: risposta con questi status non e' un errore definitivo ma una condizione
+#: transitoria di Overpass -> merita l'unico retry come un timeout.
+_RETRYABLE_STATUS = frozenset({429, 502, 503, 504})
+
+#: Breve pausa di cortesia (secondi) prima del retry: utile soprattutto sul 429,
+#: dove ripartire subito verrebbe di nuovo throttlato. Non bloccante (async).
+_RETRY_PAUSE_S = 1.0
 
 #: User-agent esplicito richiesto dall'endpoint pubblico Overpass: senza di esso
 #: (default httpx ``python-httpx/...``) overpass-api.de risponde 406.
@@ -171,11 +182,22 @@ def _parse_elements(payload: object, citta: str) -> list[Poi]:
     return pois
 
 
-async def _post_query(
+async def _try_post(
     client: httpx.AsyncClient, url: str, query: str, timeout: float
-) -> httpx.Response:
-    """Esegue il POST della query a Overpass con il timeout indicato."""
-    return await client.post(url, content=query, timeout=timeout)
+) -> httpx.Response | None:
+    """Esegue un tentativo di POST a Overpass col timeout indicato.
+
+    Ritorna la :class:`httpx.Response` (qualunque status), oppure ``None`` se il
+    tentativo scade in timeout (segnale ritentabile). Un errore di trasporto
+    non-timeout (``httpx.HTTPError``, es. connessione rifiutata) e' definitivo:
+    viene rilanciato subito come :class:`OverpassError`.
+    """
+    try:
+        return await client.post(url, content=query, timeout=timeout)
+    except httpx.TimeoutException:
+        return None
+    except httpx.HTTPError as exc:
+        raise OverpassError(f"Errore di rete verso Overpass: {exc}") from exc
 
 
 async def fetch_pois(
@@ -188,27 +210,25 @@ async def fetch_pois(
     """Recupera i POI dentro ``bbox`` per i selettori OSM ``osm_selectors``.
 
     Default: l'intero binding canonico :data:`OSM_SELECTORS`. Arricchisce ogni POI
-    con ``terminus_class`` (#13). Un retry con timeout esteso; poi
+    con ``terminus_class`` (#13). Un solo retry (con breve pausa di cortesia e
+    timeout esteso) se il primo tentativo scade in timeout **o** risponde con uno
+    status ritentabile (:data:`_RETRYABLE_STATUS`, 429/5xx); poi
     :class:`OverpassError`.
     """
     selectors = list(osm_selectors)
     query = _build_query(bbox, selectors)
 
     async with httpx.AsyncClient(headers={"User-Agent": _USER_AGENT}) as client:
-        try:
-            response = await _post_query(client, overpass_url, query, _TIMEOUT_S)
-        except httpx.TimeoutException:
-            try:
-                response = await _post_query(
-                    client, overpass_url, query, _RETRY_TIMEOUT_S
-                )
-            except httpx.TimeoutException as exc:
-                raise OverpassError(
-                    "Overpass timeout dopo retry con timeout esteso"
-                ) from exc
-        except httpx.HTTPError as exc:
-            raise OverpassError(f"Errore di rete verso Overpass: {exc}") from exc
+        response = await _try_post(client, overpass_url, query, _TIMEOUT_S)
+        # Un SOLO retry: scatta sia sul timeout (response None) sia su uno status
+        # transitorio (429/5xx). Uno status non-2xx NON ritentabile (400/403/404)
+        # cade fuori e fallisce subito piu' sotto.
+        if response is None or response.status_code in _RETRYABLE_STATUS:
+            await asyncio.sleep(_RETRY_PAUSE_S)
+            response = await _try_post(client, overpass_url, query, _RETRY_TIMEOUT_S)
 
+    if response is None:
+        raise OverpassError("Overpass timeout dopo retry con timeout esteso")
     if not response.is_success:
         raise OverpassError(f"Overpass ha risposto {response.status_code}")
 
