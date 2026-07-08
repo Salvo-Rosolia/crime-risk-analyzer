@@ -76,6 +76,9 @@ def write_tables(results_dir: Path, experiment: str) -> tuple[Path, Path]:
     records = load_runs(results_dir, experiment=experiment)
     csv_path = results_dir / f"{experiment}.csv"
     md_path = results_dir / f"{experiment}.md"
-    csv_path.write_text(to_csv(records), encoding="utf-8")
+    # newline="": to_csv() emette gia' \r\n via csv.writer; senza questo, il
+    # text-mode di write_text ritradurrebbe \n->\r\n su Windows (righe spurie).
+    # Cfr. stesso fix in city_agnostic_report.build_report (#31/#103).
+    csv_path.write_text(to_csv(records), encoding="utf-8", newline="")
     md_path.write_text(to_markdown(records), encoding="utf-8")
     return csv_path, md_path
