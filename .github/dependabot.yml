@@ -31,3 +31,20 @@ updates:
         update-types:
           - "minor"
           - "patch"
+
+  # Dipendenze npm del frontend (Angular: package.json + package-lock.json).
+  # Stesso schema del backend: minor e patch raggruppate in un'unica PR per
+  # ridurre il rumore; i major restano PR singole per valutarli uno a uno.
+  # Le PR passano comunque da ci-gate.
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(frontend)"
+    groups:
+      frontend-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
