@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from pytest import MonkeyPatch
+
 from crime_risk_analyzer.eval.aggregate import (
     load_runs,
     to_csv,
@@ -71,3 +73,44 @@ def test_write_tables_writes_csv_and_md(tmp_path: Path) -> None:
     assert csv_path.exists() and md_path.exists()
     assert "run_id" in csv_path.read_text(encoding="utf-8")
     assert "exp__a" in csv_path.read_text(encoding="utf-8")
+
+
+def test_write_tables_csv_uses_newline_empty(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    """Regressione #103: la scrittura del CSV deve passare ``newline=""``.
+
+    ``to_csv()`` usa ``csv.writer`` che emette gia' terminatori ``\\r\\n``; se
+    ``write_text`` apre il file in text-mode senza ``newline=""``, su Windows il
+    ``\\n`` viene ritradotto in ``\\r\\n`` producendo ``\\r\\r\\n`` (righe vuote
+    spurie, CSV corrotto per Excel/pandas/csv.reader).
+
+    Il guard e' DETERMINISTICO e cross-platform perche' non ispeziona i byte su
+    disco (la traduzione text-mode e' solo Windows: su Linux un assert sui byte
+    passerebbe anche col bug), ma verifica il KWARG passato al codice: spia
+    ``Path.write_text`` e pretende ``newline=""`` sulla scrittura del ``.csv``.
+    Questo fallisce sul comportamento buggato su OGNI piattaforma, incluso CI.
+    """
+    write_record(tmp_path, _rec("exp__a", "exp"))
+
+    original = Path.write_text
+    csv_newline_kwargs: list[str | None] = []
+
+    def spy(
+        self: Path,
+        data: str,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ) -> int:
+        if self.suffix == ".csv":
+            csv_newline_kwargs.append(newline)
+        return original(self, data, encoding=encoding, errors=errors, newline=newline)
+
+    monkeypatch.setattr(Path, "write_text", spy)
+    csv_path, _md_path = write_tables(tmp_path, "exp")
+
+    # Guard primario, cross-platform: il codice passa esplicitamente newline="".
+    assert csv_newline_kwargs == [""]
+    # Assert supplementare (sensibile solo su Windows): nessuna riga spuria.
+    assert b"\r\r\n" not in csv_path.read_bytes()
