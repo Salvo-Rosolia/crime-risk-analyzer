@@ -29,7 +29,7 @@
     "@angular/compiler": "^20.3.0",
     "@angular/core": "^20.3.0",
     "@angular/forms": "^20.3.0",
-    "@angular/platform-browser": "^20.3.0",
+    "@angular/platform-browser": "^22.0.6",
     "@angular/router": "^20.3.0",
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "@fontsource/ibm-plex-sans": "^5.2.8",
