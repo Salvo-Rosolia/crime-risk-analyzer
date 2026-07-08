@@ -1,0 +1,6 @@
+# Output di build e file generati: fuori dal controllo di formato Prettier.
+/dist
+/coverage
+/.angular
+/node_modules
+package-lock.json

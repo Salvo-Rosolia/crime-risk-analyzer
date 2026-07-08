@@ -45,6 +45,12 @@ jobs:
         run: uv sync
       - name: Quality checks
         run: uv run python scripts/check.py
+      - name: Audit dipendenze (pip-audit)
+        # Esporta il set di dipendenze bloccate (uv.lock) e lo passa a pip-audit.
+        # Blocca la lane se emerge una vulnerabilita nota (nessuna oggi).
+        run: |
+          uv export --format requirements-txt --no-emit-project --no-hashes > "$RUNNER_TEMP/requirements.txt"
+          uvx pip-audit -r "$RUNNER_TEMP/requirements.txt"
 
   frontend:
     needs: changes
@@ -73,6 +79,10 @@ jobs:
       - name: Install dependencies
         if: ${{ steps.tooling.outputs.present == 'true' }}
         run: npm ci
+      - name: Audit dipendenze (npm audit)
+        # Blocca solo su vulnerabilita high/critical; le low restano informative.
+        if: ${{ steps.tooling.outputs.present == 'true' }}
+        run: npm audit --audit-level=high
       - name: Lint
         if: ${{ steps.tooling.outputs.present == 'true' }}
         run: npm run lint
@@ -80,8 +90,46 @@ jobs:
         if: ${{ steps.tooling.outputs.present == 'true' }}
         run: npm test
 
+  frontend-build:
+    needs: changes
+    if: ${{ needs.changes.outputs.frontend == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Detect frontend tooling
+        id: tooling
+        run: |
+          if [ -f package.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "package.json trovato: eseguo build + format check."
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "Tooling FE non ancora presente (nessun package.json): skip-pass."
+          fi
+      - name: Setup Node
+        if: ${{ steps.tooling.outputs.present == 'true' }}
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        if: ${{ steps.tooling.outputs.present == 'true' }}
+        run: npm ci
+      - name: Build (ng build, configurazione production)
+        if: ${{ steps.tooling.outputs.present == 'true' }}
+        run: npm run build
+      - name: Format check (prettier)
+        # Advisory: la codebase FE non e ancora formattata con Prettier.
+        # Togliere continue-on-error dopo un `npm run format` una tantum per
+        # rendere il gate di formato bloccante.
+        if: ${{ steps.tooling.outputs.present == 'true' }}
+        continue-on-error: true
+        run: npm run format:check
+
   ci-gate:
-    needs: [changes, backend, frontend]
+    needs: [changes, backend, frontend, frontend-build]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
@@ -90,10 +138,12 @@ jobs:
           changes_result="${{ needs.changes.result }}"
           backend_result="${{ needs.backend.result }}"
           frontend_result="${{ needs.frontend.result }}"
-          echo "changes  = $changes_result"
-          echo "backend  = $backend_result"
-          echo "frontend = $frontend_result"
-          for r in "$changes_result" "$backend_result" "$frontend_result"; do
+          frontend_build_result="${{ needs['frontend-build'].result }}"
+          echo "changes        = $changes_result"
+          echo "backend        = $backend_result"
+          echo "frontend       = $frontend_result"
+          echo "frontend-build = $frontend_build_result"
+          for r in "$changes_result" "$backend_result" "$frontend_result" "$frontend_build_result"; do
             if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
               echo "::error::Un job CI non e stato superato ($r). Gate ROSSO."
               exit 1
