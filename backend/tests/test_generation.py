@@ -14,6 +14,8 @@ from typing import Any
 
 from crime_risk_analyzer.llm.client import LLMResponse
 from crime_risk_analyzer.rag.generation import (
+    RULE_NO_DANGER_RATING,
+    RULE_NO_OPERATIONAL_DIRECTIVES,
     SYSTEM_PROMPT,
     GenerationResult,
     build_context_str,
@@ -226,8 +228,41 @@ def test_system_prompt_contains_citation_rules() -> None:
     assert "[ONTOLOGIA]" in SYSTEM_PROMPT
     assert "[CONTESTO]" in SYSTEM_PROMPT
     assert "[SPECULATIVO]" in SYSTEM_PROMPT
-    # niente scoring numerico: non deve istruire a produrre percentuali
-    assert "italiano" in SYSTEM_PROMPT.lower()
+
+
+# --- i vincoli legali/di posizionamento devono vivere NEL prompt (#107) ---
+# Le due proibizioni sono estratte come costanti nominate e COMPOSTE dentro
+# SYSTEM_PROMPT: asserire l'inclusione della costante rende il test rosso in
+# modo pulito se la regola viene tolta dalla composizione (non e' un match su
+# una parola-chiave incidentale).
+
+
+def test_system_prompt_forbids_numeric_danger_score() -> None:
+    """Vincolo legale (_project.md §Vincoli): mai un punteggio NUMERICO di
+    pericolosita'. Il divieto deve vivere nel prompt, non solo nei docstring.
+    """
+    assert RULE_NO_DANGER_RATING  # la regola non e' una stringa vuota
+    assert RULE_NO_DANGER_RATING in SYSTEM_PROMPT
+    # sottostringa distintiva della clausola numerica: rosso mirato se tolta
+    assert "73%" in SYSTEM_PROMPT
+
+
+def test_system_prompt_forbids_qualitative_danger_scale() -> None:
+    """Finding C1: _project.md §Vincoli vieta ANCHE la scala QUALITATIVA di
+    pericolosita' (ALTO/MEDIO/BASSO), non solo quella numerica. La clausola deve
+    vivere nel prompt: l'esempio distintivo "ALTO/MEDIO/BASSO" rende il test
+    rosso in modo mirato se la clausola qualitativa viene rimossa.
+    """
+    assert RULE_NO_DANGER_RATING in SYSTEM_PROMPT
+    assert "ALTO/MEDIO/BASSO" in SYSTEM_PROMPT
+
+
+def test_system_prompt_forbids_operational_directives() -> None:
+    """Vincolo di posizionamento (_project.md §Vincoli): human-in-the-loop,
+    niente azioni operative (es. "Assegna pattuglia"): solo analisi del rischio.
+    """
+    assert RULE_NO_OPERATIONAL_DIRECTIVES  # la regola non e' una stringa vuota
+    assert RULE_NO_OPERATIONAL_DIRECTIVES in SYSTEM_PROMPT
 
 
 # --- model_dump produce lo shape JSON atteso dall'orchestrator/frontend ---
