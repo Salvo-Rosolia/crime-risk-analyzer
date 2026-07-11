@@ -8,10 +8,11 @@ export class ApiService {
   private readonly http = inject(HttpClient);
 
   analyze(
+    citta: string,
     zona: string,
     domanda: string | null = null,
   ): Promise<AnalyzeResponse> {
-    const payload: { zona: string; domanda?: string } = { zona };
+    const payload: { citta: string; zona: string; domanda?: string } = { citta, zona };
     if (domanda && domanda.trim()) payload.domanda = domanda.trim();
 
     return firstValueFrom(this.http.post<AnalyzeResponse>('/analyze', payload));

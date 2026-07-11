@@ -21,6 +21,16 @@ export function validateInputPanel(
   return { ok: true, error: null };
 }
 
+/** Etichetta IT controllata dell'hazard (#77) con fallback all'identificatore di classe grezzo. */
+export function hazardDisplayLabel(risk: Pick<RiskItem, 'hazard' | 'hazard_label_it'>): string {
+  return risk.hazard_label_it || risk.hazard;
+}
+
+/** Etichetta IT controllata della classe POI (#77) con fallback all'identificatore di classe grezzo. */
+export function poiDisplayLabel(poi: Pick<Poi, 'terminus_class' | 'terminus_label_it'>): string {
+  return poi.terminus_label_it || poi.terminus_class;
+}
+
 export interface NarrativeSection { tag: string; hazards: string[]; }
 
 export function buildNarrativeSections(riskModels: RiskModel[] | null | undefined): NarrativeSection[] {
@@ -29,7 +39,7 @@ export function buildNarrativeSections(riskModels: RiskModel[] | null | undefine
     for (const risk of model.risks ?? []) {
       const tag = risk.tag || 'SPECULATIVO';
       const list = byTag.get(tag) ?? [];
-      list.push(risk.hazard);
+      list.push(hazardDisplayLabel(risk));
       byTag.set(tag, list);
     }
   }
@@ -47,6 +57,8 @@ export function buildNarrativeSections(riskModels: RiskModel[] | null | undefine
 
 export interface DetailModel {
   poi: Poi;
+  /** Etichetta IT preferita del POI (fallback a terminus_class se manca). */
+  poiLabel: string;
   sparqlParts: string[];
   groups: Record<string, RiskItem[]>;
 }
@@ -61,7 +73,7 @@ export function buildDetailModel(poi: Poi, riskModels: RiskModel[] | null | unde
     list.push(risk);
     groups[tag] = list;
   }
-  return { poi, sparqlParts, groups };
+  return { poi, poiLabel: poiDisplayLabel(poi), sparqlParts, groups };
 }
 
 export function filterVisiblePOIs(pois: Poi[], filter: string | null): Poi[] {

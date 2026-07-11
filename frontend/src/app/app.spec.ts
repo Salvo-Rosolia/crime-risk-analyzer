@@ -24,6 +24,8 @@ const emptyResp: AnalyzeResponse = {
   confidence_summary: { confermato: 0, plausibile: 0, speculativo: 0 },
   llm_used: '',
   latenza_ms: 0,
+  tokens_input: 0,
+  tokens_output: 0,
   repro: { temperature: 0, seed: 0, prompt_hash: '' },
   cache_hit: false,
   fallback: false,

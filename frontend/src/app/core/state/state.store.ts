@@ -25,10 +25,10 @@ export class StateStore {
     this._state.update(s => transition(s, action));
   }
 
-  async startAnalysis(zona: string, domanda?: string | null): Promise<void> {
+  async startAnalysis(citta: string, zona: string, domanda?: string | null): Promise<void> {
     this.dispatch({ type: 'ANALYZE', zona, domanda });
     try {
-      const result = await this.api.analyze(zona, domanda);
+      const result = await this.api.analyze(citta, zona, domanda);
       this.dispatch({ type: 'LOAD_SUCCESS', data: result });
     } catch (err) {
       this.dispatch({ type: 'LOAD_ERROR', message: errorMessage(err, 'Errore durante l\'analisi.') });
@@ -36,7 +36,7 @@ export class StateStore {
   }
 
   async startBaselineAnalysis(params: BaselineParams): Promise<void> {
-    this.dispatch({ type: 'ANALYZE', zona: params.zona ?? 'baseline' });
+    this.dispatch({ type: 'ANALYZE', zona: params.zona });
     try {
       const result = await this.api.analyzeBaseline(params);
       this.dispatch({ type: 'LOAD_SUCCESS', data: result });
