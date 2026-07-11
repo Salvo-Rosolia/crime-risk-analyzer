@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import pytest
 from geopy.exc import GeocoderServiceError  # pyright: ignore[reportMissingTypeStubs]
@@ -219,6 +220,21 @@ async def test_capture_roster_continues_after_failure_precedes_success(
     assert napoli.status == "failed"
     assert roma.status == "ok"
     assert roma.capture is not None
+
+
+def test_boundary_geolocator_wires_user_agent_into_header() -> None:
+    """Catena costante -> costruttore -> header per il geolocator di boundary.
+
+    L'UA effettivo == _BOUNDARY_USER_AGENT (label ``-eval`` preservata) e contiene
+    l'URL di contatto: fail-if-removed reale sul valore cablato nel costruttore.
+    """
+    geolocator = ca._boundary_geolocator()  # pyright: ignore[reportPrivateUsage]
+    headers = cast("dict[str, str]", geolocator.headers)  # pyright: ignore[reportUnknownMemberType]
+    user_agent = headers["User-Agent"]
+
+    assert user_agent == ca._BOUNDARY_USER_AGENT  # pyright: ignore[reportPrivateUsage]
+    assert user_agent.startswith("crime-risk-analyzer-eval")
+    assert "https://github.com/Salvo-Rosolia/crime-risk-analyzer" in user_agent
 
 
 async def test_capture_roster_isolates_overpass_failure(

@@ -53,10 +53,10 @@ backend/data/**
 !backend/data/README.md
 !backend/data/.gitkeep
 
-# Ontologia fornita dal professore — licenza/riuso da rivedere (spec-root §2.5).
-# Tenuta fuori dal repo finché i termini non sono chiariti: né il sorgente .owl
-# né il .ttl materializzato vanno su GitHub. Le fixture di test piccole in
-# backend/tests/fixtures/ (es. ontology_small.owl, ontology_sample.ttl) restano
+# Ontologia TERMINUS-Crime (ENEA) — uso concesso per fini di tesi (vedi NOTICE).
+# Il sorgente .owl e il .ttl materializzato NON vengono comunque ridistribuiti:
+# non vanno su GitHub. Le fixture di test piccole in backend/tests/fixtures/
+# (es. ontology_small.owl, ontology_sample.ttl) sono sintetiche, restano
 # invece tracciate e bastano alla CI — NON allargare questa regola a quei file.
 backend/ontology/**
 !backend/ontology/

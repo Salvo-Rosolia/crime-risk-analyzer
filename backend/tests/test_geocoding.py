@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -129,3 +129,22 @@ def test_get_geolocator_builds_nominatim() -> None:
 
     geolocator = _get_geolocator()
     assert isinstance(geolocator, Nominatim)
+
+
+def test_get_geolocator_wires_user_agent_into_header() -> None:
+    """Catena costante -> costruttore -> header: l'UA del geolocator == _USER_AGENT.
+
+    Fail-if-removed reale sul valore *cablato*: un costruttore con valore divergente
+    (o senza URL di contatto) fa fallire il test, non solo il valore della costante.
+    """
+    from crime_risk_analyzer.geocoding import (
+        _USER_AGENT,  # pyright: ignore[reportPrivateUsage]
+        _get_geolocator,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    geolocator = _get_geolocator()
+    headers = cast("dict[str, str]", geolocator.headers)  # pyright: ignore[reportUnknownMemberType]
+    user_agent = headers["User-Agent"]
+
+    assert user_agent == _USER_AGENT
+    assert "https://github.com/Salvo-Rosolia/crime-risk-analyzer" in user_agent
