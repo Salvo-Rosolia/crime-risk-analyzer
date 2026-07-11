@@ -1,4 +1,4 @@
-import { Action, AnalyzeResponse, AppState, BaselineParams } from '@core/models/models';
+import { Action, AnalyzeResponse, AppState, BaselineParams, RiskItem } from '@core/models/models';
 
 describe('models (contratto /analyze)', () => {
   it('un oggetto conforme alla fixture demo è assegnabile a AnalyzeResponse', () => {
@@ -9,16 +9,32 @@ describe('models (contratto /analyze)', () => {
         id: '1', name: 'Colosseo', terminus_class: 'ArchaeologicalSite',
         lat: 41.8908, lon: 12.4918, confidence: 'confermato',
         sparql_path: 'ArchaeologicalSite → hasAnthropicHazard → borseggioTuristi',
+        terminus_label_it: 'Sito archeologico', terminus_label_en: 'Archaeological site',
       }],
-      risk_models: [{ poi: 'Colosseo', risks: [{ hazard: 'borseggioTuristi', confidence: 'confermato', tag: 'ONTOLOGIA' }] }],
+      risk_models: [{
+        poi: 'Colosseo',
+        risks: [{
+          hazard: 'borseggioTuristi', confidence: 'confermato', tag: 'ONTOLOGIA',
+          hazard_label_it: 'Borseggio turisti', hazard_label_en: 'Tourist pickpocketing',
+        }],
+      }],
       narrativa: 'L\'area del Colosseo...',
       confidence_summary: { confermato: 2, plausibile: 0, speculativo: 1 },
       llm_used: 'claude-sonnet-4-6', latenza_ms: 2340,
+      tokens_input: 512, tokens_output: 128,
       repro: { temperature: 0.2, seed: 42, prompt_hash: 'abc123' },
       cache_hit: true,
       fallback: false,
     };
     expect(sample.poi[0].confidence).toBe('confermato');
+  });
+
+  it('RiskItem.tag accetta null (il BE emette Tag|None quando il rischio non è ancorato/taggato)', () => {
+    const ri: RiskItem = {
+      hazard: 'x', confidence: 'speculativo', tag: null,
+      hazard_label_it: 'X', hazard_label_en: 'X',
+    };
+    expect(ri.tag).toBeNull();
   });
 
   it('Action è un discriminated union restringibile per type', () => {

@@ -12,8 +12,11 @@ describe('confidence', () => {
 
   it('deriveCoverage: total = somma summary, anchored = risk con tag ONTOLOGIA', () => {
     const riskModels: RiskModel[] = [
-      { poi: 'A', risks: [{ hazard: 'h1', confidence: 'confermato', tag: 'ONTOLOGIA' }, { hazard: 'h2', confidence: 'plausibile', tag: 'CONTESTO' }] },
-      { poi: 'B', risks: [{ hazard: 'h3', confidence: 'confermato', tag: 'ONTOLOGIA' }] },
+      { poi: 'A', risks: [
+        { hazard: 'h1', confidence: 'confermato', tag: 'ONTOLOGIA', hazard_label_it: 'H1', hazard_label_en: 'H1' },
+        { hazard: 'h2', confidence: 'plausibile', tag: 'CONTESTO', hazard_label_it: 'H2', hazard_label_en: 'H2' },
+      ] },
+      { poi: 'B', risks: [{ hazard: 'h3', confidence: 'confermato', tag: 'ONTOLOGIA', hazard_label_it: 'H3', hazard_label_en: 'H3' }] },
     ];
     expect(deriveCoverage({ confermato: 2, plausibile: 1, speculativo: 1 }, riskModels)).toEqual({ total: 4, anchored: 2 });
   });

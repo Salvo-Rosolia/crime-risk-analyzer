@@ -9,9 +9,22 @@ export interface Poi {
   lon: number;
   confidence: Confidence;
   sparql_path: string | null;
+  /** Etichetta IT controllata della classe (display, #77). Sempre presente lato BE (default ""). */
+  terminus_label_it: string;
+  /** Etichetta EN corretta della classe (display, #77). Sempre presente lato BE (default ""). */
+  terminus_label_en: string;
 }
 
-export interface RiskItem { hazard: string; confidence: Confidence; tag: SourceTag; }
+export interface RiskItem {
+  hazard: string;
+  confidence: Confidence;
+  /** Tag fonte del citation layer: il BE emette `Tag | None` quando il rischio non è taggato. */
+  tag: SourceTag | null;
+  /** Etichetta IT controllata dell'hazard (display, #77). Sempre presente lato BE (default ""). */
+  hazard_label_it: string;
+  /** Etichetta EN corretta dell'hazard (display, #77). Sempre presente lato BE (default ""). */
+  hazard_label_en: string;
+}
 export interface RiskModel { poi: string; risks: RiskItem[]; }
 export interface ConfidenceSummary { confermato: number; plausibile: number; speculativo: number; }
 export interface Repro { temperature: number; seed: number; prompt_hash: string; }
@@ -25,12 +38,16 @@ export interface AnalyzeResponse {
   confidence_summary: ConfidenceSummary;
   llm_used: string;
   latenza_ms: number;
+  /** Token di input fatturati (0 in baseline/fallback). */
+  tokens_input: number;
+  /** Token di output generati (0 in baseline/fallback). */
+  tokens_output: number;
   repro: Repro;
   cache_hit: boolean;
   fallback: boolean;
 }
 
-export interface BaselineParams { tipo_poi?: string; citta?: string; zona?: string; }
+export interface BaselineParams { citta: string; zona: string; tipo_poi?: string; }
 
 export type Screen = 'INPUT' | 'LOADING' | 'RESULTS' | 'DETAIL' | 'ERROR' | 'FILTER' | 'BASE';
 export type Mode = 'completo' | 'base';
