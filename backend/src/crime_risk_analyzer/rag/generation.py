@@ -34,10 +34,40 @@ from crime_risk_analyzer.i18n.terminus_labels import (
 from crime_risk_analyzer.llm.client import LLMResponse
 from crime_risk_analyzer.models.vocab import Confidence, ConfidenceSummary, Tag
 
+#: Divieto di valutazione di pericolosita' (vincolo legale non negoziabile,
+#: _project.md §Vincoli). Copre sia le scale NUMERICHE (percentuali/voti) sia
+#: quelle QUALITATIVE di livello di pericolo (ALTO/MEDIO/BASSO): entrambe sono
+#: vietate. NON confonde la pericolosita' con i livelli di confidenza, che
+#: qualificano la forza probatoria delle affermazioni, non la magnitudo del
+#: pericolo. Estratto come costante nominata e COMPOSTO in :data:`SYSTEM_PROMPT`:
+#: cosi' il divieto vive nel prompt inviato al modello (non solo nei docstring)
+#: e un test puo' verificarne l'inclusione, diventando rosso se la regola viene
+#: rimossa dalla composizione.
+RULE_NO_DANGER_RATING = (
+    "7. NON attribuire alla zona o ai POI una valutazione di pericolosita': "
+    'ne\' punteggi, percentuali, voti o scale NUMERICHE (es. "rischio 73%", '
+    '"7/10") ne\' scale QUALITATIVE di livello di pericolo (es. "rischio '
+    'ALTO/MEDIO/BASSO", "zona pericolosa/sicura"). Descrivi i fattori di rischio '
+    "in forma discorsiva; i livelli confermato/plausibile/speculativo qualificano "
+    "la forza probatoria delle singole affermazioni, non la magnitudo del pericolo"
+)
+
+#: Divieto di indicazioni operative di dispiegamento/assegnazione risorse
+#: (vincolo di posizionamento, _project.md §Vincoli: human-in-the-loop, niente
+#: azioni operative come "Assegna pattuglia"). Estratto come costante nominata e
+#: composto in :data:`SYSTEM_PROMPT` per lo stesso motivo del divieto sopra.
+RULE_NO_OPERATIONAL_DIRECTIVES = (
+    "8. NON fornire indicazioni operative di dispiegamento o assegnazione di "
+    'risorse (es. "assegna una pattuglia", "invia agenti sul posto"): limitati '
+    "all'analisi del rischio, la decisione operativa resta all'operatore umano"
+)
+
 #: System prompt — parte FISSA del prompt, versionata su Git e inviata come
 #: blocco cachabile (``cache_control: ephemeral``) dal client Claude. Contiene
-#: le regole obbligatorie di citation/grounding (generation.md §System prompt).
-SYSTEM_PROMPT = """\
+#: le regole obbligatorie di citation/grounding (generation.md §System prompt) e
+#: i vincoli legali/di posizionamento (:data:`RULE_NO_DANGER_RATING`,
+#: :data:`RULE_NO_OPERATIONAL_DIRECTIVES`) composti esplicitamente qui.
+SYSTEM_PROMPT = f"""\
 Sei un analista di sicurezza urbana. Ricevi un contesto strutturato su una zona urbana
 e devi produrre un'analisi del rischio in italiano, chiara e professionale.
 
@@ -45,9 +75,11 @@ REGOLE OBBLIGATORIE:
 1. Per ogni rischio che menzioni, indica la fonte: [ONTOLOGIA] [CONTESTO] [SPECULATIVO]
 2. Non inventare rischi non presenti nel contesto che ti viene fornito
 3. Organizza la risposta per POI, dal piu' al meno critico
-4. Concludi con una sintesi del livello di rischio complessivo della zona
+4. Sintesi discorsiva finale, senza un livello di rischio complessivo della zona
 5. Usa un linguaggio tecnico ma comprensibile per operatori non informatici
 6. Usa ESATTAMENTE i termini del VOCABOLARIO CONTROLLATO per nominare gli hazard
+{RULE_NO_DANGER_RATING}
+{RULE_NO_OPERATIONAL_DIRECTIVES}
 
 LIVELLI DI CONFIDENZA:
 - confermato: supportato da ontologia + contesto OSM verificabile
