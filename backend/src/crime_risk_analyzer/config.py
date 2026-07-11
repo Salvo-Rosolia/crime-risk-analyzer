@@ -10,7 +10,7 @@ layer LLM (fase P2), dove servono davvero. I valori segreti usano
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,6 +27,18 @@ class Settings(BaseSettings):
     groq_api_key: SecretStr | None = None
     ontology_path: str = "ontology/terminus_crime_materialized.ttl"
     llm_provider: Literal["claude", "groq"] = "claude"
+    # Timeout (secondi) del layer LLM (#114): applicato sia come ``timeout=``
+    # sull'SDK Anthropic/Groq sia come ceiling esplicito via ``asyncio.wait_for``
+    # nel client, cosi' un provider lento/appeso non lascia ``POST /analyze``
+    # bloccato a tempo indeterminato. Il timeout scaduto e' mappato a
+    # ``LLMError`` -> fallback strutturato 200 dell'orchestrator (non un 500).
+    # Vincolo ``gt=0``: un misconfig da env (0/negativo) viene respinto al load,
+    # non lasciato esplodere nel layer LLM a runtime.
+    llm_timeout_seconds: float = Field(default=30.0, gt=0)
+    # Tetto di token di output della generazione (Anthropic/Groq ``max_tokens``).
+    # Default storico 1024 (generation.md §Riproducibilita'); configurabile per
+    # tuning senza toccare il codice. Vincolo ``ge=1``: almeno 1 token.
+    llm_max_tokens: int = Field(default=1024, ge=1)
     cache_enabled: bool = True
     default_city: str = "Roma"
     # Citta supportate da ``GET /cities``. Roma/Milano/Napoli sono garantite e
