@@ -11,6 +11,7 @@ provider mappati a LLMError; (e) chiave assente -> errore in costruzione.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import pytest
@@ -55,10 +56,13 @@ class _TextBlock:
 
 
 class _AnthropicMessage:
-    def __init__(self, *, text: str, model: str, usage: _Usage) -> None:
+    def __init__(
+        self, *, text: str, model: str, usage: _Usage, stop_reason: str = "end_turn"
+    ) -> None:
         self.content = [_TextBlock(text)]
         self.model = model
         self.usage = usage
+        self.stop_reason = stop_reason
 
 
 class _FakeAnthropicMessages:
@@ -85,6 +89,7 @@ class _FakeAnthropicMessages:
             text="Analisi del rischio per la zona.",
             model=str(kwargs["model"]),
             usage=usage,
+            stop_reason=self._owner.stop_reason,
         )
 
 
@@ -92,6 +97,9 @@ class _FakeAnthropic:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
         self.seen_systems: set[str] = set()
+        # ``end_turn`` = completamento normale; i test di troncamento lo
+        # impostano a ``max_tokens`` per far scattare l'LLMError.
+        self.stop_reason = "end_turn"
         self.messages = _FakeAnthropicMessages(self)
 
 
@@ -107,13 +115,21 @@ class _GroqMessage:
 
 
 class _GroqChoice:
-    def __init__(self, content: str) -> None:
+    def __init__(self, content: str, finish_reason: str = "stop") -> None:
         self.message = _GroqMessage(content)
+        self.finish_reason = finish_reason
 
 
 class _GroqCompletion:
-    def __init__(self, *, content: str, model: str, usage: _GroqUsage) -> None:
-        self.choices = [_GroqChoice(content)]
+    def __init__(
+        self,
+        *,
+        content: str,
+        model: str,
+        usage: _GroqUsage,
+        finish_reason: str = "stop",
+    ) -> None:
+        self.choices = [_GroqChoice(content, finish_reason)]
         self.model = model
         self.usage = usage
 
@@ -128,6 +144,7 @@ class _FakeGroqCompletions:
             content="Analisi del rischio per la zona.",
             model=str(kwargs["model"]),
             usage=_GroqUsage(prompt_tokens=512, completion_tokens=88),
+            finish_reason=self._owner.finish_reason,
         )
 
 
@@ -139,6 +156,9 @@ class _FakeGroqChat:
 class _FakeGroq:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
+        # ``stop`` = completamento normale; ``length`` = troncato su max_tokens
+        # (equivalente Groq/OpenAI di stop_reason=max_tokens).
+        self.finish_reason = "stop"
         self.chat = _FakeGroqChat(self)
 
 
@@ -378,3 +398,148 @@ def test_build_llm_client_provider_none_falls_back_to_settings() -> None:
     s_groq = _settings(llm_provider="groq")
     assert build_llm_client(s_claude).provider == "claude"
     assert build_llm_client(s_groq).provider == "groq"
+
+
+# --- (#114) timeout: provider oltre il timeout -> LLMError (-> fallback) ---
+
+
+async def test_claude_timeout_is_mapped_to_llm_error() -> None:
+    """Un provider Claude che supera il timeout produce LLMError (non un hang)."""
+    fake = _FakeAnthropic()
+
+    async def _slow(**_kwargs: Any) -> _AnthropicMessage:
+        await asyncio.sleep(1)  # oltre il timeout: verra' cancellato
+        raise AssertionError("create doveva essere cancellato dal timeout")
+
+    fake.messages.create = _slow  # type: ignore[method-assign]
+    client = LLMClient.for_claude(fake, temperature=0.0, seed=0, timeout=0.01)
+
+    with pytest.raises(LLMError):
+        await client.generate(_SYSTEM, _USER)
+
+
+async def test_groq_timeout_is_mapped_to_llm_error() -> None:
+    """Un provider Groq che supera il timeout produce LLMError (non un hang)."""
+    fake = _FakeGroq()
+
+    async def _slow(**_kwargs: Any) -> _GroqCompletion:
+        await asyncio.sleep(1)
+        raise AssertionError("create doveva essere cancellato dal timeout")
+
+    fake.chat.completions.create = _slow  # type: ignore[method-assign]
+    client = LLMClient.for_groq(fake, temperature=0.0, seed=0, timeout=0.01)
+
+    with pytest.raises(LLMError):
+        await client.generate(_SYSTEM, _USER)
+
+
+# --- (#114) troncamento: stop_reason/finish_reason -> LLMError (-> fallback) ---
+
+
+async def test_claude_max_tokens_truncation_is_mapped_to_llm_error() -> None:
+    """stop_reason=max_tokens: narrativa troncata -> LLMError, non servita."""
+    fake = _FakeAnthropic()
+    fake.stop_reason = "max_tokens"
+    client = LLMClient.for_claude(fake, temperature=0.2, seed=42)
+
+    with pytest.raises(LLMError):
+        await client.generate(_SYSTEM, _USER)
+
+
+async def test_groq_length_finish_reason_is_mapped_to_llm_error() -> None:
+    """finish_reason=length (Groq) equivale al troncamento max_tokens -> LLMError."""
+    fake = _FakeGroq()
+    fake.finish_reason = "length"
+    client = LLMClient.for_groq(fake, temperature=0.2, seed=42)
+
+    with pytest.raises(LLMError):
+        await client.generate(_SYSTEM, _USER)
+
+
+async def test_claude_normal_stop_reason_does_not_raise() -> None:
+    """stop_reason=end_turn (default): nessun LLMError, risposta normale."""
+    fake = _FakeAnthropic()
+    client = LLMClient.for_claude(fake, temperature=0.2, seed=42)
+
+    result = await client.generate(_SYSTEM, _USER)
+
+    assert result.text == "Analisi del rischio per la zona."
+
+
+async def test_groq_normal_finish_reason_does_not_raise() -> None:
+    """finish_reason=stop (default): nessun LLMError, risposta normale."""
+    fake = _FakeGroq()
+    client = LLMClient.for_groq(fake, temperature=0.2, seed=42)
+
+    result = await client.generate(_SYSTEM, _USER)
+
+    assert result.text == "Analisi del rischio per la zona."
+
+
+# --- (#114) max_tokens configurabile (default invariato) ---
+
+
+async def test_claude_uses_configured_max_tokens() -> None:
+    fake = _FakeAnthropic()
+    client = LLMClient.for_claude(fake, temperature=0.2, seed=42, max_tokens=256)
+
+    await client.generate(_SYSTEM, _USER)
+
+    assert fake.calls[0]["max_tokens"] == 256
+
+
+async def test_groq_uses_configured_max_tokens() -> None:
+    fake = _FakeGroq()
+    client = LLMClient.for_groq(fake, temperature=0.2, seed=42, max_tokens=256)
+
+    await client.generate(_SYSTEM, _USER)
+
+    assert fake.calls[0]["max_tokens"] == 256
+
+
+# --- (#114) build_llm_client: timeout/max_tokens da Settings ---
+
+
+def test_build_llm_client_threads_timeout_and_max_tokens() -> None:
+    """Settings.llm_timeout_seconds / llm_max_tokens arrivano al LLMClient."""
+    s = _settings(llm_provider="claude", llm_timeout_seconds=15.0, llm_max_tokens=2048)
+    client = build_llm_client(s)
+
+    assert client._timeout == 15.0  # pyright: ignore[reportPrivateUsage]
+    assert client._max_tokens == 2048  # pyright: ignore[reportPrivateUsage]
+
+
+def test_build_llm_client_passes_timeout_to_anthropic_sdk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """L'SDK Anthropic viene costruito con timeout= (fix del bug #114)."""
+    import anthropic
+
+    captured: dict[str, Any] = {}
+
+    class _SpyAnthropic:
+        def __init__(self, **kwargs: Any) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr(anthropic, "AsyncAnthropic", _SpyAnthropic)
+    build_llm_client(_settings(llm_provider="claude", llm_timeout_seconds=12.5))
+
+    assert captured.get("timeout") == 12.5
+
+
+def test_build_llm_client_passes_timeout_to_groq_sdk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """L'SDK Groq viene costruito con timeout= (fix del bug #114)."""
+    import groq
+
+    captured: dict[str, Any] = {}
+
+    class _SpyGroq:
+        def __init__(self, **kwargs: Any) -> None:
+            captured.update(kwargs)
+
+    monkeypatch.setattr(groq, "AsyncGroq", _SpyGroq)
+    build_llm_client(_settings(llm_provider="groq", llm_timeout_seconds=7.0))
+
+    assert captured.get("timeout") == 7.0
