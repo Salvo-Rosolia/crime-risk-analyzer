@@ -200,6 +200,40 @@ async def test_run_analysis_llm_fallback(monkeypatch: pytest.MonkeyPatch) -> Non
     assert resp.confidence_summary.confermato == 1
 
 
+async def test_run_analysis_llm_timeout_triggers_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Un provider LLM oltre il timeout scatena il fallback 200 (no hang/500)."""
+    import asyncio
+
+    from crime_risk_analyzer.llm.client import LLMClient
+
+    _patch_io(monkeypatch)
+
+    class _HangingMessages:
+        async def create(self, **_kwargs: object) -> object:
+            await asyncio.sleep(1)  # oltre il timeout: verra' cancellato
+            raise AssertionError("create doveva essere cancellato dal timeout")
+
+    class _HangingAnthropic:
+        def __init__(self) -> None:
+            self.messages = _HangingMessages()
+
+    llm = LLMClient.for_claude(_HangingAnthropic(), timeout=0.01)  # pyright: ignore[reportArgumentType]
+
+    resp = await run_analysis(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+        llm_client=llm,
+    )
+
+    assert resp.fallback is True
+    assert resp.narrativa == ""
+    assert resp.tokens_input == 0
+    assert [m.poi for m in resp.risk_models] == ["Banca A"]
+
+
 async def test_run_analysis_zero_pois(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_io(monkeypatch, pois=[])
     resp = await run_analysis(

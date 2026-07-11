@@ -16,6 +16,7 @@ riproducibilita'.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from functools import lru_cache
 from typing import Any, Literal, Protocol
@@ -36,6 +37,11 @@ GROQ_MODEL = "llama-3.3-70b-versatile"
 _MAX_TOKENS = 1024
 _DEFAULT_TEMPERATURE = 0.2
 _DEFAULT_SEED = 42
+
+#: Timeout di default (secondi) del layer LLM (#114). Bilancia una generazione
+#: legittima (qualche secondo) con un tetto che impedisce hang indefiniti;
+#: sovrascrivibile via ``Settings.llm_timeout_seconds``.
+_DEFAULT_TIMEOUT_SECONDS = 30.0
 
 Provider = Literal["claude", "groq"]
 
@@ -122,12 +128,16 @@ class LLMClient:
         groq_client: _GroqClient | None = None,
         temperature: float = _DEFAULT_TEMPERATURE,
         seed: int = _DEFAULT_SEED,
+        timeout: float = _DEFAULT_TIMEOUT_SECONDS,
+        max_tokens: int = _MAX_TOKENS,
     ) -> None:
         self._provider: Provider = provider
         self._anthropic = anthropic_client
         self._groq = groq_client
         self._temperature = temperature
         self._seed = seed
+        self._timeout = timeout
+        self._max_tokens = max_tokens
 
     @classmethod
     def for_claude(
@@ -136,6 +146,8 @@ class LLMClient:
         *,
         temperature: float = _DEFAULT_TEMPERATURE,
         seed: int = _DEFAULT_SEED,
+        timeout: float = _DEFAULT_TIMEOUT_SECONDS,
+        max_tokens: int = _MAX_TOKENS,
     ) -> LLMClient:
         """Costruisce un client che usa Claude via l'SDK Anthropic iniettato."""
         return cls(
@@ -143,6 +155,8 @@ class LLMClient:
             anthropic_client=anthropic_client,
             temperature=temperature,
             seed=seed,
+            timeout=timeout,
+            max_tokens=max_tokens,
         )
 
     @classmethod
@@ -152,6 +166,8 @@ class LLMClient:
         *,
         temperature: float = _DEFAULT_TEMPERATURE,
         seed: int = _DEFAULT_SEED,
+        timeout: float = _DEFAULT_TIMEOUT_SECONDS,
+        max_tokens: int = _MAX_TOKENS,
     ) -> LLMClient:
         """Costruisce un client che usa Llama via l'SDK Groq iniettato."""
         return cls(
@@ -159,14 +175,16 @@ class LLMClient:
             groq_client=groq_client,
             temperature=temperature,
             seed=seed,
+            timeout=timeout,
+            max_tokens=max_tokens,
         )
 
     def with_temperature(self, temperature: float, seed: int = 0) -> LLMClient:
         """Nuovo client che riusa lo stesso SDK iniettato con temperature/seed fissati.
 
         Usato dalla pipeline di valutazione per il determinismo (temperature=0).
-        Accedere a ``self._anthropic``/``self._groq`` e' lecito all'interno della
-        stessa classe.
+        Preserva ``timeout``/``max_tokens`` correnti. Accedere a
+        ``self._anthropic``/``self._groq`` e' lecito all'interno della stessa classe.
         """
         return LLMClient(
             provider=self._provider,
@@ -174,6 +192,8 @@ class LLMClient:
             groq_client=self._groq,
             temperature=temperature,
             seed=seed,
+            timeout=self._timeout,
+            max_tokens=self._max_tokens,
         )
 
     @property
@@ -201,22 +221,53 @@ class LLMClient:
         self, system_prompt: str, user_content: str
     ) -> LLMResponse:
         assert self._anthropic is not None  # garantito dalla factory/costruttore
+        # NB determinismo (generation.md §Riproducibilita'): l'API Messages di
+        # Anthropic NON accetta un parametro ``seed`` (limite dell'API), quindi
+        # ``self._seed`` viene solo loggato in ``repro``, non inviato. Il
+        # determinismo lato Claude e' best-effort via ``temperature`` bassa
+        # (temperature=0 non garantisce comunque output identici). Su Groq il
+        # seed viene invece passato (vedi ``_generate_groq``).
         try:
-            message = await self._anthropic.messages.create(
-                model=CLAUDE_MODEL,
-                max_tokens=_MAX_TOKENS,
-                temperature=self._temperature,
-                system=[
-                    {
-                        "type": "text",
-                        "text": system_prompt,
-                        "cache_control": {"type": "ephemeral"},
-                    }
-                ],
-                messages=[{"role": "user", "content": user_content}],
+            # ``asyncio.wait_for`` impone un ceiling esplicito lato client: se il
+            # provider e' appeso, il coroutine viene cancellato e si solleva
+            # TimeoutError (mappato sotto a LLMError). Difesa in profondita' con
+            # il ``timeout=`` passato all'SDK in ``build_llm_client`` (che copre
+            # anche i retry interni bounded dell'SDK: 408/409/429/5xx/rete).
+            message = await asyncio.wait_for(
+                self._anthropic.messages.create(
+                    model=CLAUDE_MODEL,
+                    max_tokens=self._max_tokens,
+                    temperature=self._temperature,
+                    system=[
+                        {
+                            "type": "text",
+                            "text": system_prompt,
+                            "cache_control": {"type": "ephemeral"},
+                        }
+                    ],
+                    messages=[{"role": "user", "content": user_content}],
+                ),
+                timeout=self._timeout,
             )
+        except TimeoutError as exc:
+            raise LLMError(
+                f"Timeout Claude dopo {self._timeout}s "
+                "(mappato a LLMError -> fallback strutturato dell'orchestrator)"
+            ) from exc
         except Exception as exc:  # noqa: BLE001 — incapsula qualunque errore SDK
             raise LLMError(f"Generazione Claude fallita: {exc}") from exc
+
+        # Troncamento: se il modello si e' fermato per ``max_tokens`` la narrativa
+        # e' incompleta e non affidabile per il citation layer (un tag di fonte o
+        # un claim potrebbe restare tagliato a meta'). La mappiamo a LLMError, cosi'
+        # l'orchestrator degrada ai soli dati strutturati (coerente con la gestione
+        # Anthropic 429/5xx in orchestrator.md), invece di servire silenziosamente
+        # una narrativa troncata.
+        if getattr(message, "stop_reason", None) == "max_tokens":
+            raise LLMError(
+                f"Risposta Claude troncata (stop_reason=max_tokens, "
+                f"max_tokens={self._max_tokens}): narrativa incompleta scartata"
+            )
 
         usage = message.usage
         cache_read = int(getattr(usage, "cache_read_input_tokens", 0) or 0)
@@ -236,18 +287,35 @@ class LLMClient:
     ) -> LLMResponse:
         assert self._groq is not None  # garantito dalla factory/costruttore
         try:
-            completion = await self._groq.chat.completions.create(
-                model=GROQ_MODEL,
-                max_tokens=_MAX_TOKENS,
-                temperature=self._temperature,
-                seed=self._seed,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_content},
-                ],
+            completion = await asyncio.wait_for(
+                self._groq.chat.completions.create(
+                    model=GROQ_MODEL,
+                    max_tokens=self._max_tokens,
+                    temperature=self._temperature,
+                    seed=self._seed,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_content},
+                    ],
+                ),
+                timeout=self._timeout,
             )
+        except TimeoutError as exc:
+            raise LLMError(
+                f"Timeout Groq dopo {self._timeout}s "
+                "(mappato a LLMError -> fallback strutturato dell'orchestrator)"
+            ) from exc
         except Exception as exc:  # noqa: BLE001 — incapsula qualunque errore SDK
             raise LLMError(f"Generazione Groq fallita: {exc}") from exc
+
+        # Troncamento: l'equivalente Groq/OpenAI di ``stop_reason=max_tokens`` e'
+        # ``finish_reason=="length"``. Stessa scelta del ramo Claude: narrativa
+        # troncata -> LLMError -> fallback, mai servita silenziosamente.
+        if getattr(completion.choices[0], "finish_reason", None) == "length":
+            raise LLMError(
+                f"Risposta Groq troncata (finish_reason=length, "
+                f"max_tokens={self._max_tokens}): narrativa incompleta scartata"
+            )
 
         usage = completion.usage
         return LLMResponse(
@@ -282,6 +350,18 @@ def build_llm_client(settings: Settings, provider: Provider | None = None) -> LL
     Istanzia l'SDK del provider scelto con la chiave da ``settings`` (mai
     hardcodata). Solleva :class:`LLMError` se la chiave necessaria manca.
     Iniettabile negli endpoint via ``Depends``.
+
+    Timeout/retry (#114): l'SDK viene costruito con ``timeout=`` da
+    ``settings.llm_timeout_seconds`` (e lo stesso valore e' il ceiling
+    ``asyncio.wait_for`` lato client). **Retry non reimplementato di proposito**:
+    gli SDK Anthropic/Groq applicano gia' un retry *bounded* con backoff
+    esponenziale (default ``max_retries=2``) sui soli errori transitori
+    (408/409/429/5xx/connessione, incluso il timeout). Reimplementarlo qui
+    moltiplicherebbe la latenza (rischio sul budget <10s), aggiungerebbe
+    non-determinismo alla misura di latenza usata nell'eval e duplicherebbe
+    logica gia' presente (over-engineering). Il ``wait_for`` fa da tetto totale
+    al wall-clock; i retry dell'SDK aiutano solo i fallimenti transitori rapidi
+    entro quel tetto.
     """
     chosen: Provider = provider if provider is not None else settings.llm_provider
     if chosen == "claude":
@@ -292,21 +372,33 @@ def build_llm_client(settings: Settings, provider: Provider | None = None) -> LL
         from anthropic import AsyncAnthropic
 
         anthropic_client = AsyncAnthropic(
-            api_key=settings.anthropic_api_key.get_secret_value()
+            api_key=settings.anthropic_api_key.get_secret_value(),
+            timeout=settings.llm_timeout_seconds,
         )
         # L'SDK reale soddisfa `_AnthropicClient` a runtime (stessa superficie
         # `messages.create`), ma la sua firma keyword-only non e' riconosciuta
         # strutturalmente compatibile con il Protocol `**kwargs` da pyright
         # strict. Ignore puntuale sul solo punto di adattamento SDK->Protocol.
-        return LLMClient.for_claude(anthropic_client)  # pyright: ignore[reportArgumentType]
+        return LLMClient.for_claude(
+            anthropic_client,  # pyright: ignore[reportArgumentType]
+            timeout=settings.llm_timeout_seconds,
+            max_tokens=settings.llm_max_tokens,
+        )
 
     if settings.groq_api_key is None:
         raise LLMError("GROQ_API_KEY mancante: necessaria con LLM_PROVIDER=groq")
     from groq import AsyncGroq
 
-    groq_client = AsyncGroq(api_key=settings.groq_api_key.get_secret_value())
+    groq_client = AsyncGroq(
+        api_key=settings.groq_api_key.get_secret_value(),
+        timeout=settings.llm_timeout_seconds,
+    )
     # Stessa ragione del ramo Claude: adattamento SDK->Protocol al confine.
-    return LLMClient.for_groq(groq_client)  # pyright: ignore[reportArgumentType]
+    return LLMClient.for_groq(
+        groq_client,  # pyright: ignore[reportArgumentType]
+        timeout=settings.llm_timeout_seconds,
+        max_tokens=settings.llm_max_tokens,
+    )
 
 
 @lru_cache
