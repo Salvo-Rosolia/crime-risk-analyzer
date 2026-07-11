@@ -57,7 +57,9 @@ _RETRY_PAUSE_S = 1.0
 
 #: User-agent esplicito richiesto dall'endpoint pubblico Overpass: senza di esso
 #: (default httpx ``python-httpx/...``) overpass-api.de risponde 406.
-_USER_AGENT = "crime-risk-analyzer"
+_USER_AGENT = (
+    "crime-risk-analyzer (https://github.com/Salvo-Rosolia/crime-risk-analyzer)"
+)
 
 
 class Poi(TypedDict):

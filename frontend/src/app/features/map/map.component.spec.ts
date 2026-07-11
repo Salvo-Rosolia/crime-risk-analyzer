@@ -60,6 +60,24 @@ describe('MapComponent', () => {
     );
   });
 
+  it('attribution copre dati POI (OSM/ODbL), geocoding (Nominatim) e tile (CARTO)', () => {
+    const [, options] = (L.tileLayer as jest.Mock).mock.calls[0];
+    const attribution = (options as { attribution: string }).attribution;
+    expect(attribution).toEqual(expect.stringContaining('OpenStreetMap'));
+    expect(attribution).toEqual(expect.stringContaining('ODbL'));
+    expect(attribution).toEqual(expect.stringContaining('CARTO'));
+    expect(attribution).toEqual(expect.stringContaining('Nominatim'));
+  });
+
+  it('attribution: i 4 termini sono link cliccabili verso le rispettive fonti', () => {
+    const [, options] = (L.tileLayer as jest.Mock).mock.calls[0];
+    const attribution = (options as { attribution: string }).attribution;
+    expect(attribution).toEqual(expect.stringContaining('openstreetmap.org/copyright'));
+    expect(attribution).toEqual(expect.stringContaining('opendatacommons.org'));
+    expect(attribution).toEqual(expect.stringContaining('carto.com/attributions'));
+    expect(attribution).toEqual(expect.stringContaining('nominatim.org'));
+  });
+
   it('flyToBounds con POI', () => {
     fixture.componentRef.setInput('data', makeResp([{ lat: 41.9, lon: 12.5 }]));
     fixture.detectChanges();

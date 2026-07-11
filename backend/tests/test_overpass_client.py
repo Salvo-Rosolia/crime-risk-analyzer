@@ -201,7 +201,24 @@ async def test_fetch_pois_sets_explicit_user_agent() -> None:
 
     await fetch_pois(_BBOX, "Roma", ["amenity=bank"])
 
-    assert route.calls.last.request.headers.get("user-agent") == "crime-risk-analyzer"
+    assert (
+        route.calls.last.request.headers.get("user-agent")
+        == "crime-risk-analyzer (https://github.com/Salvo-Rosolia/crime-risk-analyzer)"
+    )
+
+
+@respx.mock
+async def test_fetch_pois_user_agent_includes_contact_url() -> None:
+    """La usage policy Overpass richiede un contatto nell'UA (fail-if-removed)."""
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json={"elements": []})
+    )
+
+    await fetch_pois(_BBOX, "Roma", ["amenity=bank"])
+
+    user_agent = route.calls.last.request.headers.get("user-agent")
+    assert user_agent is not None
+    assert "https://github.com/Salvo-Rosolia/crime-risk-analyzer" in user_agent
 
 
 @respx.mock
