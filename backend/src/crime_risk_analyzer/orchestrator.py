@@ -25,7 +25,12 @@ from crime_risk_analyzer.rag.generation import (
     generate_analysis,
 )
 from crime_risk_analyzer.rag.grounding import GroundedContext, ground
-from crime_risk_analyzer.rag.retrieval import PoiSource, RetrievalContext, retrieve
+from crime_risk_analyzer.rag.retrieval import (
+    PoiSource,
+    RetrievalContext,
+    RetrievalStats,
+    retrieve,
+)
 
 
 class AnalyzeRequest(BaseModel):
@@ -35,8 +40,13 @@ class AnalyzeRequest(BaseModel):
     zona: str = Field(description="Zona/quartiere da analizzare.")
     domanda: str | None = Field(
         default=None,
+        max_length=500,
         description=(
-            "Domanda libera (opzionale). Accettata ma non cablata all'LLM (#18)."
+            "Domanda libera (opzionale) iniettata come input NON fidato (fenced) "
+            "nello user_content del prompt LLM (#119); None/vuota = prompt "
+            "invariato. max_length=500: una domanda in linguaggio naturale di un "
+            "operatore ci sta ampiamente, mentre il tetto limita token/costo/"
+            "latenza e riduce la superficie di prompt-injection."
         ),
     )
 
@@ -48,7 +58,10 @@ class BaselineRequest(BaseModel):
     zona: str = Field(description="Zona/quartiere da analizzare.")
     tipo_poi: str | None = Field(
         default=None,
-        description="Filtro tipo POI (accettato ma IGNORATO server-side; filtro FE).",
+        description=(
+            "Filtro server-side per classe TERMINUS del POI (opzionale, #119); "
+            "None/vuoto = nessun filtro."
+        ),
     )
 
 
@@ -196,12 +209,17 @@ async def run_analysis(
     executor: RiskProfiler,
     llm_client: _LLMClientLike,
     poi_source: PoiSource | None = None,
+    domanda: str | None = None,
 ) -> AnalyzeResponse:
     """Esegue la pipeline completa e assembla la response canonica.
 
     ``retrieve`` (async) -> ``ground`` (sync) -> ``generate_analysis`` (async).
     Su :class:`LLMError` ritorna i soli dati strutturati (``fallback=True``).
     ``latenza_ms`` e' end-to-end sull'intera pipeline.
+
+    ``domanda`` (opzionale, #119) e' la domanda libera dell'utente: viene
+    propagata a :func:`generate_analysis` e iniettata nello ``user_content`` del
+    prompt LLM; ``None`` = comportamento invariato.
     """
     start = time.perf_counter()
     retrieval_ctx = await retrieve(
@@ -210,7 +228,7 @@ async def run_analysis(
     grounded = ground(retrieval_ctx)
     poi_out = _build_poi_list(retrieval_ctx, grounded)
     try:
-        gen = await generate_analysis(dict(grounded), llm_client)
+        gen = await generate_analysis(dict(grounded), llm_client, domanda=domanda)
         tokens_input = gen.tokens_input
         tokens_output = gen.tokens_output
     except LLMError:
@@ -236,18 +254,50 @@ async def run_analysis(
     )
 
 
+def _filter_pois_by_type(
+    ctx: RetrievalContext, terminus_class: str
+) -> RetrievalContext:
+    """Restringe il ``RetrievalContext`` ai soli POI di classe TERMINUS data.
+
+    Filtra ``pois`` per ``terminus_class`` PRIMA del grounding, cosi' la lista di
+    POI e i rischi validati restano in lockstep (l'invariante di zip in
+    :func:`_build_poi_list`). Pota ``profiles`` alle sole classi superstiti e
+    ricalcola ``stats``; ``geo``/``zona``/``citta`` restano invariati.
+    """
+    pois = [poi for poi in ctx["pois"] if poi["terminus_class"] == terminus_class]
+    classes = {poi["terminus_class"] for poi in pois}
+    profiles = {cls: ctx["profiles"][cls] for cls in classes}
+    return RetrievalContext(
+        citta=ctx["citta"],
+        zona=ctx["zona"],
+        geo=ctx["geo"],
+        pois=pois,
+        profiles=profiles,
+        stats=RetrievalStats(n_pois=len(pois), n_classes=len(profiles)),
+    )
+
+
 async def run_baseline(
     citta: str,
     zona: str,
     *,
     executor: RiskProfiler,
     poi_source: PoiSource | None = None,
+    tipo_poi: str | None = None,
 ) -> AnalyzeResponse:
-    """Pipeline baseline: retrieve -> ground -> serializza (NESSUN LLM)."""
+    """Pipeline baseline: retrieve -> ground -> serializza (NESSUN LLM).
+
+    ``tipo_poi`` (opzionale, #119) filtra i POI server-side per classe TERMINUS
+    (:func:`_filter_pois_by_type`), applicato prima del grounding. ``None`` o
+    stringa vuota/whitespace = nessun filtro (comportamento invariato).
+    """
     start = time.perf_counter()
     retrieval_ctx = await retrieve(
         citta, zona, executor=executor, poi_source=poi_source
     )
+    tipo = (tipo_poi or "").strip()
+    if tipo:
+        retrieval_ctx = _filter_pois_by_type(retrieval_ctx, tipo)
     grounded = ground(retrieval_ctx)
     poi_out = _build_poi_list(retrieval_ctx, grounded)
     return _structured_response(

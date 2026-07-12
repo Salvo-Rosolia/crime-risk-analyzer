@@ -1,0 +1,133 @@
+/*
+ * Bottom-sheet fisso: stessa "chrome" a riquadro dei pannelli (`.cra-panel` in app.css) ma
+ * gestita qui perché, a differenza di quelli, ha un'altezza variabile guidata da `open()`
+ * (collassabile) invece del solo `max-height` con scroll interno.
+ */
+:host {
+  position: absolute;
+  left: var(--space-4);
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  max-height: 45vh;
+  overflow: hidden;
+  pointer-events: auto;
+  background: var(--panel-bg);
+  border: var(--panel-border) solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.cra-eyebrow {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent-2);
+  margin: 0;
+  white-space: nowrap;
+}
+
+.cra-narr-header {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+}
+
+.cra-narr-chevron {
+  color: var(--accent);
+  width: 12px;
+  flex: 0 0 auto;
+}
+
+.cra-hallucination-banner {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 0.68rem;
+  color: var(--c-plausibile-ink);
+  background: var(--c-plausibile-bg);
+  border: 1px solid var(--c-plausibile);
+  border-radius: 4px;
+  padding: 1px var(--space-2);
+  white-space: nowrap;
+}
+
+.cra-narr-spacer {
+  flex: 1 1 auto;
+}
+
+.cra-btn-regen {
+  flex: 0 0 auto;
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent-2);
+  background: #fff;
+  border: 1.5px solid var(--accent);
+  border-radius: calc(var(--radius) / 2);
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+}
+
+.cra-btn-regen:hover {
+  background: var(--paper);
+}
+
+.cra-narr-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  border-top: var(--panel-border) solid var(--ink);
+}
+
+.cra-narr-lead {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  max-width: 960px;
+}
+
+.cra-narr-sections {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-4);
+}
+
+.cra-source-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  border-bottom: 2px solid;
+  padding-bottom: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+
+.cra-source-tag {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.cra-source-desc {
+  font-size: 0.7rem;
+  font-style: italic;
+  opacity: 0.7;
+}
+
+.cra-narr-hazard-list {
+  margin: 0;
+  padding-left: 1.1em;
+  font-size: 0.82rem;
+  line-height: 1.6;
+}

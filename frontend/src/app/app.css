@@ -27,6 +27,11 @@
   opacity: 0.8;
 }
 
+/* Spinge cra-header-controls all'estremità destra dell'header (titolo+tagline restano a sinistra). */
+.cra-header-spacer {
+  flex: 1 1 auto;
+}
+
 cra-map {
   position: absolute;
   inset: var(--header-height) 0 0 0;
@@ -52,8 +57,36 @@ cra-map {
   padding: var(--space-4);
 }
 
-.cra-placeholder {
-  color: var(--ink);
-  font-style: italic;
-  opacity: 0.7;
+/*
+ * RESULTS/FILTER/DETAIL possono coesistere (poi-panel + narrative-sheet sempre, detail-panel in
+ * aggiunta): ciascuno va ancorato esplicitamente al proprio angolo di `.cra-panels` (altrimenti,
+ * da semplici box `position:static`, si impilerebbero verticalmente invece di affiancarsi).
+ * `margin:0` qui perché la posizione la danno già `top`/`left`/`right` — il `margin` di
+ * `.cra-panel` andrebbe altrimenti a sommarsi all'offset.
+ */
+.cra-panel-poi {
+  position: absolute;
+  top: var(--space-4);
+  left: var(--space-4);
+  margin: 0;
+  z-index: 1;
+  max-height: calc(100vh - var(--header-height) - var(--space-4) * 2);
+  overflow-y: auto;
+}
+
+/* Scheda "Dettaglio POI" (Stato DETAIL): top-right, più larga del pannello POI (spec-frontend.md
+   §Stato C, ~412px); header/corpo/footer sono gestiti internamente da cra-detail-panel (colonna
+   flex a tutta altezza), qui solo l'ancoraggio e il contenimento in altezza con scroll interno. */
+.cra-panel-detail {
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
+  margin: 0;
+  z-index: 2;
+  width: 412px;
+  max-width: calc(100vw - var(--space-4) * 2);
+  max-height: calc(100vh - var(--header-height) - var(--space-4) * 2);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }

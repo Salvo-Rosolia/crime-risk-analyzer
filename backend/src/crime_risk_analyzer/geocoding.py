@@ -27,7 +27,9 @@ from crime_risk_analyzer.models.geo import Bbox
 __all__ = ["Bbox", "GeoResult", "GeocodingError", "ZoneNotFoundError", "geocode_zone"]
 
 #: User-agent dedicato, richiesto dalla usage policy di Nominatim.
-_USER_AGENT = "crime-risk-analyzer"
+_USER_AGENT = (
+    "crime-risk-analyzer (https://github.com/Salvo-Rosolia/crime-risk-analyzer)"
+)
 
 
 class _Location(Protocol):

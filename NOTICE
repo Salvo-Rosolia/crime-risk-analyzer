@@ -1,0 +1,64 @@
+crime-risk-analyzer
+Copyright 2026 Salvo Rosolia
+
+This product includes software developed as part of a thesis project.
+Licensed under the Apache License, Version 2.0 (see the LICENSE file).
+
+================================================================================
+Attribuzione dei dati di terze parti
+================================================================================
+
+L'applicazione utilizza dati e servizi di terze parti. Le relative attribuzioni
+sono mostrate anche nella UI (controllo attribution della mappa) e riportate qui
+per completezza.
+
+--------------------------------------------------------------------------------
+Dati OpenStreetMap (Points of Interest, via Overpass API)
+--------------------------------------------------------------------------------
+I punti di interesse (POI) sono derivati da OpenStreetMap tramite l'Overpass API.
+
+    © OpenStreetMap contributors
+
+I dati OpenStreetMap sono resi disponibili sotto la Open Data Commons Open
+Database License (ODbL) v1.0.
+  - Licenza dati: https://opendatacommons.org/licenses/odbl/1-0/
+  - Copyright OSM: https://www.openstreetmap.org/copyright
+  - Overpass API:  https://overpass-api.de/
+
+--------------------------------------------------------------------------------
+Geocoding — Nominatim
+--------------------------------------------------------------------------------
+La geocodifica delle zone (nome → coordinate/bounding box) usa Nominatim, che si
+basa a sua volta sui dati OpenStreetMap (© OpenStreetMap contributors, ODbL).
+  - Nominatim:      https://nominatim.org/
+  - Usage policy:   https://operations.osmfoundation.org/policies/nominatim/
+
+--------------------------------------------------------------------------------
+Basemap — CARTO (tile "Voyager")
+--------------------------------------------------------------------------------
+Le tile della mappa di base sono fornite da CARTO.
+
+    © CARTO — basemaps © OpenStreetMap contributors
+
+  - Attribuzioni CARTO: https://carto.com/attributions
+
+--------------------------------------------------------------------------------
+Libreria di mappe — Leaflet
+--------------------------------------------------------------------------------
+La mappa interattiva usa Leaflet (BSD-2-Clause).
+  - https://leafletjs.com/
+
+================================================================================
+Ontologia TERMINUS-Crime (ENEA)
+================================================================================
+
+Il layer di conoscenza si fonda sull'ontologia TERMINUS-Crime v01 sviluppata da
+ENEA (Minardi et al., 2023).
+  - Namespace IRI: http://www.enea-terin-sen-apic.it/TERMINUS-crime-v01#
+
+Uso concesso per fini di tesi.
+
+Il file sorgente dell'ontologia (.owl) e la sua materializzazione (.ttl) NON sono
+ridistribuiti in questo repository (esclusi via .gitignore). Il repository
+contiene esclusivamente piccole fixture di test sintetiche, non derivate dal
+contenuto concettuale dell'ontologia ENEA.

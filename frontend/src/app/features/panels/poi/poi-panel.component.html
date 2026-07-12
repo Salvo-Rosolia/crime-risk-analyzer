@@ -1,0 +1,49 @@
+<div class="cra-poi-panel-header">
+  <span class="cra-eyebrow">{{ pois().length }} POI trovati</span>
+</div>
+
+<div class="cra-filter-bar" role="group" aria-label="Filtra per confidence">
+  @for (level of levels; track level) {
+    <button
+      type="button"
+      class="cra-chip"
+      [class.cra-chip-active]="filter() === level"
+      [attr.aria-pressed]="filter() === level"
+      [style.borderColor]="conf[level].color"
+      [style.color]="filter() === level ? '#fff' : conf[level].color"
+      [style.background]="filter() === level ? conf[level].color : 'transparent'"
+      (click)="onChipClick(level)"
+    >
+      <span aria-hidden="true">{{ conf[level].dot }}</span> {{ conf[level].label }} ({{ counts()[level] }})
+    </button>
+  }
+</div>
+
+@if (hiddenCount() > 0) {
+  <p class="cra-hidden-bar">{{ hiddenCount() }} nascosti</p>
+}
+
+<ul class="cra-poi-list">
+  @for (item of visible(); track item.poi.id) {
+    <li>
+      <button
+        type="button"
+        class="cra-poi-card"
+        [class.cra-poi-card-selected]="selectedId() === item.poi.id"
+        [attr.aria-current]="selectedId() === item.poi.id ? 'true' : null"
+        (click)="selectPoi.emit(item.poi.id)"
+      >
+        <span class="cra-poi-pin-badge" [style.background]="conf[item.poi.confidence].color">{{
+          item.number
+        }}</span>
+        <span class="cra-poi-info">
+          <span class="cra-poi-name">{{ item.poi.name }}</span>
+          <span class="cra-poi-class">{{ poiLabel(item.poi) }}</span>
+        </span>
+        <span class="cra-badge-confidence" [style.color]="conf[item.poi.confidence].color">
+          {{ conf[item.poi.confidence].dot }} {{ conf[item.poi.confidence].label }}
+        </span>
+      </button>
+    </li>
+  }
+</ul>

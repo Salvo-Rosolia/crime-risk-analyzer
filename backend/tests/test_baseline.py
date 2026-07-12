@@ -174,7 +174,7 @@ def test_baseline_zero_pois(monkeypatch: pytest.MonkeyPatch) -> None:
     assert body["fallback"] is False
 
 
-def test_baseline_accepts_tipo_poi(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_baseline_filters_by_tipo_poi(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_io(monkeypatch)
     client = _client()
     base = cast(
@@ -192,8 +192,12 @@ def test_baseline_accepts_tipo_poi(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert base.status_code == 200
     assert filtered.status_code == 200
-    # tipo_poi e' IGNORATO server-side: stesso identico set di POI (incluso il
-    # GenericUrbanPOI), non solo "accettato".
-    assert filtered.json()["poi"] == base.json()["poi"]
-    classes = [p["terminus_class"] for p in filtered.json()["poi"]]
-    assert classes == ["Bank", "GenericUrbanPOI"]
+    # tipo_poi e' ora CABLATO server-side (#119): senza filtro entrambe le classi,
+    # con tipo_poi=Bank solo i POI di classe TERMINUS "Bank" (niente GenericUrbanPOI).
+    assert [p["terminus_class"] for p in base.json()["poi"]] == [
+        "Bank",
+        "GenericUrbanPOI",
+    ]
+    assert [p["terminus_class"] for p in filtered.json()["poi"]] == ["Bank"]
+    assert [p["name"] for p in filtered.json()["poi"]] == ["Banca A"]
+    assert [m["poi"] for m in filtered.json()["risk_models"]] == ["Banca A"]

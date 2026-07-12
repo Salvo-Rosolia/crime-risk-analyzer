@@ -10,9 +10,14 @@ from crime_risk_analyzer.overpass_client import Poi, fetch_pois
 from crime_risk_analyzer.rag.retrieval import PoiSource
 
 
-def snapshot_path(results_dir: Path, run_id: str) -> Path:
-    """Percorso della fixture POI per un run_id."""
-    return results_dir / "snapshots" / f"{run_id}.json"
+def snapshot_path(results_dir: Path, key: str) -> Path:
+    """Percorso della fixture POI per una chiave snapshot (#110).
+
+    ``key`` è prodotta da ``harness.make_snapshot_key(citta, zona)`` e NON
+    dipende da mode/model: i bracci comparativi (analyze/claude, analyze/groq,
+    baseline) sulla stessa (citta, zona) condividono lo stesso file snapshot.
+    """
+    return results_dir / "snapshots" / f"{key}.json"
 
 
 def save_snapshot(path: Path, pois: list[Poi]) -> None:

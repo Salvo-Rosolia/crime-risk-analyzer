@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from rdflib import Graph
 
@@ -74,7 +75,8 @@ async def analyze(
 
     Valida la citta' (``CityNotFoundError`` -> 400). Gli altri errori di dominio
     propagano agli handler centrali (#21); ``LLMError`` e' gestito in
-    :func:`run_analysis` come fallback strutturato (200).
+    :func:`run_analysis` come fallback strutturato (200). ``request.domanda``
+    (opzionale, #119) e' propagata fino allo ``user_content`` del prompt LLM.
     """
     if request.citta not in settings.supported_cities:
         raise CityNotFoundError(request.citta, supported=settings.supported_cities)
@@ -83,6 +85,7 @@ async def analyze(
         request.zona,
         executor=executor,
         llm_client=llm_client,
+        domanda=request.domanda,
     )
 
 
@@ -94,24 +97,61 @@ async def analyze_baseline(
 ) -> AnalyzeResponse:
     """Variante senza LLM per l'ablation: solo dati strutturati dal grounding.
 
-    ``tipo_poi`` e' accettato ma ignorato server-side (filtro lato FE).
+    ``request.tipo_poi`` (opzionale, #119) filtra i POI server-side per classe
+    TERMINUS; ``None``/vuoto = nessun filtro (comportamento invariato).
     """
     if request.citta not in settings.supported_cities:
         raise CityNotFoundError(request.citta, supported=settings.supported_cities)
-    return await run_baseline(request.citta, request.zona, executor=executor)
+    return await run_baseline(
+        request.citta,
+        request.zona,
+        executor=executor,
+        tipo_poi=request.tipo_poi,
+    )
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-    """Warm-up all'avvio: carica l'ontologia (fail-fast se manca o è invalida)."""
+    """Warm-up all'avvio (fail-fast): ontologia, executor SPARQL e client LLM.
+
+    Pre-costruisce a startup le risorse costose o critiche esposte via
+    ``Depends``, così la prima ``POST /analyze`` non paga il costo lazy e un
+    misconfig esplode subito all'avvio, non alla prima richiesta:
+
+    * :func:`get_ontology` — carica e valida il grafo ``.ttl`` (fail-fast se
+      manca o è invalido);
+    * :func:`get_executor` — costruisce l'indice delle restrizioni SPARQL, parte
+      costosa e POI-indipendente che appartiene allo startup e non alla prima
+      richiesta (vedi docstring di :class:`RiskQueryExecutor`);
+    * :func:`get_llm_client` — istanzia il client LLM dal provider configurato
+      (fail-fast: ``LLMError`` all'avvio se la chiave del provider manca, invece
+      che alla prima ``/analyze``).
+    """
     get_ontology()
+    get_executor()
+    get_llm_client()
     yield
 
 
 def create_app() -> FastAPI:
     """Costruisce e configura l'istanza FastAPI."""
+    settings = get_settings()
     app = FastAPI(title="Crime Risk Analyzer", lifespan=lifespan)
     register_exception_handlers(app)
+    # CORS (#106) come DIFESA IN PROFONDITA'. Il deploy canonico e' same-origin
+    # (build Angular servita da FastAPI/StaticFiles): li' il CORS non serve. Il
+    # middleware abilita comunque un eventuale deploy split-origin e chiude i
+    # buchi cross-origin in dev su ``/health``/``/cities`` (non proxati da
+    # ``ng serve``, a differenza di ``/analyze``). Allowlist ESPLICITA da
+    # ``Settings`` (mai wildcard ``*``); API stateless -> nessun cookie
+    # (``allow_credentials=False``). Copre tutte le rotte.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_allow_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Content-Type"],
+    )
     app.include_router(router)
     return app
 

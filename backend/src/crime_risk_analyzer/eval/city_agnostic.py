@@ -46,7 +46,9 @@ DERIVED_MIN = 0.70
 SWITCH_MAX_MS = 5000
 BOUNDARY_MIN = 0.90
 
-_BOUNDARY_USER_AGENT = "crime-risk-analyzer-eval"
+_BOUNDARY_USER_AGENT = (
+    "crime-risk-analyzer-eval (https://github.com/Salvo-Rosolia/crime-risk-analyzer)"
+)
 
 
 class _BoundaryLocation(Protocol):

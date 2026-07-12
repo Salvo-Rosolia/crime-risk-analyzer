@@ -1,0 +1,41 @@
+@if (showResultsControls()) {
+  <span class="cra-coverage-badge">
+    <span aria-hidden="true">▣</span> {{ coverageText() }}
+  </span>
+
+  <div class="cra-header-divider" aria-hidden="true"></div>
+
+  <div class="cra-chip-group" role="group" aria-label="Filtra per confidence">
+    @for (level of levels; track level) {
+      <button
+        type="button"
+        class="cra-chip"
+        [class.cra-chip-active]="filter() === level"
+        [attr.aria-pressed]="filter() === level"
+        [style.borderColor]="conf[level].color"
+        [style.color]="filter() === level ? '#fff' : conf[level].color"
+        [style.background]="filter() === level ? conf[level].color : 'transparent'"
+        (click)="onChipClick(level)"
+      >
+        <span aria-hidden="true">{{ conf[level].dot }}</span> {{ conf[level].label }}
+        <b>{{ counts()[level] }}</b>
+      </button>
+    }
+  </div>
+}
+
+<div class="cra-mode-toggle" role="group" aria-label="Sistema completo o base">
+  @for (opt of modeOptions; track opt.value) {
+    <button
+      type="button"
+      class="cra-mode-btn"
+      [class.cra-mode-btn-active]="mode() === opt.value"
+      [attr.aria-pressed]="mode() === opt.value"
+      [disabled]="loading()"
+      [title]="loading() ? 'Analisi in corso — attendi il risultato prima di cambiare modalità' : null"
+      (click)="toggleMode.emit(opt.value)"
+    >
+      {{ opt.label }}
+    </button>
+  }
+</div>

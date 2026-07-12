@@ -37,6 +37,19 @@ def test_parser_subcommands() -> None:
     assert ns.config == "exp.json"
 
 
+def test_parser_capture_force_flag() -> None:
+    """--force è opt-in sul sottocomando capture (ri-cattura, #110 M2)."""
+    ns = build_parser().parse_args(["capture", "--config", "exp.json", "--force"])
+    assert ns.command == "capture"
+    assert ns.force is True
+
+
+def test_parser_capture_force_defaults_false() -> None:
+    """Senza --force la cattura è idempotente (skip-if-exists, #110 M2)."""
+    ns = build_parser().parse_args(["capture", "--config", "exp.json"])
+    assert ns.force is False
+
+
 def test_load_config(tmp_path: Path) -> None:
     p = tmp_path / "exp.json"
     p.write_text(
@@ -96,6 +109,45 @@ def test_build_llm_eval_client_uses_config_model_claude(
     client = build_llm_eval_client(cfg)
     assert isinstance(client, LLMClient)
     assert client.provider == "claude"
+
+
+def test_parser_compare_subcommand() -> None:
+    """#32: sottocomando compare a due bracci (experiment-a vs experiment-b)."""
+    ns = build_parser().parse_args(
+        ["compare", "--experiment-a", "full", "--experiment-b", "base"]
+    )
+    assert ns.command == "compare"
+    assert ns.experiment_a == "full"
+    assert ns.experiment_b == "base"
+    assert ns.label_a is None
+    assert ns.label_b is None
+    assert ns.out is None
+    assert ns.results == "results"
+
+
+def test_parser_compare_optional_labels_and_out() -> None:
+    """Label e stem di output sono opzionali e parametrizzabili (generico)."""
+    ns = build_parser().parse_args(
+        [
+            "compare",
+            "--experiment-a",
+            "ablation-analyze",
+            "--experiment-b",
+            "ablation-baseline",
+            "--label-a",
+            "analyze",
+            "--label-b",
+            "baseline",
+            "--out",
+            "ablation",
+            "--results",
+            "r",
+        ]
+    )
+    assert ns.label_a == "analyze"
+    assert ns.label_b == "baseline"
+    assert ns.out == "ablation"
+    assert ns.results == "r"
 
 
 def test_parser_city_agnostic_capture() -> None:

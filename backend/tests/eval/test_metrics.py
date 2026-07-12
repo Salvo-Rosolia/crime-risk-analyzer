@@ -68,14 +68,33 @@ def test_grounding_zero_when_narrativa_untagged() -> None:
     assert grounding(r) == 0.0
 
 
-def test_hallucination_flags_unbacked_ontologia_claim() -> None:
-    r = _resp("[ONTOLOGIA] Il Museo X presenta rischio incendio.")
+@pytest.mark.parametrize("tag", ["ONTOLOGIA", "CONTESTO", "SPECULATIVO"])
+def test_hallucination_flags_unbacked_claim_any_tag(tag: str) -> None:
+    # #109: una fabbricazione conta in TUTTE le classi-tag, non solo [ONTOLOGIA].
+    # Prima di #109 le frasi [CONTESTO]/[SPECULATIVO] non erano ispezionate: una
+    # fabbricazione nascosta dietro quei tag sfuggiva alla metrica (sotto-misura).
+    r = _resp(f"[{tag}] Il Museo X presenta rischio incendio.")
     assert hallucination(r) == 1.0
 
 
-def test_hallucination_zero_when_backed() -> None:
-    r = _resp("[ONTOLOGIA] Banca A presenta rischio.")
+@pytest.mark.parametrize("tag", ["ONTOLOGIA", "CONTESTO", "SPECULATIVO"])
+def test_hallucination_zero_when_backed_any_tag(tag: str) -> None:
+    # L'ancoraggio ai dati resta il discriminante per OGNI classe-tag: una frase
+    # ancorata non e' allucinazione, qualunque sia il tag (guardia contro un
+    # conteggio ingenuo "ogni [CONTESTO]/[SPECULATIVO] e' allucinazione").
+    r = _resp(f"[{tag}] Banca A presenta rischio.")
     assert hallucination(r) == 0.0
+
+
+def test_hallucination_counts_across_tag_classes() -> None:
+    # Frase [ONTOLOGIA] ancorata + frase [SPECULATIVO] non ancorata -> 1 su 2.
+    # Prima di #109 contava solo la frase [ONTOLOGIA] (ancorata) -> 0.0: la
+    # fabbricazione speculativa era invisibile alla metrica.
+    r = _resp(
+        "[ONTOLOGIA] Banca A presenta rischio. "
+        "[SPECULATIVO] Il Museo X rischia incendi."
+    )
+    assert hallucination(r) == 0.5
 
 
 def test_latency_passthrough() -> None:
