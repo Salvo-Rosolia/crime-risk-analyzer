@@ -1,9 +1,9 @@
 """Entrypoint dell'applicazione FastAPI.
 
 Espone la factory :func:`create_app` e un'istanza ``app`` pronta per Uvicorn
-(``uvicorn crime_risk_analyzer.main:app``). Per ora solo l'ossatura runnable con
-``GET /health`` e ``GET /cities``; gli altri endpoint di dominio (``/analyze``)
-arrivano in fase P2.
+(``uvicorn crime_risk_analyzer.main:app``). Registra gli endpoint di dominio —
+``GET /health``, ``GET /cities``, ``POST /analyze`` e ``POST /analyze/baseline`` —
+e configura il CORS (#106) e il warm-up delle risorse nel ``lifespan``.
 """
 
 from collections.abc import AsyncGenerator

@@ -1,1 +1,1 @@
-"""Modulo SPARQL: mapping OSM->TERMINUS e (in P2) query sul grafo ontologico."""
+"""Modulo SPARQL: mapping OSM->TERMINUS e query dei rischi sul grafo ontologico."""
