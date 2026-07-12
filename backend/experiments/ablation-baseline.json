@@ -1,0 +1,11 @@
+{
+  "name": "ablation-baseline",
+  "mode": "baseline",
+  "model": "claude",
+  "cases": [
+    { "citta": "Roma", "zona": "Colosseo" },
+    { "citta": "Milano", "zona": "Duomo" },
+    { "citta": "Napoli", "zona": "Piazza Garibaldi" },
+    { "citta": "Torino", "zona": "Porta Nuova" }
+  ]
+}

@@ -17,6 +17,7 @@ from crime_risk_analyzer.eval.cli import (
     load_config,
     ontology_hash,
 )
+from crime_risk_analyzer.eval.compare import compare_experiments
 from crime_risk_analyzer.eval.harness import make_snapshot_key, run_experiment
 from crime_risk_analyzer.eval.snapshots import capturing_source, snapshot_path
 from crime_risk_analyzer.ontology import load_ontology
@@ -95,6 +96,15 @@ def main() -> int:
         asyncio.run(_run(Path(ns.config), results_dir))
     elif ns.command == "aggregate":
         write_tables(results_dir, ns.experiment)
+    elif ns.command == "compare":
+        compare_experiments(
+            results_dir,
+            ns.experiment_a,
+            ns.experiment_b,
+            label_a=ns.label_a,
+            label_b=ns.label_b,
+            stem=ns.out,
+        )
     elif ns.command == "city-agnostic":
         if ns.phase == "capture":
             asyncio.run(capture_roster(ROSTER, results_dir))

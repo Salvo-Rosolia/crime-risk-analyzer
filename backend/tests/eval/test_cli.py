@@ -111,6 +111,45 @@ def test_build_llm_eval_client_uses_config_model_claude(
     assert client.provider == "claude"
 
 
+def test_parser_compare_subcommand() -> None:
+    """#32: sottocomando compare a due bracci (experiment-a vs experiment-b)."""
+    ns = build_parser().parse_args(
+        ["compare", "--experiment-a", "full", "--experiment-b", "base"]
+    )
+    assert ns.command == "compare"
+    assert ns.experiment_a == "full"
+    assert ns.experiment_b == "base"
+    assert ns.label_a is None
+    assert ns.label_b is None
+    assert ns.out is None
+    assert ns.results == "results"
+
+
+def test_parser_compare_optional_labels_and_out() -> None:
+    """Label e stem di output sono opzionali e parametrizzabili (generico)."""
+    ns = build_parser().parse_args(
+        [
+            "compare",
+            "--experiment-a",
+            "ablation-analyze",
+            "--experiment-b",
+            "ablation-baseline",
+            "--label-a",
+            "analyze",
+            "--label-b",
+            "baseline",
+            "--out",
+            "ablation",
+            "--results",
+            "r",
+        ]
+    )
+    assert ns.label_a == "analyze"
+    assert ns.label_b == "baseline"
+    assert ns.out == "ablation"
+    assert ns.results == "r"
+
+
 def test_parser_city_agnostic_capture() -> None:
     ns = build_parser().parse_args(["city-agnostic", "capture", "--results", "r"])
     assert ns.command == "city-agnostic"

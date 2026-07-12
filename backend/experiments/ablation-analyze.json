@@ -1,0 +1,11 @@
+{
+  "name": "ablation-analyze",
+  "mode": "analyze",
+  "model": "claude",
+  "cases": [
+    { "citta": "Roma", "zona": "Colosseo" },
+    { "citta": "Milano", "zona": "Duomo" },
+    { "citta": "Napoli", "zona": "Piazza Garibaldi" },
+    { "citta": "Torino", "zona": "Porta Nuova" }
+  ]
+}
