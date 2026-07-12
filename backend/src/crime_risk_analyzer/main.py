@@ -74,7 +74,8 @@ async def analyze(
 
     Valida la citta' (``CityNotFoundError`` -> 400). Gli altri errori di dominio
     propagano agli handler centrali (#21); ``LLMError`` e' gestito in
-    :func:`run_analysis` come fallback strutturato (200).
+    :func:`run_analysis` come fallback strutturato (200). ``request.domanda``
+    (opzionale, #119) e' propagata fino allo ``user_content`` del prompt LLM.
     """
     if request.citta not in settings.supported_cities:
         raise CityNotFoundError(request.citta, supported=settings.supported_cities)
@@ -83,6 +84,7 @@ async def analyze(
         request.zona,
         executor=executor,
         llm_client=llm_client,
+        domanda=request.domanda,
     )
 
 
@@ -94,11 +96,17 @@ async def analyze_baseline(
 ) -> AnalyzeResponse:
     """Variante senza LLM per l'ablation: solo dati strutturati dal grounding.
 
-    ``tipo_poi`` e' accettato ma ignorato server-side (filtro lato FE).
+    ``request.tipo_poi`` (opzionale, #119) filtra i POI server-side per classe
+    TERMINUS; ``None``/vuoto = nessun filtro (comportamento invariato).
     """
     if request.citta not in settings.supported_cities:
         raise CityNotFoundError(request.citta, supported=settings.supported_cities)
-    return await run_baseline(request.citta, request.zona, executor=executor)
+    return await run_baseline(
+        request.citta,
+        request.zona,
+        executor=executor,
+        tipo_poi=request.tipo_poi,
+    )
 
 
 @asynccontextmanager
