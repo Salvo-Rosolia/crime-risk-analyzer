@@ -1,25 +1,37 @@
 <header class="cra-header">
   <span class="cra-title">◆ Crime Risk Analyzer</span>
   <span class="cra-tagline">supporto decisionale · human-in-the-loop</span>
+  <span class="cra-header-spacer"></span>
+  <cra-header-controls
+    [data]="store.completoData()"
+    [mode]="store.mode()"
+    [filter]="store.filter()"
+    [loading]="store.screen() === 'LOADING'"
+    (setFilter)="onSetFilter($event)"
+    (clearFilter)="onClearFilter()"
+    (toggleMode)="onToggleMode($event)"
+  />
 </header>
 
 <cra-map
-  [data]="store.data()"
+  [data]="store.completoData()"
   [filter]="store.filter()"
   [selectedId]="store.selectedPoiId()"
   (poiClick)="onPoiClick($event)"
 />
 
 <section class="cra-panels">
-  @if (store.screen() === 'RESULTS' || store.screen() === 'FILTER') {
+  @if (store.screen() === 'RESULTS' || store.screen() === 'FILTER' || store.screen() === 'DETAIL') {
     <!--
-      RESULTS e FILTER condividono lo stesso pannello: unificati sotto UNA condizione (anziché
-      due @case distinti) così il toggle del filtro non smonta/rimonta cra-poi-panel (niente
-      reset dello scroll della lista — vedi review #66 MAJOR, fix secondario).
+      RESULTS, FILTER e DETAIL condividono lo stesso pannello POI + bottom-sheet narrativa
+      (anziché @case distinti): selezionare/deselezionare un POI o cambiare filtro non deve
+      smontare/rimontare cra-poi-panel o cra-narrative-sheet (niente reset dello scroll/collasso
+      — stessa ragione dell'unificazione RESULTS/FILTER di #66, estesa qui a DETAIL). La scheda
+      di dettaglio si aggiunge come pannello ulteriore quando c'è un POI selezionato.
     -->
     <div class="cra-panel cra-panel-poi">
       <cra-poi-panel
-        [pois]="store.data()?.poi ?? []"
+        [pois]="store.completoData()?.poi ?? []"
         [filter]="store.filter()"
         [selectedId]="store.selectedPoiId()"
         (selectPoi)="onPoiClick($event)"
@@ -27,6 +39,27 @@
         (clearFilter)="onClearFilter()"
       />
     </div>
+
+    @if (store.screen() === 'DETAIL' && selectedDetail(); as detail) {
+      <div class="cra-panel cra-panel-detail">
+        <cra-detail-panel
+          [poi]="detail.poi"
+          [number]="detail.number"
+          [riskModels]="store.completoData()?.risk_models ?? []"
+          (closeDetail)="onCloseDetail()"
+        />
+      </div>
+    }
+
+    <cra-narrative-sheet
+      [citta]="store.completoData()?.citta ?? null"
+      [zona]="store.completoData()?.zona_normalizzata ?? null"
+      [narrativa]="store.completoData()?.narrativa ?? ''"
+      [riskModels]="store.completoData()?.risk_models ?? []"
+      [open]="store.narrOpen()"
+      (toggleNarrative)="onToggleNarr()"
+      (regenerate)="onRegenerate()"
+    />
   } @else {
     @switch (store.screen()) {
       @case ('INPUT') {
@@ -42,9 +75,6 @@
       @case ('LOADING') {
         <cra-loading-overlay [zona]="store.pendingZona()" />
       }
-      @case ('DETAIL') {
-        <div class="cra-panel cra-placeholder">Dettaglio POI — #67</div>
-      }
       @case ('ERROR') {
         <div class="cra-panel">
           <cra-input-panel
@@ -57,7 +87,19 @@
         </div>
       }
       @case ('BASE') {
-        <div class="cra-panel cra-placeholder">Sistema base — #67</div>
+        <!--
+          Stato Sistema base gestisce errore + retry da sé (bloccante 2 review #67): niente
+          Stato Errore condiviso col form del sistema completo, che ritenterebbe su /analyze
+          invece che su /analyze/baseline. `error` arriva da LOAD_ERROR quando mode==='base'
+          (transition.ts la instrada qui invece che su ERROR).
+        -->
+        <cra-base-panel
+          [data]="store.baselineData()"
+          [serverError]="store.error()"
+          [initialCitta]="store.pendingCitta()"
+          [initialZona]="store.pendingZona()"
+          (analyzeBaseline)="onBaseSearch($event)"
+        />
       }
     }
   }

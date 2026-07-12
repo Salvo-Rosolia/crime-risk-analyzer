@@ -1,0 +1,39 @@
+<div
+  class="cra-narr-header"
+  role="button"
+  tabindex="0"
+  [attr.aria-expanded]="open()"
+  aria-label="Comprimi o espandi la narrativa generata"
+  (click)="toggleNarrative.emit()"
+  (keydown.enter)="toggleNarrative.emit()"
+  (keydown.space)="onHeaderSpace($event)"
+>
+  <span class="cra-narr-chevron" aria-hidden="true">{{ open() ? '▾' : '▸' }}</span>
+  <h2 class="cra-eyebrow">◇ Narrativa generata — {{ citta() }} · {{ zona() }}</h2>
+  <span class="cra-hallucination-banner">⚠ supporto decisionale · valuta con fonti primarie</span>
+  <span class="cra-narr-spacer"></span>
+  <button type="button" class="cra-btn-regen" (click)="onRegenerate($event)">↺ Rigenera</button>
+</div>
+
+@if (open()) {
+  <div class="cra-narr-body">
+    @if (narrativa()) {
+      <p class="cra-narr-lead">{{ narrativa() }}</p>
+    }
+    <div class="cra-narr-sections">
+      @for (section of sections(); track section.tag) {
+        <div class="cra-narr-section">
+          <div class="cra-source-header" [style.borderColor]="srcMeta(section.tag).color">
+            <span class="cra-source-tag" [style.color]="srcMeta(section.tag).color">[{{ section.tag }}]</span>
+            <span class="cra-source-desc">{{ srcMeta(section.tag).description }}</span>
+          </div>
+          <ul class="cra-narr-hazard-list">
+            @for (hazard of section.hazards; track hazard) {
+              <li>{{ hazard }}</li>
+            }
+          </ul>
+        </div>
+      }
+    </div>
+  </div>
+}

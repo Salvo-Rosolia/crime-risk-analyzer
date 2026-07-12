@@ -1,0 +1,94 @@
+<aside class="cra-base-form-panel">
+  <h2 class="cra-base-heading">Parametri ricerca</h2>
+  <form (submit)="onSubmit($event)">
+    <div class="cra-field">
+      <label for="cra-base-tipo-poi">Tipo POI <span class="cra-optional">(opzionale)</span></label>
+      <input
+        id="cra-base-tipo-poi"
+        type="text"
+        autocomplete="off"
+        placeholder="es. Railway_station"
+        [value]="tipoPoi()"
+        (input)="onTipoPoiInput($event)"
+      />
+    </div>
+
+    <div class="cra-field">
+      <label for="cra-base-citta">Città <span class="cra-required" aria-hidden="true">*</span></label>
+      <select
+        id="cra-base-citta"
+        aria-required="true"
+        [class.cra-field-error]="validationField() === 'citta'"
+        [value]="citta()"
+        (change)="onCittaChange($event)"
+      >
+        <option value="" disabled>Seleziona…</option>
+        @for (c of selectableCities(); track c) {
+          <option [value]="c">{{ c }}</option>
+        }
+      </select>
+    </div>
+
+    <div class="cra-field">
+      <label for="cra-base-zona">Zona <span class="cra-required" aria-hidden="true">*</span></label>
+      <input
+        id="cra-base-zona"
+        type="text"
+        autocomplete="off"
+        aria-required="true"
+        placeholder="es. Colosseo"
+        [class.cra-field-error]="zonaHasError()"
+        [value]="zona()"
+        (input)="onZonaInput($event)"
+      />
+    </div>
+
+    @if (displayError(); as msg) {
+      <p class="cra-input-error" role="alert">{{ msg }}</p>
+    }
+
+    <button type="submit" class="cra-btn-solid">Cerca</button>
+  </form>
+
+  <div class="cra-base-absent">
+    <p class="cra-base-absent-title">Assente nel base</p>
+    <ul>
+      <li>linguaggio naturale</li>
+      <li>narrativa</li>
+      <li>confidence</li>
+      <li>path SPARQL</li>
+      <li>mappa</li>
+    </ul>
+  </div>
+</aside>
+
+<section class="cra-base-results">
+  <div class="cra-base-results-header">
+    @if (data(); as d) {
+      <strong>{{ rows().length }}</strong>&nbsp;risultati — {{ d.citta }} · {{ d.zona_normalizzata }}
+    } @else {
+      <span class="cra-base-placeholder-text">Inserisci i parametri e premi Cerca.</span>
+    }
+  </div>
+  <div class="cra-base-table-wrap">
+    <table class="cra-base-table">
+      <thead>
+        <tr>
+          <th>POI</th>
+          <th>Hazard</th>
+          <th>Categoria</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (row of rows(); track $index) {
+          <tr>
+            <td>{{ row.poiName }}</td>
+            <td>{{ row.hazardLabel }}</td>
+            <td><span class="cra-mono">{{ row.category }}</span></td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+  <div class="cra-base-footer">nessuna narrativa — il sistema base restituisce solo dati strutturati</div>
+</section>

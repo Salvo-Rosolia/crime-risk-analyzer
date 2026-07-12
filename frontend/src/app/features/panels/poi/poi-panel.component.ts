@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
-import { CONF } from '@core/confidence';
+import { CONF, poiConfidenceCounts } from '@core/confidence';
 import { Confidence, Poi } from '@core/models/models';
 import { matchesFilter, poiDisplayLabel } from '@core/ui-helpers';
 
@@ -45,11 +45,7 @@ export class PoiPanelComponent {
 
   protected readonly hiddenCount = computed(() => this.pois().length - this.visible().length);
 
-  protected readonly counts = computed<Record<Confidence, number>>(() => {
-    const acc: Record<Confidence, number> = { confermato: 0, plausibile: 0, speculativo: 0 };
-    for (const poi of this.pois()) acc[poi.confidence]++;
-    return acc;
-  });
+  protected readonly counts = computed<Record<Confidence, number>>(() => poiConfidenceCounts(this.pois()));
 
   protected onChipClick(level: Confidence): void {
     if (this.filter() === level) {

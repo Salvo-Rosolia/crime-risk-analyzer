@@ -1,0 +1,189 @@
+/*
+ * Stato Sistema base (ablation): sostituisce mappa/pannelli/narrativa, occupa l'intera area
+ * sotto l'header (stesso riquadro di `.cra-panels` in app.css, di cui è fratello nel template).
+ * Deliberatamente povero: sfondo bianco piatto, niente ombre/blur dei pannelli flottanti.
+ */
+:host {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  background: #fff;
+  pointer-events: auto;
+}
+
+.cra-base-form-panel {
+  flex: 0 0 262px;
+  border-right: 1px solid var(--paper);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  background: var(--paper);
+  overflow-y: auto;
+}
+
+.cra-base-heading {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ink);
+  border-bottom: 1px solid var(--ink);
+  padding-bottom: var(--space-2);
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.cra-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.cra-field label {
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.cra-required {
+  color: var(--c-error);
+}
+
+.cra-optional {
+  font-weight: 400;
+  opacity: 0.7;
+  font-size: 0.68rem;
+}
+
+.cra-field input,
+.cra-field select {
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
+  padding: var(--space-2);
+  border: 1px solid var(--ink);
+  border-radius: 3px;
+  background: #fff;
+  color: var(--ink);
+}
+
+.cra-field-error {
+  border-color: var(--c-error);
+}
+
+.cra-input-error {
+  margin: 0;
+  color: var(--c-error);
+  font-size: 0.75rem;
+}
+
+.cra-btn-solid {
+  align-self: stretch;
+  text-align: center;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--ink-2);
+  border-radius: 3px;
+  background: #fff;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.cra-btn-solid:hover {
+  background: var(--paper);
+}
+
+.cra-base-absent {
+  border-top: 1px solid var(--hair);
+  padding-top: var(--space-3);
+  font-size: 0.72rem;
+  color: var(--ink-2);
+  line-height: 1.7;
+}
+
+.cra-base-absent-title {
+  margin: 0 0 var(--space-1);
+  font-weight: 600;
+}
+
+.cra-base-absent ul {
+  margin: 0;
+  padding-left: 1.1em;
+}
+
+.cra-base-results {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.cra-base-results-header {
+  flex: 0 0 auto;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--hair);
+  background: var(--paper);
+  font-size: 0.8rem;
+}
+
+.cra-base-placeholder-text {
+  font-style: italic;
+  opacity: 0.7;
+}
+
+.cra-base-table-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.cra-base-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+}
+
+.cra-base-table th {
+  padding: var(--space-3) var(--space-4);
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--table-header-bg);
+  border-bottom: 2px solid var(--hair-strong);
+  border-right: 1px solid var(--hair);
+}
+
+.cra-base-table td {
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--hair);
+  border-right: 1px solid var(--hair);
+}
+
+.cra-base-table tbody tr:nth-child(even) {
+  background: var(--paper);
+}
+
+.cra-mono {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  opacity: 0.75;
+}
+
+.cra-base-footer {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--hair);
+  padding: var(--space-3) var(--space-4);
+  background: var(--paper);
+  font-size: 0.75rem;
+  font-style: italic;
+  opacity: 0.75;
+}

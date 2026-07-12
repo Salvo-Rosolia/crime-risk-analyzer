@@ -1,9 +1,9 @@
 import {
-  buildDetailModel, buildNarrativeSections,
-  cityColorFor, matchesFilter, poiPopupHTML, validateInputPanel,
+  buildBaseRows, buildDetailModel, buildNarrativeSections,
+  cityColorFor, matchesFilter, orderGroupsByTag, poiPopupHTML, validateInputPanel,
 } from '@core/ui-helpers';
 import { CONF, DIM_COLOR } from '@core/confidence';
-import { Poi, RiskModel } from '@core/models/models';
+import { Poi, RiskItem, RiskModel } from '@core/models/models';
 
 describe('ui-helpers', () => {
   it('cityColorFor: città note e fallback', () => {
@@ -104,6 +104,49 @@ describe('ui-helpers', () => {
 
     const poiSenzaLabel: Poi = { ...poiConLabel, terminus_label_it: '' };
     expect(buildDetailModel(poiSenzaLabel, []).poiLabel).toBe('ArchaeologicalSite');
+  });
+
+  it('orderGroupsByTag: ordina i gruppi di buildDetailModel in ONTOLOGIA→CONTESTO→SPECULATIVO', () => {
+    const groups: Record<string, RiskItem[]> = {
+      SPECULATIVO: [{ hazard: 'h-spec', confidence: 'speculativo', tag: 'SPECULATIVO', hazard_label_it: 'H spec', hazard_label_en: 'H spec' }],
+      ONTOLOGIA: [{ hazard: 'h-onto', confidence: 'confermato', tag: 'ONTOLOGIA', hazard_label_it: 'H onto', hazard_label_en: 'H onto' }],
+      CONTESTO: [{ hazard: 'h-ctx', confidence: 'plausibile', tag: 'CONTESTO', hazard_label_it: 'H ctx', hazard_label_en: 'H ctx' }],
+    };
+    expect(orderGroupsByTag(groups).map(g => g.tag)).toEqual(['ONTOLOGIA', 'CONTESTO', 'SPECULATIVO']);
+  });
+
+  it('orderGroupsByTag: omette i tag assenti/vuoti e mette in coda i tag fuori contratto', () => {
+    const onto: RiskItem = { hazard: 'h', confidence: 'confermato', tag: 'ONTOLOGIA', hazard_label_it: 'H', hazard_label_en: 'H' };
+    const groups: Record<string, RiskItem[]> = { ONTOLOGIA: [onto], CONTESTO: [], ALTRO: [onto] };
+    expect(orderGroupsByTag(groups).map(g => g.tag)).toEqual(['ONTOLOGIA', 'ALTRO']);
+  });
+
+  it('buildBaseRows: una riga per coppia (POI, hazard), Categoria = tc:terminus_class grezzo', () => {
+    const poi: Poi[] = [
+      { id: '1', name: 'Colosseo', terminus_class: 'Archaeological_site', lat: 0, lon: 0, confidence: 'confermato', sparql_path: null, terminus_label_it: 'Sito archeologico', terminus_label_en: 'Archaeological site' },
+      { id: '2', name: 'Banca X', terminus_class: 'Bank', lat: 0, lon: 0, confidence: 'plausibile', sparql_path: null, terminus_label_it: 'Banca', terminus_label_en: 'Bank' },
+    ];
+    const riskModels: RiskModel[] = [
+      { poi: 'Colosseo', risks: [
+        { hazard: 'h1', confidence: 'confermato', tag: 'ONTOLOGIA', hazard_label_it: 'Borseggio', hazard_label_en: 'Pickpocketing' },
+        { hazard: 'h2', confidence: 'speculativo', tag: 'SPECULATIVO', hazard_label_it: '', hazard_label_en: '' },
+      ] },
+      { poi: 'Banca X', risks: [{ hazard: 'h3', confidence: 'plausibile', tag: 'CONTESTO', hazard_label_it: 'Rapina', hazard_label_en: 'Robbery' }] },
+    ];
+    expect(buildBaseRows(poi, riskModels)).toEqual([
+      { poiId: '1', poiName: 'Colosseo', hazardLabel: 'Borseggio', category: 'tc:Archaeological_site' },
+      { poiId: '1', poiName: 'Colosseo', hazardLabel: 'h2', category: 'tc:Archaeological_site' },
+      { poiId: '2', poiName: 'Banca X', hazardLabel: 'Rapina', category: 'tc:Bank' },
+    ]);
+  });
+
+  it('buildBaseRows: POI senza risk_models corrispondenti → nessuna riga; input null/undefined → []', () => {
+    const poi: Poi[] = [
+      { id: '1', name: 'Solo', terminus_class: 'Alley', lat: 0, lon: 0, confidence: 'confermato', sparql_path: null, terminus_label_it: '', terminus_label_en: '' },
+    ];
+    expect(buildBaseRows(poi, [])).toEqual([]);
+    expect(buildBaseRows(null, null)).toEqual([]);
+    expect(buildBaseRows(undefined, undefined)).toEqual([]);
   });
 
   it('matchesFilter: filtro null → sempre true (nessun filtro attivo)', () => {

@@ -68,7 +68,7 @@ describe('App shell', () => {
     f.detectChanges();
     await f.whenStable();
 
-    store.dispatch({ type: 'ANALYZE', citta: 'Roma', zona: 'Trastevere' });
+    store.dispatch({ type: 'ANALYZE', citta: 'Roma', zona: 'Trastevere', pipeline: 'completo' });
     f.detectChanges();
 
     expect(f.nativeElement.querySelector('cra-loading-overlay')).toBeTruthy();
@@ -80,7 +80,7 @@ describe('App shell', () => {
     f.detectChanges();
     await f.whenStable();
 
-    store.dispatch({ type: 'LOAD_SUCCESS', data: emptyResp });
+    store.dispatch({ type: 'LOAD_SUCCESS', data: emptyResp, pipeline: 'completo' });
     f.detectChanges();
 
     expect(f.nativeElement.querySelector('cra-poi-panel')).toBeTruthy();
@@ -91,7 +91,7 @@ describe('App shell', () => {
     f.detectChanges();
     await f.whenStable();
 
-    store.dispatch({ type: 'LOAD_ERROR', message: '"Atlantide" non corrisponde ad alcuna area.' });
+    store.dispatch({ type: 'LOAD_ERROR', message: '"Atlantide" non corrisponde ad alcuna area.', pipeline: 'completo' });
     f.detectChanges();
 
     expect(f.nativeElement.querySelector('cra-input-panel')).toBeTruthy();
@@ -103,7 +103,7 @@ describe('App shell', () => {
     f.detectChanges();
     await f.whenStable();
 
-    store.dispatch({ type: 'LOAD_SUCCESS', data: emptyResp });
+    store.dispatch({ type: 'LOAD_SUCCESS', data: emptyResp, pipeline: 'completo' });
     store.dispatch({ type: 'SET_FILTER', level: 'confermato' });
     f.detectChanges();
 
@@ -131,7 +131,7 @@ describe('App shell', () => {
     f.detectChanges();
     await f.whenStable();
 
-    store.dispatch({ type: 'LOAD_SUCCESS', data: respWithPoi });
+    store.dispatch({ type: 'LOAD_SUCCESS', data: respWithPoi, pipeline: 'completo' });
     f.detectChanges();
 
     const card: HTMLElement = f.nativeElement.querySelector('.cra-poi-card');
@@ -182,7 +182,7 @@ describe('App shell', () => {
     f.detectChanges();
     await f.whenStable();
 
-    store.dispatch({ type: 'LOAD_SUCCESS', data: emptyResp });
+    store.dispatch({ type: 'LOAD_SUCCESS', data: emptyResp, pipeline: 'completo' });
     f.detectChanges();
     const panelInResults = f.nativeElement.querySelector('cra-poi-panel');
     expect(panelInResults).toBeTruthy();
@@ -196,5 +196,298 @@ describe('App shell', () => {
     f.detectChanges();
     expect(store.screen()).toBe('RESULTS');
     expect(f.nativeElement.querySelector('cra-poi-panel')).toBe(panelInResults);
+  });
+
+  it('ACCEPTANCE: Stato DETAIL mostra cra-detail-panel coi gruppi ordinati ONTOLOGIA→CONTESTO→SPECULATIVO, senza rimontare cra-poi-panel/cra-narrative-sheet', async () => {
+    const respWithPoi: AnalyzeResponse = {
+      ...emptyResp,
+      poi: [{
+        id: 'poi-1', name: 'Colosseo', terminus_class: 'Archaeological_site', lat: 41.89, lon: 12.49,
+        confidence: 'confermato', sparql_path: 'Archaeological_site → havingHazard → Mugging',
+        terminus_label_it: 'Sito archeologico', terminus_label_en: 'Archaeological site',
+      }],
+      risk_models: [{
+        poi: 'Colosseo',
+        risks: [
+          { hazard: 'h-spec', confidence: 'speculativo', tag: 'SPECULATIVO', hazard_label_it: 'Ipotesi', hazard_label_en: 'Hypothesis' },
+          { hazard: 'h-onto', confidence: 'confermato', tag: 'ONTOLOGIA', hazard_label_it: 'Borseggio', hazard_label_en: 'Pickpocketing' },
+        ],
+      }],
+    };
+    const f = TestBed.createComponent(App);
+    f.detectChanges();
+    await f.whenStable();
+
+    store.dispatch({ type: 'LOAD_SUCCESS', data: respWithPoi, pipeline: 'completo' });
+    f.detectChanges();
+    const poiPanelBeforeSelect = f.nativeElement.querySelector('cra-poi-panel');
+    const narrSheetBeforeSelect = f.nativeElement.querySelector('cra-narrative-sheet');
+    expect(poiPanelBeforeSelect).toBeTruthy();
+    expect(narrSheetBeforeSelect).toBeTruthy();
+
+    (f.nativeElement.querySelector('.cra-poi-card') as HTMLElement).click();
+    f.detectChanges();
+
+    expect(store.screen()).toBe('DETAIL');
+    expect(f.nativeElement.querySelector('cra-poi-panel')).toBe(poiPanelBeforeSelect);
+    expect(f.nativeElement.querySelector('cra-narrative-sheet')).toBe(narrSheetBeforeSelect);
+    expect(f.nativeElement.textContent).toContain('supporto decisionale · valuta con fonti primarie');
+
+    // scope al cra-detail-panel: cra-narrative-sheet mostra gli stessi tag fonte nel suo stesso markup
+    const detailPanel = f.nativeElement.querySelector('cra-detail-panel');
+    const tags = detailPanel.querySelectorAll('.cra-source-tag');
+    expect(Array.from(tags).map((t) => (t as Element).textContent?.trim())).toEqual(['[ONTOLOGIA]', '[SPECULATIVO]']);
+    expect(detailPanel.querySelector('.cra-citation-line').textContent).toContain('havingHazard');
+
+    (f.nativeElement.querySelector('.cra-detail-close') as HTMLElement).click();
+    f.detectChanges();
+
+    expect(store.screen()).toBe('RESULTS');
+    expect(f.nativeElement.querySelector('cra-detail-panel')).toBeNull();
+    expect(f.nativeElement.querySelector('cra-poi-panel')).toBe(poiPanelBeforeSelect);
+  });
+
+  it('ACCEPTANCE: Rigenera re-invoca startAnalysis con lastQuery e SOSTITUISCE i risultati (non li duplica)', async () => {
+    const f = TestBed.createComponent(App);
+    f.detectChanges();
+    await f.whenStable();
+
+    api.analyze.mockResolvedValueOnce({
+      ...emptyResp,
+      poi: [{ id: 'a', name: 'A', terminus_class: 'x', lat: 0, lon: 0, confidence: 'confermato', sparql_path: null, terminus_label_it: '', terminus_label_en: '' }],
+    });
+    await store.startAnalysis('Roma', 'Colosseo', 'di sera?');
+    f.detectChanges();
+    expect(store.completoData()?.poi).toHaveLength(1);
+    expect(store.lastQuery()).toEqual({ citta: 'Roma', zona: 'Colosseo', domanda: 'di sera?' });
+
+    const startAnalysisSpy = jest.spyOn(store, 'startAnalysis');
+    api.analyze.mockResolvedValueOnce({
+      ...emptyResp,
+      poi: [
+        { id: 'a', name: 'A', terminus_class: 'x', lat: 0, lon: 0, confidence: 'confermato', sparql_path: null, terminus_label_it: '', terminus_label_en: '' },
+        { id: 'b', name: 'B', terminus_class: 'x', lat: 0, lon: 0, confidence: 'plausibile', sparql_path: null, terminus_label_it: '', terminus_label_en: '' },
+      ],
+    });
+
+    (f.nativeElement.querySelector('.cra-btn-regen') as HTMLElement).click();
+    expect(startAnalysisSpy).toHaveBeenCalledWith('Roma', 'Colosseo', 'di sera?');
+
+    await startAnalysisSpy.mock.results[0].value;
+    f.detectChanges();
+
+    expect(store.completoData()?.poi).toHaveLength(2);
+  });
+
+  it('ACCEPTANCE: toggle Base nell\'header porta a Stato BASE; la ricerca chiama /analyze/baseline e resta su BASE con la tabella popolata', async () => {
+    api.cities.mockResolvedValue(['Roma']);
+    const f = TestBed.createComponent(App);
+    f.detectChanges();
+    await f.whenStable();
+    f.detectChanges();
+
+    const modeButtons: HTMLButtonElement[] = Array.from(f.nativeElement.querySelectorAll('.cra-mode-btn'));
+    modeButtons.find(b => b.textContent?.trim() === 'Base')!.click();
+    f.detectChanges();
+    await f.whenStable();
+    f.detectChanges();
+
+    expect(store.screen()).toBe('BASE');
+    expect(f.nativeElement.querySelector('cra-base-panel')).toBeTruthy();
+
+    const cittaSelect: HTMLSelectElement = f.nativeElement.querySelector('#cra-base-citta');
+    cittaSelect.value = 'Roma';
+    cittaSelect.dispatchEvent(new Event('change'));
+    const zonaInput: HTMLInputElement = f.nativeElement.querySelector('#cra-base-zona');
+    zonaInput.value = 'Centro';
+    zonaInput.dispatchEvent(new Event('input'));
+    f.detectChanges();
+
+    api.analyzeBaseline.mockResolvedValue({
+      ...emptyResp,
+      poi: [{ id: '1', name: 'Stazione', terminus_class: 'Railway_station', lat: 0, lon: 0, confidence: 'confermato', sparql_path: null, terminus_label_it: '', terminus_label_en: '' }],
+      risk_models: [{ poi: 'Stazione', risks: [{ hazard: 'h', confidence: 'confermato', tag: 'ONTOLOGIA', hazard_label_it: 'Furto', hazard_label_en: 'Theft' }] }],
+    });
+    const startBaselineSpy = jest.spyOn(store, 'startBaselineAnalysis');
+
+    const form: HTMLFormElement = f.nativeElement.querySelector('.cra-base-form-panel form');
+    form.dispatchEvent(new Event('submit', { cancelable: true }));
+    expect(startBaselineSpy).toHaveBeenCalledWith({ citta: 'Roma', zona: 'Centro' });
+
+    await startBaselineSpy.mock.results[0].value;
+    f.detectChanges();
+
+    // resta in Stato BASE (non salta su RESULTS del sistema completo) e mostra la tabella spartana
+    expect(store.screen()).toBe('BASE');
+    expect(f.nativeElement.querySelector('cra-base-panel')).toBeTruthy();
+    expect(f.nativeElement.textContent).toContain('Furto');
+    expect(f.nativeElement.textContent).toContain('nessuna narrativa — il sistema base restituisce solo dati strutturati');
+  });
+
+  describe('BLOCCANTI review: isolamento dati Completo↔Base', () => {
+    it('(a) analisi Completo riuscita → toggle a Base NON mostra i dati LLM nella tabella base (vuota/form finché non si esegue la ricerca Base)', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      const completoResp: AnalyzeResponse = {
+        ...emptyResp,
+        poi: [{ id: 'c1', name: 'CompletoPOI', terminus_class: 'x', lat: 0, lon: 0, confidence: 'confermato', sparql_path: null, terminus_label_it: '', terminus_label_en: '' }],
+        risk_models: [{ poi: 'CompletoPOI', risks: [{ hazard: 'hz', confidence: 'confermato', tag: 'ONTOLOGIA', hazard_label_it: 'HazardCompleto', hazard_label_en: 'x' }] }],
+      };
+      store.dispatch({ type: 'LOAD_SUCCESS', data: completoResp, pipeline: 'completo' });
+      f.detectChanges();
+      expect(store.screen()).toBe('RESULTS');
+
+      store.dispatch({ type: 'TOGGLE_MODE', mode: 'base' });
+      f.detectChanges();
+      expect(store.screen()).toBe('BASE');
+
+      const basePanel: HTMLElement = f.nativeElement.querySelector('cra-base-panel');
+      expect(basePanel.querySelectorAll('.cra-base-table tbody tr').length).toBe(0);
+      expect(basePanel.textContent).not.toContain('HazardCompleto');
+      expect(basePanel.textContent).not.toContain('CompletoPOI');
+      expect(basePanel.textContent).toContain('Inserisci i parametri');
+    });
+
+    it('(b) ricerca Base riuscita dopo un\'analisi Completo → toggle a Completo mostra ANCORA i dati completo (RESULTS/mappa NON mostrano i dati baseline)', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      const completoResp: AnalyzeResponse = {
+        ...emptyResp,
+        poi: [{ id: 'c1', name: 'CompletoPOI', terminus_class: 'x', lat: 0, lon: 0, confidence: 'confermato', sparql_path: null, terminus_label_it: '', terminus_label_en: '' }],
+      };
+      store.dispatch({ type: 'LOAD_SUCCESS', data: completoResp, pipeline: 'completo' });
+      f.detectChanges();
+      expect(store.screen()).toBe('RESULTS');
+
+      store.dispatch({ type: 'TOGGLE_MODE', mode: 'base' });
+      f.detectChanges();
+      const baselineResp: AnalyzeResponse = {
+        ...emptyResp,
+        poi: [{ id: 'b1', name: 'BaselinePOI', terminus_class: 'x', lat: 0, lon: 0, confidence: 'confermato', sparql_path: null, terminus_label_it: '', terminus_label_en: '' }],
+      };
+      api.analyzeBaseline.mockResolvedValue(baselineResp);
+      await store.startBaselineAnalysis({ citta: 'Roma', zona: 'Duomo' });
+      f.detectChanges();
+      expect(store.screen()).toBe('BASE');
+
+      store.dispatch({ type: 'TOGGLE_MODE', mode: 'completo' });
+      f.detectChanges();
+
+      expect(store.screen()).toBe('RESULTS');
+      expect(f.nativeElement.querySelector('cra-poi-panel').textContent).toContain('CompletoPOI');
+      expect(f.nativeElement.textContent).not.toContain('BaselinePOI');
+    });
+
+    it('(c) errore in modalità Base → resta in Stato BASE (niente cra-input-panel del sistema completo) e il retry invoca /analyze/baseline, non /analyze', async () => {
+      api.cities.mockResolvedValue(['Roma']);
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+      f.detectChanges();
+
+      store.dispatch({ type: 'TOGGLE_MODE', mode: 'base' });
+      f.detectChanges();
+      await f.whenStable();
+      f.detectChanges();
+
+      const cittaSelect: HTMLSelectElement = f.nativeElement.querySelector('#cra-base-citta');
+      cittaSelect.value = 'Roma';
+      cittaSelect.dispatchEvent(new Event('change'));
+      const zonaInput: HTMLInputElement = f.nativeElement.querySelector('#cra-base-zona');
+      zonaInput.value = 'Atlantide';
+      zonaInput.dispatchEvent(new Event('input'));
+      f.detectChanges();
+
+      api.analyzeBaseline.mockRejectedValueOnce(new Error('"Atlantide" non corrisponde ad alcuna area.'));
+      const startBaselineSpy = jest.spyOn(store, 'startBaselineAnalysis');
+
+      const form: HTMLFormElement = f.nativeElement.querySelector('.cra-base-form-panel form');
+      form.dispatchEvent(new Event('submit', { cancelable: true }));
+      expect(store.screen()).toBe('LOADING');
+
+      await startBaselineSpy.mock.results[0].value;
+      f.detectChanges();
+
+      expect(store.screen()).toBe('BASE');
+      expect(f.nativeElement.querySelector('cra-input-panel')).toBeNull();
+      expect(f.nativeElement.textContent).toContain('non corrisponde ad alcuna area');
+
+      // retry: il form persiste nello stesso schermo BASE, reinvia → deve richiamare startBaselineAnalysis, MAI store.startAnalysis
+      api.analyzeBaseline.mockResolvedValueOnce({ ...emptyResp, poi: [] });
+      const formAfterError: HTMLFormElement = f.nativeElement.querySelector('.cra-base-form-panel form');
+      formAfterError.dispatchEvent(new Event('submit', { cancelable: true }));
+
+      expect(startBaselineSpy).toHaveBeenCalledTimes(2);
+      expect(api.analyze).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('BLOCCANTI review #67-bis: race condition sul routing + lastQuery non isolato', () => {
+    it('BLOCCANTE A: durante LOADING i bottoni del toggle Completo/Base sono disabilitati nel DOM reale (wiring end-to-end)', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      store.dispatch({ type: 'ANALYZE', citta: 'Roma', zona: 'Trastevere', pipeline: 'completo' });
+      f.detectChanges();
+
+      const modeButtons: HTMLButtonElement[] = Array.from(f.nativeElement.querySelectorAll('.cra-mode-btn'));
+      expect(modeButtons.length).toBeGreaterThan(0);
+      expect(modeButtons.every(b => b.disabled)).toBe(true);
+    });
+
+    it('BLOCCANTE A: la guardia in onToggleMode blocca il cambio di modalità durante LOADING anche bypassando il disabled del bottone', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      store.dispatch({ type: 'ANALYZE', citta: 'Roma', zona: 'Trastevere', pipeline: 'completo' });
+      f.detectChanges();
+      expect(store.mode()).toBe('completo');
+
+      (f.componentInstance as unknown as { onToggleMode(mode: 'completo' | 'base'): void }).onToggleMode('base');
+
+      expect(store.mode()).toBe('completo');
+      expect(store.screen()).toBe('LOADING');
+    });
+
+    it('BLOCCANTE B: una ricerca Base non sovrascrive lastQuery — "Rigenera" dopo un giro Completo→Base→Completo rilancia ancora la query Completo originale, non l\'ultima Base', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      // 1) analisi Completo Roma/Colosseo
+      api.analyze.mockResolvedValueOnce({ ...emptyResp, citta: 'Roma', zona_normalizzata: 'Colosseo' });
+      await store.startAnalysis('Roma', 'Colosseo', null);
+      f.detectChanges();
+      expect(store.screen()).toBe('RESULTS');
+
+      // 2) toggle a Base + ricerca Base Milano/Duomo
+      const modeButtons: HTMLButtonElement[] = Array.from(f.nativeElement.querySelectorAll('.cra-mode-btn'));
+      modeButtons.find(b => b.textContent?.trim() === 'Base')!.click();
+      f.detectChanges();
+      api.analyzeBaseline.mockResolvedValueOnce({ ...emptyResp, citta: 'Milano', zona_normalizzata: 'Duomo' });
+      await store.startBaselineAnalysis({ citta: 'Milano', zona: 'Duomo' });
+      f.detectChanges();
+      expect(store.screen()).toBe('BASE');
+
+      // 3) torna a Completo: RESULTS deve mostrare ancora Roma/Colosseo (completoData intatto)
+      const modeButtonsAfter: HTMLButtonElement[] = Array.from(f.nativeElement.querySelectorAll('.cra-mode-btn'));
+      modeButtonsAfter.find(b => b.textContent?.trim() === 'Completo')!.click();
+      f.detectChanges();
+      expect(store.screen()).toBe('RESULTS');
+      expect(store.completoData()?.citta).toBe('Roma');
+
+      // 4) Rigenera deve rilanciare /analyze per Roma/Colosseo, MAI per Milano/Duomo
+      const startAnalysisSpy = jest.spyOn(store, 'startAnalysis');
+      api.analyze.mockResolvedValueOnce({ ...emptyResp, citta: 'Roma', zona_normalizzata: 'Colosseo' });
+      (f.nativeElement.querySelector('.cra-btn-regen') as HTMLElement).click();
+
+      expect(startAnalysisSpy).toHaveBeenCalledWith('Roma', 'Colosseo', null);
+    });
   });
 });

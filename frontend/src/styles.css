@@ -15,6 +15,23 @@
   --c-speculativo: #c2620a;
   --c-error: #b3261e;
   --c-error-bg: #fbeceb;
+  /* Sfondo chiaro amber (famiglia --c-plausibile) + testo scuro per contrasto: banner/avvisi non
+     bloccanti (es. anti-hallucination). Stessa coppia bordo/bg di --c-error/--c-error-bg. */
+  --c-plausibile-bg: #fbf4e4;
+  --c-plausibile-ink: #7a5800;
+  /* Sfondo chiaro teal per badge "in evidenza ma non urgenti" (badge Copertura): testo in
+     --accent-2, mai il teal pieno invertito (bassa leggibilità su sfondo header scuro). */
+  --accent-bg: #e6f0f0;
+  /* Grigi neutri (bordi/testo secondario) riusati da più pannelli — allineati al prototipo hi-fi
+     (cra-tokens.jsx: T.ink2/T.hair) invece di ripetere hex sparsi per componente. */
+  --ink-2: #56524a;
+  --hair: #e1ddd3;
+  --hair-strong: #c4c0b6;
+  --table-header-bg: #f0efe9;
+  /* Toni scuri dell'header (charcoal): testo/bordi dei controlli su sfondo --ink. */
+  --header-ink-muted: #9b968c;
+  --header-divider: #4a463d;
+  --header-border: #5a564d;
   --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
   --radius: 8px;

@@ -1,5 +1,5 @@
-import { CONF, DIM_COLOR, coverageBadgeText, deriveCoverage, pinColor, pinHTML } from '@core/confidence';
-import { RiskModel } from '@core/models/models';
+import { CONF, DIM_COLOR, SRC_TAG_META, coverageBadgeText, deriveCoverage, pinColor, pinHTML, poiConfidenceCounts, srcTagMeta } from '@core/confidence';
+import { Poi, RiskModel } from '@core/models/models';
 
 describe('confidence', () => {
   it('pinColor restituisce il colore del livello', () => {
@@ -49,5 +49,46 @@ describe('confidence', () => {
 
   it('CONF è immutabile', () => {
     expect(Object.isFrozen(CONF)).toBe(true);
+  });
+
+  it('poiConfidenceCounts: conta i POI per il proprio livello di confidence (non i rischi)', () => {
+    const poi = (id: string, confidence: Poi['confidence']): Poi => ({
+      id, name: id, terminus_class: 'x', lat: 0, lon: 0, confidence, sparql_path: null,
+      terminus_label_it: '', terminus_label_en: '',
+    });
+    const pois: Poi[] = [
+      poi('1', 'confermato'), poi('2', 'confermato'), poi('3', 'plausibile'), poi('4', 'speculativo'),
+    ];
+    expect(poiConfidenceCounts(pois)).toEqual({ confermato: 2, plausibile: 1, speculativo: 1 });
+  });
+
+  it('poiConfidenceCounts: input null/undefined/vuoto → tutti i livelli a zero', () => {
+    const zero = { confermato: 0, plausibile: 0, speculativo: 0 };
+    expect(poiConfidenceCounts(null)).toEqual(zero);
+    expect(poiConfidenceCounts(undefined)).toEqual(zero);
+    expect(poiConfidenceCounts([])).toEqual(zero);
+  });
+
+  it('SRC_TAG_META: colore allineato a CONF per il livello analogo, con breve descrizione', () => {
+    expect(SRC_TAG_META.ONTOLOGIA.color).toBe(CONF.confermato.color);
+    expect(SRC_TAG_META.CONTESTO.color).toBe(CONF.plausibile.color);
+    expect(SRC_TAG_META.SPECULATIVO.color).toBe(CONF.speculativo.color);
+    expect(SRC_TAG_META.ONTOLOGIA.description).toBe('da ontologia formale');
+    expect(SRC_TAG_META.CONTESTO.description).toBe('da contesto ambientale');
+    expect(SRC_TAG_META.SPECULATIVO.description).toBe('inferenza non verificata');
+  });
+
+  it('SRC_TAG_META è immutabile', () => {
+    expect(Object.isFrozen(SRC_TAG_META)).toBe(true);
+  });
+
+  it('srcTagMeta: risolve i 3 tag noti da SRC_TAG_META', () => {
+    expect(srcTagMeta('ONTOLOGIA')).toEqual(SRC_TAG_META.ONTOLOGIA);
+    expect(srcTagMeta('CONTESTO')).toEqual(SRC_TAG_META.CONTESTO);
+    expect(srcTagMeta('SPECULATIVO')).toEqual(SRC_TAG_META.SPECULATIVO);
+  });
+
+  it('srcTagMeta: fallback difensivo per tag fuori contratto (colore speculativo, nessuna descrizione)', () => {
+    expect(srcTagMeta('ALTRO')).toEqual({ color: CONF.speculativo.color, description: '' });
   });
 });
