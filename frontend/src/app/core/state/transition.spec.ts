@@ -12,12 +12,13 @@ const data: AnalyzeResponse = {
 };
 
 describe('transition (FSM)', () => {
-  it('ANALYZE → LOADING e azzera selezione/filtro, salva lastQuery e domanda', () => {
-    const s = transition(initialState, { type: 'ANALYZE', zona: 'Roma', domanda: 'di sera?' });
+  it('ANALYZE → LOADING e azzera selezione/filtro, salva citta/zona/domanda pending e lastQuery', () => {
+    const s = transition(initialState, { type: 'ANALYZE', citta: 'Roma', zona: 'Centro', domanda: 'di sera?' });
     expect(s.screen).toBe('LOADING');
-    expect(s.pendingZona).toBe('Roma');
+    expect(s.pendingCitta).toBe('Roma');
+    expect(s.pendingZona).toBe('Centro');
     expect(s.pendingDomanda).toBe('di sera?');
-    expect(s.lastQuery).toBe('Roma');
+    expect(s.lastQuery).toBe('Centro');
     expect(s.selectedPoiId).toBeNull();
   });
 
@@ -29,13 +30,37 @@ describe('transition (FSM)', () => {
     expect(s.pendingDomanda).toBe('q');
   });
 
-  it('LOAD_ERROR → ERROR, setta messaggio e azzera pendingZona', () => {
-    const loading: AppState = { ...initialState, screen: 'LOADING', pendingDomanda: 'q' };
+  it('LOAD_ERROR → ERROR, setta messaggio e PRESERVA pendingCitta/pendingZona/pendingDomanda (retry con i valori digitati)', () => {
+    const loading: AppState = {
+      ...initialState,
+      screen: 'LOADING',
+      pendingCitta: 'Roma',
+      pendingZona: 'Atlantide',
+      pendingDomanda: 'q',
+    };
     const s = transition(loading, { type: 'LOAD_ERROR', message: 'boom' });
     expect(s.screen).toBe('ERROR');
     expect(s.error).toBe('boom');
+    expect(s.pendingCitta).toBe('Roma');
+    expect(s.pendingZona).toBe('Atlantide');
     expect(s.pendingDomanda).toBe('q');
-    expect(s.pendingZona).toBeNull();
+  });
+
+  it('percorso reale: submit con città+zona → ANALYZE → LOAD_ERROR conserva i valori digitati per il retry', () => {
+    const afterAnalyze = transition(initialState, {
+      type: 'ANALYZE',
+      citta: 'Roma',
+      zona: 'Atlantide',
+      domanda: 'di sera?',
+    });
+    const afterError = transition(afterAnalyze, {
+      type: 'LOAD_ERROR',
+      message: '"Atlantide" non corrisponde ad alcuna area nell\'ontologia.',
+    });
+    expect(afterError.screen).toBe('ERROR');
+    expect(afterError.pendingCitta).toBe('Roma');
+    expect(afterError.pendingZona).toBe('Atlantide');
+    expect(afterError.pendingDomanda).toBe('di sera?');
   });
 
   it('DESELECT_POI torna a FILTER se filtro attivo, altrimenti RESULTS', () => {
@@ -102,7 +127,7 @@ describe('transition (FSM)', () => {
     expect(s.filter).toBe('confermato');
   });
 
-  it('ANALYZE da RESULTS: va in LOADING, azzera selectedPoiId e filter, imposta pendingZona/lastQuery; data NON viene toccato', () => {
+  it('ANALYZE da RESULTS: va in LOADING, azzera selectedPoiId e filter, imposta pendingCitta/pendingZona/lastQuery; data NON viene toccato', () => {
     const results: AppState = {
       ...initialState,
       screen: 'RESULTS',
@@ -110,25 +135,28 @@ describe('transition (FSM)', () => {
       selectedPoiId: '1',
       filter: 'plausibile',
     };
-    const s = transition(results, { type: 'ANALYZE', zona: 'Trastevere' });
+    const s = transition(results, { type: 'ANALYZE', citta: 'Roma', zona: 'Trastevere' });
     expect(s.screen).toBe('LOADING');
     expect(s.selectedPoiId).toBeNull();
     expect(s.filter).toBeNull();
+    expect(s.pendingCitta).toBe('Roma');
     expect(s.pendingZona).toBe('Trastevere');
     expect(s.lastQuery).toBe('Trastevere');
     expect(s.data).toBe(data);
   });
 
-  it('ANALYZE da ERROR: va in LOADING e azzera error', () => {
+  it('ANALYZE da ERROR: va in LOADING, azzera error e sovrascrive i pending con i nuovi valori (retry)', () => {
     const error: AppState = {
       ...initialState,
       screen: 'ERROR',
       error: 'zona non trovata',
+      pendingCitta: 'Roma',
       lastQuery: 'Colosseo',
     };
-    const s = transition(error, { type: 'ANALYZE', zona: 'Prati' });
+    const s = transition(error, { type: 'ANALYZE', citta: 'Milano', zona: 'Prati' });
     expect(s.screen).toBe('LOADING');
     expect(s.error).toBeNull();
+    expect(s.pendingCitta).toBe('Milano');
     expect(s.pendingZona).toBe('Prati');
     expect(s.lastQuery).toBe('Prati');
   });

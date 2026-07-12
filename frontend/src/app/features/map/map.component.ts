@@ -6,10 +6,13 @@ import {
   ElementRef,
   input,
   OnDestroy,
+  output,
   viewChild,
 } from '@angular/core';
 import * as L from 'leaflet';
-import type { AnalyzeResponse } from '@core/models/models';
+import type { AnalyzeResponse, Confidence } from '@core/models/models';
+import { pinHTML } from '@core/confidence';
+import { matchesFilter, poiPopupHTML } from '@core/ui-helpers';
 
 @Component({
   selector: 'cra-map',
@@ -19,9 +22,13 @@ import type { AnalyzeResponse } from '@core/models/models';
 })
 export class MapComponent implements OnDestroy {
   readonly data = input<AnalyzeResponse | null>(null);
+  readonly filter = input<Confidence | null>(null);
+  readonly selectedId = input<string | null>(null);
+  readonly poiClick = output<string>();
 
   private readonly mapEl = viewChild.required<ElementRef<HTMLElement>>('mapEl');
   private map: L.Map | null = null;
+  private markers: L.LayerGroup | null = null;
 
   constructor() {
     afterNextRender(() => {
@@ -38,6 +45,7 @@ export class MapComponent implements OnDestroy {
           'Geocoding: <a href="https://nominatim.org/" target="_blank" rel="noopener noreferrer">Nominatim</a>',
       }).addTo(map);
       L.control.zoom({ position: 'bottomright' }).addTo(map);
+      this.markers = L.layerGroup().addTo(map);
       this.map = map;
     });
 
@@ -48,10 +56,39 @@ export class MapComponent implements OnDestroy {
       const bounds = L.latLngBounds(d.poi.map((p) => [p.lat, p.lon] as [number, number]));
       map.flyToBounds(bounds, { padding: [40, 40] });
     });
+
+    effect(() => {
+      const d = this.data();
+      const filter = this.filter();
+      const selectedId = this.selectedId();
+      const layer = this.markers;
+      if (!layer) return;
+
+      layer.clearLayers();
+      if (!d) return;
+
+      d.poi.forEach((poi, index) => {
+        const n = index + 1;
+        const dim = !matchesFilter(poi.confidence, filter);
+        const focus = poi.id === selectedId;
+        const size = focus ? 34 : 26;
+        const icon = L.divIcon({
+          html: pinHTML(n, poi.confidence, { focus, dim }),
+          className: 'cra-poi-pin',
+          iconSize: [size, size],
+          iconAnchor: [size / 2, size],
+        });
+        const marker = L.marker([poi.lat, poi.lon], { icon }).addTo(layer);
+        marker.bindPopup(poiPopupHTML(poi, n));
+        marker.on('click', () => this.poiClick.emit(poi.id));
+      });
+    });
   }
 
   ngOnDestroy(): void {
+    this.markers?.clearLayers();
     this.map?.remove();
     this.map = null;
+    this.markers = null;
   }
 }

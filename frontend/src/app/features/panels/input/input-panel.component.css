@@ -1,0 +1,82 @@
+:host {
+  display: block;
+}
+
+.cra-eyebrow {
+  margin: 0 0 var(--space-3);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent-2);
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.cra-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.cra-field label {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.cra-required {
+  color: var(--c-error);
+}
+
+.cra-optional {
+  font-weight: 400;
+  opacity: 0.7;
+  font-size: 0.7rem;
+}
+
+.cra-field input,
+.cra-field textarea {
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  padding: var(--space-2);
+  border: 1px solid var(--ink);
+  border-radius: calc(var(--radius) / 2);
+  background: var(--paper-2);
+  color: var(--ink);
+}
+
+.cra-field textarea {
+  resize: vertical;
+  min-height: 3.5em;
+}
+
+.cra-field-error {
+  border-color: var(--c-error);
+}
+
+.cra-input-error {
+  margin: 0;
+  color: var(--c-error);
+  font-size: 0.8rem;
+}
+
+.cra-btn-solid {
+  align-self: flex-start;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: var(--space-2) var(--space-4);
+  border: 1.5px solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--paper-2);
+  cursor: pointer;
+}
+
+.cra-btn-solid:hover {
+  background: var(--accent-2);
+}

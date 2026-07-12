@@ -25,8 +25,22 @@ describe('StateStore', () => {
   });
 
   it('dispatch aggiorna i selettori tramite transition', () => {
-    store.dispatch({ type: 'ANALYZE', zona: 'Roma' });
+    store.dispatch({ type: 'ANALYZE', citta: 'Roma', zona: 'Roma' });
     expect(store.screen()).toBe('LOADING');
+  });
+
+  it('pendingZona riflette la zona in corso di analisi (per il LoadingOverlay)', () => {
+    expect(store.pendingZona()).toBeNull();
+    store.dispatch({ type: 'ANALYZE', citta: 'Roma', zona: 'Trastevere' });
+    expect(store.pendingZona()).toBe('Trastevere');
+  });
+
+  it('pendingCitta e pendingDomanda riflettono gli ultimi valori inviati (per il retry dopo un errore)', () => {
+    expect(store.pendingCitta()).toBeNull();
+    expect(store.pendingDomanda()).toBeNull();
+    store.dispatch({ type: 'ANALYZE', citta: 'Milano', zona: 'Duomo', domanda: 'di sera?' });
+    expect(store.pendingCitta()).toBe('Milano');
+    expect(store.pendingDomanda()).toBe('di sera?');
   });
 
   it('startAnalysis success → LOAD_SUCCESS con i dati', async () => {

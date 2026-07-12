@@ -54,6 +54,14 @@ describe('ApiService', () => {
   });
   afterEach(() => http.verify());
 
+  it('cities: GET /cities e ritorna l\'elenco delle città supportate', async () => {
+    const p = api.cities();
+    const req = http.expectOne('/cities');
+    expect(req.request.method).toBe('GET');
+    req.flush(['Roma', 'Milano', 'Napoli', 'Torino', 'Firenze']);
+    await expect(p).resolves.toEqual(['Roma', 'Milano', 'Napoli', 'Torino', 'Firenze']);
+  });
+
   it('analyze: POST /analyze con payload citta+zona e ritorna la risposta', async () => {
     const p = api.analyze('Roma', 'Colosseo');
     const req = http.expectOne('/analyze');

@@ -57,3 +57,8 @@ cra-map {
   font-style: italic;
   opacity: 0.7;
 }
+
+.cra-panel-poi {
+  max-height: calc(100vh - var(--header-height) - var(--space-4) * 2);
+  overflow-y: auto;
+}
