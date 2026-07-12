@@ -96,13 +96,40 @@ class _MetricSpec:
     get: Callable[[MetricValues], float]
 
 
+_GROUNDING_SPEC = _MetricSpec("grounding", "{:.3f}", "{:+.3f}", lambda m: m.grounding)
+_HALLUCINATION_SPEC = _MetricSpec(
+    "hallucination", "{:.3f}", "{:+.3f}", lambda m: m.hallucination
+)
+_LATENCY_SPEC = _MetricSpec("latency_ms", "{:.0f}", "{:+.0f}", lambda m: m.latency_ms)
+_COST_SPEC = _MetricSpec("cost_usd", "{:.6f}", "{:+.6f}", lambda m: m.cost_usd)
+
 #: Ordine e formato delle 4 metriche. Guida SIA le intestazioni SIA le righe:
 #: aggiungere una metrica qui aggiorna header e celle in modo coerente.
 _METRIC_SPECS: tuple[_MetricSpec, ...] = (
-    _MetricSpec("grounding", "{:.3f}", "{:+.3f}", lambda m: m.grounding),
-    _MetricSpec("hallucination", "{:.3f}", "{:+.3f}", lambda m: m.hallucination),
-    _MetricSpec("latency_ms", "{:.0f}", "{:+.0f}", lambda m: m.latency_ms),
-    _MetricSpec("cost_usd", "{:.6f}", "{:+.6f}", lambda m: m.cost_usd),
+    _GROUNDING_SPEC,
+    _HALLUCINATION_SPEC,
+    _LATENCY_SPEC,
+    _COST_SPEC,
+)
+
+#: Sottoinsieme "operativo" (misure DIRETTE): guida la tabella costo/latenza
+#: separata dalle metriche-proxy di qualità (#33). Stesse spec del set completo
+#: → stesso formato/segno, nessuna duplicazione di formattazione.
+_OPERATIONAL_SPECS: tuple[_MetricSpec, ...] = (_LATENCY_SPEC, _COST_SPEC)
+
+#: Caveat metodologico stampato in coda al report Markdown (#33). ``grounding``
+#: e ``hallucination`` sono PROXY TESTUALI (stimati da pattern sui tag fonte e
+#: sui nomi POI/hazard in ``metrics.py``), non giudizi umani di qualità;
+#: ``latency_ms`` e ``cost_usd`` sono invece misure operative dirette. L'accordo
+#: proxy-vs-annotazione umana è validato a parte (``eval/gold.py``, #109).
+PROXY_CAVEAT = (
+    "> **Nota metodologica.** `grounding` e `hallucination` sono *proxy "
+    "testuali* (copertura delle citazioni e frazione di asserzioni non "
+    "ancorate, stimate da pattern sui tag fonte e sui nomi POI/hazard), non "
+    "giudizi umani di qualità: vanno letti come indicatori orientativi, non "
+    "come verità. `latency_ms` e `cost_usd` sono invece misure operative "
+    "dirette. L'accordo proxy-vs-annotazione umana è validato separatamente "
+    "(`eval/gold.py`, #109)."
 )
 
 
@@ -237,10 +264,16 @@ def compare_records(
     )
 
 
-def _columns(label_a: str, label_b: str) -> list[str]:
-    """Intestazioni: per ogni metrica, valore A, valore B, delta."""
+def _columns(
+    label_a: str, label_b: str, specs: tuple[_MetricSpec, ...] = _METRIC_SPECS
+) -> list[str]:
+    """Intestazioni: per ogni metrica in ``specs``, valore A, valore B, delta.
+
+    ``specs`` default all'insieme completo (tabella principale); passando
+    :data:`_OPERATIONAL_SPECS` genera le sole colonne costo/latenza (#33).
+    """
     cols = ["citta", "zona"]
-    for spec in _METRIC_SPECS:
+    for spec in specs:
         cols.extend(
             [f"{spec.name}_{label_a}", f"{spec.name}_{label_b}", f"{spec.name}_delta"]
         )
@@ -258,25 +291,32 @@ def _failed_row(failed: FailedZone) -> list[str]:
 
 
 def _fmt_row(
-    citta: str, zona: str, a: MetricValues, b: MetricValues, d: MetricValues
+    citta: str,
+    zona: str,
+    a: MetricValues,
+    b: MetricValues,
+    d: MetricValues,
+    specs: tuple[_MetricSpec, ...] = _METRIC_SPECS,
 ) -> list[str]:
     """Una riga formattata; i delta portano il segno esplicito (+/-).
 
-    Derivata da :data:`_METRIC_SPECS` come :func:`_columns`: header e righe non
-    possono disallinearsi (una sola fonte di verità).
+    Derivata dallo stesso ``specs`` di :func:`_columns`: header e righe non
+    possono disallinearsi (una sola fonte di verità), qualunque sottoinsieme.
     """
     cells = [citta, zona]
-    for spec in _METRIC_SPECS:
+    for spec in specs:
         cells.append(spec.value_fmt.format(spec.get(a)))
         cells.append(spec.value_fmt.format(spec.get(b)))
         cells.append(spec.delta_fmt.format(spec.get(d)))
     return cells
 
 
-def _rows(comparison: Comparison) -> list[list[str]]:
+def _rows(
+    comparison: Comparison, specs: tuple[_MetricSpec, ...] = _METRIC_SPECS
+) -> list[list[str]]:
     """Righe per-zona (solo zone valide) seguite dalla riga aggregata (media)."""
     rows = [
-        _fmt_row(z.citta, z.zona, _to_values(z.a), _to_values(z.b), z.delta)
+        _fmt_row(z.citta, z.zona, _to_values(z.a), _to_values(z.b), z.delta, specs)
         for z in comparison.zones
     ]
     rows.append(
@@ -286,6 +326,7 @@ def _rows(comparison: Comparison) -> list[list[str]]:
             comparison.mean_a,
             comparison.mean_b,
             comparison.mean_delta,
+            specs,
         )
     )
     return rows
@@ -307,15 +348,44 @@ def to_csv(comparison: Comparison) -> str:
     return buf.getvalue()
 
 
-def to_markdown(comparison: Comparison) -> str:
-    """Serializza il confronto in tabella markdown (+ sezione zone escluse)."""
-    cols = _columns(comparison.label_a, comparison.label_b)
+def _markdown_table(cols: list[str], rows: list[list[str]]) -> list[str]:
+    """Righe markdown di una tabella (header + separatore + dati)."""
     lines = [
         "| " + " | ".join(cols) + " |",
         "| " + " | ".join("---" for _ in cols) + " |",
     ]
-    for row in _rows(comparison):
-        lines.append("| " + " | ".join(row) + " |")
+    lines.extend("| " + " | ".join(row) + " |" for row in rows)
+    return lines
+
+
+def operational_markdown(comparison: Comparison) -> str:
+    """Tabella costo/latenza (metriche operative), SEPARATA dalla qualità (#33).
+
+    Ri-presenta le sole misure DIRETTE (``latency_ms``, ``cost_usd``) affiancate
+    A/B + delta, per-zona e in media, riusando il join+delta già in
+    ``comparison`` (nessun ricalcolo). Le metriche di qualità restano nella
+    tabella principale e sono proxy testuali: vedi :data:`PROXY_CAVEAT`.
+    """
+    cols = _columns(comparison.label_a, comparison.label_b, _OPERATIONAL_SPECS)
+    lines = ["### Costo e latenza (metriche operative)", ""]
+    lines.extend(_markdown_table(cols, _rows(comparison, _OPERATIONAL_SPECS)))
+    return "\n".join(lines) + "\n"
+
+
+def to_markdown(comparison: Comparison) -> str:
+    """Report Markdown del confronto.
+
+    Compone: tabella principale (4 metriche affiancate A/B + delta, per-zona +
+    media), tabella costo/latenza separata (#33), caveat metodologico sui proxy
+    testuali, e — se presenti — la sezione delle zone escluse (run in errore).
+    """
+    cols = _columns(comparison.label_a, comparison.label_b)
+    lines = _markdown_table(cols, _rows(comparison))
+    # Vista operativa separata + caveat sui proxy di qualità (#33).
+    lines.append("")
+    lines.append(operational_markdown(comparison).rstrip("\n"))
+    lines.append("")
+    lines.append(PROXY_CAVEAT)
     if comparison.failed:
         fcols = _failed_columns(comparison.label_a, comparison.label_b)
         lines.append("")
@@ -327,18 +397,38 @@ def to_markdown(comparison: Comparison) -> str:
     return "\n".join(lines) + "\n"
 
 
+def to_json(comparison: Comparison) -> str:
+    """Report JSON strutturato del confronto (#33).
+
+    Serializza l'intero :class:`Comparison`: 4 metriche affiancate A/B + delta
+    per-caso (``zones``), aggregato (``mean_a``/``mean_b``/``mean_delta``) e zone
+    escluse (``failed``). Forma machine-readable del deliverable; le metriche di
+    qualità restano proxy testuali (vedi :data:`PROXY_CAVEAT`).
+    """
+    return comparison.model_dump_json(indent=2)
+
+
 def write_comparison(
     results_dir: Path, comparison: Comparison, stem: str
 ) -> tuple[Path, Path]:
-    """Scrive ``results/<stem>.csv`` e ``.md`` dal confronto."""
+    """Scrive ``results/<stem>.{csv,md,json}`` dal confronto.
+
+    Ritorna i due path TABELLARI ``(csv, md)`` — contratto stabile ereditato da
+    #32 (rigenerazione delle tabelle con un comando). Il ``.json`` (report
+    machine-readable richiesto da #33) è un artefatto SIBLING: scritto accanto,
+    NON incluso nel valore di ritorno, per non rompere l'unpacking a due dei
+    chiamanti #32 (``compare_experiments`` e i test dell'ablation).
+    """
     csv_path = results_dir / f"{stem}.csv"
     md_path = results_dir / f"{stem}.md"
+    json_path = results_dir / f"{stem}.json"
     # newline="": to_csv() emette gia' \r\n via csv.writer; senza questo, il
     # text-mode di write_text ritradurrebbe \n->\r\n su Windows (righe spurie).
     # Stesso accorgimento del fix #103 in aggregate.write_tables (qui replicato
     # sul file nuovo, NON ri-applicato ad aggregate.py).
     csv_path.write_text(to_csv(comparison), encoding="utf-8", newline="")
     md_path.write_text(to_markdown(comparison), encoding="utf-8")
+    json_path.write_text(to_json(comparison), encoding="utf-8")
     return csv_path, md_path
 
 
