@@ -1,0 +1,92 @@
+/*
+ * :host copre l'intero riquadro mappa (scrim semi-trasparente): oltre a comunicare che
+ * l'interfaccia è occupata, essendo sopra la mappa nello stacking order e con
+ * pointer-events:auto assorbe click/drag/scroll destinati a Leaflet, impedendo pan/zoom
+ * della mappa durante il caricamento (spec-frontend.md §Stato Loading).
+ */
+:host {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+  background: var(--scrim);
+}
+
+.cra-loading-overlay {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 260px;
+  padding: var(--space-4) calc(var(--space-4) * 1.5);
+  background: var(--panel-bg);
+  border: var(--panel-border) solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.cra-loading-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid var(--paper);
+  border-top-color: var(--accent);
+  animation: cra-spin 0.8s linear infinite;
+}
+
+@keyframes cra-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.cra-loading-title {
+  margin: 0;
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.cra-loading-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 100%;
+}
+
+.cra-loading-step {
+  font-size: 0.78rem;
+  opacity: 0.45;
+  padding-left: var(--space-3);
+  position: relative;
+}
+
+.cra-loading-step::before {
+  content: '○';
+  position: absolute;
+  left: 0;
+}
+
+.cra-loading-step.cra-step-current {
+  opacity: 1;
+  font-weight: 600;
+  color: var(--accent-2);
+}
+
+.cra-loading-step.cra-step-current::before {
+  content: '◐';
+}
+
+.cra-loading-step.cra-step-done {
+  opacity: 0.75;
+}
+
+.cra-loading-step.cra-step-done::before {
+  content: '●';
+  color: var(--c-confermato);
+}

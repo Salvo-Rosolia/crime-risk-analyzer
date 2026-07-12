@@ -1,0 +1,55 @@
+<h2 class="cra-eyebrow">Analisi zona</h2>
+
+<form (submit)="onSubmit($event)">
+  <div class="cra-field">
+    <label for="cra-citta">Città <span class="cra-required" aria-hidden="true">*</span></label>
+    <input
+      id="cra-citta"
+      type="text"
+      list="cra-citta-options"
+      autocomplete="off"
+      placeholder="es. Roma"
+      aria-required="true"
+      [value]="citta()"
+      [class.cra-field-error]="cittaHasError()"
+      (input)="onCittaInput($event)"
+    />
+    <datalist id="cra-citta-options">
+      @for (c of cities(); track c) {
+        <option [value]="c"></option>
+      }
+    </datalist>
+  </div>
+
+  <div class="cra-field">
+    <label for="cra-zona">Zona <span class="cra-required" aria-hidden="true">*</span></label>
+    <input
+      id="cra-zona"
+      type="text"
+      autocomplete="off"
+      placeholder="es. Colosseo, Trastevere…"
+      aria-required="true"
+      [value]="zona()"
+      [class.cra-field-error]="zonaHasError()"
+      (input)="onZonaInput($event)"
+    />
+  </div>
+
+  <div class="cra-field">
+    <label for="cra-domanda">
+      Domanda <span class="cra-optional">(opzionale · linguaggio naturale)</span>
+    </label>
+    <textarea
+      id="cra-domanda"
+      placeholder="es. Quali rischi di sera?"
+      [value]="domanda()"
+      (input)="onDomandaInput($event)"
+    ></textarea>
+  </div>
+
+  @if (displayError(); as msg) {
+    <p class="cra-input-error" role="alert">{{ msg }}</p>
+  }
+
+  <button type="submit" class="cra-btn-solid">Analizza zona →</button>
+</form>

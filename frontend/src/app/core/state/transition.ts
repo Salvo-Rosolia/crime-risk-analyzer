@@ -17,6 +17,7 @@ export const initialState: AppState = {
   filter: null,
   error: null,
   mode: 'completo',
+  pendingCitta: null,
   pendingZona: null,
   pendingDomanda: null,
   lastQuery: null,
@@ -30,6 +31,7 @@ export function transition(state: AppState, action: Action): AppState {
       return {
         ...state,
         screen: 'LOADING',
+        pendingCitta: action.citta,
         pendingZona: action.zona,
         pendingDomanda: action.domanda ?? null,
         error: null,
@@ -40,11 +42,12 @@ export function transition(state: AppState, action: Action): AppState {
     case 'LOAD_SUCCESS':
       return { ...state, screen: 'RESULTS', data: action.data, pendingZona: null, error: null, selectedPoiId: null, filter: null };
     case 'LOAD_ERROR':
+      // pendingCitta/pendingZona/pendingDomanda NON si azzerano: l'InputPanel rimontato in
+      // Stato Errore deve ripopolarsi con gli ultimi valori inviati (vedi review #66 MAJOR).
       return {
         ...state,
         screen: 'ERROR',
         error: action.message,
-        pendingZona: null,
       };
     case 'SELECT_POI':
       return { ...state, screen: 'DETAIL', selectedPoiId: action.id };

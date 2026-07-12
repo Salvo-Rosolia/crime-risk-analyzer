@@ -3,30 +3,62 @@
   <span class="cra-tagline">supporto decisionale · human-in-the-loop</span>
 </header>
 
-<cra-map [data]="store.data()" />
+<cra-map
+  [data]="store.data()"
+  [filter]="store.filter()"
+  [selectedId]="store.selectedPoiId()"
+  (poiClick)="onPoiClick($event)"
+/>
 
 <section class="cra-panels">
-  @switch (store.screen()) {
-    @case ('INPUT') {
-      <div class="cra-panel cra-placeholder">Pannello input — #66</div>
-    }
-    @case ('LOADING') {
-      <div class="cra-panel cra-placeholder">Analisi in corso — #66</div>
-    }
-    @case ('RESULTS') {
-      <div class="cra-panel cra-placeholder">Lista POI — #66</div>
-    }
-    @case ('DETAIL') {
-      <div class="cra-panel cra-placeholder">Dettaglio POI — #67</div>
-    }
-    @case ('ERROR') {
-      <div class="cra-panel cra-placeholder">Errore — #66</div>
-    }
-    @case ('FILTER') {
-      <div class="cra-panel cra-placeholder">Filtro confidence — #66</div>
-    }
-    @case ('BASE') {
-      <div class="cra-panel cra-placeholder">Sistema base — #67</div>
+  @if (store.screen() === 'RESULTS' || store.screen() === 'FILTER') {
+    <!--
+      RESULTS e FILTER condividono lo stesso pannello: unificati sotto UNA condizione (anziché
+      due @case distinti) così il toggle del filtro non smonta/rimonta cra-poi-panel (niente
+      reset dello scroll della lista — vedi review #66 MAJOR, fix secondario).
+    -->
+    <div class="cra-panel cra-panel-poi">
+      <cra-poi-panel
+        [pois]="store.data()?.poi ?? []"
+        [filter]="store.filter()"
+        [selectedId]="store.selectedPoiId()"
+        (selectPoi)="onPoiClick($event)"
+        (setFilter)="onSetFilter($event)"
+        (clearFilter)="onClearFilter()"
+      />
+    </div>
+  } @else {
+    @switch (store.screen()) {
+      @case ('INPUT') {
+        <div class="cra-panel">
+          <cra-input-panel
+            [initialCitta]="store.pendingCitta()"
+            [initialZona]="store.pendingZona()"
+            [initialDomanda]="store.pendingDomanda()"
+            (analyze)="onAnalyze($event)"
+          />
+        </div>
+      }
+      @case ('LOADING') {
+        <cra-loading-overlay [zona]="store.pendingZona()" />
+      }
+      @case ('DETAIL') {
+        <div class="cra-panel cra-placeholder">Dettaglio POI — #67</div>
+      }
+      @case ('ERROR') {
+        <div class="cra-panel">
+          <cra-input-panel
+            [initialCitta]="store.pendingCitta()"
+            [initialZona]="store.pendingZona()"
+            [initialDomanda]="store.pendingDomanda()"
+            [serverError]="store.error()"
+            (analyze)="onAnalyze($event)"
+          />
+        </div>
+      }
+      @case ('BASE') {
+        <div class="cra-panel cra-placeholder">Sistema base — #67</div>
+      }
     }
   }
 </section>

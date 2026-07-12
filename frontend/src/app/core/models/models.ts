@@ -49,6 +49,13 @@ export interface AnalyzeResponse {
 
 export interface BaselineParams { citta: string; zona: string; tipo_poi?: string; }
 
+/** Payload emesso da `InputPanelComponent` (Stato A + Errore) verso lo shell. */
+export interface AnalyzeRequestPayload {
+  citta: string;
+  zona: string;
+  domanda: string | null;
+}
+
 export type Screen = 'INPUT' | 'LOADING' | 'RESULTS' | 'DETAIL' | 'ERROR' | 'FILTER' | 'BASE';
 export type Mode = 'completo' | 'base';
 
@@ -59,6 +66,8 @@ export interface AppState {
   filter: Confidence | null;
   error: string | null;
   mode: Mode;
+  /** Ultima città/zona/domanda inviate: sopravvivono a LOADING ed ERROR (per il retry con i valori digitati), si azzerano solo su RESET. */
+  pendingCitta: string | null;
   pendingZona: string | null;
   pendingDomanda: string | null;
   lastQuery: string | null;
@@ -67,7 +76,7 @@ export interface AppState {
 }
 
 export type Action =
-  | { type: 'ANALYZE'; zona: string; domanda?: string | null }
+  | { type: 'ANALYZE'; citta: string; zona: string; domanda?: string | null }
   | { type: 'LOAD_SUCCESS'; data: AnalyzeResponse }
   | { type: 'LOAD_ERROR'; message: string }
   | { type: 'SELECT_POI'; id: string }

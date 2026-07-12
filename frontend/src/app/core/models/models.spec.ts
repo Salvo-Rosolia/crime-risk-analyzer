@@ -46,10 +46,15 @@ describe('models (contratto /analyze)', () => {
   it('AppState iniziale è costruibile con i campi attesi', () => {
     const s: AppState = {
       screen: 'INPUT', data: null, selectedPoiId: null, filter: null, error: null,
-      mode: 'completo', pendingZona: null, pendingDomanda: null, lastQuery: null,
+      mode: 'completo', pendingCitta: null, pendingZona: null, pendingDomanda: null, lastQuery: null,
       poiPanelOpen: true, narrOpen: true,
     };
     expect(s.screen).toBe('INPUT');
+  });
+
+  it('Action ANALYZE richiede citta oltre a zona (contratto startAnalysis)', () => {
+    const a: Action = { type: 'ANALYZE', citta: 'Roma', zona: 'Colosseo' };
+    expect(a.type === 'ANALYZE' ? a.citta : null).toBe('Roma');
   });
 
   it('parametri baseline sono assegnabili a BaselineParams', () => {

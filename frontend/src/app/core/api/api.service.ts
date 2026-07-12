@@ -7,6 +7,11 @@ import { AnalyzeResponse, BaselineParams } from '@core/models/models';
 export class ApiService {
   private readonly http = inject(HttpClient);
 
+  /** Elenco delle città supportate (`GET /cities`, sorgente per il selettore dell'InputPanel). */
+  cities(): Promise<string[]> {
+    return firstValueFrom(this.http.get<string[]>('/cities'));
+  }
+
   analyze(
     citta: string,
     zona: string,

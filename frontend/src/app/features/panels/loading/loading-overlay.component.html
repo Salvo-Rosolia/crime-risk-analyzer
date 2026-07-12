@@ -1,0 +1,15 @@
+<div class="cra-loading-overlay" role="status" aria-live="polite">
+  <div class="cra-loading-spinner" aria-hidden="true"></div>
+  <p class="cra-loading-title">Analizzando {{ zona() || 'la zona' }}</p>
+  <ol class="cra-loading-steps">
+    @for (step of steps; track step; let i = $index) {
+      <li
+        class="cra-loading-step"
+        [class.cra-step-done]="stepState(i) === 'done'"
+        [class.cra-step-current]="stepState(i) === 'current'"
+      >
+        {{ step }}
+      </li>
+    }
+  </ol>
+</div>
