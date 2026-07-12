@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from rdflib import Graph
 
@@ -134,8 +135,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
 def create_app() -> FastAPI:
     """Costruisce e configura l'istanza FastAPI."""
+    settings = get_settings()
     app = FastAPI(title="Crime Risk Analyzer", lifespan=lifespan)
     register_exception_handlers(app)
+    # CORS (#106) come DIFESA IN PROFONDITA'. Il deploy canonico e' same-origin
+    # (build Angular servita da FastAPI/StaticFiles): li' il CORS non serve. Il
+    # middleware abilita comunque un eventuale deploy split-origin e chiude i
+    # buchi cross-origin in dev su ``/health``/``/cities`` (non proxati da
+    # ``ng serve``, a differenza di ``/analyze``). Allowlist ESPLICITA da
+    # ``Settings`` (mai wildcard ``*``); API stateless -> nessun cookie
+    # (``allow_credentials=False``). Copre tutte le rotte.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_allow_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Content-Type"],
+    )
     app.include_router(router)
     return app
 

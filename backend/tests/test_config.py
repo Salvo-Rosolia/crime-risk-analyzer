@@ -112,3 +112,82 @@ def test_get_settings_cached() -> None:
 
     assert isinstance(first, Settings)
     assert first is second
+
+
+def test_cors_allow_origins_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Senza env il default e' l'allowlist dev del frontend Angular, mai wildcard."""
+    monkeypatch.delenv("CORS_ALLOW_ORIGINS", raising=False)
+
+    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+
+    assert settings.cors_allow_origins == ["http://localhost:4200"]
+    # Vincolo #106: mai wildcard nell'allowlist (nemmeno di default).
+    assert "*" not in settings.cors_allow_origins
+
+
+def test_cors_allow_origins_from_env_json(monkeypatch: pytest.MonkeyPatch) -> None:
+    """L'allowlist e' configurabile da env come lista JSON.
+
+    Come per ``supported_cities`` (stessa convenzione pydantic-settings), i tipi
+    complessi (``list``) sono letti dalla variabile d'ambiente come JSON: una CSV
+    verrebbe respinta con ``SettingsError``.
+    """
+    monkeypatch.setenv(
+        "CORS_ALLOW_ORIGINS",
+        '["https://app.example.org", "https://staging.example.org"]',
+    )
+
+    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+
+    assert settings.cors_allow_origins == [
+        "https://app.example.org",
+        "https://staging.example.org",
+    ]
+
+
+@pytest.mark.parametrize(
+    "value", ['["*"]', '["http://localhost:4200", "*"]', '["https://*.evil.test"]']
+)
+def test_cors_wildcard_rejected(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    """Un wildcard '*' in QUALUNQUE elemento e' respinto al load (#106: mai '*').
+
+    Blinda l'allowlist contro il rientro silenzioso del wildcard da env, che
+    riaprirebbe la policy a qualunque sito.
+    """
+    monkeypatch.setenv("CORS_ALLOW_ORIGINS", value)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+
+
+def test_cors_empty_list_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Un'allowlist vuota e' respinta al load (disabiliterebbe di fatto il CORS)."""
+    monkeypatch.setenv("CORS_ALLOW_ORIGINS", "[]")
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+
+
+@pytest.mark.parametrize("value", ['[""]', '["   "]', '["http://a.test", "  "]'])
+def test_cors_blank_origin_rejected(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    """Un'origine vuota o di soli spazi e' respinta al load."""
+    monkeypatch.setenv("CORS_ALLOW_ORIGINS", value)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+
+
+def test_cors_origins_are_trimmed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Un'origine circondata da spazi e' accettata e MEMORIZZATA trimmata.
+
+    Senza normalizzazione il valore con spazi passerebbe la validazione ma
+    ``CORSMiddleware`` (match esatto) non lo farebbe mai combaciare con l'header
+    Origin del browser: fallirebbe in sicurezza, ma in silenzio.
+    """
+    monkeypatch.setenv("CORS_ALLOW_ORIGINS", '["  http://localhost:4200  "]')
+
+    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+
+    assert settings.cors_allow_origins == ["http://localhost:4200"]

@@ -10,7 +10,7 @@ layer LLM (fase P2), dove servono davvero. I valori segreti usano
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -44,6 +44,50 @@ class Settings(BaseSettings):
     # Citta supportate da ``GET /cities``. Roma/Milano/Napoli sono garantite e
     # testate end-to-end (orchestrator.md); le altre sono best-effort.
     supported_cities: list[str] = ["Roma", "Milano", "Napoli", "Torino", "Firenze"]
+    # Allowlist CORS (#106): origini del frontend autorizzate a leggere le
+    # risposte dell'API. Allowlist ESPLICITA, mai wildcard ``*`` (una policy
+    # ``*`` esporrebbe l'API a qualunque sito) — invariante blindata dal
+    # validator ``_reject_cors_wildcard``, non solo dal default. Default in dev:
+    # il dev-server di Angular. In prod si sovrascrive con l'origine reale.
+    # Parsing da env: come ``supported_cities``, pydantic-settings legge i tipi
+    # complessi (``list``) come JSON, quindi
+    # ``CORS_ALLOW_ORIGINS='["https://app.example"]'`` (una CSV verrebbe
+    # respinta con ``SettingsError``).
+    cors_allow_origins: list[str] = ["http://localhost:4200"]
+
+    @field_validator("cors_allow_origins")
+    @classmethod
+    def _reject_cors_wildcard(cls, origins: list[str]) -> list[str]:
+        """Blinda l'allowlist CORS al load (#106): niente wildcard, niente vuoti.
+
+        La garanzia "mai ``*``" non puo' dipendere solo dal default: un valore da
+        env (``CORS_ALLOW_ORIGINS='["*"]'``) riaprirebbe altrimenti la policy a
+        qualunque sito, in silenzio. Respinge quindi al caricamento con
+        ``ValueError`` (mappato da pydantic a ``ValidationError``):
+
+        * il wildcard ``*`` in qualunque elemento;
+        * origini vuote o di soli spazi;
+        * la lista vuota (che disabiliterebbe di fatto il CORS: piu' probabile un
+          misconfig che una scelta intenzionale).
+        """
+        if not origins:
+            raise ValueError(
+                "cors_allow_origins non puo' essere vuota: elenca almeno "
+                "un'origine (una lista vuota disabiliterebbe di fatto il CORS)."
+            )
+        for origin in origins:
+            if not origin.strip():
+                raise ValueError(
+                    "cors_allow_origins contiene un'origine vuota o di soli spazi."
+                )
+            if "*" in origin:
+                raise ValueError(
+                    f"origine CORS non valida {origin!r}: il wildcard '*' non e' "
+                    "ammesso (#106 richiede un'allowlist esplicita)."
+                )
+        # Normalizza: memorizza le origini trimmate, cosi' uno spazio di troppo
+        # non impedisce silenziosamente il match esatto di ``CORSMiddleware``.
+        return [origin.strip() for origin in origins]
 
 
 @lru_cache
