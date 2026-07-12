@@ -59,6 +59,13 @@ def build_parser() -> argparse.ArgumentParser:
         p = sub.add_parser(name)
         p.add_argument("--config", required=True)
         p.add_argument("--results", default="results")
+        if name == "capture":
+            # Idempotenza di default (skip-if-exists, #110 M2); --force ri-cattura.
+            p.add_argument(
+                "--force",
+                action="store_true",
+                help="ri-cattura anche se lo snapshot (citta, zona) esiste già",
+            )
     agg = sub.add_parser("aggregate")
     agg.add_argument("--experiment", required=True)
     agg.add_argument("--results", default="results")
