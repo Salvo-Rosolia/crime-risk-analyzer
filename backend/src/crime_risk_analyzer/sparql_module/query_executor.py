@@ -35,6 +35,7 @@ consumato dal grounding per il tag ``[ONTOLOGIA]``.
 
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 
 from rdflib import Graph, URIRef
@@ -46,6 +47,8 @@ from crime_risk_analyzer.ontology import get_ontology
 from crime_risk_analyzer.ontology_namespaces import TERMINUS
 
 __all__ = ["PoiRiskProfile", "RiskQueryExecutor", "get_executor"]
+
+logger = logging.getLogger(__name__)
 
 #: Le quattro object property TERMINUS che legano un POI ai suoi rischi. La
 #: vulnerabilita' usa DUE property: ``isVulnerableTo`` a livello POI/System e
@@ -112,6 +115,18 @@ class RiskQueryExecutor:
             ):
                 self._by_class.setdefault(cls, []).append(
                     (_local_name(prop), _local_name(filler))
+                )
+            else:
+                # Restrizione con un termine non-URIRef: tipicamente un
+                # ``owl:someValuesFrom`` su nodo anonimo (BNode), es. una classe
+                # ``owl:unionOf``. La scartiamo come prima (nessun cambio
+                # funzionale), ma la logghiamo: un filler perso in silenzio
+                # mascherebbe un drift dell'ontologia (#116). Il ``!r`` rende
+                # diagnosticabile *quale* termine non e' una URIRef (il repr
+                # distingue BNode/Literal/URIRef) e *quale* triple lo porta.
+                detail = f"cls={cls!r} prop={prop!r} filler={filler!r}"
+                logger.warning(
+                    "Restrizione TERMINUS scartata (termine non-URIRef): %s", detail
                 )
 
     def _fillers_by_property(self, terminus_class: str) -> dict[str, list[str]]:
