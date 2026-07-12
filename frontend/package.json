@@ -46,7 +46,7 @@
   "devDependencies": {
     "@angular/build": "^20.3.29",
     "@angular/cli": "^20.3.29",
-    "@angular/compiler-cli": "^20.3.0",
+    "@angular/compiler-cli": "^22.0.6",
     "@types/jest": "^30.0.0",
     "@types/leaflet": "^1.9.21",
     "angular-eslint": "21.0.1",
