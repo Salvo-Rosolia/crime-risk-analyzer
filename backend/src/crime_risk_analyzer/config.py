@@ -3,7 +3,7 @@
 Carica i parametri da variabili d'ambiente (e da un eventuale file ``.env``)
 con validazione tipizzata via ``pydantic-settings``. I segreti (API key) sono
 opzionali a questo stadio: la verifica della loro presenza è demandata al
-layer LLM (fase P2), dove servono davvero. I valori segreti usano
+layer LLM, dove servono davvero. I valori segreti usano
 ``SecretStr`` per evitare leak accidentali in log e ``repr``.
 """
 

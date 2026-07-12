@@ -3,7 +3,7 @@
 Questo modulo consolida in un unico posto l'IRI **reale** dell'ontologia ENEA
 (Minardi et al.), condiviso tra il tool di materializzazione offline
 (:mod:`~crime_risk_analyzer.ontology_materialize`, #74), il loader di runtime
-(:mod:`~crime_risk_analyzer.ontology`) e il futuro executor SPARQL (#76). Avere
+(:mod:`~crime_risk_analyzer.ontology`) e l'executor SPARQL (#76). Avere
 un'unica costante evita il drift e l'uso accidentale di IRI fuorvianti.
 
 Attenzione a DUE IRI da NON usare:

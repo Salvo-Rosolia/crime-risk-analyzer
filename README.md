@@ -20,13 +20,15 @@ Consulta i README dei due sottoprogetti per setup e struttura interna.
 
 Sviluppo incrementale per story. In sintesi:
 
-- **Backend** — scaffolding FastAPI runnable con loader dell'ontologia RDF in memoria;
-  endpoint attivi `GET /health`, `GET /cities`, `GET /scenarios`; client LLM
-  provider-agnostico e pipeline RAG di generazione. L'endpoint di dominio `POST /analyze`
-  è la prossima fase (P2).
-- **Frontend** — migrazione ad Angular completata (scaffold standalone + signals). È pronto
-  il layer *core* — contratto dati `/analyze`, macchina a stati pura, signal store e service
-  HTTP con fallback su cache demo — coperto da test (Jest); UI e mappa Leaflet in arrivo.
+- **Backend** — app FastAPI con loader dell'ontologia RDF in memoria, client LLM
+  provider-agnostico (Claude/Groq) e pipeline RAG (retrieval → grounding → generation).
+  Endpoint attivi: `GET /health`, `GET /cities`, `POST /analyze` (pipeline completa
+  geocoding → OSM → SPARQL → grounding → LLM) e `POST /analyze/baseline` (variante
+  senza LLM per l'ablation).
+- **Frontend** — migrazione ad Angular completata (standalone + signals). Sopra il layer
+  *core* — contratto dati `/analyze`, macchina a stati pura, signal store e service HTTP
+  con fallback su cache demo, coperto da test (Jest) — è consegnata la UI: mappa
+  interattiva Leaflet e pannelli (input, dettaglio POI, narrativa).
 
 ## Dati e modelli pesanti
 
