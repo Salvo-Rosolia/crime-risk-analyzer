@@ -37,6 +37,19 @@ def test_parser_subcommands() -> None:
     assert ns.config == "exp.json"
 
 
+def test_parser_capture_force_flag() -> None:
+    """--force è opt-in sul sottocomando capture (ri-cattura, #110 M2)."""
+    ns = build_parser().parse_args(["capture", "--config", "exp.json", "--force"])
+    assert ns.command == "capture"
+    assert ns.force is True
+
+
+def test_parser_capture_force_defaults_false() -> None:
+    """Senza --force la cattura è idempotente (skip-if-exists, #110 M2)."""
+    ns = build_parser().parse_args(["capture", "--config", "exp.json"])
+    assert ns.force is False
+
+
 def test_load_config(tmp_path: Path) -> None:
     p = tmp_path / "exp.json"
     p.write_text(

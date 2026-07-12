@@ -34,6 +34,18 @@ def make_run_id(experiment: str, citta: str, zona: str, mode: str, model: str) -
     return "__".join(_slug(p) for p in parts)
 
 
+def make_snapshot_key(citta: str, zona: str) -> str:
+    """Chiave dello snapshot POI, derivata SOLO da (citta, zona) (#110).
+
+    Indipendente da mode/model: i bracci comparativi (analyze/claude,
+    analyze/groq, baseline) sulla stessa (citta, zona) rigiocano la STESSA
+    fixture POI (confronto iso-input, sblocca #32/#33). Riusa lo stesso
+    ``_slug`` di :func:`make_run_id`, così la normalizzazione di citta/zona
+    resta unica e non diverge tra run_id e chiave snapshot.
+    """
+    return "__".join(_slug(p) for p in (citta, zona))
+
+
 def write_record(results_dir: Path, record: RunRecord) -> Path:
     """Scrive il RunRecord come JSON in results/runs/<run_id>.json."""
     path = results_dir / "runs" / f"{record.run_id}.json"
@@ -45,6 +57,7 @@ def write_record(results_dir: Path, record: RunRecord) -> Path:
 def _record_from_response(
     *,
     run_id: str,
+    snapshot_id: str,
     config: ExperimentConfig,
     case: RunCase,
     model_id: str,
@@ -67,7 +80,7 @@ def _record_from_response(
         provenance=Provenance(
             code_commit=code_commit,
             ontology_hash=ontology_hash,
-            snapshot_id=run_id,
+            snapshot_id=snapshot_id,
             model_id=model_id,
             prompt_hash=resp.repro.prompt_hash,
             temperature=resp.repro.temperature,
@@ -80,6 +93,7 @@ def _record_from_response(
 def _error_record(
     *,
     run_id: str,
+    snapshot_id: str,
     config: ExperimentConfig,
     case: RunCase,
     model_id: str,
@@ -100,7 +114,7 @@ def _error_record(
         provenance=Provenance(
             code_commit=code_commit,
             ontology_hash=ontology_hash,
-            snapshot_id=run_id,
+            snapshot_id=snapshot_id,
             model_id=model_id,
             prompt_hash="",
             temperature=0.0,
@@ -144,7 +158,9 @@ async def run_case(
             raise ValueError("llm_client required for mode=analyze")
         model_id = _model_id_of(llm_client, config)
     run_id = make_run_id(config.name, case.citta, case.zona, config.mode, config.model)
-    source = replay_source(snapshot_path(results_dir, run_id))
+    # Snapshot chiavato per (citta, zona): condiviso dai bracci comparativi (#110).
+    snapshot_key = make_snapshot_key(case.citta, case.zona)
+    source = replay_source(snapshot_path(results_dir, snapshot_key))
     try:
         if config.mode == "baseline":
             resp = await run_baseline(
@@ -162,6 +178,7 @@ async def run_case(
     except Exception:  # noqa: BLE001 — un caso rotto non blocca l'esperimento
         return _error_record(
             run_id=run_id,
+            snapshot_id=snapshot_key,
             config=config,
             case=case,
             model_id=model_id,
@@ -170,6 +187,7 @@ async def run_case(
         )
     return _record_from_response(
         run_id=run_id,
+        snapshot_id=snapshot_key,
         config=config,
         case=case,
         model_id=model_id,
