@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from crime_risk_analyzer.llm.client import LLMError, LLMResponse
 from crime_risk_analyzer.models.risk import PoiRiskProfile
 from crime_risk_analyzer.orchestrator import (
+    AnalyzeRequest,
     _build_poi_list,  # pyright: ignore[reportPrivateUsage]
     _risk_models_from_grounded,  # pyright: ignore[reportPrivateUsage]
     _structured_response,  # pyright: ignore[reportPrivateUsage]
@@ -14,6 +16,7 @@ from crime_risk_analyzer.orchestrator import (
     run_baseline,
 )
 from crime_risk_analyzer.overpass_client import Poi
+from crime_risk_analyzer.rag.generation import USER_INPUT_FENCE_OPEN
 from tests.eval._doubles import FakeLLMClient as _FakeLLMClient
 from tests.eval._doubles import FakeProfiler as _FakeProfiler
 from tests.eval._doubles import default_llm_response as _llm_response
@@ -53,6 +56,18 @@ def _vr(poi: str, terminus_class: str, hazards: list[str]) -> dict[str, object]:
 class _RaisingLLMClient:
     async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
         raise LLMError("provider giu'")
+
+
+class _RecordingLLMClient:
+    """Spia del client LLM: registra ``(system, user)`` di ogni chiamata."""
+
+    def __init__(self, response: LLMResponse | None = None) -> None:
+        self._response: LLMResponse = response or _llm_response()
+        self.calls: list[tuple[str, str]] = []
+
+    async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
+        self.calls.append((system_prompt, user_content))
+        return self._response
 
 
 def _patch_io(monkeypatch: pytest.MonkeyPatch, pois: list[Poi] | None = None) -> None:
@@ -320,3 +335,139 @@ async def test_run_analysis_accepts_poi_source(monkeypatch: pytest.MonkeyPatch) 
         poi_source=src,  # type: ignore[arg-type]
     )
     assert [p.name for p in resp.poi] == ["Banca A"]
+
+
+# --- #119: domanda propagata da run_analysis fino allo user_content del prompt ---
+
+
+async def test_run_analysis_passes_domanda_to_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_io(monkeypatch)
+    client = _RecordingLLMClient()
+    await run_analysis(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+        llm_client=client,
+        domanda="Rischi per i pedoni?",
+    )
+    assert len(client.calls) == 1
+    _system, user = client.calls[0]
+    assert "Rischi per i pedoni?" in user
+    assert USER_INPUT_FENCE_OPEN in user
+
+
+async def test_run_analysis_without_domanda_omits_section(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_io(monkeypatch)
+    client = _RecordingLLMClient()
+    await run_analysis(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+        llm_client=client,
+    )
+    _system, user = client.calls[0]
+    assert USER_INPUT_FENCE_OPEN not in user
+
+
+# --- #119: tipo_poi filtra i POI server-side nel baseline ---
+
+
+def _two_pois() -> list[Poi]:
+    return [
+        {
+            "id": "1",
+            "name": "Banca A",
+            "lat": 41.89,
+            "lon": 12.49,
+            "osm_tags": "amenity=bank",
+            "terminus_class": "Bank",
+            "citta": "Roma",
+        },
+        {
+            "id": "2",
+            "name": "Bar Roma",
+            "lat": 41.90,
+            "lon": 12.50,
+            "osm_tags": "amenity=bar",
+            "terminus_class": "GenericUrbanPOI",
+            "citta": "Roma",
+        },
+    ]
+
+
+async def test_run_baseline_filters_by_tipo_poi(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_io(monkeypatch, pois=_two_pois())
+    resp = await run_baseline(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+        tipo_poi="Bank",
+    )
+    # solo i POI di classe TERMINUS "Bank": il GenericUrbanPOI e' escluso
+    assert [p.terminus_class for p in resp.poi] == ["Bank"]
+    assert [p.name for p in resp.poi] == ["Banca A"]
+    assert [m.poi for m in resp.risk_models] == ["Banca A"]
+
+
+async def test_run_baseline_no_filter_when_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_io(monkeypatch, pois=_two_pois())
+    resp = await run_baseline(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+    )
+    # default (None): nessun filtro, tutti i POI passano (comportamento invariato)
+    assert [p.terminus_class for p in resp.poi] == ["Bank", "GenericUrbanPOI"]
+
+
+async def test_run_baseline_blank_tipo_poi_is_no_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_io(monkeypatch, pois=_two_pois())
+    resp = await run_baseline(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+        tipo_poi="   ",
+    )
+    # tipo_poi vuoto/whitespace = nessun filtro (non un set vuoto di POI)
+    assert [p.terminus_class for p in resp.poi] == ["Bank", "GenericUrbanPOI"]
+
+
+async def test_run_baseline_tipo_poi_no_match_yields_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_io(monkeypatch, pois=_two_pois())
+    resp = await run_baseline(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+        tipo_poi="Hospital",
+    )
+    # nessun POI di quella classe -> lista vuota, nessun errore
+    assert resp.poi == []
+    assert resp.risk_models == []
+
+
+# --- #119: max_length sulla domanda (bound su token/costo/superficie) ---
+
+
+def test_analyze_request_rejects_overlong_domanda() -> None:
+    # oltre il tetto (500): la validazione Pydantic respinge la richiesta
+    with pytest.raises(ValidationError):
+        AnalyzeRequest(citta="Roma", zona="Centro", domanda="x" * 501)
+
+
+def test_analyze_request_accepts_domanda_at_max_length() -> None:
+    # esattamente al tetto: ammessa (il bound e' inclusivo)
+    req = AnalyzeRequest(citta="Roma", zona="Centro", domanda="x" * 500)
+    assert req.domanda is not None
+    assert len(req.domanda) == 500

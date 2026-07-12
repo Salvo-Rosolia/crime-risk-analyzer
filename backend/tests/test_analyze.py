@@ -51,6 +51,26 @@ class _RaisingLLMClient:
         raise LLMError("provider giu'")
 
 
+class _RecordingLLMClient:
+    """Spia: registra lo ``user_content`` che l'endpoint fa arrivare al modello."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
+        self.calls.append((system_prompt, user_content))
+        return LLMResponse(
+            text="Analisi: rischio rapina.",
+            llm_used="claude-sonnet-4-6",
+            tokens_input=5,
+            tokens_output=8,
+            cache_hit=False,
+            temperature=0.2,
+            seed=42,
+            prompt_hash="h",
+        )
+
+
 def _pois(citta: str) -> list[Poi]:
     return [
         {
@@ -188,3 +208,50 @@ def test_analyze_accepts_domanda(monkeypatch: pytest.MonkeyPatch) -> None:
         ),
     )
     assert resp.status_code == 200
+
+
+def test_analyze_domanda_reaches_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    """End-to-end (#119): la domanda del body arriva nello user_content dell'LLM."""
+    _patch_io(monkeypatch)
+    llm = _RecordingLLMClient()
+    resp = cast(
+        httpx.Response,
+        _client(llm=llm).post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze",
+            json={"citta": "Roma", "zona": "Centro", "domanda": "Rischi di notte?"},
+        ),
+    )
+    assert resp.status_code == 200
+    assert len(llm.calls) == 1
+    _system, user = llm.calls[0]
+    assert "Rischi di notte?" in user
+
+
+def test_analyze_without_domanda_omits_section(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Senza ``domanda`` lo user_content non porta la sezione dedicata (invariato)."""
+    _patch_io(monkeypatch)
+    llm = _RecordingLLMClient()
+    resp = cast(
+        httpx.Response,
+        _client(llm=llm).post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze", json={"citta": "Roma", "zona": "Centro"}
+        ),
+    )
+    assert resp.status_code == 200
+    _system, user = llm.calls[0]
+    assert "DOMANDA UTENTE" not in user
+
+
+def test_analyze_rejects_overlong_domanda(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#119: una domanda oltre max_length e' respinta con 422 prima di ogni I/O."""
+    _patch_io(monkeypatch)
+    resp = cast(
+        httpx.Response,
+        _client().post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze",
+            json={"citta": "Roma", "zona": "Centro", "domanda": "x" * 501},
+        ),
+    )
+    assert resp.status_code == 422
