@@ -13,15 +13,20 @@ pattern a restrizione + ``rdfs:subClassOf*`` (ereditarieta' transitiva), con
 ``sparql_path`` come citazione lineare a un salto per il citation layer.
 """
 
+import logging
 from pathlib import Path
 
 import pytest
+from rdflib import Graph
 
 from crime_risk_analyzer.ontology import load_ontology
+from crime_risk_analyzer.ontology_namespaces import TERMINUS
 from crime_risk_analyzer.sparql_module.query_executor import (
     PoiRiskProfile,
     RiskQueryExecutor,
 )
+
+QUERY_EXECUTOR_LOGGER = "crime_risk_analyzer.sparql_module.query_executor"
 
 FIXTURE = Path(__file__).parent / "fixtures" / "ontology_sample.ttl"
 
@@ -257,3 +262,84 @@ def test_executor_reuses_index_across_profiles(executor: RiskQueryExecutor) -> N
     assert bank.terminus_class == "Bank"
     assert petrol.terminus_class == "Petrol_station"
     assert bank.hazards != petrol.hazards
+
+
+# --- Osservabilita': filler non-URIRef scartato (#116) ---------------------
+
+
+def _graph_with_anonymous_union_filler() -> Graph:
+    """Grafo minimale con un filler anonimo (BNode) da ``owl:unionOf``.
+
+    ``UnionPlace`` ha una restrizione il cui ``owl:someValuesFrom`` punta a una
+    classe anonima ``owl:unionOf`` (un BNode, non una ``URIRef``): e' esattamente
+    il drift di ontologia che #116 vuole rendere osservabile invece di scartare
+    in silenzio. ``GoodPlace`` porta invece un filler ``URIRef`` regolare, per
+    verificare che il ramo valido resti intatto (nessun filler perso).
+
+    Il prefisso ``tc:`` e' derivato dal namespace TERMINUS canonico (non
+    hardcodato) per evitare drift dell'IRI.
+    """
+    turtle = f"""
+    @prefix tc:   <{TERMINUS}> .
+    @prefix owl:  <http://www.w3.org/2002/07/owl#> .
+    @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+    tc:GoodPlace a owl:Class ;
+        rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty tc:havingHazard ;
+            owl:someValuesFrom tc:Bank_robbery ] .
+
+    tc:UnionPlace a owl:Class ;
+        rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty tc:havingHazard ;
+            owl:someValuesFrom [ a owl:Class ;
+                owl:unionOf ( tc:Bank_robbery tc:Terrorist_attack ) ] ] .
+    """
+    graph = Graph()
+    graph.parse(data=turtle, format="turtle")
+    return graph
+
+
+def test_non_uriref_filler_logs_warning_and_is_discarded(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Un filler non-URIRef (BNode da unionOf) viene scartato MA con un WARNING.
+
+    Comportamento invariato rispetto a prima (l'elemento resta fuori
+    dall'indice); si aggiunge SOLO l'osservabilita': un ``owl:someValuesFrom`` su
+    nodo anonimo non deve piu' sparire in silenzio mascherando un drift.
+    """
+    graph = _graph_with_anonymous_union_filler()
+
+    with caplog.at_level(logging.WARNING, logger=QUERY_EXECUTOR_LOGGER):
+        executor = RiskQueryExecutor(graph)
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1, "atteso esattamente un WARNING per il filler anonimo"
+
+    message = warnings[0].getMessage()
+    # Contesto sufficiente a diagnosticare quale triple / quale valore:
+    assert "non-URIRef" in message  # il motivo dello scarto
+    assert "UnionPlace" in message  # quale classe/triple
+    assert "havingHazard" in message  # quale property
+    assert "BNode" in message  # il tipo del valore offensivo (quale valore)
+
+    # Comportamento invariato: il filler anonimo NON entra nell'indice...
+    assert executor.profile("UnionPlace").hazards == []
+    # ...mentre il ramo valido (filler URIRef) resta intatto.
+    assert "Bank_robbery" in executor.profile("GoodPlace").hazards
+
+
+def test_all_uriref_restrictions_emit_no_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Nessun WARNING quando tutti i termini delle restrizioni sono ``URIRef``.
+
+    Sulla fixture reale (tutti filler ``URIRef``) l'indicizzazione resta
+    silenziosa: il log e' un segnale di drift dell'ontologia, non rumore di
+    routine a ogni startup.
+    """
+    with caplog.at_level(logging.WARNING, logger=QUERY_EXECUTOR_LOGGER):
+        RiskQueryExecutor(load_ontology(str(FIXTURE)))
+
+    assert [r for r in caplog.records if r.levelno == logging.WARNING] == []
