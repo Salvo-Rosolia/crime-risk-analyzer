@@ -59,9 +59,29 @@ export interface AnalyzeRequestPayload {
 export type Screen = 'INPUT' | 'LOADING' | 'RESULTS' | 'DETAIL' | 'ERROR' | 'FILTER' | 'BASE';
 export type Mode = 'completo' | 'base';
 
+/**
+ * Ultima query completa (citta+zona+domanda) inviata a `/analyze`: a differenza di
+ * `pendingZona` (azzerata da `LOAD_SUCCESS`), sopravvive in RESULTS/DETAIL/FILTER e si azzera
+ * solo su RESET — è la fonte per "Rigenera" (re-POST `/analyze`, spec-frontend.md §Stato B),
+ * che ripete l'ultima analisi senza introdurre un nuovo endpoint né una nuova azione FSM.
+ */
+export interface LastQuery {
+  citta: string;
+  zona: string;
+  domanda: string | null;
+}
+
 export interface AppState {
   screen: Screen;
-  data: AnalyzeResponse | null;
+  /**
+   * Risultato dell'ultima `POST /analyze` (sistema completo, con LLM). Campo separato da
+   * `baselineData` — condividere un unico campo `data` tra le due pipeline (comune a `LOAD_SUCCESS`
+   * indipendentemente da `mode`) falsificava in silenzio il confronto ablation: un toggle o un
+   * retry mostravano i risultati di una pipeline etichettati come l'altra (review #67, bloccanti 1+2).
+   */
+  completoData: AnalyzeResponse | null;
+  /** Risultato dell'ultima `POST /analyze/baseline` (sistema base, ablation, niente LLM). */
+  baselineData: AnalyzeResponse | null;
   selectedPoiId: string | null;
   filter: Confidence | null;
   error: string | null;
@@ -70,15 +90,24 @@ export interface AppState {
   pendingCitta: string | null;
   pendingZona: string | null;
   pendingDomanda: string | null;
-  lastQuery: string | null;
+  lastQuery: LastQuery | null;
   poiPanelOpen: boolean;
   narrOpen: boolean;
 }
 
 export type Action =
-  | { type: 'ANALYZE'; citta: string; zona: string; domanda?: string | null }
-  | { type: 'LOAD_SUCCESS'; data: AnalyzeResponse }
-  | { type: 'LOAD_ERROR'; message: string }
+  /**
+   * `pipeline` marca la richiesta con la modalità di PARTENZA (fissata da `state.store.ts` in
+   * `startAnalysis`/`startBaselineAnalysis` al momento del dispatch, letterale — mai da
+   * `state.mode`): `transition()` la usa per instradare `completoData`/`baselineData` e lo
+   * schermo di arrivo in `LOAD_SUCCESS`/`LOAD_ERROR`, così un `TOGGLE_MODE` successivo (mentre la
+   * richiesta è ancora in volo) non può dirottare la risposta sulla pipeline sbagliata (review
+   * #67-bis, bloccante A — race condition). Campo obbligatorio apposta: un'omissione futura deve
+   * essere un errore di compilazione, non un default silenzioso su 'completo'.
+   */
+  | { type: 'ANALYZE'; citta: string; zona: string; domanda?: string | null; pipeline: Mode }
+  | { type: 'LOAD_SUCCESS'; data: AnalyzeResponse; pipeline: Mode }
+  | { type: 'LOAD_ERROR'; message: string; pipeline: Mode }
   | { type: 'SELECT_POI'; id: string }
   | { type: 'DESELECT_POI' }
   | { type: 'SET_FILTER'; level: Confidence }

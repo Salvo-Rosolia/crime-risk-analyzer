@@ -1,6 +1,13 @@
 import { CONF, ConfMeta, DIM_COLOR } from '@core/confidence';
 import { Confidence, Poi, RiskItem, RiskModel, SourceTag } from '@core/models/models';
 
+/**
+ * Ordine canonico dei tag fonte (spec-frontend.md, cross-cutting: Stato B narrativa per fonte E
+ * Stato C fattori di rischio per fonte). Unica costante condivisa da `buildNarrativeSections` e
+ * `orderGroupsByTag` — prima duplicata in due array locali identici (review #67, non-bloccante).
+ */
+const SOURCE_TAG_ORDER: readonly SourceTag[] = ['ONTOLOGIA', 'CONTESTO', 'SPECULATIVO'];
+
 const CITY_COLOR_MAP: Readonly<Record<string, string>> = Object.freeze({
   Roma: '#0e7b80',
   Milano: '#3a5a8c',
@@ -57,14 +64,13 @@ export function buildNarrativeSections(riskModels: RiskModel[] | null | undefine
       byTag.set(tag, list);
     }
   }
-  const ORDER: SourceTag[] = ['ONTOLOGIA', 'CONTESTO', 'SPECULATIVO'];
   const sections: NarrativeSection[] = [];
-  for (const tag of ORDER) {
+  for (const tag of SOURCE_TAG_ORDER) {
     const hazards = byTag.get(tag);
     if (hazards) sections.push({ tag, hazards });
   }
   for (const [tag, hazards] of byTag) {
-    if (!ORDER.includes(tag as SourceTag)) sections.push({ tag, hazards });
+    if (!SOURCE_TAG_ORDER.includes(tag as SourceTag)) sections.push({ tag, hazards });
   }
   return sections;
 }
@@ -88,6 +94,60 @@ export function buildDetailModel(poi: Poi, riskModels: RiskModel[] | null | unde
     groups[tag] = list;
   }
   return { poi, poiLabel: poiDisplayLabel(poi), sparqlParts, groups };
+}
+
+export interface TagGroup { tag: string; risks: RiskItem[]; }
+
+/**
+ * Ordina i `groups` di `buildDetailModel` (Record non ordinato) nell'ordine canonico
+ * ONTOLOGIA → CONTESTO → SPECULATIVO richiesto dallo Stato C (spec-frontend.md); eventuali tag
+ * fuori contratto restano in coda, stessa convenzione di `buildNarrativeSections`. Tag assenti
+ * o con lista vuota vengono omessi.
+ */
+export function orderGroupsByTag(groups: Record<string, RiskItem[]>): TagGroup[] {
+  const ordered: TagGroup[] = [];
+  for (const tag of SOURCE_TAG_ORDER) {
+    const risks = groups[tag];
+    if (risks?.length) ordered.push({ tag, risks });
+  }
+  for (const tag of Object.keys(groups)) {
+    if (!SOURCE_TAG_ORDER.includes(tag as SourceTag) && groups[tag]?.length) ordered.push({ tag, risks: groups[tag] });
+  }
+  return ordered;
+}
+
+export interface BaseRow {
+  poiId: string;
+  poiName: string;
+  hazardLabel: string;
+  category: string;
+}
+
+/**
+ * Righe della tabella "POI · Hazard · Categoria" dello Stato Sistema base (ablation,
+ * spec-frontend.md §Stato Sistema base): una riga per ogni coppia (POI, hazard), stesso
+ * abbinamento POI↔RiskModel per nome usato da `buildDetailModel`. "Categoria" resta la
+ * terminus class grezza (prefisso `tc:`), deliberatamente tecnica e non tradotta — coerente
+ * con la povertà visiva voluta dal confronto ablation (il sistema completo mostra invece
+ * l'etichetta IT curata in `poiDisplayLabel`).
+ */
+export function buildBaseRows(
+  poi: Poi[] | null | undefined,
+  riskModels: RiskModel[] | null | undefined,
+): BaseRow[] {
+  const rows: BaseRow[] = [];
+  for (const p of poi ?? []) {
+    const model = (riskModels ?? []).find(r => r.poi === p.name);
+    for (const risk of model?.risks ?? []) {
+      rows.push({
+        poiId: p.id,
+        poiName: p.name,
+        hazardLabel: hazardDisplayLabel(risk),
+        category: `tc:${p.terminus_class}`,
+      });
+    }
+  }
+  return rows;
 }
 
 /**

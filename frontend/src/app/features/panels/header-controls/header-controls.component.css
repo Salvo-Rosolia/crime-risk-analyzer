@@ -1,0 +1,73 @@
+:host {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.cra-coverage-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: 1.5px solid var(--accent);
+  border-radius: 5px;
+  /* Sfondo chiaro + testo scuro (schema del mockup), non il teal pieno invertito: più leggibile
+     sull'header charcoal e coerente con la palette "tecnico scuro" (review #67, non-bloccante #9). */
+  background: var(--accent-bg);
+  color: var(--accent-2);
+  padding: 3px var(--space-3);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.cra-header-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--header-divider);
+}
+
+.cra-chip-group {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.cra-chip {
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 3px var(--space-2);
+  border: 1.5px solid;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cra-mode-toggle {
+  display: flex;
+  border: 1px solid var(--header-border);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.cra-mode-btn {
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  padding: 5px var(--space-3);
+  border: none;
+  cursor: pointer;
+  background: transparent;
+  color: var(--header-ink-muted);
+  font-weight: 400;
+}
+
+.cra-mode-btn-active {
+  background: var(--paper-2);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+/* Durante LOADING (review #67-bis, bloccante A): niente cambio di cursore che suggerisca
+   interattività, opacità ridotta come segnale visivo di "non disponibile ora". */
+.cra-mode-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
