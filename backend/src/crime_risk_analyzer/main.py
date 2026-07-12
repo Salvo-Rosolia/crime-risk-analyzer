@@ -111,8 +111,24 @@ async def analyze_baseline(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-    """Warm-up all'avvio: carica l'ontologia (fail-fast se manca o è invalida)."""
+    """Warm-up all'avvio (fail-fast): ontologia, executor SPARQL e client LLM.
+
+    Pre-costruisce a startup le risorse costose o critiche esposte via
+    ``Depends``, così la prima ``POST /analyze`` non paga il costo lazy e un
+    misconfig esplode subito all'avvio, non alla prima richiesta:
+
+    * :func:`get_ontology` — carica e valida il grafo ``.ttl`` (fail-fast se
+      manca o è invalido);
+    * :func:`get_executor` — costruisce l'indice delle restrizioni SPARQL, parte
+      costosa e POI-indipendente che appartiene allo startup e non alla prima
+      richiesta (vedi docstring di :class:`RiskQueryExecutor`);
+    * :func:`get_llm_client` — istanzia il client LLM dal provider configurato
+      (fail-fast: ``LLMError`` all'avvio se la chiave del provider manca, invece
+      che alla prima ``/analyze``).
+    """
     get_ontology()
+    get_executor()
+    get_llm_client()
     yield
 
 
