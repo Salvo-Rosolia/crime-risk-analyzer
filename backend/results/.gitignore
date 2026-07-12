@@ -2,5 +2,10 @@
 runs/
 *.csv
 *.md
+# Report di confronto in JSON (es. claude_vs_groq.json, #33): SOLO a livello di
+# results/. Ancorato con "/" iniziale per NON toccare gli snapshot .json
+# nidificati (results/snapshots/ e results/city_agnostic/snapshots/), che sono
+# fixture versionate: un "*.json" cieco li ignorerebbe.
+/*.json
 # Le fixture di input (snapshots/) SONO versionate per la riproducibilità.
 !snapshots/
