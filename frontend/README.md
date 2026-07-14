@@ -6,7 +6,7 @@ livelli di *confidence* e citazioni SPARQL. App **Angular 20** standalone con
 
 ## Requisiti
 
-- Node.js 20.19.x (vedi `.nvmrc`)
+- Node.js 24.18.x (vedi `.nvmrc`)
 - npm
 
 ```bash

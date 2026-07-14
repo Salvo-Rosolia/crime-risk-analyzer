@@ -48,3 +48,20 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # Major sospesi: la UI non e' finita e l'upgrade (es. Angular 20->22, o
+      # TypeScript 5.x->7.x) va affrontato come migrazione dedicata, non a colpi
+      # di PR settimanali. Minor/patch continuano a essere raggruppate sopra.
+      # Rimuovere questi ignore quando l'upgrade Angular entra in roadmap.
+      - dependency-name: "@angular/*"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "@angular-eslint/*"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "angular-eslint"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "typescript"
+        update-types:
+          - "version-update:semver-major"
