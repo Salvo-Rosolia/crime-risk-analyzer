@@ -69,6 +69,13 @@ def build_parser() -> argparse.ArgumentParser:
                 action="store_true",
                 help="ri-cattura anche se lo snapshot (citta, zona) esiste già",
             )
+        if name == "run":
+            p.add_argument(
+                "--repeat",
+                type=int,
+                default=1,
+                help="K ripetizioni per stimare la varianza (#157); default 1",
+            )
     agg = sub.add_parser("aggregate")
     agg.add_argument("--experiment", required=True)
     agg.add_argument("--results", default="results")

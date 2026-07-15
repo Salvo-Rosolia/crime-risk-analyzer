@@ -28,10 +28,17 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
 
-def make_run_id(experiment: str, citta: str, zona: str, mode: str, model: str) -> str:
-    """run_id deterministico: niente timestamp, ri-girare sovrascrive."""
+def make_run_id(
+    experiment: str, citta: str, zona: str, mode: str, model: str, rep: int = 0
+) -> str:
+    """run_id deterministico + indice di ripetizione (#157).
+
+    Il suffisso ``__rep{NN}`` (2 cifre) rende distinte le K ripetizioni dello
+    stesso (esperimento, citta, zona, mode, model): rigirare con --repeat K NON
+    sovrascrive piu' i JSON. ``rep=0`` di default (K=1) → ``__rep00``.
+    """
     parts = [experiment, citta, zona, mode, model]
-    return "__".join(_slug(p) for p in parts)
+    return "__".join(_slug(p) for p in parts) + f"__rep{rep:02d}"
 
 
 def make_snapshot_key(citta: str, zona: str) -> str:
@@ -143,6 +150,7 @@ async def run_case(
     results_dir: Path,
     code_commit: str,
     ontology_hash: str,
+    rep: int = 0,
 ) -> RunRecord:
     """Esegue un caso e ritorna il RunRecord (status=error su eccezione).
 
@@ -157,7 +165,9 @@ async def run_case(
         if llm_client is None:
             raise ValueError("llm_client required for mode=analyze")
         model_id = _model_id_of(llm_client, config)
-    run_id = make_run_id(config.name, case.citta, case.zona, config.mode, config.model)
+    run_id = make_run_id(
+        config.name, case.citta, case.zona, config.mode, config.model, rep
+    )
     # Snapshot chiavato per (citta, zona): condiviso dai bracci comparativi (#110).
     snapshot_key = make_snapshot_key(case.citta, case.zona)
     source = replay_source(snapshot_path(results_dir, snapshot_key))
@@ -205,23 +215,29 @@ async def run_experiment(
     results_dir: Path,
     code_commit: str,
     ontology_hash: str,
+    repeat: int = 1,
 ) -> list[RunRecord]:
-    """Esegue tutti i casi, scrive i JSON, ritorna i record.
+    """Esegue tutti i casi ``repeat`` volte, scrive i JSON, ritorna i record.
 
     ``llm_client`` e' opzionale: puo' essere ``None`` per ``mode='baseline'``;
     per ``mode='analyze'`` deve essere fornito (propagato a :func:`run_case`).
+
+    ``repeat`` (#157): K ripetizioni per stimare la varianza; ogni ripetizione
+    ha un ``rep`` distinto nel run_id (nessuna sovrascrittura). Default 1.
     """
     records: list[RunRecord] = []
-    for case in config.cases:
-        record = await run_case(
-            case,
-            config,
-            executor=executor,
-            llm_client=llm_client,
-            results_dir=results_dir,
-            code_commit=code_commit,
-            ontology_hash=ontology_hash,
-        )
-        write_record(results_dir, record)
-        records.append(record)
+    for rep in range(repeat):
+        for case in config.cases:
+            record = await run_case(
+                case,
+                config,
+                executor=executor,
+                llm_client=llm_client,
+                results_dir=results_dir,
+                code_commit=code_commit,
+                ontology_hash=ontology_hash,
+                rep=rep,
+            )
+            write_record(results_dir, record)
+            records.append(record)
     return records
