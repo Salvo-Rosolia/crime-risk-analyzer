@@ -130,6 +130,28 @@ async def test_run_experiment_writes_records(
     assert records[0].metrics.latency_ms >= 0
 
 
+async def test_run_experiment_rejects_non_positive_repeat(tmp_path: Path) -> None:
+    """repeat < 1 → ValueError (niente esperimento vuoto in silenzio)."""
+    from tests.eval._doubles import FakeProfiler
+
+    cfg = ExperimentConfig(
+        name="x",
+        mode="baseline",
+        model="claude",
+        cases=[RunCase(citta="Roma", zona="Centro")],
+    )
+    with pytest.raises(ValueError):
+        await run_experiment(
+            cfg,
+            executor=FakeProfiler(),
+            llm_client=None,
+            results_dir=tmp_path,
+            code_commit="c",
+            ontology_hash="o",
+            repeat=0,
+        )
+
+
 async def test_run_experiment_baseline_no_llm_client(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

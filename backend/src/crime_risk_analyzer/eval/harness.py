@@ -224,7 +224,12 @@ async def run_experiment(
 
     ``repeat`` (#157): K ripetizioni per stimare la varianza; ogni ripetizione
     ha un ``rep`` distinto nel run_id (nessuna sovrascrittura). Default 1.
+
+    Solleva :class:`ValueError` se ``repeat < 1`` (niente esperimento vuoto
+    in silenzio: senza guardia ``range(repeat)`` ritornerebbe ``[]``).
     """
+    if repeat < 1:
+        raise ValueError(f"repeat deve essere >= 1, ricevuto {repeat}")
     records: list[RunRecord] = []
     for rep in range(repeat):
         for case in config.cases:

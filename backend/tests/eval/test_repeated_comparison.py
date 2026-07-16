@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from pytest import MonkeyPatch
+
 from crime_risk_analyzer.eval.compare import compare_records
 from crime_risk_analyzer.eval.harness import make_run_id, write_record
 from crime_risk_analyzer.eval.repeat import fold_arm
@@ -159,6 +161,56 @@ def test_build_repeated_report_writes_md_and_json(tmp_path: Path) -> None:
     assert data["variance"]["k"] == 3
     assert len(data["variance"]["arm_a"]) == 1  # una zona
     assert "comparison" in data
+
+
+def test_main_compare_repeated_dispatch_writes_report(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    """Dispatch main() per compare-repeated (gemello di compare, #157, M11).
+
+    Guida ``eval.__main__.main`` con argv del sottocomando ``compare-repeated``:
+    dai run su disco (K ripetizioni per braccio) produce il report MD/JSON, con
+    ``winner`` presente nel JSON.
+    """
+    import sys
+
+    import crime_risk_analyzer.eval.__main__ as eval_main
+
+    _write_arm(
+        tmp_path, _arm("claude-exp", "claude-sonnet-4-6", (0.90, 0.10, 3000, 0.012))
+    )
+    _write_arm(
+        tmp_path,
+        _arm("groq-exp", "llama-3.3-70b-versatile", (0.70, 0.20, 1000, 0.0006)),
+    )
+
+    argv = [
+        "crime_risk_analyzer.eval",
+        "compare-repeated",
+        "--experiment-a",
+        "claude-exp",
+        "--experiment-b",
+        "groq-exp",
+        "--label-a",
+        "claude",
+        "--label-b",
+        "groq",
+        "--out",
+        "cmp-repeated",
+        "--results",
+        str(tmp_path),
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+    rc = eval_main.main()
+    assert rc == 0
+
+    md_path = tmp_path / "cmp-repeated.md"
+    json_path = tmp_path / "cmp-repeated.json"
+    assert md_path.exists()
+    assert json_path.exists()
+    data = json.loads(json_path.read_text(encoding="utf-8"))
+    assert "winner" in data
+    assert data["winner"]["winner"] == "claude"
 
 
 def test_end_to_end_fold_compare_winner(tmp_path: Path) -> None:
