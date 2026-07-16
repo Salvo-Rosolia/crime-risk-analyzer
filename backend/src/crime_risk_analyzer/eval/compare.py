@@ -6,10 +6,11 @@ metriche — ``grounding``, ``hallucination``, ``latency_ms``, ``cost_usd`` —
 producendo una tabella per-zona più una riga aggregata (media), serializzabile
 in CSV e Markdown.
 
-Le run in ERROR (metriche azzerate dall'harness) NON entrano in delta/medie: le
+Le run in ERROR (metriche azzerate dall'harness) e in FALLBACK (narrativa vuota
+→ metriche non rappresentative della qualità) NON entrano in delta/medie: le
 zone corrispondenti sono escluse dall'aggregato e riportate esplicitamente in
-una sezione dedicata (nulla è scartato o mediato in silenzio). ``OK`` e
-``FALLBACK`` (metriche reali) restano incluse.
+una sezione dedicata (nulla è scartato o mediato in silenzio). Solo le run
+``OK`` restano incluse (#163).
 
 Non è cablata su analyze/baseline: i bracci sono etichettati liberamente
 (``label_a``/``label_b``). L'ablation (#32) confronta ``analyze`` vs
@@ -33,6 +34,10 @@ from crime_risk_analyzer.eval.schema import Metrics, RunRecord, RunStatus
 
 #: Etichetta della riga aggregata nelle tabelle.
 _MEAN_LABEL = "MEDIA"
+
+#: Status che escludono una zona dal confronto: metriche non rappresentative
+#: della qualità (ERROR = azzerate dall'harness; FALLBACK = narrativa vuota, #163).
+_EXCLUDED_STATUSES = (RunStatus.ERROR, RunStatus.FALLBACK)
 
 
 class MetricValues(BaseModel):
@@ -60,10 +65,10 @@ class ZoneComparison(BaseModel):
 
 
 class FailedZone(BaseModel):
-    """Zona esclusa dall'aggregato perché almeno un braccio è in ``ERROR``.
+    """Zona esclusa dall'aggregato perché un braccio è in ``ERROR`` o ``FALLBACK``.
 
     Riporta lo status di ENTRAMBI i bracci così l'esclusione è tracciabile
-    (quale braccio è fallito), non silenziosa.
+    (quale braccio è fallito o in fallback), non silenziosa.
     """
 
     citta: str
@@ -73,7 +78,7 @@ class FailedZone(BaseModel):
 
 
 class Comparison(BaseModel):
-    """Esito del confronto: zone comparate + aggregato + zone escluse (ERROR)."""
+    """Confronto: zone comparate + aggregato + zone escluse (ERROR/FALLBACK)."""
 
     label_a: str
     label_b: str
@@ -81,7 +86,7 @@ class Comparison(BaseModel):
     mean_a: MetricValues
     mean_b: MetricValues
     mean_delta: MetricValues
-    #: Zone escluse dall'aggregato (un braccio in ERROR); vuota se nessuna.
+    #: Zone escluse dall'aggregato (un braccio in ERROR o FALLBACK); vuota se nessuna.
     #: Sempre valorizzata da :func:`compare_records`.
     failed: list[FailedZone]
 
@@ -187,9 +192,9 @@ def compare_records(
 ) -> Comparison:
     """Unisce due bracci per ``(citta, zona)`` e calcola i delta A - B.
 
-    Le zone in cui un braccio è in ``ERROR`` (metriche azzerate) sono escluse da
-    zone comparate e medie, e raccolte in ``Comparison.failed``. ``OK`` e
-    ``FALLBACK`` restano inclusi.
+    Le zone in cui un braccio è in ``ERROR`` (metriche azzerate) o ``FALLBACK``
+    (narrativa vuota → metriche non di qualità) sono escluse da zone comparate e
+    medie, e raccolte in ``Comparison.failed`` (#163). Solo ``OK`` resta incluso.
 
     Solleva :class:`ValueError` se: un braccio ha record duplicati per una zona;
     i due bracci coprono zone diverse (iso-input violato); una zona appaiata ha
@@ -227,9 +232,10 @@ def compare_records(
                 f"snapshot_id divergente per (citta, zona)={key}: "
                 f"A={sid_a!r} B={sid_b!r} (confronto iso-input violato)"
             )
-        # Un record in ERROR ha metriche azzerate (harness): escluderlo, non
-        # mediarlo. Riportato esplicitamente tra le zone fallite.
-        if RunStatus.ERROR in (rec_a.status, rec_b.status):
+        # ERROR (metriche azzerate dall'harness) e FALLBACK (narrativa vuota →
+        # metriche non rappresentative della qualità) sono esclusi, non mediati
+        # (#163). Riportati tra le zone fallite: esclusione tracciata, non muta.
+        if rec_a.status in _EXCLUDED_STATUSES or rec_b.status in _EXCLUDED_STATUSES:
             failed.append(
                 FailedZone(
                     citta=rec_a.citta,
@@ -250,7 +256,8 @@ def compare_records(
         )
     if not zones:
         raise ValueError(
-            "nessuna zona valida da confrontare (tutte in ERROR): "
+            "nessuna zona valida da confrontare (tutte in ERROR/FALLBACK, "
+            "nessun braccio ha prodotto output utilizzabile): "
             f"{[(f.citta, f.zona) for f in failed]}"
         )
     return Comparison(

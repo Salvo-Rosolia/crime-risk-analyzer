@@ -118,3 +118,74 @@ def test_cost_usd_of_zero_when_no_llm() -> None:
         update={"llm_used": ""}
     )
     assert cost_usd_of(r) == 0.0
+
+
+def test_hallucination_counts_untagged_claim_that_names_data() -> None:
+    # cat.3 (reperto A #163): frase NON taggata che nomina un dato = asserzione
+    # non citata → allucinazione. Prima del fix era invisibile (nessun tag → 0.0).
+    r = _resp("Banca A è pericolosa di notte.")
+    assert hallucination(r) == 1.0
+    assert grounding(r) == 0.0
+
+
+def test_sparse_tagging_is_penalized() -> None:
+    # 1 frase citata bene + 1 asserzione non citata sullo stesso dato → 1 su 2.
+    # Prima del fix: solo la frase taggata (ancorata) contava → hallucination 0.0.
+    r = _resp(
+        "[ONTOLOGIA] Banca A presenta rischio rapina. Banca A è pericolosa di notte."
+    )
+    assert hallucination(r) == pytest.approx(0.5)
+    assert grounding(r) == pytest.approx(0.5)
+
+
+def test_filler_sentences_excluded_from_denominator() -> None:
+    # Frase connettiva senza tag e senza ancoraggio (cat.4) NON entra nel
+    # denominatore: non penalizza la prosa onesta verbosa.
+    r = _resp(
+        "[ONTOLOGIA] Banca A presenta rischio rapina. "
+        "La sicurezza urbana è un tema importante."
+    )
+    assert grounding(r) == 1.0
+    assert hallucination(r) == 0.0
+
+
+def test_nonempty_but_no_assertions_is_max_hallucination() -> None:
+    # Narrativa piena ma senza alcuna asserzione di dominio (né tag né ancoraggi)
+    # → peggiore sull'asse del verdetto (reperto A, caso limite forzato).
+    r = _resp("La zona presenta alcuni rischi generici.")
+    assert hallucination(r) == 1.0
+    assert grounding(r) == 0.0
+
+
+def test_hallucination_is_complement_of_grounding_on_assertions() -> None:
+    # Identità preservata col nuovo denominatore.
+    r = _resp(
+        "[ONTOLOGIA] Banca A presenta rischio rapina. "
+        "Banca A è pericolosa. "
+        "[SPECULATIVO] Il Museo X rischia incendi."
+    )
+    assert hallucination(r) == pytest.approx(1.0 - grounding(r))
+
+
+def test_empty_poi_name_does_not_anchor_everything() -> None:
+    # Regressione review #163 (I1): un POI senza nome (name="") NON deve rendere
+    # "ancorata" ogni frase. Una frase taggata ma fabbricata resta hallucination
+    # e il filler resta escluso dal denominatore.
+    r = _resp(
+        "[ONTOLOGIA] Il Museo X presenta rischio incendio. "
+        "La sicurezza urbana è importante."
+    )
+    nameless = PoiOut(
+        id="2",
+        name="",
+        terminus_class="Bank",
+        lat=41.0,
+        lon=12.0,
+        confidence="confermato",
+        sparql_path=None,
+    )
+    r = r.model_copy(update={"poi": [*r.poi, nameless]})
+    # "Museo X"/"incendio" non sono ancoraggi → la frase taggata è fabbricata
+    # (hallucination), il filler ("La sicurezza...") resta fuori dal denominatore.
+    assert hallucination(r) == 1.0
+    assert grounding(r) == 0.0
