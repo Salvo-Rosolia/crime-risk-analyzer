@@ -69,6 +69,13 @@ def build_parser() -> argparse.ArgumentParser:
                 action="store_true",
                 help="ri-cattura anche se lo snapshot (citta, zona) esiste già",
             )
+        if name == "run":
+            p.add_argument(
+                "--repeat",
+                type=int,
+                default=1,
+                help="K ripetizioni per stimare la varianza (#157); default 1",
+            )
     agg = sub.add_parser("aggregate")
     agg.add_argument("--experiment", required=True)
     agg.add_argument("--results", default="results")
@@ -80,6 +87,14 @@ def build_parser() -> argparse.ArgumentParser:
     cmp_parser.add_argument("--label-b", default=None)
     cmp_parser.add_argument("--out", default=None, help="stem dei file di output")
     cmp_parser.add_argument("--results", default="results")
+    # compare-repeated (#157): report esteso con K ripetizioni (varianza) + vincitore.
+    rep_parser = sub.add_parser("compare-repeated")
+    rep_parser.add_argument("--experiment-a", required=True)
+    rep_parser.add_argument("--experiment-b", required=True)
+    rep_parser.add_argument("--label-a", default=None)
+    rep_parser.add_argument("--label-b", default=None)
+    rep_parser.add_argument("--out", default=None, help="stem dei file di output")
+    rep_parser.add_argument("--results", default="results")
     ca_parser = sub.add_parser("city-agnostic")
     ca_parser.add_argument("phase", choices=["capture", "report"])
     ca_parser.add_argument("--results", default="results")

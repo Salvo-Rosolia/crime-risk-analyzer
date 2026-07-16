@@ -20,6 +20,7 @@ from crime_risk_analyzer.eval.cli import (
 from crime_risk_analyzer.eval.compare import compare_experiments
 from crime_risk_analyzer.eval.gold import write_agreement_report
 from crime_risk_analyzer.eval.harness import make_snapshot_key, run_experiment
+from crime_risk_analyzer.eval.repeated_comparison import build_repeated_report
 from crime_risk_analyzer.eval.snapshots import capturing_source, snapshot_path
 from crime_risk_analyzer.ontology import load_ontology
 from crime_risk_analyzer.orchestrator import run_analysis, run_baseline
@@ -74,7 +75,7 @@ async def _capture(
             )
 
 
-async def _run(config_path: Path, results_dir: Path) -> None:
+async def _run(config_path: Path, results_dir: Path, *, repeat: int = 1) -> None:
     config = load_config(config_path)
     # Build the client only when mode requires it (fix T9), using config.model (fix I1).
     client = build_llm_eval_client(config) if config.mode != "baseline" else None
@@ -85,6 +86,7 @@ async def _run(config_path: Path, results_dir: Path) -> None:
         results_dir=results_dir,
         code_commit=code_commit(),
         ontology_hash=ontology_hash(),
+        repeat=repeat,
     )
 
 
@@ -94,11 +96,20 @@ def main() -> int:
     if ns.command == "capture":
         asyncio.run(_capture(Path(ns.config), results_dir, force=ns.force))
     elif ns.command == "run":
-        asyncio.run(_run(Path(ns.config), results_dir))
+        asyncio.run(_run(Path(ns.config), results_dir, repeat=ns.repeat))
     elif ns.command == "aggregate":
         write_tables(results_dir, ns.experiment)
     elif ns.command == "compare":
         compare_experiments(
+            results_dir,
+            ns.experiment_a,
+            ns.experiment_b,
+            label_a=ns.label_a,
+            label_b=ns.label_b,
+            stem=ns.out,
+        )
+    elif ns.command == "compare-repeated":
+        build_repeated_report(
             results_dir,
             ns.experiment_a,
             ns.experiment_b,

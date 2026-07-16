@@ -48,6 +48,51 @@ def test_make_run_id_deterministic() -> None:
     assert " " not in a
 
 
+def test_make_run_id_includes_repetition_index() -> None:
+    """Ripetizioni distinte producono run_id distinti; default rep=0 → __rep00."""
+    r0 = make_run_id("exp", "Roma", "Centro", "analyze", "claude")
+    r0_explicit = make_run_id("exp", "Roma", "Centro", "analyze", "claude", 0)
+    r1 = make_run_id("exp", "Roma", "Centro", "analyze", "claude", 1)
+    assert r0 == r0_explicit
+    assert r0.endswith("__rep00")
+    assert r1.endswith("__rep01")
+    assert r0 != r1
+
+
+async def test_run_experiment_repeat_writes_k_records_no_overwrite(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--repeat 3 → 3 record e 3 JSON distinti per caso (nessuna sovrascrittura)."""
+    cfg = ExperimentConfig(
+        name="exp",
+        mode="analyze",
+        model="claude",
+        cases=[RunCase(citta="Roma", zona="Centro")],
+    )
+    save_snapshot(
+        snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
+    )
+    from crime_risk_analyzer.rag import retrieval
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
+    from tests.eval._doubles import FakeLLMClient, FakeProfiler
+
+    records = await run_experiment(
+        cfg,
+        executor=FakeProfiler(),
+        llm_client=FakeLLMClient(),
+        results_dir=tmp_path,
+        code_commit="abc",
+        ontology_hash="def",
+        repeat=3,
+    )
+    assert len(records) == 3
+    run_ids = {r.run_id for r in records}
+    assert len(run_ids) == 3
+    written = list((tmp_path / "runs").glob("*.json"))
+    assert len(written) == 3
+
+
 async def test_run_experiment_writes_records(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -83,6 +128,28 @@ async def test_run_experiment_writes_records(
     assert records[0].status == RunStatus.OK
     assert (tmp_path / "runs" / f"{rid}.json").exists()
     assert records[0].metrics.latency_ms >= 0
+
+
+async def test_run_experiment_rejects_non_positive_repeat(tmp_path: Path) -> None:
+    """repeat < 1 → ValueError (niente esperimento vuoto in silenzio)."""
+    from tests.eval._doubles import FakeProfiler
+
+    cfg = ExperimentConfig(
+        name="x",
+        mode="baseline",
+        model="claude",
+        cases=[RunCase(citta="Roma", zona="Centro")],
+    )
+    with pytest.raises(ValueError):
+        await run_experiment(
+            cfg,
+            executor=FakeProfiler(),
+            llm_client=None,
+            results_dir=tmp_path,
+            code_commit="c",
+            ontology_hash="o",
+            repeat=0,
+        )
 
 
 async def test_run_experiment_baseline_no_llm_client(
