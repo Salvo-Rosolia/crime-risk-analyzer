@@ -20,6 +20,7 @@ from crime_risk_analyzer.eval.cli import (
 from crime_risk_analyzer.eval.compare import compare_experiments
 from crime_risk_analyzer.eval.gold import write_agreement_report
 from crime_risk_analyzer.eval.harness import make_snapshot_key, run_experiment
+from crime_risk_analyzer.eval.repeated_comparison import build_repeated_report
 from crime_risk_analyzer.eval.snapshots import capturing_source, snapshot_path
 from crime_risk_analyzer.ontology import load_ontology
 from crime_risk_analyzer.orchestrator import run_analysis, run_baseline
@@ -100,6 +101,15 @@ def main() -> int:
         write_tables(results_dir, ns.experiment)
     elif ns.command == "compare":
         compare_experiments(
+            results_dir,
+            ns.experiment_a,
+            ns.experiment_b,
+            label_a=ns.label_a,
+            label_b=ns.label_b,
+            stem=ns.out,
+        )
+    elif ns.command == "compare-repeated":
+        build_repeated_report(
             results_dir,
             ns.experiment_a,
             ns.experiment_b,

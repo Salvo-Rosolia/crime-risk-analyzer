@@ -162,3 +162,27 @@ def test_parser_city_agnostic_report_defaults_results() -> None:
     assert ns.command == "city-agnostic"
     assert ns.phase == "report"
     assert ns.results == "results"
+
+
+def test_parser_has_compare_repeated_subcommand() -> None:
+    from crime_risk_analyzer.eval.cli import build_parser
+
+    ns = build_parser().parse_args(
+        [
+            "compare-repeated",
+            "--experiment-a",
+            "claude-exp",
+            "--experiment-b",
+            "groq-exp",
+        ]
+    )
+    assert ns.command == "compare-repeated"
+    assert ns.experiment_a == "claude-exp"
+    assert ns.experiment_b == "groq-exp"
+
+
+def test_parser_run_has_repeat_default_one() -> None:
+    from crime_risk_analyzer.eval.cli import build_parser
+
+    ns = build_parser().parse_args(["run", "--config", "x.json"])
+    assert ns.repeat == 1

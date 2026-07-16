@@ -159,3 +159,22 @@ def test_build_repeated_report_writes_md_and_json(tmp_path: Path) -> None:
     assert data["variance"]["k"] == 3
     assert len(data["variance"]["arm_a"]) == 1  # una zona
     assert "comparison" in data
+
+
+def test_end_to_end_fold_compare_winner(tmp_path: Path) -> None:
+    """run→disk→fold→compare→winner: Claude (piu' accurato) vince su hallucination."""
+    _write_arm(
+        tmp_path, _arm("claude-exp", "claude-sonnet-4-6", (0.90, 0.10, 3000, 0.012))
+    )
+    _write_arm(
+        tmp_path,
+        _arm("groq-exp", "llama-3.3-70b-versatile", (0.70, 0.20, 1000, 0.0006)),
+    )
+    md_path, json_path = build_repeated_report(
+        tmp_path, "claude-exp", "groq-exp", label_a="claude", label_b="groq"
+    )
+    data = json.loads(json_path.read_text(encoding="utf-8"))
+    assert data["winner"]["winner"] == "claude"
+    # varianza non nulla (le 3 ripetizioni variano)
+    assert data["variance"]["arm_a"][0]["std"]["grounding"] > 0.0
+    assert "Vincitore" in md_path.read_text(encoding="utf-8")
