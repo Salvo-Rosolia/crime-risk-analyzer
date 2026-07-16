@@ -81,11 +81,17 @@ def variance_markdown(
         (v.citta, v.zona): v for v in folded_b.variances
     }
     metrics = ("grounding", "hallucination", "latency_ms", "cost_usd")
+    n_col_a = f"n_{comparison.label_a}"
+    n_col_b = f"n_{comparison.label_b}"
     cols = ["citta", "zona"]
     for m in metrics:
         cols.extend([f"{m}_{comparison.label_a}", f"{m}_{comparison.label_b}"])
+    cols.extend([n_col_a, n_col_b])
     lines = [
         f"### Varianza su K={k} ripetizioni (media ± std)",
+        "",
+        f"> Colonne {n_col_a}/{n_col_b} = ripetizioni valide/totali per zona "
+        "(le run in ERROR sono escluse da media e std).",
         "",
         "| " + " | ".join(cols) + " |",
         "| " + " | ".join("---" for _ in cols) + " |",
@@ -100,6 +106,10 @@ def variance_markdown(
             sb = _STD_GETTERS[m](std_b[key].std)
             cells.append(f"{_fmt(m, mean_a)} ± {_fmt(m, sa)}")
             cells.append(f"{_fmt(m, mean_b)} ± {_fmt(m, sb)}")
+        va = std_a[key]
+        vb = std_b[key]
+        cells.append(f"{va.n_reps}/{va.n_reps + va.n_dropped}")
+        cells.append(f"{vb.n_reps}/{vb.n_reps + vb.n_dropped}")
         lines.append("| " + " | ".join(cells) + " |")
     return "\n".join(lines) + "\n"
 

@@ -35,6 +35,7 @@ def _rec(
     hallucination: float,
     latency_ms: int,
     cost_usd: float,
+    status: RunStatus = RunStatus.OK,
 ) -> RunRecord:
     return RunRecord(
         run_id=make_run_id(experiment, citta, zona, "analyze", "groq", rep),
@@ -43,7 +44,7 @@ def _rec(
         zona=zona,
         mode="analyze",
         model_id=model_id,
-        status=RunStatus.OK,
+        status=status,
         metrics=Metrics(
             grounding=grounding,
             hallucination=hallucination,
@@ -136,6 +137,108 @@ def test_variance_markdown_shows_mean_and_std() -> None:
     assert "±" in md
     assert "grounding" in md
     assert "Roma" in md
+    # onesta' del report (G): n_reps/n_totali per braccio, non solo media±std.
+    # _arm produce 3 ripetizioni valide su 3 per entrambi i bracci → 3/3.
+    assert "n_claude" in md
+    assert "n_groq" in md
+    assert "3/3" in md
+
+
+def test_variance_markdown_shows_reps_count_when_dropped() -> None:
+    """Zona con 1 rep ERROR su 3 (braccio A) → 2/3, non std=0 senza contesto (G)."""
+    claude_recs = [
+        _rec(
+            "claude-exp",
+            "Roma",
+            "Colosseo",
+            rep=0,
+            model_id="claude-sonnet-4-6",
+            grounding=0.90,
+            hallucination=0.10,
+            latency_ms=3000,
+            cost_usd=0.012,
+        ),
+        _rec(
+            "claude-exp",
+            "Roma",
+            "Colosseo",
+            rep=1,
+            model_id="claude-sonnet-4-6",
+            grounding=0.0,
+            hallucination=0.0,
+            latency_ms=0,
+            cost_usd=0.0,
+            status=RunStatus.ERROR,
+        ),
+        _rec(
+            "claude-exp",
+            "Roma",
+            "Colosseo",
+            rep=2,
+            model_id="claude-sonnet-4-6",
+            grounding=0.92,
+            hallucination=0.08,
+            latency_ms=3020,
+            cost_usd=0.012,
+        ),
+    ]
+    groq_recs = _arm("groq-exp", "llama-3.3-70b-versatile", (0.70, 0.20, 1000, 0.0006))
+    claude = fold_arm(claude_recs)
+    groq = fold_arm(groq_recs)
+    assert claude.variances[0].n_reps == 2
+    assert claude.variances[0].n_dropped == 1
+    cmp = compare_records(
+        claude.mean_records, groq.mean_records, label_a="claude", label_b="groq"
+    )
+    md = variance_markdown(cmp, claude, groq, k=3)
+    assert "2/3" in md  # braccio claude: 2 valide su 3
+    assert "3/3" in md  # braccio groq: 3 valide su 3, nessuno scarto
+
+
+def test_variance_markdown_cell_values_match_getter_mapping() -> None:
+    """Cella specifica con valore atteso: cattura uno scambio in _GETTERS/_STD_GETTERS.
+
+    Le 4 metriche hanno media E deviazione std TUTTE DISTINTE tra loro: uno
+    scambio di colonna/metrica in _GETTERS (medie) o _STD_GETTERS (std) — es.
+    hallucination che legge grounding — cambia il valore stampato in almeno
+    una cella nota. cost_usd VARIA tra ripetizioni (a differenza di _arm, dove
+    e' costante): la sua colonna std deve risultare diversa da 0, verificabile.
+    """
+    recs = [
+        _rec(
+            "claude-exp",
+            "Roma",
+            "Colosseo",
+            rep=r,
+            model_id="claude-sonnet-4-6",
+            grounding=g,
+            hallucination=h,
+            latency_ms=lat,
+            cost_usd=cost,
+        )
+        for r, (g, h, lat, cost) in enumerate(
+            [
+                (0.88, 0.05, 2990, 0.010),
+                (0.90, 0.10, 3000, 0.011),
+                (0.92, 0.15, 3010, 0.012),
+            ]
+        )
+    ]
+    groq_recs = _arm("groq-exp", "llama-3.3-70b-versatile", (0.70, 0.20, 1000, 0.0006))
+    claude = fold_arm(recs)
+    groq = fold_arm(groq_recs)
+    cmp = compare_records(
+        claude.mean_records, groq.mean_records, label_a="claude", label_b="groq"
+    )
+    md = variance_markdown(cmp, claude, groq, k=3)
+    # media/std attese (calcolate con statistics.pstdev), tutte distinte tra
+    # loro: grounding=0.900±0.016, hallucination=0.100±0.041, latency=3000±8,
+    # cost=0.011000±0.000816.
+    assert "0.900 ± 0.016" in md
+    assert "0.100 ± 0.041" in md
+    assert "3000 ± 8" in md
+    assert "0.011000 ± 0.000816" in md
+    assert claude.variances[0].std.cost_usd > 0.0
 
 
 def test_build_repeated_report_writes_md_and_json(tmp_path: Path) -> None:

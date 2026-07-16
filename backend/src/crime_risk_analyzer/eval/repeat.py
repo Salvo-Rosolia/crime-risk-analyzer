@@ -67,7 +67,11 @@ def _mean_metrics(valid: list[RunRecord]) -> Metrics:
         grounding=sum(r.metrics.grounding for r in valid) / n,
         hallucination=sum(r.metrics.hallucination for r in valid) / n,
         # latency arrotondata a int = precisione a cui la latenza viene
-        # confrontata/riportata (§2.3 spec): nessuna perdita per il verdetto.
+        # confrontata/riportata (§2.3 spec). Nel caso multi-zona la media
+        # cross-zona (compare._mean) parte pero' da questi valori GIA'
+        # arrotondati per-zona, non dalle latenze grezze: lo scostamento
+        # risultante e' sub-ms, irrilevante ai fini del verdetto quando le
+        # latenze dei bracci differiscono in modo apprezzabile.
         latency_ms=round(sum(r.metrics.latency_ms for r in valid) / n),
         cost_usd=sum(r.metrics.cost_usd for r in valid) / n,
     )
