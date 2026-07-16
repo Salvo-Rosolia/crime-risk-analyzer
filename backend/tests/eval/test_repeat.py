@@ -194,9 +194,42 @@ def test_fold_all_error_zone_becomes_error_record() -> None:
     folded = fold_arm(recs)
     mr = folded.mean_records[0]
     assert mr.status == RunStatus.ERROR
+    # tutte e 4 le metriche azzerate (non solo latency_ms).
+    assert mr.metrics.grounding == 0.0
+    assert mr.metrics.hallucination == 0.0
     assert mr.metrics.latency_ms == 0
-    assert folded.variances[0].n_reps == 0
-    assert folded.variances[0].n_dropped == 2
+    assert mr.metrics.cost_usd == 0.0
+    zv = folded.variances[0]
+    assert zv.n_reps == 0
+    assert zv.n_dropped == 2
+    # tutti e 4 gli assi di std azzerati.
+    assert zv.std.grounding == 0.0
+    assert zv.std.hallucination == 0.0
+    assert zv.std.latency_ms == 0.0
+    assert zv.std.cost_usd == 0.0
+
+
+def test_fold_rounds_latency_mean_to_nearest_int() -> None:
+    """Media non intera (1000.333...) → latency_ms=1000 (round, non floor/crash).
+
+    Blinda che round() e' funzionale: Metrics.latency_ms:int solleverebbe su un
+    float frazionario se round() venisse rimosso o sostituito da un cast int().
+    """
+    recs = [
+        _rec(
+            "Roma",
+            "Colosseo",
+            rep=r,
+            grounding=0.5,
+            hallucination=0.5,
+            latency_ms=lat,
+            cost_usd=0.001,
+        )
+        for r, lat in enumerate([1000, 1000, 1001])
+    ]
+    mr = fold_arm(recs).mean_records[0]
+    assert mr.metrics.latency_ms == 1000
+    assert isinstance(mr.metrics.latency_ms, int)
 
 
 def test_fold_preserves_snapshot_id_for_iso_input() -> None:

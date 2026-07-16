@@ -86,3 +86,52 @@ def test_tie_tolerance_at_print_precision() -> None:
     )
     assert decided.deciding_axis == "hallucination"
     assert decided.winner == "claude"
+
+
+def test_tie_tolerance_at_print_precision_for_cost_usd() -> None:
+    """cost_usd (6 decimali): differiscono alla 6a cifra -> decide; pari fino
+    alla 6a -> pareggio. Valori scelti cosi' che con ndigits=3 (mutazione)
+    risulterebbero entrambi pari (round(x,3)==0.0), catturando lo shrink 6→3."""
+    tied = decide_winner(
+        _mv(0.8, 0.10, 1000, 0.0000011),
+        _mv(0.8, 0.10, 1000, 0.0000009),
+        label_a="claude",
+        label_b="groq",
+    )
+    assert tied.chain[-1].axis == "cost_usd"
+    assert tied.chain[-1].outcome == "tie"
+    assert tied.winner is None
+
+    decided = decide_winner(
+        _mv(0.8, 0.10, 1000, 0.0000010),
+        _mv(0.8, 0.10, 1000, 0.0000020),
+        label_a="claude",
+        label_b="groq",
+    )
+    assert decided.deciding_axis == "cost_usd"
+    assert decided.winner == "claude"  # costo piu' basso vince
+
+
+def test_tie_tolerance_at_print_precision_for_latency_ms() -> None:
+    """latency_ms (0 decimali): 1000.4 vs 1000.6 -> decide (round 1000 vs 1001);
+    1000.4 vs 1000.3 -> pari (entrambi round 1000)."""
+    tied = decide_winner(
+        _mv(0.8, 0.10, 1000.4, 0.001),
+        _mv(0.8, 0.10, 1000.3, 0.001),
+        label_a="claude",
+        label_b="groq",
+    )
+    # cost_usd e' anch'esso pari (0.001==0.001): la catena prosegue fino in
+    # fondo, quindi si cerca l'asse latency_ms esplicitamente (non l'ultimo).
+    latency_comparison = next(c for c in tied.chain if c.axis == "latency_ms")
+    assert latency_comparison.outcome == "tie"
+    assert tied.winner is None
+
+    decided = decide_winner(
+        _mv(0.8, 0.10, 1000.4, 0.001),
+        _mv(0.8, 0.10, 1000.6, 0.001),
+        label_a="claude",
+        label_b="groq",
+    )
+    assert decided.deciding_axis == "latency_ms"
+    assert decided.winner == "claude"  # 1000 < 1001

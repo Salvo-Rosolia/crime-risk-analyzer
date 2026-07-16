@@ -186,3 +186,9 @@ def test_parser_run_has_repeat_default_one() -> None:
 
     ns = build_parser().parse_args(["run", "--config", "x.json"])
     assert ns.repeat == 1
+
+
+def test_parser_run_repeat_accepts_explicit_value() -> None:
+    """--repeat 3 (non solo il default) -> ns.repeat==3, come int (non str)."""
+    ns = build_parser().parse_args(["run", "--config", "x.json", "--repeat", "3"])
+    assert ns.repeat == 3
