@@ -76,6 +76,11 @@ def build_parser() -> argparse.ArgumentParser:
                 default=1,
                 help="K ripetizioni per stimare la varianza (#157); default 1",
             )
+            p.add_argument(
+                "--clean-stale",
+                action="store_true",
+                help="rimuove le run legacy pre-#157 (senza __rep) prima di eseguire",
+            )
     agg = sub.add_parser("aggregate")
     agg.add_argument("--experiment", required=True)
     agg.add_argument("--results", default="results")

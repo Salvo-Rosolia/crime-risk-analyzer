@@ -75,7 +75,9 @@ async def _capture(
             )
 
 
-async def _run(config_path: Path, results_dir: Path, *, repeat: int = 1) -> None:
+async def _run(
+    config_path: Path, results_dir: Path, *, repeat: int = 1, clean_stale: bool = False
+) -> None:
     config = load_config(config_path)
     # Build the client only when mode requires it (fix T9), using config.model (fix I1).
     client = build_llm_eval_client(config) if config.mode != "baseline" else None
@@ -87,6 +89,7 @@ async def _run(config_path: Path, results_dir: Path, *, repeat: int = 1) -> None
         code_commit=code_commit(),
         ontology_hash=ontology_hash(),
         repeat=repeat,
+        clean_stale=clean_stale,
     )
 
 
@@ -96,7 +99,14 @@ def main() -> int:
     if ns.command == "capture":
         asyncio.run(_capture(Path(ns.config), results_dir, force=ns.force))
     elif ns.command == "run":
-        asyncio.run(_run(Path(ns.config), results_dir, repeat=ns.repeat))
+        asyncio.run(
+            _run(
+                Path(ns.config),
+                results_dir,
+                repeat=ns.repeat,
+                clean_stale=ns.clean_stale,
+            )
+        )
     elif ns.command == "aggregate":
         write_tables(results_dir, ns.experiment)
     elif ns.command == "compare":

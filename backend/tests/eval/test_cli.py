@@ -207,3 +207,12 @@ def test_compare_parsers_accept_force_flag() -> None:
         ["compare", "--experiment-a", "a", "--experiment-b", "b"]
     )
     assert ns.force is False
+
+
+def test_run_parser_accepts_clean_stale_flag() -> None:
+    from crime_risk_analyzer.eval.cli import build_parser
+
+    ns = build_parser().parse_args(["run", "--config", "c.json", "--clean-stale"])
+    assert ns.clean_stale is True
+    ns = build_parser().parse_args(["run", "--config", "c.json"])
+    assert ns.clean_stale is False
