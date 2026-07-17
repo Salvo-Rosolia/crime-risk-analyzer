@@ -128,8 +128,44 @@ jobs:
         continue-on-error: true
         run: npm run format:check
 
+  frontend-e2e:
+    needs: changes
+    if: ${{ needs.changes.outputs.frontend == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Detect frontend tooling
+        id: tooling
+        run: |
+          if [ -f package.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "package.json trovato: eseguo gli E2E Playwright."
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "Tooling FE non ancora presente (nessun package.json): skip-pass."
+          fi
+      - name: Setup Node
+        if: ${{ steps.tooling.outputs.present == 'true' }}
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: "frontend/.nvmrc"
+      - name: Install dependencies
+        if: ${{ steps.tooling.outputs.present == 'true' }}
+        run: npm ci
+      - name: Install Playwright browser (chromium)
+        if: ${{ steps.tooling.outputs.present == 'true' }}
+        run: npx playwright install --with-deps chromium
+      - name: E2E (Playwright build di produzione + server statico + chromium)
+        # `npm run e2e` avvia il webServer di Playwright (ng build + http-server su
+        # :4200) e gira gli spec; in CI (CI=true) non riusa server esistenti.
+        if: ${{ steps.tooling.outputs.present == 'true' }}
+        run: npm run e2e
+
   ci-gate:
-    needs: [changes, backend, frontend, frontend-build]
+    needs: [changes, backend, frontend, frontend-build, frontend-e2e]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
@@ -139,11 +175,13 @@ jobs:
           backend_result="${{ needs.backend.result }}"
           frontend_result="${{ needs.frontend.result }}"
           frontend_build_result="${{ needs['frontend-build'].result }}"
+          frontend_e2e_result="${{ needs['frontend-e2e'].result }}"
           echo "changes        = $changes_result"
           echo "backend        = $backend_result"
           echo "frontend       = $frontend_result"
           echo "frontend-build = $frontend_build_result"
-          for r in "$changes_result" "$backend_result" "$frontend_result" "$frontend_build_result"; do
+          echo "frontend-e2e   = $frontend_e2e_result"
+          for r in "$changes_result" "$backend_result" "$frontend_result" "$frontend_build_result" "$frontend_e2e_result"; do
             if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
               echo "::error::Un job CI non e stato superato ($r). Gate ROSSO."
               exit 1

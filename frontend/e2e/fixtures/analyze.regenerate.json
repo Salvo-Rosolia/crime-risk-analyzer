@@ -1,0 +1,63 @@
+{
+  "citta": "Roma",
+  "zona_normalizzata": "Colosseo",
+  "poi": [
+    {
+      "id": "r1",
+      "name": "Colosseo",
+      "terminus_class": "ArchaeologicalSite",
+      "lat": 41.8902,
+      "lon": 12.4922,
+      "confidence": "confermato",
+      "sparql_path": "ArchaeologicalSite → hasAnthropicHazard → borseggioTuristi",
+      "terminus_label_it": "Sito archeologico",
+      "terminus_label_en": "Archaeological site"
+    },
+    {
+      "id": "r2",
+      "name": "Arco di Costantino",
+      "terminus_class": "Monument",
+      "lat": 41.8897,
+      "lon": 12.4905,
+      "confidence": "plausibile",
+      "sparql_path": "Monument → hasEnvironmentalHazard → scarsaIlluminazione",
+      "terminus_label_it": "Monumento",
+      "terminus_label_en": "Monument"
+    }
+  ],
+  "risk_models": [
+    {
+      "poi": "Colosseo",
+      "risks": [
+        {
+          "hazard": "borseggioTuristi",
+          "confidence": "confermato",
+          "tag": "ONTOLOGIA",
+          "hazard_label_it": "Borseggio turisti",
+          "hazard_label_en": "Tourist pickpocketing"
+        }
+      ]
+    },
+    {
+      "poi": "Arco di Costantino",
+      "risks": [
+        {
+          "hazard": "scarsaIlluminazione",
+          "confidence": "plausibile",
+          "tag": "CONTESTO",
+          "hazard_label_it": "Scarsa illuminazione",
+          "hazard_label_en": "Poor lighting"
+        }
+      ]
+    }
+  ],
+  "narrativa": "Rigenerazione: la nuova generazione mostra un quadro più contenuto, con un solo rischio ancorato all'ontologia presso il Colosseo e uno di contesto presso l'Arco di Costantino.",
+  "confidence_summary": { "confermato": 1, "plausibile": 1, "speculativo": 0 },
+  "llm_used": "claude-sonnet-4-6",
+  "latenza_ms": 1980,
+  "tokens_input": 640,
+  "tokens_output": 198,
+  "repro": { "temperature": 0.2, "seed": 43, "prompt_hash": "def456" },
+  "cache_hit": false,
+  "fallback": false
+}

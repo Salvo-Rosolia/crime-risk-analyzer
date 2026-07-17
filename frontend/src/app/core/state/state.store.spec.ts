@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import { HttpErrorResponse } from '@angular/common/http';
 import { ApiService } from '@core/api/api.service';
 import { StateStore } from '@core/state/state.store';
 import { AnalyzeResponse } from '@core/models/models';
@@ -63,6 +64,17 @@ describe('StateStore', () => {
     await store.startAnalysis('Roma', 'Roma');
     expect(store.screen()).toBe('ERROR');
     expect(store.error()).toBe('offline');
+  });
+
+  it('startAnalysis failure con HttpErrorResponse 422 → error() contiene il messaggio del backend, non il fallback generico', async () => {
+    const err = new HttpErrorResponse({
+      status: 422,
+      error: { detail: { errore: 'ZoneNotFoundError', messaggio: 'Zona X non trovata nell\'ontologia.' } },
+    });
+    api.analyze.mockRejectedValue(err);
+    await store.startAnalysis('Roma', 'Roma');
+    expect(store.screen()).toBe('ERROR');
+    expect(store.error()).toBe('Zona X non trovata nell\'ontologia.');
   });
 
   it('startBaselineAnalysis success → LOAD_SUCCESS con i dati in baselineData (mai in completoData)', async () => {
