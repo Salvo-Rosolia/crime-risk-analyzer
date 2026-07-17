@@ -9,6 +9,7 @@ from crime_risk_analyzer.llm.client import LLMError, LLMResponse
 from crime_risk_analyzer.models.risk import PoiRiskProfile
 from crime_risk_analyzer.orchestrator import (
     AnalyzeRequest,
+    BaselineRequest,
     _build_poi_list,  # pyright: ignore[reportPrivateUsage]
     _risk_models_from_grounded,  # pyright: ignore[reportPrivateUsage]
     _structured_response,  # pyright: ignore[reportPrivateUsage]
@@ -471,3 +472,28 @@ def test_analyze_request_accepts_domanda_at_max_length() -> None:
     req = AnalyzeRequest(citta="Roma", zona="Centro", domanda="x" * 500)
     assert req.domanda is not None
     assert len(req.domanda) == 500
+
+
+# --- #170: max_length sulla zona (free-text verso Nominatim + chiave _CACHE) ---
+
+
+def test_analyze_request_rejects_overlong_zona() -> None:
+    # oltre il tetto (200): la validazione Pydantic respinge la richiesta
+    with pytest.raises(ValidationError):
+        AnalyzeRequest(citta="Roma", zona="x" * 201)
+
+
+def test_analyze_request_accepts_zona_at_max_length() -> None:
+    # esattamente al tetto: ammessa (il bound e' inclusivo)
+    req = AnalyzeRequest(citta="Roma", zona="x" * 200)
+    assert len(req.zona) == 200
+
+
+def test_baseline_request_rejects_overlong_zona() -> None:
+    with pytest.raises(ValidationError):
+        BaselineRequest(citta="Roma", zona="x" * 201)
+
+
+def test_baseline_request_accepts_zona_at_max_length() -> None:
+    req = BaselineRequest(citta="Roma", zona="x" * 200)
+    assert len(req.zona) == 200
