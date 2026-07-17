@@ -175,6 +175,23 @@ def test_rate_limiter_wired_with_settings() -> None:
     assert rl.swallow_exceptions is False
 
 
+def test_rate_limiter_builds_with_high_min_delay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """min_delay > 5s non deve rompere la costruzione del RateLimiter (#115)."""
+    from geopy.extra.rate_limiter import (  # pyright: ignore[reportMissingTypeStubs]
+        RateLimiter,
+    )
+
+    monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "6")
+    get_settings.cache_clear()
+    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    rl = _geo_mod._get_rate_limited_geocode()  # pyright: ignore[reportPrivateUsage]
+    assert isinstance(rl, RateLimiter)
+    assert rl.min_delay_seconds == 6.0
+    assert rl.error_wait_seconds >= rl.min_delay_seconds
+
+
 def test_rate_limiter_throttles_second_call(monkeypatch: pytest.MonkeyPatch) -> None:
     """Due chiamate ravvicinate -> applica un ritardo >= min_delay (clock finto)."""
     monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "1")

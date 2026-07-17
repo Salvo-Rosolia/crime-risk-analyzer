@@ -123,12 +123,21 @@ def _get_rate_limited_geocode() -> Callable[[str], _Location | None]:
     throttling (``_last_call``) persiste tra le chiamate; i test lo resettano
     con ``cache_clear()``.
     """
+    min_delay = get_settings().geocoding_min_delay_seconds
     return cast(
         "Callable[[str], _Location | None]",
         RateLimiter(
             _geocode_raw,
-            min_delay_seconds=get_settings().geocoding_min_delay_seconds,
+            min_delay_seconds=min_delay,
             max_retries=0,
+            # geopy impone ``error_wait_seconds >= min_delay_seconds`` (assert in
+            # ``RateLimiter.__init__``): con ``max_retries=0`` questo valore e'
+            # inerte (nessun retry, quindi non si attende mai), ma va tenuto >=
+            # min_delay per non far crollare la costruzione lazy con un
+            # ``AssertionError`` (non un ``GeocoderServiceError``, quindi NON
+            # mappato da :func:`geocode_zone` -> 500 anziche' 503) quando un env
+            # configura ``geocoding_min_delay_seconds`` > 5s.
+            error_wait_seconds=max(5.0, min_delay),
             swallow_exceptions=False,
         ),
     )
