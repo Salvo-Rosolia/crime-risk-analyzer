@@ -182,7 +182,11 @@ def test_geocode_zone_cache_disabled_queries_twice(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("CACHE_ENABLED", "false")
+    # min_delay minimo (gt=0) + limiter ricostruito: azzera il ~1s di sleep
+    # reale sulla 2a chiamata mantenendo il vincolo di config.
+    monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.001")
     get_settings.cache_clear()
+    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
     fake = _FakeGeocoder(
         _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
     )
@@ -200,6 +204,11 @@ def test_geocode_zone_does_not_cache_errors(monkeypatch: pytest.MonkeyPatch) -> 
         GeocoderServiceError,
     )
 
+    # min_delay minimo (gt=0) + limiter ricostruito: azzera il ~1s di sleep
+    # reale tra le 2 chiamate mantenendo il vincolo di config.
+    monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.001")
+    get_settings.cache_clear()
+    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
     failing = _FakeGeocoder(exc=GeocoderServiceError("boom"))
     _patch_geocoder(monkeypatch, failing)
     with pytest.raises(GeocodingError):
@@ -212,6 +221,19 @@ def test_geocode_zone_does_not_cache_errors(monkeypatch: pytest.MonkeyPatch) -> 
     result = geocode_zone("Colosseo", "Roma")
     assert result["lat"] == pytest.approx(41.89)
     assert len(ok.queries) == 1  # non serviva dalla cache un errore
+
+
+def test_geocode_zone_cache_key_normalizes_case_and_spaces(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Varianti di case/spazi colpiscono la stessa entry di cache (#115)."""
+    fake = _FakeGeocoder(
+        _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
+    )
+    _patch_geocoder(monkeypatch, fake)
+    geocode_zone("Colosseo", "Roma")
+    geocode_zone("  colosseo  ", " ROMA ")
+    assert len(fake.queries) == 1  # seconda dalla cache grazie alla normalizzazione
 
 
 def test_rate_limiter_wired_with_settings() -> None:
