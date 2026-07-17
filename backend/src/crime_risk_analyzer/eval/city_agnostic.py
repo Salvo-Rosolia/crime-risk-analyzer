@@ -19,10 +19,14 @@ from pathlib import Path
 from typing import Literal, Protocol, cast
 
 from geopy.exc import GeocoderServiceError  # pyright: ignore[reportMissingTypeStubs]
+from geopy.extra.rate_limiter import (  # pyright: ignore[reportMissingTypeStubs]
+    RateLimiter,
+)
 from geopy.geocoders import Nominatim  # pyright: ignore[reportMissingTypeStubs]
 from pydantic import BaseModel, Field
 from rdflib import OWL, RDF, Graph
 
+from crime_risk_analyzer.config import get_settings
 from crime_risk_analyzer.eval.geometry import (
     CityBoundary,
     boundary_from_geojson,
@@ -58,25 +62,87 @@ class _BoundaryLocation(Protocol):
     def raw(self) -> dict[str, object]: ...
 
 
+class _BoundaryGeocoder(Protocol):
+    """Vista tipata minimale del geocoder (geopy senza stub) per la boundary.
+
+    Dichiara la firma che serve qui (con ``geometry`` per il poligono) invece di
+    ereditare quella non tipata di ``Nominatim``: la chiamata resta verificabile
+    da pyright strict senza ``# pyright: ignore`` sugli argomenti.
+    """
+
+    def geocode(
+        self,
+        query: str,
+        *,
+        geometry: str = ...,
+        country_codes: str = ...,
+        timeout: float = ...,
+    ) -> _BoundaryLocation | None: ...
+
+
 @lru_cache(maxsize=1)
 def _boundary_geolocator() -> Nominatim:
     return Nominatim(user_agent=_BOUNDARY_USER_AGENT)
 
 
+def _boundary_geocode_raw(citta: str) -> _BoundaryLocation | None:
+    """Chiamata effettiva a geopy per il confine, con timeout e country_codes (#170).
+
+    Ri-risolve ``_boundary_geolocator()`` a ogni chiamata cosi' il monkeypatch dei
+    test resta onorato anche dietro il RateLimiter singleton (mirror di #115).
+    ``geometry='geojson'`` e' cablato: serve il poligono, non un punto.
+    """
+    settings = get_settings()
+    geolocator = cast("_BoundaryGeocoder", _boundary_geolocator())
+    return geolocator.geocode(
+        f"{citta}, Italia",
+        geometry="geojson",
+        country_codes=settings.geocoding_country_codes,
+        timeout=settings.geocoding_timeout_seconds,
+    )
+
+
+@lru_cache(maxsize=1)
+def _boundary_rate_limiter() -> Callable[[str], _BoundaryLocation | None]:
+    """RateLimiter LOCALE attorno a :func:`_boundary_geocode_raw` (#170).
+
+    Secondo call-site Nominatim del progetto: la boundary rispetta la usage
+    policy (~1 req/s) con lo stesso pattern di #115 ma un limiter DEDICATO (non
+    condiviso con ``geocode_zone``), per non toccare la logica core di quel
+    rate-limiter. ``min_delay_seconds`` dai setting; ``max_retries=0`` preserva la
+    semantica a chiamata singola; ``swallow_exceptions=False`` fa propagare
+    ``GeocoderServiceError`` (mappato da :func:`fetch_city_boundary` ->
+    ``GeocodingError``, altrimenti geopy lo inghiottirebbe restituendo ``None``,
+    confuso con "confine non trovato"). ``error_wait_seconds`` >= ``min_delay``
+    per l'assert interno di geopy con env che configurano ``min_delay`` > 5s
+    (inerte con ``max_retries=0``). Cached: lo stato di throttling persiste; i
+    test lo resettano con ``cache_clear()``.
+    """
+    min_delay = get_settings().geocoding_min_delay_seconds
+    return cast(
+        "Callable[[str], _BoundaryLocation | None]",
+        RateLimiter(
+            _boundary_geocode_raw,
+            min_delay_seconds=min_delay,
+            max_retries=0,
+            error_wait_seconds=max(5.0, min_delay),
+            swallow_exceptions=False,
+        ),
+    )
+
+
 def fetch_city_boundary(citta: str) -> CityBoundary:
     """Scarica il poligono amministrativo reale della città via Nominatim.
 
-    Validation-only: usa un geolocator dedicato per non modificare il prodotto.
+    Validation-only: usa un geolocator dedicato e un rate-limiter LOCALE (#170)
+    per non modificare il prodotto ne' interferire col limiter #115.
     """
     try:
-        result: object = _boundary_geolocator().geocode(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-            f"{citta}, Italia", geometry="geojson"
-        )
+        location = _boundary_rate_limiter()(citta)
     except GeocoderServiceError as exc:
         raise GeocodingError(
             f"Nominatim non raggiungibile per confine {citta!r}"
         ) from exc
-    location = cast("_BoundaryLocation | None", result)
     if location is None:
         raise ZoneNotFoundError(f"Confine città non trovato: {citta!r}")
     raw = location.raw

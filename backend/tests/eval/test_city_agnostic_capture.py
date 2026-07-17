@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 from typing import cast
 
 import pytest
 from geopy.exc import GeocoderServiceError  # pyright: ignore[reportMissingTypeStubs]
 
+from crime_risk_analyzer.config import get_settings
 from crime_risk_analyzer.eval import city_agnostic as ca
 from crime_risk_analyzer.eval.geometry import CityBoundary
 from crime_risk_analyzer.geocoding import GeocodingError, ZoneNotFoundError
@@ -15,6 +17,23 @@ from crime_risk_analyzer.overpass_client import OverpassError, Poi
 _BOUNDARY = CityBoundary(
     polygons=[[[(11.0, 40.0), (13.0, 40.0), (13.0, 42.0), (11.0, 42.0)]]]
 )
+
+
+@pytest.fixture(autouse=True)
+def _reset_boundary_state() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]
+    """Resetta lo stato di modulo condiviso prima/dopo ogni test (#170).
+
+    ``get_settings`` e il RateLimiter locale della boundary
+    (``_boundary_rate_limiter``, che porta lo stato di throttling ``_last_call``)
+    sono cacheati per processo: senza reset i test di ``fetch_city_boundary`` si
+    contaminerebbero (sleep residui del throttle, delay stale dai setting di un
+    altro test). Mirror di ``_reset_geocoding_state`` per #115.
+    """
+    get_settings.cache_clear()
+    ca._boundary_rate_limiter.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    yield
+    get_settings.cache_clear()
+    ca._boundary_rate_limiter.cache_clear()  # pyright: ignore[reportPrivateUsage]
 
 
 def _poi() -> Poi:
@@ -51,8 +70,10 @@ class _FakeGeolocator:
     ) -> None:
         self._result = result
         self._raise_service_error = raise_service_error
+        self.calls: list[dict[str, object]] = []
 
-    def geocode(self, query: str, geometry: str = "geojson") -> _FakeLocation | None:
+    def geocode(self, query: str, **kwargs: object) -> _FakeLocation | None:
+        self.calls.append({"query": query, **kwargs})
         if self._raise_service_error:
             raise GeocoderServiceError("nominatim non raggiungibile")
         return self._result
@@ -125,6 +146,54 @@ def test_fetch_city_boundary_returns_boundary_for_valid_polygon(
     boundary = ca.fetch_city_boundary("Roma")
 
     assert boundary.polygons
+
+
+def test_fetch_city_boundary_passes_timeout_and_country_codes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """timeout e country_codes arrivano DAI setting, non da valori hardcoded (#170).
+
+    Sentinelle NON-default (``fr``/``7``) cosi' il test fallisce anche se un
+    domani i valori venissero cablati sul default: la sola prova che provengono
+    davvero dalla configurazione. ``geometry='geojson'`` resta cablato (necessario
+    per ottenere il poligono).
+    """
+    monkeypatch.setenv("GEOCODING_COUNTRY_CODES", "fr")
+    monkeypatch.setenv("GEOCODING_TIMEOUT_SECONDS", "7")
+    get_settings.cache_clear()
+    ca._boundary_rate_limiter.cache_clear()  # pyright: ignore[reportPrivateUsage]
+
+    geojson = {
+        "type": "Polygon",
+        "coordinates": [
+            [[11.0, 40.0], [13.0, 40.0], [13.0, 42.0], [11.0, 42.0], [11.0, 40.0]]
+        ],
+    }
+    fake = _FakeGeolocator(_FakeLocation({"geojson": geojson}))
+    monkeypatch.setattr(ca, "_boundary_geolocator", lambda: fake)
+
+    ca.fetch_city_boundary("Roma")
+
+    assert fake.calls[0]["country_codes"] == "fr"
+    assert fake.calls[0]["timeout"] == 7.0
+    assert fake.calls[0]["geometry"] == "geojson"
+
+
+def test_boundary_rate_limiter_wired_with_settings() -> None:
+    """Il rate-limiter locale usa min_delay dai setting, max_retries=0, no swallow.
+
+    Mirror del limiter #115 di ``geocode_zone``, ma LOCALE (non condiviso): la
+    boundary rispetta la usage policy Nominatim senza toccare la logica #115.
+    """
+    from geopy.extra.rate_limiter import (  # pyright: ignore[reportMissingTypeStubs]
+        RateLimiter,
+    )
+
+    rl = ca._boundary_rate_limiter()  # pyright: ignore[reportPrivateUsage]
+    assert isinstance(rl, RateLimiter)
+    assert rl.min_delay_seconds == get_settings().geocoding_min_delay_seconds
+    assert rl.max_retries == 0
+    assert rl.swallow_exceptions is False
 
 
 def test_fetch_city_boundary_raises_zone_not_found_when_location_missing(
