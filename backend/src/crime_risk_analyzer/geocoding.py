@@ -88,6 +88,15 @@ class ZoneNotFoundError(GeocodingError):
     """La zona non e' geocodificabile nella citta' indicata."""
 
 
+#: Cache in-memory dei risultati di geocoding (#115), gate da Settings.cache_enabled.
+#: Chiave normalizzata (strip+lower) per non duplicare varianti di case/spazi.
+_CACHE: dict[tuple[str, str], GeoResult] = {}
+
+
+def _cache_key(zona: str, citta: str) -> tuple[str, str]:
+    return (zona.strip().lower(), citta.strip().lower())
+
+
 @lru_cache(maxsize=1)
 def _get_geolocator() -> Nominatim:
     """Provider cached del geocoder Nominatim (un'istanza per processo)."""
@@ -166,7 +175,16 @@ def geocode_zone(zona: str, citta: str) -> GeoResult:
     Solleva :class:`ZoneNotFoundError` se la zona non e' trovata o e' priva di
     bounding box utilizzabile, e :class:`GeocodingError` se il servizio Nominatim
     non e' raggiungibile.
+
+    Con ``Settings.cache_enabled`` i soli SUCCESSI sono memorizzati per chiave
+    normalizzata (#115): una zona gia' risolta non ri-interroga Nominatim. Gli
+    errori sollevano prima di raggiungere lo store, quindi non vengono cacheati.
     """
+    settings = get_settings()
+    key = _cache_key(zona, citta)
+    if settings.cache_enabled and key in _CACHE:
+        return _CACHE[key]
+
     query = f"{zona}, {citta}"
     try:
         location = _get_rate_limited_geocode()(query)
@@ -186,4 +204,7 @@ def geocode_zone(zona: str, citta: str) -> GeoResult:
             f"Zona priva di bounding box: {zona!r} in {citta!r}"
         ) from exc
 
-    return GeoResult(lat=location.latitude, lon=location.longitude, bbox=bbox)
+    result = GeoResult(lat=location.latitude, lon=location.longitude, bbox=bbox)
+    if settings.cache_enabled:
+        _CACHE[key] = result
+    return result

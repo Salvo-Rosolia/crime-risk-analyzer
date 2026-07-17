@@ -27,9 +27,11 @@ def _reset_geocoding_state() -> Iterator[None]:  # pyright: ignore[reportUnusedF
     """
     get_settings.cache_clear()
     _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    _geo_mod._CACHE.clear()  # pyright: ignore[reportPrivateUsage]
     yield
     get_settings.cache_clear()
     _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    _geo_mod._CACHE.clear()  # pyright: ignore[reportPrivateUsage]
 
 
 class _FakeLocation:
@@ -160,6 +162,56 @@ def test_geocode_zone_passes_country_codes_and_timeout(
 
     assert fake.calls[0]["country_codes"] == "fr"
     assert fake.calls[0]["timeout"] == 7.0
+
+
+def test_geocode_zone_caches_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Con cache_enabled, la seconda chiamata NON interroga il geocoder."""
+    fake = _FakeGeocoder(
+        _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
+    )
+    _patch_geocoder(monkeypatch, fake)
+
+    first = geocode_zone("Colosseo", "Roma")
+    second = geocode_zone("Colosseo", "Roma")
+
+    assert first == second
+    assert len(fake.queries) == 1  # seconda risposta dalla cache
+
+
+def test_geocode_zone_cache_disabled_queries_twice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CACHE_ENABLED", "false")
+    get_settings.cache_clear()
+    fake = _FakeGeocoder(
+        _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
+    )
+    _patch_geocoder(monkeypatch, fake)
+
+    geocode_zone("Colosseo", "Roma")
+    geocode_zone("Colosseo", "Roma")
+
+    assert len(fake.queries) == 2
+
+
+def test_geocode_zone_does_not_cache_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Un fallimento non popola la cache: la chiamata successiva riprova davvero."""
+    from geopy.exc import (  # pyright: ignore[reportMissingTypeStubs]
+        GeocoderServiceError,
+    )
+
+    failing = _FakeGeocoder(exc=GeocoderServiceError("boom"))
+    _patch_geocoder(monkeypatch, failing)
+    with pytest.raises(GeocodingError):
+        geocode_zone("Colosseo", "Roma")
+
+    ok = _FakeGeocoder(
+        _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
+    )
+    _patch_geocoder(monkeypatch, ok)
+    result = geocode_zone("Colosseo", "Roma")
+    assert result["lat"] == pytest.approx(41.89)
+    assert len(ok.queries) == 1  # non serviva dalla cache un errore
 
 
 def test_rate_limiter_wired_with_settings() -> None:
