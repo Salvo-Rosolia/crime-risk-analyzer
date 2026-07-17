@@ -191,3 +191,90 @@ def test_cors_origins_are_trimmed(monkeypatch: pytest.MonkeyPatch) -> None:
     settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
 
     assert settings.cors_allow_origins == ["http://localhost:4200"]
+
+
+def test_geocoding_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Senza env ne' .env i default di geocoding (#115) sono applicati."""
+    for var in (
+        "GEOCODING_MIN_DELAY_SECONDS",
+        "GEOCODING_TIMEOUT_SECONDS",
+        "GEOCODING_COUNTRY_CODES",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+
+    assert settings.geocoding_min_delay_seconds == 1.1
+    assert settings.geocoding_timeout_seconds == 10.0
+    assert settings.geocoding_country_codes == "it"
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "-0.5"])
+def test_invalid_geocoding_min_delay_rejected(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    """geocoding_min_delay_seconds <= 0 e' respinto al load (deve essere > 0)."""
+    monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", value)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "-0.5"])
+def test_invalid_geocoding_timeout_rejected(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    """geocoding_timeout_seconds <= 0 e' respinto al load (deve essere > 0)."""
+    monkeypatch.setenv("GEOCODING_TIMEOUT_SECONDS", value)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+
+
+def test_geocoding_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """I valori di geocoding da environment sovrascrivono i default."""
+    monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.5")
+    monkeypatch.setenv("GEOCODING_TIMEOUT_SECONDS", "20")
+    monkeypatch.setenv("GEOCODING_COUNTRY_CODES", "it,sm")
+
+    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+
+    assert settings.geocoding_min_delay_seconds == 0.5
+    assert settings.geocoding_timeout_seconds == 20.0
+    assert settings.geocoding_country_codes == "it,sm"
+
+
+@pytest.mark.parametrize("value", ["", "   "])
+def test_geocoding_country_codes_blank_rejected(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    """Un country_codes vuoto o di soli spazi e' respinto al load (#115).
+
+    Una stringa vuota disattiverebbe SILENZIOSAMENTE il filtro nazione di
+    Nominatim (il parametro verrebbe ignorato), restituendo zone omonime nella
+    nazione sbagliata: meglio fallire al caricamento con ``ValidationError``.
+    """
+    monkeypatch.setenv("GEOCODING_COUNTRY_CODES", value)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+
+
+def test_geocoding_country_codes_multi_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nominatim accetta piu' codici nazione: la CSV "it,sm" resta valida."""
+    monkeypatch.setenv("GEOCODING_COUNTRY_CODES", "it,sm")
+
+    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+
+    assert settings.geocoding_country_codes == "it,sm"
+
+
+def test_geocoding_country_codes_trimmed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Il valore memorizzato e' normalizzato con strip() (spazi ai bordi rimossi)."""
+    monkeypatch.setenv("GEOCODING_COUNTRY_CODES", "  it  ")
+
+    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+
+    assert settings.geocoding_country_codes == "it"

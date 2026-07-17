@@ -2,15 +2,36 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any, cast
 
 import pytest
 
+import crime_risk_analyzer.geocoding as _geo_mod
+from crime_risk_analyzer.config import get_settings
 from crime_risk_analyzer.geocoding import (
     GeocodingError,
     ZoneNotFoundError,
     geocode_zone,
 )
+
+
+@pytest.fixture(autouse=True)
+def _reset_geocoding_state() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]
+    """Resetta lo stato di modulo condiviso prima/dopo ogni test.
+
+    ``get_settings`` e il RateLimiter singleton (``_get_rate_limited_geocode``,
+    che porta lo stato di throttling ``_last_call``) sono cacheati per processo:
+    senza reset i test si contaminerebbero a vicenda (sleep residui, delay stale
+    dai setting di un altro test).
+    """
+    get_settings.cache_clear()
+    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    _geo_mod._CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+    yield
+    get_settings.cache_clear()
+    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    _geo_mod._CACHE.clear()  # pyright: ignore[reportPrivateUsage]
 
 
 class _FakeLocation:
@@ -33,9 +54,11 @@ class _FakeGeocoder:
         self._location = location
         self._exc = exc
         self.queries: list[str] = []
+        self.calls: list[dict[str, object]] = []
 
-    def geocode(self, query: str, **_: object) -> _FakeLocation | None:
+    def geocode(self, query: str, **kwargs: object) -> _FakeLocation | None:
         self.queries.append(query)
+        self.calls.append(kwargs)
         if self._exc is not None:
             raise self._exc
         return self._location
@@ -115,6 +138,236 @@ def test_geocode_zone_service_error_raises(
 
     with pytest.raises(GeocodingError):
         geocode_zone("Colosseo", "Roma")
+
+
+def test_geocode_zone_passes_country_codes_and_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """country_codes e timeout arrivano DAI setting, non da valori hardcoded.
+
+    Usa sentinelle NON-default (``fr``/``7``) cosi' il test fallisce anche se un
+    domani i valori venissero cablati sul default ("it"/10.0): la sola prova che
+    provengono davvero dalla configurazione.
+    """
+    monkeypatch.setenv("GEOCODING_COUNTRY_CODES", "fr")
+    monkeypatch.setenv("GEOCODING_TIMEOUT_SECONDS", "7")
+    get_settings.cache_clear()
+
+    fake = _FakeGeocoder(
+        _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
+    )
+    _patch_geocoder(monkeypatch, fake)
+
+    geocode_zone("Colosseo", "Roma")
+
+    assert fake.calls[0]["country_codes"] == "fr"
+    assert fake.calls[0]["timeout"] == 7.0
+
+
+def test_geocode_zone_caches_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Con cache_enabled, la seconda chiamata NON interroga il geocoder."""
+    fake = _FakeGeocoder(
+        _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
+    )
+    _patch_geocoder(monkeypatch, fake)
+
+    first = geocode_zone("Colosseo", "Roma")
+    second = geocode_zone("Colosseo", "Roma")
+
+    assert first == second
+    assert len(fake.queries) == 1  # seconda risposta dalla cache
+
+
+def test_geocode_zone_cache_disabled_queries_twice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CACHE_ENABLED", "false")
+    # min_delay minimo (gt=0) + limiter ricostruito: azzera il ~1s di sleep
+    # reale sulla 2a chiamata mantenendo il vincolo di config.
+    monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.001")
+    get_settings.cache_clear()
+    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    fake = _FakeGeocoder(
+        _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
+    )
+    _patch_geocoder(monkeypatch, fake)
+
+    geocode_zone("Colosseo", "Roma")
+    geocode_zone("Colosseo", "Roma")
+
+    assert len(fake.queries) == 2
+    # M1: con la cache disabilitata lo store NON viene popolato. Cattura la
+    # mutazione "rimosso solo il read-gate ma il write resta": senza questa
+    # assert, una entry scritta a cache spenta passerebbe inosservata.
+    assert len(_geo_mod._CACHE) == 0  # pyright: ignore[reportPrivateUsage]
+
+
+def test_geocode_zone_does_not_cache_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Un fallimento non popola la cache: la chiamata successiva riprova davvero."""
+    from geopy.exc import (  # pyright: ignore[reportMissingTypeStubs]
+        GeocoderServiceError,
+    )
+
+    # min_delay minimo (gt=0) + limiter ricostruito: azzera il ~1s di sleep
+    # reale tra le 2 chiamate mantenendo il vincolo di config.
+    monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.001")
+    get_settings.cache_clear()
+    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    failing = _FakeGeocoder(exc=GeocoderServiceError("boom"))
+    _patch_geocoder(monkeypatch, failing)
+    with pytest.raises(GeocodingError):
+        geocode_zone("Colosseo", "Roma")
+
+    ok = _FakeGeocoder(
+        _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
+    )
+    _patch_geocoder(monkeypatch, ok)
+    result = geocode_zone("Colosseo", "Roma")
+    assert result["lat"] == pytest.approx(41.89)
+    assert len(ok.queries) == 1  # non serviva dalla cache un errore
+
+
+def test_geocode_zone_cache_key_normalizes_case_and_spaces(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Varianti di case/spazi colpiscono la stessa entry di cache (#115)."""
+    fake = _FakeGeocoder(
+        _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
+    )
+    _patch_geocoder(monkeypatch, fake)
+    geocode_zone("Colosseo", "Roma")
+    geocode_zone("  colosseo  ", " ROMA ")
+    assert len(fake.queries) == 1  # seconda dalla cache grazie alla normalizzazione
+
+
+def test_geocode_zone_cache_distinguishes_zones(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """C1: zone diverse NON collidono in cache -> due lookup distinti (#115).
+
+    Guardia contro una ``_cache_key`` collassata (che ignorasse la zona): due
+    zone diverse nella stessa citta' devono interrogare il geocoder due volte,
+    non servire la seconda dalla entry della prima.
+    """
+    monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.001")
+    get_settings.cache_clear()
+    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    fake = _FakeGeocoder(
+        _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
+    )
+    _patch_geocoder(monkeypatch, fake)
+
+    geocode_zone("Colosseo", "Roma")
+    geocode_zone("Trastevere", "Roma")  # zona diversa -> NON dalla cache
+
+    assert len(fake.queries) == 2
+
+
+def test_geocode_zone_cache_distinguishes_cities(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """C1: stessa zona ma citta' diversa NON collide -> due lookup distinti (#115).
+
+    Guardia contro una ``_cache_key`` che ignorasse la citta': "Duomo" a Milano
+    e "Duomo" a Roma sono entita' diverse e devono interrogare il geocoder due
+    volte.
+    """
+    monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.001")
+    get_settings.cache_clear()
+    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    fake = _FakeGeocoder(_FakeLocation(45.46, 9.19, ["45.45", "45.47", "9.18", "9.20"]))
+    _patch_geocoder(monkeypatch, fake)
+
+    geocode_zone("Duomo", "Milano")
+    geocode_zone("Duomo", "Roma")  # citta' diversa -> NON dalla cache
+
+    assert len(fake.queries) == 2
+
+
+def test_geocode_zone_does_not_cache_zone_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """M2: una zona non trovata (location None) NON viene cacheata (#115).
+
+    Cattura la mutazione "negative caching": se la prima ZoneNotFoundError
+    finisse nello store, la seconda chiamata (con un geocoder ora valido) sulla
+    stessa (zona, citta') verrebbe servita dalla cache senza interrogare davvero
+    il servizio, restando bloccata su un errore transitorio.
+    """
+    monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.001")
+    get_settings.cache_clear()
+    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    _patch_geocoder(monkeypatch, _FakeGeocoder(location=None))
+    with pytest.raises(ZoneNotFoundError):
+        geocode_zone("Duomo", "Milano")
+
+    ok = _FakeGeocoder(_FakeLocation(45.46, 9.19, ["45.45", "45.47", "9.18", "9.20"]))
+    _patch_geocoder(monkeypatch, ok)
+    result = geocode_zone("Duomo", "Milano")
+
+    assert result["lat"] == pytest.approx(45.46)
+    assert len(ok.queries) == 1  # ha DAVVERO interrogato, non servito da negative-cache
+
+
+def test_rate_limiter_wired_with_settings() -> None:
+    """Il rate-limiter usa min_delay dai setting, max_retries=0, no swallow."""
+    from geopy.extra.rate_limiter import (  # pyright: ignore[reportMissingTypeStubs]
+        RateLimiter,
+    )
+
+    rl = _geo_mod._get_rate_limited_geocode()  # pyright: ignore[reportPrivateUsage]
+    assert isinstance(rl, RateLimiter)
+    assert rl.min_delay_seconds == get_settings().geocoding_min_delay_seconds
+    assert rl.max_retries == 0
+    assert rl.swallow_exceptions is False
+
+
+def test_rate_limiter_builds_with_high_min_delay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """min_delay > 5s non deve rompere la costruzione del RateLimiter (#115)."""
+    from geopy.extra.rate_limiter import (  # pyright: ignore[reportMissingTypeStubs]
+        RateLimiter,
+    )
+
+    monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "6")
+    get_settings.cache_clear()
+    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    rl = _geo_mod._get_rate_limited_geocode()  # pyright: ignore[reportPrivateUsage]
+    assert isinstance(rl, RateLimiter)
+    assert rl.min_delay_seconds == 6.0
+    assert rl.error_wait_seconds >= rl.min_delay_seconds
+
+
+def test_rate_limiter_throttles_second_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Due chiamate ravvicinate -> applica un ritardo >= min_delay (clock finto)."""
+    monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "1")
+    get_settings.cache_clear()
+    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
+
+    fake = _FakeGeocoder(
+        _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
+    )
+    _patch_geocoder(monkeypatch, fake)
+
+    now = [1000.0]
+    slept: list[float] = []
+
+    def fake_sleep(seconds: float) -> None:
+        slept.append(seconds)
+        now[0] += seconds  # il tempo avanza di quanto si dorme
+
+    monkeypatch.setattr("geopy.extra.rate_limiter.sleep", fake_sleep)
+    rl = _geo_mod._get_rate_limited_geocode()  # pyright: ignore[reportPrivateUsage]
+    monkeypatch.setattr(rl, "_clock", lambda: now[0])
+
+    geocode_zone("Colosseo", "Roma")  # 1a chiamata: nessuno sleep
+    # cache disabilitata per forzare una 2a chiamata reale
+    monkeypatch.setenv("CACHE_ENABLED", "false")
+    get_settings.cache_clear()
+    geocode_zone("Trastevere", "Roma")  # 2a chiamata: throttle
+
+    assert slept and slept[0] == pytest.approx(1.0)
 
 
 def test_get_geolocator_builds_nominatim() -> None:
