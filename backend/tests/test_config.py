@@ -204,7 +204,7 @@ def test_geocoding_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
 
     settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
 
-    assert settings.geocoding_min_delay_seconds == 1.0
+    assert settings.geocoding_min_delay_seconds == 1.1
     assert settings.geocoding_timeout_seconds == 10.0
     assert settings.geocoding_country_codes == "it"
 
@@ -242,3 +242,39 @@ def test_geocoding_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.geocoding_min_delay_seconds == 0.5
     assert settings.geocoding_timeout_seconds == 20.0
     assert settings.geocoding_country_codes == "it,sm"
+
+
+@pytest.mark.parametrize("value", ["", "   "])
+def test_geocoding_country_codes_blank_rejected(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    """Un country_codes vuoto o di soli spazi e' respinto al load (#115).
+
+    Una stringa vuota disattiverebbe SILENZIOSAMENTE il filtro nazione di
+    Nominatim (il parametro verrebbe ignorato), restituendo zone omonime nella
+    nazione sbagliata: meglio fallire al caricamento con ``ValidationError``.
+    """
+    monkeypatch.setenv("GEOCODING_COUNTRY_CODES", value)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+
+
+def test_geocoding_country_codes_multi_allowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nominatim accetta piu' codici nazione: la CSV "it,sm" resta valida."""
+    monkeypatch.setenv("GEOCODING_COUNTRY_CODES", "it,sm")
+
+    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+
+    assert settings.geocoding_country_codes == "it,sm"
+
+
+def test_geocoding_country_codes_trimmed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Il valore memorizzato e' normalizzato con strip() (spazi ai bordi rimossi)."""
+    monkeypatch.setenv("GEOCODING_COUNTRY_CODES", "  it  ")
+
+    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+
+    assert settings.geocoding_country_codes == "it"

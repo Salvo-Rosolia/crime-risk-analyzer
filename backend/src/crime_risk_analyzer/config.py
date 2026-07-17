@@ -42,9 +42,11 @@ class Settings(BaseSettings):
     cache_enabled: bool = True
     # Geocoding hardening (#115). ``cache_enabled`` (sopra) gate la cache dei
     # risultati di geocoding (prima setting dichiarato ma inutilizzato).
-    # Rate-limit verso Nominatim: policy ~1 req/s -> default 1.0s tra chiamate.
+    # Rate-limit verso Nominatim: la policy e' "1 req/s assoluto". 1.0s sarebbe
+    # ESATTAMENTE il tetto; il default 1.1s da' ~10% di margine per assorbire
+    # jitter e il caso cache-hit-seguito-da-miss senza sforare la policy.
     # Vincolo ``gt=0``: un misconfig da env (0/negativo) e' respinto al load.
-    geocoding_min_delay_seconds: float = Field(default=1.0, gt=0)
+    geocoding_min_delay_seconds: float = Field(default=1.1, gt=0)
     # Timeout esplicito per-chiamata al geocoder (un Nominatim lento non appende
     # la pipeline): mappato a GeocoderTimedOut -> GeocodingError -> 503.
     geocoding_timeout_seconds: float = Field(default=10.0, gt=0)
@@ -98,6 +100,29 @@ class Settings(BaseSettings):
         # Normalizza: memorizza le origini trimmate, cosi' uno spazio di troppo
         # non impedisce silenziosamente il match esatto di ``CORSMiddleware``.
         return [origin.strip() for origin in origins]
+
+    @field_validator("geocoding_country_codes")
+    @classmethod
+    def _reject_blank_country_codes(cls, value: str) -> str:
+        """Rifiuta un ``country_codes`` vuoto al load (#115): fail-fast esplicito.
+
+        Una stringa vuota o di soli spazi disattiverebbe SILENZIOSAMENTE il
+        filtro nazione di Nominatim (il parametro ``country_codes`` verrebbe di
+        fatto ignorato), restituendo zone omonime nella nazione sbagliata. Meglio
+        respingere al caricamento con ``ValueError`` (mappato da pydantic a
+        ``ValidationError``).
+
+        Le virgole NON sono rifiutate: Nominatim accetta piu' codici nazione
+        (es. ``"it,sm"``). Normalizza con ``strip()`` cosi' uno spazio di troppo
+        ai bordi non altera il valore inviato al servizio.
+        """
+        if not value.strip():
+            raise ValueError(
+                "geocoding_country_codes non puo' essere vuoto o di soli spazi: "
+                "una stringa vuota disattiverebbe silenziosamente il filtro "
+                "nazione di Nominatim (risultati nella nazione sbagliata)."
+            )
+        return value.strip()
 
 
 @lru_cache

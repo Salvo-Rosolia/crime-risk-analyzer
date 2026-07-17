@@ -196,6 +196,10 @@ def test_geocode_zone_cache_disabled_queries_twice(
     geocode_zone("Colosseo", "Roma")
 
     assert len(fake.queries) == 2
+    # M1: con la cache disabilitata lo store NON viene popolato. Cattura la
+    # mutazione "rimosso solo il read-gate ma il write resta": senza questa
+    # assert, una entry scritta a cache spenta passerebbe inosservata.
+    assert len(_geo_mod._CACHE) == 0  # pyright: ignore[reportPrivateUsage]
 
 
 def test_geocode_zone_does_not_cache_errors(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -234,6 +238,75 @@ def test_geocode_zone_cache_key_normalizes_case_and_spaces(
     geocode_zone("Colosseo", "Roma")
     geocode_zone("  colosseo  ", " ROMA ")
     assert len(fake.queries) == 1  # seconda dalla cache grazie alla normalizzazione
+
+
+def test_geocode_zone_cache_distinguishes_zones(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """C1: zone diverse NON collidono in cache -> due lookup distinti (#115).
+
+    Guardia contro una ``_cache_key`` collassata (che ignorasse la zona): due
+    zone diverse nella stessa citta' devono interrogare il geocoder due volte,
+    non servire la seconda dalla entry della prima.
+    """
+    monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.001")
+    get_settings.cache_clear()
+    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    fake = _FakeGeocoder(
+        _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
+    )
+    _patch_geocoder(monkeypatch, fake)
+
+    geocode_zone("Colosseo", "Roma")
+    geocode_zone("Trastevere", "Roma")  # zona diversa -> NON dalla cache
+
+    assert len(fake.queries) == 2
+
+
+def test_geocode_zone_cache_distinguishes_cities(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """C1: stessa zona ma citta' diversa NON collide -> due lookup distinti (#115).
+
+    Guardia contro una ``_cache_key`` che ignorasse la citta': "Duomo" a Milano
+    e "Duomo" a Roma sono entita' diverse e devono interrogare il geocoder due
+    volte.
+    """
+    monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.001")
+    get_settings.cache_clear()
+    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    fake = _FakeGeocoder(_FakeLocation(45.46, 9.19, ["45.45", "45.47", "9.18", "9.20"]))
+    _patch_geocoder(monkeypatch, fake)
+
+    geocode_zone("Duomo", "Milano")
+    geocode_zone("Duomo", "Roma")  # citta' diversa -> NON dalla cache
+
+    assert len(fake.queries) == 2
+
+
+def test_geocode_zone_does_not_cache_zone_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """M2: una zona non trovata (location None) NON viene cacheata (#115).
+
+    Cattura la mutazione "negative caching": se la prima ZoneNotFoundError
+    finisse nello store, la seconda chiamata (con un geocoder ora valido) sulla
+    stessa (zona, citta') verrebbe servita dalla cache senza interrogare davvero
+    il servizio, restando bloccata su un errore transitorio.
+    """
+    monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.001")
+    get_settings.cache_clear()
+    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    _patch_geocoder(monkeypatch, _FakeGeocoder(location=None))
+    with pytest.raises(ZoneNotFoundError):
+        geocode_zone("Duomo", "Milano")
+
+    ok = _FakeGeocoder(_FakeLocation(45.46, 9.19, ["45.45", "45.47", "9.18", "9.20"]))
+    _patch_geocoder(monkeypatch, ok)
+    result = geocode_zone("Duomo", "Milano")
+
+    assert result["lat"] == pytest.approx(45.46)
+    assert len(ok.queries) == 1  # ha DAVVERO interrogato, non servito da negative-cache
 
 
 def test_rate_limiter_wired_with_settings() -> None:
