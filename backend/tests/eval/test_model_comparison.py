@@ -25,6 +25,7 @@ from crime_risk_analyzer.eval.city_agnostic import ROSTER
 from crime_risk_analyzer.eval.cli import load_config
 from crime_risk_analyzer.eval.compare import (
     PROXY_CAVEAT,
+    MetricValues,
     compare_records,
     operational_markdown,
     to_json,
@@ -32,12 +33,17 @@ from crime_risk_analyzer.eval.compare import (
     write_comparison,
 )
 from crime_risk_analyzer.eval.harness import make_snapshot_key
+from crime_risk_analyzer.eval.metrics import compute_metrics
 from crime_risk_analyzer.eval.schema import (
     Metrics,
     Provenance,
     RunRecord,
     RunStatus,
 )
+from crime_risk_analyzer.eval.winner import decide_winner
+from crime_risk_analyzer.models.vocab import ConfidenceSummary
+from crime_risk_analyzer.orchestrator import AnalyzeResponse, PoiOut
+from crime_risk_analyzer.rag.generation import Repro, RiskItem, RiskModel
 
 #: backend/experiments (test_file → eval → tests → backend).
 EXPERIMENTS_DIR = Path(__file__).resolve().parents[2] / "experiments"
@@ -281,3 +287,83 @@ def test_write_comparison_also_writes_json_sibling(tmp_path: Path) -> None:
     assert data["label_b"] == "groq"
     # backward-compat #32: csv + md restano prodotti e restano i path ritornati
     assert csv_path.exists() and md_path.exists()
+
+
+# --- regressione reperto A (#163): metrica → verdetto -----------------------
+
+
+def _resp163(narrativa: str) -> AnalyzeResponse:
+    """AnalyzeResponse con ancoraggi {"banca a", "bank_robbery"}; narrativa data."""
+    return AnalyzeResponse(
+        citta="Roma",
+        zona_normalizzata="Centro",
+        poi=[
+            PoiOut(
+                id="1",
+                name="Banca A",
+                terminus_class="Bank",
+                lat=41.0,
+                lon=12.0,
+                confidence="confermato",
+                sparql_path="Bank → havingHazard → Bank_robbery",
+            )
+        ],
+        risk_models=[
+            RiskModel(
+                poi="Banca A",
+                risks=[
+                    RiskItem(
+                        hazard="Bank_robbery",
+                        confidence="confermato",
+                        tag="ONTOLOGIA",
+                    )
+                ],
+            )
+        ],
+        narrativa=narrativa,
+        confidence_summary=ConfidenceSummary(confermato=1),
+        llm_used="claude-sonnet-4-6",
+        latenza_ms=100,
+        repro=Repro(temperature=0.0, seed=0, prompt_hash="ph"),
+        cache_hit=False,
+        fallback=False,
+        tokens_input=10,
+        tokens_output=20,
+    )
+
+
+def _mv(resp: AnalyzeResponse) -> MetricValues:
+    m = compute_metrics(resp)
+    return MetricValues(
+        grounding=m.grounding,
+        hallucination=m.hallucination,
+        latency_ms=float(m.latency_ms),
+        cost_usd=m.cost_usd,
+    )
+
+
+def test_reperto_a_sparsely_citing_arm_loses_on_hallucination() -> None:
+    """Guard end-to-end del buco reperto A: chi cita poco perde l'asse allucinazione.
+
+    Entrambi i bracci hanno stesso costo/latenza (stesso _resp163) → decide solo
+    l'asse hallucination. Prima di #163 il braccio 'sparse' avrebbe hallucination
+    0.0 (una sola frase taggata, ancorata) e avrebbe VINTO; col nuovo denominatore
+    le 3 asserzioni non citate lo portano a 0.75 e perde.
+    """
+    well = _mv(
+        _resp163(
+            "[ONTOLOGIA] Banca A presenta rischio rapina. "
+            "[ONTOLOGIA] Banca A subisce furti frequenti."
+        )
+    )
+    sparse = _mv(
+        _resp163(
+            "[ONTOLOGIA] Banca A presenta rischio rapina. "
+            "Banca A è pericolosa di notte. "
+            "Banca A preoccupa i residenti. "
+            "Banca A resta un punto critico."
+        )
+    )
+    verdict = decide_winner(well, sparse, label_a="claude", label_b="groq")
+    assert verdict.winner == "claude"
+    assert verdict.deciding_axis == "hallucination"

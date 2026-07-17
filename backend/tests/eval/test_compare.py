@@ -281,17 +281,83 @@ def test_no_failed_zones_when_all_ok() -> None:
     assert cmp.failed == []
 
 
-def test_fallback_status_stays_included() -> None:
-    """FALLBACK ha metriche reali → resta nel confronto (non è escluso)."""
+def test_fallback_zone_is_excluded_from_comparison() -> None:
+    """FALLBACK ha narrativa vuota → metriche non di qualità: la zona è esclusa."""
+    arm_a = _arm_a() + [
+        _rec(
+            "full",
+            "Napoli",
+            "Garibaldi",
+            grounding=1.0,
+            hallucination=0.0,
+            latency_ms=0,
+            cost_usd=0.0,
+            status=RunStatus.FALLBACK,
+        )
+    ]
+    arm_b = _arm_b() + [
+        _rec(
+            "base",
+            "Napoli",
+            "Garibaldi",
+            grounding=0.45,
+            hallucination=0.0,
+            latency_ms=110,
+            cost_usd=0.0,
+            mode="baseline",
+        )
+    ]
+    cmp = compare_records(arm_a, arm_b, label_a="full", label_b="base")
+    # Napoli (FALLBACK in A) NON è tra le zone confrontate.
+    assert [(z.citta, z.zona) for z in cmp.zones] == [
+        ("Milano", "Duomo"),
+        ("Roma", "Colosseo"),
+    ]
+    assert [(f.citta, f.zona) for f in cmp.failed] == [("Napoli", "Garibaldi")]
+
+
+def test_fallback_zone_reported_with_status() -> None:
+    """L'esclusione FALLBACK è tracciata (non silenziosa): status nel FailedZone."""
+    arm_a = _arm_a() + [
+        _rec(
+            "full",
+            "Napoli",
+            "Garibaldi",
+            grounding=1.0,
+            hallucination=0.0,
+            latency_ms=0,
+            cost_usd=0.0,
+            status=RunStatus.FALLBACK,
+        )
+    ]
+    arm_b = _arm_b() + [
+        _rec(
+            "base",
+            "Napoli",
+            "Garibaldi",
+            grounding=0.45,
+            hallucination=0.0,
+            latency_ms=110,
+            cost_usd=0.0,
+            mode="baseline",
+        )
+    ]
+    failed = compare_records(arm_a, arm_b, label_a="full", label_b="base").failed[0]
+    assert failed.status_a == "fallback"
+    assert failed.status_b == "ok"
+
+
+def test_raises_when_all_zones_fallback() -> None:
+    """Un braccio interamente in FALLBACK → nessuna zona valida → errore chiaro."""
     arm_a = [
         _rec(
             "full",
             "Roma",
             "Colosseo",
-            grounding=0.9,
-            hallucination=0.1,
-            latency_ms=2000,
-            cost_usd=0.003,
+            grounding=1.0,
+            hallucination=0.0,
+            latency_ms=0,
+            cost_usd=0.0,
             status=RunStatus.FALLBACK,
         )
     ]
@@ -307,9 +373,8 @@ def test_fallback_status_stays_included() -> None:
             mode="baseline",
         )
     ]
-    cmp = compare_records(arm_a, arm_b, label_a="full", label_b="base")
-    assert [(z.citta, z.zona) for z in cmp.zones] == [("Roma", "Colosseo")]
-    assert cmp.failed == []
+    with pytest.raises(ValueError, match="(?i)valida|fallit|error|fallback"):
+        compare_records(arm_a, arm_b, label_a="full", label_b="base")
 
 
 def test_raises_when_all_zones_error() -> None:

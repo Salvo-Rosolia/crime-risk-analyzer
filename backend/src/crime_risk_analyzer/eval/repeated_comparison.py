@@ -91,7 +91,7 @@ def variance_markdown(
         f"### Varianza su K={k} ripetizioni (media ± std)",
         "",
         f"> Colonne {n_col_a}/{n_col_b} = ripetizioni valide/totali per zona "
-        "(le run in ERROR sono escluse da media e std).",
+        "(le run in ERROR e FALLBACK sono escluse da media e std).",
         "",
         "| " + " | ".join(cols) + " |",
         "| " + " | ".join("---" for _ in cols) + " |",
