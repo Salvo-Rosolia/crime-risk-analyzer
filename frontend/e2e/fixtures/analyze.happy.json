@@ -1,0 +1,169 @@
+{
+  "citta": "Roma",
+  "zona_normalizzata": "Colosseo",
+  "poi": [
+    {
+      "id": "1",
+      "name": "Colosseo",
+      "terminus_class": "ArchaeologicalSite",
+      "lat": 41.8902,
+      "lon": 12.4922,
+      "confidence": "confermato",
+      "sparql_path": "ArchaeologicalSite → hasAnthropicHazard → borseggioTuristi",
+      "terminus_label_it": "Sito archeologico",
+      "terminus_label_en": "Archaeological site"
+    },
+    {
+      "id": "2",
+      "name": "Piazza Venezia",
+      "terminus_class": "Square",
+      "lat": 41.8955,
+      "lon": 12.4823,
+      "confidence": "plausibile",
+      "sparql_path": "Square → hasEnvironmentalHazard → scarsaIlluminazione",
+      "terminus_label_it": "Piazza",
+      "terminus_label_en": "Square"
+    },
+    {
+      "id": "3",
+      "name": "Vicolo Oscuro",
+      "terminus_class": "Alley",
+      "lat": 41.8933,
+      "lon": 12.4834,
+      "confidence": "speculativo",
+      "sparql_path": null,
+      "terminus_label_it": "Vicolo",
+      "terminus_label_en": "Alley"
+    },
+    {
+      "id": "4",
+      "name": "Fontana di Trevi",
+      "terminus_class": "Fountain",
+      "lat": 41.9009,
+      "lon": 12.4833,
+      "confidence": "confermato",
+      "sparql_path": "Fountain → hasAnthropicHazard → furtoConDestrezza",
+      "terminus_label_it": "Fontana monumentale",
+      "terminus_label_en": "Monumental fountain"
+    },
+    {
+      "id": "5",
+      "name": "Sottopasso Buio",
+      "terminus_class": "Underpass",
+      "lat": 41.8912,
+      "lon": 12.4945,
+      "confidence": "speculativo",
+      "sparql_path": null,
+      "terminus_label_it": "Sottopasso",
+      "terminus_label_en": "Underpass"
+    },
+    {
+      "id": "6",
+      "name": "Vicolo Cieco",
+      "terminus_class": "Alley",
+      "lat": 41.8927,
+      "lon": 12.4838,
+      "confidence": "speculativo",
+      "sparql_path": null,
+      "terminus_label_it": "Vicolo",
+      "terminus_label_en": "Alley"
+    }
+  ],
+  "risk_models": [
+    {
+      "poi": "Colosseo",
+      "risks": [
+        {
+          "hazard": "borseggioTuristi",
+          "confidence": "confermato",
+          "tag": "ONTOLOGIA",
+          "hazard_label_it": "Borseggio turisti",
+          "hazard_label_en": "Tourist pickpocketing"
+        },
+        {
+          "hazard": "affollamentoSerale",
+          "confidence": "plausibile",
+          "tag": "CONTESTO",
+          "hazard_label_it": "Affollamento serale",
+          "hazard_label_en": "Evening overcrowding"
+        }
+      ]
+    },
+    {
+      "poi": "Piazza Venezia",
+      "risks": [
+        {
+          "hazard": "scarsaIlluminazione",
+          "confidence": "plausibile",
+          "tag": "CONTESTO",
+          "hazard_label_it": "Scarsa illuminazione",
+          "hazard_label_en": "Poor lighting"
+        }
+      ]
+    },
+    {
+      "poi": "Vicolo Oscuro",
+      "risks": [
+        {
+          "hazard": "aggressioneNotturna",
+          "confidence": "speculativo",
+          "tag": "SPECULATIVO",
+          "hazard_label_it": "Aggressione notturna",
+          "hazard_label_en": "Night-time assault"
+        },
+        {
+          "hazard": "assenzaControlloSociale",
+          "confidence": "speculativo",
+          "tag": null,
+          "hazard_label_it": "Assenza di controllo sociale",
+          "hazard_label_en": "Lack of social control"
+        }
+      ]
+    },
+    {
+      "poi": "Fontana di Trevi",
+      "risks": [
+        {
+          "hazard": "furtoConDestrezza",
+          "confidence": "confermato",
+          "tag": "ONTOLOGIA",
+          "hazard_label_it": "Furto con destrezza",
+          "hazard_label_en": "Pickpocketing"
+        }
+      ]
+    },
+    {
+      "poi": "Sottopasso Buio",
+      "risks": [
+        {
+          "hazard": "assenzaTelecamere",
+          "confidence": "speculativo",
+          "tag": "SPECULATIVO",
+          "hazard_label_it": "Assenza di telecamere di sorveglianza",
+          "hazard_label_en": "Lack of camera surveillance"
+        }
+      ]
+    },
+    {
+      "poi": "Vicolo Cieco",
+      "risks": [
+        {
+          "hazard": "vieDiFugaLimitate",
+          "confidence": "speculativo",
+          "tag": "SPECULATIVO",
+          "hazard_label_it": "Vie di fuga limitate",
+          "hazard_label_en": "Limited escape routes"
+        }
+      ]
+    }
+  ],
+  "narrativa": "L'area del Colosseo e dintorni presenta un mix di rischi noti (borseggio turistico, furto con destrezza presso la Fontana di Trevi) e fattori ambientali osservati (illuminazione scarsa in Piazza Venezia, affollamento serale al Colosseo). Vicolo Oscuro, Sottopasso Buio e Vicolo Cieco richiedono prudenza per assenza di controllo sociale, telecamere e vie di fuga, non ancorata all'ontologia.",
+  "confidence_summary": { "confermato": 2, "plausibile": 2, "speculativo": 4 },
+  "llm_used": "claude-sonnet-4-6",
+  "latenza_ms": 2340,
+  "tokens_input": 812,
+  "tokens_output": 264,
+  "repro": { "temperature": 0.2, "seed": 42, "prompt_hash": "abc123" },
+  "cache_hit": false,
+  "fallback": false
+}

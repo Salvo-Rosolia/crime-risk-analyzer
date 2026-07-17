@@ -4,6 +4,18 @@ import { Action, AppState, BaselineParams } from '@core/models/models';
 import { initialState, transition } from '@core/state/transition';
 
 function errorMessage(err: unknown, fallback: string): string {
+  // Angular HttpErrorResponse NON è instanceof Error a runtime (angular#22762):
+  // il messaggio del backend vive in err.error.detail.messaggio ({"detail":{...}}).
+  if (err && typeof err === 'object') {
+    const body = (err as { error?: unknown }).error;
+    if (body && typeof body === 'object') {
+      const detail = (body as { detail?: unknown }).detail;
+      if (detail && typeof detail === 'object') {
+        const msg = (detail as { messaggio?: unknown }).messaggio;
+        if (typeof msg === 'string' && msg) return msg;
+      }
+    }
+  }
   return err instanceof Error && err.message ? err.message : fallback;
 }
 

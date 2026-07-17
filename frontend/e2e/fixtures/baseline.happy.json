@@ -1,0 +1,63 @@
+{
+  "citta": "Milano",
+  "zona_normalizzata": "Duomo",
+  "poi": [
+    {
+      "id": "b1",
+      "name": "Duomo di Milano",
+      "terminus_class": "ReligiousSite",
+      "lat": 45.4642,
+      "lon": 9.1900,
+      "confidence": "confermato",
+      "sparql_path": null,
+      "terminus_label_it": "Sito religioso",
+      "terminus_label_en": "Religious site"
+    },
+    {
+      "id": "b2",
+      "name": "Galleria Vittorio Emanuele II",
+      "terminus_class": "ShoppingArcade",
+      "lat": 45.4656,
+      "lon": 9.1900,
+      "confidence": "confermato",
+      "sparql_path": null,
+      "terminus_label_it": "Galleria commerciale",
+      "terminus_label_en": "Shopping arcade"
+    }
+  ],
+  "risk_models": [
+    {
+      "poi": "Duomo di Milano",
+      "risks": [
+        {
+          "hazard": "borseggioTuristi",
+          "confidence": "confermato",
+          "tag": "ONTOLOGIA",
+          "hazard_label_it": "Borseggio turisti",
+          "hazard_label_en": "Tourist pickpocketing"
+        }
+      ]
+    },
+    {
+      "poi": "Galleria Vittorio Emanuele II",
+      "risks": [
+        {
+          "hazard": "affollamentoSerale",
+          "confidence": "confermato",
+          "tag": "ONTOLOGIA",
+          "hazard_label_it": "Affollamento serale",
+          "hazard_label_en": "Evening overcrowding"
+        }
+      ]
+    }
+  ],
+  "narrativa": "",
+  "confidence_summary": { "confermato": 0, "plausibile": 0, "speculativo": 0 },
+  "llm_used": "",
+  "latenza_ms": 0,
+  "tokens_input": 0,
+  "tokens_output": 0,
+  "repro": { "temperature": 0, "seed": 0, "prompt_hash": "" },
+  "cache_hit": false,
+  "fallback": false
+}
