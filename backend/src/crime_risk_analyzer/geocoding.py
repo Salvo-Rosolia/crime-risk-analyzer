@@ -92,9 +92,26 @@ class ZoneNotFoundError(GeocodingError):
 #: Chiave normalizzata (strip+lower) per non duplicare varianti di case/spazi.
 _CACHE: dict[tuple[str, str], GeoResult] = {}
 
+#: Tetto della cache (#170): con ``zona`` user-controlled nella chiave, un dict
+#: illimitato crescerebbe senza freno in un processo longevo. Al riempimento si
+#: evince la entry piu' vecchia (FIFO: i ``dict`` 3.7+ preservano l'ordine di
+#: inserimento). 1024 chiavi (zona, citta') sono ampie per l'uso reale e tengono
+#: la memoria trascurabile.
+_CACHE_MAXSIZE = 1024
+
 
 def _cache_key(zona: str, citta: str) -> tuple[str, str]:
     return (zona.strip().lower(), citta.strip().lower())
+
+
+def _copy_result(result: GeoResult) -> GeoResult:
+    """Copia shallow difensiva di un :class:`GeoResult` (#170).
+
+    Ritornare l'oggetto della cache per riferimento esporrebbe la entry
+    condivisa: un consumer che mutasse il dict avvelenerebbe la cache. ``bbox``
+    e' un :class:`Bbox` immutabile, quindi la copia shallow basta.
+    """
+    return cast("GeoResult", dict(result))
 
 
 @lru_cache(maxsize=1)
@@ -183,7 +200,7 @@ def geocode_zone(zona: str, citta: str) -> GeoResult:
     settings = get_settings()
     key = _cache_key(zona, citta)
     if settings.cache_enabled and key in _CACHE:
-        return _CACHE[key]
+        return _copy_result(_CACHE[key])
 
     query = f"{zona}, {citta}"
     try:
@@ -206,5 +223,12 @@ def geocode_zone(zona: str, citta: str) -> GeoResult:
 
     result = GeoResult(lat=location.latitude, lon=location.longitude, bbox=bbox)
     if settings.cache_enabled:
+        # Bound FIFO (#170): al riempimento rimuovi la entry piu' vecchia prima di
+        # inserirne una nuova (aggiornare una chiave gia' presente non fa crescere
+        # la cache, quindi non deve sfrattare nulla).
+        if len(_CACHE) >= _CACHE_MAXSIZE and key not in _CACHE:
+            _CACHE.pop(next(iter(_CACHE)))
         _CACHE[key] = result
-    return result
+    # Copia difensiva anche sul miss (#170): la entry appena memorizzata e' la
+    # stessa istanza, quindi ritornare ``result`` per riferimento la esporrebbe.
+    return _copy_result(result)
