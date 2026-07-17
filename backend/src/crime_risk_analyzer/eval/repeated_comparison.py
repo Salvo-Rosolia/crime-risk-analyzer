@@ -114,21 +114,55 @@ def variance_markdown(
     return "\n".join(lines) + "\n"
 
 
-def winner_markdown(winner: Winner, k: int) -> str:
-    """Sezione vincitore: verdetto + catena dei confronti + caveat di scope."""
-    lines = [f"### Vincitore (criterio lessicografico, K={k})", ""]
+def _n_reps_range(folded: FoldedArm) -> tuple[int, int]:
+    """Min/max ripetizioni valide (n_reps) tra le zone del braccio (0,0 se vuoto)."""
+    reps = [v.n_reps for v in folded.variances]
+    return (min(reps), max(reps)) if reps else (0, 0)
+
+
+def winner_markdown(
+    winner: Winner,
+    k: int,
+    *,
+    folded_a: FoldedArm | None = None,
+    folded_b: FoldedArm | None = None,
+    k_hi: int | None = None,
+) -> str:
+    """Sezione esito del criterio proxy: caveat, verdetto esplorativo, catena.
+
+    Il label e' volutamente *esplorativo* (E, #164): l'esito e' sul PROXY
+    testuale, non sulla metrica 'vera' §2. Il ``_SCOPE_NOTE`` PRECEDE il verdetto.
+    Se ``folded_a``/``folded_b`` sono forniti, sotto il verdetto viene stampata
+    la base campionaria (n_reps/range, F #164). ``k_hi`` (Task 3, #165.2): se
+    valorizzato e diverso da ``k``, l'header mostra il range ``K={k}..{k_hi}``.
+    """
+    k_label = f"{k}" if k_hi is None or k_hi == k else f"{k}..{k_hi}"
+    lines = [f"### Esito del criterio proxy (esplorativo, K={k_label})", ""]
+    lines.append(_SCOPE_NOTE)
+    lines.append("")
     if winner.winner is None:
         lines.append(
-            f"**Pareggio.** `{winner.label_a}` e `{winner.label_b}` sono pari su "
-            "tutti e 4 gli assi alla precisione di stampa."
+            f"**Nessun modello prevale sul proxy.** `{winner.label_a}` e "
+            f"`{winner.label_b}` sono pari su tutti e 4 gli assi alla precisione "
+            "di stampa."
         )
     else:
         dec = winner.deciding_axis
         assert dec is not None  # winner!=None → deciding_axis valorizzato
         last = winner.chain[-1]
         lines.append(
-            f"**Vincitore: `{winner.winner}`** — deciso su `{dec}` "
+            f"**Su questa run `{winner.winner}` ha scorato meglio sul criterio "
+            f"proxy (esplorativo)** — asse decisivo `{dec}` "
             f"({_fmt(dec, last.value_a)} vs {_fmt(dec, last.value_b)})."
+        )
+    if folded_a is not None and folded_b is not None:
+        a_lo, a_hi = _n_reps_range(folded_a)
+        b_lo, b_hi = _n_reps_range(folded_b)
+        lines.append("")
+        lines.append(
+            f"> Base: K={k_label} ripetizioni; n_reps validi per zona — "
+            f"`{winner.label_a}`: {a_lo}-{a_hi}, `{winner.label_b}`: {b_lo}-{b_hi}. "
+            "Verdetto esplorativo: std e range NON entrano nella decisione."
         )
     lines.append("")
     lines.append("Catena dei confronti (parità = a precisione di stampa):")
@@ -143,8 +177,6 @@ def winner_markdown(winner: Winner, k: int) -> str:
             f"| {c.axis} | {_fmt(c.axis, c.value_a)} | "
             f"{_fmt(c.axis, c.value_b)} | {esito} |"
         )
-    lines.append("")
-    lines.append(_SCOPE_NOTE)
     return "\n".join(lines) + "\n"
 
 
@@ -178,7 +210,9 @@ def build_repeated_report(
                 "",
                 variance_markdown(comparison, folded_a, folded_b, k).rstrip("\n"),
                 "",
-                winner_markdown(winner, k).rstrip("\n"),
+                winner_markdown(winner, k, folded_a=folded_a, folded_b=folded_b).rstrip(
+                    "\n"
+                ),
             ]
         )
         + "\n"

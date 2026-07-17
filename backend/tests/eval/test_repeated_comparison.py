@@ -103,14 +103,20 @@ def test_winner_markdown_reports_winner_and_deciding_axis() -> None:
         claude.mean_records, groq.mean_records, label_a="claude", label_b="groq"
     )
     w = decide_winner(cmp.mean_a, cmp.mean_b, label_a="claude", label_b="groq")
-    md = winner_markdown(w, k=3)
-    assert "claude" in md  # hallucination piu' bassa → claude vince
+    md = winner_markdown(w, k=3, folded_a=claude, folded_b=groq)
     assert "hallucination" in md
-    assert "K=3" in md or "K = 3" in md
-    # riga del verdetto esatta (non tautologico: "claude" e' anche negli header
-    # tabella) — un bug che interpola label_b al posto di winner.winner fallisce.
-    assert "**Vincitore: `claude`**" in md
-    assert "**Vincitore: `groq`**" not in md
+    assert "K=3" in md
+    # E: label ammorbidito, esplorativo — NON la parola forte "Vincitore".
+    assert "Vincitore" not in md
+    assert "Esito del criterio proxy" in md
+    # verdetto sul modello giusto, non tautologico (claude e' anche negli header).
+    assert "`claude` ha scorato meglio" in md
+    assert "`groq` ha scorato meglio" not in md
+    # E: il caveat di scope precede il verdetto (indice minore nel testo).
+    assert md.index("proxy testuale") < md.index("ha scorato meglio")
+    # F: base campionaria accanto al verdetto (3 rip valide su entrambi i bracci).
+    assert "n_reps validi per zona" in md
+    assert "`claude`: 3-3" in md
 
 
 def test_winner_markdown_declares_tie() -> None:
@@ -124,7 +130,8 @@ def test_winner_markdown_declares_tie() -> None:
     )
     w = decide_winner(cmp.mean_a, cmp.mean_b, label_a="a", label_b="b")
     md = winner_markdown(w, k=3)
-    assert "pareggio" in md.lower()
+    assert "Nessun modello prevale sul proxy" in md
+    assert "Vincitore" not in md
 
 
 def test_variance_markdown_shows_mean_and_std() -> None:
@@ -336,7 +343,7 @@ def test_end_to_end_fold_compare_winner(tmp_path: Path) -> None:
     assert data["winner"]["winner"] == "claude"
     # varianza non nulla (le 3 ripetizioni variano)
     assert data["variance"]["arm_a"][0]["std"]["grounding"] > 0.0
-    assert "Vincitore" in md_path.read_text(encoding="utf-8")
+    assert "Esito del criterio proxy" in md_path.read_text(encoding="utf-8")
 
 
 def test_build_repeated_report_default_stem_filename(tmp_path: Path) -> None:
@@ -404,7 +411,9 @@ def test_build_repeated_report_all_error_zone_excluded_from_variance_table(
     md = md_path.read_text(encoding="utf-8")
     data = json.loads(json_path.read_text(encoding="utf-8"))
 
-    variance_section = md.split("### Varianza")[1].split("### Vincitore")[0]
+    variance_section = md.split("### Varianza")[1].split(
+        "### Esito del criterio proxy"
+    )[0]
     assert "Milano" not in variance_section
 
     milano_a = next(v for v in data["variance"]["arm_a"] if v["zona"] == "Duomo")
