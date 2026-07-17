@@ -42,6 +42,15 @@ class Settings(BaseSettings):
     cache_enabled: bool = True
     # Geocoding hardening (#115). ``cache_enabled`` (sopra) gate la cache dei
     # risultati di geocoding (prima setting dichiarato ma inutilizzato).
+    #
+    # NOTA DEPLOY single-worker (#170): il rate-limit e la cache del geocoding
+    # sono PER-PROCESSO (il RateLimiter e il ``_CACHE`` sono stato di modulo). Con
+    # un deploy multi-worker (``uvicorn --workers N``) ogni worker ha il proprio
+    # limiter -> fino a N req/s verso Nominatim, mentre la policy e' "1 req/s
+    # ASSOLUTO". Per rispettare la ToS: deploy SINGLE-WORKER (oppure un throttle
+    # condiviso tra i processi, non previsto qui). Vale anche per il limiter
+    # locale della boundary in ``eval/city_agnostic.py``.
+    #
     # Rate-limit verso Nominatim: la policy e' "1 req/s assoluto". 1.0s sarebbe
     # ESATTAMENTE il tetto; il default 1.1s da' ~10% di margine per assorbire
     # jitter e il caso cache-hit-seguito-da-miss senza sforare la policy.
