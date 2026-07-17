@@ -18,6 +18,7 @@ from crime_risk_analyzer.eval.compare import (
     Comparison,
     MetricValues,
     compare_records,
+    guard_no_overwrite,
     to_json,
     to_markdown,
 )
@@ -212,11 +213,14 @@ def build_repeated_report(
     label_a: str | None = None,
     label_b: str | None = None,
     stem: str | None = None,
+    force: bool = False,
 ) -> tuple[Path, Path]:
     """Carica i due esperimenti, ripiega le ripetizioni, confronta e scrive report.
 
     Scrive ``<stem>.md`` (tabelle #33 + varianza + vincitore) e ``<stem>.json``
     (comparison #33 + oggetti ``winner`` e ``variance``). Ritorna i due path.
+    Se un file target esiste e ``force`` è ``False`` solleva
+    :class:`FileExistsError` (guardia anti-sovrascrittura, #165).
     """
     la = label_a or experiment_a
     lb = label_b or experiment_b
@@ -265,6 +269,7 @@ def build_repeated_report(
     resolved = stem or f"{experiment_a}_vs_{experiment_b}_repeated"
     md_path = results_dir / f"{resolved}.md"
     json_path = results_dir / f"{resolved}.json"
+    guard_no_overwrite([md_path, json_path], force)
     md_path.write_text(md, encoding="utf-8")
     json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return md_path, json_path

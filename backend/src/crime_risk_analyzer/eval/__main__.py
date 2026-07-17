@@ -107,6 +107,7 @@ def main() -> int:
             label_a=ns.label_a,
             label_b=ns.label_b,
             stem=ns.out,
+            force=ns.force,
         )
     elif ns.command == "compare-repeated":
         build_repeated_report(
@@ -116,6 +117,7 @@ def main() -> int:
             label_a=ns.label_a,
             label_b=ns.label_b,
             stem=ns.out,
+            force=ns.force,
         )
     elif ns.command == "city-agnostic":
         if ns.phase == "capture":

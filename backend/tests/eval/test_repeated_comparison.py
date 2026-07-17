@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from pytest import MonkeyPatch
 
 from crime_risk_analyzer.eval.compare import compare_records
@@ -552,3 +553,35 @@ def test_build_repeated_report_deep_tie_break_on_latency(tmp_path: Path) -> None
     data = json.loads(json_path.read_text(encoding="utf-8"))
     assert data["winner"]["deciding_axis"] in {"latency_ms", "cost_usd"}
     assert data["winner"]["winner"] == "claude"  # 1000ms < 1005ms
+
+
+def test_build_repeated_report_refuses_overwrite_without_force(tmp_path: Path) -> None:
+    _write_arm(
+        tmp_path, _arm("claude-exp", "claude-sonnet-4-6", (0.90, 0.10, 3000, 0.012))
+    )
+    _write_arm(
+        tmp_path,
+        _arm("groq-exp", "llama-3.3-70b-versatile", (0.70, 0.20, 1000, 0.0006)),
+    )
+    build_repeated_report(
+        tmp_path, "claude-exp", "groq-exp", label_a="claude", label_b="groq", stem="dup"
+    )
+    with pytest.raises(FileExistsError):
+        build_repeated_report(
+            tmp_path,
+            "claude-exp",
+            "groq-exp",
+            label_a="claude",
+            label_b="groq",
+            stem="dup",
+        )
+    # con force → sovrascrive senza sollevare
+    build_repeated_report(
+        tmp_path,
+        "claude-exp",
+        "groq-exp",
+        label_a="claude",
+        label_b="groq",
+        stem="dup",
+        force=True,
+    )

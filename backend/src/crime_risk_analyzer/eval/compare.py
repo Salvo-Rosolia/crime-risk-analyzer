@@ -40,6 +40,23 @@ _MEAN_LABEL = "MEDIA"
 _EXCLUDED_STATUSES = (RunStatus.ERROR, RunStatus.FALLBACK)
 
 
+def guard_no_overwrite(paths: list[Path], force: bool) -> None:
+    """Solleva FileExistsError se un file target esiste e ``force`` e' False.
+
+    Protegge da sovrascritture accidentali (es. stesso --out per compare e
+    compare-repeated: X.csv resterebbe orfano). ``--force`` bypassa la guardia.
+    """
+    if force:
+        return
+    existing = [str(p) for p in paths if p.exists()]
+    if existing:
+        raise FileExistsError(
+            "file di output gia' esistenti: "
+            + ", ".join(existing)
+            + ". Usa --force per sovrascrivere."
+        )
+
+
 class MetricValues(BaseModel):
     """Quattro metriche come float, per medie e delta.
 
@@ -416,7 +433,7 @@ def to_json(comparison: Comparison) -> str:
 
 
 def write_comparison(
-    results_dir: Path, comparison: Comparison, stem: str
+    results_dir: Path, comparison: Comparison, stem: str, *, force: bool = False
 ) -> tuple[Path, Path]:
     """Scrive ``results/<stem>.{csv,md,json}`` dal confronto.
 
@@ -425,10 +442,14 @@ def write_comparison(
     machine-readable richiesto da #33) è un artefatto SIBLING: scritto accanto,
     NON incluso nel valore di ritorno, per non rompere l'unpacking a due dei
     chiamanti #32 (``compare_experiments`` e i test dell'ablation).
+
+    Se uno dei tre file target esiste e ``force`` è ``False`` solleva
+    :class:`FileExistsError` (guardia anti-sovrascrittura, #165).
     """
     csv_path = results_dir / f"{stem}.csv"
     md_path = results_dir / f"{stem}.md"
     json_path = results_dir / f"{stem}.json"
+    guard_no_overwrite([csv_path, md_path, json_path], force)
     # newline="": to_csv() emette gia' \r\n via csv.writer; senza questo, il
     # text-mode di write_text ritradurrebbe \n->\r\n su Windows (righe spurie).
     # Stesso accorgimento del fix #103 in aggregate.write_tables (qui replicato
@@ -447,11 +468,13 @@ def compare_experiments(
     label_a: str | None = None,
     label_b: str | None = None,
     stem: str | None = None,
+    force: bool = False,
 ) -> tuple[Path, Path]:
     """Carica i record dei due esperimenti da disco, confronta e scrive le tabelle.
 
     ``label_a``/``label_b`` default al nome dell'esperimento; ``stem`` default a
-    ``<experiment_a>_vs_<experiment_b>``.
+    ``<experiment_a>_vs_<experiment_b>``. ``force`` bypassa la guardia
+    anti-sovrascrittura sui file di output (#165).
     """
     arm_a = load_runs(results_dir, experiment=experiment_a)
     arm_b = load_runs(results_dir, experiment=experiment_b)
@@ -462,4 +485,4 @@ def compare_experiments(
         label_b=label_b or experiment_b,
     )
     resolved_stem = stem or f"{experiment_a}_vs_{experiment_b}"
-    return write_comparison(results_dir, comparison, resolved_stem)
+    return write_comparison(results_dir, comparison, resolved_stem, force=force)
