@@ -234,7 +234,7 @@ def build_repeated_report(
     k = _k_of(folded_a, folded_b)  # max, per il payload JSON (contratto stabile)
     warning = (
         f"> ⚠️ K disomogeneo tra zone/bracci (K={k_lo}..{k_hi}): il verdetto "
-        "media zone con basi campionarie diverse.\n"
+        "fa la media di zone con basi campionarie diverse.\n\n"
         if k_lo != k_hi
         else ""
     )
