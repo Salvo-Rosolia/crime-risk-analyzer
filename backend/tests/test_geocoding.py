@@ -33,9 +33,11 @@ class _FakeGeocoder:
         self._location = location
         self._exc = exc
         self.queries: list[str] = []
+        self.calls: list[dict[str, object]] = []
 
-    def geocode(self, query: str, **_: object) -> _FakeLocation | None:
+    def geocode(self, query: str, **kwargs: object) -> _FakeLocation | None:
         self.queries.append(query)
+        self.calls.append(kwargs)
         if self._exc is not None:
             raise self._exc
         return self._location
@@ -115,6 +117,21 @@ def test_geocode_zone_service_error_raises(
 
     with pytest.raises(GeocodingError):
         geocode_zone("Colosseo", "Roma")
+
+
+def test_geocode_zone_passes_country_codes_and_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """La chiamata al geocoder riceve country_codes e timeout dai setting."""
+    fake = _FakeGeocoder(
+        _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
+    )
+    _patch_geocoder(monkeypatch, fake)
+
+    geocode_zone("Colosseo", "Roma")
+
+    assert fake.calls[0]["country_codes"] == "it"
+    assert fake.calls[0]["timeout"] == 10.0
 
 
 def test_get_geolocator_builds_nominatim() -> None:

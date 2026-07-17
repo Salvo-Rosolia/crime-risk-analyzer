@@ -1,4 +1,4 @@
-"""Geocoding zona -> bbox via Nominatim (#15).
+"""Geocoding zona -> bbox via Nominatim (#15, hardening #115).
 
 Risolve una zona all'interno di una citta' in coordinate e bounding box, usando
 ``geopy.geocoders.Nominatim``. Il bbox e' la tupla ``(lat_min, lon_min, lat_max,
@@ -10,6 +10,10 @@ sono progettate per essere mappate dall'orchestrator a risposte HTTP esplicite
 lo Stato Errore del frontend. Nominatim e' un servizio HTTP sincrono: l'unica
 funzione pubblica e' percio' sincrona e va invocata via ``run_in_threadpool`` da
 un handler async.
+
+Nota (decisione 3B): il PRODOTTO filtra i POI col ``bbox`` Nominatim *by design*;
+il filtro poligonale reale e' riservato al gate di valutazione (eval/city_agnostic).
+Il "sbavamento" del bbox ai bordi e' quindi noto e misurato li', non un difetto qui.
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ from geopy.geocoders import (  # pyright: ignore[reportMissingTypeStubs]
     Nominatim,
 )
 
+from crime_risk_analyzer.config import get_settings
 from crime_risk_analyzer.models.geo import Bbox
 
 __all__ = ["Bbox", "GeoResult", "GeocodingError", "ZoneNotFoundError", "geocode_zone"]
@@ -43,6 +48,24 @@ class _Location(Protocol):
 
     @property
     def raw(self) -> dict[str, object]: ...
+
+
+class _Geocoder(Protocol):
+    """Vista tipata minimale del geocoder (geopy senza stub): solo ``geocode``.
+
+    Dichiarare qui la firma che ci serve (invece di ereditare quella non tipata
+    di ``Nominatim``) mantiene la chiamata verificabile da pyright strict senza
+    ``# pyright: ignore`` sparsi sugli argomenti.
+    """
+
+    def geocode(
+        self,
+        query: str,
+        *,
+        addressdetails: bool = ...,
+        country_codes: str = ...,
+        timeout: float = ...,
+    ) -> _Location | None: ...
 
 
 class GeoResult(TypedDict):
@@ -67,11 +90,20 @@ def _get_geolocator() -> Nominatim:
     return Nominatim(user_agent=_USER_AGENT)
 
 
-def _geocode(query: str) -> _Location | None:
-    """Confina la chiamata a geopy (senza stub) restituendo un tipo noto."""
-    geolocator = _get_geolocator()
-    result: object = geolocator.geocode(query, addressdetails=False)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-    return cast("_Location | None", result)
+def _geocode_raw(query: str) -> _Location | None:
+    """Chiamata effettiva a geopy (senza stub), con timeout e country_codes.
+
+    Ri-risolve ``_get_geolocator()`` a ogni chiamata cosi' il monkeypatch dei
+    test resta onorato anche dietro il RateLimiter singleton (#115).
+    """
+    settings = get_settings()
+    geolocator = cast("_Geocoder", _get_geolocator())
+    return geolocator.geocode(
+        query,
+        addressdetails=False,
+        country_codes=settings.geocoding_country_codes,
+        timeout=settings.geocoding_timeout_seconds,
+    )
 
 
 def _parse_bbox(boundingbox: object) -> Bbox:
@@ -100,7 +132,7 @@ def geocode_zone(zona: str, citta: str) -> GeoResult:
     """
     query = f"{zona}, {citta}"
     try:
-        location = _geocode(query)
+        location = _geocode_raw(query)
     except GeocoderServiceError as exc:
         raise GeocodingError(
             f"Servizio di geocoding non raggiungibile per {query!r}"
