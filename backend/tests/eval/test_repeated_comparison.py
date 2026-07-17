@@ -422,6 +422,44 @@ def test_build_repeated_report_all_error_zone_excluded_from_variance_table(
     assert any(f["zona"] == "Duomo" for f in data["comparison"]["failed"])
 
 
+def test_report_flags_heterogeneous_k(tmp_path: Path) -> None:
+    """Bracci con K diverso (3 vs 2 rip sulla stessa zona) -> range + warning."""
+    claude = _arm("claude-exp", "claude-sonnet-4-6", (0.90, 0.10, 3000, 0.012))  # 3 rip
+    groq = [
+        _rec(
+            "groq-exp",
+            "Roma",
+            "Colosseo",
+            rep=r,
+            model_id="llama-3.3-70b-versatile",
+            grounding=0.70 + 0.01 * r,
+            hallucination=0.20 - 0.01 * r,
+            latency_ms=1000 + 10 * r,
+            cost_usd=0.0006,
+        )
+        for r in range(2)  # solo 2 ripetizioni
+    ]
+    _write_arm(tmp_path, claude)
+    _write_arm(tmp_path, groq)
+    md_path, _ = build_repeated_report(
+        tmp_path, "claude-exp", "groq-exp", label_a="claude", label_b="groq", stem="het"
+    )
+    md = md_path.read_text(encoding="utf-8")
+    assert "K=2..3" in md
+    assert "disomogeneo" in md.lower()
+
+
+def test_variance_markdown_header_shows_k_range() -> None:
+    """variance_markdown con k_hi != k -> header col range."""
+    claude = fold_arm(_arm("c", "m", (0.90, 0.10, 3000, 0.012)))
+    groq = fold_arm(_arm("g", "m", (0.70, 0.20, 1000, 0.0006)))
+    cmp = compare_records(
+        claude.mean_records, groq.mean_records, label_a="c", label_b="g"
+    )
+    md = variance_markdown(cmp, claude, groq, k=2, k_hi=3)
+    assert "K=2..3" in md
+
+
 def test_build_repeated_report_deep_tie_break_on_latency(tmp_path: Path) -> None:
     """hallucination/grounding pari a precisione di stampa → decide su latency_ms."""
     tied_a = [

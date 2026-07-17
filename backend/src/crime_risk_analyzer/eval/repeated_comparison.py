@@ -50,6 +50,15 @@ def _k_of(a: FoldedArm, b: FoldedArm) -> int:
     )
 
 
+def _k_range(a: FoldedArm, b: FoldedArm) -> tuple[int, int]:
+    """(min, max) di ripetizioni totali (valide + scartate) su zone/bracci.
+
+    ``min != max`` -> K disomogeneo: bracci con --repeat diversi o run parziali.
+    """
+    ks = [v.n_reps + v.n_dropped for v in (*a.variances, *b.variances)]
+    return (min(ks), max(ks)) if ks else (0, 0)
+
+
 #: Getter tipizzati metrica→valore per le medie (``Metrics``, come in
 #: ``ZoneComparison.a``/``b``): stessa mappatura asse→valore di compare.py.
 _GETTERS: dict[str, Callable[[Metrics], float]] = {
@@ -71,9 +80,18 @@ _STD_GETTERS: dict[str, Callable[[MetricValues], float]] = {
 
 
 def variance_markdown(
-    comparison: Comparison, folded_a: FoldedArm, folded_b: FoldedArm, k: int
+    comparison: Comparison,
+    folded_a: FoldedArm,
+    folded_b: FoldedArm,
+    k: int,
+    *,
+    k_hi: int | None = None,
 ) -> str:
-    """Tabella `media ± std` per zona/metrica sui due bracci (K ripetizioni)."""
+    """Tabella `media ± std` per zona/metrica sui due bracci (K ripetizioni).
+
+    ``k_hi`` (Task 3, #165.2): se valorizzato e diverso da ``k``, l'header
+    mostra il range ``K={k}..{k_hi}`` invece del singolo ``K`` massimo.
+    """
     std_a: dict[tuple[str, str], ZoneVariance] = {
         (v.citta, v.zona): v for v in folded_a.variances
     }
@@ -87,8 +105,9 @@ def variance_markdown(
     for m in metrics:
         cols.extend([f"{m}_{comparison.label_a}", f"{m}_{comparison.label_b}"])
     cols.extend([n_col_a, n_col_b])
+    k_label = f"{k}" if k_hi is None or k_hi == k else f"{k}..{k_hi}"
     lines = [
-        f"### Varianza su K={k} ripetizioni (media ± std)",
+        f"### Varianza su K={k_label} ripetizioni (media ± std)",
         "",
         f"> Colonne {n_col_a}/{n_col_b} = ripetizioni valide/totali per zona "
         "(le run in ERROR e FALLBACK sono escluse da media e std).",
@@ -202,17 +221,27 @@ def build_repeated_report(
         folded_a.mean_records, folded_b.mean_records, label_a=la, label_b=lb
     )
     winner = decide_winner(comparison.mean_a, comparison.mean_b, label_a=la, label_b=lb)
-    k = _k_of(folded_a, folded_b)
+    k_lo, k_hi = _k_range(folded_a, folded_b)
+    k = _k_of(folded_a, folded_b)  # max, per il payload JSON (contratto stabile)
+    warning = (
+        f"> ⚠️ K disomogeneo tra zone/bracci (K={k_lo}..{k_hi}): il verdetto "
+        "media zone con basi campionarie diverse.\n"
+        if k_lo != k_hi
+        else ""
+    )
     md = (
         "\n".join(
             [
                 to_markdown(comparison).rstrip("\n"),
                 "",
-                variance_markdown(comparison, folded_a, folded_b, k).rstrip("\n"),
+                variance_markdown(
+                    comparison, folded_a, folded_b, k_lo, k_hi=k_hi
+                ).rstrip("\n"),
                 "",
-                winner_markdown(winner, k, folded_a=folded_a, folded_b=folded_b).rstrip(
-                    "\n"
-                ),
+                warning
+                + winner_markdown(
+                    winner, k_lo, folded_a=folded_a, folded_b=folded_b, k_hi=k_hi
+                ).rstrip("\n"),
             ]
         )
         + "\n"
