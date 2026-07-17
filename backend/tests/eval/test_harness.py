@@ -232,6 +232,46 @@ async def test_run_experiment_error_isolation(
     assert (tmp_path / "runs" / f"{rid_err}.json").exists()
 
 
+async def test_run_does_not_geocode_when_replaying(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Run (replay): 0 chiamate a geocode_zone, anche con repeat>1 (#169)."""
+    from crime_risk_analyzer.geocoding import GeoResult
+    from crime_risk_analyzer.rag import retrieval
+
+    calls = {"n": 0}
+
+    def _boom(zona: str, citta: str) -> GeoResult:
+        calls["n"] += 1
+        raise AssertionError("la run non deve geocodificare")
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _boom)
+
+    # Pre-salva SOLO lo snapshot POI (nessun file geo esiste in #169).
+    key = make_snapshot_key("Roma", "Colosseo")
+    save_snapshot(snapshot_path(tmp_path, key), _sample_pois())
+
+    from tests.eval._doubles import FakeProfiler
+
+    config = ExperimentConfig(
+        name="exp",
+        mode="baseline",
+        model="claude",
+        cases=[RunCase(citta="Roma", zona="Colosseo")],
+    )
+
+    await run_experiment(
+        config,
+        executor=FakeProfiler(),
+        llm_client=None,
+        results_dir=tmp_path,
+        code_commit="c",
+        ontology_hash="o",
+        repeat=2,
+    )
+    assert calls["n"] == 0
+
+
 def test_make_snapshot_key_ignores_mode_and_model() -> None:
     """La chiave snapshot dipende SOLO da (citta, zona) (#110).
 
