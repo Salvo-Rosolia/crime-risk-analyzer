@@ -18,10 +18,14 @@ Il "sbavamento" del bbox ai bordi e' quindi noto e misurato li', non un difetto 
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from functools import lru_cache
 from typing import Protocol, TypedDict, cast
 
 from geopy.exc import GeocoderServiceError  # pyright: ignore[reportMissingTypeStubs]
+from geopy.extra.rate_limiter import (  # pyright: ignore[reportMissingTypeStubs]
+    RateLimiter,
+)
 from geopy.geocoders import (  # pyright: ignore[reportMissingTypeStubs]
     Nominatim,
 )
@@ -106,6 +110,30 @@ def _geocode_raw(query: str) -> _Location | None:
     )
 
 
+@lru_cache(maxsize=1)
+def _get_rate_limited_geocode() -> Callable[[str], _Location | None]:
+    """RateLimiter singleton per processo attorno a :func:`_geocode_raw` (#115).
+
+    ``min_delay_seconds`` dai setting distanzia le chiamate a Nominatim entro la
+    sua usage policy (~1 req/s). ``max_retries=0`` preserva la semantica a
+    chiamata singola (un errore di servizio propaga subito, niente attese di
+    retry); ``swallow_exceptions=False`` fa propagare ``GeocoderServiceError``
+    (altrimenti geopy lo inghiottirebbe restituendo ``None``, confondendolo con
+    "zona non trovata" -> 422 invece di 503). Cached cosi' lo stato di
+    throttling (``_last_call``) persiste tra le chiamate; i test lo resettano
+    con ``cache_clear()``.
+    """
+    return cast(
+        "Callable[[str], _Location | None]",
+        RateLimiter(
+            _geocode_raw,
+            min_delay_seconds=get_settings().geocoding_min_delay_seconds,
+            max_retries=0,
+            swallow_exceptions=False,
+        ),
+    )
+
+
 def _parse_bbox(boundingbox: object) -> Bbox:
     """Converte il ``boundingbox`` Nominatim in :data:`Bbox`.
 
@@ -132,7 +160,7 @@ def geocode_zone(zona: str, citta: str) -> GeoResult:
     """
     query = f"{zona}, {citta}"
     try:
-        location = _geocode_raw(query)
+        location = _get_rate_limited_geocode()(query)
     except GeocoderServiceError as exc:
         raise GeocodingError(
             f"Servizio di geocoding non raggiungibile per {query!r}"

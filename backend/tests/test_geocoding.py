@@ -2,15 +2,34 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import Any, cast
 
 import pytest
 
+import crime_risk_analyzer.geocoding as _geo_mod
+from crime_risk_analyzer.config import get_settings
 from crime_risk_analyzer.geocoding import (
     GeocodingError,
     ZoneNotFoundError,
     geocode_zone,
 )
+
+
+@pytest.fixture(autouse=True)
+def _reset_geocoding_state() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]
+    """Resetta lo stato di modulo condiviso prima/dopo ogni test.
+
+    ``get_settings`` e il RateLimiter singleton (``_get_rate_limited_geocode``,
+    che porta lo stato di throttling ``_last_call``) sono cacheati per processo:
+    senza reset i test si contaminerebbero a vicenda (sleep residui, delay stale
+    dai setting di un altro test).
+    """
+    get_settings.cache_clear()
+    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    yield
+    get_settings.cache_clear()
+    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
 
 
 class _FakeLocation:
@@ -122,7 +141,16 @@ def test_geocode_zone_service_error_raises(
 def test_geocode_zone_passes_country_codes_and_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """La chiamata al geocoder riceve country_codes e timeout dai setting."""
+    """country_codes e timeout arrivano DAI setting, non da valori hardcoded.
+
+    Usa sentinelle NON-default (``fr``/``7``) cosi' il test fallisce anche se un
+    domani i valori venissero cablati sul default ("it"/10.0): la sola prova che
+    provengono davvero dalla configurazione.
+    """
+    monkeypatch.setenv("GEOCODING_COUNTRY_CODES", "fr")
+    monkeypatch.setenv("GEOCODING_TIMEOUT_SECONDS", "7")
+    get_settings.cache_clear()
+
     fake = _FakeGeocoder(
         _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
     )
@@ -130,8 +158,52 @@ def test_geocode_zone_passes_country_codes_and_timeout(
 
     geocode_zone("Colosseo", "Roma")
 
-    assert fake.calls[0]["country_codes"] == "it"
-    assert fake.calls[0]["timeout"] == 10.0
+    assert fake.calls[0]["country_codes"] == "fr"
+    assert fake.calls[0]["timeout"] == 7.0
+
+
+def test_rate_limiter_wired_with_settings() -> None:
+    """Il rate-limiter usa min_delay dai setting, max_retries=0, no swallow."""
+    from geopy.extra.rate_limiter import (  # pyright: ignore[reportMissingTypeStubs]
+        RateLimiter,
+    )
+
+    rl = _geo_mod._get_rate_limited_geocode()  # pyright: ignore[reportPrivateUsage]
+    assert isinstance(rl, RateLimiter)
+    assert rl.min_delay_seconds == get_settings().geocoding_min_delay_seconds
+    assert rl.max_retries == 0
+    assert rl.swallow_exceptions is False
+
+
+def test_rate_limiter_throttles_second_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Due chiamate ravvicinate -> applica un ritardo >= min_delay (clock finto)."""
+    monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "1")
+    get_settings.cache_clear()
+    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
+
+    fake = _FakeGeocoder(
+        _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
+    )
+    _patch_geocoder(monkeypatch, fake)
+
+    now = [1000.0]
+    slept: list[float] = []
+
+    def fake_sleep(seconds: float) -> None:
+        slept.append(seconds)
+        now[0] += seconds  # il tempo avanza di quanto si dorme
+
+    monkeypatch.setattr("geopy.extra.rate_limiter.sleep", fake_sleep)
+    rl = _geo_mod._get_rate_limited_geocode()  # pyright: ignore[reportPrivateUsage]
+    monkeypatch.setattr(rl, "_clock", lambda: now[0])
+
+    geocode_zone("Colosseo", "Roma")  # 1a chiamata: nessuno sleep
+    # cache disabilitata per forzare una 2a chiamata reale
+    monkeypatch.setenv("CACHE_ENABLED", "false")
+    get_settings.cache_clear()
+    geocode_zone("Trastevere", "Roma")  # 2a chiamata: throttle
+
+    assert slept and slept[0] == pytest.approx(1.0)
 
 
 def test_get_geolocator_builds_nominatim() -> None:
