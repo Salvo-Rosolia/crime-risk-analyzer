@@ -40,6 +40,16 @@ class Settings(BaseSettings):
     # tuning senza toccare il codice. Vincolo ``ge=1``: almeno 1 token.
     llm_max_tokens: int = Field(default=1024, ge=1)
     cache_enabled: bool = True
+    # Geocoding hardening (#115). ``cache_enabled`` (sopra) gate la cache dei
+    # risultati di geocoding (prima setting dichiarato ma inutilizzato).
+    # Rate-limit verso Nominatim: policy ~1 req/s -> default 1.0s tra chiamate.
+    # Vincolo ``gt=0``: un misconfig da env (0/negativo) e' respinto al load.
+    geocoding_min_delay_seconds: float = Field(default=1.0, gt=0)
+    # Timeout esplicito per-chiamata al geocoder (un Nominatim lento non appende
+    # la pipeline): mappato a GeocoderTimedOut -> GeocodingError -> 503.
+    geocoding_timeout_seconds: float = Field(default=10.0, gt=0)
+    # Vincola la ricerca alla nazione (evita zone omonime in altri paesi).
+    geocoding_country_codes: str = "it"
     default_city: str = "Roma"
     # Citta supportate da ``GET /cities``. Roma/Milano/Napoli sono garantite e
     # testate end-to-end (orchestrator.md); le altre sono best-effort.
