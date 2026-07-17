@@ -59,7 +59,7 @@ def make_snapshot_key(citta: str, zona: str) -> str:
     return "__".join(_slug(p) for p in (citta, zona))
 
 
-_REP_MARKER = re.compile(r"__rep\d{2}$")
+_REP_MARKER = re.compile(r"__rep\d{2,}$")
 
 
 def is_repeated_run_id(run_id: str) -> bool:
@@ -96,7 +96,7 @@ def guard_no_legacy_runs(
         return
     if clean_stale:
         for path in legacy:
-            path.unlink()
+            path.unlink(missing_ok=True)
         return
     joined = ", ".join(str(p) for p in legacy)
     raise ValueError(
