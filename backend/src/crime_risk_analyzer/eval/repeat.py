@@ -6,10 +6,13 @@ deviazione standard (popolazione) per metrica. Il record-media alimenta
 l'esistente compare.compare_records (riuso #33); la varianza va nel report
 esteso (repeated_comparison).
 
-Politica ERROR (coerente con compare.py): le ripetizioni in ERROR non entrano in
-media/std e sono contate in ZoneVariance.n_dropped; se TUTTE le ripetizioni di
-una zona sono ERROR, il record-media eredita status=ERROR (metriche azzerate)
-cosi' compare_records raccoglie quella zona tra le escluse.
+Politica esclusione (coerente con compare.py, #163): le ripetizioni in ERROR
+E in FALLBACK non entrano in media/std (metriche non rappresentative della
+qualita': azzerate dall'harness per ERROR, narrativa vuota per FALLBACK). Sono
+contate in ZoneVariance.n_dropped, i soli FALLBACK anche in n_fallback; se
+NESSUNA ripetizione di una zona e' valida (OK), il record-media eredita
+status=ERROR (metriche azzerate) cosi' compare_records raccoglie quella zona
+tra le escluse.
 """
 
 from __future__ import annotations
@@ -33,8 +36,9 @@ class ZoneVariance(BaseModel):
     citta: str
     zona: str
     std: MetricValues
-    n_reps: int  # ripetizioni valide (non-ERROR) usate per media/std
-    n_dropped: int  # ripetizioni ERROR escluse
+    n_reps: int  # ripetizioni valide (OK) usate per media/std
+    n_dropped: int  # ripetizioni escluse (ERROR + FALLBACK)
+    n_fallback: int  # di cui FALLBACK (sottoinsieme di n_dropped), reliability
 
 
 class FoldedArm(BaseModel):
@@ -115,7 +119,10 @@ def fold_arm(records: list[RunRecord]) -> FoldedArm:
     variances: list[ZoneVariance] = []
     for citta, zona in sorted(groups):
         group = groups[(citta, zona)]
-        valid = [r for r in group if r.status != RunStatus.ERROR]
+        valid = [
+            r for r in group if r.status not in (RunStatus.ERROR, RunStatus.FALLBACK)
+        ]
+        n_fallback = sum(1 for r in group if r.status == RunStatus.FALLBACK)
         n_dropped = len(group) - len(valid)
         if not valid:
             mean_records.append(_mean_record(group[0], _ZERO_METRICS, RunStatus.ERROR))
@@ -126,6 +133,7 @@ def fold_arm(records: list[RunRecord]) -> FoldedArm:
                     std=_ZERO_STD,
                     n_reps=0,
                     n_dropped=n_dropped,
+                    n_fallback=n_fallback,
                 )
             )
             continue
@@ -137,6 +145,7 @@ def fold_arm(records: list[RunRecord]) -> FoldedArm:
                 std=_std_metrics(valid),
                 n_reps=len(valid),
                 n_dropped=n_dropped,
+                n_fallback=n_fallback,
             )
         )
     return FoldedArm(mean_records=mean_records, variances=variances)

@@ -21,21 +21,12 @@ def _sentences(text: str) -> list[str]:
     return [s.strip() for s in re.split(r"[.\n]", text) if s.strip()]
 
 
-def _tagged_sentences(text: str) -> list[str]:
-    """Frasi che portano un tag fonte [ONTOLOGIA]/[CONTESTO]/[SPECULATIVO].
-
-    Seleziona per classe-tag via :data:`_TAG_RE` (che copre tutti e tre i tag):
-    e' l'insieme delle asserzioni citate dall'LLM su cui grounding e hallucination
-    misurano rispettivamente la frazione ancorata e non ancorata.
-    """
-    return [s for s in _sentences(text) if _TAG_RE.search(s)]
-
-
 def _anchors(resp: AnalyzeResponse) -> set[str]:
     """Token ancorati: nomi POI + hazard (identifier + etichette EN/IT), lowercase.
 
     Include le etichette italiane controllate (#77) così il match regge quando la
     narrativa cita l'hazard in italiano (chiude il caveat EN/IT delle metriche).
+    I token vuoti (es. POI senza nome) sono scartati: non devono ancorare tutto.
     """
     anchors = {p.name.lower() for p in resp.poi}
     for model in resp.risk_models:
@@ -45,53 +36,75 @@ def _anchors(resp: AnalyzeResponse) -> set[str]:
                 anchors.add(risk.hazard_label_it.lower())
             if risk.hazard_label_en:
                 anchors.add(risk.hazard_label_en.lower())
-    return anchors
+    # Scarta i token vuoti/whitespace: un POI OSM senza tag `name` arriva con
+    # name="" e, poiché `"" in s` è sempre vero, renderebbe OGNI frase "ancorata"
+    # neutralizzando la discriminazione (riaprirebbe cat.2 e vanificherebbe
+    # l'esclusione del filler). Cfr. review #163 I1.
+    return {a for a in anchors if a.strip()}
+
+
+def _assertive_sentences(resp: AnalyzeResponse, anchors: set[str]) -> list[str]:
+    """Frasi che fanno un'asserzione di dominio: taggate O che nominano un dato.
+
+    Denominatore di grounding/hallucination (#163). Le frasi né taggate né
+    ancorate (connettivo/filler) restano fuori: non sono asserzioni verificabili,
+    quindi non gonfiano né sgonfiano il tasso di allucinazione.
+    """
+    return [
+        s
+        for s in _sentences(resp.narrativa)
+        if _TAG_RE.search(s) or any(a in s.lower() for a in anchors)
+    ]
+
+
+def _grounded_sentences(assertive: list[str], anchors: set[str]) -> list[str]:
+    """Asserzioni citate bene: taggate AND ancorate ai dati (POI/hazard)."""
+    return [
+        s
+        for s in assertive
+        if _TAG_RE.search(s) and any(a in s.lower() for a in anchors)
+    ]
 
 
 def grounding(resp: AnalyzeResponse) -> float:
-    """Frazione di frasi taggate la cui asserzione è ancorata ai dati [0,1].
+    """Frazione di ASSERZIONI citate e ancorate ai dati [0,1].
 
-    Narrativa vuota → 1.0 (vacuamente ancorata). Narrativa non vuota senza
-    alcun tag → 0.0 (l'LLM non ha citato).
+    Asserzione = frase taggata O che nomina un dato (POI/hazard). Narrativa
+    vuota → 1.0 (vacuamente ancorata, ramo esclusivo che precede il resto).
+    Narrativa non vuota ma senza asserzioni → 0.0 (nulla ancorato).
     """
     if not resp.narrativa.strip():
         return 1.0
-    tagged = [s for s in _sentences(resp.narrativa) if _TAG_RE.search(s)]
-    if not tagged:
-        return 0.0
     anchors = _anchors(resp)
-    backed = [s for s in tagged if any(a in s.lower() for a in anchors)]
-    return len(backed) / len(tagged)
+    assertive = _assertive_sentences(resp, anchors)
+    if not assertive:
+        return 0.0
+    grounded = _grounded_sentences(assertive, anchors)
+    return len(grounded) / len(assertive)
 
 
 def hallucination(resp: AnalyzeResponse) -> float:
-    """Frazione di frasi taggate (qualunque classe) NON ancorate ai dati [0,1].
+    """Frazione di ASSERZIONI NON citate/ancorate ai dati [0,1].
 
-    Ispeziona TUTTE le classi-tag ([ONTOLOGIA]/[CONTESTO]/[SPECULATIVO]) e non la
-    sola [ONTOLOGIA] (#109): una fabbricazione taggata come contesto o
-    speculazione era prima invisibile e la metrica sotto-misurava l'allucinazione.
-    L'ancoraggio ai dati (nomi POI + hazard EN/IT) resta il discriminante per ogni
-    classe. Nessuna frase taggata (incl. narrativa vuota) → 0.0.
-
-    Onesta' metrica (limite noto): sul sottoinsieme delle frasi taggate questa
-    metrica e' il COMPLEMENTO di :func:`grounding` — stesso denominatore (le frasi
-    taggate) e stesso predicato di ancoraggio — quindi ``hallucination == 1 -
-    grounding`` su quel sottoinsieme. Le due NON sono segnali indipendenti.
-    L'UNICA divergenza numerica dall'identita' e' la narrativa NON vuota SENZA
-    frasi taggate: grounding 0.0 (l'LLM non ha citato) ma hallucination 0.0,
-    mentre ``1 - 0.0 = 1.0``. La narrativa vuota prende invece un ramo di
-    early-return separato in :func:`grounding` ma SODDISFA comunque l'identita'
-    (grounding 1.0, hallucination 0.0, ``1 - 1.0 = 0.0``). La validazione
-    indipendente e' demandata al confronto proxy-vs-gold in
-    :mod:`crime_risk_analyzer.eval.gold`, in particolare alla cella FALSE-NEGATIVE
-    (proxy tace, umano segnala) che quantifica la sotto-misura dell'allucinazione.
+    Complemento di :func:`grounding` sullo stesso denominatore (le asserzioni):
+    ``hallucination == 1 - grounding`` sui record con asserzioni > 0. Rispetto a
+    #109 il denominatore non è più "le sole frasi taggate": una frase che afferma
+    su un dato (nomina un POI/hazard) SENZA citare conta come allucinazione (cat.3,
+    reperto A #163), altrimenti un modello che cita poco vincerebbe l'asse del
+    verdetto. Ispeziona tutte le classi-tag ([ONTOLOGIA]/[CONTESTO]/[SPECULATIVO]).
+    Narrativa vuota → 0.0 (ramo esclusivo). Narrativa piena senza asserzioni → 1.0
+    (ha prodotto testo senza ancorare nulla). La validazione proxy-vs-gold umano
+    resta in :mod:`crime_risk_analyzer.eval.gold` (#109), da rifare su questa
+    definizione prima di un claim forte.
     """
-    tagged = _tagged_sentences(resp.narrativa)
-    if not tagged:
+    if not resp.narrativa.strip():
         return 0.0
     anchors = _anchors(resp)
-    halluc = [s for s in tagged if not any(a in s.lower() for a in anchors)]
-    return len(halluc) / len(tagged)
+    assertive = _assertive_sentences(resp, anchors)
+    if not assertive:
+        return 1.0
+    grounded = _grounded_sentences(assertive, anchors)
+    return (len(assertive) - len(grounded)) / len(assertive)
 
 
 def latency_ms(resp: AnalyzeResponse) -> int:

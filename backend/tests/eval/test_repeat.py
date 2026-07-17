@@ -253,3 +253,110 @@ def test_fold_preserves_snapshot_id_for_iso_input() -> None:
 def test_fold_empty_raises() -> None:
     with pytest.raises(ValueError):
         fold_arm([])
+
+
+def test_fold_excludes_fallback_reps_and_counts_them() -> None:
+    """Le ripetizioni FALLBACK non entrano in media/std; n_fallback le conta."""
+    recs = [
+        _rec(
+            "Roma",
+            "Colosseo",
+            rep=0,
+            grounding=0.6,
+            hallucination=0.4,
+            latency_ms=1000,
+            cost_usd=0.0004,
+        ),
+        _rec(
+            "Roma",
+            "Colosseo",
+            rep=1,
+            grounding=1.0,
+            hallucination=0.0,
+            latency_ms=0,
+            cost_usd=0.0,
+            status=RunStatus.FALLBACK,
+        ),
+        _rec(
+            "Roma",
+            "Colosseo",
+            rep=2,
+            grounding=1.0,
+            hallucination=0.0,
+            latency_ms=0,
+            cost_usd=0.0,
+            status=RunStatus.FALLBACK,
+        ),
+    ]
+    folded = fold_arm(recs)
+    mr = folded.mean_records[0]
+    assert mr.status == RunStatus.OK
+    # media della SOLA ripetizione OK, non dei fallback "perfetti".
+    assert mr.metrics.grounding == pytest.approx(0.6)
+    assert mr.metrics.hallucination == pytest.approx(0.4)
+    zv = folded.variances[0]
+    assert zv.n_reps == 1
+    assert zv.n_dropped == 2
+    assert zv.n_fallback == 2
+
+
+def test_fold_all_fallback_zone_becomes_error_record() -> None:
+    """Zona tutta-FALLBACK → record-media ERROR (esclusa a valle); n_fallback conta."""
+    recs = [
+        _rec(
+            "Torino",
+            "Porta Nuova",
+            rep=r,
+            grounding=1.0,
+            hallucination=0.0,
+            latency_ms=0,
+            cost_usd=0.0,
+            status=RunStatus.FALLBACK,
+        )
+        for r in range(2)
+    ]
+    folded = fold_arm(recs)
+    assert folded.mean_records[0].status == RunStatus.ERROR
+    zv = folded.variances[0]
+    assert zv.n_reps == 0
+    assert zv.n_dropped == 2
+    assert zv.n_fallback == 2
+
+
+def test_fold_counts_error_and_fallback_separately() -> None:
+    """n_dropped = ERROR + FALLBACK; n_fallback isola i soli FALLBACK."""
+    recs = [
+        _rec(
+            "Napoli",
+            "Piazza Garibaldi",
+            rep=0,
+            grounding=0.6,
+            hallucination=0.4,
+            latency_ms=1000,
+            cost_usd=0.0004,
+        ),
+        _rec(
+            "Napoli",
+            "Piazza Garibaldi",
+            rep=1,
+            grounding=0.0,
+            hallucination=0.0,
+            latency_ms=0,
+            cost_usd=0.0,
+            status=RunStatus.ERROR,
+        ),
+        _rec(
+            "Napoli",
+            "Piazza Garibaldi",
+            rep=2,
+            grounding=1.0,
+            hallucination=0.0,
+            latency_ms=0,
+            cost_usd=0.0,
+            status=RunStatus.FALLBACK,
+        ),
+    ]
+    zv = fold_arm(recs).variances[0]
+    assert zv.n_reps == 1
+    assert zv.n_dropped == 2
+    assert zv.n_fallback == 1
