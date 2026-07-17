@@ -176,6 +176,37 @@ async def test_retrieve_context_has_exact_keys(
     assert set(ctx["stats"].keys()) == {"n_pois", "n_classes"}
 
 
+async def test_retrieve_uses_injected_geo_source_without_geocoding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Con geo_source iniettato: geocode_zone NON chiamato, geo dalla source."""
+
+    def _boom_geocode(zona: str, citta: str) -> GeoResult:
+        raise AssertionError("geocode_zone non deve essere chiamato con geo_source")
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _boom_geocode)
+
+    geo: GeoResult = GeoResult(lat=1.0, lon=2.0, bbox=Bbox(0.0, 0.0, 0.0, 0.0))
+    geo_source_calls: list[tuple[str, str]] = []
+
+    async def _geo_src(citta: str, zona: str) -> GeoResult:
+        geo_source_calls.append((citta, zona))
+        return geo
+
+    async def _pois(bbox: Bbox, citta: str) -> list[Poi]:
+        return []
+
+    ctx = await retrieve(
+        "Roma",
+        "Colosseo",
+        executor=_FakeProfiler({}),
+        poi_source=_pois,
+        geo_source=_geo_src,
+    )
+    assert geo_source_calls == [("Roma", "Colosseo")]  # ordine (citta, zona)
+    assert ctx["geo"] == geo
+
+
 async def test_retrieve_uses_injected_poi_source(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -5,9 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from crime_risk_analyzer.geocoding import GeoResult
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.overpass_client import Poi, fetch_pois
-from crime_risk_analyzer.rag.retrieval import PoiSource
+from crime_risk_analyzer.rag.retrieval import GeoSource, PoiSource
 
 
 def snapshot_path(results_dir: Path, key: str) -> Path:
@@ -50,5 +51,21 @@ def capturing_source(path: Path, inner: PoiSource = fetch_pois) -> PoiSource:
         pois = await inner(bbox, citta)
         save_snapshot(path, pois)
         return pois
+
+    return _source
+
+
+#: Placeholder deterministico per il geo in fase run. Il geo NON e' consumato a
+#: valle (grounding/generation/metriche lo ignorano; replay_source ignora il bbox),
+#: quindi un valore fisso rende la run ERMETICA (zero Nominatim) senza alterare alcun
+#: output. Vedi #169 / review trasversale #115 (reperto A1).
+_PLACEHOLDER_GEO: GeoResult = {"lat": 0.0, "lon": 0.0, "bbox": Bbox(0.0, 0.0, 0.0, 0.0)}
+
+
+def offline_geo_source() -> GeoSource:
+    """GeoSource placeholder deterministico: zero Nominatim, zero I/O (#169)."""
+
+    async def _source(citta: str, zona: str) -> GeoResult:
+        return _PLACEHOLDER_GEO
 
     return _source

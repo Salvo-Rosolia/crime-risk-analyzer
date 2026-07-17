@@ -20,7 +20,11 @@ from crime_risk_analyzer.eval.schema import (
     RunRecord,
     RunStatus,
 )
-from crime_risk_analyzer.eval.snapshots import replay_source, snapshot_path
+from crime_risk_analyzer.eval.snapshots import (
+    offline_geo_source,
+    replay_source,
+    snapshot_path,
+)
 from crime_risk_analyzer.orchestrator import (
     AnalyzeResponse,
     _LLMClientLike,  # pyright: ignore[reportPrivateUsage]
@@ -223,10 +227,17 @@ async def run_case(
     # Snapshot chiavato per (citta, zona): condiviso dai bracci comparativi (#110).
     snapshot_key = make_snapshot_key(case.citta, case.zona)
     source = replay_source(snapshot_path(results_dir, snapshot_key))
+    # Geo placeholder deterministico (#169): la run replaya i POI e non deve mai
+    # chiamare Nominatim. Il geo e' dead-downstream, quindi il valore non conta.
+    geo_source = offline_geo_source()
     try:
         if config.mode == "baseline":
             resp = await run_baseline(
-                case.citta, case.zona, executor=executor, poi_source=source
+                case.citta,
+                case.zona,
+                executor=executor,
+                poi_source=source,
+                geo_source=geo_source,
             )
         else:
             assert llm_client is not None  # narrowing per pyright strict
@@ -236,6 +247,7 @@ async def run_case(
                 executor=executor,
                 llm_client=llm_client,
                 poi_source=source,
+                geo_source=geo_source,
             )
     except Exception:  # noqa: BLE001 — un caso rotto non blocca l'esperimento
         return _error_record(

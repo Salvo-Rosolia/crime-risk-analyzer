@@ -26,6 +26,7 @@ from crime_risk_analyzer.rag.generation import (
 )
 from crime_risk_analyzer.rag.grounding import GroundedContext, ground
 from crime_risk_analyzer.rag.retrieval import (
+    GeoSource,
     PoiSource,
     RetrievalContext,
     RetrievalStats,
@@ -209,6 +210,7 @@ async def run_analysis(
     executor: RiskProfiler,
     llm_client: _LLMClientLike,
     poi_source: PoiSource | None = None,
+    geo_source: GeoSource | None = None,
     domanda: str | None = None,
 ) -> AnalyzeResponse:
     """Esegue la pipeline completa e assembla la response canonica.
@@ -220,10 +222,13 @@ async def run_analysis(
     ``domanda`` (opzionale, #119) e' la domanda libera dell'utente: viene
     propagata a :func:`generate_analysis` e iniettata nello ``user_content`` del
     prompt LLM; ``None`` = comportamento invariato.
+
+    ``geo_source`` (opzionale, #169) e' propagato a :func:`retrieve` per il replay
+    del geo nell'harness di eval; ``None`` = geocoding live (prodotto invariato).
     """
     start = time.perf_counter()
     retrieval_ctx = await retrieve(
-        citta, zona, executor=executor, poi_source=poi_source
+        citta, zona, executor=executor, poi_source=poi_source, geo_source=geo_source
     )
     grounded = ground(retrieval_ctx)
     poi_out = _build_poi_list(retrieval_ctx, grounded)
@@ -283,6 +288,7 @@ async def run_baseline(
     *,
     executor: RiskProfiler,
     poi_source: PoiSource | None = None,
+    geo_source: GeoSource | None = None,
     tipo_poi: str | None = None,
 ) -> AnalyzeResponse:
     """Pipeline baseline: retrieve -> ground -> serializza (NESSUN LLM).
@@ -290,10 +296,13 @@ async def run_baseline(
     ``tipo_poi`` (opzionale, #119) filtra i POI server-side per classe TERMINUS
     (:func:`_filter_pois_by_type`), applicato prima del grounding. ``None`` o
     stringa vuota/whitespace = nessun filtro (comportamento invariato).
+
+    ``geo_source`` (opzionale, #169) e' propagato a :func:`retrieve` per il replay
+    del geo nell'harness di eval; ``None`` = geocoding live (prodotto invariato).
     """
     start = time.perf_counter()
     retrieval_ctx = await retrieve(
-        citta, zona, executor=executor, poi_source=poi_source
+        citta, zona, executor=executor, poi_source=poi_source, geo_source=geo_source
     )
     tipo = (tipo_poi or "").strip()
     if tipo:

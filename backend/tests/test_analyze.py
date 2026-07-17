@@ -8,11 +8,12 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from crime_risk_analyzer.geocoding import ZoneNotFoundError
+from crime_risk_analyzer.geocoding import GeoResult, ZoneNotFoundError
 from crime_risk_analyzer.llm.client import LLMError, LLMResponse, get_llm_client
 from crime_risk_analyzer.main import create_app
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.models.risk import PoiRiskProfile
+from crime_risk_analyzer.orchestrator import run_analysis
 from crime_risk_analyzer.overpass_client import OverpassError, Poi
 from crime_risk_analyzer.rag import retrieval
 from crime_risk_analyzer.sparql_module.query_executor import get_executor
@@ -255,3 +256,32 @@ def test_analyze_rejects_overlong_domanda(monkeypatch: pytest.MonkeyPatch) -> No
         ),
     )
     assert resp.status_code == 422
+
+
+async def test_run_analysis_threads_geo_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#169: geo_source passato a run_analysis raggiunge retrieve (nessun geocode)."""
+
+    def _boom_geocode(zona: str, citta: str) -> GeoResult:
+        raise AssertionError("geocode_zone non deve essere chiamato con geo_source")
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _boom_geocode)
+    seen: list[tuple[str, str]] = []
+
+    async def _geo(citta: str, zona: str) -> GeoResult:
+        seen.append((citta, zona))
+        return GeoResult(lat=0.0, lon=0.0, bbox=Bbox(0.0, 0.0, 0.0, 0.0))
+
+    async def _pois(bbox: Bbox, citta: str) -> list[Poi]:
+        return []
+
+    await run_analysis(
+        "Roma",
+        "Colosseo",
+        executor=_FakeProfiler(),
+        llm_client=_FakeLLMClient(),
+        poi_source=_pois,
+        geo_source=_geo,
+    )
+    assert seen == [("Roma", "Colosseo")]
