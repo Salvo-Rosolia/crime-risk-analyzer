@@ -192,3 +192,27 @@ def test_parser_run_repeat_accepts_explicit_value() -> None:
     """--repeat 3 (non solo il default) -> ns.repeat==3, come int (non str)."""
     ns = build_parser().parse_args(["run", "--config", "x.json", "--repeat", "3"])
     assert ns.repeat == 3
+
+
+def test_compare_parsers_accept_force_flag() -> None:
+    from crime_risk_analyzer.eval.cli import build_parser
+
+    for cmd in ("compare", "compare-repeated"):
+        ns = build_parser().parse_args(
+            [cmd, "--experiment-a", "a", "--experiment-b", "b", "--force"]
+        )
+        assert ns.force is True
+    # default assente → False
+    ns = build_parser().parse_args(
+        ["compare", "--experiment-a", "a", "--experiment-b", "b"]
+    )
+    assert ns.force is False
+
+
+def test_run_parser_accepts_clean_stale_flag() -> None:
+    from crime_risk_analyzer.eval.cli import build_parser
+
+    ns = build_parser().parse_args(["run", "--config", "c.json", "--clean-stale"])
+    assert ns.clean_stale is True
+    ns = build_parser().parse_args(["run", "--config", "c.json"])
+    assert ns.clean_stale is False

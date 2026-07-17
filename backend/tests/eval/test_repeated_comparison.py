@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from pytest import MonkeyPatch
 
 from crime_risk_analyzer.eval.compare import compare_records
@@ -103,14 +104,20 @@ def test_winner_markdown_reports_winner_and_deciding_axis() -> None:
         claude.mean_records, groq.mean_records, label_a="claude", label_b="groq"
     )
     w = decide_winner(cmp.mean_a, cmp.mean_b, label_a="claude", label_b="groq")
-    md = winner_markdown(w, k=3)
-    assert "claude" in md  # hallucination piu' bassa → claude vince
+    md = winner_markdown(w, k=3, folded_a=claude, folded_b=groq)
     assert "hallucination" in md
-    assert "K=3" in md or "K = 3" in md
-    # riga del verdetto esatta (non tautologico: "claude" e' anche negli header
-    # tabella) — un bug che interpola label_b al posto di winner.winner fallisce.
-    assert "**Vincitore: `claude`**" in md
-    assert "**Vincitore: `groq`**" not in md
+    assert "K=3" in md
+    # E: label ammorbidito, esplorativo — NON la parola forte "Vincitore".
+    assert "Vincitore" not in md
+    assert "Esito del criterio proxy" in md
+    # verdetto sul modello giusto, non tautologico (claude e' anche negli header).
+    assert "`claude` ha scorato meglio" in md
+    assert "`groq` ha scorato meglio" not in md
+    # E: il caveat di scope precede il verdetto (indice minore nel testo).
+    assert md.index("proxy testuale") < md.index("ha scorato meglio")
+    # F: base campionaria accanto al verdetto (3 rip valide su entrambi i bracci).
+    assert "n_reps validi per zona" in md
+    assert "`claude`: 3-3" in md
 
 
 def test_winner_markdown_declares_tie() -> None:
@@ -124,7 +131,8 @@ def test_winner_markdown_declares_tie() -> None:
     )
     w = decide_winner(cmp.mean_a, cmp.mean_b, label_a="a", label_b="b")
     md = winner_markdown(w, k=3)
-    assert "pareggio" in md.lower()
+    assert "Nessun modello prevale sul proxy" in md
+    assert "Vincitore" not in md
 
 
 def test_variance_markdown_shows_mean_and_std() -> None:
@@ -245,6 +253,59 @@ def test_variance_markdown_cell_values_match_getter_mapping() -> None:
     assert claude.variances[0].std.cost_usd > 0.0
 
 
+def test_variance_markdown_shows_fallback_count() -> None:
+    """Zona con 1 OK + 2 FALLBACK (braccio A) → colonna n_fallback = 2 (#165.3)."""
+    claude_recs = [
+        _rec(
+            "claude-exp",
+            "Roma",
+            "Colosseo",
+            rep=0,
+            model_id="claude-sonnet-4-6",
+            grounding=0.90,
+            hallucination=0.10,
+            latency_ms=3000,
+            cost_usd=0.012,
+        ),
+        _rec(
+            "claude-exp",
+            "Roma",
+            "Colosseo",
+            rep=1,
+            model_id="claude-sonnet-4-6",
+            grounding=1.0,
+            hallucination=0.0,
+            latency_ms=0,
+            cost_usd=0.0,
+            status=RunStatus.FALLBACK,
+        ),
+        _rec(
+            "claude-exp",
+            "Roma",
+            "Colosseo",
+            rep=2,
+            model_id="claude-sonnet-4-6",
+            grounding=1.0,
+            hallucination=0.0,
+            latency_ms=0,
+            cost_usd=0.0,
+            status=RunStatus.FALLBACK,
+        ),
+    ]
+    groq = _arm("groq-exp", "llama-3.3-70b-versatile", (0.70, 0.20, 1000, 0.0006))
+    fclaude = fold_arm(claude_recs)
+    fgroq = fold_arm(groq)
+    cmp = compare_records(
+        fclaude.mean_records, fgroq.mean_records, label_a="claude", label_b="groq"
+    )
+    md = variance_markdown(cmp, fclaude, fgroq, k=3)
+    assert "n_fallback_claude" in md
+    assert "n_fallback_groq" in md
+    # la cella fallback del braccio claude vale 2; groq 0.
+    row = next(line for line in md.splitlines() if line.startswith("| Roma "))
+    assert row.rstrip().endswith("| 2 | 0 |")
+
+
 def test_build_repeated_report_writes_md_and_json(tmp_path: Path) -> None:
     _write_arm(
         tmp_path, _arm("claude-exp", "claude-sonnet-4-6", (0.90, 0.10, 3000, 0.012))
@@ -336,7 +397,7 @@ def test_end_to_end_fold_compare_winner(tmp_path: Path) -> None:
     assert data["winner"]["winner"] == "claude"
     # varianza non nulla (le 3 ripetizioni variano)
     assert data["variance"]["arm_a"][0]["std"]["grounding"] > 0.0
-    assert "Vincitore" in md_path.read_text(encoding="utf-8")
+    assert "Esito del criterio proxy" in md_path.read_text(encoding="utf-8")
 
 
 def test_build_repeated_report_default_stem_filename(tmp_path: Path) -> None:
@@ -404,13 +465,53 @@ def test_build_repeated_report_all_error_zone_excluded_from_variance_table(
     md = md_path.read_text(encoding="utf-8")
     data = json.loads(json_path.read_text(encoding="utf-8"))
 
-    variance_section = md.split("### Varianza")[1].split("### Vincitore")[0]
+    variance_section = md.split("### Varianza")[1].split(
+        "### Esito del criterio proxy"
+    )[0]
     assert "Milano" not in variance_section
 
     milano_a = next(v for v in data["variance"]["arm_a"] if v["zona"] == "Duomo")
     assert milano_a["n_reps"] == 0
     assert milano_a["n_dropped"] == 2
     assert any(f["zona"] == "Duomo" for f in data["comparison"]["failed"])
+
+
+def test_report_flags_heterogeneous_k(tmp_path: Path) -> None:
+    """Bracci con K diverso (3 vs 2 rip sulla stessa zona) -> range + warning."""
+    claude = _arm("claude-exp", "claude-sonnet-4-6", (0.90, 0.10, 3000, 0.012))  # 3 rip
+    groq = [
+        _rec(
+            "groq-exp",
+            "Roma",
+            "Colosseo",
+            rep=r,
+            model_id="llama-3.3-70b-versatile",
+            grounding=0.70 + 0.01 * r,
+            hallucination=0.20 - 0.01 * r,
+            latency_ms=1000 + 10 * r,
+            cost_usd=0.0006,
+        )
+        for r in range(2)  # solo 2 ripetizioni
+    ]
+    _write_arm(tmp_path, claude)
+    _write_arm(tmp_path, groq)
+    md_path, _ = build_repeated_report(
+        tmp_path, "claude-exp", "groq-exp", label_a="claude", label_b="groq", stem="het"
+    )
+    md = md_path.read_text(encoding="utf-8")
+    assert "K=2..3" in md
+    assert "disomogeneo" in md.lower()
+
+
+def test_variance_markdown_header_shows_k_range() -> None:
+    """variance_markdown con k_hi != k -> header col range."""
+    claude = fold_arm(_arm("c", "m", (0.90, 0.10, 3000, 0.012)))
+    groq = fold_arm(_arm("g", "m", (0.70, 0.20, 1000, 0.0006)))
+    cmp = compare_records(
+        claude.mean_records, groq.mean_records, label_a="c", label_b="g"
+    )
+    md = variance_markdown(cmp, claude, groq, k=2, k_hi=3)
+    assert "K=2..3" in md
 
 
 def test_build_repeated_report_deep_tie_break_on_latency(tmp_path: Path) -> None:
@@ -452,3 +553,35 @@ def test_build_repeated_report_deep_tie_break_on_latency(tmp_path: Path) -> None
     data = json.loads(json_path.read_text(encoding="utf-8"))
     assert data["winner"]["deciding_axis"] in {"latency_ms", "cost_usd"}
     assert data["winner"]["winner"] == "claude"  # 1000ms < 1005ms
+
+
+def test_build_repeated_report_refuses_overwrite_without_force(tmp_path: Path) -> None:
+    _write_arm(
+        tmp_path, _arm("claude-exp", "claude-sonnet-4-6", (0.90, 0.10, 3000, 0.012))
+    )
+    _write_arm(
+        tmp_path,
+        _arm("groq-exp", "llama-3.3-70b-versatile", (0.70, 0.20, 1000, 0.0006)),
+    )
+    build_repeated_report(
+        tmp_path, "claude-exp", "groq-exp", label_a="claude", label_b="groq", stem="dup"
+    )
+    with pytest.raises(FileExistsError):
+        build_repeated_report(
+            tmp_path,
+            "claude-exp",
+            "groq-exp",
+            label_a="claude",
+            label_b="groq",
+            stem="dup",
+        )
+    # con force → sovrascrive senza sollevare
+    build_repeated_report(
+        tmp_path,
+        "claude-exp",
+        "groq-exp",
+        label_a="claude",
+        label_b="groq",
+        stem="dup",
+        force=True,
+    )

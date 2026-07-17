@@ -10,6 +10,18 @@ Due valori sono 'pari' se coincidono alla precisione con cui la metrica viene
 stampata (3/3/0/6 decimali) → si passa all'asse successivo. Parita' su tutti e 4
 gli assi → nessun vincitore (pareggio esplicito), nessun tie-break artificiale.
 
+LIMITE (#164-D): 'grounding' e' un asse ridondante, NON un secondo criterio
+indipendente. E' il complemento lineare di 'hallucination' sullo stesso
+denominatore (le asserzioni): ``hallucination == 1 - grounding`` quando le
+asserzioni sono > 0 (vedi metrics.py). Quindi il tie-break su 'grounding' non
+decide di fatto mai: quando 'hallucination' pareggia (stessa griglia di
+arrotondamento) pareggia anche 'grounding'; e nei corner degeneri (narrativa
+vuota vs piena-senza-asserzioni) e' 'hallucination' a decidere (0.0 vs 1.0).
+'grounding' resta nella catena per trasparenza, non aggiunge informazione
+ortogonale. Un 2° asse davvero ortogonale (copertura/integrita' §2) e' un
+miglioramento futuro, non implementato qui per non alterare la semantica del
+verdetto prima dei dati reali.
+
 Nota di scope (#157): l'asse 'hallucination' e' il PROXY testuale gia' in
 Metrics; 'tasso di intervento del filtro' e 'allucinazioni residue' (spec §2)
 sono deliverable separati, non implementati qui.

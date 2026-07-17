@@ -76,6 +76,11 @@ def build_parser() -> argparse.ArgumentParser:
                 default=1,
                 help="K ripetizioni per stimare la varianza (#157); default 1",
             )
+            p.add_argument(
+                "--clean-stale",
+                action="store_true",
+                help="rimuove le run legacy pre-#157 (senza __rep) prima di eseguire",
+            )
     agg = sub.add_parser("aggregate")
     agg.add_argument("--experiment", required=True)
     agg.add_argument("--results", default="results")
@@ -87,6 +92,9 @@ def build_parser() -> argparse.ArgumentParser:
     cmp_parser.add_argument("--label-b", default=None)
     cmp_parser.add_argument("--out", default=None, help="stem dei file di output")
     cmp_parser.add_argument("--results", default="results")
+    cmp_parser.add_argument(
+        "--force", action="store_true", help="sovrascrive i file di output esistenti"
+    )
     # compare-repeated (#157): report esteso con K ripetizioni (varianza) + vincitore.
     rep_parser = sub.add_parser("compare-repeated")
     rep_parser.add_argument("--experiment-a", required=True)
@@ -95,6 +103,9 @@ def build_parser() -> argparse.ArgumentParser:
     rep_parser.add_argument("--label-b", default=None)
     rep_parser.add_argument("--out", default=None, help="stem dei file di output")
     rep_parser.add_argument("--results", default="results")
+    rep_parser.add_argument(
+        "--force", action="store_true", help="sovrascrive i file di output esistenti"
+    )
     ca_parser = sub.add_parser("city-agnostic")
     ca_parser.add_argument("phase", choices=["capture", "report"])
     ca_parser.add_argument("--results", default="results")

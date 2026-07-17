@@ -137,6 +137,10 @@ def fold_arm(records: list[RunRecord]) -> FoldedArm:
                 )
             )
             continue
+        # Il record-media prende status OK anche se il gruppo conteneva FALLBACK:
+        # i fallback sono gia' esclusi da media/std (#163) e il loro segnale
+        # viaggia via ZoneVariance.n_fallback (reso visibile nel report, #165.3).
+        # Cambiare qui lo status altererebbe la selezione zone di compare_records.
         mean_records.append(_mean_record(valid[0], _mean_metrics(valid), RunStatus.OK))
         variances.append(
             ZoneVariance(

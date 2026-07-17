@@ -1,4 +1,10 @@
-"""Harness di esecuzione di un esperimento di valutazione (#34)."""
+"""Harness di esecuzione di un esperimento di valutazione (#34).
+
+Vincolo migrazione (#165.4): ``results/runs/`` deve contenere solo run in
+formato #157 (run_id con marker ``__rep{NN}``). Record legacy pre-#157 per lo
+stesso esperimento sono rilevati e rifiutati da ``run`` (o rimossi con
+``--clean-stale``): coesistere con run ``__rep`` corromperebbe fold/compare.
+"""
 
 from __future__ import annotations
 
@@ -51,6 +57,52 @@ def make_snapshot_key(citta: str, zona: str) -> str:
     resta unica e non diverge tra run_id e chiave snapshot.
     """
     return "__".join(_slug(p) for p in (citta, zona))
+
+
+_REP_MARKER = re.compile(r"__rep\d{2,}$")
+
+
+def is_repeated_run_id(run_id: str) -> bool:
+    """True se il run_id porta il marker di ripetizione ``__rep{NN}`` (#157)."""
+    return _REP_MARKER.search(run_id) is not None
+
+
+def legacy_run_paths(results_dir: Path, experiment: str) -> list[Path]:
+    """Path dei record dell'esperimento in formato PRE-#157 (senza ``__rep``).
+
+    Un record legacy per la stessa (citta, zona) di una run ``__rep`` verrebbe
+    trattato come ripetizione stantia da fold/compare: va rilevato prima di
+    scrivere nuove ripetizioni.
+    """
+    from crime_risk_analyzer.eval.aggregate import load_runs
+
+    return [
+        results_dir / "runs" / f"{rec.run_id}.json"
+        for rec in load_runs(results_dir, experiment=experiment)
+        if not is_repeated_run_id(rec.run_id)
+    ]
+
+
+def guard_no_legacy_runs(
+    results_dir: Path, experiment: str, *, clean_stale: bool = False
+) -> None:
+    """Difende da record legacy pre-#157 per l'esperimento (#165.4).
+
+    ``clean_stale=True`` li rimuove; altrimenti solleva ``ValueError`` con
+    l'elenco e l'indicazione di rigenerare o usare ``--clean-stale``.
+    """
+    legacy = legacy_run_paths(results_dir, experiment)
+    if not legacy:
+        return
+    if clean_stale:
+        for path in legacy:
+            path.unlink(missing_ok=True)
+        return
+    joined = ", ".join(str(p) for p in legacy)
+    raise ValueError(
+        f"run legacy pre-#157 (senza __rep) per l'esperimento '{experiment}': "
+        f"{joined}. Rigenera results/runs/ o rilancia con --clean-stale."
+    )
 
 
 def write_record(results_dir: Path, record: RunRecord) -> Path:
@@ -216,6 +268,7 @@ async def run_experiment(
     code_commit: str,
     ontology_hash: str,
     repeat: int = 1,
+    clean_stale: bool = False,
 ) -> list[RunRecord]:
     """Esegue tutti i casi ``repeat`` volte, scrive i JSON, ritorna i record.
 
@@ -225,11 +278,17 @@ async def run_experiment(
     ``repeat`` (#157): K ripetizioni per stimare la varianza; ogni ripetizione
     ha un ``rep`` distinto nel run_id (nessuna sovrascrittura). Default 1.
 
+    ``clean_stale`` (#165.4): se ``True`` rimuove i record legacy pre-#157
+    dell'esperimento prima di eseguire; altrimenti la guardia solleva
+    :class:`ValueError` se ne trova (coesistere con run ``__rep`` corrompe
+    fold/compare).
+
     Solleva :class:`ValueError` se ``repeat < 1`` (niente esperimento vuoto
     in silenzio: senza guardia ``range(repeat)`` ritornerebbe ``[]``).
     """
     if repeat < 1:
         raise ValueError(f"repeat deve essere >= 1, ricevuto {repeat}")
+    guard_no_legacy_runs(results_dir, config.name, clean_stale=clean_stale)
     records: list[RunRecord] = []
     for rep in range(repeat):
         for case in config.cases:

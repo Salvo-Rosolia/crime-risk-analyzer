@@ -649,3 +649,49 @@ def test_main_compare_dispatch_writes_tables(
     assert csv_path.exists()
     assert (tmp_path / "ablation.md").exists()
     assert "grounding_analyze" in csv_path.read_text(encoding="utf-8")
+
+
+def test_compare_experiments_refuses_overwrite_without_force(tmp_path: Path) -> None:
+    from crime_risk_analyzer.eval.compare import compare_experiments
+    from crime_risk_analyzer.eval.harness import write_record
+
+    # due bracci minimi, una zona OK ciascuno, stesso snapshot_id
+    from crime_risk_analyzer.eval.schema import (
+        Metrics,
+        Provenance,
+        RunRecord,
+        RunStatus,
+    )
+
+    def _mk(experiment: str) -> RunRecord:
+        return RunRecord(
+            run_id=f"{experiment}__roma__colosseo__analyze__groq__rep00",
+            experiment=experiment,
+            citta="Roma",
+            zona="Colosseo",
+            mode="analyze",
+            model_id="m",
+            status=RunStatus.OK,
+            metrics=Metrics(
+                grounding=0.8, hallucination=0.2, latency_ms=1000, cost_usd=0.001
+            ),
+            narrativa="x",
+            n_poi=1,
+            provenance=Provenance(
+                code_commit="c",
+                ontology_hash="o",
+                snapshot_id="roma__colosseo",
+                model_id="m",
+                prompt_hash="p",
+                temperature=0.0,
+                seed=0,
+                experiment=experiment,
+            ),
+        )
+
+    write_record(tmp_path, _mk("a-exp"))
+    write_record(tmp_path, _mk("b-exp"))
+    compare_experiments(tmp_path, "a-exp", "b-exp", stem="dup")
+    with pytest.raises(FileExistsError):
+        compare_experiments(tmp_path, "a-exp", "b-exp", stem="dup")
+    compare_experiments(tmp_path, "a-exp", "b-exp", stem="dup", force=True)

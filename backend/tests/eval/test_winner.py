@@ -135,3 +135,12 @@ def test_tie_tolerance_at_print_precision_for_latency_ms() -> None:
     )
     assert decided.deciding_axis == "latency_ms"
     assert decided.winner == "claude"  # 1000 < 1001
+
+
+def test_module_docstring_declares_grounding_is_not_independent() -> None:
+    """#164-D: la docstring dichiara che grounding NON e' un asse indipendente."""
+    import crime_risk_analyzer.eval.winner as winner_mod
+
+    doc = (winner_mod.__doc__ or "").lower()
+    assert "ridond" in doc  # grounding e' ridondante con hallucination
+    assert "1 - grounding" in doc or "1-grounding" in doc or "1 − grounding" in doc

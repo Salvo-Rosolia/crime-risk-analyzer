@@ -395,3 +395,172 @@ async def test_capture_once_replayed_by_other_arm(
     assert records[0].status == RunStatus.OK
     assert calls == 1  # nessuna seconda cattura live
     assert records[0].provenance.snapshot_id == key
+
+
+def _legacy_record(experiment: str, citta: str, zona: str):
+    from crime_risk_analyzer.eval.schema import (
+        Metrics,
+        Provenance,
+        RunRecord,
+        RunStatus,
+    )
+
+    # run_id in formato PRE-#157: nessun suffisso __rep.
+    return RunRecord(
+        run_id=f"{experiment}__{citta}__{zona}__analyze__groq".lower(),
+        experiment=experiment,
+        citta=citta,
+        zona=zona,
+        mode="analyze",
+        model_id="m",
+        status=RunStatus.OK,
+        metrics=Metrics(
+            grounding=0.8, hallucination=0.2, latency_ms=1000, cost_usd=0.001
+        ),
+        narrativa="x",
+        n_poi=1,
+        provenance=Provenance(
+            code_commit="c",
+            ontology_hash="o",
+            snapshot_id=f"{citta}__{zona}".lower(),
+            model_id="m",
+            prompt_hash="p",
+            temperature=0.0,
+            seed=0,
+            experiment=experiment,
+        ),
+    )
+
+
+def test_is_repeated_run_id() -> None:
+    from crime_risk_analyzer.eval.harness import is_repeated_run_id, make_run_id
+
+    assert is_repeated_run_id(
+        make_run_id("e", "Roma", "Colosseo", "analyze", "groq", 0)
+    )
+    assert not is_repeated_run_id("e__roma__colosseo__analyze__groq")
+
+
+def test_guard_no_legacy_runs_raises_on_legacy(tmp_path: Path) -> None:
+    from crime_risk_analyzer.eval.harness import guard_no_legacy_runs, write_record
+
+    write_record(tmp_path, _legacy_record("exp", "Roma", "Colosseo"))
+    with pytest.raises(ValueError, match="legacy"):
+        guard_no_legacy_runs(tmp_path, "exp")
+
+
+def test_guard_no_legacy_runs_clean_stale_removes(tmp_path: Path) -> None:
+    from crime_risk_analyzer.eval.harness import (
+        guard_no_legacy_runs,
+        legacy_run_paths,
+        write_record,
+    )
+
+    p = write_record(tmp_path, _legacy_record("exp", "Roma", "Colosseo"))
+    guard_no_legacy_runs(tmp_path, "exp", clean_stale=True)
+    assert not p.exists()
+    assert legacy_run_paths(tmp_path, "exp") == []
+
+
+def test_guard_no_legacy_runs_ignores_repeated_and_other_experiments(
+    tmp_path: Path,
+) -> None:
+    from crime_risk_analyzer.eval.harness import (
+        guard_no_legacy_runs,
+        make_run_id,
+        write_record,
+    )
+    from crime_risk_analyzer.eval.schema import (
+        Metrics,
+        Provenance,
+        RunRecord,
+        RunStatus,
+    )
+
+    # record __rep dello stesso esperimento: NON deve far scattare la guardia.
+    rec = RunRecord(
+        run_id=make_run_id("exp", "Roma", "Colosseo", "analyze", "groq", 0),
+        experiment="exp",
+        citta="Roma",
+        zona="Colosseo",
+        mode="analyze",
+        model_id="m",
+        status=RunStatus.OK,
+        metrics=Metrics(
+            grounding=0.8, hallucination=0.2, latency_ms=1000, cost_usd=0.001
+        ),
+        narrativa="x",
+        n_poi=1,
+        provenance=Provenance(
+            code_commit="c",
+            ontology_hash="o",
+            snapshot_id="roma__colosseo",
+            model_id="m",
+            prompt_hash="p",
+            temperature=0.0,
+            seed=0,
+            experiment="exp",
+        ),
+    )
+    write_record(tmp_path, rec)
+    # legacy ma di ALTRO esperimento: irrilevante per "exp".
+    write_record(tmp_path, _legacy_record("other", "Milano", "Duomo"))
+    guard_no_legacy_runs(tmp_path, "exp")  # non solleva
+
+
+def test_guard_no_legacy_runs_clean_stale_removes_only_target(tmp_path: Path) -> None:
+    """--clean-stale rimuove SOLO i legacy dell'esperimento target.
+
+    Sicurezza-dati: un record __rep dello stesso esperimento e un legacy di un
+    ALTRO esperimento non devono essere toccati dalla pulizia.
+    """
+    from crime_risk_analyzer.eval.harness import (
+        guard_no_legacy_runs,
+        legacy_run_paths,
+        make_run_id,
+        write_record,
+    )
+    from crime_risk_analyzer.eval.schema import (
+        Metrics,
+        Provenance,
+        RunRecord,
+        RunStatus,
+    )
+
+    # (a) legacy TARGET dell'esperimento "exp": deve essere rimosso.
+    target = write_record(tmp_path, _legacy_record("exp", "Roma", "Colosseo"))
+    # (b) record __rep dello stesso "exp": ripetizione valida, NON va toccata.
+    rep = RunRecord(
+        run_id=make_run_id("exp", "Roma", "Colosseo", "analyze", "groq", 0),
+        experiment="exp",
+        citta="Roma",
+        zona="Colosseo",
+        mode="analyze",
+        model_id="m",
+        status=RunStatus.OK,
+        metrics=Metrics(
+            grounding=0.8, hallucination=0.2, latency_ms=1000, cost_usd=0.001
+        ),
+        narrativa="x",
+        n_poi=1,
+        provenance=Provenance(
+            code_commit="c",
+            ontology_hash="o",
+            snapshot_id="roma__colosseo",
+            model_id="m",
+            prompt_hash="p",
+            temperature=0.0,
+            seed=0,
+            experiment="exp",
+        ),
+    )
+    rep_path = write_record(tmp_path, rep)
+    # (c) legacy di ALTRO esperimento: fuori scope, NON va toccato.
+    other = write_record(tmp_path, _legacy_record("other", "Milano", "Duomo"))
+
+    guard_no_legacy_runs(tmp_path, "exp", clean_stale=True)
+
+    assert not target.exists()  # (a) rimosso
+    assert rep_path.exists()  # (b) intatto
+    assert other.exists()  # (c) intatto
+    assert legacy_run_paths(tmp_path, "exp") == []
