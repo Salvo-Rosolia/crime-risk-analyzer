@@ -29,6 +29,7 @@ from crime_risk_analyzer.models.risk import PoiRiskProfile
 from crime_risk_analyzer.overpass_client import Poi, fetch_pois
 
 __all__ = [
+    "GeoSource",
     "PoiSource",
     "RetrievalContext",
     "RetrievalStats",
@@ -38,6 +39,10 @@ __all__ = [
 
 #: Sorgente POI iniettabile (capture-and-replay in eval). Default: Overpass live.
 PoiSource = Callable[[Bbox, str], Awaitable[list[Poi]]]
+
+#: Sorgente geo iniettabile (replay in eval, #169). Default (None): geocode live.
+#: La firma e' ``(citta, zona) -> GeoResult`` (mirror di :data:`PoiSource`).
+GeoSource = Callable[[str, str], Awaitable[GeoResult]]
 
 
 class RiskProfiler(Protocol):
@@ -76,6 +81,7 @@ async def retrieve(
     *,
     executor: RiskProfiler,
     poi_source: PoiSource | None = None,
+    geo_source: GeoSource | None = None,
 ) -> RetrievalContext:
     """Assembla il context_dict grezzo per ``zona`` dentro ``citta``.
 
@@ -85,8 +91,17 @@ async def retrieve(
 
     ``poi_source`` consente il capture-and-replay nell'harness di eval: se None
     usa la sorgente live ``fetch_pois`` (Overpass).
+
+    ``geo_source`` (#169) consente il replay del geo nell'harness: se None usa il
+    geocoding live ``geocode_zone`` (Nominatim). Iniettando una source che ritorna
+    un placeholder, la run di eval non chiama mai Nominatim (run ermetica): il geo
+    e' dead-downstream (grounding/generation/metriche lo ignorano; ``replay_source``
+    ignora il bbox), quindi il valore non altera alcun output.
     """
-    geo = await run_in_threadpool(geocode_zone, zona, citta)
+    if geo_source is not None:
+        geo = await geo_source(citta, zona)
+    else:
+        geo = await run_in_threadpool(geocode_zone, zona, citta)
     source = poi_source or fetch_pois
     pois = await source(geo["bbox"], citta)
     profiles: dict[str, PoiRiskProfile] = {
