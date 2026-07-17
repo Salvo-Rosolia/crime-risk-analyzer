@@ -101,16 +101,19 @@ def variance_markdown(
     metrics = ("grounding", "hallucination", "latency_ms", "cost_usd")
     n_col_a = f"n_{comparison.label_a}"
     n_col_b = f"n_{comparison.label_b}"
+    nfb_col_a = f"n_fallback_{comparison.label_a}"
+    nfb_col_b = f"n_fallback_{comparison.label_b}"
     cols = ["citta", "zona"]
     for m in metrics:
         cols.extend([f"{m}_{comparison.label_a}", f"{m}_{comparison.label_b}"])
-    cols.extend([n_col_a, n_col_b])
+    cols.extend([n_col_a, n_col_b, nfb_col_a, nfb_col_b])
     k_label = f"{k}" if k_hi is None or k_hi == k else f"{k}..{k_hi}"
     lines = [
         f"### Varianza su K={k_label} ripetizioni (media ± std)",
         "",
-        f"> Colonne {n_col_a}/{n_col_b} = ripetizioni valide/totali per zona "
-        "(le run in ERROR e FALLBACK sono escluse da media e std).",
+        f"> Colonne {n_col_a}/{n_col_b} = ripetizioni valide/totali per zona; "
+        f"{nfb_col_a}/{nfb_col_b} = di cui in FALLBACK (escluse da media e std, "
+        "come le ERROR).",
         "",
         "| " + " | ".join(cols) + " |",
         "| " + " | ".join("---" for _ in cols) + " |",
@@ -129,6 +132,8 @@ def variance_markdown(
         vb = std_b[key]
         cells.append(f"{va.n_reps}/{va.n_reps + va.n_dropped}")
         cells.append(f"{vb.n_reps}/{vb.n_reps + vb.n_dropped}")
+        cells.append(str(va.n_fallback))
+        cells.append(str(vb.n_fallback))
         lines.append("| " + " | ".join(cells) + " |")
     return "\n".join(lines) + "\n"
 

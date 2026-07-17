@@ -252,6 +252,59 @@ def test_variance_markdown_cell_values_match_getter_mapping() -> None:
     assert claude.variances[0].std.cost_usd > 0.0
 
 
+def test_variance_markdown_shows_fallback_count() -> None:
+    """Zona con 1 OK + 2 FALLBACK (braccio A) → colonna n_fallback = 2 (#165.3)."""
+    claude_recs = [
+        _rec(
+            "claude-exp",
+            "Roma",
+            "Colosseo",
+            rep=0,
+            model_id="claude-sonnet-4-6",
+            grounding=0.90,
+            hallucination=0.10,
+            latency_ms=3000,
+            cost_usd=0.012,
+        ),
+        _rec(
+            "claude-exp",
+            "Roma",
+            "Colosseo",
+            rep=1,
+            model_id="claude-sonnet-4-6",
+            grounding=1.0,
+            hallucination=0.0,
+            latency_ms=0,
+            cost_usd=0.0,
+            status=RunStatus.FALLBACK,
+        ),
+        _rec(
+            "claude-exp",
+            "Roma",
+            "Colosseo",
+            rep=2,
+            model_id="claude-sonnet-4-6",
+            grounding=1.0,
+            hallucination=0.0,
+            latency_ms=0,
+            cost_usd=0.0,
+            status=RunStatus.FALLBACK,
+        ),
+    ]
+    groq = _arm("groq-exp", "llama-3.3-70b-versatile", (0.70, 0.20, 1000, 0.0006))
+    fclaude = fold_arm(claude_recs)
+    fgroq = fold_arm(groq)
+    cmp = compare_records(
+        fclaude.mean_records, fgroq.mean_records, label_a="claude", label_b="groq"
+    )
+    md = variance_markdown(cmp, fclaude, fgroq, k=3)
+    assert "n_fallback_claude" in md
+    assert "n_fallback_groq" in md
+    # la cella fallback del braccio claude vale 2; groq 0.
+    row = next(line for line in md.splitlines() if line.startswith("| Roma "))
+    assert row.rstrip().endswith("| 2 | 0 |")
+
+
 def test_build_repeated_report_writes_md_and_json(tmp_path: Path) -> None:
     _write_arm(
         tmp_path, _arm("claude-exp", "claude-sonnet-4-6", (0.90, 0.10, 3000, 0.012))
