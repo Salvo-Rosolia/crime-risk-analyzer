@@ -3,6 +3,7 @@ from pathlib import Path
 from crime_risk_analyzer.eval.snapshots import (
     capturing_source,
     load_snapshot,
+    offline_geo_source,
     replay_source,
     save_snapshot,
 )
@@ -45,3 +46,13 @@ async def test_capturing_source_writes_and_passes_through(tmp_path: Path) -> Non
     out = await source(Bbox(41.0, 12.0, 41.1, 12.1), "Roma")
     assert out[0]["name"] == "Banca A"
     assert load_snapshot(p)[0]["name"] == "Banca A"  # è stato scritto
+
+
+async def test_offline_geo_source_returns_deterministic_placeholder() -> None:
+    src = offline_geo_source()
+    a = await src("Roma", "Colosseo")
+    b = await src("Milano", "Duomo")
+    # deterministico e indipendente dagli argomenti
+    assert a == b
+    assert isinstance(a["bbox"], Bbox)
+    assert a == {"lat": 0.0, "lon": 0.0, "bbox": Bbox(0.0, 0.0, 0.0, 0.0)}
