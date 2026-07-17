@@ -11,7 +11,12 @@ from crime_risk_analyzer.eval.harness import (
     make_snapshot_key,
     run_experiment,
 )
-from crime_risk_analyzer.eval.schema import ExperimentConfig, RunCase, RunStatus
+from crime_risk_analyzer.eval.schema import (
+    ExperimentConfig,
+    Mode,
+    RunCase,
+    RunStatus,
+)
 from crime_risk_analyzer.eval.snapshots import (
     capturing_source,
     load_snapshot,
@@ -232,10 +237,16 @@ async def test_run_experiment_error_isolation(
     assert (tmp_path / "runs" / f"{rid_err}.json").exists()
 
 
+@pytest.mark.parametrize("mode", ["baseline", "analyze"])
 async def test_run_does_not_geocode_when_replaying(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    mode: Mode, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Run (replay): 0 chiamate a geocode_zone, anche con repeat>1 (#169)."""
+    """Run (replay): 0 geocode su ENTRAMBI i rami (baseline/analyze), repeat>1 (#169).
+
+    Copre il fail-if-removed anche sul ramo analyze di ``run_case``: se il wiring
+    di ``geo_source`` sparisse dalla chiamata ``run_analysis``, il ramo analyze
+    tornerebbe a geocodificare live e questo caso fallirebbe.
+    """
     from crime_risk_analyzer.geocoding import GeoResult
     from crime_risk_analyzer.rag import retrieval
 
@@ -251,25 +262,29 @@ async def test_run_does_not_geocode_when_replaying(
     key = make_snapshot_key("Roma", "Colosseo")
     save_snapshot(snapshot_path(tmp_path, key), _sample_pois())
 
-    from tests.eval._doubles import FakeProfiler
+    from tests.eval._doubles import FakeLLMClient, FakeProfiler
 
     config = ExperimentConfig(
         name="exp",
-        mode="baseline",
+        mode=mode,
         model="claude",
         cases=[RunCase(citta="Roma", zona="Colosseo")],
     )
+    # analyze richiede un llm_client (fake gia' usato nel file); baseline no.
+    llm_client = FakeLLMClient() if mode == "analyze" else None
 
-    await run_experiment(
+    records = await run_experiment(
         config,
         executor=FakeProfiler(),
-        llm_client=None,
+        llm_client=llm_client,
         results_dir=tmp_path,
         code_commit="c",
         ontology_hash="o",
         repeat=2,
     )
     assert calls["n"] == 0
+    # Il test non deve passare per un errore a monte inghiottito da run_case.
+    assert all(r.status == RunStatus.OK for r in records)
 
 
 def test_make_snapshot_key_ignores_mode_and_model() -> None:
