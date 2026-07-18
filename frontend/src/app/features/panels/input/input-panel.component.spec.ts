@@ -135,6 +135,11 @@ describe('InputPanelComponent', () => {
     expect(zona.getAttribute('aria-required')).toBe('true');
   });
 
+  it('il campo zona ha maxlength=200, coerente col vincolo backend zona: max_length=200', () => {
+    const zona: HTMLInputElement = fixture.nativeElement.querySelector('#cra-zona');
+    expect(zona.maxLength).toBe(200);
+  });
+
   it("l'errore di validazione si pulisce mentre si digita (non resta stale durante la correzione)", () => {
     submitForm();
     fixture.detectChanges();

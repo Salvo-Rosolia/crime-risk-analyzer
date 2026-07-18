@@ -97,6 +97,11 @@ describe('BasePanelComponent', () => {
     expect(fixture.nativeElement.querySelector('#cra-base-zona')).toBeTruthy();
   });
 
+  it('il campo zona ha maxlength=200, coerente col vincolo backend zona: max_length=200', () => {
+    const zona: HTMLInputElement = fixture.nativeElement.querySelector('#cra-base-zona');
+    expect(zona.maxLength).toBe(200);
+  });
+
   it('elenca cosa è assente nel sistema base', () => {
     const text = fixture.nativeElement.textContent;
     expect(text).toContain('Assente nel base');
