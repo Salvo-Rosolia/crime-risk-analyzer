@@ -42,9 +42,13 @@ npm test
 ## Quality gate
 
 ```bash
-npm run lint    # ESLint (ng lint)
-npm test        # test unitari (Jest)
+npm run lint            # ESLint (ng lint)
+npm run test:coverage   # test unitari (Jest) con coverage + soglia (coverageThreshold)
 ```
+
+`npm test` (senza `--coverage`) resta utile per il loop di sviluppo rapido, ma non applica
+la soglia di coverage: usa `npm run test:coverage` prima di aprire una PR, è lo stesso
+comando che gira in CI.
 
 ## Struttura
 

@@ -86,9 +86,9 @@ jobs:
       - name: Lint
         if: ${{ steps.tooling.outputs.present == 'true' }}
         run: npm run lint
-      - name: Tests
+      - name: Tests (con coverage + soglia)
         if: ${{ steps.tooling.outputs.present == 'true' }}
-        run: npm test
+        run: npm run test:coverage
 
   frontend-build:
     needs: changes

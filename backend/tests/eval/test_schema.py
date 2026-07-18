@@ -1,4 +1,5 @@
 import pytest
+from pydantic import ValidationError
 
 from crime_risk_analyzer.eval.schema import (
     ExperimentConfig,
@@ -55,3 +56,38 @@ def test_experiment_config() -> None:
         cases=[RunCase(citta="Roma", zona="Centro")],
     )
     assert cfg.cases[0].zona == "Centro"
+
+
+def test_experiment_config_rejects_wrong_case_mode() -> None:
+    """Vocabolario controllato (``Mode`` Literal): il casing e' vincolante.
+    ``"Baseline"`` (capitalizzato) NON e' ``"baseline"`` → ValidationError."""
+    with pytest.raises(ValidationError):
+        ExperimentConfig(
+            name="ablation",
+            mode="Baseline",  # pyright: ignore[reportArgumentType]
+            model="claude",
+            cases=[RunCase(citta="Roma", zona="Centro")],
+        )
+
+
+def test_experiment_config_rejects_wrong_case_model() -> None:
+    """Vocabolario controllato (``ModelChoice`` Literal): ``"Claude"`` capitalizzato
+    e' fuori dal vocabolario minuscolo → ValidationError."""
+    with pytest.raises(ValidationError):
+        ExperimentConfig(
+            name="ablation",
+            mode="baseline",
+            model="Claude",  # pyright: ignore[reportArgumentType]
+            cases=[RunCase(citta="Roma", zona="Centro")],
+        )
+
+
+def test_experiment_config_rejects_unknown_mode() -> None:
+    """Un valore fuori dal vocabolario (livello inventato) e' rifiutato."""
+    with pytest.raises(ValidationError):
+        ExperimentConfig(
+            name="ablation",
+            mode="dry-run",  # pyright: ignore[reportArgumentType]
+            model="claude",
+            cases=[RunCase(citta="Roma", zona="Centro")],
+        )
