@@ -30,6 +30,7 @@ from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.overpass_client import Poi
 
 _capture = eval_main._capture  # pyright: ignore[reportPrivateUsage]
+_snapshot_reusable = eval_main._snapshot_reusable  # pyright: ignore[reportPrivateUsage]
 
 
 def _fake_geocode_fixture(zona: str, citta: str) -> dict[str, object]:
@@ -147,6 +148,82 @@ async def test_capture_skips_if_snapshot_exists(
     assert calls == 1  # nessuna seconda query live
     assert load_snapshot(path) == _sentinel_pois()  # file NON sovrascritto
     assert any("riuso" in r.getMessage().lower() for r in caplog.records)
+
+
+def test_snapshot_reusable_true_for_valid(tmp_path: Path) -> None:
+    """Fix 1 (#148): uno snapshot esistente, non vuoto e JSON valido è riusabile."""
+    path = tmp_path / "snap.json"
+    save_snapshot(path, _sample_pois())
+    assert _snapshot_reusable(path) is True
+
+
+def test_snapshot_reusable_false_for_missing(tmp_path: Path) -> None:
+    """Fix 1 (#148): un file inesistente non è riusabile."""
+    assert _snapshot_reusable(tmp_path / "assente.json") is False
+
+
+def test_snapshot_reusable_false_for_empty(tmp_path: Path) -> None:
+    """Fix 1 (#148): un file vuoto (size 0) non è riusabile."""
+    path = tmp_path / "snap.json"
+    path.write_text("", encoding="utf-8")
+    assert _snapshot_reusable(path) is False
+
+
+def test_snapshot_reusable_false_for_corrupt(tmp_path: Path) -> None:
+    """Fix 1 (#148): un file troncato/corrotto (JSON non parsabile) non è riusabile."""
+    path = tmp_path / "snap.json"
+    path.write_text("[{ troncato non json", encoding="utf-8")
+    assert _snapshot_reusable(path) is False
+
+
+async def test_capture_recaptures_when_snapshot_corrupt(
+    tmp_path: Path, capture_env: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Fix 1 (#148): uno snapshot presente ma corrotto (JSON non parsabile) NON
+    viene riusato in silenzio → _capture ri-cattura live e lo sovrascrive."""
+    calls = 0
+
+    async def counting_live(bbox: Bbox, citta: str) -> list[Poi]:
+        nonlocal calls
+        calls += 1
+        return _sample_pois()
+
+    config_path = _write_config(tmp_path, "Roma", "Centro")
+    path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("[{ troncato non json", encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING):
+        await _capture(config_path, tmp_path, poi_source=counting_live)
+
+    assert calls == 1  # ri-catturato, non saltato
+    assert load_snapshot(path) == _sample_pois()  # sovrascritto con contenuto fresco
+    assert any(
+        "corrotto" in r.getMessage().lower() or "vuoto" in r.getMessage().lower()
+        for r in caplog.records
+    )
+
+
+async def test_capture_recaptures_when_snapshot_empty(
+    tmp_path: Path, capture_env: None
+) -> None:
+    """Fix 1 (#148): uno snapshot presente ma vuoto (size 0) NON viene riusato."""
+    calls = 0
+
+    async def counting_live(bbox: Bbox, citta: str) -> list[Poi]:
+        nonlocal calls
+        calls += 1
+        return _sample_pois()
+
+    config_path = _write_config(tmp_path, "Roma", "Centro")
+    path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("", encoding="utf-8")
+
+    await _capture(config_path, tmp_path, poi_source=counting_live)
+
+    assert calls == 1  # ri-catturato
+    assert load_snapshot(path) == _sample_pois()
 
 
 async def test_capture_force_recaptures(tmp_path: Path, capture_env: None) -> None:

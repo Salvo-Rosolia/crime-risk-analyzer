@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from pathlib import Path
 
@@ -21,7 +22,11 @@ from crime_risk_analyzer.eval.compare import compare_experiments
 from crime_risk_analyzer.eval.gold import write_agreement_report
 from crime_risk_analyzer.eval.harness import make_snapshot_key, run_experiment
 from crime_risk_analyzer.eval.repeated_comparison import build_repeated_report
-from crime_risk_analyzer.eval.snapshots import capturing_source, snapshot_path
+from crime_risk_analyzer.eval.snapshots import (
+    capturing_source,
+    load_snapshot,
+    snapshot_path,
+)
 from crime_risk_analyzer.ontology import load_ontology
 from crime_risk_analyzer.orchestrator import run_analysis, run_baseline
 from crime_risk_analyzer.overpass_client import fetch_pois
@@ -29,6 +34,24 @@ from crime_risk_analyzer.rag.retrieval import PoiSource
 from crime_risk_analyzer.sparql_module.query_executor import get_executor
 
 logger = logging.getLogger(__name__)
+
+
+def _snapshot_reusable(path: Path) -> bool:
+    """True se lo snapshot esistente è riusabile sullo skip (#148).
+
+    Riusabile = il file esiste, è non vuoto (``size > 0``) ED è JSON parsabile.
+    Uno snapshot troncato/corrotto (scrittura interrotta) NON è riusabile: va
+    ri-catturato invece di essere rigiocato in silenzio (recuperabile prima solo
+    con ``--force``). Check leggero: non valida ogni POI, solo che il file
+    ``load_snapshot`` lo sappia leggere senza esplodere.
+    """
+    if not path.exists() or path.stat().st_size == 0:
+        return False
+    try:
+        load_snapshot(path)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return False
+    return True
 
 
 async def _capture(
@@ -50,8 +73,9 @@ async def _capture(
         path = snapshot_path(results_dir, key)
         # Idempotenza (skip-if-exists, #110 M2): non ri-catturare la stessa
         # (citta, zona) per un secondo braccio — reintrodurrebbe il confondimento.
-        # --force forza la ri-cattura live.
-        if path.exists() and not force:
+        # Salta SOLO se lo snapshot è integro (#148): uno troncato/corrotto va
+        # ri-catturato, non rigiocato in silenzio. --force forza la ri-cattura.
+        if not force and _snapshot_reusable(path):
             logger.info(
                 "snapshot (%s, %s) già presente, riuso: %s",
                 case.citta,
@@ -59,6 +83,13 @@ async def _capture(
                 path,
             )
             continue
+        if not force and path.exists():
+            logger.warning(
+                "snapshot (%s, %s) presente ma vuoto/corrotto, ri-cattura: %s",
+                case.citta,
+                case.zona,
+                path,
+            )
         source = capturing_source(path, inner=inner)
         if config.mode == "baseline":
             await run_baseline(
