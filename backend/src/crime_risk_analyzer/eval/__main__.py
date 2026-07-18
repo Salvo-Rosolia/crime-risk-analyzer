@@ -45,6 +45,15 @@ def _snapshot_reusable(path: Path) -> bool:
     ri-catturato invece di essere rigiocato in silenzio (recuperabile prima solo
     con ``--force``). Check leggero: non valida ogni POI, solo che il file
     ``load_snapshot`` lo sappia leggere senza esplodere.
+
+    Confine del check (deliberato):
+    - Invariante garantita = **parse-safe per il replay**: se il check passa, il
+      ``load_snapshot`` del replay non esploderà in parse. NON è "shape-valid":
+      uno snapshot JSON valido ma semanticamente sbagliato (es. POI privi delle
+      chiavi attese) NON è intercettato — la validazione di schema è fuori scope.
+    - Errori ambientali (``OSError``/``PermissionError`` su ``stat``/read) NON
+      sono catturati di proposito: fail-loud voluto e, essendo la cattura
+      idempotente, un re-run riprende comunque dai case già catturati.
     """
     if not path.exists() or path.stat().st_size == 0:
         return False
