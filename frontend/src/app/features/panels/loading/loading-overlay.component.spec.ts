@@ -6,7 +6,9 @@ describe('LoadingOverlayComponent', () => {
 
   beforeEach(async () => {
     jest.useFakeTimers();
-    await TestBed.configureTestingModule({ imports: [LoadingOverlayComponent] }).compileComponents();
+    await TestBed.configureTestingModule({
+      imports: [LoadingOverlayComponent],
+    }).compileComponents();
     fixture = TestBed.createComponent(LoadingOverlayComponent);
     fixture.componentRef.setInput('zona', 'Trastevere');
     fixture.detectChanges();
@@ -48,7 +50,7 @@ describe('LoadingOverlayComponent', () => {
     expect(steps[1].classList.contains('cra-step-current')).toBe(true);
   });
 
-  it('si ferma all\'ultimo step e non oltre', () => {
+  it("si ferma all'ultimo step e non oltre", () => {
     jest.advanceTimersByTime(1400 * (LOADING_STEPS.length + 5));
     fixture.detectChanges();
     const steps = fixture.nativeElement.querySelectorAll('.cra-loading-step');

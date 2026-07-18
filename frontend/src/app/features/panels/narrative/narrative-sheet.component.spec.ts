@@ -6,9 +6,27 @@ const riskModels: RiskModel[] = [
   {
     poi: 'Colosseo',
     risks: [
-      { hazard: 'h-spec', confidence: 'speculativo', tag: 'SPECULATIVO', hazard_label_it: 'Ipotesi', hazard_label_en: 'Hypothesis' },
-      { hazard: 'h-onto', confidence: 'confermato', tag: 'ONTOLOGIA', hazard_label_it: 'Borseggio', hazard_label_en: 'Pickpocketing' },
-      { hazard: 'h-ctx', confidence: 'plausibile', tag: 'CONTESTO', hazard_label_it: 'Contesto', hazard_label_en: 'Context' },
+      {
+        hazard: 'h-spec',
+        confidence: 'speculativo',
+        tag: 'SPECULATIVO',
+        hazard_label_it: 'Ipotesi',
+        hazard_label_en: 'Hypothesis',
+      },
+      {
+        hazard: 'h-onto',
+        confidence: 'confermato',
+        tag: 'ONTOLOGIA',
+        hazard_label_it: 'Borseggio',
+        hazard_label_en: 'Pickpocketing',
+      },
+      {
+        hazard: 'h-ctx',
+        confidence: 'plausibile',
+        tag: 'CONTESTO',
+        hazard_label_it: 'Contesto',
+        hazard_label_en: 'Context',
+      },
     ],
   },
 ];
@@ -18,9 +36,15 @@ const ANTI_HALLUCINATION_TEXT = 'supporto decisionale · valuta con fonti primar
 describe('NarrativeSheetComponent', () => {
   let fixture: ComponentFixture<NarrativeSheetComponent>;
 
-  function setup(inputs: {
-    citta?: string; zona?: string; narrativa?: string; riskModels?: RiskModel[]; open?: boolean;
-  } = {}): void {
+  function setup(
+    inputs: {
+      citta?: string;
+      zona?: string;
+      narrativa?: string;
+      riskModels?: RiskModel[];
+      open?: boolean;
+    } = {},
+  ): void {
     fixture = TestBed.createComponent(NarrativeSheetComponent);
     fixture.componentRef.setInput('citta', inputs.citta ?? 'Roma');
     fixture.componentRef.setInput('zona', inputs.zona ?? 'Colosseo');
@@ -31,7 +55,9 @@ describe('NarrativeSheetComponent', () => {
   }
 
   beforeEach(async () => {
-    await TestBed.configureTestingModule({ imports: [NarrativeSheetComponent] }).compileComponents();
+    await TestBed.configureTestingModule({
+      imports: [NarrativeSheetComponent],
+    }).compileComponents();
   });
 
   it('mostra il titolo con città e zona', () => {
@@ -49,7 +75,7 @@ describe('NarrativeSheetComponent', () => {
     expect(fixture.nativeElement.textContent).toContain(ANTI_HALLUCINATION_TEXT);
   });
 
-  it('click sull\'header emette toggleNarrative', () => {
+  it("click sull'header emette toggleNarrative", () => {
     setup();
     const spy = jest.fn();
     fixture.componentInstance.toggleNarrative.subscribe(spy);
@@ -72,8 +98,10 @@ describe('NarrativeSheetComponent', () => {
     setup({ open: true, narrativa: 'Il Colosseo presenta rischi noti.' });
     expect(fixture.nativeElement.textContent).toContain('Il Colosseo presenta rischi noti.');
     const tags = fixture.nativeElement.querySelectorAll('.cra-source-tag');
-    expect(Array.from(tags).map(t => (t as HTMLElement).textContent?.trim())).toEqual([
-      '[ONTOLOGIA]', '[CONTESTO]', '[SPECULATIVO]',
+    expect(Array.from(tags).map((t) => (t as HTMLElement).textContent?.trim())).toEqual([
+      '[ONTOLOGIA]',
+      '[CONTESTO]',
+      '[SPECULATIVO]',
     ]);
     expect(fixture.nativeElement.textContent).toContain('Borseggio');
   });

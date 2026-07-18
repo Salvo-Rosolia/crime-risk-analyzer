@@ -7,19 +7,48 @@ const dataWithRows: AnalyzeResponse = {
   citta: 'Roma',
   zona_normalizzata: 'Colosseo',
   poi: [
-    { id: '1', name: 'Colosseo', terminus_class: 'Archaeological_site', lat: 0, lon: 0, confidence: 'confermato', sparql_path: null, terminus_label_it: 'Sito archeologico', terminus_label_en: 'Archaeological site' },
+    {
+      id: '1',
+      name: 'Colosseo',
+      terminus_class: 'Archaeological_site',
+      lat: 0,
+      lon: 0,
+      confidence: 'confermato',
+      sparql_path: null,
+      terminus_label_it: 'Sito archeologico',
+      terminus_label_en: 'Archaeological site',
+    },
   ],
   risk_models: [
-    { poi: 'Colosseo', risks: [
-      { hazard: 'h1', confidence: 'confermato', tag: 'ONTOLOGIA', hazard_label_it: 'Borseggio', hazard_label_en: 'Pickpocketing' },
-      { hazard: 'h2', confidence: 'speculativo', tag: 'SPECULATIVO', hazard_label_it: 'Ipotesi', hazard_label_en: 'Hypothesis' },
-    ] },
+    {
+      poi: 'Colosseo',
+      risks: [
+        {
+          hazard: 'h1',
+          confidence: 'confermato',
+          tag: 'ONTOLOGIA',
+          hazard_label_it: 'Borseggio',
+          hazard_label_en: 'Pickpocketing',
+        },
+        {
+          hazard: 'h2',
+          confidence: 'speculativo',
+          tag: 'SPECULATIVO',
+          hazard_label_it: 'Ipotesi',
+          hazard_label_en: 'Hypothesis',
+        },
+      ],
+    },
   ],
   narrativa: '',
   confidence_summary: { confermato: 1, plausibile: 0, speculativo: 1 },
-  llm_used: '', latenza_ms: 0, tokens_input: 0, tokens_output: 0,
+  llm_used: '',
+  latenza_ms: 0,
+  tokens_input: 0,
+  tokens_output: 0,
   repro: { temperature: 0, seed: 0, prompt_hash: '' },
-  cache_hit: false, fallback: false,
+  cache_hit: false,
+  fallback: false,
 };
 
 describe('BasePanelComponent', () => {
@@ -57,8 +86,13 @@ describe('BasePanelComponent', () => {
 
   it('mostra il form "Parametri ricerca" con Tipo POI, Città (dropdown da cities()) e Zona', () => {
     expect(api.cities).toHaveBeenCalled();
-    const options = fixture.nativeElement.querySelectorAll('#cra-base-citta option:not([value=""])');
-    expect(Array.from(options).map(o => (o as HTMLOptionElement).value)).toEqual(['Roma', 'Milano']);
+    const options = fixture.nativeElement.querySelectorAll(
+      '#cra-base-citta option:not([value=""])',
+    );
+    expect(Array.from(options).map((o) => (o as HTMLOptionElement).value)).toEqual([
+      'Roma',
+      'Milano',
+    ]);
     expect(fixture.nativeElement.querySelector('#cra-base-tipo-poi')).toBeTruthy();
     expect(fixture.nativeElement.querySelector('#cra-base-zona')).toBeTruthy();
   });
@@ -73,7 +107,7 @@ describe('BasePanelComponent', () => {
     expect(text).toContain('mappa');
   });
 
-  it('submit senza città/zona non emette search e mostra l\'errore di validazione', () => {
+  it("submit senza città/zona non emette search e mostra l'errore di validazione", () => {
     const spy = jest.fn();
     fixture.componentInstance.analyzeBaseline.subscribe(spy);
     submitForm();
@@ -102,7 +136,11 @@ describe('BasePanelComponent', () => {
     tipoPoi.dispatchEvent(new Event('input'));
     fixture.detectChanges();
     submitForm();
-    expect(spy).toHaveBeenCalledWith({ citta: 'Roma', zona: 'Colosseo', tipo_poi: 'Railway_station' });
+    expect(spy).toHaveBeenCalledWith({
+      citta: 'Roma',
+      zona: 'Colosseo',
+      tipo_poi: 'Railway_station',
+    });
   });
 
   it('senza data mostra un placeholder onesto (non una tabella con righe inventate)', () => {
@@ -137,11 +175,13 @@ describe('BasePanelComponent', () => {
     expect(text).not.toContain('Confermato');
     expect(text).not.toContain('Speculativo');
     expect(text).not.toContain('Assegna pattuglia');
-    expect(fixture.nativeElement.querySelectorAll('.cra-base-table [style*="color"]').length).toBe(0);
+    expect(fixture.nativeElement.querySelectorAll('.cra-base-table [style*="color"]').length).toBe(
+      0,
+    );
   });
 
   describe('gestione errore/retry (bloccante 2 review #67: il retry resta dentro questo pannello)', () => {
-    it('mostra il messaggio d\'errore server (serverError) quando presente', () => {
+    it("mostra il messaggio d'errore server (serverError) quando presente", () => {
       fixture.componentRef.setInput('serverError', '"Atlantide" non corrisponde ad alcuna area.');
       fixture.detectChanges();
       expect(fixture.nativeElement.textContent).toContain('non corrisponde ad alcuna area');
@@ -178,7 +218,9 @@ describe('BasePanelComponent — pre-fill da initialCitta/initialZona (retry dop
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [BasePanelComponent],
-      providers: [{ provide: ApiService, useValue: { cities: jest.fn().mockResolvedValue(['Roma']) } }],
+      providers: [
+        { provide: ApiService, useValue: { cities: jest.fn().mockResolvedValue(['Roma']) } },
+      ],
     }).compileComponents();
     fixture = TestBed.createComponent(BasePanelComponent);
   });

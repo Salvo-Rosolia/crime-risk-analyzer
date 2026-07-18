@@ -40,12 +40,14 @@ export class PoiPanelComponent {
 
   protected readonly visible = computed<NumberedPoi[]>(() => {
     const filter = this.filter();
-    return this.numbered().filter(x => matchesFilter(x.poi.confidence, filter));
+    return this.numbered().filter((x) => matchesFilter(x.poi.confidence, filter));
   });
 
   protected readonly hiddenCount = computed(() => this.pois().length - this.visible().length);
 
-  protected readonly counts = computed<Record<Confidence, number>>(() => poiConfidenceCounts(this.pois()));
+  protected readonly counts = computed<Record<Confidence, number>>(() =>
+    poiConfidenceCounts(this.pois()),
+  );
 
   protected onChipClick(level: Confidence): void {
     if (this.filter() === level) {

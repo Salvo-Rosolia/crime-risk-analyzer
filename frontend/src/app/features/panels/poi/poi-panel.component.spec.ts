@@ -52,7 +52,7 @@ describe('PoiPanelComponent', () => {
     expect(text).toContain('Alley');
   });
 
-  it('numera le card in base all\'ordine originale dell\'array POI', () => {
+  it("numera le card in base all'ordine originale dell'array POI", () => {
     const badges = fixture.nativeElement.querySelectorAll('.cra-poi-pin-badge');
     expect(Array.from(badges).map((b) => (b as HTMLElement).textContent?.trim())).toEqual([
       '1',
@@ -61,7 +61,7 @@ describe('PoiPanelComponent', () => {
     ]);
   });
 
-  it('click su una card emette selectPoi con l\'id del POI', () => {
+  it("click su una card emette selectPoi con l'id del POI", () => {
     const spy = jest.fn();
     fixture.componentInstance.selectPoi.subscribe(spy);
     const cards = fixture.nativeElement.querySelectorAll('.cra-poi-card');
@@ -119,7 +119,7 @@ describe('PoiPanelComponent', () => {
     expect(fixture.nativeElement.textContent).not.toContain('nascosti');
   });
 
-  it('la numerazione delle card resta quella dell\'array originale anche filtrando', () => {
+  it("la numerazione delle card resta quella dell'array originale anche filtrando", () => {
     fixture.componentRef.setInput('filter', 'speculativo');
     fixture.detectChanges();
     const badge = fixture.nativeElement.querySelector('.cra-poi-pin-badge');

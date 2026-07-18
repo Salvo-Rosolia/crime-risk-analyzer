@@ -2,7 +2,12 @@ import { expect, test } from '@playwright/test';
 import { mockApi } from './support/mocking';
 import { S } from './support/selectors';
 import analyzeFixture from './fixtures/analyze.happy.json';
-import { CONF, coverageBadgeText, deriveCoverage, poiConfidenceCounts } from '../src/app/core/confidence';
+import {
+  CONF,
+  coverageBadgeText,
+  deriveCoverage,
+  poiConfidenceCounts,
+} from '../src/app/core/confidence';
 import type { AnalyzeResponse, Confidence } from '../src/app/core/models/models';
 
 /**
@@ -34,11 +39,15 @@ test.describe('INPUT→LOADING→RESULTS: parità marker/card/badge col fixture'
     await expect(S.mapMarkers(page)).toHaveCount(analyze.poi.length);
   });
 
-  test('n. risk-card nel pannello POI == n. POI del fixture (nessun filtro attivo)', async ({ page }) => {
+  test('n. risk-card nel pannello POI == n. POI del fixture (nessun filtro attivo)', async ({
+    page,
+  }) => {
     await expect(S.poiCards(page)).toHaveCount(analyze.poi.length);
   });
 
-  test('badge Copertura coerente con confidence_summary + conteggio [ONTOLOGIA] del fixture', async ({ page }) => {
+  test('badge Copertura coerente con confidence_summary + conteggio [ONTOLOGIA] del fixture', async ({
+    page,
+  }) => {
     const { total, anchored } = deriveCoverage(analyze.confidence_summary, analyze.risk_models);
 
     // Sanity check sul fixture stesso: la somma di confidence_summary e il conteggio dei tag
@@ -49,7 +58,9 @@ test.describe('INPUT→LOADING→RESULTS: parità marker/card/badge col fixture'
     await expect(S.coverageBadge(page)).toHaveText(`▣ ${coverageBadgeText(total, anchored)}`);
   });
 
-  test('chip confidence (header + pannello POI) coerenti coi conteggi POI del fixture', async ({ page }) => {
+  test('chip confidence (header + pannello POI) coerenti coi conteggi POI del fixture', async ({
+    page,
+  }) => {
     const counts = poiConfidenceCounts(analyze.poi);
     const levels = Object.keys(counts) as Confidence[];
 

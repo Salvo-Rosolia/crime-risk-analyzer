@@ -5,11 +5,19 @@ import { ApiService } from '@core/api/api.service';
 import { AnalyzeResponse } from '@core/models/models';
 
 const resp: AnalyzeResponse = {
-  citta: 'Roma', zona_normalizzata: 'Colosseo', poi: [], risk_models: [],
-  narrativa: '', confidence_summary: { confermato: 0, plausibile: 0, speculativo: 0 },
-  llm_used: 'test-model', latenza_ms: 100, tokens_input: 0, tokens_output: 0,
+  citta: 'Roma',
+  zona_normalizzata: 'Colosseo',
+  poi: [],
+  risk_models: [],
+  narrativa: '',
+  confidence_summary: { confermato: 0, plausibile: 0, speculativo: 0 },
+  llm_used: 'test-model',
+  latenza_ms: 100,
+  tokens_input: 0,
+  tokens_output: 0,
   repro: { temperature: 0.2, seed: 0, prompt_hash: 'x' },
-  cache_hit: false, fallback: false,
+  cache_hit: false,
+  fallback: false,
 };
 
 /**
@@ -48,13 +56,15 @@ describe('ApiService', () => {
   let http: HttpTestingController;
 
   beforeEach(() => {
-    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
+    TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
     api = TestBed.inject(ApiService);
     http = TestBed.inject(HttpTestingController);
   });
   afterEach(() => http.verify());
 
-  it('cities: GET /cities e ritorna l\'elenco delle città supportate', async () => {
+  it("cities: GET /cities e ritorna l'elenco delle città supportate", async () => {
     const p = api.cities();
     const req = http.expectOne('/cities');
     expect(req.request.method).toBe('GET');
