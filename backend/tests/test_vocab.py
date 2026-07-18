@@ -56,3 +56,18 @@ def test_tag_literal_rejects_unknown_value() -> None:
 
     with pytest.raises(ValidationError):
         RiskItem(hazard="x", confidence="confermato", tag="alto")  # pyright: ignore[reportArgumentType]
+
+
+def test_confidence_summary_has_no_numeric_danger_scoring_field() -> None:
+    """Guardia anti-scoring estesa al contratto /analyze (#184, sul pattern di
+    #118 su ``PoiRiskProfile``). ``ConfidenceSummary`` e' fatto di soli campi
+    numerici, ma sono CONTEGGI di copertura per livello di confidenza (forza
+    probatoria), NON un punteggio di pericolosita' — proprio per questo e' il
+    posto piu' esposto a un aggregato numerico di rischio (es.
+    ``punteggio_totale``/``livello_rischio``). L'insieme esatto lo blocca e
+    rende il test rosso, forzando una revisione cosciente (_project.md §Vincoli)."""
+    assert set(ConfidenceSummary.model_fields) == {
+        "confermato",
+        "plausibile",
+        "speculativo",
+    }
