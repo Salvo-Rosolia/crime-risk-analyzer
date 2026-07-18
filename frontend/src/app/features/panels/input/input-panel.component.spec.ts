@@ -45,7 +45,7 @@ describe('InputPanelComponent', () => {
     ]);
   });
 
-  it('senza città valorizzata NON invia analyze e mostra l\'errore di validazione', () => {
+  it("senza città valorizzata NON invia analyze e mostra l'errore di validazione", () => {
     const spy = jest.fn();
     fixture.componentInstance.analyze.subscribe(spy);
 
@@ -58,7 +58,7 @@ describe('InputPanelComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Seleziona una città');
   });
 
-  it('con città non supportata mostra l\'errore e non invia', () => {
+  it("con città non supportata mostra l'errore e non invia", () => {
     const spy = jest.fn();
     fixture.componentInstance.analyze.subscribe(spy);
 
@@ -72,7 +72,7 @@ describe('InputPanelComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('non supportata');
   });
 
-  it('senza zona valorizzata (ma con città valida) NON invia e mostra l\'errore zona', () => {
+  it("senza zona valorizzata (ma con città valida) NON invia e mostra l'errore zona", () => {
     const spy = jest.fn();
     fixture.componentInstance.analyze.subscribe(spy);
 
@@ -135,7 +135,7 @@ describe('InputPanelComponent', () => {
     expect(zona.getAttribute('aria-required')).toBe('true');
   });
 
-  it('l\'errore di validazione si pulisce mentre si digita (non resta stale durante la correzione)', () => {
+  it("l'errore di validazione si pulisce mentre si digita (non resta stale durante la correzione)", () => {
     submitForm();
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('Seleziona una città');
@@ -145,7 +145,7 @@ describe('InputPanelComponent', () => {
     expect(fixture.nativeElement.textContent).not.toContain('Seleziona una città');
   });
 
-  it('bordo d\'errore per-campo: un errore di sola città non evidenzia la zona', () => {
+  it("bordo d'errore per-campo: un errore di sola città non evidenzia la zona", () => {
     setZona('Trastevere');
     fixture.detectChanges();
     submitForm();
@@ -157,7 +157,7 @@ describe('InputPanelComponent', () => {
     expect(zona.classList.contains('cra-field-error')).toBe(false);
   });
 
-  it('bordo d\'errore per-campo: un errore di sola zona non evidenzia la città', () => {
+  it("bordo d'errore per-campo: un errore di sola zona non evidenzia la città", () => {
     setCitta('Roma');
     fixture.detectChanges();
     submitForm();
@@ -169,7 +169,7 @@ describe('InputPanelComponent', () => {
     expect(citta.classList.contains('cra-field-error')).toBe(false);
   });
 
-  it('l\'errore server (Stato Errore) evidenzia il bordo della zona, non della città', () => {
+  it("l'errore server (Stato Errore) evidenzia il bordo della zona, non della città", () => {
     fixture.componentRef.setInput('serverError', '"Atlantide" non corrisponde ad alcuna area.');
     fixture.detectChanges();
 

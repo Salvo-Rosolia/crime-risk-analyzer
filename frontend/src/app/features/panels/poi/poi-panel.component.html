@@ -14,7 +14,9 @@
       [style.background]="filter() === level ? conf[level].color : 'transparent'"
       (click)="onChipClick(level)"
     >
-      <span aria-hidden="true">{{ conf[level].dot }}</span> {{ conf[level].label }} ({{ counts()[level] }})
+      <span aria-hidden="true">{{ conf[level].dot }}</span> {{ conf[level].label }} ({{
+        counts()[level]
+      }})
     </button>
   }
 </div>

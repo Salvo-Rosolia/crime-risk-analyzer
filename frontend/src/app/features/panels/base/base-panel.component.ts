@@ -57,7 +57,9 @@ export class BasePanelComponent implements OnInit {
     () => this.validationField() === 'zona' || (!this.validationError() && !!this.serverError()),
   );
 
-  protected readonly rows = computed(() => buildBaseRows(this.data()?.poi, this.data()?.risk_models));
+  protected readonly rows = computed(() =>
+    buildBaseRows(this.data()?.poi, this.data()?.risk_models),
+  );
 
   /**
    * `cities()` arriva in modo asincrono da `ApiService.cities()`: se `citta()` è già valorizzata

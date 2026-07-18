@@ -12,11 +12,7 @@ export class ApiService {
     return firstValueFrom(this.http.get<string[]>('/cities'));
   }
 
-  analyze(
-    citta: string,
-    zona: string,
-    domanda: string | null = null,
-  ): Promise<AnalyzeResponse> {
+  analyze(citta: string, zona: string, domanda: string | null = null): Promise<AnalyzeResponse> {
     const payload: { citta: string; zona: string; domanda?: string } = { citta, zona };
     if (domanda && domanda.trim()) payload.domanda = domanda.trim();
 

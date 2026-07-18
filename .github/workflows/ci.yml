@@ -121,11 +121,7 @@ jobs:
         if: ${{ steps.tooling.outputs.present == 'true' }}
         run: npm run build
       - name: Format check (prettier)
-        # Advisory: la codebase FE non e ancora formattata con Prettier.
-        # Togliere continue-on-error dopo un `npm run format` una tantum per
-        # rendere il gate di formato bloccante.
         if: ${{ steps.tooling.outputs.present == 'true' }}
-        continue-on-error: true
         run: npm run format:check
 
   frontend-e2e:

@@ -18,7 +18,9 @@ const analyze = analyzeFixture as AnalyzeResponse;
 const regenerate = regenerateFixture as AnalyzeResponse;
 
 test.describe('Toggle→BASE: tabella POI·Hazard·Categoria, select città da /cities, nessuna narrativa/confidence', () => {
-  test('mostra la tabella del fixture baseline e nessun elemento del sistema completo', async ({ page }) => {
+  test('mostra la tabella del fixture baseline e nessun elemento del sistema completo', async ({
+    page,
+  }) => {
     await mockApi(page, { baseline });
     await page.goto('/');
     await expect(S.inputPanel(page)).toBeVisible();

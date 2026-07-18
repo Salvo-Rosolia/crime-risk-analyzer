@@ -30,6 +30,7 @@ from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.overpass_client import Poi
 
 _capture = eval_main._capture  # pyright: ignore[reportPrivateUsage]
+_snapshot_reusable = eval_main._snapshot_reusable  # pyright: ignore[reportPrivateUsage]
 
 
 def _fake_geocode_fixture(zona: str, citta: str) -> dict[str, object]:
@@ -149,6 +150,82 @@ async def test_capture_skips_if_snapshot_exists(
     assert any("riuso" in r.getMessage().lower() for r in caplog.records)
 
 
+def test_snapshot_reusable_true_for_valid(tmp_path: Path) -> None:
+    """Fix 1 (#148): uno snapshot esistente, non vuoto e JSON valido è riusabile."""
+    path = tmp_path / "snap.json"
+    save_snapshot(path, _sample_pois())
+    assert _snapshot_reusable(path) is True
+
+
+def test_snapshot_reusable_false_for_missing(tmp_path: Path) -> None:
+    """Fix 1 (#148): un file inesistente non è riusabile."""
+    assert _snapshot_reusable(tmp_path / "assente.json") is False
+
+
+def test_snapshot_reusable_false_for_empty(tmp_path: Path) -> None:
+    """Fix 1 (#148): un file vuoto (size 0) non è riusabile."""
+    path = tmp_path / "snap.json"
+    path.write_text("", encoding="utf-8")
+    assert _snapshot_reusable(path) is False
+
+
+def test_snapshot_reusable_false_for_corrupt(tmp_path: Path) -> None:
+    """Fix 1 (#148): un file troncato/corrotto (JSON non parsabile) non è riusabile."""
+    path = tmp_path / "snap.json"
+    path.write_text("[{ troncato non json", encoding="utf-8")
+    assert _snapshot_reusable(path) is False
+
+
+async def test_capture_recaptures_when_snapshot_corrupt(
+    tmp_path: Path, capture_env: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Fix 1 (#148): uno snapshot presente ma corrotto (JSON non parsabile) NON
+    viene riusato in silenzio → _capture ri-cattura live e lo sovrascrive."""
+    calls = 0
+
+    async def counting_live(bbox: Bbox, citta: str) -> list[Poi]:
+        nonlocal calls
+        calls += 1
+        return _sample_pois()
+
+    config_path = _write_config(tmp_path, "Roma", "Centro")
+    path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("[{ troncato non json", encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING):
+        await _capture(config_path, tmp_path, poi_source=counting_live)
+
+    assert calls == 1  # ri-catturato, non saltato
+    assert load_snapshot(path) == _sample_pois()  # sovrascritto con contenuto fresco
+    assert any(
+        "corrotto" in r.getMessage().lower() or "vuoto" in r.getMessage().lower()
+        for r in caplog.records
+    )
+
+
+async def test_capture_recaptures_when_snapshot_empty(
+    tmp_path: Path, capture_env: None
+) -> None:
+    """Fix 1 (#148): uno snapshot presente ma vuoto (size 0) NON viene riusato."""
+    calls = 0
+
+    async def counting_live(bbox: Bbox, citta: str) -> list[Poi]:
+        nonlocal calls
+        calls += 1
+        return _sample_pois()
+
+    config_path = _write_config(tmp_path, "Roma", "Centro")
+    path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("", encoding="utf-8")
+
+    await _capture(config_path, tmp_path, poi_source=counting_live)
+
+    assert calls == 1  # ri-catturato
+    assert load_snapshot(path) == _sample_pois()
+
+
 async def test_capture_force_recaptures(tmp_path: Path, capture_env: None) -> None:
     """M2: --force ignora lo skip-if-exists e ri-cattura (sovrascrive lo snapshot)."""
     calls = 0
@@ -204,3 +281,126 @@ async def test_capture_analyze_arms_share_key(
     # Un solo file per (citta, zona): claude e groq NON divergono.
     assert list((tmp_path / "snapshots").glob("*.json")) == [expected]
     assert calls == 1  # il secondo braccio ha riusato lo snapshot (skip-if-exists)
+
+
+async def test_capture_all_present_never_builds_client(
+    tmp_path: Path, capture_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fix 2 (#148): un re-run tutto-skip (snapshot già presenti, mode=analyze)
+    NON costruisce mai il client LLM → offline davvero, nessuna API key richiesta.
+    Il builder esplode se invocato: se il test passa, non è mai stato chiamato."""
+
+    def _exploding_builder(config: ExperimentConfig) -> object:
+        raise AssertionError("build_llm_eval_client non deve essere invocato")
+
+    monkeypatch.setattr(eval_main, "build_llm_eval_client", _exploding_builder)
+
+    async def unused_live(bbox: Bbox, citta: str) -> list[Poi]:
+        raise AssertionError("nessuna query live: snapshot già presente")
+
+    config_path = _write_config(
+        tmp_path, "Roma", "Centro", mode="analyze", model="claude"
+    )
+    # Pre-crea uno snapshot valido: la singola (citta, zona) va in skip.
+    path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
+    save_snapshot(path, _sample_pois())
+
+    # Non deve sollevare: né il builder né la live vengono toccati.
+    await _capture(config_path, tmp_path, poi_source=unused_live)
+
+    assert load_snapshot(path) == _sample_pois()  # invariato
+
+
+async def test_capture_baseline_never_builds_client(
+    tmp_path: Path, capture_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T9 mantenuto (#148): mode=baseline non costruisce mai il client LLM,
+    nemmeno quando lo snapshot va catturato ex-novo."""
+
+    def _exploding_builder(config: ExperimentConfig) -> object:
+        raise AssertionError("baseline non deve costruire il client LLM")
+
+    monkeypatch.setattr(eval_main, "build_llm_eval_client", _exploding_builder)
+
+    async def counting_live(bbox: Bbox, citta: str) -> list[Poi]:
+        return _sample_pois()
+
+    config_path = _write_config(tmp_path, "Roma", "Centro", mode="baseline")
+    await _capture(config_path, tmp_path, poi_source=counting_live)
+
+    path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
+    assert load_snapshot(path) == _sample_pois()  # catturato senza LLM
+
+
+async def test_capture_analyze_builds_client_once_across_cases(
+    tmp_path: Path, capture_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fix 2 (#148): con più case analyze da catturare, il client LLM è costruito
+    LAZY al primo case che lo richiede e MEMOIZZATO (una sola costruzione)."""
+    from tests.eval._doubles import FakeLLMClient
+
+    builds = 0
+
+    def _counting_builder(config: ExperimentConfig) -> FakeLLMClient:
+        nonlocal builds
+        builds += 1
+        return FakeLLMClient()
+
+    monkeypatch.setattr(eval_main, "build_llm_eval_client", _counting_builder)
+
+    async def live(bbox: Bbox, citta: str) -> list[Poi]:
+        return _sample_pois()
+
+    cfg = ExperimentConfig(
+        name="ablation",
+        mode="analyze",
+        model="claude",
+        cases=[
+            RunCase(citta="Roma", zona="Centro"),
+            RunCase(citta="Milano", zona="Duomo"),
+        ],
+    )
+    config_path = tmp_path / "multi.json"
+    config_path.write_text(cfg.model_dump_json(), encoding="utf-8")
+
+    await _capture(config_path, tmp_path, poi_source=live)
+
+    assert builds == 1  # costruito una sola volta, condiviso tra i due case
+
+
+async def test_capture_partial_skip_captures_only_missing(
+    tmp_path: Path, capture_env: None
+) -> None:
+    """Fix 3 (#148): config a 2 case, uno snapshot pre-esiste e l'altro no →
+    il case esistente è saltato (riuso, sentinella intatta) e SOLO quello
+    mancante è catturato. Blinda il ``continue`` per-chiave contro un futuro
+    break/return che interromperebbe il loop dopo il primo skip."""
+    captured_cities: list[str] = []
+
+    async def recording_live(bbox: Bbox, citta: str) -> list[Poi]:
+        captured_cities.append(citta)
+        return _sample_pois()
+
+    cfg = ExperimentConfig(
+        name="ablation",
+        mode="baseline",
+        model="claude",
+        cases=[
+            RunCase(citta="Roma", zona="Centro"),
+            RunCase(citta="Milano", zona="Duomo"),
+        ],
+    )
+    config_path = tmp_path / "multi.json"
+    config_path.write_text(cfg.model_dump_json(), encoding="utf-8")
+
+    # Pre-crea SOLO lo snapshot di Roma con una sentinella (deve restare intatto).
+    roma_path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
+    save_snapshot(roma_path, _sentinel_pois())
+    milano_path = snapshot_path(tmp_path, make_snapshot_key("Milano", "Duomo"))
+
+    await _capture(config_path, tmp_path, poi_source=recording_live)
+
+    # Roma saltata (sentinella intatta), Milano catturata ex-novo.
+    assert load_snapshot(roma_path) == _sentinel_pois()
+    assert load_snapshot(milano_path) == _sample_pois()
+    assert captured_cities == ["Milano"]  # solo il mancante ha toccato la live

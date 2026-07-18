@@ -27,9 +27,16 @@ export interface InputPanelValidation {
   field: 'citta' | 'zona' | null;
 }
 
-export function validateInputPanel(
-  { citta, zona, cities }: { citta?: string; zona?: string; domanda?: string; cities?: string[] } = {},
-): InputPanelValidation {
+export function validateInputPanel({
+  citta,
+  zona,
+  cities,
+}: {
+  citta?: string;
+  zona?: string;
+  domanda?: string;
+  cities?: string[];
+} = {}): InputPanelValidation {
   if (!citta || !citta.trim()) {
     return { ok: false, error: 'Seleziona una città.', field: 'citta' };
   }
@@ -52,9 +59,14 @@ export function poiDisplayLabel(poi: Pick<Poi, 'terminus_class' | 'terminus_labe
   return poi.terminus_label_it || poi.terminus_class;
 }
 
-export interface NarrativeSection { tag: string; hazards: string[]; }
+export interface NarrativeSection {
+  tag: string;
+  hazards: string[];
+}
 
-export function buildNarrativeSections(riskModels: RiskModel[] | null | undefined): NarrativeSection[] {
+export function buildNarrativeSections(
+  riskModels: RiskModel[] | null | undefined,
+): NarrativeSection[] {
   const byTag = new Map<string, string[]>();
   for (const model of riskModels ?? []) {
     for (const risk of model.risks ?? []) {
@@ -83,9 +95,12 @@ export interface DetailModel {
   groups: Record<string, RiskItem[]>;
 }
 
-export function buildDetailModel(poi: Poi, riskModels: RiskModel[] | null | undefined): DetailModel {
+export function buildDetailModel(
+  poi: Poi,
+  riskModels: RiskModel[] | null | undefined,
+): DetailModel {
   const sparqlParts = poi.sparql_path ? poi.sparql_path.split(' → ') : [];
-  const model = (riskModels ?? []).find(r => r.poi === poi.name);
+  const model = (riskModels ?? []).find((r) => r.poi === poi.name);
   const groups: Record<string, RiskItem[]> = {};
   for (const risk of model?.risks ?? []) {
     const tag = risk.tag || 'SPECULATIVO';
@@ -96,7 +111,10 @@ export function buildDetailModel(poi: Poi, riskModels: RiskModel[] | null | unde
   return { poi, poiLabel: poiDisplayLabel(poi), sparqlParts, groups };
 }
 
-export interface TagGroup { tag: string; risks: RiskItem[]; }
+export interface TagGroup {
+  tag: string;
+  risks: RiskItem[];
+}
 
 /**
  * Ordina i `groups` di `buildDetailModel` (Record non ordinato) nell'ordine canonico
@@ -111,7 +129,8 @@ export function orderGroupsByTag(groups: Record<string, RiskItem[]>): TagGroup[]
     if (risks?.length) ordered.push({ tag, risks });
   }
   for (const tag of Object.keys(groups)) {
-    if (!SOURCE_TAG_ORDER.includes(tag as SourceTag) && groups[tag]?.length) ordered.push({ tag, risks: groups[tag] });
+    if (!SOURCE_TAG_ORDER.includes(tag as SourceTag) && groups[tag]?.length)
+      ordered.push({ tag, risks: groups[tag] });
   }
   return ordered;
 }
@@ -137,7 +156,7 @@ export function buildBaseRows(
 ): BaseRow[] {
   const rows: BaseRow[] = [];
   for (const p of poi ?? []) {
-    const model = (riskModels ?? []).find(r => r.poi === p.name);
+    const model = (riskModels ?? []).find((r) => r.poi === p.name);
     for (const risk of model?.risks ?? []) {
       rows.push({
         poiId: p.id,
@@ -169,7 +188,12 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
-const UNKNOWN_CONF_META: ConfMeta = { color: DIM_COLOR, bg: DIM_COLOR, dot: '?', label: 'Sconosciuto' };
+const UNKNOWN_CONF_META: ConfMeta = {
+  color: DIM_COLOR,
+  bg: DIM_COLOR,
+  dot: '?',
+  label: 'Sconosciuto',
+};
 
 /**
  * Markup del popup Leaflet per un marker POI: numero, nome, etichetta IT e badge confidence.

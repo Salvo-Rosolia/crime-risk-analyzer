@@ -1,7 +1,5 @@
 @if (showResultsControls()) {
-  <span class="cra-coverage-badge">
-    <span aria-hidden="true">▣</span> {{ coverageText() }}
-  </span>
+  <span class="cra-coverage-badge"> <span aria-hidden="true">▣</span> {{ coverageText() }} </span>
 
   <div class="cra-header-divider" aria-hidden="true"></div>
 
@@ -32,7 +30,9 @@
       [class.cra-mode-btn-active]="mode() === opt.value"
       [attr.aria-pressed]="mode() === opt.value"
       [disabled]="loading()"
-      [title]="loading() ? 'Analisi in corso — attendi il risultato prima di cambiare modalità' : null"
+      [title]="
+        loading() ? 'Analisi in corso — attendi il risultato prima di cambiare modalità' : null
+      "
       (click)="toggleMode.emit(opt.value)"
     >
       {{ opt.label }}
