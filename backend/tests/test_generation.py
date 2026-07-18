@@ -23,6 +23,8 @@ from crime_risk_analyzer.rag.generation import (
     USER_INPUT_FENCE_CLOSE,
     USER_INPUT_FENCE_OPEN,
     GenerationResult,
+    RiskItem,
+    RiskModel,
     build_context_str,
     generate_analysis,
 )
@@ -440,3 +442,30 @@ async def test_generation_result_json_shape() -> None:
         "seed": 42,
         "prompt_hash": "abc123",
     }
+
+
+# --- #184: guardia anti-scoring estesa ai modelli di rischio del generation ---
+# Stesso pattern exact-set di #118 (test_risk.py::PoiRiskProfile): un futuro campo
+# di scoring numerico di pericolosita' (es. ``score``/``risk_level``) romperebbe
+# l'insieme esatto e forzerebbe una revisione cosciente (_project.md §Vincoli).
+
+
+def test_risk_item_has_no_numeric_danger_scoring_field() -> None:
+    """Il singolo rischio porta solo dati QUALITATIVI (hazard, tag fonte,
+    confidence Literal, etichette display): mai un punteggio numerico di
+    pericolosita' (_project.md §Vincoli). ``RiskItem`` e' il posto piu' probabile
+    dove si intrufolerebbe uno ``score``: l'insieme esatto lo blocca."""
+    assert set(RiskItem.model_fields) == {
+        "hazard",
+        "confidence",
+        "tag",
+        "hazard_label_it",
+        "hazard_label_en",
+    }
+
+
+def test_risk_model_has_no_numeric_danger_scoring_field() -> None:
+    """I rischi raggruppati per POI: solo il nome del POI e la lista di
+    ``RiskItem`` qualitativi, nessun rating aggregato del POI/della zona
+    (_project.md §Vincoli). L'insieme esatto blinda il contratto."""
+    assert set(RiskModel.model_fields) == {"poi", "risks"}

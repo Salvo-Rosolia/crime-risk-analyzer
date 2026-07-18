@@ -9,7 +9,9 @@ from crime_risk_analyzer.llm.client import LLMError, LLMResponse
 from crime_risk_analyzer.models.risk import PoiRiskProfile
 from crime_risk_analyzer.orchestrator import (
     AnalyzeRequest,
+    AnalyzeResponse,
     BaselineRequest,
+    PoiOut,
     _build_poi_list,  # pyright: ignore[reportPrivateUsage]
     _risk_models_from_grounded,  # pyright: ignore[reportPrivateUsage]
     _structured_response,  # pyright: ignore[reportPrivateUsage]
@@ -497,3 +499,51 @@ def test_baseline_request_rejects_overlong_zona() -> None:
 def test_baseline_request_accepts_zona_at_max_length() -> None:
     req = BaselineRequest(citta="Roma", zona="x" * 200)
     assert len(req.zona) == 200
+
+
+# --- #184: guardia anti-scoring estesa al contratto di risposta /analyze ---
+# Stesso pattern exact-set di #118 (test_risk.py::PoiRiskProfile): l'insieme dei
+# campi e' blindato, cosi' un futuro campo di scoring numerico di pericolosita'
+# (es. ``score``/``risk_level``/``livello_rischio``) fa fallire il test e forza
+# una revisione cosciente del vincolo legale (_project.md §Vincoli).
+
+
+def test_analyze_response_has_no_numeric_danger_scoring_field() -> None:
+    """Contratto della risposta ``/analyze``: nessuno scoring numerico di
+    pericolosita' (_project.md §Vincoli). I campi numerici presenti
+    (``latenza_ms``/``tokens_input``/``tokens_output``) misurano costo e
+    performance della run, NON la magnitudo del pericolo: sono legittimi. Un
+    campo di rating aggiunto qui romperebbe l'insieme esatto."""
+    assert set(AnalyzeResponse.model_fields) == {
+        "citta",
+        "zona_normalizzata",
+        "poi",
+        "risk_models",
+        "narrativa",
+        "confidence_summary",
+        "llm_used",
+        "latenza_ms",
+        "tokens_input",
+        "tokens_output",
+        "repro",
+        "cache_hit",
+        "fallback",
+    }
+
+
+def test_poi_out_has_no_numeric_danger_scoring_field() -> None:
+    """Il POI dello schema ``/analyze`` porta coordinate (``lat``/``lon``,
+    numeriche legittime) e un ``confidence`` QUALITATIVO (forza probatoria, non
+    pericolosita'). L'insieme esatto impedisce di intrufolare un punteggio di
+    rischio per-POI (es. ``risk_score``), vietato da _project.md §Vincoli."""
+    assert set(PoiOut.model_fields) == {
+        "id",
+        "name",
+        "terminus_class",
+        "lat",
+        "lon",
+        "confidence",
+        "sparql_path",
+        "terminus_label_it",
+        "terminus_label_en",
+    }
