@@ -281,3 +281,88 @@ async def test_capture_analyze_arms_share_key(
     # Un solo file per (citta, zona): claude e groq NON divergono.
     assert list((tmp_path / "snapshots").glob("*.json")) == [expected]
     assert calls == 1  # il secondo braccio ha riusato lo snapshot (skip-if-exists)
+
+
+async def test_capture_all_present_never_builds_client(
+    tmp_path: Path, capture_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fix 2 (#148): un re-run tutto-skip (snapshot già presenti, mode=analyze)
+    NON costruisce mai il client LLM → offline davvero, nessuna API key richiesta.
+    Il builder esplode se invocato: se il test passa, non è mai stato chiamato."""
+
+    def _exploding_builder(config: ExperimentConfig) -> object:
+        raise AssertionError("build_llm_eval_client non deve essere invocato")
+
+    monkeypatch.setattr(eval_main, "build_llm_eval_client", _exploding_builder)
+
+    async def unused_live(bbox: Bbox, citta: str) -> list[Poi]:
+        raise AssertionError("nessuna query live: snapshot già presente")
+
+    config_path = _write_config(
+        tmp_path, "Roma", "Centro", mode="analyze", model="claude"
+    )
+    # Pre-crea uno snapshot valido: la singola (citta, zona) va in skip.
+    path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
+    save_snapshot(path, _sample_pois())
+
+    # Non deve sollevare: né il builder né la live vengono toccati.
+    await _capture(config_path, tmp_path, poi_source=unused_live)
+
+    assert load_snapshot(path) == _sample_pois()  # invariato
+
+
+async def test_capture_baseline_never_builds_client(
+    tmp_path: Path, capture_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """T9 mantenuto (#148): mode=baseline non costruisce mai il client LLM,
+    nemmeno quando lo snapshot va catturato ex-novo."""
+
+    def _exploding_builder(config: ExperimentConfig) -> object:
+        raise AssertionError("baseline non deve costruire il client LLM")
+
+    monkeypatch.setattr(eval_main, "build_llm_eval_client", _exploding_builder)
+
+    async def counting_live(bbox: Bbox, citta: str) -> list[Poi]:
+        return _sample_pois()
+
+    config_path = _write_config(tmp_path, "Roma", "Centro", mode="baseline")
+    await _capture(config_path, tmp_path, poi_source=counting_live)
+
+    path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
+    assert load_snapshot(path) == _sample_pois()  # catturato senza LLM
+
+
+async def test_capture_analyze_builds_client_once_across_cases(
+    tmp_path: Path, capture_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fix 2 (#148): con più case analyze da catturare, il client LLM è costruito
+    LAZY al primo case che lo richiede e MEMOIZZATO (una sola costruzione)."""
+    from tests.eval._doubles import FakeLLMClient
+
+    builds = 0
+
+    def _counting_builder(config: ExperimentConfig) -> FakeLLMClient:
+        nonlocal builds
+        builds += 1
+        return FakeLLMClient()
+
+    monkeypatch.setattr(eval_main, "build_llm_eval_client", _counting_builder)
+
+    async def live(bbox: Bbox, citta: str) -> list[Poi]:
+        return _sample_pois()
+
+    cfg = ExperimentConfig(
+        name="ablation",
+        mode="analyze",
+        model="claude",
+        cases=[
+            RunCase(citta="Roma", zona="Centro"),
+            RunCase(citta="Milano", zona="Duomo"),
+        ],
+    )
+    config_path = tmp_path / "multi.json"
+    config_path.write_text(cfg.model_dump_json(), encoding="utf-8")
+
+    await _capture(config_path, tmp_path, poi_source=live)
+
+    assert builds == 1  # costruito una sola volta, condiviso tra i due case

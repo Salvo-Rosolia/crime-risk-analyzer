@@ -27,6 +27,7 @@ from crime_risk_analyzer.eval.snapshots import (
     load_snapshot,
     snapshot_path,
 )
+from crime_risk_analyzer.llm.client import LLMClient
 from crime_risk_analyzer.ontology import load_ontology
 from crime_risk_analyzer.orchestrator import run_analysis, run_baseline
 from crime_risk_analyzer.overpass_client import fetch_pois
@@ -63,9 +64,19 @@ async def _capture(
 ) -> None:
     config = load_config(config_path)
     executor = get_executor()
-    # Build the client only when the mode requires it (fix T9: baseline needs no key).
-    llm_client = build_llm_eval_client(config) if config.mode != "baseline" else None
     inner = poi_source or fetch_pois
+    # Client LLM costruito LAZY e memoizzato (#148): un re-run tutto-skip non lo
+    # costruisce mai (offline davvero, nessuna API key richiesta); costruito al più
+    # una volta, al primo case non-skip che lo richiede. Baseline non lo tocca mai
+    # (fix T9): _llm_client() è invocato solo nel ramo mode != baseline.
+    llm_client: LLMClient | None = None
+
+    def _llm_client() -> LLMClient:
+        nonlocal llm_client
+        if llm_client is None:
+            llm_client = build_llm_eval_client(config)
+        return llm_client
+
     for case in config.cases:
         # Cattura chiavata per (citta, zona) (#110): i bracci comparativi
         # riusano la stessa fixture, senza query Overpass divergenti per braccio.
@@ -96,12 +107,11 @@ async def _capture(
                 case.citta, case.zona, executor=executor, poi_source=source
             )
         else:
-            assert llm_client is not None  # narrowing: mode != baseline guarantees this
             await run_analysis(
                 case.citta,
                 case.zona,
                 executor=executor,
-                llm_client=llm_client,
+                llm_client=_llm_client(),
                 poi_source=source,
             )
 
