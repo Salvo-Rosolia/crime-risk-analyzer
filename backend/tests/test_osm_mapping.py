@@ -8,8 +8,14 @@ from crime_risk_analyzer.sparql_module.osm_mapping import (
 )
 
 
-def test_mapping_has_at_least_45_entries() -> None:
-    """Il binding fisso dal paper Minardi et al. 2023 ha >= 45 entry."""
+def test_mapping_has_at_least_45_selectors() -> None:
+    """Il binding fisso dal paper Minardi et al. 2023 ha >= 45 SELETTORI.
+
+    Conta le ENTRY del dict (selettori OSM ``key=value``), NON le classi TERMINUS
+    coperte: piu' selettori mappano sulla stessa classe (es. ``amenity=bank``,
+    ``amenity=atm``, ``amenity=bureau_de_change`` -> ``Bank``). Per la copertura
+    reale delle classi vedi ``test_mapping_covers_42_of_45_terminus_classes``.
+    """
     assert len(OSM_TO_TERMINUS) >= 45
 
 
@@ -108,6 +114,34 @@ REAL_TERMINUS_CLASSES = frozenset(
 def test_all_values_are_real_terminus_classes() -> None:
     """Guardia anti-drift: ogni valore mappato e' una classe reale di tc:System."""
     assert set(OSM_TO_TERMINUS.values()) <= REAL_TERMINUS_CLASSES
+
+
+#: Le 3 sottoclassi di tc:System senza alcun selettore OSM che le mappi. Gap NOTO
+#: e ACCETTATO (copertura parziale, non un bug): non esiste un tag OSM
+#: semanticamente difendibile per queste classi entro il binding fisso #79.
+#:  - ``Cathedral`` / ``Church``: OSM non distingue la denominazione religiosa
+#:    del culto; tutti gli edifici di culto stanno sotto ``amenity=place_of_worship``,
+#:    gia' mappato -> ``Place_of_worship`` (iperonimo). Nessun tag OSM canonico
+#:    isola cattedrali/chiese senza euristiche sul nome (fuori scope, city-agnostic).
+#:  - ``Fuel_sale``: la vendita di carburante coincide con ``amenity=fuel``, gia'
+#:    mappato -> ``Petrol_station`` (la stazione di servizio come POI fisico).
+#: La spec ghost (#79) registra esplicitamente "42 delle 45 classi coperte".
+UNCOVERED_TERMINUS_CLASSES = frozenset({"Cathedral", "Church", "Fuel_sale"})
+
+
+def test_mapping_covers_42_of_45_terminus_classes() -> None:
+    """Documenta e blinda il gap di copertura: 42 delle 45 classi tc:System.
+
+    Il mapping copre 42 classi reali; 3 restano senza selettore OSM
+    (:data:`UNCOVERED_TERMINUS_CLASSES`). L'assert sull'insieme ESATTO delle classi
+    non coperte rende il gap self-documenting E fallisce se cambia: aggiungere un
+    selettore per una classe scoperta, o rimuovere l'ultimo selettore di una coperta,
+    rompe il test e forza una revisione cosciente (e l'aggiornamento della spec #79).
+    """
+    covered = set(OSM_TO_TERMINUS.values())
+    assert len(REAL_TERMINUS_CLASSES) == 45
+    assert len(covered) == 42
+    assert REAL_TERMINUS_CLASSES - covered == UNCOVERED_TERMINUS_CLASSES
 
 
 def test_osm_selectors_mirror_mapping_keys() -> None:
