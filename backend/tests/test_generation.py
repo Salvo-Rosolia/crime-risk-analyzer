@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 
 from crime_risk_analyzer.llm.client import LLMResponse
 from crime_risk_analyzer.rag.generation import (
@@ -469,3 +470,26 @@ def test_risk_model_has_no_numeric_danger_scoring_field() -> None:
     ``RiskItem`` qualitativi, nessun rating aggregato del POI/della zona
     (_project.md §Vincoli). L'insieme esatto blinda il contratto."""
     assert set(RiskModel.model_fields) == {"poi", "risks"}
+
+
+# --- #184: vettore oltre l'exact-set -> cambio di TIPO di un campo categoriale ---
+# Le guardie exact-set intercettano l'AGGIUNTA di un campo, non un cambio di tipo.
+# Il vettore concreto: ``confidence``/``tag`` (oggi Literal categoriali) che
+# diventano ``float`` -> una "confidence 0.73" e' uno scoring numerico di rischio
+# travestito (_project.md §Vincoli). Questi test comportamentali diventano rossi
+# se il tipo passa a numerico, chiudendo il buco lasciato dall'exact-set.
+
+
+def test_risk_item_confidence_rejects_numeric_value() -> None:
+    """``RiskItem.confidence`` e' categoriale (Literal): un valore NUMERICO e'
+    rifiutato. Il test diventa rosso se il campo passasse a ``float`` (una
+    confidence 0.73 sarebbe un punteggio di rischio travestito)."""
+    with pytest.raises(ValidationError):
+        RiskItem(hazard="x", confidence=0.73)  # pyright: ignore[reportArgumentType]
+
+
+def test_risk_item_tag_rejects_numeric_value() -> None:
+    """``RiskItem.tag`` (fonte del citation layer) e' categoriale: un valore
+    NUMERICO e' rifiutato, cosi' il tag non puo' degenerare in un punteggio."""
+    with pytest.raises(ValidationError):
+        RiskItem(hazard="x", confidence="confermato", tag=0.73)  # pyright: ignore[reportArgumentType]

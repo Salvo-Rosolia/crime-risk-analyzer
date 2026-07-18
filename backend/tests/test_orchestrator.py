@@ -547,3 +547,19 @@ def test_poi_out_has_no_numeric_danger_scoring_field() -> None:
         "terminus_label_it",
         "terminus_label_en",
     }
+
+
+def test_poi_out_confidence_rejects_numeric_value() -> None:
+    """Vettore #184 oltre l'exact-set (cambio di TIPO, non aggiunta di campo): il
+    ``confidence`` del POI e' categoriale (Literal). Un valore NUMERICO e'
+    rifiutato, cosi' non puo' diventare un punteggio di rischio per-POI travestito
+    (_project.md §Vincoli): il test diventa rosso se il campo passasse a float."""
+    with pytest.raises(ValidationError):
+        PoiOut(
+            id="1",
+            name="Banca A",
+            terminus_class="Bank",
+            lat=41.89,
+            lon=12.49,
+            confidence=0.5,  # pyright: ignore[reportArgumentType]
+        )
