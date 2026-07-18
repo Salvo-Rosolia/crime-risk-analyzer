@@ -37,7 +37,7 @@ packages = ["src/crime_risk_analyzer"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-addopts = "-ra --cov=crime_risk_analyzer --cov-report=term-missing"
+addopts = "-ra --cov=crime_risk_analyzer --cov-report=term-missing --cov-fail-under=97"
 asyncio_mode = "auto"
 markers = [
     "integration: test che toccano la rete reale (skippati di default)",
