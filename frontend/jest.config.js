@@ -8,4 +8,15 @@ module.exports = {
     '^@app/(.*)$': '<rootDir>/src/app/$1',
     '^@environments/(.*)$': '<rootDir>/src/environments/$1',
   },
+  // Soglia globale (`npm run test:coverage`, invocata dalla CI): livelli attuali
+  // con un margine di qualche punto sotto, per non rendere il gate fragile a
+  // piccole oscillazioni. Niente soglie per-file (#118).
+  coverageThreshold: {
+    global: {
+      statements: 95,
+      branches: 88,
+      functions: 93,
+      lines: 95,
+    },
+  },
 };
