@@ -1,8 +1,8 @@
 # Frontend — Crime Risk Analyzer
 
 UI dell'analizzatore di rischio: mappa interattiva (Leaflet), schede di rischio con
-livelli di *confidence* e citazioni SPARQL. App **Angular 20** standalone con
-*signals*, generata con Angular CLI 20.3.
+livelli di _confidence_ e citazioni SPARQL. App **Angular 20** standalone con
+_signals_, generata con Angular CLI 20.3.
 
 ## Requisiti
 

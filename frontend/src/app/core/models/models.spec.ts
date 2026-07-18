@@ -5,23 +5,39 @@ describe('models (contratto /analyze)', () => {
     const sample: AnalyzeResponse = {
       citta: 'Roma',
       zona_normalizzata: 'Colosseo',
-      poi: [{
-        id: '1', name: 'Colosseo', terminus_class: 'ArchaeologicalSite',
-        lat: 41.8908, lon: 12.4918, confidence: 'confermato',
-        sparql_path: 'ArchaeologicalSite → hasAnthropicHazard → borseggioTuristi',
-        terminus_label_it: 'Sito archeologico', terminus_label_en: 'Archaeological site',
-      }],
-      risk_models: [{
-        poi: 'Colosseo',
-        risks: [{
-          hazard: 'borseggioTuristi', confidence: 'confermato', tag: 'ONTOLOGIA',
-          hazard_label_it: 'Borseggio turisti', hazard_label_en: 'Tourist pickpocketing',
-        }],
-      }],
-      narrativa: 'L\'area del Colosseo...',
+      poi: [
+        {
+          id: '1',
+          name: 'Colosseo',
+          terminus_class: 'ArchaeologicalSite',
+          lat: 41.8908,
+          lon: 12.4918,
+          confidence: 'confermato',
+          sparql_path: 'ArchaeologicalSite → hasAnthropicHazard → borseggioTuristi',
+          terminus_label_it: 'Sito archeologico',
+          terminus_label_en: 'Archaeological site',
+        },
+      ],
+      risk_models: [
+        {
+          poi: 'Colosseo',
+          risks: [
+            {
+              hazard: 'borseggioTuristi',
+              confidence: 'confermato',
+              tag: 'ONTOLOGIA',
+              hazard_label_it: 'Borseggio turisti',
+              hazard_label_en: 'Tourist pickpocketing',
+            },
+          ],
+        },
+      ],
+      narrativa: "L'area del Colosseo...",
       confidence_summary: { confermato: 2, plausibile: 0, speculativo: 1 },
-      llm_used: 'claude-sonnet-4-6', latenza_ms: 2340,
-      tokens_input: 512, tokens_output: 128,
+      llm_used: 'claude-sonnet-4-6',
+      latenza_ms: 2340,
+      tokens_input: 512,
+      tokens_output: 128,
       repro: { temperature: 0.2, seed: 42, prompt_hash: 'abc123' },
       cache_hit: true,
       fallback: false,
@@ -31,8 +47,11 @@ describe('models (contratto /analyze)', () => {
 
   it('RiskItem.tag accetta null (il BE emette Tag|None quando il rischio non è ancorato/taggato)', () => {
     const ri: RiskItem = {
-      hazard: 'x', confidence: 'speculativo', tag: null,
-      hazard_label_it: 'X', hazard_label_en: 'X',
+      hazard: 'x',
+      confidence: 'speculativo',
+      tag: null,
+      hazard_label_it: 'X',
+      hazard_label_en: 'X',
     };
     expect(ri.tag).toBeNull();
   });
@@ -45,9 +64,19 @@ describe('models (contratto /analyze)', () => {
 
   it('AppState iniziale è costruibile con i campi attesi (completoData/baselineData separati)', () => {
     const s: AppState = {
-      screen: 'INPUT', completoData: null, baselineData: null, selectedPoiId: null, filter: null, error: null,
-      mode: 'completo', pendingCitta: null, pendingZona: null, pendingDomanda: null, lastQuery: null,
-      poiPanelOpen: true, narrOpen: true,
+      screen: 'INPUT',
+      completoData: null,
+      baselineData: null,
+      selectedPoiId: null,
+      filter: null,
+      error: null,
+      mode: 'completo',
+      pendingCitta: null,
+      pendingZona: null,
+      pendingDomanda: null,
+      lastQuery: null,
+      poiPanelOpen: true,
+      narrOpen: true,
     };
     expect(s.screen).toBe('INPUT');
   });
@@ -64,10 +93,19 @@ describe('models (contratto /analyze)', () => {
 
   it('ANALYZE/LOAD_SUCCESS/LOAD_ERROR richiedono pipeline (review #67-bis, bloccante A: obbligatorio apposta, nessun default silenzioso)', () => {
     const minimalResponse: AnalyzeResponse = {
-      citta: 'Roma', zona_normalizzata: 'Colosseo', poi: [], risk_models: [],
-      narrativa: '', confidence_summary: { confermato: 0, plausibile: 0, speculativo: 0 },
-      llm_used: '', latenza_ms: 0, tokens_input: 0, tokens_output: 0,
-      repro: { temperature: 0, seed: 0, prompt_hash: '' }, cache_hit: false, fallback: false,
+      citta: 'Roma',
+      zona_normalizzata: 'Colosseo',
+      poi: [],
+      risk_models: [],
+      narrativa: '',
+      confidence_summary: { confermato: 0, plausibile: 0, speculativo: 0 },
+      llm_used: '',
+      latenza_ms: 0,
+      tokens_input: 0,
+      tokens_output: 0,
+      repro: { temperature: 0, seed: 0, prompt_hash: '' },
+      cache_hit: false,
+      fallback: false,
     };
     const analyze: Action = { type: 'ANALYZE', citta: 'Roma', zona: 'Colosseo', pipeline: 'base' };
     const success: Action = { type: 'LOAD_SUCCESS', data: minimalResponse, pipeline: 'base' };

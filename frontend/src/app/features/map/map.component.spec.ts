@@ -116,10 +116,7 @@ describe('MapComponent', () => {
 
   describe('marker POI', () => {
     it('crea un marker numerato per ogni POI; ripulisce il layer a ogni redraw', () => {
-      fixture.componentRef.setInput(
-        'data',
-        makeResp([makePoi({ id: '0' }), makePoi({ id: '1' })]),
-      );
+      fixture.componentRef.setInput('data', makeResp([makePoi({ id: '0' }), makePoi({ id: '1' })]));
       fixture.detectChanges();
       expect(mockLayerGroup.clearLayers).toHaveBeenCalledTimes(1);
       expect(L.marker).toHaveBeenCalledTimes(2);
@@ -148,7 +145,10 @@ describe('MapComponent', () => {
     it('applica lo stato dim (grigio, opacità ridotta) ai marker esclusi dal filtro attivo', () => {
       fixture.componentRef.setInput(
         'data',
-        makeResp([makePoi({ id: '0', confidence: 'confermato' }), makePoi({ id: '1', confidence: 'speculativo' })]),
+        makeResp([
+          makePoi({ id: '0', confidence: 'confermato' }),
+          makePoi({ id: '1', confidence: 'speculativo' }),
+        ]),
       );
       fixture.componentRef.setInput('filter', 'confermato');
       fixture.detectChanges();
@@ -160,7 +160,10 @@ describe('MapComponent', () => {
     it('nessun dim quando il filtro è null (tutti i marker pieni)', () => {
       fixture.componentRef.setInput(
         'data',
-        makeResp([makePoi({ id: '0', confidence: 'confermato' }), makePoi({ id: '1', confidence: 'speculativo' })]),
+        makeResp([
+          makePoi({ id: '0', confidence: 'confermato' }),
+          makePoi({ id: '1', confidence: 'speculativo' }),
+        ]),
       );
       fixture.detectChanges();
       const calls = (L.divIcon as jest.Mock).mock.calls as [{ html: string }][];
@@ -181,11 +184,17 @@ describe('MapComponent', () => {
     it('lega un popup a ogni marker con nome ed etichetta IT del POI', () => {
       fixture.componentRef.setInput(
         'data',
-        makeResp([makePoi({ name: 'Stazione Termini', terminus_label_it: 'Stazione ferroviaria' })]),
+        makeResp([
+          makePoi({ name: 'Stazione Termini', terminus_label_it: 'Stazione ferroviaria' }),
+        ]),
       );
       fixture.detectChanges();
-      expect(mockMarker.bindPopup).toHaveBeenCalledWith(expect.stringContaining('Stazione Termini'));
-      expect(mockMarker.bindPopup).toHaveBeenCalledWith(expect.stringContaining('Stazione ferroviaria'));
+      expect(mockMarker.bindPopup).toHaveBeenCalledWith(
+        expect.stringContaining('Stazione Termini'),
+      );
+      expect(mockMarker.bindPopup).toHaveBeenCalledWith(
+        expect.stringContaining('Stazione ferroviaria'),
+      );
     });
 
     it("click sul marker emette poiClick con l'id del POI", () => {

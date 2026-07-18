@@ -1,12 +1,18 @@
 import { Confidence, ConfidenceSummary, Poi, RiskModel, SourceTag } from '@core/models/models';
 
-export interface ConfMeta { color: string; bg: string; dot: string; label: string; }
+export interface ConfMeta {
+  color: string;
+  bg: string;
+  dot: string;
+  label: string;
+}
 
-export const CONF: Readonly<Record<'confermato' | 'plausibile' | 'speculativo', ConfMeta>> = Object.freeze({
-  confermato: { color: '#1a7a40', bg: '#eef7f1', dot: '●', label: 'Confermato' },
-  plausibile: { color: '#b8870a', bg: '#fbf4e4', dot: '◐', label: 'Plausibile' },
-  speculativo: { color: '#c2620a', bg: '#fbeee2', dot: '○', label: 'Speculativo' },
-});
+export const CONF: Readonly<Record<'confermato' | 'plausibile' | 'speculativo', ConfMeta>> =
+  Object.freeze({
+    confermato: { color: '#1a7a40', bg: '#eef7f1', dot: '●', label: 'Confermato' },
+    plausibile: { color: '#b8870a', bg: '#fbf4e4', dot: '◐', label: 'Plausibile' },
+    speculativo: { color: '#c2620a', bg: '#fbeee2', dot: '○', label: 'Speculativo' },
+  });
 
 export const DIM_COLOR = '#b6b3a9';
 
@@ -16,11 +22,12 @@ export const DIM_COLOR = '#b6b3a9';
  * quello di `CONF` per il livello di confidence analogo (ONTOLOGIA↔confermato, CONTESTO↔plausibile,
  * SPECULATIVO↔speculativo) — stessa palette, un solo posto dove cambiarla.
  */
-export const SRC_TAG_META: Readonly<Record<SourceTag, { color: string; description: string }>> = Object.freeze({
-  ONTOLOGIA: { color: CONF.confermato.color, description: 'da ontologia formale' },
-  CONTESTO: { color: CONF.plausibile.color, description: 'da contesto ambientale' },
-  SPECULATIVO: { color: CONF.speculativo.color, description: 'inferenza non verificata' },
-});
+export const SRC_TAG_META: Readonly<Record<SourceTag, { color: string; description: string }>> =
+  Object.freeze({
+    ONTOLOGIA: { color: CONF.confermato.color, description: 'da ontologia formale' },
+    CONTESTO: { color: CONF.plausibile.color, description: 'da contesto ambientale' },
+    SPECULATIVO: { color: CONF.speculativo.color, description: 'inferenza non verificata' },
+  });
 
 const UNKNOWN_TAG_META = { color: CONF.speculativo.color, description: '' };
 
@@ -31,7 +38,10 @@ const UNKNOWN_TAG_META = { color: CONF.speculativo.color, description: '' };
  * degradare allo stesso fallback difensivo di `pinColor` invece di lanciare.
  */
 export function srcTagMeta(tag: string): { color: string; description: string } {
-  return (SRC_TAG_META as Record<string, { color: string; description: string }>)[tag] ?? UNKNOWN_TAG_META;
+  return (
+    (SRC_TAG_META as Record<string, { color: string; description: string }>)[tag] ??
+    UNKNOWN_TAG_META
+  );
 }
 
 export function pinColor(level: string): string {
@@ -42,9 +52,12 @@ export function deriveCoverage(
   confidenceSummary: Partial<ConfidenceSummary> | null | undefined,
   riskModels: RiskModel[] | null | undefined,
 ): { total: number; anchored: number } {
-  const total = Object.values(confidenceSummary ?? {}).reduce((acc, n) => acc + (Number(n) || 0), 0);
+  const total = Object.values(confidenceSummary ?? {}).reduce(
+    (acc, n) => acc + (Number(n) || 0),
+    0,
+  );
   const anchored = (riskModels ?? []).reduce(
-    (acc, model) => acc + (model.risks ?? []).filter(r => r.tag === 'ONTOLOGIA').length,
+    (acc, model) => acc + (model.risks ?? []).filter((r) => r.tag === 'ONTOLOGIA').length,
     0,
   );
   return { total, anchored };

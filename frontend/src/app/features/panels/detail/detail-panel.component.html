@@ -1,5 +1,7 @@
 <div class="cra-detail-header">
-  <span class="cra-detail-pin" [style.background]="conf[poi().confidence].color">{{ number() }}</span>
+  <span class="cra-detail-pin" [style.background]="conf[poi().confidence].color">{{
+    number()
+  }}</span>
   <div class="cra-detail-heading">
     <div class="cra-detail-name">{{ poi().name }}</div>
     <div class="cra-detail-class">tc:{{ poi().terminus_class }} · {{ detailModel().poiLabel }}</div>
@@ -7,7 +9,14 @@
   <span class="cra-badge-confidence" [style.color]="conf[poi().confidence].color">
     {{ conf[poi().confidence].dot }} {{ conf[poi().confidence].label }}
   </span>
-  <button type="button" class="cra-detail-close" aria-label="Chiudi dettaglio" (click)="closeDetail.emit()">✕</button>
+  <button
+    type="button"
+    class="cra-detail-close"
+    aria-label="Chiudi dettaglio"
+    (click)="closeDetail.emit()"
+  >
+    ✕
+  </button>
 </div>
 
 <div class="cra-detail-body">
@@ -35,7 +44,9 @@
     @for (group of orderedGroups(); track group.tag) {
       <div class="cra-source-group">
         <div class="cra-source-header" [style.borderColor]="srcMeta(group.tag).color">
-          <span class="cra-source-tag" [style.color]="srcMeta(group.tag).color">[{{ group.tag }}]</span>
+          <span class="cra-source-tag" [style.color]="srcMeta(group.tag).color"
+            >[{{ group.tag }}]</span
+          >
           <span class="cra-source-desc">{{ srcMeta(group.tag).description }}</span>
         </div>
         <ul class="cra-factor-list">
@@ -62,7 +73,12 @@
   >
     ⚐ Segnala errore
   </button>
-  <button type="button" class="cra-btn-outline" disabled title="Non disponibile in questa iterazione">
+  <button
+    type="button"
+    class="cra-btn-outline"
+    disabled
+    title="Non disponibile in questa iterazione"
+  >
     ⤓ Esporta scheda
   </button>
 </div>

@@ -1,4 +1,13 @@
-import { ChangeDetectionStrategy, Component, ElementRef, computed, effect, inject, input, output } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  computed,
+  effect,
+  inject,
+  input,
+  output,
+} from '@angular/core';
 import { CONF, srcTagMeta } from '@core/confidence';
 import { Poi, RiskModel } from '@core/models/models';
 import { buildDetailModel, hazardDisplayLabel, orderGroupsByTag } from '@core/ui-helpers';

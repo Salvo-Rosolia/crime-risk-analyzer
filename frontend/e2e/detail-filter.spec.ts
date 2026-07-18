@@ -20,7 +20,9 @@ import type { AnalyzeResponse, Poi, RiskModel } from '../src/app/core/models/mod
  */
 function expectedFactorLabels(poi: Poi, riskModels: RiskModel[]): string[] {
   const detailModel = buildDetailModel(poi, riskModels);
-  return orderGroupsByTag(detailModel.groups).flatMap(group => group.risks.map(hazardDisplayLabel));
+  return orderGroupsByTag(detailModel.groups).flatMap((group) =>
+    group.risks.map(hazardDisplayLabel),
+  );
 }
 const analyze = analyzeFixture as AnalyzeResponse;
 
@@ -56,7 +58,9 @@ test.describe('RESULTS→DETAIL: accoppiamento bidirezionale marker↔card', () 
     // Fattori di rischio raggruppati per fonte, ordine ONTOLOGIA → CONTESTO (spec-frontend.md).
     await expect(S.detailSourceGroups(page)).toHaveCount(2);
     await expect(S.detailSourceTags(page)).toHaveText(['[ONTOLOGIA]', '[CONTESTO]']);
-    await expect(S.detailFactorLabels(page)).toHaveText(expectedFactorLabels(poi, analyze.risk_models));
+    await expect(S.detailFactorLabels(page)).toHaveText(
+      expectedFactorLabels(poi, analyze.risk_models),
+    );
 
     // Accoppiamento bidirezionale: la card dello stesso POI è marcata come selezionata.
     await expect(S.poiCards(page).nth(0)).toHaveAttribute('aria-current', 'true');
@@ -67,7 +71,9 @@ test.describe('RESULTS→DETAIL: accoppiamento bidirezionale marker↔card', () 
     await expect(S.poiPanel(page)).toBeVisible();
   });
 
-  test('click su una card apre il dettaglio POI ed evidenzia (focus) il marker accoppiato', async ({ page }) => {
+  test('click su una card apre il dettaglio POI ed evidenzia (focus) il marker accoppiato', async ({
+    page,
+  }) => {
     // POI 2 = Vicolo Oscuro: speculativo, sparql_path null (nessuna citazione), un solo gruppo
     // SPECULATIVO che assorbe anche il rischio con tag null (`orderGroupsByTag`).
     const poi = analyze.poi[2];
@@ -80,7 +86,9 @@ test.describe('RESULTS→DETAIL: accoppiamento bidirezionale marker↔card', () 
 
     await expect(S.detailSourceGroups(page)).toHaveCount(1);
     await expect(S.detailSourceTags(page)).toHaveText(['[SPECULATIVO]']);
-    await expect(S.detailFactorLabels(page)).toHaveText(expectedFactorLabels(poi, analyze.risk_models));
+    await expect(S.detailFactorLabels(page)).toHaveText(
+      expectedFactorLabels(poi, analyze.risk_models),
+    );
 
     // Accoppiamento bidirezionale: il marker dello stesso POI diventa "focus" (pin più grande,
     // `pinHTML` in `core/confidence.ts`); il marker non selezionato resta alla dimensione base.
@@ -104,7 +112,7 @@ test.describe('RESULTS→FILTER: chip confidence', () => {
   }) => {
     const total = analyze.poi.length;
     const matchingLevel = analyze.poi[0].confidence; // 'confermato' (Colosseo)
-    const matchingCount = analyze.poi.filter(p => p.confidence === matchingLevel).length;
+    const matchingCount = analyze.poi.filter((p) => p.confidence === matchingLevel).length;
     const hiddenCount = total - matchingCount;
 
     // Sanity check sul fixture: il filtro dev'essere selettivo, non vacuo (mix di livelli, Task 3).

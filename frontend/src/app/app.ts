@@ -34,7 +34,7 @@ export class App {
   protected readonly selectedDetail = computed(() => {
     const id = this.store.selectedPoiId();
     const poi = this.store.completoData()?.poi ?? [];
-    const index = poi.findIndex(p => p.id === id);
+    const index = poi.findIndex((p) => p.id === id);
     return index >= 0 ? { poi: poi[index], number: index + 1 } : null;
   });
 

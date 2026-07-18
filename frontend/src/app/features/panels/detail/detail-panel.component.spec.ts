@@ -21,9 +21,27 @@ const riskModels: RiskModel[] = [
   {
     poi: 'Colosseo',
     risks: [
-      { hazard: 'h-spec', confidence: 'speculativo', tag: 'SPECULATIVO', hazard_label_it: 'Ipotesi speculativa', hazard_label_en: 'Speculative hypothesis' },
-      { hazard: 'h-onto', confidence: 'confermato', tag: 'ONTOLOGIA', hazard_label_it: 'Borseggio', hazard_label_en: 'Pickpocketing' },
-      { hazard: 'h-ctx', confidence: 'plausibile', tag: 'CONTESTO', hazard_label_it: 'Rischio da contesto', hazard_label_en: 'Context risk' },
+      {
+        hazard: 'h-spec',
+        confidence: 'speculativo',
+        tag: 'SPECULATIVO',
+        hazard_label_it: 'Ipotesi speculativa',
+        hazard_label_en: 'Speculative hypothesis',
+      },
+      {
+        hazard: 'h-onto',
+        confidence: 'confermato',
+        tag: 'ONTOLOGIA',
+        hazard_label_it: 'Borseggio',
+        hazard_label_en: 'Pickpocketing',
+      },
+      {
+        hazard: 'h-ctx',
+        confidence: 'plausibile',
+        tag: 'CONTESTO',
+        hazard_label_it: 'Rischio da contesto',
+        hazard_label_en: 'Context risk',
+      },
     ],
   },
 ];
@@ -58,7 +76,7 @@ describe('DetailPanelComponent', () => {
     expect(fixture.nativeElement.querySelector('.cra-detail-pin').textContent.trim()).toBe('3');
   });
 
-  it('mostra il badge di confidence del POI nell\'header', () => {
+  it("mostra il badge di confidence del POI nell'header", () => {
     setup(makePoi({ confidence: 'plausibile' }));
     const text = fixture.nativeElement.textContent;
     expect(text).toContain('Plausibile');
@@ -75,7 +93,7 @@ describe('DetailPanelComponent', () => {
   it('rende la citazione SPARQL come catena lineare Classe → proprietà → entità', () => {
     setup(makePoi());
     const parts = fixture.nativeElement.querySelectorAll('.cra-citation-part');
-    expect(Array.from(parts).map(p => (p as HTMLElement).textContent)).toEqual([
+    expect(Array.from(parts).map((p) => (p as HTMLElement).textContent)).toEqual([
       'Archaeological_site',
       'havingHazard',
       'Pickpocketing',
@@ -89,10 +107,10 @@ describe('DetailPanelComponent', () => {
     expect(fixture.nativeElement.querySelector('.cra-citation-part')).toBeNull();
   });
 
-  it('acceptance: raggruppa i fattori di rischio per tag fonte nell\'ordine ONTOLOGIA → CONTESTO → SPECULATIVO', () => {
+  it("acceptance: raggruppa i fattori di rischio per tag fonte nell'ordine ONTOLOGIA → CONTESTO → SPECULATIVO", () => {
     setup(makePoi());
     const headers = fixture.nativeElement.querySelectorAll('.cra-source-tag');
-    expect(Array.from(headers).map(h => (h as HTMLElement).textContent?.trim())).toEqual([
+    expect(Array.from(headers).map((h) => (h as HTMLElement).textContent?.trim())).toEqual([
       '[ONTOLOGIA]',
       '[CONTESTO]',
       '[SPECULATIVO]',
@@ -115,7 +133,7 @@ describe('DetailPanelComponent', () => {
     expect(fixture.nativeElement.querySelectorAll('.cra-factor-row').length).toBe(0);
   });
 
-  it('a11y (focus management, Stato C): all\'apertura sposta il focus sul pannello per utenti da tastiera/screen reader', () => {
+  it("a11y (focus management, Stato C): all'apertura sposta il focus sul pannello per utenti da tastiera/screen reader", () => {
     setup(makePoi());
     expect(document.activeElement).toBe(fixture.nativeElement);
   });
@@ -142,9 +160,11 @@ describe('DetailPanelComponent', () => {
 
   it('footer: azioni non operative presenti ("Segnala errore" / "Esporta scheda"), disabilitate in questa iterazione', () => {
     setup(makePoi());
-    const buttons: HTMLButtonElement[] = Array.from(fixture.nativeElement.querySelectorAll('.cra-detail-footer button'));
+    const buttons: HTMLButtonElement[] = Array.from(
+      fixture.nativeElement.querySelectorAll('.cra-detail-footer button'),
+    );
     expect(buttons).toHaveLength(2);
-    expect(buttons.every(b => b.disabled)).toBe(true);
+    expect(buttons.every((b) => b.disabled)).toBe(true);
     const text = fixture.nativeElement.textContent;
     expect(text).toContain('Segnala errore');
     expect(text).toContain('Esporta scheda');

@@ -18,7 +18,16 @@ import { matchesFilter, poiPopupHTML } from '@core/ui-helpers';
   selector: 'cra-map',
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<div #mapEl class="cra-map"></div>`,
-  styles: [`.cra-map { position: absolute; inset: 0; height: 100%; width: 100%; }`],
+  styles: [
+    `
+      .cra-map {
+        position: absolute;
+        inset: 0;
+        height: 100%;
+        width: 100%;
+      }
+    `,
+  ],
 })
 export class MapComponent implements OnDestroy {
   readonly data = input<AnalyzeResponse | null>(null);
