@@ -234,6 +234,46 @@ def test_write_agreement_report_writes_files(tmp_path: Path) -> None:
     assert "pearson" in md_path.read_text(encoding="utf-8").lower()
 
 
+def test_write_agreement_report_csv_uses_newline_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regressione #103 per il CSV gold: la scrittura deve passare ``newline=""``.
+
+    ``to_csv()`` usa ``csv.writer`` che emette gia' terminatori ``\\r\\n``; se
+    ``write_text`` apre il file in text-mode senza ``newline=""``, su Windows il
+    ``\\n`` viene ritradotto in ``\\r\\n`` producendo ``\\r\\r\\n`` (righe spurie,
+    CSV corrotto per Excel/pandas). Guard cross-platform (spia il kwarg passato)
+    + assert supplementare sui byte (sensibile solo su Windows). Stesso pattern
+    del guard su aggregate/city_agnostic_report.
+    """
+    write_record(
+        tmp_path,
+        _rec(
+            "run-a", proxy_grounding=1.0, proxy_hallucination=0.0, gold=_gold(0.9, 0.1)
+        ),
+    )
+
+    original = Path.write_text
+    csv_newline_kwargs: list[str | None] = []
+
+    def spy(
+        self: Path,
+        data: str,
+        encoding: str | None = None,
+        errors: str | None = None,
+        newline: str | None = None,
+    ) -> int:
+        if self.suffix == ".csv":
+            csv_newline_kwargs.append(newline)
+        return original(self, data, encoding=encoding, errors=errors, newline=newline)
+
+    monkeypatch.setattr(Path, "write_text", spy)
+    csv_path, _md_path = write_agreement_report(tmp_path)
+
+    assert csv_newline_kwargs == [""]
+    assert b"\r\r\n" not in csv_path.read_bytes()
+
+
 # --- wiring CLI: subcomando `gold` -------------------------------------------
 
 
