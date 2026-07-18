@@ -366,3 +366,41 @@ async def test_capture_analyze_builds_client_once_across_cases(
     await _capture(config_path, tmp_path, poi_source=live)
 
     assert builds == 1  # costruito una sola volta, condiviso tra i due case
+
+
+async def test_capture_partial_skip_captures_only_missing(
+    tmp_path: Path, capture_env: None
+) -> None:
+    """Fix 3 (#148): config a 2 case, uno snapshot pre-esiste e l'altro no →
+    il case esistente è saltato (riuso, sentinella intatta) e SOLO quello
+    mancante è catturato. Blinda il ``continue`` per-chiave contro un futuro
+    break/return che interromperebbe il loop dopo il primo skip."""
+    captured_cities: list[str] = []
+
+    async def recording_live(bbox: Bbox, citta: str) -> list[Poi]:
+        captured_cities.append(citta)
+        return _sample_pois()
+
+    cfg = ExperimentConfig(
+        name="ablation",
+        mode="baseline",
+        model="claude",
+        cases=[
+            RunCase(citta="Roma", zona="Centro"),
+            RunCase(citta="Milano", zona="Duomo"),
+        ],
+    )
+    config_path = tmp_path / "multi.json"
+    config_path.write_text(cfg.model_dump_json(), encoding="utf-8")
+
+    # Pre-crea SOLO lo snapshot di Roma con una sentinella (deve restare intatto).
+    roma_path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
+    save_snapshot(roma_path, _sentinel_pois())
+    milano_path = snapshot_path(tmp_path, make_snapshot_key("Milano", "Duomo"))
+
+    await _capture(config_path, tmp_path, poi_source=recording_live)
+
+    # Roma saltata (sentinella intatta), Milano catturata ex-novo.
+    assert load_snapshot(roma_path) == _sentinel_pois()
+    assert load_snapshot(milano_path) == _sample_pois()
+    assert captured_cities == ["Milano"]  # solo il mancante ha toccato la live
