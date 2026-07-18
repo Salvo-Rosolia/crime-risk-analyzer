@@ -29,6 +29,7 @@
       autocomplete="off"
       placeholder="es. Colosseo, Trastevere…"
       aria-required="true"
+      maxlength="200"
       [value]="zona()"
       [class.cra-field-error]="zonaHasError()"
       (input)="onZonaInput($event)"
