@@ -38,7 +38,15 @@ class AnalyzeRequest(BaseModel):
     """Body di ``POST /analyze`` (naming ASCII)."""
 
     citta: str = Field(description="Citta' tra quelle supportate.")
-    zona: str = Field(description="Zona/quartiere da analizzare.")
+    zona: str = Field(
+        max_length=200,
+        description=(
+            "Zona/quartiere da analizzare. max_length=200: un nome di "
+            "zona/quartiere ci sta ampiamente, mentre il tetto chiude la "
+            "superficie del free-text che finisce nella query Nominatim e nella "
+            "chiave di _CACHE (#170)."
+        ),
+    )
     domanda: str | None = Field(
         default=None,
         max_length=500,
@@ -56,7 +64,14 @@ class BaselineRequest(BaseModel):
     """Body di ``POST /analyze/baseline`` (ablation, senza LLM)."""
 
     citta: str = Field(description="Citta' tra quelle supportate.")
-    zona: str = Field(description="Zona/quartiere da analizzare.")
+    zona: str = Field(
+        max_length=200,
+        description=(
+            "Zona/quartiere da analizzare. max_length=200: come in "
+            "``AnalyzeRequest``, chiude la superficie del free-text verso "
+            "Nominatim e la chiave di _CACHE (#170)."
+        ),
+    )
     tipo_poi: str | None = Field(
         default=None,
         description=(

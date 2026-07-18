@@ -370,6 +370,61 @@ def test_rate_limiter_throttles_second_call(monkeypatch: pytest.MonkeyPatch) -> 
     assert slept and slept[0] == pytest.approx(1.0)
 
 
+# --- #170: bound di _CACHE (eviction FIFO) + copia difensiva sul cache-hit ---
+
+
+def test_cache_evicts_oldest_when_full(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Superato _CACHE_MAXSIZE, la entry piu' vecchia (FIFO) viene evitta (#170)."""
+    monkeypatch.setattr(_geo_mod, "_CACHE_MAXSIZE", 3)
+    # min_delay minimo (gt=0) + limiter ricostruito: azzera il ~1s di sleep reale
+    # tra le chiamate mantenendo il vincolo di config.
+    monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.001")
+    get_settings.cache_clear()
+    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    fake = _FakeGeocoder(
+        _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
+    )
+    _patch_geocoder(monkeypatch, fake)
+
+    for zona in ("A", "B", "C", "D"):
+        geocode_zone(zona, "Roma")
+
+    cache = _geo_mod._CACHE  # pyright: ignore[reportPrivateUsage]
+    assert len(cache) == 3
+    # FIFO: "A" (la piu' vecchia) e' stata evitta; "D" (l'ultima) c'e'.
+    assert _geo_mod._cache_key("A", "Roma") not in cache  # pyright: ignore[reportPrivateUsage]
+    assert _geo_mod._cache_key("D", "Roma") in cache  # pyright: ignore[reportPrivateUsage]
+
+
+def test_cache_hit_returns_defensive_copy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Un cache-hit ritorna una COPIA: mutarla non avvelena la entry (#170)."""
+    fake = _FakeGeocoder(
+        _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
+    )
+    _patch_geocoder(monkeypatch, fake)
+
+    geocode_zone("Colosseo", "Roma")  # popola la cache (miss)
+    hit = geocode_zone("Colosseo", "Roma")  # cache-hit
+    hit["lat"] = 0.0  # un consumer muta il dict ritornato
+
+    again = geocode_zone("Colosseo", "Roma")  # nuovo cache-hit
+    assert again["lat"] == pytest.approx(41.89)  # la entry in cache e' intatta
+
+
+def test_cache_miss_returns_defensive_copy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Anche il ritorno del cache-miss e' una copia: mutarlo non avvelena (#170)."""
+    fake = _FakeGeocoder(
+        _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
+    )
+    _patch_geocoder(monkeypatch, fake)
+
+    miss = geocode_zone("Colosseo", "Roma")  # cache-miss: costruisce e memorizza
+    miss["lat"] = 0.0  # muta il dict appena ritornato
+
+    hit = geocode_zone("Colosseo", "Roma")  # cache-hit sulla entry memorizzata
+    assert hit["lat"] == pytest.approx(41.89)  # la entry in cache non e' aliasata
+
+
 def test_get_geolocator_builds_nominatim() -> None:
     """Il provider di default costruisce un Nominatim (nessuna chiamata di rete)."""
     from geopy.geocoders import (  # pyright: ignore[reportMissingTypeStubs]
