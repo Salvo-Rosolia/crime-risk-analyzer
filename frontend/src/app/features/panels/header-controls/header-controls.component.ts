@@ -4,7 +4,10 @@ import { AnalyzeResponse, Confidence, Mode } from '@core/models/models';
 
 const LEVELS: readonly Confidence[] = ['confermato', 'plausibile', 'speculativo'];
 
-interface ModeOption { value: Mode; label: string; }
+interface ModeOption {
+  value: Mode;
+  label: string;
+}
 const MODE_OPTIONS: readonly ModeOption[] = [
   { value: 'completo', label: 'Completo' },
   { value: 'base', label: 'Base' },
@@ -46,9 +49,13 @@ export class HeaderControlsComponent {
   protected readonly conf = CONF;
 
   /** Badge + chip hanno senso solo col sistema completo e con un'analisi già completata. */
-  protected readonly showResultsControls = computed(() => this.mode() === 'completo' && this.data() != null);
+  protected readonly showResultsControls = computed(
+    () => this.mode() === 'completo' && this.data() != null,
+  );
 
-  protected readonly coverage = computed(() => deriveCoverage(this.data()?.confidence_summary, this.data()?.risk_models));
+  protected readonly coverage = computed(() =>
+    deriveCoverage(this.data()?.confidence_summary, this.data()?.risk_models),
+  );
   protected readonly coverageText = computed(() => {
     const { total, anchored } = this.coverage();
     return coverageBadgeText(total, anchored);

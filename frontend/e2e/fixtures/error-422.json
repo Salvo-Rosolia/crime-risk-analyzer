@@ -1,1 +1,6 @@
-{ "detail": { "errore": "ZoneNotFoundError", "messaggio": "La zona indicata non corrisponde ad alcuna area nell'ontologia." } }
+{
+  "detail": {
+    "errore": "ZoneNotFoundError",
+    "messaggio": "La zona indicata non corrisponde ad alcuna area nell'ontologia."
+  }
+}

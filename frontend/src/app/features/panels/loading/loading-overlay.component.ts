@@ -28,7 +28,7 @@ export class LoadingOverlayComponent implements OnDestroy {
   protected readonly currentStep = signal(0);
 
   private readonly timer: ReturnType<typeof setInterval> = setInterval(() => {
-    this.currentStep.update(i => (i < LOADING_STEPS.length - 1 ? i + 1 : i));
+    this.currentStep.update((i) => (i < LOADING_STEPS.length - 1 ? i + 1 : i));
   }, STEP_INTERVAL_MS);
 
   ngOnDestroy(): void {

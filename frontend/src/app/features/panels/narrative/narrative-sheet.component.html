@@ -24,7 +24,9 @@
       @for (section of sections(); track section.tag) {
         <div class="cra-narr-section">
           <div class="cra-source-header" [style.borderColor]="srcMeta(section.tag).color">
-            <span class="cra-source-tag" [style.color]="srcMeta(section.tag).color">[{{ section.tag }}]</span>
+            <span class="cra-source-tag" [style.color]="srcMeta(section.tag).color"
+              >[{{ section.tag }}]</span
+            >
             <span class="cra-source-desc">{{ srcMeta(section.tag).description }}</span>
           </div>
           <ul class="cra-narr-hazard-list">

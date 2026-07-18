@@ -42,9 +42,10 @@ export function transition(state: AppState, action: Action): AppState {
         // #67-bis, bloccante B): una ANALYZE della pipeline base non deve sovrascriverlo, altrimenti
         // Rigenera rilancerebbe l'ultima ricerca Base invece dell'ultima analisi completo. Il Base
         // non ha "Rigenera", quindi non gli serve un lastQuery proprio.
-        lastQuery: action.pipeline === 'base'
-          ? state.lastQuery
-          : { citta: action.citta, zona: action.zona, domanda: action.domanda ?? null },
+        lastQuery:
+          action.pipeline === 'base'
+            ? state.lastQuery
+            : { citta: action.citta, zona: action.zona, domanda: action.domanda ?? null },
       };
     case 'LOAD_SUCCESS': {
       // Due campi dati separati (review #67, bloccanti 1+2) instradati sulla pipeline DICHIARATA
@@ -88,9 +89,10 @@ export function transition(state: AppState, action: Action): AppState {
     case 'SET_FILTER': {
       // Filtro/dettaglio esistono solo nel sistema completo: la ricerca del POI selezionato usa
       // sempre completoData, mai baselineData (che non ha selezione/dettaglio).
-      const selectedPoi = state.selectedPoiId && state.completoData?.poi
-        ? state.completoData.poi.find(p => p.id === state.selectedPoiId)
-        : null;
+      const selectedPoi =
+        state.selectedPoiId && state.completoData?.poi
+          ? state.completoData.poi.find((p) => p.id === state.selectedPoiId)
+          : null;
       const poiExcluded = !!selectedPoi && selectedPoi.confidence !== action.level;
       return {
         ...state,
@@ -106,7 +108,8 @@ export function transition(state: AppState, action: Action): AppState {
       // baselineData è null); verso completo si torna in RESULTS solo se esiste già completoData,
       // altrimenti INPUT. `error` si azzera qui: un errore rimasto dall'altra modalità non deve
       // ricomparire nel form appena montato dopo un toggle (nessuna nuova ANALYZE lo azzererebbe).
-      const targetScreen: Screen = action.mode === 'base' ? 'BASE' : state.completoData ? 'RESULTS' : 'INPUT';
+      const targetScreen: Screen =
+        action.mode === 'base' ? 'BASE' : state.completoData ? 'RESULTS' : 'INPUT';
       return { ...state, screen: targetScreen, mode: action.mode, error: null };
     }
     case 'RESET':

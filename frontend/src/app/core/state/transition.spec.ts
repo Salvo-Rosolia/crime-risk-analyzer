@@ -2,18 +2,53 @@ import { initialState, transition } from '@core/state/transition';
 import { AnalyzeResponse, AppState } from '@core/models/models';
 
 const data: AnalyzeResponse = {
-  citta: 'Roma', zona_normalizzata: 'Colosseo', poi: [
-    { id: '1', name: 'A', terminus_class: 'x', lat: 0, lon: 0, confidence: 'confermato', sparql_path: null, terminus_label_it: 'X', terminus_label_en: 'X' },
-    { id: '2', name: 'B', terminus_class: 'x', lat: 0, lon: 0, confidence: 'plausibile', sparql_path: null, terminus_label_it: 'X', terminus_label_en: 'X' },
-  ], risk_models: [], narrativa: '', confidence_summary: { confermato: 1, plausibile: 1, speculativo: 0 },
-  llm_used: 'test-model', latenza_ms: 0, tokens_input: 0, tokens_output: 0,
+  citta: 'Roma',
+  zona_normalizzata: 'Colosseo',
+  poi: [
+    {
+      id: '1',
+      name: 'A',
+      terminus_class: 'x',
+      lat: 0,
+      lon: 0,
+      confidence: 'confermato',
+      sparql_path: null,
+      terminus_label_it: 'X',
+      terminus_label_en: 'X',
+    },
+    {
+      id: '2',
+      name: 'B',
+      terminus_class: 'x',
+      lat: 0,
+      lon: 0,
+      confidence: 'plausibile',
+      sparql_path: null,
+      terminus_label_it: 'X',
+      terminus_label_en: 'X',
+    },
+  ],
+  risk_models: [],
+  narrativa: '',
+  confidence_summary: { confermato: 1, plausibile: 1, speculativo: 0 },
+  llm_used: 'test-model',
+  latenza_ms: 0,
+  tokens_input: 0,
+  tokens_output: 0,
   repro: { temperature: 0.2, seed: 0, prompt_hash: 'x' },
-  cache_hit: false, fallback: false,
+  cache_hit: false,
+  fallback: false,
 };
 
 describe('transition (FSM)', () => {
   it('ANALYZE → LOADING e azzera selezione/filtro, salva citta/zona/domanda pending e lastQuery', () => {
-    const s = transition(initialState, { type: 'ANALYZE', citta: 'Roma', zona: 'Centro', domanda: 'di sera?', pipeline: 'completo' });
+    const s = transition(initialState, {
+      type: 'ANALYZE',
+      citta: 'Roma',
+      zona: 'Centro',
+      domanda: 'di sera?',
+      pipeline: 'completo',
+    });
     expect(s.screen).toBe('LOADING');
     expect(s.pendingCitta).toBe('Roma');
     expect(s.pendingZona).toBe('Centro');
@@ -23,8 +58,16 @@ describe('transition (FSM)', () => {
   });
 
   it('ANALYZE pipeline base NON scrive lastQuery (bloccante B review #67-bis: "Rigenera" è solo del sistema completo)', () => {
-    const withPreviousQuery: AppState = { ...initialState, lastQuery: { citta: 'Roma', zona: 'Colosseo', domanda: null } };
-    const s = transition(withPreviousQuery, { type: 'ANALYZE', citta: 'Milano', zona: 'Duomo', pipeline: 'base' });
+    const withPreviousQuery: AppState = {
+      ...initialState,
+      lastQuery: { citta: 'Roma', zona: 'Colosseo', domanda: null },
+    };
+    const s = transition(withPreviousQuery, {
+      type: 'ANALYZE',
+      citta: 'Milano',
+      zona: 'Duomo',
+      pipeline: 'base',
+    });
     expect(s.screen).toBe('LOADING');
     expect(s.pendingCitta).toBe('Milano');
     expect(s.pendingZona).toBe('Duomo');
@@ -50,7 +93,12 @@ describe('transition (FSM)', () => {
 
   it('LOAD_SUCCESS pipeline base NON sovrascrive un completoData preesistente (i due campi restano indipendenti)', () => {
     const completo: AnalyzeResponse = { ...data, citta: 'Milano' };
-    const loadingBase: AppState = { ...initialState, screen: 'LOADING', mode: 'base', completoData: completo };
+    const loadingBase: AppState = {
+      ...initialState,
+      screen: 'LOADING',
+      mode: 'base',
+      completoData: completo,
+    };
     const s = transition(loadingBase, { type: 'LOAD_SUCCESS', data, pipeline: 'base' });
     expect(s.baselineData).toBe(data);
     expect(s.completoData).toBe(completo);
@@ -100,7 +148,11 @@ describe('transition (FSM)', () => {
       pendingCitta: 'Roma',
       pendingZona: 'Atlantide',
     };
-    const s = transition(loadingBase, { type: 'LOAD_ERROR', message: '"Atlantide" non trovata.', pipeline: 'base' });
+    const s = transition(loadingBase, {
+      type: 'LOAD_ERROR',
+      message: '"Atlantide" non trovata.',
+      pipeline: 'base',
+    });
     expect(s.screen).toBe('BASE');
     expect(s.error).toBe('"Atlantide" non trovata.');
     expect(s.pendingCitta).toBe('Roma');
@@ -127,30 +179,58 @@ describe('transition (FSM)', () => {
   });
 
   it('DESELECT_POI torna a FILTER se filtro attivo, altrimenti RESULTS', () => {
-    const withFilter: AppState = { ...initialState, screen: 'DETAIL', filter: 'plausibile', selectedPoiId: '1' };
+    const withFilter: AppState = {
+      ...initialState,
+      screen: 'DETAIL',
+      filter: 'plausibile',
+      selectedPoiId: '1',
+    };
     expect(transition(withFilter, { type: 'DESELECT_POI' }).screen).toBe('FILTER');
-    const noFilter: AppState = { ...initialState, screen: 'DETAIL', filter: null, selectedPoiId: '1' };
+    const noFilter: AppState = {
+      ...initialState,
+      screen: 'DETAIL',
+      filter: null,
+      selectedPoiId: '1',
+    };
     expect(transition(noFilter, { type: 'DESELECT_POI' }).screen).toBe('RESULTS');
   });
 
   it('SET_FILTER (regola m3): deseleziona il POI se il nuovo filtro lo esclude', () => {
-    const detail: AppState = { ...initialState, screen: 'DETAIL', completoData: data, selectedPoiId: '1' };
+    const detail: AppState = {
+      ...initialState,
+      screen: 'DETAIL',
+      completoData: data,
+      selectedPoiId: '1',
+    };
     const s = transition(detail, { type: 'SET_FILTER', level: 'plausibile' });
     expect(s.selectedPoiId).toBeNull();
     expect(s.screen).toBe('FILTER');
   });
 
   it('SET_FILTER mantiene DETAIL se il POI selezionato resta visibile', () => {
-    const detail: AppState = { ...initialState, screen: 'DETAIL', completoData: data, selectedPoiId: '1' };
+    const detail: AppState = {
+      ...initialState,
+      screen: 'DETAIL',
+      completoData: data,
+      selectedPoiId: '1',
+    };
     const s = transition(detail, { type: 'SET_FILTER', level: 'confermato' });
     expect(s.selectedPoiId).toBe('1');
     expect(s.screen).toBe('DETAIL');
   });
 
-  it('TOGGLE_MODE: base→BASE; completo→RESULTS se c\'è completoData altrimenti INPUT; azzera error', () => {
-    expect(transition({ ...initialState, completoData: data }, { type: 'TOGGLE_MODE', mode: 'base' }).screen).toBe('BASE');
-    expect(transition({ ...initialState, completoData: data }, { type: 'TOGGLE_MODE', mode: 'completo' }).screen).toBe('RESULTS');
-    expect(transition(initialState, { type: 'TOGGLE_MODE', mode: 'completo' }).screen).toBe('INPUT');
+  it("TOGGLE_MODE: base→BASE; completo→RESULTS se c'è completoData altrimenti INPUT; azzera error", () => {
+    expect(
+      transition({ ...initialState, completoData: data }, { type: 'TOGGLE_MODE', mode: 'base' })
+        .screen,
+    ).toBe('BASE');
+    expect(
+      transition({ ...initialState, completoData: data }, { type: 'TOGGLE_MODE', mode: 'completo' })
+        .screen,
+    ).toBe('RESULTS');
+    expect(transition(initialState, { type: 'TOGGLE_MODE', mode: 'completo' }).screen).toBe(
+      'INPUT',
+    );
 
     const withError: AppState = { ...initialState, screen: 'ERROR', error: 'boom' };
     expect(transition(withError, { type: 'TOGGLE_MODE', mode: 'base' }).error).toBeNull();
@@ -164,7 +244,14 @@ describe('transition (FSM)', () => {
   });
 
   it('RESET ritorna allo stato iniziale', () => {
-    const dirty: AppState = { ...initialState, screen: 'DETAIL', completoData: data, baselineData: data, selectedPoiId: '1', filter: 'confermato' };
+    const dirty: AppState = {
+      ...initialState,
+      screen: 'DETAIL',
+      completoData: data,
+      baselineData: data,
+      selectedPoiId: '1',
+      filter: 'confermato',
+    };
     expect(transition(dirty, { type: 'RESET' })).toEqual(initialState);
   });
 
@@ -208,7 +295,12 @@ describe('transition (FSM)', () => {
       selectedPoiId: '1',
       filter: 'plausibile',
     };
-    const s = transition(results, { type: 'ANALYZE', citta: 'Roma', zona: 'Trastevere', pipeline: 'completo' });
+    const s = transition(results, {
+      type: 'ANALYZE',
+      citta: 'Roma',
+      zona: 'Trastevere',
+      pipeline: 'completo',
+    });
     expect(s.screen).toBe('LOADING');
     expect(s.selectedPoiId).toBeNull();
     expect(s.filter).toBeNull();
@@ -226,7 +318,12 @@ describe('transition (FSM)', () => {
       pendingCitta: 'Roma',
       lastQuery: { citta: 'Roma', zona: 'Colosseo', domanda: null },
     };
-    const s = transition(error, { type: 'ANALYZE', citta: 'Milano', zona: 'Prati', pipeline: 'completo' });
+    const s = transition(error, {
+      type: 'ANALYZE',
+      citta: 'Milano',
+      zona: 'Prati',
+      pipeline: 'completo',
+    });
     expect(s.screen).toBe('LOADING');
     expect(s.error).toBeNull();
     expect(s.pendingCitta).toBe('Milano');

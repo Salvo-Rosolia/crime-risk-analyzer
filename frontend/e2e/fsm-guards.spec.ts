@@ -21,10 +21,10 @@ test.describe('Guardia toggle mode durante LOADING', () => {
     // Gate manuale sulla risposta /analyze: la route resta "in volo" finché non chiamiamo
     // `releaseAnalyze()` esplicitamente — nessun `waitForTimeout`, l'attesa è sulla Promise stessa.
     let releaseAnalyze!: () => void;
-    const analyzeGate = new Promise<void>(resolve => {
+    const analyzeGate = new Promise<void>((resolve) => {
       releaseAnalyze = resolve;
     });
-    await page.route('**/analyze', async route => {
+    await page.route('**/analyze', async (route) => {
       await analyzeGate;
       await route.fulfill({ json: analyze });
     });
@@ -52,7 +52,9 @@ test.describe('Guardia toggle mode durante LOADING', () => {
 });
 
 test.describe('Retry: il form si ripopola dopo ERROR con gli ultimi valori inviati', () => {
-  test('citta/zona/domanda restano nel form dopo un errore 422 (nessun azzeramento)', async ({ page }) => {
+  test('citta/zona/domanda restano nel form dopo un errore 422 (nessun azzeramento)', async ({
+    page,
+  }) => {
     await mockApi(page, { analyze: error422, analyzeStatus: 422 });
     await page.goto('/');
     await expect(S.inputPanel(page)).toBeVisible();
@@ -76,7 +78,9 @@ test.describe('Errore in BASE resta su BASE (non lo Stato ERROR condiviso)', () 
     page,
   }) => {
     await mockApi(page); // /cities dal fixture condiviso
-    await page.route('**/analyze/baseline', route => route.fulfill({ status: 422, json: error422 }));
+    await page.route('**/analyze/baseline', (route) =>
+      route.fulfill({ status: 422, json: error422 }),
+    );
 
     await page.goto('/');
     await S.modeToggleButton(page, 'base').click();
@@ -112,7 +116,9 @@ test.describe('Banner anti-hallucination sopravvive al collapse/espandi della na
 
     await expect(S.narrativeHeader(page)).toHaveAttribute('aria-expanded', 'true');
     await expect(S.narrativeBanner(page)).toBeVisible();
-    await expect(S.narrativeBanner(page)).toHaveText('⚠ supporto decisionale · valuta con fonti primarie');
+    await expect(S.narrativeBanner(page)).toHaveText(
+      '⚠ supporto decisionale · valuta con fonti primarie',
+    );
 
     // Toggle via tastiera (Enter sull'header `role="button"`) invece di un click geometrico:
     // vedi commento in `base-regenerate.spec.ts` (fix-review #69).

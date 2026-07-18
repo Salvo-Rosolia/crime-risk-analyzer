@@ -25,9 +25,20 @@ export interface RiskItem {
   /** Etichetta EN corretta dell'hazard (display, #77). Sempre presente lato BE (default ""). */
   hazard_label_en: string;
 }
-export interface RiskModel { poi: string; risks: RiskItem[]; }
-export interface ConfidenceSummary { confermato: number; plausibile: number; speculativo: number; }
-export interface Repro { temperature: number; seed: number; prompt_hash: string; }
+export interface RiskModel {
+  poi: string;
+  risks: RiskItem[];
+}
+export interface ConfidenceSummary {
+  confermato: number;
+  plausibile: number;
+  speculativo: number;
+}
+export interface Repro {
+  temperature: number;
+  seed: number;
+  prompt_hash: string;
+}
 
 export interface AnalyzeResponse {
   citta: string;
@@ -47,7 +58,11 @@ export interface AnalyzeResponse {
   fallback: boolean;
 }
 
-export interface BaselineParams { citta: string; zona: string; tipo_poi?: string; }
+export interface BaselineParams {
+  citta: string;
+  zona: string;
+  tipo_poi?: string;
+}
 
 /** Payload emesso da `InputPanelComponent` (Stato A + Errore) verso lo shell. */
 export interface AnalyzeRequestPayload {

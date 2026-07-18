@@ -48,7 +48,7 @@ export class StateStore {
   readonly narrOpen = computed(() => this._state().narrOpen);
 
   dispatch(action: Action): void {
-    this._state.update(s => transition(s, action));
+    this._state.update((s) => transition(s, action));
   }
 
   /**
@@ -62,7 +62,11 @@ export class StateStore {
       const result = await this.api.analyze(citta, zona, domanda);
       this.dispatch({ type: 'LOAD_SUCCESS', data: result, pipeline: 'completo' });
     } catch (err) {
-      this.dispatch({ type: 'LOAD_ERROR', message: errorMessage(err, 'Errore durante l\'analisi.'), pipeline: 'completo' });
+      this.dispatch({
+        type: 'LOAD_ERROR',
+        message: errorMessage(err, "Errore durante l'analisi."),
+        pipeline: 'completo',
+      });
     }
   }
 
@@ -73,7 +77,11 @@ export class StateStore {
       const result = await this.api.analyzeBaseline(params);
       this.dispatch({ type: 'LOAD_SUCCESS', data: result, pipeline: 'base' });
     } catch (err) {
-      this.dispatch({ type: 'LOAD_ERROR', message: errorMessage(err, 'Endpoint /analyze/baseline non ancora disponibile.'), pipeline: 'base' });
+      this.dispatch({
+        type: 'LOAD_ERROR',
+        message: errorMessage(err, 'Endpoint /analyze/baseline non ancora disponibile.'),
+        pipeline: 'base',
+      });
     }
   }
 }

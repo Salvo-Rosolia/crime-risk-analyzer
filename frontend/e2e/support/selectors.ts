@@ -92,7 +92,9 @@ export const S = {
    * accessibile anche prima di qualunque analisi). Testo esatto = etichetta dell'opzione
    * (`Completo`/`Base`, `MODE_OPTIONS`), nessun'altra icona/prefisso. */
   modeToggleButton: (p: Page, mode: 'completo' | 'base'): Locator =>
-    p.locator('cra-header-controls').getByRole('button', { name: mode === 'base' ? 'Base' : 'Completo', exact: true }),
+    p
+      .locator('cra-header-controls')
+      .getByRole('button', { name: mode === 'base' ? 'Base' : 'Completo', exact: true }),
   /** Stato BASE: `<select id="cra-base-citta">` nativo (a differenza di INPUT/ERROR che usano
    * `<input list>` + `<datalist>` — confermato in `base-panel.component.html:18`), va compilato
    * con `selectOption`, non `fill`. */

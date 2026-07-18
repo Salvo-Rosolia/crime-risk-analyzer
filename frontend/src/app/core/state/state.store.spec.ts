@@ -5,11 +5,19 @@ import { StateStore } from '@core/state/state.store';
 import { AnalyzeResponse } from '@core/models/models';
 
 const data: AnalyzeResponse = {
-  citta: 'Roma', zona_normalizzata: 'Colosseo', poi: [], risk_models: [],
-  narrativa: '', confidence_summary: { confermato: 0, plausibile: 0, speculativo: 0 },
-  llm_used: 'test-model', latenza_ms: 0, tokens_input: 0, tokens_output: 0,
+  citta: 'Roma',
+  zona_normalizzata: 'Colosseo',
+  poi: [],
+  risk_models: [],
+  narrativa: '',
+  confidence_summary: { confermato: 0, plausibile: 0, speculativo: 0 },
+  llm_used: 'test-model',
+  latenza_ms: 0,
+  tokens_input: 0,
+  tokens_output: 0,
   repro: { temperature: 0.2, seed: 0, prompt_hash: 'x' },
-  cache_hit: false, fallback: false,
+  cache_hit: false,
+  fallback: false,
 };
 
 describe('StateStore', () => {
@@ -21,7 +29,9 @@ describe('StateStore', () => {
       analyze: jest.fn(),
       analyzeBaseline: jest.fn(),
     };
-    TestBed.configureTestingModule({ providers: [StateStore, { provide: ApiService, useValue: api }] });
+    TestBed.configureTestingModule({
+      providers: [StateStore, { provide: ApiService, useValue: api }],
+    });
     store = TestBed.inject(StateStore);
   });
 
@@ -39,7 +49,13 @@ describe('StateStore', () => {
   it('pendingCitta e pendingDomanda riflettono gli ultimi valori inviati (per il retry dopo un errore)', () => {
     expect(store.pendingCitta()).toBeNull();
     expect(store.pendingDomanda()).toBeNull();
-    store.dispatch({ type: 'ANALYZE', citta: 'Milano', zona: 'Duomo', domanda: 'di sera?', pipeline: 'completo' });
+    store.dispatch({
+      type: 'ANALYZE',
+      citta: 'Milano',
+      zona: 'Duomo',
+      domanda: 'di sera?',
+      pipeline: 'completo',
+    });
     expect(store.pendingCitta()).toBe('Milano');
     expect(store.pendingDomanda()).toBe('di sera?');
   });
@@ -53,7 +69,7 @@ describe('StateStore', () => {
     expect(store.baselineData()).toBeNull();
   });
 
-  it('startAnalysis con domanda passa la domanda all\'api', async () => {
+  it("startAnalysis con domanda passa la domanda all'api", async () => {
     api.analyze.mockResolvedValue(data);
     await store.startAnalysis('Roma', 'Roma', 'di sera?');
     expect(api.analyze).toHaveBeenCalledWith('Roma', 'Roma', 'di sera?');
@@ -69,12 +85,14 @@ describe('StateStore', () => {
   it('startAnalysis failure con HttpErrorResponse 422 → error() contiene il messaggio del backend, non il fallback generico', async () => {
     const err = new HttpErrorResponse({
       status: 422,
-      error: { detail: { errore: 'ZoneNotFoundError', messaggio: 'Zona X non trovata nell\'ontologia.' } },
+      error: {
+        detail: { errore: 'ZoneNotFoundError', messaggio: "Zona X non trovata nell'ontologia." },
+      },
     });
     api.analyze.mockRejectedValue(err);
     await store.startAnalysis('Roma', 'Roma');
     expect(store.screen()).toBe('ERROR');
-    expect(store.error()).toBe('Zona X non trovata nell\'ontologia.');
+    expect(store.error()).toBe("Zona X non trovata nell'ontologia.");
   });
 
   it('startBaselineAnalysis success → LOAD_SUCCESS con i dati in baselineData (mai in completoData)', async () => {
@@ -114,7 +132,7 @@ describe('StateStore', () => {
   });
 
   describe('startBaselineAnalysis', () => {
-    it('dispatcha ANALYZE con pendingZona uguale alla zona richiesta (stato LOADING prima dell\'await); instrada su BASE anche senza un TOGGLE_MODE preventivo (il pipeline tag non dipende da state.mode, review #67-bis bloccante A)', async () => {
+    it("dispatcha ANALYZE con pendingZona uguale alla zona richiesta (stato LOADING prima dell'await); instrada su BASE anche senza un TOGGLE_MODE preventivo (il pipeline tag non dipende da state.mode, review #67-bis bloccante A)", async () => {
       let pendingZonaAtDispatch: string | null = null;
       api.analyzeBaseline.mockImplementation(() => {
         pendingZonaAtDispatch = store.state().pendingZona;
@@ -137,7 +155,13 @@ describe('StateStore', () => {
   describe('lastQuery computed', () => {
     it('riflette citta/zona/domanda dell\'ultima ANALYZE (sorgente di "Rigenera")', () => {
       expect(store.lastQuery()).toBeNull();
-      store.dispatch({ type: 'ANALYZE', citta: 'Roma', zona: 'Centro', domanda: 'di sera?', pipeline: 'completo' });
+      store.dispatch({
+        type: 'ANALYZE',
+        citta: 'Roma',
+        zona: 'Centro',
+        domanda: 'di sera?',
+        pipeline: 'completo',
+      });
       expect(store.lastQuery()).toEqual({ citta: 'Roma', zona: 'Centro', domanda: 'di sera?' });
     });
 
@@ -159,7 +183,11 @@ describe('StateStore', () => {
   describe('BLOCCANTE A (review #67-bis): race condition sul routing per-mode', () => {
     it('risposta Completo in volo + toggle a Base nel frattempo → la risposta finisce SEMPRE in completoData, mai in baselineData', async () => {
       let resolveAnalyze!: (value: AnalyzeResponse) => void;
-      api.analyze.mockReturnValue(new Promise<AnalyzeResponse>(resolve => { resolveAnalyze = resolve; }));
+      api.analyze.mockReturnValue(
+        new Promise<AnalyzeResponse>((resolve) => {
+          resolveAnalyze = resolve;
+        }),
+      );
 
       const pending = store.startAnalysis('Roma', 'Colosseo', null);
       expect(store.screen()).toBe('LOADING');
@@ -179,7 +207,11 @@ describe('StateStore', () => {
     it('risposta Base in volo + toggle a Completo nel frattempo → la risposta finisce SEMPRE in baselineData, mai in completoData', async () => {
       store.dispatch({ type: 'TOGGLE_MODE', mode: 'base' });
       let resolveBaseline!: (value: AnalyzeResponse) => void;
-      api.analyzeBaseline.mockReturnValue(new Promise<AnalyzeResponse>(resolve => { resolveBaseline = resolve; }));
+      api.analyzeBaseline.mockReturnValue(
+        new Promise<AnalyzeResponse>((resolve) => {
+          resolveBaseline = resolve;
+        }),
+      );
 
       const pending = store.startBaselineAnalysis({ citta: 'Roma', zona: 'Colosseo' });
       expect(store.screen()).toBe('LOADING');
@@ -202,7 +234,11 @@ describe('StateStore', () => {
       expect(store.lastQuery()).toEqual({ citta: 'Roma', zona: 'Colosseo', domanda: null });
 
       store.dispatch({ type: 'TOGGLE_MODE', mode: 'base' });
-      const baselineResp: AnalyzeResponse = { ...data, citta: 'Milano', zona_normalizzata: 'Duomo' };
+      const baselineResp: AnalyzeResponse = {
+        ...data,
+        citta: 'Milano',
+        zona_normalizzata: 'Duomo',
+      };
       api.analyzeBaseline.mockResolvedValue(baselineResp);
       await store.startBaselineAnalysis({ citta: 'Milano', zona: 'Duomo' });
 

@@ -1,0 +1,12 @@
+# Normalizza i file di testo del frontend a LF (elimina l'ambiguita CRLF/LF su
+# Windows che fa fallire `prettier --check` con churn di sola fine-riga).
+* text=auto eol=lf
+
+# Binari: nessuna normalizzazione di fine riga.
+*.ico binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.woff binary
+*.woff2 binary
