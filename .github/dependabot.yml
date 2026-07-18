@@ -56,12 +56,32 @@ updates:
       - dependency-name: "@angular/*"
         update-types:
           - "version-update:semver-major"
+      # angular-eslint segue la major di Angular: gia' dal primo MINOR (21.1.0)
+      # aggiunge il peer "@angular/cli >=21 <22", incompatibile con Angular 20
+      # pinnato -> `npm ci` fallisce con ERESOLVE (cfr. PR #178 e la precedente
+      # #161 chiuse). Congelato quindi a 21.0.x (solo patch) finche' l'upgrade
+      # Angular 21 non entra in roadmap.
       - dependency-name: "@angular-eslint/*"
         update-types:
           - "version-update:semver-major"
+          - "version-update:semver-minor"
       - dependency-name: "angular-eslint"
         update-types:
           - "version-update:semver-major"
+          - "version-update:semver-minor"
       - dependency-name: "typescript"
+        update-types:
+          - "version-update:semver-major"
+      # eslint major (es. 10.x) e' fuori dal peer di angular-eslint 21
+      # ("^8.57.0 || ^9.0.0") -> il bump rompe `npm ci` (cfr. PR #179 chiusa).
+      # Restano minor/patch della linea 9.x. Rimuovere con l'upgrade angular-eslint.
+      - dependency-name: "eslint"
+        update-types:
+          - "version-update:semver-major"
+      # typescript-eslint major (es. 9.x) uscirebbe dal peer di angular-eslint 21
+      # ("typescript-eslint: ^8.0.0") -> stesso ERESOLVE di eslint major (rischio
+      # latente, oggi siamo su 8.x). Restano minor/patch della linea 8.x.
+      # Rimuovere con l'upgrade angular-eslint.
+      - dependency-name: "typescript-eslint"
         update-types:
           - "version-update:semver-major"
