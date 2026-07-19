@@ -2,6 +2,7 @@ import {
   buildBaseRows,
   buildDetailModel,
   buildNarrativeSections,
+  buildSourceTabs,
   cityColorFor,
   matchesFilter,
   orderGroupsByTag,
@@ -9,7 +10,7 @@ import {
   validateInputPanel,
 } from '@core/ui-helpers';
 import { CONF, DIM_COLOR } from '@core/confidence';
-import { Poi, RiskItem, RiskModel } from '@core/models/models';
+import { Poi, RiskItem, RiskModel, SourceProse } from '@core/models/models';
 
 describe('ui-helpers', () => {
   it('cityColorFor: città note e fallback', () => {
@@ -355,5 +356,96 @@ describe('ui-helpers', () => {
     };
     expect(() => poiPopupHTML(poi, 1)).not.toThrow();
     expect(poiPopupHTML(poi, 1)).toContain(DIM_COLOR);
+  });
+});
+
+describe('buildSourceTabs', () => {
+  const FONTI: SourceProse = {
+    overview: 'Sintesi zona.',
+    ontologia: 'Prosa onto.',
+    contesto: 'Prosa ctx.',
+    speculativo: '',
+  };
+
+  it('estrae overview e tab in ordine ONTOLOGIA→CONTESTO→SPECULATIVO', () => {
+    const rm: RiskModel[] = [
+      {
+        poi: 'P',
+        risks: [
+          {
+            hazard: 'H1',
+            confidence: 'confermato',
+            tag: 'ONTOLOGIA',
+            hazard_label_it: 'Furto',
+            hazard_label_en: '',
+          },
+          {
+            hazard: 'H2',
+            confidence: 'plausibile',
+            tag: 'CONTESTO',
+            hazard_label_it: 'Borseggio',
+            hazard_label_en: '',
+          },
+        ],
+      },
+    ];
+    const out = buildSourceTabs(FONTI, rm);
+    expect(out.overview).toBe('Sintesi zona.');
+    expect(out.tabs.map((t) => t.tag)).toEqual(['ONTOLOGIA', 'CONTESTO']);
+    expect(out.tabs[0]).toEqual({ tag: 'ONTOLOGIA', prose: 'Prosa onto.', hazards: ['Furto'] });
+    expect(out.tabs[1]).toEqual({ tag: 'CONTESTO', prose: 'Prosa ctx.', hazards: ['Borseggio'] });
+  });
+
+  it('include un tab con sola prosa e uno con soli hazard', () => {
+    const rm: RiskModel[] = [
+      {
+        poi: 'P',
+        risks: [
+          {
+            hazard: 'H',
+            confidence: 'speculativo',
+            tag: 'SPECULATIVO',
+            hazard_label_it: 'Accattonaggio',
+            hazard_label_en: '',
+          },
+        ],
+      },
+    ];
+    const fonti: SourceProse = {
+      overview: '',
+      ontologia: 'Solo prosa onto.',
+      contesto: '',
+      speculativo: '',
+    };
+    const out = buildSourceTabs(fonti, rm);
+    expect(out.tabs.map((t) => t.tag)).toEqual(['ONTOLOGIA', 'SPECULATIVO']);
+    expect(out.tabs[0]).toEqual({ tag: 'ONTOLOGIA', prose: 'Solo prosa onto.', hazards: [] });
+    expect(out.tabs[1]).toEqual({ tag: 'SPECULATIVO', prose: '', hazards: ['Accattonaggio'] });
+  });
+
+  it('nessuna prosa e nessun hazard → nessun tab', () => {
+    const out = buildSourceTabs({ overview: '', ontologia: '', contesto: '', speculativo: '' }, []);
+    expect(out.tabs).toEqual([]);
+    expect(out.overview).toBe('');
+  });
+
+  it('fonti null → overview vuoto, tab solo dagli hazard', () => {
+    const rm: RiskModel[] = [
+      {
+        poi: 'P',
+        risks: [
+          {
+            hazard: 'H',
+            confidence: 'confermato',
+            tag: 'ONTOLOGIA',
+            hazard_label_it: 'Furto',
+            hazard_label_en: '',
+          },
+        ],
+      },
+    ];
+    const out = buildSourceTabs(null, rm);
+    expect(out.overview).toBe('');
+    expect(out.tabs).toEqual([{ tag: 'ONTOLOGIA', prose: '', hazards: ['Furto'] }]);
   });
 });

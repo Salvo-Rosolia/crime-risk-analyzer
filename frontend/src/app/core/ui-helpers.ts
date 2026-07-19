@@ -1,5 +1,5 @@
 import { CONF, ConfMeta, DIM_COLOR } from '@core/confidence';
-import { Confidence, Poi, RiskItem, RiskModel, SourceTag } from '@core/models/models';
+import { Confidence, Poi, RiskItem, RiskModel, SourceProse, SourceTag } from '@core/models/models';
 
 /**
  * Ordine canonico dei tag fonte (spec-frontend.md, cross-cutting: Stato B narrativa per fonte E
@@ -189,6 +189,42 @@ const UNKNOWN_CONF_META: ConfMeta = {
   dot: '?',
   label: 'Sconosciuto',
 };
+
+export interface SourceTab {
+  tag: SourceTag;
+  prose: string;
+  hazards: string[];
+}
+export interface NarrativeTabsModel {
+  overview: string;
+  tabs: SourceTab[];
+}
+
+const SOURCE_PROSE_KEY: Readonly<Record<SourceTag, keyof Omit<SourceProse, 'overview'>>> = {
+  ONTOLOGIA: 'ontologia',
+  CONTESTO: 'contesto',
+  SPECULATIVO: 'speculativo',
+};
+
+/**
+ * Unisce la prosa per fonte (`narrativa_fonti`) con gli hazard per fonte (deterministici, via
+ * `buildNarrativeSections`) in un modello a tab (Stato B). Un tab è incluso solo se ha prosa non
+ * vuota OPPURE almeno un hazard; ordine canonico ONTOLOGIA→CONTESTO→SPECULATIVO. `overview` è
+ * esposto a parte (mostrato sopra i tab). `fonti` null/assente → prosa vuota (tab solo da hazard).
+ */
+export function buildSourceTabs(
+  fonti: SourceProse | null | undefined,
+  riskModels: RiskModel[] | null | undefined,
+): NarrativeTabsModel {
+  const hazByTag = new Map(buildNarrativeSections(riskModels).map((s) => [s.tag, s.hazards]));
+  const tabs: SourceTab[] = [];
+  for (const tag of SOURCE_TAG_ORDER) {
+    const prose = (fonti?.[SOURCE_PROSE_KEY[tag]] ?? '').trim();
+    const hazards = hazByTag.get(tag) ?? [];
+    if (prose || hazards.length) tabs.push({ tag, prose, hazards });
+  }
+  return { overview: (fonti?.overview ?? '').trim(), tabs };
+}
 
 /**
  * Markup del popup Leaflet per un marker POI: numero, nome, etichetta IT e badge confidence.

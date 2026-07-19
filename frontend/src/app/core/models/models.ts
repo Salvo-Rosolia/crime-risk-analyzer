@@ -40,12 +40,21 @@ export interface Repro {
   prompt_hash: string;
 }
 
+export interface SourceProse {
+  overview: string;
+  ontologia: string;
+  contesto: string;
+  speculativo: string;
+}
+
 export interface AnalyzeResponse {
   citta: string;
   zona_normalizzata: string;
   poi: Poi[];
   risk_models: RiskModel[];
   narrativa: string;
+  /** Prosa della narrativa suddivisa per fonte (display, additivo; vuoto in baseline/fallback). */
+  narrativa_fonti: SourceProse;
   confidence_summary: ConfidenceSummary;
   llm_used: string;
   latenza_ms: number;

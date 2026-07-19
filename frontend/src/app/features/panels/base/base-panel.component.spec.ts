@@ -41,6 +41,7 @@ const dataWithRows: AnalyzeResponse = {
     },
   ],
   narrativa: '',
+  narrativa_fonti: { overview: '', ontologia: '', contesto: '', speculativo: '' },
   confidence_summary: { confermato: 1, plausibile: 0, speculativo: 1 },
   llm_used: '',
   latenza_ms: 0,
