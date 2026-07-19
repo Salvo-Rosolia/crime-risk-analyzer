@@ -88,6 +88,12 @@ export const S = {
    * stati `dim` (`opacity: 0.45` se il POI non corrisponde al filtro attivo, altrimenti `1`) e
    * `focus` (`width`/`height: 34px` se il POI è quello selezionato in Stato DETAIL, altrimenti `26px`). */
   mapMarkerPin: (p: Page): Locator => p.locator('.leaflet-marker-icon > div'),
+  /** Bottom-sheet narrativa: tab per fonte (`role="tab"`, `.cra-narr-tab`, uno per
+   * ONTOLOGIA/CONTESTO/SPECULATIVO presente — `buildSourceTabs`, `core/ui-helpers.ts`). */
+  narrativeTabs: (p: Page): Locator => p.locator('cra-narrative-sheet [role="tab"]'),
+  /** Bottom-sheet narrativa: pannelli per fonte (`role="tabpanel"`, uno per tab, solo quello
+   * attivo è visibile — `[hidden]` sugli altri, `narrative-sheet.component.html`). */
+  narrativeTabPanels: (p: Page): Locator => p.locator('cra-narrative-sheet [role="tabpanel"]'),
   /** Bottone toggle Completo/Base nell'header (`header-controls.component.html`, sempre visibile,
    * accessibile anche prima di qualunque analisi). Testo esatto = etichetta dell'opzione
    * (`Completo`/`Base`, `MODE_OPTIONS`), nessun'altra icona/prefisso. */
@@ -120,8 +126,10 @@ export const S = {
    * FUORI dal corpo collassabile (`@if (open())`) — per costruzione resta nel DOM sia collassato
    * che espanso (`narrative-sheet.component.ts`, commento di classe). */
   narrativeBanner: (p: Page): Locator => p.locator('cra-narrative-sheet .cra-hallucination-banner'),
-  /** Bottom-sheet narrativa: paragrafo discorsivo (`.cra-narr-lead`), presente solo se `narrativa()`
-   * non è vuota — assente in Stato BASE per costruzione (il pannello non monta `cra-narrative-sheet`). */
+  /** Bottom-sheet narrativa: paragrafo discorsivo (`.cra-narr-lead`) — mostra `narrativa_fonti.overview`
+   * quando presente, altrimenti la `narrativa()` piatta legacy solo se non ci sono tab per fonte
+   * (`leadText`, `narrative-sheet.component.ts`). Assente in Stato BASE per costruzione (il
+   * pannello non monta `cra-narrative-sheet`). */
   narrativeLead: (p: Page): Locator => p.locator('cra-narrative-sheet .cra-narr-lead'),
   /** Bottom-sheet narrativa: bottone "↺ Rigenera" (re-POST `/analyze` con l'ultima query completa,
    * `narrative-sheet.component.html:15`). */

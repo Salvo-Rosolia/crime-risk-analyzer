@@ -158,6 +158,12 @@
     }
   ],
   "narrativa": "L'area del Colosseo e dintorni presenta un mix di rischi noti (borseggio turistico, furto con destrezza presso la Fontana di Trevi) e fattori ambientali osservati (illuminazione scarsa in Piazza Venezia, affollamento serale al Colosseo). Vicolo Oscuro, Sottopasso Buio e Vicolo Cieco richiedono prudenza per assenza di controllo sociale, telecamere e vie di fuga, non ancorata all'ontologia.",
+  "narrativa_fonti": {
+    "overview": "L'area del Colosseo mescola rischi ancorati all'ontologia, fattori di contesto ambientale osservati e ipotesi speculative su vicoli e sottopassi poco frequentati.",
+    "ontologia": "Borseggio turistico segnalato presso il Colosseo e furto con destrezza presso la Fontana di Trevi, entrambi ancorati a classi note dell'ontologia.",
+    "contesto": "Piazza Venezia presenta scarsa illuminazione serale; il Colosseo registra affollamento nelle ore serali, entrambi fattori osservati dal contesto OSM.",
+    "speculativo": "Vicolo Oscuro, Sottopasso Buio e Vicolo Cieco restano ipotesi non ancorate all'ontologia: aggressione notturna, assenza di telecamere e vie di fuga limitate, legate alla mancanza di controllo sociale."
+  },
   "confidence_summary": { "confermato": 2, "plausibile": 2, "speculativo": 4 },
   "llm_used": "claude-sonnet-4-6",
   "latenza_ms": 2340,
