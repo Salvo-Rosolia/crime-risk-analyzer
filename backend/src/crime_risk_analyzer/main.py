@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from rdflib import Graph
 
 from crime_risk_analyzer.config import Settings, get_settings
-from crime_risk_analyzer.errors import CityNotFoundError, register_exception_handlers
+from crime_risk_analyzer.errors import register_exception_handlers
 from crime_risk_analyzer.llm.client import LLMClient, get_llm_client
 from crime_risk_analyzer.ontology import get_ontology
 from crime_risk_analyzer.orchestrator import (
@@ -67,19 +67,19 @@ async def cities(settings: Annotated[Settings, Depends(get_settings)]) -> list[s
 @router.post("/analyze")
 async def analyze(
     request: AnalyzeRequest,
-    settings: Annotated[Settings, Depends(get_settings)],
     executor: Annotated[RiskQueryExecutor, Depends(get_executor)],
     llm_client: Annotated[LLMClient, Depends(get_llm_client)],
 ) -> AnalyzeResponse:
     """Pipeline completa: geocoding -> OSM -> SPARQL -> grounding -> LLM -> JSON.
 
-    Valida la citta' (``CityNotFoundError`` -> 400). Gli altri errori di dominio
-    propagano agli handler centrali (#21); ``LLMError`` e' gestito in
-    :func:`run_analysis` come fallback strutturato (200). ``request.domanda``
-    (opzionale, #119) e' propagata fino allo ``user_content`` del prompt LLM.
+    Nessuna allowlist di citta' (#191): qualsiasi citta' italiana raggiunge il
+    geocoding (ristretto all'Italia via ``GEOCODING_COUNTRY_CODES``). Una citta'/
+    zona inesistente fallisce pulita al geocoding con ``ZoneNotFoundError`` -> 422.
+    Gli altri errori di dominio propagano agli handler centrali (#21); ``LLMError``
+    e' gestito in :func:`run_analysis` come fallback strutturato (200).
+    ``request.domanda`` (opzionale, #119) e' propagata fino allo ``user_content``
+    del prompt LLM.
     """
-    if request.citta not in settings.supported_cities:
-        raise CityNotFoundError(request.citta, supported=settings.supported_cities)
     return await run_analysis(
         request.citta,
         request.zona,
@@ -92,16 +92,14 @@ async def analyze(
 @router.post("/analyze/baseline")
 async def analyze_baseline(
     request: BaselineRequest,
-    settings: Annotated[Settings, Depends(get_settings)],
     executor: Annotated[RiskQueryExecutor, Depends(get_executor)],
 ) -> AnalyzeResponse:
     """Variante senza LLM per l'ablation: solo dati strutturati dal grounding.
 
-    ``request.tipo_poi`` (opzionale, #119) filtra i POI server-side per classe
-    TERMINUS; ``None``/vuoto = nessun filtro (comportamento invariato).
+    Nessuna allowlist di citta' (#191): come ``/analyze``, qualsiasi citta'
+    italiana raggiunge il geocoding. ``request.tipo_poi`` (opzionale, #119) filtra
+    i POI server-side per classe TERMINUS; ``None``/vuoto = nessun filtro.
     """
-    if request.citta not in settings.supported_cities:
-        raise CityNotFoundError(request.citta, supported=settings.supported_cities)
     return await run_baseline(
         request.citta,
         request.zona,

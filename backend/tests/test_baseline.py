@@ -94,13 +94,48 @@ def test_baseline_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     assert body["risk_models"][0]["poi"] == "Banca A"
 
 
-def test_baseline_city_not_supported() -> None:
+def test_baseline_accepts_non_allowlisted_city(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#191: baseline non applica piu' l'allowlist; una citta' fuori lista -> 200."""
+    seen: list[tuple[str, str]] = []
+
+    def _recording_geocode(zona: str, citta: str) -> dict[str, object]:
+        seen.append((zona, citta))
+        return {
+            "lat": 37.61,
+            "lon": 15.16,
+            "bbox": Bbox(37.60, 15.15, 37.62, 15.17),
+        }
+
+    async def _fake_fetch(
+        bbox: object, citta: str, *args: object, **kwargs: object
+    ) -> list[Poi]:
+        return _pois(citta)
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _recording_geocode)
+    monkeypatch.setattr(retrieval, "fetch_pois", _fake_fetch)
     resp = cast(
         httpx.Response,
-        _client().post("/analyze/baseline", json={"citta": "Atlantide", "zona": "X"}),  # pyright: ignore[reportUnknownMemberType]
+        _client().post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze/baseline", json={"citta": "Acireale", "zona": "Centro"}
+        ),
     )
-    assert resp.status_code == 400
-    assert resp.json()["detail"]["errore"] == "citta_non_supportata"
+    assert resp.status_code == 200
+    assert resp.json()["citta"] == "Acireale"
+    assert seen == [("Centro", "Acireale")]
+
+
+def test_baseline_rejects_overlong_citta(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#191: citta' oltre max_length=100 -> 422 (validazione Pydantic, pre-I/O)."""
+    _patch_io(monkeypatch)
+    resp = cast(
+        httpx.Response,
+        _client().post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze/baseline", json={"citta": "A" * 101, "zona": "Centro"}
+        ),
+    )
+    assert resp.status_code == 422
 
 
 def test_baseline_zone_not_found(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -30,18 +30,13 @@ export interface InputPanelValidation {
 export function validateInputPanel({
   citta,
   zona,
-  cities,
 }: {
   citta?: string;
   zona?: string;
   domanda?: string;
-  cities?: string[];
 } = {}): InputPanelValidation {
   if (!citta || !citta.trim()) {
-    return { ok: false, error: 'Seleziona una città.', field: 'citta' };
-  }
-  if (cities && cities.length > 0 && !cities.includes(citta)) {
-    return { ok: false, error: `Città non supportata: ${citta}.`, field: 'citta' };
+    return { ok: false, error: 'Inserisci una città.', field: 'citta' };
   }
   if (!zona || !zona.trim()) {
     return { ok: false, error: 'Inserisci una zona.', field: 'zona' };

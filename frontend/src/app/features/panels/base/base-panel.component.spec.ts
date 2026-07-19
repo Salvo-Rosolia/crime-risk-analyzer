@@ -118,7 +118,7 @@ describe('BasePanelComponent', () => {
     submitForm();
     fixture.detectChanges();
     expect(spy).not.toHaveBeenCalled();
-    expect(fixture.nativeElement.textContent).toContain('Seleziona una città');
+    expect(fixture.nativeElement.textContent).toContain('Inserisci una città');
   });
 
   it('submit con città+zona valide emette search con BaselineParams (tipo_poi assente se vuoto)', () => {
@@ -197,7 +197,7 @@ describe('BasePanelComponent', () => {
       fixture.detectChanges();
       submitForm();
       fixture.detectChanges();
-      expect(fixture.nativeElement.textContent).toContain('Seleziona una città');
+      expect(fixture.nativeElement.textContent).toContain('Inserisci una città');
       expect(fixture.nativeElement.textContent).not.toContain('errore server');
     });
 

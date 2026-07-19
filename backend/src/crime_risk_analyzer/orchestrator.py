@@ -37,7 +37,15 @@ from crime_risk_analyzer.rag.retrieval import (
 class AnalyzeRequest(BaseModel):
     """Body di ``POST /analyze`` (naming ASCII)."""
 
-    citta: str = Field(description="Citta' tra quelle supportate.")
+    citta: str = Field(
+        max_length=100,
+        description=(
+            "Citta' da analizzare. Autocomplete via GET /cities (suggerimenti, "
+            "non un vincolo). max_length=100: un nome di comune ci sta ampiamente "
+            "e chiude la superficie free-text verso Nominatim e la chiave di "
+            "_CACHE (#170)."
+        ),
+    )
     zona: str = Field(
         max_length=200,
         description=(
@@ -63,7 +71,15 @@ class AnalyzeRequest(BaseModel):
 class BaselineRequest(BaseModel):
     """Body di ``POST /analyze/baseline`` (ablation, senza LLM)."""
 
-    citta: str = Field(description="Citta' tra quelle supportate.")
+    citta: str = Field(
+        max_length=100,
+        description=(
+            "Citta' da analizzare. Autocomplete via GET /cities (suggerimenti, "
+            "non un vincolo). max_length=100: un nome di comune ci sta ampiamente "
+            "e chiude la superficie free-text verso Nominatim e la chiave di "
+            "_CACHE (#170)."
+        ),
+    )
     zona: str = Field(
         max_length=200,
         description=(

@@ -100,7 +100,6 @@ export class BasePanelComponent implements OnInit {
     const { ok, error, field } = validateInputPanel({
       citta: this.citta(),
       zona: this.zona(),
-      cities: this.cities(),
     });
     if (!ok) {
       this.validationError.set(error);

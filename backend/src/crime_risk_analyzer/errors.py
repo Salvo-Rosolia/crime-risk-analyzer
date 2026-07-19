@@ -1,18 +1,19 @@
-"""Errori di dominio e mappatura centrale errore -> HTTP (#21).
+"""Mappatura centrale errore di dominio -> HTTP (#21).
 
 Le eccezioni di dominio nascono nei rispettivi moduli (coesione):
 ``GeocodingError``/``ZoneNotFoundError`` in :mod:`~crime_risk_analyzer.geocoding`,
 ``OverpassError`` in :mod:`~crime_risk_analyzer.overpass_client`, ``LLMError`` in
-:mod:`~crime_risk_analyzer.llm.client`. Qui si aggiunge solo l'errore mancante
-(:class:`CityNotFoundError`) e si registra la **mappa errore -> risposta HTTP**
-in un punto unico, via ``@app.exception_handler`` (orchestrator.md §"Gestione
-errori"): niente ``try/except`` sparsi nei router.
+:mod:`~crime_risk_analyzer.llm.client`. Qui si registra la **mappa errore ->
+risposta HTTP** in un punto unico, via ``@app.exception_handler`` (orchestrator.md
+§"Gestione errori"): niente ``try/except`` sparsi nei router.
 
 Mappa (orchestrator.md):
   * :class:`ZoneNotFoundError`  -> ``422`` (zona non geocodificabile)
-  * :class:`CityNotFoundError`  -> ``400`` + citta' supportate
   * :class:`GeocodingError`     -> ``503`` (servizio di geocoding non raggiungibile)
   * :class:`OverpassError`      -> ``503`` (Overpass non raggiungibile dopo retry)
+
+Nessuna allowlist di citta' (#191): una citta' italiana inesistente non e'
+respinta a monte, ma fallisce al geocoding come :class:`ZoneNotFoundError` (422).
 
 **``LLMError`` non e' mappato qui di proposito.** In caso di Anthropic 429/5xx la
 spec non prevede un codice HTTP uniforme ma una *decisione*: fuori demo si
@@ -31,19 +32,6 @@ from crime_risk_analyzer.geocoding import GeocodingError, ZoneNotFoundError
 from crime_risk_analyzer.overpass_client import OverpassError
 
 
-class CityNotFoundError(RuntimeError):
-    """La citta' richiesta non e' tra quelle supportate/risolvibili in OSM.
-
-    Porta con se' l'elenco delle citta' supportate, cosi' l'handler puo'
-    suggerirle nel body della risposta ``400`` senza dipendere dalla config.
-    """
-
-    def __init__(self, city: str, *, supported: list[str] | None = None) -> None:
-        self.city = city
-        self.supported: list[str] = list(supported) if supported is not None else []
-        super().__init__(f"Citta' non supportata: {city!r}")
-
-
 async def _handle_zone_not_found(
     _request: Request, exc: ZoneNotFoundError
 ) -> JSONResponse:
@@ -54,22 +42,6 @@ async def _handle_zone_not_found(
             "detail": {
                 "errore": "zona_non_geocodificabile",
                 "messaggio": str(exc),
-            }
-        },
-    )
-
-
-async def _handle_city_not_found(
-    _request: Request, exc: CityNotFoundError
-) -> JSONResponse:
-    """``CityNotFoundError`` -> ``400`` con l'elenco delle citta' supportate."""
-    return JSONResponse(
-        status_code=400,
-        content={
-            "detail": {
-                "errore": "citta_non_supportata",
-                "messaggio": str(exc),
-                "citta_supportate": exc.supported,
             }
         },
     )
@@ -110,5 +82,4 @@ def register_exception_handlers(app: FastAPI) -> None:
     """
     app.add_exception_handler(ZoneNotFoundError, _handle_zone_not_found)  # pyright: ignore[reportArgumentType]
     app.add_exception_handler(GeocodingError, _handle_geocoding_error)  # pyright: ignore[reportArgumentType]
-    app.add_exception_handler(CityNotFoundError, _handle_city_not_found)  # pyright: ignore[reportArgumentType]
     app.add_exception_handler(OverpassError, _handle_overpass_error)  # pyright: ignore[reportArgumentType]
