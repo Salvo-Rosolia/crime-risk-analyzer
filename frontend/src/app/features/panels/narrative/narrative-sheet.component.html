@@ -17,25 +17,55 @@
 
 @if (open()) {
   <div class="cra-narr-body">
-    @if (narrativa()) {
-      <p class="cra-narr-lead">{{ narrativa() }}</p>
+    @if (leadText()) {
+      <p class="cra-narr-lead">{{ leadText() }}</p>
     }
-    <div class="cra-narr-sections">
-      @for (section of sections(); track section.tag) {
-        <div class="cra-narr-section">
-          <div class="cra-source-header" [style.borderColor]="srcMeta(section.tag).color">
-            <span class="cra-source-tag" [style.color]="srcMeta(section.tag).color"
-              >[{{ section.tag }}]</span
-            >
-            <span class="cra-source-desc">{{ srcMeta(section.tag).description }}</span>
-          </div>
-          <ul class="cra-narr-hazard-list">
-            @for (hazard of section.hazards; track hazard) {
-              <li>{{ hazard }}</li>
-            }
-          </ul>
+    @if (model().tabs.length) {
+      <div class="cra-narr-tablist" role="tablist" aria-label="Fonti dell'analisi">
+        @for (t of model().tabs; track t.tag; let i = $index) {
+          <button
+            #tabBtn
+            class="cra-narr-tab"
+            type="button"
+            role="tab"
+            [id]="'cra-narr-tab-' + t.tag"
+            [attr.aria-controls]="'cra-narr-panel-' + t.tag"
+            [attr.aria-selected]="activeTab()?.tag === t.tag"
+            [tabindex]="activeTab()?.tag === t.tag ? 0 : -1"
+            [style.--tab-color]="srcMeta(t.tag).color"
+            (click)="selectTab(t.tag)"
+            (keydown)="onTabKeydown($event, i)"
+          >
+            {{ t.tag }}<span class="cra-narr-count">{{ t.hazards.length }}</span>
+          </button>
+        }
+      </div>
+      @for (t of model().tabs; track t.tag) {
+        <div
+          class="cra-narr-panel"
+          role="tabpanel"
+          [id]="'cra-narr-panel-' + t.tag"
+          [attr.aria-labelledby]="'cra-narr-tab-' + t.tag"
+          [hidden]="activeTab()?.tag !== t.tag"
+          [attr.tabindex]="activeTab()?.tag === t.tag ? 0 : null"
+          [style.--tab-color]="srcMeta(t.tag).color"
+        >
+          <p class="cra-source-desc">
+            <span class="cra-source-tag" [style.color]="srcMeta(t.tag).color">[{{ t.tag }}]</span>
+            {{ srcMeta(t.tag).description }}
+          </p>
+          @if (t.prose) {
+            <p class="cra-narr-prose">{{ t.prose }}</p>
+          }
+          @if (t.hazards.length) {
+            <ul class="cra-narr-hazard-list">
+              @for (hazard of t.hazards; track hazard) {
+                <li>{{ hazard }}</li>
+              }
+            </ul>
+          }
         </div>
       }
-    </div>
+    }
   </div>
 }

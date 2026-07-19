@@ -55,6 +55,7 @@
       [citta]="store.completoData()?.citta ?? null"
       [zona]="store.completoData()?.zona_normalizzata ?? null"
       [narrativa]="store.completoData()?.narrativa ?? ''"
+      [narrativaFonti]="store.completoData()?.narrativa_fonti ?? null"
       [riskModels]="store.completoData()?.risk_models ?? []"
       [open]="store.narrOpen()"
       (toggleNarrative)="onToggleNarr()"
