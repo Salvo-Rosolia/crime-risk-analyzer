@@ -62,9 +62,9 @@ describe('BasePanelComponent', () => {
   }
 
   function setCitta(value: string): void {
-    const select: HTMLSelectElement = fixture.nativeElement.querySelector('#cra-base-citta');
-    select.value = value;
-    select.dispatchEvent(new Event('change'));
+    const input: HTMLInputElement = fixture.nativeElement.querySelector('#cra-base-citta');
+    input.value = value;
+    input.dispatchEvent(new Event('input'));
   }
 
   function submitForm(): void {
@@ -84,11 +84,9 @@ describe('BasePanelComponent', () => {
     fixture.detectChanges();
   });
 
-  it('mostra il form "Parametri ricerca" con Tipo POI, Città (dropdown da cities()) e Zona', () => {
+  it('mostra il form "Parametri ricerca" con Tipo POI, Città (input libero + datalist da cities()) e Zona', () => {
     expect(api.cities).toHaveBeenCalled();
-    const options = fixture.nativeElement.querySelectorAll(
-      '#cra-base-citta option:not([value=""])',
-    );
+    const options = fixture.nativeElement.querySelectorAll('#cra-base-citta-options option');
     expect(Array.from(options).map((o) => (o as HTMLOptionElement).value)).toEqual([
       'Roma',
       'Milano',
@@ -146,6 +144,16 @@ describe('BasePanelComponent', () => {
       zona: 'Colosseo',
       tipo_poi: 'Railway_station',
     });
+  });
+
+  it('accetta una città libera non presente nei suggerimenti (baseline è city-agnostic come InputPanel)', () => {
+    const spy = jest.fn();
+    fixture.componentInstance.analyzeBaseline.subscribe(spy);
+    setCitta('Acireale');
+    setZona('Piazza Duomo');
+    fixture.detectChanges();
+    submitForm();
+    expect(spy).toHaveBeenCalledWith({ citta: 'Acireale', zona: 'Piazza Duomo' });
   });
 
   it('senza data mostra un placeholder onesto (non una tabella con righe inventate)', () => {
@@ -235,7 +243,7 @@ describe('BasePanelComponent — pre-fill da initialCitta/initialZona (retry dop
     fixture.componentRef.setInput('initialZona', 'Trastevere');
     fixture.detectChanges();
 
-    const citta: HTMLSelectElement = fixture.nativeElement.querySelector('#cra-base-citta');
+    const citta: HTMLInputElement = fixture.nativeElement.querySelector('#cra-base-citta');
     const zona: HTMLInputElement = fixture.nativeElement.querySelector('#cra-base-zona');
     expect(citta.value).toBe('Roma');
     expect(zona.value).toBe('Trastevere');

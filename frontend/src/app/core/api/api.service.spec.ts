@@ -64,7 +64,7 @@ describe('ApiService', () => {
   });
   afterEach(() => http.verify());
 
-  it("cities: GET /cities e ritorna l'elenco delle città supportate", async () => {
+  it("cities: GET /cities e ritorna l'elenco delle città suggerite", async () => {
     const p = api.cities();
     const req = http.expectOne('/cities');
     expect(req.request.method).toBe('GET');

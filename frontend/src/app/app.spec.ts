@@ -360,9 +360,9 @@ describe('App shell', () => {
     expect(store.screen()).toBe('BASE');
     expect(f.nativeElement.querySelector('cra-base-panel')).toBeTruthy();
 
-    const cittaSelect: HTMLSelectElement = f.nativeElement.querySelector('#cra-base-citta');
-    cittaSelect.value = 'Roma';
-    cittaSelect.dispatchEvent(new Event('change'));
+    const cittaInput: HTMLInputElement = f.nativeElement.querySelector('#cra-base-citta');
+    cittaInput.value = 'Roma';
+    cittaInput.dispatchEvent(new Event('input'));
     const zonaInput: HTMLInputElement = f.nativeElement.querySelector('#cra-base-zona');
     zonaInput.value = 'Centro';
     zonaInput.dispatchEvent(new Event('input'));
@@ -535,9 +535,9 @@ describe('App shell', () => {
       await f.whenStable();
       f.detectChanges();
 
-      const cittaSelect: HTMLSelectElement = f.nativeElement.querySelector('#cra-base-citta');
-      cittaSelect.value = 'Roma';
-      cittaSelect.dispatchEvent(new Event('change'));
+      const cittaInput: HTMLInputElement = f.nativeElement.querySelector('#cra-base-citta');
+      cittaInput.value = 'Roma';
+      cittaInput.dispatchEvent(new Event('input'));
       const zonaInput: HTMLInputElement = f.nativeElement.querySelector('#cra-base-zona');
       zonaInput.value = 'Atlantide';
       zonaInput.dispatchEvent(new Event('input'));

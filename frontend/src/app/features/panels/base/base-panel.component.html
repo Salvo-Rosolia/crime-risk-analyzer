@@ -17,18 +17,22 @@
       <label for="cra-base-citta"
         >Città <span class="cra-required" aria-hidden="true">*</span></label
       >
-      <select
+      <input
         id="cra-base-citta"
+        type="text"
+        autocomplete="off"
+        list="cra-base-citta-options"
         aria-required="true"
+        placeholder="es. Roma"
         [class.cra-field-error]="validationField() === 'citta'"
         [value]="citta()"
-        (change)="onCittaChange($event)"
-      >
-        <option value="" disabled>Seleziona…</option>
-        @for (c of selectableCities(); track c) {
-          <option [value]="c">{{ c }}</option>
+        (input)="onCittaInput($event)"
+      />
+      <datalist id="cra-base-citta-options">
+        @for (c of cities(); track c) {
+          <option [value]="c"></option>
         }
-      </select>
+      </datalist>
     </div>
 
     <div class="cra-field">
