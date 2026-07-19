@@ -59,8 +59,7 @@ form {
   font-size: 0.68rem;
 }
 
-.cra-field input,
-.cra-field select {
+.cra-field input {
   font-family: var(--font-sans);
   font-size: 0.8rem;
   padding: var(--space-2);

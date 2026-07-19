@@ -32,7 +32,7 @@ uv run uvicorn crime_risk_analyzer.main:app --reload
 ```
 
 L'app espone, tra gli altri, `GET /health` → `{"status": "ok", "ontology_triples": <n>}`
-e `GET /cities` (città supportate).
+e `GET /cities` (città suggerite per l'autocomplete).
 
 ## Test
 

@@ -55,7 +55,7 @@ async def health(graph: Annotated[Graph, Depends(get_ontology)]) -> HealthRespon
 
 @router.get("/cities")
 async def cities(settings: Annotated[Settings, Depends(get_settings)]) -> list[str]:
-    """Elenca le città supportate.
+    """Elenca le città suggerite per l'autocomplete (non un vincolo).
 
     Roma, Milano e Napoli sono garantite e testate end-to-end; le altre sono
     best-effort (vedi backend/orchestrator.md). La lista vive nella config

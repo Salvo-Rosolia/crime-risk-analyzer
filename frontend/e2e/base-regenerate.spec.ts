@@ -17,7 +17,7 @@ const baseline = baselineFixture as AnalyzeResponse;
 const analyze = analyzeFixture as AnalyzeResponse;
 const regenerate = regenerateFixture as AnalyzeResponse;
 
-test.describe('Toggle→BASE: tabella POI·Hazard·Categoria, select città da /cities, nessuna narrativa/confidence', () => {
+test.describe('Toggle→BASE: tabella POI·Hazard·Categoria, città da /cities via datalist, nessuna narrativa/confidence', () => {
   test('mostra la tabella del fixture baseline e nessun elemento del sistema completo', async ({
     page,
   }) => {
@@ -28,11 +28,13 @@ test.describe('Toggle→BASE: tabella POI·Hazard·Categoria, select città da /
     await S.modeToggleButton(page, 'base').click();
     await expect(S.basePanel(page)).toBeVisible();
 
-    // <select> città popolato da /cities (fixture condiviso cities.json), non un <input>+<datalist>
-    // come in INPUT/ERROR (annotato dal Task 1/2).
-    const options = S.baseCittaSelect(page).locator('option:not([disabled])');
+    // <datalist> città popolata da /cities (fixture condiviso cities.json), stesso pattern
+    // <input list>+<datalist> di INPUT/ERROR (non più un <select> nativo — #193).
+    const options = page.locator('#cra-base-citta-options option');
     await expect(options).toHaveCount(citiesFixture.length);
-    await expect(options).toHaveText(citiesFixture);
+    for (let i = 0; i < citiesFixture.length; i++) {
+      await expect(options.nth(i)).toHaveAttribute('value', citiesFixture[i]);
+    }
 
     // Nessuna narrativa/confidence/mappa arricchita prima della ricerca (placeholder, niente
     // narrative-sheet/badge Copertura/chip confidence in Stato Base).
@@ -41,7 +43,7 @@ test.describe('Toggle→BASE: tabella POI·Hazard·Categoria, select città da /
     await expect(S.coverageBadge(page)).toHaveCount(0);
     await expect(S.headerConfidenceChips(page)).toHaveCount(0);
 
-    await S.baseCittaSelect(page).selectOption(baseline.citta);
+    await S.baseCittaField(page).fill(baseline.citta);
     await S.baseZonaField(page).fill(baseline.zona_normalizzata);
     await S.baseSubmitButton(page).click();
 

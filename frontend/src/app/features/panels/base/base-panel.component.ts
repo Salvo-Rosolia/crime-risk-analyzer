@@ -14,8 +14,8 @@ import { buildBaseRows, validateInputPanel } from '@core/ui-helpers';
 
 /**
  * Pannello "Sistema base" (ablation study, Stato Sistema base — spec-frontend.md): form
- * strutturato (Tipo POI opzionale + Città da dropdown + Zona) → tabella "POI · Hazard ·
- * Categoria" via `POST /analyze/baseline`, deliberatamente spartana (niente NL, narrativa,
+ * strutturato (Tipo POI opzionale + Città con input libero + datalist + Zona) → tabella
+ * "POI · Hazard · Categoria" via `POST /analyze/baseline`, deliberatamente spartana (niente NL, narrativa,
  * confidence, path SPARQL, mappa: il contrasto con il sistema completo è esso stesso argomento
  * di tesi). Come `InputPanelComponent`, gli `initial*` riseminano il form dopo un remount
  * (LOADING/ERROR condivisi con il sistema completo smontano questo componente).
@@ -61,27 +61,14 @@ export class BasePanelComponent implements OnInit {
     buildBaseRows(this.data()?.poi, this.data()?.risk_models),
   );
 
-  /**
-   * `cities()` arriva in modo asincrono da `ApiService.cities()`: se `citta()` è già valorizzata
-   * da `initialCitta` (retry dopo un remount) PRIMA che la lista risolva, un `<select>` nativo
-   * non selezionerebbe alcuna opzione (nessun `<option>` con quel `value` esiste ancora) e non si
-   * autocorreggerebbe quando la lista arriva, perché il binding `[value]` si riapplica solo se
-   * `citta()` cambia. Includere sempre il valore corrente tra le opzioni elimina la corsa.
-   */
-  protected readonly selectableCities = computed(() => {
-    const list = this.cities();
-    const current = this.citta();
-    return current && !list.includes(current) ? [current, ...list] : list;
-  });
-
   ngOnInit(): void {
     this.citta.set(this.initialCitta() ?? '');
     this.zona.set(this.initialZona() ?? '');
     void this.loadCities();
   }
 
-  protected onCittaChange(event: Event): void {
-    this.citta.set((event.target as HTMLSelectElement).value);
+  protected onCittaInput(event: Event): void {
+    this.citta.set((event.target as HTMLInputElement).value);
     this.clearValidation();
   }
 

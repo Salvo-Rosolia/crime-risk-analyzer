@@ -86,10 +86,9 @@ test.describe('Errore in BASE resta su BASE (non lo Stato ERROR condiviso)', () 
     await S.modeToggleButton(page, 'base').click();
     await expect(S.basePanel(page)).toBeVisible();
 
-    // <select> popolato in modo asincrono da /cities: attende l'opzione prima di selectOption
-    // (stessa cautela di base-regenerate.spec.ts).
-    await expect(S.baseCittaSelect(page).locator('option[value="Roma"]')).toHaveCount(1);
-    await S.baseCittaSelect(page).selectOption('Roma');
+    // <input list>+<datalist>: testo libero, nessuna attesa di popolamento opzioni necessaria
+    // (stesso pattern di cittaField).
+    await S.baseCittaField(page).fill('Roma');
     await S.baseZonaField(page).fill('Colosseo');
     await S.baseSubmitButton(page).click();
 
@@ -100,7 +99,7 @@ test.describe('Errore in BASE resta su BASE (non lo Stato ERROR condiviso)', () 
     await expect(S.baseServerError(page)).toHaveText(error422.detail.messaggio);
 
     // Il form Base resta popolato per il retry (stessa garanzia di ripopolamento del sistema completo).
-    await expect(S.baseCittaSelect(page)).toHaveValue('Roma');
+    await expect(S.baseCittaField(page)).toHaveValue('Roma');
     await expect(S.baseZonaField(page)).toHaveValue('Colosseo');
   });
 });

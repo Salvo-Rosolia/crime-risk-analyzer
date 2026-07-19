@@ -95,10 +95,10 @@ export const S = {
     p
       .locator('cra-header-controls')
       .getByRole('button', { name: mode === 'base' ? 'Base' : 'Completo', exact: true }),
-  /** Stato BASE: `<select id="cra-base-citta">` nativo (a differenza di INPUT/ERROR che usano
-   * `<input list>` + `<datalist>` — confermato in `base-panel.component.html:18`), va compilato
-   * con `selectOption`, non `fill`. */
-  baseCittaSelect: (p: Page): Locator => p.locator('#cra-base-citta'),
+  /** Stato BASE: campo città `<input id="cra-base-citta" list="cra-base-citta-options">` +
+   * `<datalist>` (stesso pattern di `cittaField`/INPUT-ERROR, non più un `<select>` nativo —
+   * confermato in `base-panel.component.html:20`), va compilato con `fill`, non `selectOption`. */
+  baseCittaField: (p: Page): Locator => p.locator('#cra-base-citta'),
   /** Stato BASE: campo zona testo libero (`#cra-base-zona`, `base-panel.component.html:34`). */
   baseZonaField: (p: Page): Locator => p.locator('#cra-base-zona'),
   /** Stato BASE: campo opzionale "Tipo POI" (`#cra-base-tipo-poi`). */
