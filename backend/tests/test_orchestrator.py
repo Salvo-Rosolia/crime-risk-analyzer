@@ -19,7 +19,10 @@ from crime_risk_analyzer.orchestrator import (
     run_baseline,
 )
 from crime_risk_analyzer.overpass_client import Poi
-from crime_risk_analyzer.rag.generation import USER_INPUT_FENCE_OPEN
+from crime_risk_analyzer.rag.generation import (
+    USER_INPUT_FENCE_OPEN,
+    SourceProse,
+)
 from tests.eval._doubles import FakeLLMClient as _FakeLLMClient
 from tests.eval._doubles import FakeProfiler as _FakeProfiler
 from tests.eval._doubles import default_llm_response as _llm_response
@@ -376,6 +379,60 @@ async def test_run_analysis_without_domanda_omits_section(
     assert USER_INPUT_FENCE_OPEN not in user
 
 
+# --- #196: narrativa_fonti espone la prosa per fonte (additivo, display) ---
+
+
+async def test_run_analysis_popola_narrativa_fonti(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """La prosa a blocchi dell'LLM viene esposta per fonte in ``narrativa_fonti``
+    SENZA alterare ``narrativa`` (stringa intera, letta dall'eval)."""
+    _patch_io(monkeypatch)
+    narrativa = (
+        "Sintesi.\n\n"
+        "Rischi da ontologia [ONTOLOGIA]\nFurto.\n\n"
+        "Rischi dal contesto [CONTESTO]\nBorseggio."
+    )
+    response = LLMResponse(
+        text=narrativa,
+        llm_used="claude-sonnet-4-6",
+        tokens_input=10,
+        tokens_output=20,
+        cache_hit=False,
+        temperature=0.2,
+        seed=42,
+        prompt_hash="abc123",
+    )
+    resp = await run_analysis(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+        llm_client=_FakeLLMClient(response),
+    )
+    assert resp.narrativa == narrativa  # invariata
+    assert resp.narrativa_fonti.overview == "Sintesi."
+    assert resp.narrativa_fonti.ontologia == "Furto."
+    assert resp.narrativa_fonti.contesto == "Borseggio."
+    assert resp.narrativa_fonti.speculativo == ""
+
+
+async def test_run_analysis_fallback_llm_narrativa_fonti_vuoto(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nel fallback LLM la prosa per fonte resta vuota (default ``SourceProse()``),
+    coerente con ``narrativa == ""``."""
+    _patch_io(monkeypatch)
+    resp = await run_analysis(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+        llm_client=_RaisingLLMClient(),
+    )
+    assert resp.fallback is True
+    assert resp.narrativa == ""
+    assert resp.narrativa_fonti == SourceProse()
+
+
 # --- #119: tipo_poi filtra i POI server-side nel baseline ---
 
 
@@ -520,6 +577,7 @@ def test_analyze_response_has_no_numeric_danger_scoring_field() -> None:
         "poi",
         "risk_models",
         "narrativa",
+        "narrativa_fonti",
         "confidence_summary",
         "llm_used",
         "latenza_ms",
