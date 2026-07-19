@@ -20,28 +20,13 @@ describe('ui-helpers', () => {
   it('validateInputPanel: citta assente → errore sul campo citta, non valuta la zona', () => {
     expect(validateInputPanel({ zona: 'Roma' })).toEqual({
       ok: false,
-      error: 'Seleziona una città.',
+      error: 'Inserisci una città.',
       field: 'citta',
     });
   });
 
-  it('validateInputPanel: citta non tra quelle supportate → errore sul campo citta', () => {
-    expect(
-      validateInputPanel({ citta: 'Atlantide', zona: 'Centro', cities: ['Roma', 'Milano'] }),
-    ).toEqual({
-      ok: false,
-      error: 'Città non supportata: Atlantide.',
-      field: 'citta',
-    });
-  });
-
-  it('validateInputPanel: lista città vuota/assente (non ancora caricata) non blocca la validazione', () => {
-    expect(validateInputPanel({ citta: 'Roma', zona: 'Centro', cities: [] })).toEqual({
-      ok: true,
-      error: null,
-      field: null,
-    });
-    expect(validateInputPanel({ citta: 'Roma', zona: 'Centro' })).toEqual({
+  it("validateInputPanel: città non presente tra i suggerimenti → ok (validazione rilassata, l'allowlist è stata rimossa dal backend — #191)", () => {
+    expect(validateInputPanel({ citta: 'Acireale', zona: 'Centro' })).toEqual({
       ok: true,
       error: null,
       field: null,
@@ -54,7 +39,7 @@ describe('ui-helpers', () => {
       error: 'Inserisci una zona.',
       field: 'zona',
     });
-    expect(validateInputPanel({ citta: 'Roma', zona: 'Centro', cities: ['Roma'] })).toEqual({
+    expect(validateInputPanel({ citta: 'Roma', zona: 'Centro' })).toEqual({
       ok: true,
       error: null,
       field: null,

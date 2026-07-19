@@ -55,21 +55,19 @@ describe('InputPanelComponent', () => {
     fixture.detectChanges();
 
     expect(spy).not.toHaveBeenCalled();
-    expect(fixture.nativeElement.textContent).toContain('Seleziona una città');
+    expect(fixture.nativeElement.textContent).toContain('Inserisci una città');
   });
 
-  it("con città non supportata mostra l'errore e non invia", () => {
+  it('con città non tra i suggerimenti della datalist invia comunque analyze (validazione rilassata, allowlist rimossa — #191)', () => {
     const spy = jest.fn();
     fixture.componentInstance.analyze.subscribe(spy);
 
-    setCitta('Atlantide');
+    setCitta('Acireale');
     setZona('Centro');
     fixture.detectChanges();
     submitForm();
-    fixture.detectChanges();
 
-    expect(spy).not.toHaveBeenCalled();
-    expect(fixture.nativeElement.textContent).toContain('non supportata');
+    expect(spy).toHaveBeenCalledWith({ citta: 'Acireale', zona: 'Centro', domanda: null });
   });
 
   it("senza zona valorizzata (ma con città valida) NON invia e mostra l'errore zona", () => {
@@ -125,7 +123,7 @@ describe('InputPanelComponent', () => {
     fixture.componentRef.setInput('serverError', 'errore server');
     submitForm();
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Seleziona una città');
+    expect(fixture.nativeElement.textContent).toContain('Inserisci una città');
   });
 
   it('i campi hanno aria-required per la a11y (senza il required nativo, per non bypassare la validazione custom)', () => {
@@ -143,11 +141,11 @@ describe('InputPanelComponent', () => {
   it("l'errore di validazione si pulisce mentre si digita (non resta stale durante la correzione)", () => {
     submitForm();
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Seleziona una città');
+    expect(fixture.nativeElement.textContent).toContain('Inserisci una città');
 
     setCitta('R');
     fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).not.toContain('Seleziona una città');
+    expect(fixture.nativeElement.textContent).not.toContain('Inserisci una città');
   });
 
   it("bordo d'errore per-campo: un errore di sola città non evidenzia la zona", () => {
