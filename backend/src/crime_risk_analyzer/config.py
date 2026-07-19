@@ -62,7 +62,11 @@ class Settings(BaseSettings):
     # Vincola la ricerca alla nazione (evita zone omonime in altri paesi).
     geocoding_country_codes: str = "it"
     default_city: str = "Roma"
-    # Citta supportate da ``GET /cities``. Roma/Milano/Napoli sono garantite e
+    # Citta SUGGERITE, esposte come autocomplete da ``GET /cities`` — NON un
+    # vincolo di validazione (#191): ``POST /analyze``/``/analyze/baseline``
+    # accettano qualsiasi citta' italiana e la passano al geocoding (ristretto
+    # all'Italia via ``geocoding_country_codes``); una citta'/zona inesistente
+    # fallisce pulita al geocoding (422). Roma/Milano/Napoli sono garantite e
     # testate end-to-end (orchestrator.md); le altre sono best-effort.
     supported_cities: list[str] = ["Roma", "Milano", "Napoli", "Torino", "Firenze"]
     # Allowlist CORS (#106): origini del frontend autorizzate a leggere le

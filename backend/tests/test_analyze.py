@@ -136,17 +136,6 @@ def test_analyze_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     assert [p["confidence"] for p in body["poi"]] == ["confermato", "speculativo"]
 
 
-def test_analyze_city_not_supported() -> None:
-    resp = cast(
-        httpx.Response,
-        _client().post("/analyze", json={"citta": "Atlantide", "zona": "X"}),  # pyright: ignore[reportUnknownMemberType]
-    )
-    assert resp.status_code == 400
-    detail = resp.json()["detail"]
-    assert detail["errore"] == "citta_non_supportata"
-    assert "Roma" in detail["citta_supportate"]
-
-
 def test_analyze_zone_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
     def _raise(zona: str, citta: str) -> dict[str, object]:
         raise ZoneNotFoundError("zona ignota")
@@ -158,6 +147,76 @@ def test_analyze_zone_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert resp.status_code == 422
     assert resp.json()["detail"]["errore"] == "zona_non_geocodificabile"
+
+
+def test_analyze_accepts_non_allowlisted_city(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#191: una citta' fuori dall'allowlist NON e' piu' 400; arriva al geocoding.
+
+    Rimossa l'allowlist di ``settings.supported_cities``, qualsiasi citta' italiana
+    deve raggiungere il geocoding. Verifica che ``geocode_zone`` sia invocato con
+    ``citta="Acireale"`` e che la pipeline serializzi una response 200.
+    """
+    seen: list[tuple[str, str]] = []
+
+    def _recording_geocode(zona: str, citta: str) -> dict[str, object]:
+        seen.append((zona, citta))
+        return {
+            "lat": 37.61,
+            "lon": 15.16,
+            "bbox": Bbox(37.60, 15.15, 37.62, 15.17),
+        }
+
+    async def _fake_fetch(
+        bbox: object, citta: str, *args: object, **kwargs: object
+    ) -> list[Poi]:
+        return _pois(citta)
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _recording_geocode)
+    monkeypatch.setattr(retrieval, "fetch_pois", _fake_fetch)
+    resp = cast(
+        httpx.Response,
+        _client().post("/analyze", json={"citta": "Acireale", "zona": "Centro"}),  # pyright: ignore[reportUnknownMemberType]
+    )
+    assert resp.status_code == 200
+    assert resp.json()["citta"] == "Acireale"
+    assert seen == [("Centro", "Acireale")]
+
+
+def test_analyze_non_allowlisted_city_zone_not_found(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#191: citta' fuori allowlist + zona non geocodificabile -> 422 pulito.
+
+    Una citta'/zona inesistente non e' piu' respinta a monte (400): fallisce al
+    geocoding con ``ZoneNotFoundError`` -> 422 ``zona_non_geocodificabile``.
+    """
+
+    def _raise(zona: str, citta: str) -> dict[str, object]:
+        raise ZoneNotFoundError("zona ignota")
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _raise)
+    resp = cast(
+        httpx.Response,
+        _client().post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze", json={"citta": "Acireale", "zona": "Nessundove"}
+        ),
+    )
+    assert resp.status_code == 422
+    assert resp.json()["detail"]["errore"] == "zona_non_geocodificabile"
+
+
+def test_analyze_rejects_overlong_citta(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#191: citta' oltre max_length=100 -> 422 (validazione Pydantic, pre-I/O)."""
+    _patch_io(monkeypatch)
+    resp = cast(
+        httpx.Response,
+        _client().post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze", json={"citta": "A" * 101, "zona": "Centro"}
+        ),
+    )
+    assert resp.status_code == 422
 
 
 def test_analyze_overpass_down(monkeypatch: pytest.MonkeyPatch) -> None:
