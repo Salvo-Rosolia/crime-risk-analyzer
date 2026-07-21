@@ -26,7 +26,11 @@ from crime_risk_analyzer.rag.generation import (
     generate_analysis,
     parse_source_prose,
 )
-from crime_risk_analyzer.rag.grounding import GroundedContext, ground
+from crime_risk_analyzer.rag.grounding import (
+    GroundedContext,
+    confidence_from_poi_name,
+    ground,
+)
 from crime_risk_analyzer.rag.retrieval import (
     GeoSource,
     PoiSource,
@@ -108,7 +112,11 @@ class PoiOut(BaseModel):
     lat: float
     lon: float
     confidence: Confidence = Field(
-        description="confermato se il POI ha rischi ontologici, altrimenti speculativo."
+        description=(
+            "speculativo se il POI e' fuori ontologia (nessun rischio); altrimenti "
+            "confermato se ha un nome OSM o plausibile se e' anonimo (unificata coi "
+            "livelli per-rischio, #202)."
+        )
     )
     sparql_path: str | None = None
     terminus_label_it: str = Field(
@@ -168,12 +176,20 @@ def _build_poi_list(
 ) -> list[PoiOut]:
     """Unisce coords (da retrieval) e confidence/path (da grounding) per POI.
 
+    La ``confidence`` per-POI e' UNIFICATA col livello per-rischio del grounding
+    (#202/M1): ``speculativo`` se il POI e' fuori ontologia (nessun rischio),
+    altrimenti la stessa regola nome->verificabilita' dei suoi rischi
+    (:func:`confidence_from_poi_name`), cosi' il badge del POI non diverge dai
+    livelli dei rischi che porta.
+
     Invariante: ``grounded["validated_risks"]`` ha stesso ordine e lunghezza di
     ``retrieval_ctx["pois"]``. ``strict=True`` esplicita l'errore se si rompe.
     """
     out: list[PoiOut] = []
     for poi, vr in zip(retrieval_ctx["pois"], grounded["validated_risks"], strict=True):
-        confidence: Confidence = "confermato" if vr["risks"] else "speculativo"
+        confidence: Confidence = (
+            confidence_from_poi_name(poi["name"]) if vr["risks"] else "speculativo"
+        )
         out.append(
             PoiOut(
                 id=poi["id"],

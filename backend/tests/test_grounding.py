@@ -154,6 +154,7 @@ def test_ground_zero_pois() -> None:
 
 
 def test_ground_confidence_summary_counts_all_confermato() -> None:
+    # POI tutti con nome OSM -> ogni rischio e' confermato (doppio ancoraggio)
     bank = _profile(
         "Bank",
         hazards=["Robbery", "Fraud"],
@@ -175,6 +176,71 @@ def test_ground_confidence_summary_counts_all_confermato() -> None:
     assert out["confidence_summary"] == {
         "confermato": 3,
         "plausibile": 0,
+        "speculativo": 0,
+    }
+
+
+def test_ground_named_poi_risks_are_confermato() -> None:
+    # #202: POI con nome OSM = entita' verificabile -> hazard ontologico confermato
+    # (doppio ancoraggio: ontologia + POI OSM identificabile).
+    prof = _profile(
+        "Bank", hazards=["Robbery"], sparql_paths=["Bank → havingHazard → Robbery"]
+    )
+    out = ground(_ctx([_poi("1", "Banca A", "Bank")], {"Bank": prof}))
+
+    risk = out["validated_risks"][0]["risks"][0]
+    assert risk["confidence"] == "confermato"
+    assert risk["tag"] == "ONTOLOGIA"
+
+
+def test_ground_anonymous_poi_risks_are_plausibile() -> None:
+    # #202: feature OSM senza nome = ancoraggio OSM debole -> hazard ontologico
+    # plausibile. La FONTE resta l'ontologia: il tag NON cambia (cambia solo la
+    # forza probatoria).
+    prof = _profile(
+        "Bank", hazards=["Robbery"], sparql_paths=["Bank → havingHazard → Robbery"]
+    )
+    out = ground(_ctx([_poi("1", "", "Bank")], {"Bank": prof}))
+
+    risk = out["validated_risks"][0]["risks"][0]
+    assert risk["confidence"] == "plausibile"
+    assert risk["tag"] == "ONTOLOGIA"
+
+
+def test_ground_whitespace_name_poi_is_plausibile() -> None:
+    # #202: un nome di soli whitespace e' una feature anonima -> plausibile.
+    prof = _profile(
+        "Bank", hazards=["Robbery"], sparql_paths=["Bank → havingHazard → Robbery"]
+    )
+    out = ground(_ctx([_poi("1", "   ", "Bank")], {"Bank": prof}))
+
+    assert out["validated_risks"][0]["risks"][0]["confidence"] == "plausibile"
+
+
+def test_ground_confidence_summary_mixed_counts() -> None:
+    # #202: input reale misto -> conteggi reali con confermato>0 E plausibile>0,
+    # speculativo resta 0 (rimandato, fuori scope).
+    bank = _profile(
+        "Bank",
+        hazards=["Robbery", "Fraud"],
+        sparql_paths=[
+            "Bank → havingHazard → Robbery",
+            "Bank → havingHazard → Fraud",
+        ],
+    )
+    museum = _profile(
+        "Museum", hazards=["Theft"], sparql_paths=["Museum → havingHazard → Theft"]
+    )
+    out = ground(
+        _ctx(
+            [_poi("1", "Banca A", "Bank"), _poi("2", "", "Museum")],
+            {"Bank": bank, "Museum": museum},
+        )
+    )
+
+    assert out["confidence_summary"] == {
+        "confermato": 2,
+        "plausibile": 1,
         "speculativo": 0,
     }
 

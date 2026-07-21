@@ -138,6 +138,28 @@ def test_build_poi_list_confidence_and_path() -> None:
     assert out[1].sparql_path is None
 
 
+def test_build_poi_list_confidence_unified_with_per_risk() -> None:
+    # #202/M1: la confidence per-POI e' unificata col livello per-rischio del
+    # grounding: named+risks -> confermato; anonymous+risks -> plausibile;
+    # no-risks -> speculativo (marcatore del POI fuori ontologia).
+    retrieval_ctx = {
+        "pois": [
+            _poi("1", "Banca A", "Bank"),
+            _poi("2", "", "Bank"),
+            _poi("3", "Bar Roma", "GenericUrbanPOI"),
+        ]
+    }
+    grounded = {
+        "validated_risks": [
+            _vr("Banca A", "Bank", ["Bank_robbery"]),
+            _vr("", "Bank", ["Bank_robbery"]),
+            _vr("Bar Roma", "GenericUrbanPOI", []),
+        ]
+    }
+    out = _build_poi_list(retrieval_ctx, grounded)  # type: ignore[arg-type]
+    assert [p.confidence for p in out] == ["confermato", "plausibile", "speculativo"]
+
+
 def test_build_poi_list_strict_zip_mismatch() -> None:
     with pytest.raises(ValueError):
         _build_poi_list(
@@ -253,6 +275,36 @@ async def test_run_analysis_llm_timeout_triggers_fallback(
     assert resp.narrativa == ""
     assert resp.tokens_input == 0
     assert [m.poi for m in resp.risk_models] == ["Banca A"]
+
+
+async def test_run_analysis_anonymous_poi_plausibile_end_to_end(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#202/m3: un POI ANONIMO con rischi ontologici propaga ``plausibile`` fino
+    alla AnalyzeResponse. risk_models[].risks[].confidence, confidence_summary e
+    poi[].confidence sono coerenti (nessuna divergenza badge-vs-rischi, M1)."""
+    anon: list[Poi] = [
+        {
+            "id": "1",
+            "name": "",
+            "lat": 41.89,
+            "lon": 12.49,
+            "osm_tags": "amenity=bank",
+            "terminus_class": "Bank",
+            "citta": "Roma",
+        }
+    ]
+    _patch_io(monkeypatch, pois=anon)
+    resp = await run_analysis(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+        llm_client=_FakeLLMClient(_llm_response()),
+    )
+    assert resp.risk_models[0].risks[0].confidence == "plausibile"
+    assert resp.confidence_summary.plausibile == 1
+    assert resp.confidence_summary.confermato == 0
+    assert [p.confidence for p in resp.poi] == ["plausibile"]
 
 
 async def test_run_analysis_zero_pois(monkeypatch: pytest.MonkeyPatch) -> None:

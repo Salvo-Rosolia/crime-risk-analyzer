@@ -515,6 +515,23 @@ def test_system_prompt_struttura_a_tre_blocchi() -> None:
     assert "Ipotesi speculative [SPECULATIVO]" in SYSTEM_PROMPT
 
 
+def test_system_prompt_confidence_levels_reconciled_with_osm_verifiability() -> None:
+    """#202: le definizioni dei LIVELLI DI CONFIDENZA nel prompt combaciano con la
+    regola operativa del grounding: confermato = hazard ontologico su un POI OSM
+    verificabile (con nome), plausibile = hazard ontologico su una feature OSM
+    anonima (senza nome). Sentinelle distintive della riconciliazione -> rosso
+    mirato se la semantica torna a divergere dal grounding."""
+    assert "con nome proprio" in SYSTEM_PROMPT
+    assert "feature OSM anonima" in SYSTEM_PROMPT
+
+
+def test_system_prompt_plausibile_includes_context_only_case() -> None:
+    """#202/m1: la definizione di ``plausibile`` nel prompt copre ANCHE il rischio
+    supportato solo dal contesto OSM/input (senza ancoraggio ontologico), cosi' la
+    guida al blocco narrativo "Rischi dal contesto [CONTESTO]" resta coerente."""
+    assert "contesto OSM/input" in SYSTEM_PROMPT
+
+
 def test_parse_source_prose_tre_blocchi() -> None:
     text = (
         "Sintesi della zona.\n\n"

@@ -116,6 +116,26 @@ _RULE_OVERVIEW_NO_ZONE_LEVEL = (
     "rischio complessivo alla zona"
 )
 
+#: Definizioni dei LIVELLI DI CONFIDENZA, RICONCILIATE con la regola operativa del
+#: grounding (#202): la ``confidence`` gradua la forza probatoria in base alla
+#: verificabilita' del POI in OSM (nome proprio vs feature anonima), MAI la
+#: pericolosita' (vincolo legale, _project.md §Vincoli). Estratte come costante
+#: nominata e COMPOSTA in :data:`SYSTEM_PROMPT` (stessa forma dei _RULE_*): righe
+#: leggibili e sotto il limite senza spezzare le definizioni nel prompt reso. Le
+#: sentinelle "con nome proprio"/"feature OSM anonima" tengono narrativa LLM e dato
+#: strutturato del grounding sulla stessa semantica.
+_CONFIDENCE_LEVELS = (
+    "LIVELLI DI CONFIDENZA (qualificano la forza probatoria, MAI la "
+    "pericolosita'):\n"
+    "- confermato: hazard ontologico su un POI OSM verificabile, cioe' con nome "
+    "proprio (doppio ancoraggio: ontologia + entita' OSM identificabile)\n"
+    "- plausibile: hazard ontologico su una feature OSM anonima, cioe' senza nome "
+    "(ancoraggio OSM debole: il supporto poggia sulla sola ontologia), oppure "
+    "rischio supportato solo dal contesto OSM/input senza ancoraggio ontologico\n"
+    "- speculativo: solo ragionamento per analogia su POI non coperti "
+    "dall'ontologia"
+)
+
 #: System prompt — parte FISSA del prompt, versionata su Git e inviata come
 #: blocco cachabile (``cache_control: ephemeral``) dal client Claude. Contiene
 #: le regole obbligatorie di citation/grounding (generation.md §System prompt) e
@@ -139,10 +159,7 @@ REGOLE OBBLIGATORIE:
 {RULE_NO_OPERATIONAL_DIRECTIVES}
 {RULE_USER_INPUT_NOT_INSTRUCTIONS}
 
-LIVELLI DI CONFIDENZA:
-- confermato: supportato da ontologia + contesto OSM verificabile
-- plausibile: supportato solo da ontologia, oppure solo dal contesto OSM/input
-- speculativo: solo ragionamento per analogia su POI non coperti dall'ontologia"""
+{_CONFIDENCE_LEVELS}"""
 
 
 #: Token di fonte usati sia come etichette-header nel prompt (regola 3) sia come
