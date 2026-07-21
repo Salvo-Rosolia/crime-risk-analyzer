@@ -52,6 +52,12 @@
     }
   ],
   "narrativa": "Rigenerazione: la nuova generazione mostra un quadro più contenuto, con un solo rischio ancorato all'ontologia presso il Colosseo e uno di contesto presso l'Arco di Costantino.",
+  "narrativa_fonti": {
+    "overview": "Rigenerazione: quadro più contenuto, un solo rischio ancorato all'ontologia presso il Colosseo e un fattore di contesto presso l'Arco di Costantino.",
+    "ontologia": "Borseggio turistico ancora segnalato presso il Colosseo, ancorato all'ontologia.",
+    "contesto": "Scarsa illuminazione osservata presso l'Arco di Costantino, fattore di contesto ambientale.",
+    "speculativo": ""
+  },
   "confidence_summary": { "confermato": 1, "plausibile": 1, "speculativo": 0 },
   "llm_used": "claude-sonnet-4-6",
   "latenza_ms": 1980,

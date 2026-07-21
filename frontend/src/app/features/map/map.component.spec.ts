@@ -54,6 +54,7 @@ function makeResp(pois: Poi[]): AnalyzeResponse {
     poi: pois,
     risk_models: [],
     narrativa: '',
+    narrativa_fonti: { overview: '', ontologia: '', contesto: '', speculativo: '' },
     confidence_summary: { confermato: 0, plausibile: 0, speculativo: 0 },
     llm_used: '',
     latenza_ms: 0,

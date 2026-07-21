@@ -26,8 +26,10 @@ from crime_risk_analyzer.rag.generation import (
     GenerationResult,
     RiskItem,
     RiskModel,
+    SourceProse,
     build_context_str,
     generate_analysis,
+    parse_source_prose,
 )
 
 # --- doppio del LLMClient (riproduce solo .generate e .model) ---
@@ -493,3 +495,60 @@ def test_risk_item_tag_rejects_numeric_value() -> None:
     NUMERICO e' rifiutato, cosi' il tag non puo' degenerare in un punteggio."""
     with pytest.raises(ValidationError):
         RiskItem(hazard="x", confidence="confermato", tag=0.73)  # pyright: ignore[reportArgumentType]
+
+
+# --- narrativa strutturata per fonte: prompt a blocchi + parser (#196) ---
+
+
+def test_system_prompt_include_vincoli_legali() -> None:
+    for rule in (
+        RULE_NO_DANGER_RATING,
+        RULE_NO_OPERATIONAL_DIRECTIVES,
+        RULE_USER_INPUT_NOT_INSTRUCTIONS,
+    ):
+        assert rule in SYSTEM_PROMPT
+
+
+def test_system_prompt_struttura_a_tre_blocchi() -> None:
+    assert "Rischi da ontologia [ONTOLOGIA]" in SYSTEM_PROMPT
+    assert "Rischi dal contesto [CONTESTO]" in SYSTEM_PROMPT
+    assert "Ipotesi speculative [SPECULATIVO]" in SYSTEM_PROMPT
+
+
+def test_parse_source_prose_tre_blocchi() -> None:
+    text = (
+        "Sintesi della zona.\n\n"
+        "Rischi da ontologia [ONTOLOGIA]\n"
+        "Furto con destrezza alla stazione.\n\n"
+        "Rischi dal contesto [CONTESTO]\n"
+        "Borseggio in metro.\n\n"
+        "Ipotesi speculative [SPECULATIVO]\n"
+        "Accattonaggio nelle aree verdi."
+    )
+    out = parse_source_prose(text)
+    assert isinstance(out, SourceProse)
+    assert out.overview == "Sintesi della zona."
+    assert out.ontologia == "Furto con destrezza alla stazione."
+    assert out.contesto == "Borseggio in metro."
+    assert out.speculativo == "Accattonaggio nelle aree verdi."
+
+
+def test_parse_source_prose_un_solo_blocco() -> None:
+    text = "Intro.\n\nRischi da ontologia [ONTOLOGIA]\nSolo ontologia."
+    out = parse_source_prose(text)
+    assert out.overview == "Intro."
+    assert out.ontologia == "Solo ontologia."
+    assert out.contesto == ""
+    assert out.speculativo == ""
+
+
+def test_parse_source_prose_fallback_senza_token() -> None:
+    out = parse_source_prose("Prosa senza etichette di fonte.")
+    assert out.overview == "Prosa senza etichette di fonte."
+    assert out.ontologia == out.contesto == out.speculativo == ""
+
+
+def test_parse_source_prose_vuoto() -> None:
+    out = parse_source_prose("")
+    assert out.overview == ""
+    assert out.ontologia == out.contesto == out.speculativo == ""

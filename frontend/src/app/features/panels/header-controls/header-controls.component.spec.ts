@@ -66,6 +66,7 @@ const data: AnalyzeResponse = {
     },
   ],
   narrativa: '',
+  narrativa_fonti: { overview: '', ontologia: '', contesto: '', speculativo: '' },
   confidence_summary: { confermato: 3, plausibile: 1, speculativo: 1 },
   llm_used: '',
   latenza_ms: 0,

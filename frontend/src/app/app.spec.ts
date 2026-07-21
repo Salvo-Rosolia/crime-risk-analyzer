@@ -28,6 +28,7 @@ const emptyResp: AnalyzeResponse = {
   poi: [],
   risk_models: [],
   narrativa: '',
+  narrativa_fonti: { overview: '', ontologia: '', contesto: '', speculativo: '' },
   confidence_summary: { confermato: 0, plausibile: 0, speculativo: 0 },
   llm_used: '',
   latenza_ms: 0,
@@ -84,6 +85,56 @@ describe('App shell', () => {
     f.detectChanges();
 
     expect(f.nativeElement.querySelector('cra-poi-panel')).toBeTruthy();
+  });
+
+  it('ACCEPTANCE: Stato RESULTS con narrativa_fonti popolato mostra overview + tab per fonte (≥2) nel narrative-sheet', async () => {
+    const respWithNarrativaFonti: AnalyzeResponse = {
+      ...emptyResp,
+      risk_models: [
+        {
+          poi: 'Colosseo',
+          risks: [
+            {
+              hazard: 'h-onto',
+              confidence: 'confermato',
+              tag: 'ONTOLOGIA',
+              hazard_label_it: 'Borseggio',
+              hazard_label_en: 'Pickpocketing',
+            },
+            {
+              hazard: 'h-ctx',
+              confidence: 'plausibile',
+              tag: 'CONTESTO',
+              hazard_label_it: 'Illuminazione scarsa',
+              hazard_label_en: 'Poor lighting',
+            },
+          ],
+        },
+      ],
+      narrativa_fonti: {
+        overview: 'Sintesi generale della zona per il test di integrazione.',
+        ontologia: 'Prosa ancorata alla ontologia formale per il Colosseo.',
+        contesto: 'Prosa dal contesto ambientale osservato in zona.',
+        speculativo: '',
+      },
+    };
+    const f = TestBed.createComponent(App);
+    f.detectChanges();
+    await f.whenStable();
+
+    store.dispatch({ type: 'LOAD_SUCCESS', data: respWithNarrativaFonti, pipeline: 'completo' });
+    f.detectChanges();
+
+    expect(f.nativeElement.textContent).toContain(
+      'Sintesi generale della zona per il test di integrazione.',
+    );
+    const tabs = f.nativeElement.querySelectorAll('cra-narrative-sheet [role="tab"]');
+    expect(tabs.length).toBeGreaterThanOrEqual(2);
+    const panels = f.nativeElement.querySelectorAll('cra-narrative-sheet [role="tabpanel"]');
+    expect(panels.length).toBe(tabs.length);
+    expect(f.nativeElement.textContent).toContain(
+      'Prosa ancorata alla ontologia formale per il Colosseo.',
+    );
   });
 
   it("Stato ERROR: pannello input riappare con il messaggio d'errore del backend", async () => {

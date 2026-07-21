@@ -22,7 +22,9 @@ from crime_risk_analyzer.rag.generation import (
     Repro,
     RiskItem,
     RiskModel,
+    SourceProse,
     generate_analysis,
+    parse_source_prose,
 )
 from crime_risk_analyzer.rag.grounding import GroundedContext, ground
 from crime_risk_analyzer.rag.retrieval import (
@@ -133,6 +135,13 @@ class AnalyzeResponse(BaseModel):
     poi: list[PoiOut]
     risk_models: list[RiskModel]
     narrativa: str
+    narrativa_fonti: SourceProse = Field(
+        default_factory=SourceProse,
+        description=(
+            "Prosa della narrativa suddivisa per fonte (display, additivo). "
+            "Vuoto in baseline/fallback."
+        ),
+    )
     confidence_summary: ConfidenceSummary
     llm_used: str
     latenza_ms: int = Field(ge=0)
@@ -279,6 +288,7 @@ async def run_analysis(
         poi=poi_out,
         risk_models=gen.risk_models,
         narrativa=gen.narrativa,
+        narrativa_fonti=parse_source_prose(gen.narrativa),
         confidence_summary=gen.confidence_summary,
         llm_used=gen.llm_used,
         latenza_ms=_elapsed_ms(start),

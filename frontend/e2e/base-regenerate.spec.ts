@@ -91,7 +91,9 @@ test.describe('Rigenera (bottom-sheet narrativa): sostituisce i dati, non li som
     await expect(S.narrativeHeader(page)).toHaveAttribute('aria-expanded', 'false');
     await S.narrativeHeader(page).press('Enter');
     await expect(S.narrativeHeader(page)).toHaveAttribute('aria-expanded', 'true');
-    await expect(S.narrativeLead(page)).toHaveText(analyze.narrativa);
+    // Con `narrativa_fonti` popolato il lead mostra l'overview per-fonte (`leadText`,
+    // narrative-sheet.component.ts), non più la `narrativa` piatta legacy.
+    await expect(S.narrativeLead(page)).toHaveText(analyze.narrativa_fonti.overview);
 
     // Due risposte /analyze DIVERSE sono necessarie per provare la sostituzione (non la somma):
     // la route dell'analisi iniziale (registrata da mockApi sopra) viene rimpiazzata QUI, subito
@@ -105,6 +107,46 @@ test.describe('Rigenera (bottom-sheet narrativa): sostituisce i dati, non li som
 
     await expect(S.mapMarkers(page)).toHaveCount(regenerate.poi.length);
     await expect(S.poiCards(page)).toHaveCount(regenerate.poi.length);
-    await expect(S.narrativeLead(page)).toHaveText(regenerate.narrativa);
+    await expect(S.narrativeLead(page)).toHaveText(regenerate.narrativa_fonti.overview);
+  });
+});
+
+test.describe('Narrativa a tab per fonte: apertura, elenco tab e cambio pannello', () => {
+  test('espande il bottom-sheet, mostra un tab per fonte del fixture e il secondo tab attiva il proprio pannello con la sua prosa', async ({
+    page,
+  }) => {
+    await mockApi(page, { analyze });
+    await page.goto('/');
+
+    await S.cittaField(page).fill(analyze.citta);
+    await S.zonaField(page).fill(analyze.zona_normalizzata);
+    await S.submitButton(page).click();
+    await expect(S.poiPanel(page)).toBeVisible();
+
+    // Bottom-sheet già espanso di default (`narrOpen: true`), ma lo step è reso esplicito come
+    // richiesto dal task: chiudi/riapri via tastiera (stesso pattern del test di Rigenera sopra).
+    await S.narrativeHeader(page).press('Enter');
+    await expect(S.narrativeHeader(page)).toHaveAttribute('aria-expanded', 'false');
+    await S.narrativeHeader(page).press('Enter');
+    await expect(S.narrativeHeader(page)).toHaveAttribute('aria-expanded', 'true');
+
+    // Il fixture ha tutte e 3 le fonti popolate (ONTOLOGIA/CONTESTO/SPECULATIVO): 3 tab, il primo
+    // (ONTOLOGIA) attivo di default (`buildSourceTabs`, ordine canonico).
+    await expect(S.narrativeTabs(page)).toHaveCount(3);
+    await expect(S.narrativeTabs(page).nth(0)).toHaveAttribute('aria-selected', 'true');
+    await expect(S.narrativeTabPanels(page).nth(0)).toBeVisible();
+    await expect(S.narrativeTabPanels(page).nth(0)).toContainText(
+      analyze.narrativa_fonti.ontologia,
+    );
+
+    // Click sul secondo tab (CONTESTO): il proprio pannello diventa visibile con la sua prosa,
+    // gli altri restano nascosti (`[hidden]`, non solo il primo che perde `aria-selected`).
+    await S.narrativeTabs(page).nth(1).click();
+
+    await expect(S.narrativeTabs(page).nth(1)).toHaveAttribute('aria-selected', 'true');
+    await expect(S.narrativeTabs(page).nth(0)).toHaveAttribute('aria-selected', 'false');
+    await expect(S.narrativeTabPanels(page).nth(1)).toBeVisible();
+    await expect(S.narrativeTabPanels(page).nth(1)).toContainText(analyze.narrativa_fonti.contesto);
+    await expect(S.narrativeTabPanels(page).nth(0)).toBeHidden();
   });
 });

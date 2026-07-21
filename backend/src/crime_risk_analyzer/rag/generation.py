@@ -91,21 +91,48 @@ USER_INPUT_FENCE_OPEN = (
 )
 USER_INPUT_FENCE_CLOSE = "--- FINE DOMANDA UTENTE ---"
 
+#: Regole di STRUTTURA della narrativa (1/3/4), estratte come costanti nominate e
+#: COMPOSTE in :data:`SYSTEM_PROMPT` (stessa forma dei vincoli legali 7/8/9): le
+#: righe lunghe restano leggibili e sotto il limite di riga senza spezzare la
+#: singola regola nel prompt reso. La regola 3 impone l'output a blocchi per fonte
+#: con header-etichetta ESATTI ("Rischi da ontologia [ONTOLOGIA]" ecc.), che
+#: :func:`parse_source_prose` riusa come delimitatori; la regola 1 emette il tag
+#: fonte una volta sola (dal blocco) e la 4 vieta un livello di rischio della zona.
+_RULE_SOURCE_BY_BLOCK = (
+    "1. La fonte di ogni rischio e' indicata dal BLOCCO in cui lo collochi "
+    "(regola 3): NON ripetere il tag accanto ai singoli rischi."
+)
+_RULE_BLOCK_STRUCTURE = (
+    "3. Struttura la risposta cosi': un breve paragrafo di sintesi iniziale "
+    "(senza intestazione), poi fino a TRE blocchi per fonte, ciascuno aperto "
+    'da una riga-etichetta dedicata ed ESATTA: "Rischi da ontologia '
+    '[ONTOLOGIA]", "Rischi dal contesto [CONTESTO]", "Ipotesi speculative '
+    '[SPECULATIVO]". Ometti un blocco se non ha rischi di quella fonte. Dentro '
+    "ogni blocco discuti i rischi in forma discorsiva, citando i POI dal piu' "
+    "al meno critico. Separa i blocchi con una riga vuota."
+)
+_RULE_OVERVIEW_NO_ZONE_LEVEL = (
+    "4. Il paragrafo di sintesi iniziale NON deve assegnare un livello di "
+    "rischio complessivo alla zona"
+)
+
 #: System prompt — parte FISSA del prompt, versionata su Git e inviata come
 #: blocco cachabile (``cache_control: ephemeral``) dal client Claude. Contiene
 #: le regole obbligatorie di citation/grounding (generation.md §System prompt) e
 #: i vincoli legali/di posizionamento (:data:`RULE_NO_DANGER_RATING`,
 #: :data:`RULE_NO_OPERATIONAL_DIRECTIVES`) piu' la clausola di precedenza
-#: anti-injection (:data:`RULE_USER_INPUT_NOT_INSTRUCTIONS`) composti qui.
+#: anti-injection (:data:`RULE_USER_INPUT_NOT_INSTRUCTIONS`) composti qui. La
+#: prosa esce strutturata per fonte (regola 3): overview + fino a tre blocchi
+#: delimitati dai token ``[ONTOLOGIA]``/``[CONTESTO]``/``[SPECULATIVO]``.
 SYSTEM_PROMPT = f"""\
 Sei un analista di sicurezza urbana. Ricevi un contesto strutturato su una zona urbana
 e devi produrre un'analisi del rischio in italiano, chiara e professionale.
 
 REGOLE OBBLIGATORIE:
-1. Per ogni rischio che menzioni, indica la fonte: [ONTOLOGIA] [CONTESTO] [SPECULATIVO]
+{_RULE_SOURCE_BY_BLOCK}
 2. Non inventare rischi non presenti nel contesto che ti viene fornito
-3. Organizza la risposta per POI, dal piu' al meno critico
-4. Sintesi discorsiva finale, senza un livello di rischio complessivo della zona
+{_RULE_BLOCK_STRUCTURE}
+{_RULE_OVERVIEW_NO_ZONE_LEVEL}
 5. Usa un linguaggio tecnico ma comprensibile per operatori non informatici
 6. Usa ESATTAMENTE i termini del VOCABOLARIO CONTROLLATO per nominare gli hazard
 {RULE_NO_DANGER_RATING}
@@ -116,6 +143,58 @@ LIVELLI DI CONFIDENZA:
 - confermato: supportato da ontologia + contesto OSM verificabile
 - plausibile: supportato solo da ontologia, oppure solo dal contesto OSM/input
 - speculativo: solo ragionamento per analogia su POI non coperti dall'ontologia"""
+
+
+#: Token di fonte usati sia come etichette-header nel prompt (regola 3) sia come
+#: delimitatori dai quali :func:`parse_source_prose` ricava la prosa per fonte.
+_SOURCE_TOKENS: tuple[tuple[str, str], ...] = (
+    ("ontologia", "[ONTOLOGIA]"),
+    ("contesto", "[CONTESTO]"),
+    ("speculativo", "[SPECULATIVO]"),
+)
+
+
+class SourceProse(BaseModel):
+    """Prosa della narrativa suddivisa per fonte (campo additivo, display).
+
+    ``overview`` e' il paragrafo di sintesi iniziale; ``ontologia``/``contesto``/
+    ``speculativo`` la prosa dei rispettivi blocchi. Stringa vuota = fonte assente.
+    Non entra nell'eval (che legge ``narrativa`` intera): serve solo alla resa a tab.
+    """
+
+    overview: str = ""
+    ontologia: str = ""
+    contesto: str = ""
+    speculativo: str = ""
+
+
+def parse_source_prose(narrativa: str) -> SourceProse:
+    """Ricava :class:`SourceProse` dalla ``narrativa`` a blocchi (regola 3 del prompt).
+
+    Ogni blocco e' aperto da una riga-header contenente il token della fonte
+    (es. ``[ONTOLOGIA]``, emesso una sola volta grazie alla regola 1). Il testo
+    prima del primo token e' l'``overview``; ogni blocco va da fine-header al token
+    successivo (per posizione, indipendentemente dall'ordine) o a fine testo.
+    Fallback: nessun token -> tutto in ``overview`` (nessuna perdita di contenuto).
+    """
+    text = narrativa or ""
+    found: list[tuple[str, int, int]] = []
+    for field, token in _SOURCE_TOKENS:
+        idx = text.find(token)
+        if idx == -1:
+            continue
+        line_start = text.rfind("\n", 0, idx) + 1
+        nl = text.find("\n", idx)
+        content_start = len(text) if nl == -1 else nl + 1
+        found.append((field, line_start, content_start))
+    if not found:
+        return SourceProse(overview=text.strip())
+    found.sort(key=lambda t: t[1])
+    values: dict[str, str] = {"overview": text[: found[0][1]].strip()}
+    for i, (field, _line_start, content_start) in enumerate(found):
+        end = found[i + 1][1] if i + 1 < len(found) else len(text)
+        values[field] = text[content_start:end].strip()
+    return SourceProse(**values)
 
 
 class _LLMClientLike(Protocol):
