@@ -29,13 +29,33 @@ export const S = {
   inputError: (p: Page): Locator => p.getByRole('alert'),
   /** Stato LOADING: `role="status"` (unico nel DOM, `loading-overlay.component.html`). */
   loadingOverlay: (p: Page): Locator => p.getByRole('status'),
-  /** Stato RESULTS/FILTER/DETAIL: lista POI + chip confidence. */
+  /** Stato RESULTS/FILTER/DETAIL: dock unico Lista/Dettaglio POI (#199), contenitore di
+   * `cra-poi-panel`/`cra-detail-panel` come viste (`panel-dock.component.ts`). */
+  panelDock: (p: Page): Locator => p.locator('cra-panel-dock'),
+  /** Vista Lista dentro il dock (#199): lista POI + chip confidence, `[hidden]` mentre la Vista
+   * Dettaglio è attiva (`.cra-dock-list-view`, `panel-dock.component.html`). */
   poiPanel: (p: Page): Locator => p.locator('cra-poi-panel'),
-  /** Stato DETAIL: scheda dettaglio POI (citazione SPARQL + fattori di rischio). */
+  /** Stato DETAIL: scheda dettaglio POI (citazione SPARQL + fattori di rischio), ora una VISTA
+   * dentro il dock (#199), non più un pannello flottante separato. */
   detailPanel: (p: Page): Locator => p.locator('cra-detail-panel'),
-  /** Tasto chiudi dello Stato DETAIL: `aria-label="Chiudi dettaglio"` (`detail-panel.component.html`),
-   * torna a RESULTS o FILTER (`DESELECT_POI` legge `state.filter` in `transition.ts`). */
-  detailClose: (p: Page): Locator => p.getByRole('button', { name: 'Chiudi dettaglio' }),
+  /** Tasto "‹ indietro" della Vista Dettaglio (#199, `.cra-detail-back`,
+   * `detail-panel.component.html`): torna alla Vista Lista dentro lo stesso dock (`DESELECT_POI`
+   * legge `state.filter` in `transition.ts` per decidere RESULTS vs FILTER). */
+  detailBack: (p: Page): Locator => p.getByRole('button', { name: '‹ indietro' }),
+  /** Controllo di collasso del dock (#199 decisione 3, `.cra-dock-toggle`): cabla
+   * `TOGGLE_POI_PANEL`/`poiPanelOpen`, `aria-expanded` riflette `store.poiPanelOpen()`. */
+  dockToggle: (p: Page): Locator => p.locator('cra-panel-dock .cra-dock-toggle'),
+  /** Corpo del dock (#199, `.cra-dock-body`): `[hidden]` quando il dock è collassato. */
+  dockBody: (p: Page): Locator => p.locator('cra-panel-dock .cra-dock-body'),
+  /** "+ Nuova richiesta" (#199 decisione 4, testa del dock): il click mostra la conferma leggera
+   * IN-APP prima di dispatchare `RESET` (mai `window.confirm`). */
+  newRequestButton: (p: Page): Locator =>
+    p.getByRole('button', { name: '+ Nuova richiesta', exact: true }),
+  /** Conferma "Sì" della richiesta di reset (#199, `.cra-btn-confirm-yes`). */
+  newRequestConfirmYes: (p: Page): Locator => p.getByRole('button', { name: 'Sì', exact: true }),
+  /** Conferma "Annulla" della richiesta di reset (#199, `.cra-btn-confirm-cancel`). */
+  newRequestConfirmCancel: (p: Page): Locator =>
+    p.getByRole('button', { name: 'Annulla', exact: true }),
   /** Parti della citazione SPARQL lineare (`.cra-citation-part`, un `<span>` per salto, ordine
    * `Classe → proprietà → entità` da `poi.sparql_path`). 0 elementi se il POI non ha citazione. */
   detailCitationParts: (p: Page): Locator => p.locator('cra-detail-panel .cra-citation-part'),

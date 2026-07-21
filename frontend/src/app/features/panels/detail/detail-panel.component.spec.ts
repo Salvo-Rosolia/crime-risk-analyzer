@@ -82,11 +82,13 @@ describe('DetailPanelComponent', () => {
     expect(text).toContain('Plausibile');
   });
 
-  it('click sul pulsante di chiusura emette closeDetail', () => {
+  it('mostra il pulsante "‹ indietro" (Vista Dettaglio del dock, #199) e il click emette closeDetail', () => {
     setup(makePoi());
     const spy = jest.fn();
     fixture.componentInstance.closeDetail.subscribe(spy);
-    (fixture.nativeElement.querySelector('.cra-detail-close') as HTMLElement).click();
+    const back: HTMLElement = fixture.nativeElement.querySelector('.cra-detail-back');
+    expect(back.textContent?.trim()).toBe('‹ indietro');
+    back.click();
     expect(spy).toHaveBeenCalled();
   });
 

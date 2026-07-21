@@ -16,7 +16,7 @@ jest.mock('leaflet', () => ({
   divIcon: jest.fn(() => ({})),
 }));
 
-import { TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { App } from './app';
 import { ApiService } from '@core/api/api.service';
 import { StateStore } from '@core/state/state.store';
@@ -253,7 +253,7 @@ describe('App shell', () => {
     expect(f.nativeElement.querySelector('cra-poi-panel')).toBe(panelInResults);
   });
 
-  it('ACCEPTANCE: Stato DETAIL mostra cra-detail-panel coi gruppi ordinati ONTOLOGIA→CONTESTO→SPECULATIVO, senza rimontare cra-poi-panel/cra-narrative-sheet', async () => {
+  it('ACCEPTANCE (#199): Stato DETAIL mostra cra-detail-panel coi gruppi ordinati ONTOLOGIA→CONTESTO→SPECULATIVO DENTRO il dock, senza rimontare cra-panel-dock/cra-poi-panel/cra-narrative-sheet', async () => {
     const respWithPoi: AnalyzeResponse = {
       ...emptyResp,
       poi: [
@@ -297,17 +297,25 @@ describe('App shell', () => {
 
     store.dispatch({ type: 'LOAD_SUCCESS', data: respWithPoi, pipeline: 'completo' });
     f.detectChanges();
+    const dockBeforeSelect = f.nativeElement.querySelector('cra-panel-dock');
     const poiPanelBeforeSelect = f.nativeElement.querySelector('cra-poi-panel');
     const narrSheetBeforeSelect = f.nativeElement.querySelector('cra-narrative-sheet');
+    expect(dockBeforeSelect).toBeTruthy();
     expect(poiPanelBeforeSelect).toBeTruthy();
     expect(narrSheetBeforeSelect).toBeTruthy();
+    expect(f.nativeElement.querySelector('cra-detail-panel')).toBeNull();
 
     (f.nativeElement.querySelector('.cra-poi-card') as HTMLElement).click();
     f.detectChanges();
 
     expect(store.screen()).toBe('DETAIL');
+    // il dock (Approccio A, variante 1, #199) non si smonta passando da Vista Lista a Vista
+    // Dettaglio: stesso nodo cra-panel-dock/cra-poi-panel, solo la Vista Lista si nasconde.
+    expect(f.nativeElement.querySelector('cra-panel-dock')).toBe(dockBeforeSelect);
     expect(f.nativeElement.querySelector('cra-poi-panel')).toBe(poiPanelBeforeSelect);
     expect(f.nativeElement.querySelector('cra-narrative-sheet')).toBe(narrSheetBeforeSelect);
+    const listWrapper: HTMLElement = f.nativeElement.querySelector('.cra-dock-list-view');
+    expect(listWrapper.hidden).toBe(true);
     expect(f.nativeElement.textContent).toContain(
       'supporto decisionale · valuta con fonti primarie',
     );
@@ -321,12 +329,14 @@ describe('App shell', () => {
     ]);
     expect(detailPanel.querySelector('.cra-citation-line').textContent).toContain('havingHazard');
 
-    (f.nativeElement.querySelector('.cra-detail-close') as HTMLElement).click();
+    (f.nativeElement.querySelector('.cra-detail-back') as HTMLElement).click();
     f.detectChanges();
 
     expect(store.screen()).toBe('RESULTS');
     expect(f.nativeElement.querySelector('cra-detail-panel')).toBeNull();
+    expect(f.nativeElement.querySelector('cra-panel-dock')).toBe(dockBeforeSelect);
     expect(f.nativeElement.querySelector('cra-poi-panel')).toBe(poiPanelBeforeSelect);
+    expect(listWrapper.hidden).toBe(false);
   });
 
   it('ACCEPTANCE: Rigenera re-invoca startAnalysis con lastQuery e SOSTITUISCE i risultati (non li duplica)', async () => {
@@ -574,6 +584,51 @@ describe('App shell', () => {
       expect(f.nativeElement.textContent).not.toContain('BaselinePOI');
     });
 
+    it('(d) BLOCCANTE (#199 fix review): RESULTS→DETAIL→toggle Base→toggle Completo NON deve rimostrare la Vista Dettaglio in RESULTS (selectedPoiId sopravvive a TOGGLE_MODE, ma la vista del dock deve dipendere solo da screen)', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      const respWithPoi: AnalyzeResponse = {
+        ...emptyResp,
+        poi: [
+          {
+            id: 'poi-1',
+            name: 'Colosseo',
+            terminus_class: 'x',
+            lat: 0,
+            lon: 0,
+            confidence: 'confermato',
+            sparql_path: null,
+            terminus_label_it: '',
+            terminus_label_en: '',
+          },
+        ],
+      };
+      store.dispatch({ type: 'LOAD_SUCCESS', data: respWithPoi, pipeline: 'completo' });
+      f.detectChanges();
+
+      (f.nativeElement.querySelector('.cra-poi-card') as HTMLElement).click();
+      f.detectChanges();
+      expect(store.screen()).toBe('DETAIL');
+      expect(store.selectedPoiId()).toBe('poi-1');
+
+      store.dispatch({ type: 'TOGGLE_MODE', mode: 'base' });
+      f.detectChanges();
+      expect(store.screen()).toBe('BASE');
+      // TOGGLE_MODE non azzera selectedPoiId (comportamento FSM invariato, transition.ts): il
+      // residuo NON deve però confondere il dock quando si torna a RESULTS.
+      expect(store.selectedPoiId()).toBe('poi-1');
+
+      store.dispatch({ type: 'TOGGLE_MODE', mode: 'completo' });
+      f.detectChanges();
+
+      expect(store.screen()).toBe('RESULTS');
+      expect(f.nativeElement.querySelector('cra-detail-panel')).toBeNull();
+      const listWrapper: HTMLElement = f.nativeElement.querySelector('.cra-dock-list-view');
+      expect(listWrapper.hidden).toBe(false);
+    });
+
     it('(c) errore in modalità Base → resta in Stato BASE (niente cra-input-panel del sistema completo) e il retry invoca /analyze/baseline, non /analyze', async () => {
       api.cities.mockResolvedValue(['Roma']);
       const f = TestBed.createComponent(App);
@@ -704,6 +759,89 @@ describe('App shell', () => {
       (f.nativeElement.querySelector('.cra-btn-regen') as HTMLElement).click();
 
       expect(startAnalysisSpy).toHaveBeenCalledWith('Roma', 'Colosseo', null);
+    });
+  });
+
+  describe('#199: dock unico Lista/Dettaglio — collasso, coordinamento con narrOpen, Nuova richiesta', () => {
+    async function setupResults(f: ComponentFixture<App>): Promise<void> {
+      f.detectChanges();
+      await f.whenStable();
+      store.dispatch({ type: 'LOAD_SUCCESS', data: emptyResp, pipeline: 'completo' });
+      f.detectChanges();
+    }
+
+    it('collasso del dock: click sul controllo dispatcha TOGGLE_POI_PANEL, il corpo diventa [hidden] e riclic lo riespande', async () => {
+      const f = TestBed.createComponent(App);
+      await setupResults(f);
+
+      expect(store.poiPanelOpen()).toBe(true);
+      const toggle: HTMLElement = f.nativeElement.querySelector('.cra-dock-toggle');
+      const body: HTMLElement = f.nativeElement.querySelector('.cra-dock-body');
+      expect(body.hidden).toBe(false);
+
+      toggle.click();
+      f.detectChanges();
+
+      expect(store.poiPanelOpen()).toBe(false);
+      expect(body.hidden).toBe(true);
+
+      toggle.click();
+      f.detectChanges();
+
+      expect(store.poiPanelOpen()).toBe(true);
+      expect(body.hidden).toBe(false);
+    });
+
+    it('coordinamento altezza dock↔narrativa: la classe cra-dock-narr-open sul dock segue narrOpen (TOGGLE_NARR)', async () => {
+      const f = TestBed.createComponent(App);
+      await setupResults(f);
+
+      const dock: HTMLElement = f.nativeElement.querySelector('cra-panel-dock');
+      expect(store.narrOpen()).toBe(true);
+      expect(dock.classList.contains('cra-dock-narr-open')).toBe(true);
+
+      (f.nativeElement.querySelector('.cra-narr-header') as HTMLElement).click();
+      f.detectChanges();
+
+      expect(store.narrOpen()).toBe(false);
+      expect(dock.classList.contains('cra-dock-narr-open')).toBe(false);
+    });
+
+    it('"+ Nuova richiesta": conferma leggera IN-APP → "Sì" dispatcha RESET → torna a Stato INPUT col form vuoto', async () => {
+      const f = TestBed.createComponent(App);
+      await setupResults(f);
+      expect(store.screen()).toBe('RESULTS');
+
+      (f.nativeElement.querySelector('.cra-btn-new-request') as HTMLElement).click();
+      f.detectChanges();
+
+      // conferma leggera in-app, non window.confirm: il pulsante si trasforma, RESET non è ancora dispatchato.
+      expect(f.nativeElement.textContent).toContain('Ricominciare?');
+      expect(store.screen()).toBe('RESULTS');
+
+      (f.nativeElement.querySelector('.cra-btn-confirm-yes') as HTMLElement).click();
+      f.detectChanges();
+
+      expect(store.screen()).toBe('INPUT');
+      expect(store.completoData()).toBeNull();
+      expect(store.pendingCitta()).toBeNull();
+      expect(store.pendingZona()).toBeNull();
+      expect(f.nativeElement.querySelector('cra-input-panel')).toBeTruthy();
+      expect(f.nativeElement.querySelector('cra-panel-dock')).toBeNull();
+    });
+
+    it('"+ Nuova richiesta" → "Annulla": resta in RESULTS, nessun RESET dispatchato', async () => {
+      const f = TestBed.createComponent(App);
+      await setupResults(f);
+
+      (f.nativeElement.querySelector('.cra-btn-new-request') as HTMLElement).click();
+      f.detectChanges();
+      (f.nativeElement.querySelector('.cra-btn-confirm-cancel') as HTMLElement).click();
+      f.detectChanges();
+
+      expect(store.screen()).toBe('RESULTS');
+      expect(store.completoData()).toBe(emptyResp);
+      expect(f.nativeElement.querySelector('.cra-btn-new-request')).toBeTruthy();
     });
   });
 });

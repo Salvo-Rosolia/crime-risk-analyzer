@@ -46,6 +46,9 @@ export class StateStore {
   readonly lastQuery = computed(() => this._state().lastQuery);
   /** Stato aperto/chiuso del bottom-sheet della narrativa (Stato B, collassabile). */
   readonly narrOpen = computed(() => this._state().narrOpen);
+  /** Stato aperto/chiuso del dock Lista/Dettaglio POI (`TOGGLE_POI_PANEL`, #199): collassabile per
+   * liberare completamente la mappa. */
+  readonly poiPanelOpen = computed(() => this._state().poiPanelOpen);
 
   dispatch(action: Action): void {
     this._state.update((s) => transition(s, action));

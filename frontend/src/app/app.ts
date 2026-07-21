@@ -2,13 +2,18 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { MapComponent } from '@features/map/map.component';
 import { InputPanelComponent } from '@features/panels/input/input-panel.component';
 import { LoadingOverlayComponent } from '@features/panels/loading/loading-overlay.component';
-import { PoiPanelComponent } from '@features/panels/poi/poi-panel.component';
-import { DetailPanelComponent } from '@features/panels/detail/detail-panel.component';
+import { PanelDockComponent } from '@features/panels/dock/panel-dock.component';
 import { NarrativeSheetComponent } from '@features/panels/narrative/narrative-sheet.component';
 import { BasePanelComponent } from '@features/panels/base/base-panel.component';
 import { HeaderControlsComponent } from '@features/panels/header-controls/header-controls.component';
 import { StateStore } from '@core/state/state.store';
-import { AnalyzeRequestPayload, BaselineParams, Confidence, Mode } from '@core/models/models';
+import {
+  AnalyzeRequestPayload,
+  BaselineParams,
+  Confidence,
+  Mode,
+  NumberedPoi,
+} from '@core/models/models';
 
 @Component({
   selector: 'cra-root',
@@ -17,8 +22,7 @@ import { AnalyzeRequestPayload, BaselineParams, Confidence, Mode } from '@core/m
     MapComponent,
     InputPanelComponent,
     LoadingOverlayComponent,
-    PoiPanelComponent,
-    DetailPanelComponent,
+    PanelDockComponent,
     NarrativeSheetComponent,
     BasePanelComponent,
     HeaderControlsComponent,
@@ -29,9 +33,20 @@ import { AnalyzeRequestPayload, BaselineParams, Confidence, Mode } from '@core/m
 export class App {
   protected readonly store = inject(StateStore);
 
-  /** POI selezionato + il suo numero (stesso ordine/numero del pin e della card accoppiati),
-   * per lo Stato DETAIL: un solo computed evita che le due informazioni possano desincronizzarsi. */
-  protected readonly selectedDetail = computed(() => {
+  /**
+   * POI selezionato + il suo numero (stesso ordine/numero del pin e della card accoppiati), per
+   * la Vista Dettaglio del dock (#199): un solo computed evita che le due informazioni possano
+   * desincronizzarsi.
+   *
+   * Guardia su `store.screen() === 'DETAIL'` (fix review #199): `TOGGLE_MODE` NON azzera
+   * `selectedPoiId` (transition.ts, comportamento invariato/testato altrove), quindi un giro
+   * RESULTS→DETAIL→(toggle Base)→(toggle Completo) tornerebbe in RESULTS con `selectedPoiId`
+   * ancora impostato — senza questa guardia il dock mostrerebbe la Vista Dettaglio mentre lo
+   * stato FSM è RESULTS (desync UI↔FSM). La Vista del dock deve dipendere ESCLUSIVAMENTE da
+   * `screen`, mai dedurla dalla sola presenza di un `selectedPoiId` residuo.
+   */
+  protected readonly selectedDetail = computed<NumberedPoi | null>(() => {
+    if (this.store.screen() !== 'DETAIL') return null;
     const id = this.store.selectedPoiId();
     const poi = this.store.completoData()?.poi ?? [];
     const index = poi.findIndex((p) => p.id === id);
@@ -60,6 +75,19 @@ export class App {
 
   protected onToggleNarr(): void {
     this.store.dispatch({ type: 'TOGGLE_NARR' });
+  }
+
+  /** Collasso del dock Lista/Dettaglio POI (#199 decisione 3): cabla `TOGGLE_POI_PANEL`, dormiente
+   * in FSM+test finché nessun controllo UI lo invocava. */
+  protected onTogglePoiPanel(): void {
+    this.store.dispatch({ type: 'TOGGLE_POI_PANEL' });
+  }
+
+  /** "+ Nuova richiesta" (#199 decisione 4): il dock (`cra-panel-dock`) mostra già la propria
+   * conferma leggera IN-APP prima di emettere questo evento — arriva qui solo dopo la conferma
+   * dell'utente, quindi dispatcha `RESET` direttamente (nessun `window.confirm`). */
+  protected onResetConfirmed(): void {
+    this.store.dispatch({ type: 'RESET' });
   }
 
   /**

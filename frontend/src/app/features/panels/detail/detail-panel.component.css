@@ -1,7 +1,8 @@
 /*
- * :host è un flex-column a tutta altezza del contenitore (`.cra-panel-detail` in app.css ne fissa
- * la max-height): header e footer restano fissi, solo `.cra-detail-body` scrolla internamente
- * (spec-frontend.md §Stato C: "header POI e footer azioni fissi", scroll interno se serve).
+ * :host è un flex-column a tutta altezza del contenitore (`.cra-dock-detail-view` in
+ * `panel-dock.component.css`, #199, ne fissa la max-height tramite il flex del dock): header e
+ * footer restano fissi, solo `.cra-detail-body` scrolla internamente (spec-frontend.md §Stato C:
+ * "header POI e footer azioni fissi", scroll interno se serve).
  */
 :host {
   display: flex;
@@ -75,20 +76,22 @@
   margin-top: 2px;
 }
 
-.cra-detail-close {
+/* Vista Dettaglio del dock (#199): riporta alla Vista Lista (`closeDetail` → `DESELECT_POI`),
+   riusa lo stesso header di questo componente invece di un controllo separato a livello di dock. */
+.cra-detail-back {
   flex: 0 0 auto;
   border: none;
   background: none;
   cursor: pointer;
-  font-size: 1.1rem;
-  line-height: 1;
-  color: var(--ink);
-  opacity: 0.7;
-  padding: var(--space-1);
+  font-family: var(--font-sans);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--accent-2);
+  padding: var(--space-1) var(--space-2) var(--space-1) 0;
 }
 
-.cra-detail-close:hover {
-  opacity: 1;
+.cra-detail-back:hover {
+  text-decoration: underline;
 }
 
 .cra-detail-body {

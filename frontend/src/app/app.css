@@ -58,35 +58,9 @@ cra-map {
 }
 
 /*
- * RESULTS/FILTER/DETAIL possono coesistere (poi-panel + narrative-sheet sempre, detail-panel in
- * aggiunta): ciascuno va ancorato esplicitamente al proprio angolo di `.cra-panels` (altrimenti,
- * da semplici box `position:static`, si impilerebbero verticalmente invece di affiancarsi).
- * `margin:0` qui perché la posizione la danno già `top`/`left`/`right` — il `margin` di
- * `.cra-panel` andrebbe altrimenti a sommarsi all'offset.
+ * Il dock unico Lista/Dettaglio POI (#199, `cra-panel-dock`) e la narrativa bottom-sheet
+ * (`cra-narrative-sheet`) gestiscono da sé posizione/dimensione nel proprio `:host` CSS
+ * (`panel-dock.component.css`/`narrative-sheet.component.css`), perché entrambi hanno un'altezza
+ * dinamica (coordinata dai signal `narrOpen`/`poiPanelOpen`) — a differenza dei pannelli statici
+ * sopra (`.cra-panel`), qui non serve un wrapper con classi di ancoraggio esterne.
  */
-.cra-panel-poi {
-  position: absolute;
-  top: var(--space-4);
-  left: var(--space-4);
-  margin: 0;
-  z-index: 1;
-  max-height: calc(100vh - var(--header-height) - var(--space-4) * 2);
-  overflow-y: auto;
-}
-
-/* Scheda "Dettaglio POI" (Stato DETAIL): top-right, più larga del pannello POI (spec-frontend.md
-   §Stato C, ~412px); header/corpo/footer sono gestiti internamente da cra-detail-panel (colonna
-   flex a tutta altezza), qui solo l'ancoraggio e il contenimento in altezza con scroll interno. */
-.cra-panel-detail {
-  position: absolute;
-  top: var(--space-4);
-  right: var(--space-4);
-  margin: 0;
-  z-index: 2;
-  width: 412px;
-  max-width: calc(100vw - var(--space-4) * 2);
-  max-height: calc(100vh - var(--header-height) - var(--space-4) * 2);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}

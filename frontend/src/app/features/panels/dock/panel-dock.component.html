@@ -1,0 +1,59 @@
+<div class="cra-dock-head">
+  <button
+    type="button"
+    class="cra-dock-toggle"
+    [attr.aria-expanded]="open()"
+    aria-label="Comprimi o espandi il pannello POI"
+    (click)="toggleOpen.emit()"
+  >
+    <span aria-hidden="true">{{ open() ? '◂' : '▸' }}</span>
+  </button>
+
+  @if (open()) {
+    <span class="cra-dock-spacer"></span>
+    @if (!confirmingReset()) {
+      <button
+        #newRequestBtn
+        type="button"
+        class="cra-btn-new-request"
+        (click)="onNewRequestClick()"
+      >
+        + Nuova richiesta
+      </button>
+    } @else {
+      <span class="cra-reset-confirm" role="group" aria-label="Confermare nuova richiesta">
+        Ricominciare? Perderai i risultati
+        <button #confirmYesBtn type="button" class="cra-btn-confirm-yes" (click)="onConfirmReset()">
+          Sì
+        </button>
+        <button type="button" class="cra-btn-confirm-cancel" (click)="onCancelReset()">
+          Annulla
+        </button>
+      </span>
+    }
+  }
+</div>
+
+<div class="cra-dock-body" [hidden]="!open()">
+  <div class="cra-dock-list-view" [hidden]="detail() !== null">
+    <cra-poi-panel
+      [pois]="pois()"
+      [filter]="filter()"
+      [selectedId]="selectedId()"
+      (selectPoi)="selectPoi.emit($event)"
+      (setFilter)="setFilter.emit($event)"
+      (clearFilter)="clearFilter.emit()"
+    />
+  </div>
+
+  @if (detail(); as d) {
+    <div class="cra-dock-detail-view">
+      <cra-detail-panel
+        [poi]="d.poi"
+        [number]="d.number"
+        [riskModels]="riskModels()"
+        (closeDetail)="closeDetail.emit()"
+      />
+    </div>
+  }
+</div>

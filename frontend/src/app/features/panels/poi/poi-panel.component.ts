@@ -1,12 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import { CONF, poiConfidenceCounts } from '@core/confidence';
-import { Confidence, Poi } from '@core/models/models';
+import { Confidence, NumberedPoi, Poi } from '@core/models/models';
 import { matchesFilter, poiDisplayLabel } from '@core/ui-helpers';
-
-interface NumberedPoi {
-  poi: Poi;
-  number: number;
-}
 
 const LEVELS: readonly Confidence[] = ['confermato', 'plausibile', 'speculativo'];
 
