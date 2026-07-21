@@ -1,4 +1,5 @@
 <div class="cra-detail-header">
+  <button type="button" class="cra-detail-back" (click)="closeDetail.emit()">‹ indietro</button>
   <span class="cra-detail-pin" [style.background]="conf[poi().confidence].color">{{
     number()
   }}</span>
@@ -9,14 +10,6 @@
   <span class="cra-badge-confidence" [style.color]="conf[poi().confidence].color">
     {{ conf[poi().confidence].dot }} {{ conf[poi().confidence].label }}
   </span>
-  <button
-    type="button"
-    class="cra-detail-close"
-    aria-label="Chiudi dettaglio"
-    (click)="closeDetail.emit()"
-  >
-    ✕
-  </button>
 </div>
 
 <div class="cra-detail-body">

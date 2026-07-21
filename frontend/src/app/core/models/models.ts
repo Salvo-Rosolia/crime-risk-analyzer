@@ -15,6 +15,15 @@ export interface Poi {
   terminus_label_en: string;
 }
 
+/** POI + il suo numero di visualizzazione (stesso ordine/numero del pin e della card accoppiati):
+ * tipo condiviso tra shell (`app.ts`), dock (`panel-dock.component.ts`) e Vista Lista
+ * (`poi-panel.component.ts`, #199) per evitare che le due informazioni vengano ricalcolate o
+ * duplicate in più punti (potenziale desincronizzazione). */
+export interface NumberedPoi {
+  poi: Poi;
+  number: number;
+}
+
 export interface RiskItem {
   hazard: string;
   confidence: Confidence;

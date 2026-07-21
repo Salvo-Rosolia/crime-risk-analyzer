@@ -23,33 +23,29 @@
 <section class="cra-panels">
   @if (store.screen() === 'RESULTS' || store.screen() === 'FILTER' || store.screen() === 'DETAIL') {
     <!--
-      RESULTS, FILTER e DETAIL condividono lo stesso pannello POI + bottom-sheet narrativa
-      (anziché @case distinti): selezionare/deselezionare un POI o cambiare filtro non deve
-      smontare/rimontare cra-poi-panel o cra-narrative-sheet (niente reset dello scroll/collasso
-      — stessa ragione dell'unificazione RESULTS/FILTER di #66, estesa qui a DETAIL). La scheda
-      di dettaglio si aggiunge come pannello ulteriore quando c'è un POI selezionato.
+      RESULTS, FILTER e DETAIL condividono lo stesso dock (Lista POI + Vista Dettaglio, #199) e
+      bottom-sheet narrativa (anziché @case distinti): selezionare/deselezionare un POI o cambiare
+      filtro non deve smontare/rimontare cra-panel-dock o cra-narrative-sheet (niente reset dello
+      scroll/collasso — stessa ragione dell'unificazione RESULTS/FILTER di #66, estesa qui a
+      DETAIL). Il Dettaglio non è più un pannello flottante separato: è una VISTA dentro il dock,
+      mostrata quando c'è un POI selezionato (`selectedDetail`), che il dock stesso alterna con la
+      Vista Lista senza smontarsi (`panel-dock.component.ts`).
     -->
-    <div class="cra-panel cra-panel-poi">
-      <cra-poi-panel
-        [pois]="store.completoData()?.poi ?? []"
-        [filter]="store.filter()"
-        [selectedId]="store.selectedPoiId()"
-        (selectPoi)="onPoiClick($event)"
-        (setFilter)="onSetFilter($event)"
-        (clearFilter)="onClearFilter()"
-      />
-    </div>
-
-    @if (store.screen() === 'DETAIL' && selectedDetail(); as detail) {
-      <div class="cra-panel cra-panel-detail">
-        <cra-detail-panel
-          [poi]="detail.poi"
-          [number]="detail.number"
-          [riskModels]="store.completoData()?.risk_models ?? []"
-          (closeDetail)="onCloseDetail()"
-        />
-      </div>
-    }
+    <cra-panel-dock
+      [pois]="store.completoData()?.poi ?? []"
+      [filter]="store.filter()"
+      [selectedId]="store.selectedPoiId()"
+      [detail]="selectedDetail()"
+      [riskModels]="store.completoData()?.risk_models ?? []"
+      [open]="store.poiPanelOpen()"
+      [narrOpen]="store.narrOpen()"
+      (selectPoi)="onPoiClick($event)"
+      (setFilter)="onSetFilter($event)"
+      (clearFilter)="onClearFilter()"
+      (closeDetail)="onCloseDetail()"
+      (toggleOpen)="onTogglePoiPanel()"
+      (resetConfirmed)="onResetConfirmed()"
+    />
 
     <cra-narrative-sheet
       [citta]="store.completoData()?.citta ?? null"

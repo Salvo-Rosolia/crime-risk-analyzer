@@ -50,7 +50,11 @@ test.describe('RESULTS→DETAIL: accoppiamento bidirezionale marker↔card', () 
     await S.mapMarkers(page).nth(0).click();
 
     await expect(S.detailPanel(page)).toBeVisible();
-    await expect(S.poiPanel(page)).toBeVisible(); // RESULTS/DETAIL condividono lo stesso pannello POI
+    // Dock unico (#199): la Vista Dettaglio nasconde la Vista Lista (mutuamente esclusive dentro
+    // cra-panel-dock), che però non si smonta (`panelDock` resta lo stesso nodo — verificato negli
+    // unit test di app.spec.ts).
+    await expect(S.poiPanel(page)).toBeHidden();
+    await expect(S.panelDock(page)).toBeVisible();
 
     // Citazione SPARQL lineare: un salto per parte, stesso ordine di `sparql_path`.
     await expect(S.detailCitationParts(page)).toHaveText(poi.sparql_path!.split(' → '));
@@ -65,7 +69,7 @@ test.describe('RESULTS→DETAIL: accoppiamento bidirezionale marker↔card', () 
     // Accoppiamento bidirezionale: la card dello stesso POI è marcata come selezionata.
     await expect(S.poiCards(page).nth(0)).toHaveAttribute('aria-current', 'true');
 
-    await S.detailClose(page).click();
+    await S.detailBack(page).click();
 
     await expect(S.detailPanel(page)).toBeHidden();
     await expect(S.poiPanel(page)).toBeVisible();
@@ -95,7 +99,7 @@ test.describe('RESULTS→DETAIL: accoppiamento bidirezionale marker↔card', () 
     await expect(S.mapMarkerPin(page).nth(2)).toHaveCSS('width', '34px');
     await expect(S.mapMarkerPin(page).nth(0)).toHaveCSS('width', '26px');
 
-    await S.detailClose(page).click();
+    await S.detailBack(page).click();
 
     await expect(S.detailPanel(page)).toBeHidden();
     await expect(S.poiPanel(page)).toBeVisible();

@@ -1,0 +1,155 @@
+/*
+ * Dock unico a sinistra (#199): a differenza dei vecchi wrapper `.cra-panel-poi`/`.cra-panel-detail`
+ * in app.css (ancoraggio via classi esterne), questo componente gestisce da sé posizione/chrome —
+ * stesso pattern di `narrative-sheet.component.css` — perché la sua altezza deve reagire a
+ * `narrOpen` (criteri d'accettazione #199: dock e narrativa non si sovrappongono mai) e la sua
+ * larghezza deve reagire al collasso (`open`).
+ */
+:host {
+  position: absolute;
+  top: var(--space-4);
+  left: var(--space-4);
+  z-index: 1;
+  width: var(--panel-max-width);
+  max-height: calc(
+    100vh - var(--header-height) - var(--space-4) * 2 - var(--dock-narr-reserve, 56px)
+  );
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  pointer-events: auto;
+  background: var(--panel-bg);
+  border: var(--panel-border) solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+/*
+ * Coordinamento altezza dock↔narrativa (#199, criteri d'accettazione 2 e 5): la narrativa
+ * bottom-sheet aperta occupa fino a 45vh (`narrative-sheet.component.css`, stesso `--space-4` di
+ * margine dal bordo) — riserviamo quello spazio + un margine di sicurezza così il dock si accorcia
+ * e non la copre mai. Chiusa, la narrativa collassa al solo header (poche decine di px): riserviamo
+ * un valore minimo fisso al suo posto (var `--dock-narr-reserve` di default sopra, 56px: margine
+ * di sicurezza sopra la stima dell'header collassato, ~41px + bordo host, per non ridursi a un
+ * gap di 1px soggetto ad arrotondamenti del motore di rendering).
+ */
+:host.cra-dock-narr-open {
+  --dock-narr-reserve: calc(45vh + var(--space-4) * 2);
+}
+
+/* Dock collassato (`TOGGLE_POI_PANEL`/`poiPanelOpen`, #199 decisione 3): si riduce a una
+   barretta con solo il controllo di espansione, liberando la mappa. */
+:host.cra-dock-collapsed {
+  width: auto;
+  max-height: none;
+}
+
+.cra-dock-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+}
+
+:host:not(.cra-dock-collapsed) .cra-dock-head {
+  border-bottom: var(--panel-border) solid var(--ink);
+}
+
+.cra-dock-toggle {
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--accent);
+  padding: var(--space-1);
+}
+
+.cra-dock-spacer {
+  flex: 1 1 auto;
+}
+
+.cra-btn-new-request {
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: 1.5px solid var(--accent-2);
+  border-radius: calc(var(--radius) / 2);
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cra-btn-new-request:hover {
+  background: var(--accent-2);
+}
+
+/* Conferma leggera IN-APP (#199 decisione 4, mai `window.confirm`): sostituisce il pulsante
+   "+ Nuova richiesta" fino alla scelta esplicita Sì/Annulla. */
+.cra-reset-confirm {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.cra-btn-confirm-yes {
+  font-family: var(--font-sans);
+  font-weight: 700;
+  color: #fff;
+  background: var(--c-error);
+  border: 1.5px solid var(--c-error);
+  border-radius: calc(var(--radius) / 2);
+  padding: 2px var(--space-2);
+  cursor: pointer;
+}
+
+.cra-btn-confirm-cancel {
+  font-family: var(--font-sans);
+  color: var(--ink-2);
+  background: transparent;
+  border: 1.5px solid var(--hair-strong);
+  border-radius: calc(var(--radius) / 2);
+  padding: 2px var(--space-2);
+  cursor: pointer;
+}
+
+.cra-dock-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* `[hidden]` deve vincere sulle regole `display` sotto (stessa specificità dello UA stylesheet,
+   l'ordine di sorgente altrimenti farebbe vincere le nostre) — vale per body/list/detail-view. */
+.cra-dock-body[hidden] {
+  display: none;
+}
+
+.cra-dock-list-view {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+
+.cra-dock-list-view[hidden] {
+  display: none;
+}
+
+/* Vista Dettaglio (#199): stesso pattern flex-column a tutta altezza già usato da
+   `detail-panel.component.css` (header/footer fissi, `.cra-detail-body` scrolla da sola) — qui
+   solo il contenimento in altezza via flex, la logica di scroll interno resta nel componente. */
+.cra-dock-detail-view {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-4);
+}

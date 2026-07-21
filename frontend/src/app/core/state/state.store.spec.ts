@@ -181,6 +181,14 @@ describe('StateStore', () => {
     });
   });
 
+  describe('poiPanelOpen computed (#199: cablato al collasso del dock Lista/Dettaglio)', () => {
+    it('parte aperto e si inverte con TOGGLE_POI_PANEL', () => {
+      expect(store.poiPanelOpen()).toBe(true);
+      store.dispatch({ type: 'TOGGLE_POI_PANEL' });
+      expect(store.poiPanelOpen()).toBe(false);
+    });
+  });
+
   describe('BLOCCANTE A (review #67-bis): race condition sul routing per-mode', () => {
     it('risposta Completo in volo + toggle a Base nel frattempo → la risposta finisce SEMPRE in completoData, mai in baselineData', async () => {
       let resolveAnalyze!: (value: AnalyzeResponse) => void;
