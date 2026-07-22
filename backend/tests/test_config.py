@@ -199,6 +199,7 @@ def test_geocoding_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
         "GEOCODING_MIN_DELAY_SECONDS",
         "GEOCODING_TIMEOUT_SECONDS",
         "GEOCODING_COUNTRY_CODES",
+        "GEOCODING_MIN_BBOX_HALF_SPAN_DEG",
     ):
         monkeypatch.delenv(var, raising=False)
 
@@ -207,6 +208,7 @@ def test_geocoding_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.geocoding_min_delay_seconds == 1.1
     assert settings.geocoding_timeout_seconds == 10.0
     assert settings.geocoding_country_codes == "it"
+    assert settings.geocoding_min_bbox_half_span_deg == 0.01
 
 
 @pytest.mark.parametrize("value", ["0", "-1", "-0.5"])
@@ -231,17 +233,34 @@ def test_invalid_geocoding_timeout_rejected(
         Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
 
 
+@pytest.mark.parametrize("value", ["0", "-1", "-0.5"])
+def test_invalid_geocoding_min_bbox_half_span_rejected(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    """geocoding_min_bbox_half_span_deg <= 0 e' respinto al load (deve essere > 0).
+
+    Un valore 0/negativo degenererebbe il pavimento minimo in un bbox nullo o
+    invertito a runtime (#204): meglio fallire al caricamento.
+    """
+    monkeypatch.setenv("GEOCODING_MIN_BBOX_HALF_SPAN_DEG", value)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+
+
 def test_geocoding_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """I valori di geocoding da environment sovrascrivono i default."""
     monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.5")
     monkeypatch.setenv("GEOCODING_TIMEOUT_SECONDS", "20")
     monkeypatch.setenv("GEOCODING_COUNTRY_CODES", "it,sm")
+    monkeypatch.setenv("GEOCODING_MIN_BBOX_HALF_SPAN_DEG", "0.02")
 
     settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
 
     assert settings.geocoding_min_delay_seconds == 0.5
     assert settings.geocoding_timeout_seconds == 20.0
     assert settings.geocoding_country_codes == "it,sm"
+    assert settings.geocoding_min_bbox_half_span_deg == 0.02
 
 
 @pytest.mark.parametrize("value", ["", "   "])
