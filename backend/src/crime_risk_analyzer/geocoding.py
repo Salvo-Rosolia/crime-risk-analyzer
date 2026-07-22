@@ -13,7 +13,11 @@ un handler async.
 
 Nota (decisione 3B): il PRODOTTO filtra i POI col ``bbox`` Nominatim *by design*;
 il filtro poligonale reale e' riservato al gate di valutazione (eval/city_agnostic).
-Il "sbavamento" del bbox ai bordi e' quindi noto e misurato li', non un difetto qui.
+Il bbox Nominatim resta la base, ma con una dimensione minima garantita (#204,
+:func:`_enforce_min_bbox`): senza pavimento una zona che risolve a un landmark
+puntuale (bbox ~150 m) restituirebbe 0 POI da Overpass e ``/analyze`` un 200
+vuoto. Il "sbavamento" del bbox ai bordi resta cosi' noto e misurato nel gate
+eval, non un difetto qui.
 """
 
 from __future__ import annotations
@@ -186,6 +190,29 @@ def _parse_bbox(boundingbox: object) -> Bbox:
     return Bbox(min_lat=lat_min, min_lon=lon_min, max_lat=lat_max, max_lon=lon_max)
 
 
+def _enforce_min_bbox(bbox: Bbox, half_span: float) -> Bbox:
+    """Impone una dimensione minima al ``bbox`` espandendolo simmetricamente (#204).
+
+    Quando una zona risolve a un landmark puntuale, Nominatim ritorna un bbox
+    minuscolo (grande quanto l'edificio) in cui Overpass non trova alcun POI.
+    Qui si garantisce che ogni lato misuri almeno ``2 * half_span`` gradi,
+    espandendo attorno al punto medio del bbox originale.
+
+    E' un'operazione "solo-espandi": un bbox gia' piu' grande della soglia resta
+    invariato (i ``min``/``max`` conservano gli estremi originali) e un asse gia'
+    ampio non viene toccato mentre l'altro, stretto, viene esteso. Il punto medio
+    e' preservato su entrambi gli assi.
+    """
+    lat_mid = (bbox.min_lat + bbox.max_lat) / 2
+    lon_mid = (bbox.min_lon + bbox.max_lon) / 2
+    return Bbox(
+        min_lat=min(bbox.min_lat, lat_mid - half_span),
+        min_lon=min(bbox.min_lon, lon_mid - half_span),
+        max_lat=max(bbox.max_lat, lat_mid + half_span),
+        max_lon=max(bbox.max_lon, lon_mid + half_span),
+    )
+
+
 def geocode_zone(zona: str, citta: str) -> GeoResult:
     """Geocodifica ``zona`` dentro ``citta`` -> ``{lat, lon, bbox}``.
 
@@ -220,6 +247,12 @@ def geocode_zone(zona: str, citta: str) -> GeoResult:
         raise ZoneNotFoundError(
             f"Zona priva di bounding box: {zona!r} in {citta!r}"
         ) from exc
+
+    # Pavimento minimo (#204): garantisce un'area di ricerca Overpass utilizzabile
+    # anche quando la zona risolve a un landmark puntuale (bbox Nominatim ~150 m).
+    # Applicato PRIMA di costruire il GeoResult (e quindi di popolare la cache);
+    # lat/lon restano quelli di Nominatim.
+    bbox = _enforce_min_bbox(bbox, settings.geocoding_min_bbox_half_span_deg)
 
     result = GeoResult(lat=location.latitude, lon=location.longitude, bbox=bbox)
     if settings.cache_enabled:

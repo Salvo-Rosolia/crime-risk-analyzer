@@ -61,6 +61,18 @@ class Settings(BaseSettings):
     geocoding_timeout_seconds: float = Field(default=10.0, gt=0)
     # Vincola la ricerca alla nazione (evita zone omonime in altri paesi).
     geocoding_country_codes: str = "it"
+    # Pavimento minimo di dimensione del bbox Nominatim (#204). Quando una zona
+    # risolve a un feature puntuale/edificio (es. "Colosseo"), Nominatim ritorna
+    # un ``boundingbox`` grande quanto il monumento (~150 m): in quel riquadro
+    # Overpass trova 0 POI e ``/analyze`` risponde 200 vuoto (mappa non
+    # ricentrata). Questa e' la semi-ampiezza minima (in gradi) imposta al bbox,
+    # espandendo SIMMETRICAMENTE attorno al punto medio (mai rimpicciolendo un
+    # bbox gia' piu' grande della soglia), cosi' una zona-landmark mantiene
+    # un'area di ricerca Overpass utilizzabile (~1.1 km lat / ~0.8 km lon alla
+    # latitudine di Roma). Valore validato empiricamente (0.01 gradi -> ~50 POI
+    # attorno al Colosseo). Vincolo ``gt=0``: un misconfig da env (0/negativo) e'
+    # respinto al load, non lasciato degenerare in un bbox nullo a runtime.
+    geocoding_min_bbox_half_span_deg: float = Field(default=0.01, gt=0)
     default_city: str = "Roma"
     # Citta SUGGERITE, esposte come autocomplete da ``GET /cities`` — NON un
     # vincolo di validazione (#191): ``POST /analyze``/``/analyze/baseline``

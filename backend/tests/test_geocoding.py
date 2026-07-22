@@ -14,6 +14,7 @@ from crime_risk_analyzer.geocoding import (
     ZoneNotFoundError,
     geocode_zone,
 )
+from crime_risk_analyzer.models.geo import Bbox
 
 
 @pytest.fixture(autouse=True)
@@ -456,3 +457,172 @@ def test_get_geolocator_wires_user_agent_into_header() -> None:
 
     assert user_agent == _USER_AGENT
     assert "https://github.com/Salvo-Rosolia/crime-risk-analyzer" in user_agent
+
+
+# --- #204: pavimento minimo di dimensione del bbox (_enforce_min_bbox) ---
+
+
+def test_min_bbox_floor_expands_tiny_landmark_bbox(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Un bbox minuscolo (landmark) e' espanso ad almeno 2*half_span su ENTRAMBI
+    gli assi, preservando il punto medio; lat/lon restano quelli di Nominatim (#204).
+    """
+    # boundingbox Nominatim [lat_min, lat_max, lon_min, lon_max]: span ~0.001 gradi
+    # (un edificio: e' il caso che dava 0 POI da Overpass -> mappa non ricentrata).
+    fake = _FakeGeocoder(
+        _FakeLocation(41.8902, 12.4922, ["41.8897", "41.8907", "12.4917", "12.4927"])
+    )
+    _patch_geocoder(monkeypatch, fake)
+    half_span = get_settings().geocoding_min_bbox_half_span_deg
+
+    result = geocode_zone("Colosseo", "Roma")
+    bbox = result["bbox"]
+
+    # entrambi i lati espansi ad almeno 2*half_span (tolleranza float)
+    assert bbox.max_lat - bbox.min_lat >= 2 * half_span - 1e-9
+    assert bbox.max_lon - bbox.min_lon >= 2 * half_span - 1e-9
+    # espansione SIMMETRICA: il punto medio del bbox originale e' preservato
+    assert (bbox.min_lat + bbox.max_lat) / 2 == pytest.approx(41.8902)
+    assert (bbox.min_lon + bbox.max_lon) / 2 == pytest.approx(12.4922)
+    # lat/lon = quelli di Nominatim, invariati dal pavimento sul bbox
+    assert result["lat"] == pytest.approx(41.8902)
+    assert result["lon"] == pytest.approx(12.4922)
+
+
+def test_min_bbox_floor_leaves_large_bbox_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Un bbox gia' grande (quartiere, span ~0.05 gradi) NON viene rimpicciolito (#204).
+
+    "Solo-espandi": con un bbox oltre soglia i min/max tengono gli estremi
+    originali, quindi il risultato deve essere identico all'input parsato.
+    """
+    fake = _FakeGeocoder(
+        _FakeLocation(41.885, 12.485, ["41.86", "41.91", "12.46", "12.51"])
+    )
+    _patch_geocoder(monkeypatch, fake)
+
+    result = geocode_zone("Centro Storico", "Roma")
+
+    assert result["bbox"] == (41.86, 12.46, 41.91, 12.51)
+
+
+def test_min_bbox_floor_expands_single_narrow_axis_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bbox stretto su UN asse: espande quell'asse, l'altro resta invariato (#204)."""
+    # lat stretto (~0.001), lon gia' ampio (~0.05).
+    fake = _FakeGeocoder(
+        _FakeLocation(41.8902, 12.485, ["41.8897", "41.8907", "12.46", "12.51"])
+    )
+    _patch_geocoder(monkeypatch, fake)
+    half_span = get_settings().geocoding_min_bbox_half_span_deg
+
+    result = geocode_zone("Via Stretta", "Roma")
+    bbox = result["bbox"]
+
+    # asse lat (stretto) espanso ad almeno 2*half_span (tolleranza float)
+    assert bbox.max_lat - bbox.min_lat >= 2 * half_span - 1e-9
+    # asse lon (gia' ampio) intatto
+    assert bbox.min_lon == pytest.approx(12.46)
+    assert bbox.max_lon == pytest.approx(12.51)
+
+
+def test_enforce_min_bbox_expands_when_below_threshold() -> None:
+    """_enforce_min_bbox: bbox sotto soglia -> espanso a 2*half_span, midpoint fermo."""
+    from crime_risk_analyzer.geocoding import (
+        _enforce_min_bbox,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    bbox = Bbox(min_lat=10.0, min_lon=20.0, max_lat=10.002, max_lon=20.002)
+    out = _enforce_min_bbox(bbox, 0.01)
+
+    assert out.max_lat - out.min_lat == pytest.approx(0.02)
+    assert out.max_lon - out.min_lon == pytest.approx(0.02)
+    assert (out.min_lat + out.max_lat) / 2 == pytest.approx(10.001)
+    assert (out.min_lon + out.max_lon) / 2 == pytest.approx(20.001)
+
+
+def test_enforce_min_bbox_noop_when_above_threshold() -> None:
+    """_enforce_min_bbox: bbox gia' oltre soglia -> invariato (non rimpicciolito)."""
+    from crime_risk_analyzer.geocoding import (
+        _enforce_min_bbox,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    bbox = Bbox(min_lat=10.0, min_lon=20.0, max_lat=10.05, max_lon=20.05)
+    out = _enforce_min_bbox(bbox, 0.01)
+
+    assert out == bbox
+
+
+def test_min_bbox_floor_threshold_is_configurable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cambiare geocoding_min_bbox_half_span_deg cambia l'ampiezza espansa (#204)."""
+    monkeypatch.setenv("GEOCODING_MIN_BBOX_HALF_SPAN_DEG", "0.05")
+    get_settings.cache_clear()
+    fake = _FakeGeocoder(
+        _FakeLocation(41.8902, 12.4922, ["41.8897", "41.8907", "12.4917", "12.4927"])
+    )
+    _patch_geocoder(monkeypatch, fake)
+
+    result = geocode_zone("Colosseo", "Roma")
+    bbox = result["bbox"]
+
+    # con half_span=0.05 ogni lato e' esteso ad almeno 0.10 gradi (tolleranza float)
+    assert bbox.max_lat - bbox.min_lat >= 0.10 - 1e-9
+    assert bbox.max_lon - bbox.min_lon >= 0.10 - 1e-9
+
+
+def test_enforce_min_bbox_noop_at_exact_threshold() -> None:
+    """_enforce_min_bbox: span ESATTAMENTE 2*half_span su ENTRAMBI gli assi ->
+    invariato.
+
+    Caso di confine tra "espandi" e "lascia stare": blinda la logica ``min``/
+    ``max`` contro un futuro refactor a ``<`` vs ``<=`` (un ``<`` stretto
+    lascerebbe passare il caso al ramo espansione).
+    """
+    from crime_risk_analyzer.geocoding import (
+        _enforce_min_bbox,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    half_span = 0.01
+    lat_mid, lon_mid = 41.9, 12.5
+    # bbox costruito come midpoint +/- half_span: span == esattamente 2*half_span
+    # (float-exact, cosi' l'uguaglianza con l'input e' significativa e non flaky).
+    bbox = Bbox(
+        min_lat=lat_mid - half_span,
+        min_lon=lon_mid - half_span,
+        max_lat=lat_mid + half_span,
+        max_lon=lon_mid + half_span,
+    )
+    out = _enforce_min_bbox(bbox, half_span)
+
+    assert out == bbox
+
+
+def test_min_bbox_floor_expands_degenerate_point_bbox(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bbox degenere puntuale (min==max su entrambi gli assi) -> espanso a span
+    2*half_span su entrambi gli assi, centrato sul punto (#204).
+
+    E' il vero worst-case del landmark: Nominatim per un feature puntuale ritorna
+    un boundingbox ad area nulla (0 POI da Overpass senza pavimento).
+    """
+    fake = _FakeGeocoder(
+        _FakeLocation(41.8902, 12.4922, ["41.8902", "41.8902", "12.4922", "12.4922"])
+    )
+    _patch_geocoder(monkeypatch, fake)
+    half_span = get_settings().geocoding_min_bbox_half_span_deg
+
+    result = geocode_zone("Fontana di Trevi", "Roma")
+    bbox = result["bbox"]
+
+    # entrambi i lati espansi a esattamente 2*half_span
+    assert bbox.max_lat - bbox.min_lat == pytest.approx(2 * half_span)
+    assert bbox.max_lon - bbox.min_lon == pytest.approx(2 * half_span)
+    # centrato sul punto degenere (espansione simmetrica)
+    assert (bbox.min_lat + bbox.max_lat) / 2 == pytest.approx(41.8902)
+    assert (bbox.min_lon + bbox.max_lon) / 2 == pytest.approx(12.4922)
