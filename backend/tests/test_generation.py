@@ -10,6 +10,7 @@ dall'ontologia).
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import pytest
@@ -242,13 +243,24 @@ def _many_pois_context(entries: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def test_estimate_tokens_matches_heuristic_and_is_monotonic() -> None:
-    # euristica dependency-free: ceil(len / 3.5)
+    # euristica dependency-free, volutamente CONSERVATIVA: ceil(len / 3.0)
     assert _estimate_tokens("") == 0
-    assert _estimate_tokens("x" * 7) == 2  # ceil(7 / 3.5) == 2
-    assert _estimate_tokens("x" * 8) == 3  # ceil(8 / 3.5) == 3
+    assert _estimate_tokens("x" * 6) == 2  # ceil(6 / 3.0) == 2
+    assert _estimate_tokens("x" * 7) == 3  # ceil(7 / 3.0) == 3
     # monotona non decrescente nella lunghezza del testo
     assert _estimate_tokens("x" * 1000) > _estimate_tokens("x" * 100)
     assert _estimate_tokens("x" * 100) >= _estimate_tokens("x" * 100)
+
+
+def test_estimate_tokens_overstates_common_4_char_rule() -> None:
+    # SOVRASTIMA di proposito (#210): il divisore 3.0 produce piu' token della
+    # regola-del-pollice ~4 char/token, cosi' il margine assorbe l'errore di stima
+    # su testo tecnico italiano con underscore e la richiesta reale resta sotto il
+    # TPM del provider.
+    text = "Furto_con_destrezza presso POI turistico " * 50
+    common_4_char_estimate = math.ceil(len(text) / 4)
+
+    assert _estimate_tokens(text) > common_4_char_estimate
 
 
 def test_build_context_str_includes_all_pois_under_budget_without_note() -> None:
@@ -334,6 +346,45 @@ def test_build_context_str_relevance_ranks_no_risk_poi_last() -> None:
 
     assert "POI RISK" in out
     assert "POI EMPTY" not in out
+
+
+# --- #210: generate_analysis alloca lo user_content nel TETTO TOTALE ---
+# Il budget e' il tetto della richiesta INTERA: l'allowance per lo user_content e'
+# il budget MENO la stima del system prompt e i max_tokens riservati all'output.
+
+
+async def test_generate_analysis_dense_context_trims_within_user_allowance() -> None:
+    # contesto denso (50 POI x 9 hazard, confermato): lo user_content COMPLETO
+    # sfora, quindi il trim deve tenerlo entro l'allowance calcolata al netto di
+    # system prompt + output riservato (non piu' entro il solo budget grezzo).
+    ctx = _many_pois_context([_poi_entry(i, 9) for i in range(50)])
+    client = _FakeLLMClient(_llm_response())
+    request_budget = 10000
+    max_tokens = 1024
+
+    await generate_analysis(
+        ctx, client, request_token_budget=request_budget, max_tokens=max_tokens
+    )
+
+    _system_prompt, user_content = client.calls[0]
+    user_allowance = request_budget - _estimate_tokens(SYSTEM_PROMPT) - max_tokens
+    assert _estimate_tokens(user_content) <= user_allowance
+    # trim avvenuto: nota di trasparenza N/M con N < M
+    n_included = user_content.count("  POI: ")
+    assert 0 < n_included < 50
+    assert f"i {n_included} POI piu' rilevanti su 50" in user_content
+
+
+async def test_generate_analysis_small_context_has_no_trim_note() -> None:
+    # contesto piccolo: tutto entra nell'allowance, nessuna nota di troncamento
+    ctx = _context_dict()
+    client = _FakeLLMClient(_llm_response())
+
+    await generate_analysis(ctx, client)
+
+    _system_prompt, user_content = client.calls[0]
+    assert "NB:" not in user_content
+    assert "piu' rilevanti su" not in user_content
 
 
 # --- generate_analysis: orchestrazione prompt -> LLM -> JSON ---

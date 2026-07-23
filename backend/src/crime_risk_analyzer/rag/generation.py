@@ -324,13 +324,20 @@ def _normalize_user_question(domanda: str | None) -> str:
     return re.sub(r"-{2,}", "- -", collapsed)
 
 
-#: Budget di DEFAULT (stima) di token dello ``user_content`` della narrativa
-#: (#210). DEVE combaciare con ``Settings.llm_context_budget_tokens`` (config.py,
-#: default 9000): la config non puo' importare questo modulo (ciclo
+#: Budget di DEFAULT (stima) di token dell'INTERA richiesta LLM (#210): copre
+#: system prompt + user_content + i ``max_tokens`` riservati all'output, NON solo
+#: lo user_content. DEVE combaciare con ``Settings.llm_request_token_budget``
+#: (config.py, default 10000): la config non puo' importare questo modulo (ciclo
 #: config <- llm.client <- generation), quindi il valore e' duplicato e tenuto in
 #: sync a mano. E' solo il fallback per le chiamate dirette/di test: a runtime il
 #: valore reale arriva da Settings via l'orchestrator (DI, nessuno stato globale).
-DEFAULT_CONTEXT_BUDGET_TOKENS = 9000
+DEFAULT_REQUEST_TOKEN_BUDGET = 10000
+
+#: ``max_tokens`` di DEFAULT riservati all'output dentro il budget totale (#210).
+#: DEVE combaciare con ``Settings.llm_max_tokens`` (config.py) e
+#: ``llm.client._MAX_TOKENS`` (stesso motivo di duplicazione a mano del budget qui
+#: sopra). Fallback per le chiamate dirette/di test: a runtime arriva da Settings.
+DEFAULT_MAX_TOKENS = 1024
 
 #: Rank di ANCORAGGIO dei livelli di confidence (piu' basso = piu' ancorato), usato
 #: come criterio SECONDARIO di rilevanza nel troncamento del contesto (#210): a
@@ -350,12 +357,25 @@ _LEAST_ANCHORED_RANK = 3
 def _estimate_tokens(text: str) -> int:
     """Stima CONSERVATIVA (dependency-free) dei token di ``text`` (#210).
 
-    Euristica ``ceil(len / 3.5)``: nessun tokenizer come dipendenza (coerente con
-    lo stile del progetto). Il divisore 3.5 (< ~4 char/token tipici) SOVRASTIMA
-    leggermente, cosi' il budget di contesto resta un tetto prudente e la richiesta
-    reale sta sotto il TPM del provider. Monotona non decrescente nella lunghezza.
+    Euristica ``ceil(len / 3.0)``: nessun tokenizer come dipendenza (coerente con
+    lo stile del progetto). Il divisore 3.0 e' volutamente piu' prudente della
+    regola-del-pollice ~4 char/token: SOVRASTIMA i token (misurato ~16% in meno
+    con 3.5 su testo tecnico italiano con underscore, che sforava comunque il TPM),
+    cosi' il margine assorbe l'errore di stima e la richiesta reale resta sotto il
+    TPM del provider. Monotona non decrescente nella lunghezza del testo.
     """
-    return math.ceil(len(text) / 3.5)
+    return math.ceil(len(text) / 3.0)
+
+
+#: Allowance di DEFAULT per il SOLO ``user_content``: il budget totale della
+#: richiesta (:data:`DEFAULT_REQUEST_TOKEN_BUDGET`) al netto della stima del system
+#: prompt e dei ``max_tokens`` riservati all'output (#210). E' il default di
+#: :func:`build_context_str` (che ragiona solo sullo user_content, non conosce
+#: system prompt/output); :func:`generate_analysis` ricalcola la stessa quantita'
+#: dai propri parametri runtime, cosi' i due default restano coerenti.
+DEFAULT_USER_CONTENT_BUDGET_TOKENS = (
+    DEFAULT_REQUEST_TOKEN_BUDGET - _estimate_tokens(SYSTEM_PROMPT) - DEFAULT_MAX_TOKENS
+)
 
 
 def _relevance_sort_key(poi: dict[str, Any]) -> tuple[int, int]:
@@ -474,7 +494,7 @@ def build_context_str(
     context_dict: dict[str, Any],
     *,
     domanda: str | None = None,
-    context_budget_tokens: int = DEFAULT_CONTEXT_BUDGET_TOKENS,
+    context_budget_tokens: int = DEFAULT_USER_CONTENT_BUDGET_TOKENS,
 ) -> str:
     """Assembla la parte VARIABILE del prompt dal context validato.
 
@@ -581,7 +601,8 @@ async def generate_analysis(
     llm_client: _LLMClientLike,
     *,
     domanda: str | None = None,
-    context_budget_tokens: int = DEFAULT_CONTEXT_BUDGET_TOKENS,
+    request_token_budget: int = DEFAULT_REQUEST_TOKEN_BUDGET,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> GenerationResult:
     """Genera l'analisi del rischio dal context validato.
 
@@ -595,14 +616,20 @@ async def generate_analysis(
     inclusa nel ``repro.prompt_hash`` (:func:`_prompt_hash_with_domanda`) cosi'
     il run resta ricostruibile; ``None`` = comportamento invariato.
 
-    ``context_budget_tokens`` (#210) e' il tetto di token del contesto passato a
-    :func:`build_context_str`: solo i POI piu' rilevanti che ci stanno entrano nel
-    prompt (mappa/lista restano complete), cosi' su una zona densa la richiesta
-    non sfora il TPM del provider. Il valore reale arriva da Settings via
-    l'orchestrator; il default e' il fallback conservativo.
+    Budget di token (#210): ``request_token_budget`` e' il TETTO TOTALE (stima)
+    dell'intera richiesta LLM, che il conteggio TPM del provider forma su system
+    prompt + user_content + ``max_tokens`` riservati all'output. Qui, essendo
+    l'unico punto con visibilita' su tutti e tre, si ricava l'allowance per il solo
+    ``user_content`` sottraendo la stima del system prompt e ``max_tokens`` dal
+    tetto, e la si passa alla logica di trim di :func:`build_context_str` (che
+    include GREEDY per rilevanza solo i POI che ci stanno; mappa/lista restano
+    complete). Cosi' l'intera richiesta, non solo lo user_content, resta sotto il
+    TPM del provider. I valori reali arrivano da Settings via l'orchestrator; i
+    default sono i fallback conservativi.
     """
+    user_allowance = request_token_budget - _estimate_tokens(SYSTEM_PROMPT) - max_tokens
     user_content = build_context_str(
-        context_dict, domanda=domanda, context_budget_tokens=context_budget_tokens
+        context_dict, domanda=domanda, context_budget_tokens=user_allowance
     )
 
     start = time.perf_counter()

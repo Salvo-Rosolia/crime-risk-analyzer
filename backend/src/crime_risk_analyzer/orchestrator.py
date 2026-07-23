@@ -20,7 +20,8 @@ from crime_risk_analyzer.llm.client import LLMError, LLMResponse
 from crime_risk_analyzer.models.risk import PoiRiskProfile
 from crime_risk_analyzer.models.vocab import Confidence, ConfidenceSummary
 from crime_risk_analyzer.rag.generation import (
-    DEFAULT_CONTEXT_BUDGET_TOKENS,
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_REQUEST_TOKEN_BUDGET,
     Repro,
     RiskItem,
     RiskModel,
@@ -272,7 +273,8 @@ async def run_analysis(
     poi_source: PoiSource | None = None,
     geo_source: GeoSource | None = None,
     domanda: str | None = None,
-    context_budget_tokens: int = DEFAULT_CONTEXT_BUDGET_TOKENS,
+    request_token_budget: int = DEFAULT_REQUEST_TOKEN_BUDGET,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> AnalyzeResponse:
     """Esegue la pipeline completa e assembla la response canonica.
 
@@ -286,9 +288,12 @@ async def run_analysis(
     propagata a :func:`generate_analysis` e iniettata nello ``user_content`` del
     prompt LLM; ``None`` = comportamento invariato.
 
-    ``context_budget_tokens`` (#210) e' il tetto di token del contesto passato al
-    generation layer: su una zona densa i POI oltre budget non entrano nel prompt
-    (mappa/lista restano complete) e la richiesta non sfora il TPM del provider.
+    Budget di token (#210): ``request_token_budget`` e' il tetto TOTALE (stima)
+    dell'intera richiesta LLM (system prompt + user_content + ``max_tokens``) e
+    ``max_tokens`` i token riservati all'output; entrambi sono propagati a
+    :func:`generate_analysis`, che ne ricava l'allowance per lo user_content. Su
+    una zona densa i POI oltre allowance non entrano nel prompt (mappa/lista
+    restano complete) e l'intera richiesta non sfora il TPM del provider.
 
     ``geo_source`` (opzionale, #169) e' propagato a :func:`retrieve` per il replay
     del geo nell'harness di eval; ``None`` = geocoding live (prodotto invariato).
@@ -304,7 +309,8 @@ async def run_analysis(
             dict(grounded),
             llm_client,
             domanda=domanda,
-            context_budget_tokens=context_budget_tokens,
+            request_token_budget=request_token_budget,
+            max_tokens=max_tokens,
         )
         tokens_input = gen.tokens_input
         tokens_output = gen.tokens_output

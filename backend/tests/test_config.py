@@ -90,30 +90,34 @@ def test_valid_llm_timeout_and_max_tokens_from_env(
     assert settings.llm_max_tokens == 2048
 
 
-def test_llm_context_budget_tokens_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Senza env il budget di contesto LLM ha il default conservativo (#210)."""
-    monkeypatch.delenv("LLM_CONTEXT_BUDGET_TOKENS", raising=False)
+def test_llm_request_token_budget_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Senza env il tetto totale di token della richiesta LLM ha il default (#210).
+
+    10000 sta sotto il TPM del provider (Groq free = 12000) e lascia ~2000 di
+    margine per l'errore di stima: la richiesta densa reale non sfora piu' il TPM.
+    """
+    monkeypatch.delenv("LLM_REQUEST_TOKEN_BUDGET", raising=False)
 
     settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
 
-    assert settings.llm_context_budget_tokens == 9000
+    assert settings.llm_request_token_budget == 10000
 
 
-def test_llm_context_budget_tokens_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Il budget di contesto LLM e' sovrascrivibile da env (#210)."""
-    monkeypatch.setenv("LLM_CONTEXT_BUDGET_TOKENS", "5000")
+def test_llm_request_token_budget_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Il tetto totale di token della richiesta LLM e' sovrascrivibile da env (#210)."""
+    monkeypatch.setenv("LLM_REQUEST_TOKEN_BUDGET", "8000")
 
     settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
 
-    assert settings.llm_context_budget_tokens == 5000
+    assert settings.llm_request_token_budget == 8000
 
 
 @pytest.mark.parametrize("value", ["0", "-1", "-100"])
-def test_invalid_llm_context_budget_tokens_rejected(
+def test_invalid_llm_request_token_budget_rejected(
     monkeypatch: pytest.MonkeyPatch, value: str
 ) -> None:
-    """llm_context_budget_tokens < 1 e' respinto al load (almeno 1 token, #210)."""
-    monkeypatch.setenv("LLM_CONTEXT_BUDGET_TOKENS", value)
+    """llm_request_token_budget < 1 e' respinto al load (almeno 1 token, #210)."""
+    monkeypatch.setenv("LLM_REQUEST_TOKEN_BUDGET", value)
 
     with pytest.raises(ValidationError):
         Settings(_env_file=None)  # pyright: ignore[reportCallIssue]

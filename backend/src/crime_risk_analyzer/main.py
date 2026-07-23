@@ -79,8 +79,10 @@ async def analyze(
     Gli altri errori di dominio propagano agli handler centrali (#21); ``LLMError``
     e' gestito in :func:`run_analysis` come fallback strutturato (200).
     ``request.domanda`` (opzionale, #119) e' propagata fino allo ``user_content``
-    del prompt LLM. Il budget di token del contesto (#210) arriva da ``Settings``
-    (DI) e limita i POI passati all'LLM su zone dense, senza sforare il TPM.
+    del prompt LLM. Il tetto totale di token della richiesta e i ``max_tokens`` di
+    output (#210) arrivano da ``Settings`` (DI): il generation layer ne ricava
+    l'allowance per lo user_content e limita i POI passati all'LLM su zone dense,
+    cosi' l'intera richiesta non sfora il TPM del provider.
     """
     return await run_analysis(
         request.citta,
@@ -88,7 +90,8 @@ async def analyze(
         executor=executor,
         llm_client=llm_client,
         domanda=request.domanda,
-        context_budget_tokens=settings.llm_context_budget_tokens,
+        request_token_budget=settings.llm_request_token_budget,
+        max_tokens=settings.llm_max_tokens,
     )
 
 
