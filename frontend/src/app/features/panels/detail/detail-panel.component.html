@@ -1,8 +1,6 @@
 <div class="cra-detail-header">
   <button type="button" class="cra-detail-back" (click)="closeDetail.emit()">‹ indietro</button>
-  <span class="cra-detail-pin" [style.background]="pinColor(poi().confidence)">{{
-    number()
-  }}</span>
+  <span class="cra-detail-pin" [style.background]="pinColor(poi().confidence)">{{ number() }}</span>
   <div class="cra-detail-heading">
     <div class="cra-detail-name">{{ poi().name }}</div>
     <div class="cra-detail-class">tc:{{ poi().terminus_class }} · {{ detailModel().poiLabel }}</div>
