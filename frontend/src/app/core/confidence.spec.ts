@@ -2,6 +2,7 @@ import {
   CONF,
   DIM_COLOR,
   SRC_TAG_META,
+  confMeta,
   coverageBadgeText,
   deriveCoverage,
   pinColor,
@@ -13,11 +14,26 @@ import { Poi, RiskModel } from '@core/models/models';
 
 describe('confidence', () => {
   it('pinColor restituisce il colore del livello', () => {
-    expect(pinColor('confermato')).toBe(CONF.confermato.color);
+    expect(pinColor('verificato')).toBe(CONF.verificato.color);
   });
 
   it('pinColor cade su DIM_COLOR per livelli ignoti', () => {
     expect(pinColor('boh')).toBe(DIM_COLOR);
+  });
+
+  it('confMeta: risolve i 3 livelli noti da CONF', () => {
+    expect(confMeta('verificato')).toEqual(CONF.verificato);
+    expect(confMeta('da_confermare')).toEqual(CONF.da_confermare);
+    expect(confMeta('ipotesi')).toEqual(CONF.ipotesi);
+  });
+
+  it('confMeta: fallback difensivo per un livello fuori contratto (colore DIM_COLOR, dot/label placeholder)', () => {
+    expect(confMeta('boh')).toEqual({
+      color: DIM_COLOR,
+      bg: DIM_COLOR,
+      dot: '?',
+      label: 'Sconosciuto',
+    });
   });
 
   it('deriveCoverage: total = somma summary, anchored = risk con tag ONTOLOGIA', () => {
@@ -27,14 +43,14 @@ describe('confidence', () => {
         risks: [
           {
             hazard: 'h1',
-            confidence: 'confermato',
+            confidence: 'verificato',
             tag: 'ONTOLOGIA',
             hazard_label_it: 'H1',
             hazard_label_en: 'H1',
           },
           {
             hazard: 'h2',
-            confidence: 'plausibile',
+            confidence: 'da_confermare',
             tag: 'CONTESTO',
             hazard_label_it: 'H2',
             hazard_label_en: 'H2',
@@ -46,7 +62,7 @@ describe('confidence', () => {
         risks: [
           {
             hazard: 'h3',
-            confidence: 'confermato',
+            confidence: 'verificato',
             tag: 'ONTOLOGIA',
             hazard_label_it: 'H3',
             hazard_label_en: 'H3',
@@ -54,7 +70,7 @@ describe('confidence', () => {
         ],
       },
     ];
-    expect(deriveCoverage({ confermato: 2, plausibile: 1, speculativo: 1 }, riskModels)).toEqual({
+    expect(deriveCoverage({ verificato: 2, da_confermare: 1, ipotesi: 1 }, riskModels)).toEqual({
       total: 4,
       anchored: 2,
     });
@@ -69,19 +85,19 @@ describe('confidence', () => {
   });
 
   it('pinHTML in focus usa dimensione 34 e include il numero', () => {
-    const html = pinHTML(3, 'confermato', { focus: true });
+    const html = pinHTML(3, 'verificato', { focus: true });
     expect(html).toContain('width:34px');
     expect(html).toContain('>3<');
   });
 
   it('pinHTML contiene il numero passato e il colore del livello di confidenza', () => {
-    const html = pinHTML(7, 'plausibile');
+    const html = pinHTML(7, 'da_confermare');
     expect(html).toContain('>7<');
-    expect(html).toContain(CONF.plausibile.color);
+    expect(html).toContain(CONF.da_confermare.color);
   });
 
   it('pinHTML in dim usa DIM_COLOR e opacità ridotta', () => {
-    const html = pinHTML(1, 'confermato', { dim: true });
+    const html = pinHTML(1, 'verificato', { dim: true });
     expect(html).toContain(DIM_COLOR);
     expect(html).toContain('opacity:0.45');
   });
@@ -103,25 +119,25 @@ describe('confidence', () => {
       terminus_label_en: '',
     });
     const pois: Poi[] = [
-      poi('1', 'confermato'),
-      poi('2', 'confermato'),
-      poi('3', 'plausibile'),
-      poi('4', 'speculativo'),
+      poi('1', 'verificato'),
+      poi('2', 'verificato'),
+      poi('3', 'da_confermare'),
+      poi('4', 'ipotesi'),
     ];
-    expect(poiConfidenceCounts(pois)).toEqual({ confermato: 2, plausibile: 1, speculativo: 1 });
+    expect(poiConfidenceCounts(pois)).toEqual({ verificato: 2, da_confermare: 1, ipotesi: 1 });
   });
 
   it('poiConfidenceCounts: input null/undefined/vuoto → tutti i livelli a zero', () => {
-    const zero = { confermato: 0, plausibile: 0, speculativo: 0 };
+    const zero = { verificato: 0, da_confermare: 0, ipotesi: 0 };
     expect(poiConfidenceCounts(null)).toEqual(zero);
     expect(poiConfidenceCounts(undefined)).toEqual(zero);
     expect(poiConfidenceCounts([])).toEqual(zero);
   });
 
   it('SRC_TAG_META: colore allineato a CONF per il livello analogo, con breve descrizione', () => {
-    expect(SRC_TAG_META.ONTOLOGIA.color).toBe(CONF.confermato.color);
-    expect(SRC_TAG_META.CONTESTO.color).toBe(CONF.plausibile.color);
-    expect(SRC_TAG_META.SPECULATIVO.color).toBe(CONF.speculativo.color);
+    expect(SRC_TAG_META.ONTOLOGIA.color).toBe(CONF.verificato.color);
+    expect(SRC_TAG_META.CONTESTO.color).toBe(CONF.da_confermare.color);
+    expect(SRC_TAG_META.SPECULATIVO.color).toBe(CONF.ipotesi.color);
     expect(SRC_TAG_META.ONTOLOGIA.description).toBe('da ontologia formale');
     expect(SRC_TAG_META.CONTESTO.description).toBe('da contesto ambientale');
     expect(SRC_TAG_META.SPECULATIVO.description).toBe('inferenza non verificata');
@@ -137,7 +153,7 @@ describe('confidence', () => {
     expect(srcTagMeta('SPECULATIVO')).toEqual(SRC_TAG_META.SPECULATIVO);
   });
 
-  it('srcTagMeta: fallback difensivo per tag fuori contratto (colore speculativo, nessuna descrizione)', () => {
-    expect(srcTagMeta('ALTRO')).toEqual({ color: CONF.speculativo.color, description: '' });
+  it('srcTagMeta: fallback difensivo per tag fuori contratto (colore ipotesi, nessuna descrizione)', () => {
+    expect(srcTagMeta('ALTRO')).toEqual({ color: CONF.ipotesi.color, description: '' });
   });
 });

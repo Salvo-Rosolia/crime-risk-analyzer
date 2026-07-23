@@ -17,7 +17,7 @@ def _response(narrativa: str) -> AnalyzeResponse:
                 terminus_class="Bank",
                 lat=1.0,
                 lon=2.0,
-                confidence="confermato",
+                confidence="verificato",
                 terminus_label_it="Banca",
                 terminus_label_en="Bank",
             )
@@ -28,7 +28,7 @@ def _response(narrativa: str) -> AnalyzeResponse:
                 risks=[
                     RiskItem(
                         hazard="Bank_robbery",
-                        confidence="confermato",
+                        confidence="verificato",
                         tag="ONTOLOGIA",
                         hazard_label_it="rapina in banca",
                         hazard_label_en="bank robbery",
@@ -37,7 +37,7 @@ def _response(narrativa: str) -> AnalyzeResponse:
             )
         ],
         narrativa=narrativa,
-        confidence_summary=ConfidenceSummary(confermato=1),
+        confidence_summary=ConfidenceSummary(verificato=1),
         llm_used="claude-x",
         latenza_ms=10,
         repro=Repro(temperature=0.0, seed=0, prompt_hash="h"),

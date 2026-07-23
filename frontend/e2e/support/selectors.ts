@@ -85,8 +85,9 @@ export const S = {
   coverageBadge: (p: Page): Locator => p.locator('cra-header-controls .cra-coverage-badge'),
   /** Chip filtro confidence dell'header (`.cra-chip`, uno per livello, con conteggio POI in `<b>`). */
   headerConfidenceChips: (p: Page): Locator => p.locator('cra-header-controls .cra-chip'),
-  /** Chip filtro confidence del pannello POI (`.cra-filter-bar .cra-chip`, stesso conteggio). */
-  poiConfidenceChips: (p: Page): Locator => p.locator('cra-poi-panel .cra-chip'),
+  /** Righe filtro confidence del pannello POI (`cra-confidence-filter .cra-confidence-row`,
+   * story #207: sostituiscono la vecchia barra chip, stesso conteggio). */
+  poiConfidenceChips: (p: Page): Locator => p.locator('cra-poi-panel .cra-confidence-row'),
   /** Card POI numerate (Stato B/B·Filtro): un `<li><button class="cra-poi-card">` per POI
    * visibile, accoppiate per indice/numero ai marker della mappa (`poi-panel.component.html`).
    * Semantica "nascondi" del filtro (`matchesFilter`, `core/ui-helpers.ts`): le card non

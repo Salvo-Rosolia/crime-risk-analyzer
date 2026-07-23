@@ -12,7 +12,7 @@ const data: AnalyzeResponse = {
       terminus_class: 'x',
       lat: 0,
       lon: 0,
-      confidence: 'confermato',
+      confidence: 'verificato',
       sparql_path: null,
       terminus_label_it: '',
       terminus_label_en: '',
@@ -23,7 +23,7 @@ const data: AnalyzeResponse = {
       terminus_class: 'x',
       lat: 0,
       lon: 0,
-      confidence: 'confermato',
+      confidence: 'verificato',
       sparql_path: null,
       terminus_label_it: '',
       terminus_label_en: '',
@@ -34,7 +34,7 @@ const data: AnalyzeResponse = {
       terminus_class: 'x',
       lat: 0,
       lon: 0,
-      confidence: 'plausibile',
+      confidence: 'da_confermare',
       sparql_path: null,
       terminus_label_it: '',
       terminus_label_en: '',
@@ -45,7 +45,7 @@ const data: AnalyzeResponse = {
       terminus_class: 'x',
       lat: 0,
       lon: 0,
-      confidence: 'speculativo',
+      confidence: 'ipotesi',
       sparql_path: null,
       terminus_label_it: '',
       terminus_label_en: '',
@@ -57,7 +57,7 @@ const data: AnalyzeResponse = {
       risks: [
         {
           hazard: 'h1',
-          confidence: 'confermato',
+          confidence: 'verificato',
           tag: 'ONTOLOGIA',
           hazard_label_it: '',
           hazard_label_en: '',
@@ -67,7 +67,7 @@ const data: AnalyzeResponse = {
   ],
   narrativa: '',
   narrativa_fonti: { overview: '', ontologia: '', contesto: '', speculativo: '' },
-  confidence_summary: { confermato: 3, plausibile: 1, speculativo: 1 },
+  confidence_summary: { verificato: 3, da_confermare: 1, ipotesi: 1 },
   llm_used: '',
   latenza_ms: 0,
   tokens_input: 0,
@@ -84,7 +84,7 @@ describe('HeaderControlsComponent', () => {
     inputs: {
       data?: AnalyzeResponse | null;
       mode?: 'completo' | 'base';
-      filter?: 'confermato' | 'plausibile' | 'speculativo' | null;
+      filter?: 'verificato' | 'da_confermare' | 'ipotesi' | null;
       loading?: boolean;
     } = {},
   ): void {
@@ -166,10 +166,10 @@ describe('HeaderControlsComponent', () => {
   it('mostra i chip confidence con il conteggio dei POI (non dei rischi) per livello', () => {
     setup({ data, mode: 'completo' });
     const text = fixture.nativeElement.textContent;
-    expect(text).toContain('Confermato');
+    expect(text).toContain('Verificato');
     expect(text).toContain('2');
-    expect(text).toContain('Plausibile');
-    expect(text).toContain('Speculativo');
+    expect(text).toContain('Da confermare');
+    expect(text).toContain('Ipotesi');
   });
 
   it('click su un chip emette setFilter; riclic sul chip attivo emette clearFilter', () => {
@@ -183,9 +183,9 @@ describe('HeaderControlsComponent', () => {
       fixture.nativeElement.querySelectorAll('.cra-chip'),
     );
     chips[0].click();
-    expect(setSpy).toHaveBeenCalledWith('confermato');
+    expect(setSpy).toHaveBeenCalledWith('verificato');
 
-    fixture.componentRef.setInput('filter', 'confermato');
+    fixture.componentRef.setInput('filter', 'verificato');
     fixture.detectChanges();
     const chipsAfter: HTMLButtonElement[] = Array.from(
       fixture.nativeElement.querySelectorAll('.cra-chip'),
@@ -195,7 +195,7 @@ describe('HeaderControlsComponent', () => {
   });
 
   it('aria-pressed sui chip riflette il filtro attivo', () => {
-    setup({ data, mode: 'completo', filter: 'plausibile' });
+    setup({ data, mode: 'completo', filter: 'da_confermare' });
     const chips: HTMLButtonElement[] = Array.from(
       fixture.nativeElement.querySelectorAll('.cra-chip'),
     );

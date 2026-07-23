@@ -8,7 +8,7 @@
       "terminus_class": "ArchaeologicalSite",
       "lat": 41.8902,
       "lon": 12.4922,
-      "confidence": "confermato",
+      "confidence": "verificato",
       "sparql_path": "ArchaeologicalSite → hasAnthropicHazard → borseggioTuristi",
       "terminus_label_it": "Sito archeologico",
       "terminus_label_en": "Archaeological site"
@@ -19,7 +19,7 @@
       "terminus_class": "Monument",
       "lat": 41.8897,
       "lon": 12.4905,
-      "confidence": "plausibile",
+      "confidence": "da_confermare",
       "sparql_path": "Monument → hasEnvironmentalHazard → scarsaIlluminazione",
       "terminus_label_it": "Monumento",
       "terminus_label_en": "Monument"
@@ -31,7 +31,7 @@
       "risks": [
         {
           "hazard": "borseggioTuristi",
-          "confidence": "confermato",
+          "confidence": "verificato",
           "tag": "ONTOLOGIA",
           "hazard_label_it": "Borseggio turisti",
           "hazard_label_en": "Tourist pickpocketing"
@@ -43,7 +43,7 @@
       "risks": [
         {
           "hazard": "scarsaIlluminazione",
-          "confidence": "plausibile",
+          "confidence": "da_confermare",
           "tag": "CONTESTO",
           "hazard_label_it": "Scarsa illuminazione",
           "hazard_label_en": "Poor lighting"
@@ -58,7 +58,7 @@
     "contesto": "Scarsa illuminazione osservata presso l'Arco di Costantino, fattore di contesto ambientale.",
     "speculativo": ""
   },
-  "confidence_summary": { "confermato": 1, "plausibile": 1, "speculativo": 0 },
+  "confidence_summary": { "verificato": 1, "da_confermare": 1, "ipotesi": 0 },
   "llm_used": "claude-sonnet-4-6",
   "latenza_ms": 1980,
   "tokens_input": 640,

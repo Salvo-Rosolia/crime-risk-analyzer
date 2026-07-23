@@ -11,7 +11,7 @@ const data: AnalyzeResponse = {
   risk_models: [],
   narrativa: '',
   narrativa_fonti: { overview: '', ontologia: '', contesto: '', speculativo: '' },
-  confidence_summary: { confermato: 0, plausibile: 0, speculativo: 0 },
+  confidence_summary: { verificato: 0, da_confermare: 0, ipotesi: 0 },
   llm_used: 'test-model',
   latenza_ms: 0,
   tokens_input: 0,

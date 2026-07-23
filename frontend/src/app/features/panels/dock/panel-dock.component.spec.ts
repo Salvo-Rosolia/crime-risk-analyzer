@@ -9,7 +9,7 @@ function makePoi(overrides: Partial<Poi> = {}): Poi {
     terminus_class: 'Archaeological_site',
     lat: 41.89,
     lon: 12.49,
-    confidence: 'confermato',
+    confidence: 'verificato',
     sparql_path: null,
     terminus_label_it: 'Sito archeologico',
     terminus_label_en: 'Archaeological site',
@@ -17,7 +17,7 @@ function makePoi(overrides: Partial<Poi> = {}): Poi {
   };
 }
 
-const pois: Poi[] = [makePoi(), makePoi({ id: '2', name: 'Duomo', confidence: 'plausibile' })];
+const pois: Poi[] = [makePoi(), makePoi({ id: '2', name: 'Duomo', confidence: 'da_confermare' })];
 const riskModels: RiskModel[] = [];
 
 /**
@@ -99,7 +99,7 @@ describe('PanelDockComponent', () => {
     (fixture.nativeElement.querySelector('.cra-poi-card') as HTMLElement).click();
     expect(selectSpy).toHaveBeenCalledWith('1');
 
-    (fixture.nativeElement.querySelector('.cra-chip') as HTMLElement).click();
+    (fixture.nativeElement.querySelector('.cra-confidence-row') as HTMLElement).click();
     expect(filterSpy).toHaveBeenCalled();
   });
 

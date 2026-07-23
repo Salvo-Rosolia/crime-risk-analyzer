@@ -7,8 +7,8 @@ import type { AnalyzeResponse, Poi, RiskModel } from '../src/app/core/models/mod
 
 /**
  * Scenari RESULTS→DETAIL e RESULTS→FILTER (#69 Task 4), sullo stesso fixture `analyze.happy.json`
- * di Task 3 (Colosseo=confermato con sparql_path, Piazza Venezia=plausibile, Vicolo
- * Oscuro=speculativo con sparql_path null; +3 POI aggiuntivi introdotti dal fix-review #69 per
+ * di Task 3 (Colosseo=verificato con sparql_path, Piazza Venezia=da_confermare, Vicolo
+ * Oscuro=ipotesi con sparql_path null; +3 POI aggiuntivi introdotti dal fix-review #69 per
  * rendere distinti i conteggi confidence, vedi `results.spec.ts`). Nessun valore hardcodato
  * slegato dal fixture: i conteggi/testi attesi derivano da `analyze.poi`/`analyze.risk_models`.
  *
@@ -44,7 +44,7 @@ test.describe('RESULTS→DETAIL: accoppiamento bidirezionale marker↔card', () 
   test('click su un marker apre il dettaglio POI, evidenzia la card accoppiata; il tasto chiudi torna a RESULTS', async ({
     page,
   }) => {
-    // POI 0 = Colosseo: confermato, sparql_path presente (3 parti), 2 gruppi ONTOLOGIA+CONTESTO.
+    // POI 0 = Colosseo: verificato, sparql_path presente (3 parti), 2 gruppi ONTOLOGIA+CONTESTO.
     const poi = analyze.poi[0];
 
     await S.mapMarkers(page).nth(0).click();
@@ -78,7 +78,7 @@ test.describe('RESULTS→DETAIL: accoppiamento bidirezionale marker↔card', () 
   test('click su una card apre il dettaglio POI ed evidenzia (focus) il marker accoppiato', async ({
     page,
   }) => {
-    // POI 2 = Vicolo Oscuro: speculativo, sparql_path null (nessuna citazione), un solo gruppo
+    // POI 2 = Vicolo Oscuro: ipotesi, sparql_path null (nessuna citazione), un solo gruppo
     // SPECULATIVO che assorbe anche il rischio con tag null (`orderGroupsByTag`).
     const poi = analyze.poi[2];
 
@@ -115,7 +115,7 @@ test.describe('RESULTS→FILTER: chip confidence', () => {
     page,
   }) => {
     const total = analyze.poi.length;
-    const matchingLevel = analyze.poi[0].confidence; // 'confermato' (Colosseo)
+    const matchingLevel = analyze.poi[0].confidence; // 'verificato' (Colosseo)
     const matchingCount = analyze.poi.filter((p) => p.confidence === matchingLevel).length;
     const hiddenCount = total - matchingCount;
 
@@ -125,7 +125,7 @@ test.describe('RESULTS→FILTER: chip confidence', () => {
     await expect(S.poiCards(page)).toHaveCount(total);
     await expect(S.hiddenBar(page)).toHaveCount(0);
 
-    const chip = S.headerConfidenceChips(page).filter({ hasText: 'Confermato' });
+    const chip = S.headerConfidenceChips(page).filter({ hasText: 'Verificato' });
     await chip.click();
 
     // Card: le non corrispondenti sono escluse dal DOM (semantica "nascondi").

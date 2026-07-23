@@ -133,7 +133,7 @@ def test_analyze_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     assert body["zona_normalizzata"] == "Centro"
     assert body["fallback"] is False
     assert body["narrativa"].startswith("Analisi:")
-    assert [p["confidence"] for p in body["poi"]] == ["confermato", "speculativo"]
+    assert [p["confidence"] for p in body["poi"]] == ["verificato", "ipotesi"]
 
 
 def test_analyze_zone_not_found(monkeypatch: pytest.MonkeyPatch) -> None:

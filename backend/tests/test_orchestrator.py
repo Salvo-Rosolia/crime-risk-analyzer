@@ -47,7 +47,7 @@ def _vr(poi: str, terminus_class: str, hazards: list[str]) -> dict[str, object]:
         {
             "hazard": h,
             "tag": "ONTOLOGIA",
-            "confidence": "confermato",
+            "confidence": "verificato",
             "source": f"{terminus_class} → havingHazard → {h}",
         }
         for h in hazards
@@ -134,7 +134,7 @@ def test_build_poi_list_confidence_and_path() -> None:
         ]
     }
     out = _build_poi_list(retrieval_ctx, grounded)  # type: ignore[arg-type]
-    assert [p.confidence for p in out] == ["confermato", "speculativo"]
+    assert [p.confidence for p in out] == ["verificato", "ipotesi"]
     assert out[0].sparql_path == "Bank → havingHazard → Bank_robbery"
     assert out[0].id == "1"
     assert out[1].sparql_path is None
@@ -142,8 +142,8 @@ def test_build_poi_list_confidence_and_path() -> None:
 
 def test_build_poi_list_confidence_unified_with_per_risk() -> None:
     # #202/M1: la confidence per-POI e' unificata col livello per-rischio del
-    # grounding: named+risks -> confermato; anonymous+risks -> plausibile;
-    # no-risks -> speculativo (marcatore del POI fuori ontologia).
+    # grounding: named+risks -> verificato; anonymous+risks -> da_confermare;
+    # no-risks -> ipotesi (marcatore del POI fuori ontologia).
     retrieval_ctx = {
         "pois": [
             _poi("1", "Banca A", "Bank"),
@@ -159,7 +159,7 @@ def test_build_poi_list_confidence_unified_with_per_risk() -> None:
         ]
     }
     out = _build_poi_list(retrieval_ctx, grounded)  # type: ignore[arg-type]
-    assert [p.confidence for p in out] == ["confermato", "plausibile", "speculativo"]
+    assert [p.confidence for p in out] == ["verificato", "da_confermare", "ipotesi"]
 
 
 def test_build_poi_list_strict_zip_mismatch() -> None:
@@ -188,7 +188,7 @@ def test_structured_response_no_llm() -> None:
     grounded = {
         "zona": "Centro",
         "validated_risks": [_vr("Banca A", "Bank", ["Bank_robbery"])],
-        "confidence_summary": {"confermato": 1, "plausibile": 0, "speculativo": 0},
+        "confidence_summary": {"verificato": 1, "da_confermare": 0, "ipotesi": 0},
     }
     poi_out = _build_poi_list(
         {"pois": [_poi("1", "Banca A", "Bank")]},  # type: ignore[arg-type]
@@ -208,7 +208,7 @@ def test_structured_response_no_llm() -> None:
     assert resp.fallback is False
     assert resp.repro.prompt_hash == ""
     assert resp.risk_models[0].risks[0].hazard == "Bank_robbery"
-    assert resp.confidence_summary.confermato == 1
+    assert resp.confidence_summary.verificato == 1
 
 
 async def test_run_analysis_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -224,7 +224,7 @@ async def test_run_analysis_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     assert resp.fallback is False
     assert resp.narrativa.startswith("Analisi:")
     assert resp.llm_used == "claude-sonnet-4-6"
-    assert [p.confidence for p in resp.poi] == ["confermato"]
+    assert [p.confidence for p in resp.poi] == ["verificato"]
     assert resp.latenza_ms >= 0
 
 
@@ -242,7 +242,7 @@ async def test_run_analysis_llm_fallback(monkeypatch: pytest.MonkeyPatch) -> Non
     assert resp.cache_hit is False
     assert [m.poi for m in resp.risk_models] == ["Banca A"]
     assert resp.risk_models[0].risks[0].hazard == "Bank_robbery"
-    assert resp.confidence_summary.confermato == 1
+    assert resp.confidence_summary.verificato == 1
 
 
 async def test_run_analysis_llm_fallback_logs_warning(
@@ -300,10 +300,10 @@ async def test_run_analysis_llm_timeout_triggers_fallback(
     assert [m.poi for m in resp.risk_models] == ["Banca A"]
 
 
-async def test_run_analysis_anonymous_poi_plausibile_end_to_end(
+async def test_run_analysis_anonymous_poi_da_confermare_end_to_end(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#202/m3: un POI ANONIMO con rischi ontologici propaga ``plausibile`` fino
+    """#202/m3: un POI ANONIMO con rischi ontologici propaga ``da_confermare`` fino
     alla AnalyzeResponse. risk_models[].risks[].confidence, confidence_summary e
     poi[].confidence sono coerenti (nessuna divergenza badge-vs-rischi, M1)."""
     anon: list[Poi] = [
@@ -324,10 +324,10 @@ async def test_run_analysis_anonymous_poi_plausibile_end_to_end(
         executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
         llm_client=_FakeLLMClient(_llm_response()),
     )
-    assert resp.risk_models[0].risks[0].confidence == "plausibile"
-    assert resp.confidence_summary.plausibile == 1
-    assert resp.confidence_summary.confermato == 0
-    assert [p.confidence for p in resp.poi] == ["plausibile"]
+    assert resp.risk_models[0].risks[0].confidence == "da_confermare"
+    assert resp.confidence_summary.da_confermare == 1
+    assert resp.confidence_summary.verificato == 0
+    assert [p.confidence for p in resp.poi] == ["da_confermare"]
 
 
 async def test_run_analysis_zero_pois(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -340,9 +340,9 @@ async def test_run_analysis_zero_pois(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert resp.poi == []
     assert resp.risk_models == []
-    assert resp.confidence_summary.confermato == 0
-    assert resp.confidence_summary.plausibile == 0
-    assert resp.confidence_summary.speculativo == 0
+    assert resp.confidence_summary.verificato == 0
+    assert resp.confidence_summary.da_confermare == 0
+    assert resp.confidence_summary.ipotesi == 0
     assert resp.fallback is False
 
 
@@ -356,7 +356,7 @@ async def test_run_baseline_no_llm(monkeypatch: pytest.MonkeyPatch) -> None:
     assert resp.llm_used == ""
     assert [m.poi for m in resp.risk_models] == ["Banca A"]
     assert resp.risk_models[0].risks[0].hazard == "Bank_robbery"
-    assert resp.confidence_summary.confermato == 1
+    assert resp.confidence_summary.verificato == 1
     assert resp.latenza_ms >= 0
 
 

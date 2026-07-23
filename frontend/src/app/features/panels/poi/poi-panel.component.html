@@ -2,24 +2,11 @@
   <span class="cra-eyebrow">{{ pois().length }} POI trovati</span>
 </div>
 
-<div class="cra-filter-bar" role="group" aria-label="Filtra per confidence">
-  @for (level of levels; track level) {
-    <button
-      type="button"
-      class="cra-chip"
-      [class.cra-chip-active]="filter() === level"
-      [attr.aria-pressed]="filter() === level"
-      [style.borderColor]="conf[level].color"
-      [style.color]="filter() === level ? '#fff' : conf[level].color"
-      [style.background]="filter() === level ? conf[level].color : 'transparent'"
-      (click)="onChipClick(level)"
-    >
-      <span aria-hidden="true">{{ conf[level].dot }}</span> {{ conf[level].label }} ({{
-        counts()[level]
-      }})
-    </button>
-  }
-</div>
+<cra-confidence-filter
+  [counts]="counts()"
+  [activeFilter]="filter()"
+  (rowClick)="onLevelClick($event)"
+/>
 
 @if (hiddenCount() > 0) {
   <p class="cra-hidden-bar">{{ hiddenCount() }} nascosti</p>

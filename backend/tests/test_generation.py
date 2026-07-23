@@ -53,7 +53,7 @@ class _FakeLLMClient:
 def _llm_response(**overrides: Any) -> LLMResponse:
     base: dict[str, Any] = {
         "text": (
-            "Colosseo: rischio [ONTOLOGIA] MassTouristTargeting (confermato).\n"
+            "Colosseo: rischio [ONTOLOGIA] MassTouristTargeting (verificato).\n"
             "Sintesi: zona ad alta affluenza turistica."
         ),
         "llm_used": "claude-sonnet-4-6",
@@ -80,13 +80,13 @@ def _context_dict(**overrides: Any) -> dict[str, Any]:
                     {
                         "hazard": "MassTouristTargeting",
                         "tag": "ONTOLOGIA",
-                        "confidence": "confermato",
+                        "confidence": "verificato",
                         "source": "Heritage -> hasHazard -> MassTouristTargeting",
                     },
                     {
                         "hazard": "PickPocketing",
                         "tag": "ONTOLOGIA",
-                        "confidence": "plausibile",
+                        "confidence": "da_confermare",
                         "source": "Heritage -> hasHazard -> PickPocketing",
                     },
                 ],
@@ -94,7 +94,7 @@ def _context_dict(**overrides: Any) -> dict[str, Any]:
                 "sparql_path": "Heritage -> hasHazard -> MassTouristTargeting",
             }
         ],
-        "confidence_summary": {"confermato": 1, "plausibile": 1, "speculativo": 0},
+        "confidence_summary": {"verificato": 1, "da_confermare": 1, "ipotesi": 0},
     }
     base.update(overrides)
     return base
@@ -114,7 +114,7 @@ def test_build_context_str_includes_zona_and_poi_fields() -> None:
     assert "PickPocketing" in out
     # tag e confidence vanno forniti al modello per il citation layer
     assert "ONTOLOGIA" in out
-    assert "confermato" in out
+    assert "verificato" in out
     # path ontologico citato
     assert "hasHazard" in out
 
@@ -138,7 +138,7 @@ def test_build_context_str_handles_poi_without_risks() -> None:
                 "sparql_path": None,
             }
         ],
-        confidence_summary={"confermato": 0, "plausibile": 0, "speculativo": 0},
+        confidence_summary={"verificato": 0, "da_confermare": 0, "ipotesi": 0},
     )
 
     out = build_context_str(ctx)
@@ -483,9 +483,9 @@ async def test_generate_analysis_carries_confidence_summary_from_context() -> No
 
     result = await generate_analysis(ctx, client)
 
-    assert result.confidence_summary.confermato == 1
-    assert result.confidence_summary.plausibile == 1
-    assert result.confidence_summary.speculativo == 0
+    assert result.confidence_summary.verificato == 1
+    assert result.confidence_summary.da_confermare == 1
+    assert result.confidence_summary.ipotesi == 0
 
 
 async def test_generate_analysis_builds_risk_models_from_context() -> None:
@@ -500,7 +500,7 @@ async def test_generate_analysis_builds_risk_models_from_context() -> None:
     assert len(rm.risks) == 2
     first = rm.risks[0]
     assert first.hazard == "MassTouristTargeting"
-    assert first.confidence == "confermato"
+    assert first.confidence == "verificato"
     assert first.tag == "ONTOLOGIA"
 
 
@@ -669,7 +669,7 @@ def test_risk_item_tag_rejects_numeric_value() -> None:
     """``RiskItem.tag`` (fonte del citation layer) e' categoriale: un valore
     NUMERICO e' rifiutato, cosi' il tag non puo' degenerare in un punteggio."""
     with pytest.raises(ValidationError):
-        RiskItem(hazard="x", confidence="confermato", tag=0.73)  # pyright: ignore[reportArgumentType]
+        RiskItem(hazard="x", confidence="verificato", tag=0.73)  # pyright: ignore[reportArgumentType]
 
 
 # --- narrativa strutturata per fonte: prompt a blocchi + parser (#196) ---
@@ -692,16 +692,16 @@ def test_system_prompt_struttura_a_tre_blocchi() -> None:
 
 def test_system_prompt_confidence_levels_reconciled_with_osm_verifiability() -> None:
     """#202: le definizioni dei LIVELLI DI CONFIDENZA nel prompt combaciano con la
-    regola operativa del grounding: confermato = hazard ontologico su un POI OSM
-    verificabile (con nome), plausibile = hazard ontologico su una feature OSM
+    regola operativa del grounding: verificato = hazard ontologico su un POI OSM
+    verificabile (con nome), da_confermare = hazard ontologico su una feature OSM
     anonima (senza nome). Sentinelle distintive della riconciliazione -> rosso
     mirato se la semantica torna a divergere dal grounding."""
     assert "con nome proprio" in SYSTEM_PROMPT
     assert "feature OSM anonima" in SYSTEM_PROMPT
 
 
-def test_system_prompt_plausibile_includes_context_only_case() -> None:
-    """#202/m1: la definizione di ``plausibile`` nel prompt copre ANCHE il rischio
+def test_system_prompt_da_confermare_includes_context_only_case() -> None:
+    """#202/m1: la definizione di ``da_confermare`` nel prompt copre ANCHE il rischio
     supportato solo dal contesto OSM/input (senza ancoraggio ontologico), cosi' la
     guida al blocco narrativo "Rischi dal contesto [CONTESTO]" resta coerente."""
     assert "contesto OSM/input" in SYSTEM_PROMPT
