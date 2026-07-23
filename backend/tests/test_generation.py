@@ -218,7 +218,7 @@ def test_build_context_str_adversarial_domanda_cannot_escape_fence(
 
 
 def _poi_entry(
-    label: object, n_hazards: int, confidence: str = "confermato"
+    label: object, n_hazards: int, confidence: str = "verificato"
 ) -> dict[str, Any]:
     """POI validato sintetico con ``n_hazards`` rischi (per i test di budget)."""
     return {
@@ -319,9 +319,9 @@ def test_build_context_str_relevance_prefers_more_risks_first() -> None:
 
 def test_build_context_str_relevance_tiebreak_prefers_more_anchored() -> None:
     # a PARITA' di numero di rischi entra prima la confidence piu' ancorata:
-    # 'confermato' precede 'speculativo' anche se compare dopo nell'input.
-    spec = _poi_entry("SPEC", 2, confidence="speculativo")
-    conf = _poi_entry("CONF", 2, confidence="confermato")
+    # 'verificato' precede 'ipotesi' anche se compare dopo nell'input.
+    spec = _poi_entry("SPEC", 2, confidence="ipotesi")
+    conf = _poi_entry("CONF", 2, confidence="verificato")
     ctx = _many_pois_context([spec, conf])
     conf_only = build_context_str(_many_pois_context([conf]))
     # budget per un solo POI (con margine per la nota, non per un secondo blocco)
@@ -354,7 +354,7 @@ def test_build_context_str_relevance_ranks_no_risk_poi_last() -> None:
 
 
 async def test_generate_analysis_dense_context_trims_within_user_allowance() -> None:
-    # contesto denso (50 POI x 9 hazard, confermato): lo user_content COMPLETO
+    # contesto denso (50 POI x 9 hazard, verificato): lo user_content COMPLETO
     # sfora, quindi il trim deve tenerlo entro l'allowance calcolata al netto di
     # system prompt + output riservato (non piu' entro il solo budget grezzo).
     ctx = _many_pois_context([_poi_entry(i, 9) for i in range(50)])

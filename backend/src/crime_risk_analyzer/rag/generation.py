@@ -345,9 +345,9 @@ DEFAULT_MAX_TOKENS = 1024
 #: NON e' un ordinamento di pericolosita' (vincolo legale): gradua solo la forza
 #: probatoria, coerente con :data:`_CONFIDENCE_LEVELS`.
 _CONFIDENCE_ANCHOR_RANK: dict[str, int] = {
-    "confermato": 0,
-    "plausibile": 1,
-    "speculativo": 2,
+    "verificato": 0,
+    "da_confermare": 1,
+    "ipotesi": 2,
 }
 #: Rank per un POI senza rischi o con confidence sconosciuta: meno ancorato di
 #: qualunque livello noto, quindi ordinato per ultimo a parita' di rischi.
