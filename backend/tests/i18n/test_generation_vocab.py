@@ -33,7 +33,7 @@ def _context() -> dict[str, Any]:
                     {
                         "hazard": "Bank_robbery",
                         "tag": "ONTOLOGIA",
-                        "confidence": "confermato",
+                        "confidence": "verificato",
                     }
                 ],
                 "vulnerabilities": [],

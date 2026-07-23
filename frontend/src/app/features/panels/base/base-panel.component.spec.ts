@@ -13,7 +13,7 @@ const dataWithRows: AnalyzeResponse = {
       terminus_class: 'Archaeological_site',
       lat: 0,
       lon: 0,
-      confidence: 'confermato',
+      confidence: 'verificato',
       sparql_path: null,
       terminus_label_it: 'Sito archeologico',
       terminus_label_en: 'Archaeological site',
@@ -25,24 +25,24 @@ const dataWithRows: AnalyzeResponse = {
       risks: [
         {
           hazard: 'h1',
-          confidence: 'confermato',
+          confidence: 'verificato',
           tag: 'ONTOLOGIA',
           hazard_label_it: 'Borseggio',
           hazard_label_en: 'Pickpocketing',
         },
         {
           hazard: 'h2',
-          confidence: 'speculativo',
+          confidence: 'ipotesi',
           tag: 'SPECULATIVO',
-          hazard_label_it: 'Ipotesi',
-          hazard_label_en: 'Hypothesis',
+          hazard_label_it: 'Accattonaggio',
+          hazard_label_en: 'Begging',
         },
       ],
     },
   ],
   narrativa: '',
   narrativa_fonti: { overview: '', ontologia: '', contesto: '', speculativo: '' },
-  confidence_summary: { confermato: 1, plausibile: 0, speculativo: 1 },
+  confidence_summary: { verificato: 1, da_confermare: 0, ipotesi: 1 },
   llm_used: '',
   latenza_ms: 0,
   tokens_input: 0,
@@ -186,8 +186,8 @@ describe('BasePanelComponent', () => {
     fixture.componentRef.setInput('data', dataWithRows);
     fixture.detectChanges();
     const text = fixture.nativeElement.textContent;
-    expect(text).not.toContain('Confermato');
-    expect(text).not.toContain('Speculativo');
+    expect(text).not.toContain('Verificato');
+    expect(text).not.toContain('Ipotesi');
     expect(text).not.toContain('Assegna pattuglia');
     expect(fixture.nativeElement.querySelectorAll('.cra-base-table [style*="color"]').length).toBe(
       0,

@@ -54,21 +54,21 @@ describe('ui-helpers', () => {
         risks: [
           {
             hazard: 'h-spec',
-            confidence: 'speculativo',
+            confidence: 'ipotesi',
             tag: 'SPECULATIVO',
             hazard_label_it: 'H spec',
             hazard_label_en: 'H spec',
           },
           {
             hazard: 'h-onto',
-            confidence: 'confermato',
+            confidence: 'verificato',
             tag: 'ONTOLOGIA',
             hazard_label_it: 'H onto',
             hazard_label_en: 'H onto',
           },
           {
             hazard: 'h-ctx',
-            confidence: 'plausibile',
+            confidence: 'da_confermare',
             tag: 'CONTESTO',
             hazard_label_it: 'H ctx',
             hazard_label_en: 'H ctx',
@@ -90,14 +90,14 @@ describe('ui-helpers', () => {
         risks: [
           {
             hazard: 'Bank',
-            confidence: 'confermato',
+            confidence: 'verificato',
             tag: 'ONTOLOGIA',
             hazard_label_it: 'Banca',
             hazard_label_en: 'Bank',
           },
           {
             hazard: 'RawClass',
-            confidence: 'plausibile',
+            confidence: 'da_confermare',
             tag: 'CONTESTO',
             hazard_label_it: '',
             hazard_label_en: '',
@@ -118,7 +118,7 @@ describe('ui-helpers', () => {
       terminus_class: 'ArchaeologicalSite',
       lat: 0,
       lon: 0,
-      confidence: 'confermato',
+      confidence: 'verificato',
       sparql_path: 'A → B → C',
       terminus_label_it: 'Sito archeologico',
       terminus_label_en: 'Archaeological site',
@@ -129,7 +129,7 @@ describe('ui-helpers', () => {
         risks: [
           {
             hazard: 'h',
-            confidence: 'confermato',
+            confidence: 'verificato',
             tag: 'ONTOLOGIA',
             hazard_label_it: 'H',
             hazard_label_en: 'H',
@@ -149,7 +149,7 @@ describe('ui-helpers', () => {
       terminus_class: 'ArchaeologicalSite',
       lat: 0,
       lon: 0,
-      confidence: 'confermato',
+      confidence: 'verificato',
       sparql_path: null,
       terminus_label_it: 'Sito archeologico',
       terminus_label_en: 'Archaeological site',
@@ -165,7 +165,7 @@ describe('ui-helpers', () => {
       SPECULATIVO: [
         {
           hazard: 'h-spec',
-          confidence: 'speculativo',
+          confidence: 'ipotesi',
           tag: 'SPECULATIVO',
           hazard_label_it: 'H spec',
           hazard_label_en: 'H spec',
@@ -174,7 +174,7 @@ describe('ui-helpers', () => {
       ONTOLOGIA: [
         {
           hazard: 'h-onto',
-          confidence: 'confermato',
+          confidence: 'verificato',
           tag: 'ONTOLOGIA',
           hazard_label_it: 'H onto',
           hazard_label_en: 'H onto',
@@ -183,7 +183,7 @@ describe('ui-helpers', () => {
       CONTESTO: [
         {
           hazard: 'h-ctx',
-          confidence: 'plausibile',
+          confidence: 'da_confermare',
           tag: 'CONTESTO',
           hazard_label_it: 'H ctx',
           hazard_label_en: 'H ctx',
@@ -200,7 +200,7 @@ describe('ui-helpers', () => {
   it('orderGroupsByTag: omette i tag assenti/vuoti e mette in coda i tag fuori contratto', () => {
     const onto: RiskItem = {
       hazard: 'h',
-      confidence: 'confermato',
+      confidence: 'verificato',
       tag: 'ONTOLOGIA',
       hazard_label_it: 'H',
       hazard_label_en: 'H',
@@ -217,7 +217,7 @@ describe('ui-helpers', () => {
         terminus_class: 'Archaeological_site',
         lat: 0,
         lon: 0,
-        confidence: 'confermato',
+        confidence: 'verificato',
         sparql_path: null,
         terminus_label_it: 'Sito archeologico',
         terminus_label_en: 'Archaeological site',
@@ -228,7 +228,7 @@ describe('ui-helpers', () => {
         terminus_class: 'Bank',
         lat: 0,
         lon: 0,
-        confidence: 'plausibile',
+        confidence: 'da_confermare',
         sparql_path: null,
         terminus_label_it: 'Banca',
         terminus_label_en: 'Bank',
@@ -240,14 +240,14 @@ describe('ui-helpers', () => {
         risks: [
           {
             hazard: 'h1',
-            confidence: 'confermato',
+            confidence: 'verificato',
             tag: 'ONTOLOGIA',
             hazard_label_it: 'Borseggio',
             hazard_label_en: 'Pickpocketing',
           },
           {
             hazard: 'h2',
-            confidence: 'speculativo',
+            confidence: 'ipotesi',
             tag: 'SPECULATIVO',
             hazard_label_it: '',
             hazard_label_en: '',
@@ -259,7 +259,7 @@ describe('ui-helpers', () => {
         risks: [
           {
             hazard: 'h3',
-            confidence: 'plausibile',
+            confidence: 'da_confermare',
             tag: 'CONTESTO',
             hazard_label_it: 'Rapina',
             hazard_label_en: 'Robbery',
@@ -287,7 +287,7 @@ describe('ui-helpers', () => {
         terminus_class: 'Alley',
         lat: 0,
         lon: 0,
-        confidence: 'confermato',
+        confidence: 'verificato',
         sparql_path: null,
         terminus_label_it: '',
         terminus_label_en: '',
@@ -299,13 +299,13 @@ describe('ui-helpers', () => {
   });
 
   it('matchesFilter: filtro null → sempre true (nessun filtro attivo)', () => {
-    expect(matchesFilter('confermato', null)).toBe(true);
-    expect(matchesFilter('speculativo', null)).toBe(true);
+    expect(matchesFilter('verificato', null)).toBe(true);
+    expect(matchesFilter('ipotesi', null)).toBe(true);
   });
 
   it('matchesFilter: filtro attivo → true solo per la confidence corrispondente', () => {
-    expect(matchesFilter('plausibile', 'plausibile')).toBe(true);
-    expect(matchesFilter('confermato', 'plausibile')).toBe(false);
+    expect(matchesFilter('da_confermare', 'da_confermare')).toBe(true);
+    expect(matchesFilter('verificato', 'da_confermare')).toBe(false);
   });
 
   it("poiPopupHTML: include numero, nome, etichetta IT e badge confidence; esegue escape dell'HTML", () => {
@@ -315,7 +315,7 @@ describe('ui-helpers', () => {
       terminus_class: 'Bank',
       lat: 0,
       lon: 0,
-      confidence: 'plausibile',
+      confidence: 'da_confermare',
       sparql_path: null,
       terminus_label_it: 'Banca',
       terminus_label_en: 'Bank',
@@ -323,8 +323,8 @@ describe('ui-helpers', () => {
     const html = poiPopupHTML(poi, 3);
     expect(html).toContain('3. Bar &lt;Test&gt; &amp; &quot;Co&quot;');
     expect(html).toContain('Banca');
-    expect(html).toContain(CONF.plausibile.color);
-    expect(html).toContain(CONF.plausibile.label);
+    expect(html).toContain(CONF.da_confermare.color);
+    expect(html).toContain(CONF.da_confermare.label);
   });
 
   it("poiPopupHTML: fallback a terminus_class se manca l'etichetta IT", () => {
@@ -334,7 +334,7 @@ describe('ui-helpers', () => {
       terminus_class: 'Alley',
       lat: 0,
       lon: 0,
-      confidence: 'confermato',
+      confidence: 'verificato',
       sparql_path: null,
       terminus_label_it: '',
       terminus_label_en: '',
@@ -374,14 +374,14 @@ describe('buildSourceTabs', () => {
         risks: [
           {
             hazard: 'H1',
-            confidence: 'confermato',
+            confidence: 'verificato',
             tag: 'ONTOLOGIA',
             hazard_label_it: 'Furto',
             hazard_label_en: '',
           },
           {
             hazard: 'H2',
-            confidence: 'plausibile',
+            confidence: 'da_confermare',
             tag: 'CONTESTO',
             hazard_label_it: 'Borseggio',
             hazard_label_en: '',
@@ -403,7 +403,7 @@ describe('buildSourceTabs', () => {
         risks: [
           {
             hazard: 'H',
-            confidence: 'speculativo',
+            confidence: 'ipotesi',
             tag: 'SPECULATIVO',
             hazard_label_it: 'Accattonaggio',
             hazard_label_en: '',
@@ -436,7 +436,7 @@ describe('buildSourceTabs', () => {
         risks: [
           {
             hazard: 'H',
-            confidence: 'confermato',
+            confidence: 'verificato',
             tag: 'ONTOLOGIA',
             hazard_label_it: 'Furto',
             hazard_label_en: '',

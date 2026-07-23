@@ -29,7 +29,7 @@ const emptyResp: AnalyzeResponse = {
   risk_models: [],
   narrativa: '',
   narrativa_fonti: { overview: '', ontologia: '', contesto: '', speculativo: '' },
-  confidence_summary: { confermato: 0, plausibile: 0, speculativo: 0 },
+  confidence_summary: { verificato: 0, da_confermare: 0, ipotesi: 0 },
   llm_used: '',
   latenza_ms: 0,
   tokens_input: 0,
@@ -96,14 +96,14 @@ describe('App shell', () => {
           risks: [
             {
               hazard: 'h-onto',
-              confidence: 'confermato',
+              confidence: 'verificato',
               tag: 'ONTOLOGIA',
               hazard_label_it: 'Borseggio',
               hazard_label_en: 'Pickpocketing',
             },
             {
               hazard: 'h-ctx',
-              confidence: 'plausibile',
+              confidence: 'da_confermare',
               tag: 'CONTESTO',
               hazard_label_it: 'Illuminazione scarsa',
               hazard_label_en: 'Poor lighting',
@@ -159,7 +159,7 @@ describe('App shell', () => {
     await f.whenStable();
 
     store.dispatch({ type: 'LOAD_SUCCESS', data: emptyResp, pipeline: 'completo' });
-    store.dispatch({ type: 'SET_FILTER', level: 'confermato' });
+    store.dispatch({ type: 'SET_FILTER', level: 'verificato' });
     f.detectChanges();
 
     expect(f.nativeElement.querySelector('cra-poi-panel')).toBeTruthy();
@@ -175,7 +175,7 @@ describe('App shell', () => {
           terminus_class: 'Archaeological_site',
           lat: 41.89,
           lon: 12.49,
-          confidence: 'confermato',
+          confidence: 'verificato',
           sparql_path: null,
           terminus_label_it: 'Sito archeologico',
           terminus_label_en: 'Archaeological site',
@@ -242,7 +242,7 @@ describe('App shell', () => {
     const panelInResults = f.nativeElement.querySelector('cra-poi-panel');
     expect(panelInResults).toBeTruthy();
 
-    store.dispatch({ type: 'SET_FILTER', level: 'confermato' });
+    store.dispatch({ type: 'SET_FILTER', level: 'verificato' });
     f.detectChanges();
     expect(store.screen()).toBe('FILTER');
     expect(f.nativeElement.querySelector('cra-poi-panel')).toBe(panelInResults);
@@ -263,7 +263,7 @@ describe('App shell', () => {
           terminus_class: 'Archaeological_site',
           lat: 41.89,
           lon: 12.49,
-          confidence: 'confermato',
+          confidence: 'verificato',
           sparql_path: 'Archaeological_site → havingHazard → Mugging',
           terminus_label_it: 'Sito archeologico',
           terminus_label_en: 'Archaeological site',
@@ -275,14 +275,14 @@ describe('App shell', () => {
           risks: [
             {
               hazard: 'h-spec',
-              confidence: 'speculativo',
+              confidence: 'ipotesi',
               tag: 'SPECULATIVO',
               hazard_label_it: 'Ipotesi',
               hazard_label_en: 'Hypothesis',
             },
             {
               hazard: 'h-onto',
-              confidence: 'confermato',
+              confidence: 'verificato',
               tag: 'ONTOLOGIA',
               hazard_label_it: 'Borseggio',
               hazard_label_en: 'Pickpocketing',
@@ -353,7 +353,7 @@ describe('App shell', () => {
           terminus_class: 'x',
           lat: 0,
           lon: 0,
-          confidence: 'confermato',
+          confidence: 'verificato',
           sparql_path: null,
           terminus_label_it: '',
           terminus_label_en: '',
@@ -375,7 +375,7 @@ describe('App shell', () => {
           terminus_class: 'x',
           lat: 0,
           lon: 0,
-          confidence: 'confermato',
+          confidence: 'verificato',
           sparql_path: null,
           terminus_label_it: '',
           terminus_label_en: '',
@@ -386,7 +386,7 @@ describe('App shell', () => {
           terminus_class: 'x',
           lat: 0,
           lon: 0,
-          confidence: 'plausibile',
+          confidence: 'da_confermare',
           sparql_path: null,
           terminus_label_it: '',
           terminus_label_en: '',
@@ -438,7 +438,7 @@ describe('App shell', () => {
           terminus_class: 'Railway_station',
           lat: 0,
           lon: 0,
-          confidence: 'confermato',
+          confidence: 'verificato',
           sparql_path: null,
           terminus_label_it: '',
           terminus_label_en: '',
@@ -450,7 +450,7 @@ describe('App shell', () => {
           risks: [
             {
               hazard: 'h',
-              confidence: 'confermato',
+              confidence: 'verificato',
               tag: 'ONTOLOGIA',
               hazard_label_it: 'Furto',
               hazard_label_en: 'Theft',
@@ -492,7 +492,7 @@ describe('App shell', () => {
             terminus_class: 'x',
             lat: 0,
             lon: 0,
-            confidence: 'confermato',
+            confidence: 'verificato',
             sparql_path: null,
             terminus_label_it: '',
             terminus_label_en: '',
@@ -504,7 +504,7 @@ describe('App shell', () => {
             risks: [
               {
                 hazard: 'hz',
-                confidence: 'confermato',
+                confidence: 'verificato',
                 tag: 'ONTOLOGIA',
                 hazard_label_it: 'HazardCompleto',
                 hazard_label_en: 'x',
@@ -542,7 +542,7 @@ describe('App shell', () => {
             terminus_class: 'x',
             lat: 0,
             lon: 0,
-            confidence: 'confermato',
+            confidence: 'verificato',
             sparql_path: null,
             terminus_label_it: '',
             terminus_label_en: '',
@@ -564,7 +564,7 @@ describe('App shell', () => {
             terminus_class: 'x',
             lat: 0,
             lon: 0,
-            confidence: 'confermato',
+            confidence: 'verificato',
             sparql_path: null,
             terminus_label_it: '',
             terminus_label_en: '',
@@ -598,7 +598,7 @@ describe('App shell', () => {
             terminus_class: 'x',
             lat: 0,
             lon: 0,
-            confidence: 'confermato',
+            confidence: 'verificato',
             sparql_path: null,
             terminus_label_it: '',
             terminus_label_en: '',

@@ -39,7 +39,7 @@ function makePoi(overrides: Partial<Poi> = {}): Poi {
     terminus_class: 'Bank',
     lat: 41.9,
     lon: 12.5,
-    confidence: 'confermato',
+    confidence: 'verificato',
     sparql_path: null,
     terminus_label_it: 'Banca',
     terminus_label_en: 'Bank',
@@ -55,7 +55,7 @@ function makeResp(pois: Poi[]): AnalyzeResponse {
     risk_models: [],
     narrativa: '',
     narrativa_fonti: { overview: '', ontologia: '', contesto: '', speculativo: '' },
-    confidence_summary: { confermato: 0, plausibile: 0, speculativo: 0 },
+    confidence_summary: { verificato: 0, da_confermare: 0, ipotesi: 0 },
     llm_used: '',
     latenza_ms: 0,
     tokens_input: 0,
@@ -137,21 +137,21 @@ describe('MapComponent', () => {
     });
 
     it('colora il pin secondo la confidence del POI', () => {
-      fixture.componentRef.setInput('data', makeResp([makePoi({ confidence: 'speculativo' })]));
+      fixture.componentRef.setInput('data', makeResp([makePoi({ confidence: 'ipotesi' })]));
       fixture.detectChanges();
       const [opts] = (L.divIcon as jest.Mock).mock.calls.at(-1) as [{ html: string }];
-      expect(opts.html).toContain(CONF.speculativo.color);
+      expect(opts.html).toContain(CONF.ipotesi.color);
     });
 
     it('applica lo stato dim (grigio, opacità ridotta) ai marker esclusi dal filtro attivo', () => {
       fixture.componentRef.setInput(
         'data',
         makeResp([
-          makePoi({ id: '0', confidence: 'confermato' }),
-          makePoi({ id: '1', confidence: 'speculativo' }),
+          makePoi({ id: '0', confidence: 'verificato' }),
+          makePoi({ id: '1', confidence: 'ipotesi' }),
         ]),
       );
-      fixture.componentRef.setInput('filter', 'confermato');
+      fixture.componentRef.setInput('filter', 'verificato');
       fixture.detectChanges();
       const calls = (L.divIcon as jest.Mock).mock.calls as [{ html: string }][];
       expect(calls[0][0].html).not.toContain(DIM_COLOR);
@@ -162,8 +162,8 @@ describe('MapComponent', () => {
       fixture.componentRef.setInput(
         'data',
         makeResp([
-          makePoi({ id: '0', confidence: 'confermato' }),
-          makePoi({ id: '1', confidence: 'speculativo' }),
+          makePoi({ id: '0', confidence: 'verificato' }),
+          makePoi({ id: '1', confidence: 'ipotesi' }),
         ]),
       );
       fixture.detectChanges();

@@ -11,7 +11,7 @@ const data: AnalyzeResponse = {
       terminus_class: 'x',
       lat: 0,
       lon: 0,
-      confidence: 'confermato',
+      confidence: 'verificato',
       sparql_path: null,
       terminus_label_it: 'X',
       terminus_label_en: 'X',
@@ -22,7 +22,7 @@ const data: AnalyzeResponse = {
       terminus_class: 'x',
       lat: 0,
       lon: 0,
-      confidence: 'plausibile',
+      confidence: 'da_confermare',
       sparql_path: null,
       terminus_label_it: 'X',
       terminus_label_en: 'X',
@@ -31,7 +31,7 @@ const data: AnalyzeResponse = {
   risk_models: [],
   narrativa: '',
   narrativa_fonti: { overview: '', ontologia: '', contesto: '', speculativo: '' },
-  confidence_summary: { confermato: 1, plausibile: 1, speculativo: 0 },
+  confidence_summary: { verificato: 1, da_confermare: 1, ipotesi: 0 },
   llm_used: 'test-model',
   latenza_ms: 0,
   tokens_input: 0,
@@ -183,7 +183,7 @@ describe('transition (FSM)', () => {
     const withFilter: AppState = {
       ...initialState,
       screen: 'DETAIL',
-      filter: 'plausibile',
+      filter: 'da_confermare',
       selectedPoiId: '1',
     };
     expect(transition(withFilter, { type: 'DESELECT_POI' }).screen).toBe('FILTER');
@@ -203,7 +203,7 @@ describe('transition (FSM)', () => {
       completoData: data,
       selectedPoiId: '1',
     };
-    const s = transition(detail, { type: 'SET_FILTER', level: 'plausibile' });
+    const s = transition(detail, { type: 'SET_FILTER', level: 'da_confermare' });
     expect(s.selectedPoiId).toBeNull();
     expect(s.screen).toBe('FILTER');
   });
@@ -215,7 +215,7 @@ describe('transition (FSM)', () => {
       completoData: data,
       selectedPoiId: '1',
     };
-    const s = transition(detail, { type: 'SET_FILTER', level: 'confermato' });
+    const s = transition(detail, { type: 'SET_FILTER', level: 'verificato' });
     expect(s.selectedPoiId).toBe('1');
     expect(s.screen).toBe('DETAIL');
   });
@@ -251,7 +251,7 @@ describe('transition (FSM)', () => {
       completoData: data,
       baselineData: data,
       selectedPoiId: '1',
-      filter: 'confermato',
+      filter: 'verificato',
     };
     expect(transition(dirty, { type: 'RESET' })).toEqual(initialState);
   });
@@ -271,7 +271,7 @@ describe('transition (FSM)', () => {
   });
 
   it('CLEAR_FILTER → RESULTS e azzera il filtro', () => {
-    const filtered: AppState = { ...initialState, screen: 'FILTER', filter: 'plausibile' };
+    const filtered: AppState = { ...initialState, screen: 'FILTER', filter: 'da_confermare' };
     const s = transition(filtered, { type: 'CLEAR_FILTER' });
     expect(s.screen).toBe('RESULTS');
     expect(s.filter).toBeNull();
@@ -283,9 +283,9 @@ describe('transition (FSM)', () => {
 
   it('SET_FILTER da RESULTS: va in FILTER e imposta il livello', () => {
     const results: AppState = { ...initialState, screen: 'RESULTS', completoData: data };
-    const s = transition(results, { type: 'SET_FILTER', level: 'confermato' });
+    const s = transition(results, { type: 'SET_FILTER', level: 'verificato' });
     expect(s.screen).toBe('FILTER');
-    expect(s.filter).toBe('confermato');
+    expect(s.filter).toBe('verificato');
   });
 
   it('ANALYZE da RESULTS: va in LOADING, azzera selectedPoiId e filter, imposta pendingCitta/pendingZona/lastQuery; completoData NON viene toccato', () => {
@@ -294,7 +294,7 @@ describe('transition (FSM)', () => {
       screen: 'RESULTS',
       completoData: data,
       selectedPoiId: '1',
-      filter: 'plausibile',
+      filter: 'da_confermare',
     };
     const s = transition(results, {
       type: 'ANALYZE',

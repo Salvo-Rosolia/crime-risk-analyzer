@@ -113,8 +113,8 @@ class PoiOut(BaseModel):
     lon: float
     confidence: Confidence = Field(
         description=(
-            "speculativo se il POI e' fuori ontologia (nessun rischio); altrimenti "
-            "confermato se ha un nome OSM o plausibile se e' anonimo (unificata coi "
+            "ipotesi se il POI e' fuori ontologia (nessun rischio); altrimenti "
+            "verificato se ha un nome OSM o da_confermare se e' anonimo (unificata coi "
             "livelli per-rischio, #202)."
         )
     )
@@ -177,7 +177,7 @@ def _build_poi_list(
     """Unisce coords (da retrieval) e confidence/path (da grounding) per POI.
 
     La ``confidence`` per-POI e' UNIFICATA col livello per-rischio del grounding
-    (#202/M1): ``speculativo`` se il POI e' fuori ontologia (nessun rischio),
+    (#202/M1): ``ipotesi`` se il POI e' fuori ontologia (nessun rischio),
     altrimenti la stessa regola nome->verificabilita' dei suoi rischi
     (:func:`confidence_from_poi_name`), cosi' il badge del POI non diverge dai
     livelli dei rischi che porta.
@@ -188,7 +188,7 @@ def _build_poi_list(
     out: list[PoiOut] = []
     for poi, vr in zip(retrieval_ctx["pois"], grounded["validated_risks"], strict=True):
         confidence: Confidence = (
-            confidence_from_poi_name(poi["name"]) if vr["risks"] else "speculativo"
+            confidence_from_poi_name(poi["name"]) if vr["risks"] else "ipotesi"
         )
         out.append(
             PoiOut(

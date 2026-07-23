@@ -8,7 +8,7 @@ import {
   input,
   output,
 } from '@angular/core';
-import { CONF, srcTagMeta } from '@core/confidence';
+import { confMeta, pinColor, srcTagMeta } from '@core/confidence';
 import { Poi, RiskModel } from '@core/models/models';
 import { buildDetailModel, hazardDisplayLabel, orderGroupsByTag } from '@core/ui-helpers';
 
@@ -45,7 +45,15 @@ export class DetailPanelComponent {
 
   private readonly elementRef = inject(ElementRef<HTMLElement>);
 
-  protected readonly conf = CONF;
+  /**
+   * Accesso difensivo alla confidence (story #207, fix-review): un valore fuori contratto
+   * (mismatch di migrazione, dato legacy) degrada a un placeholder invece di far collassare la
+   * vista in un TypeError di change detection — `conf[livello]` indicizzato direttamente sarebbe
+   * `undefined` per un livello ignoto. `pinColor` per il colore, `confMeta` per dot/label:
+   * stesso pattern difensivo già usato altrove in `core/confidence.ts`.
+   */
+  protected readonly pinColor = pinColor;
+  protected readonly confMeta = confMeta;
   protected readonly hazardLabel = hazardDisplayLabel;
 
   protected readonly detailModel = computed(() => buildDetailModel(this.poi(), this.riskModels()));

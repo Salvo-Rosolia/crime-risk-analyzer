@@ -1,4 +1,4 @@
-export type Confidence = 'confermato' | 'plausibile' | 'speculativo';
+export type Confidence = 'verificato' | 'da_confermare' | 'ipotesi';
 export type SourceTag = 'ONTOLOGIA' | 'CONTESTO' | 'SPECULATIVO';
 
 export interface Poi {
@@ -39,9 +39,9 @@ export interface RiskModel {
   risks: RiskItem[];
 }
 export interface ConfidenceSummary {
-  confermato: number;
-  plausibile: number;
-  speculativo: number;
+  verificato: number;
+  da_confermare: number;
+  ipotesi: number;
 }
 export interface Repro {
   temperature: number;

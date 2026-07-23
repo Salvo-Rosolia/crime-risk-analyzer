@@ -9,7 +9,7 @@ function makePoi(overrides: Partial<Poi> = {}): Poi {
     terminus_class: 'Archaeological_site',
     lat: 41.89,
     lon: 12.49,
-    confidence: 'confermato',
+    confidence: 'verificato',
     sparql_path: 'Archaeological_site → havingHazard → Pickpocketing',
     terminus_label_it: 'Sito archeologico',
     terminus_label_en: 'Archaeological site',
@@ -23,21 +23,21 @@ const riskModels: RiskModel[] = [
     risks: [
       {
         hazard: 'h-spec',
-        confidence: 'speculativo',
+        confidence: 'ipotesi',
         tag: 'SPECULATIVO',
         hazard_label_it: 'Ipotesi speculativa',
         hazard_label_en: 'Speculative hypothesis',
       },
       {
         hazard: 'h-onto',
-        confidence: 'confermato',
+        confidence: 'verificato',
         tag: 'ONTOLOGIA',
         hazard_label_it: 'Borseggio',
         hazard_label_en: 'Pickpocketing',
       },
       {
         hazard: 'h-ctx',
-        confidence: 'plausibile',
+        confidence: 'da_confermare',
         tag: 'CONTESTO',
         hazard_label_it: 'Rischio da contesto',
         hazard_label_en: 'Context risk',
@@ -77,9 +77,9 @@ describe('DetailPanelComponent', () => {
   });
 
   it("mostra il badge di confidence del POI nell'header", () => {
-    setup(makePoi({ confidence: 'plausibile' }));
+    setup(makePoi({ confidence: 'da_confermare' }));
     const text = fixture.nativeElement.textContent;
-    expect(text).toContain('Plausibile');
+    expect(text).toContain('Da confermare');
   });
 
   it('mostra il pulsante "‹ indietro" (Vista Dettaglio del dock, #199) e il click emette closeDetail', () => {
@@ -158,6 +158,29 @@ describe('DetailPanelComponent', () => {
 
     expect(document.activeElement).toBe(fixture.nativeElement);
     dummy.remove();
+  });
+
+  it('difesa: confidence fuori-contratto (POI o rischio) non fa collassare la vista, mostra un fallback placeholder', () => {
+    const outOfContractPoi = makePoi({ confidence: 'boh' as unknown as Poi['confidence'] });
+    const outOfContractRiskModels: RiskModel[] = [
+      {
+        poi: 'Colosseo',
+        risks: [
+          {
+            hazard: 'h-boh',
+            confidence: 'boh' as unknown as RiskModel['risks'][number]['confidence'],
+            tag: 'ONTOLOGIA',
+            hazard_label_it: 'Fattore ignoto',
+            hazard_label_en: 'Unknown factor',
+          },
+        ],
+      },
+    ];
+
+    expect(() => setup(outOfContractPoi, outOfContractRiskModels)).not.toThrow();
+    const text = fixture.nativeElement.textContent;
+    expect(text).toContain('Sconosciuto');
+    expect(text).toContain('Fattore ignoto');
   });
 
   it('footer: azioni non operative presenti ("Segnala errore" / "Esporta scheda"), disabilitate in questa iterazione', () => {

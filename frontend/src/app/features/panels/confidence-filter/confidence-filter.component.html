@@ -1,0 +1,27 @@
+<div class="cra-confidence-filter">
+  <span class="cra-confidence-filter-title">Confidenza</span>
+
+  <div class="cra-confidence-rows" role="group" aria-label="Filtra per confidence">
+    @for (level of levels; track level) {
+      <button
+        type="button"
+        class="cra-confidence-row"
+        [class.cra-confidence-row-active]="activeFilter() === level"
+        [style.borderLeftColor]="conf[level].color"
+        [style.background]="activeFilter() === level ? conf[level].bg : 'transparent'"
+        [attr.aria-pressed]="activeFilter() === level"
+        (click)="rowClick.emit(level)"
+      >
+        <span class="cra-confidence-row-text">
+          <span class="cra-confidence-row-name" [style.color]="conf[level].color">{{
+            conf[level].label
+          }}</span>
+          <span class="cra-confidence-row-meaning">{{ meanings[level] }}</span>
+        </span>
+        <span class="cra-confidence-row-count">{{ counts()[level] }}</span>
+      </button>
+    }
+  </div>
+
+  <p class="cra-confidence-filter-note">{{ note }}</p>
+</div>

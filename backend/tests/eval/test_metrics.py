@@ -28,7 +28,7 @@ def _resp(
                 terminus_class="Bank",
                 lat=41.0,
                 lon=12.0,
-                confidence="confermato",
+                confidence="verificato",
                 sparql_path=(
                     "Bank → havingHazard → Bank_robbery" if with_citation else None
                 ),
@@ -40,14 +40,14 @@ def _resp(
                 risks=[
                     RiskItem(
                         hazard="Bank_robbery",
-                        confidence="confermato",
+                        confidence="verificato",
                         tag="ONTOLOGIA",
                     )
                 ],
             )
         ],
         narrativa=narrativa,
-        confidence_summary=ConfidenceSummary(confermato=1),
+        confidence_summary=ConfidenceSummary(verificato=1),
         llm_used="claude-sonnet-4-6",
         latenza_ms=120,
         repro=Repro(temperature=0.0, seed=0, prompt_hash="ph"),
@@ -181,7 +181,7 @@ def test_empty_poi_name_does_not_anchor_everything() -> None:
         terminus_class="Bank",
         lat=41.0,
         lon=12.0,
-        confidence="confermato",
+        confidence="verificato",
         sparql_path=None,
     )
     r = r.model_copy(update={"poi": [*r.poi, nameless]})

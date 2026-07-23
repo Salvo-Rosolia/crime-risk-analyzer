@@ -73,7 +73,7 @@ test.describe('INPUT→LOADING→RESULTS: parità marker/card/badge col fixture'
         String(counts[level]),
       );
       await expect(S.poiConfidenceChips(page).filter({ hasText: label })).toContainText(
-        `(${counts[level]})`,
+        String(counts[level]),
       );
     }
   });

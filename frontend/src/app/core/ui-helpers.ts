@@ -1,4 +1,4 @@
-import { CONF, ConfMeta, DIM_COLOR } from '@core/confidence';
+import { confMeta } from '@core/confidence';
 import { Confidence, Poi, RiskItem, RiskModel, SourceProse, SourceTag } from '@core/models/models';
 
 /**
@@ -183,13 +183,6 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
-const UNKNOWN_CONF_META: ConfMeta = {
-  color: DIM_COLOR,
-  bg: DIM_COLOR,
-  dot: '?',
-  label: 'Sconosciuto',
-};
-
 export interface SourceTab {
   tag: SourceTag;
   prose: string;
@@ -228,14 +221,14 @@ export function buildSourceTabs(
 
 /**
  * Markup del popup Leaflet per un marker POI: numero, nome, etichetta IT e badge confidence.
- * Fallback difensivo (come `pinColor`) se `confidence` non è uno dei 3 livelli noti: una voce
- * imprevista non deve interrompere il `forEach` di redraw dei marker successivi.
+ * Fallback difensivo (`confMeta`, `core/confidence.ts`) se `confidence` non è uno dei 3 livelli
+ * noti: una voce imprevista non deve interrompere il `forEach` di redraw dei marker successivi.
  */
 export function poiPopupHTML(
   poi: Pick<Poi, 'name' | 'confidence' | 'terminus_class' | 'terminus_label_it'>,
   n: number,
 ): string {
-  const meta = (CONF as Record<string, ConfMeta>)[poi.confidence] ?? UNKNOWN_CONF_META;
+  const meta = confMeta(poi.confidence);
   return (
     `<div class="cra-poi-popup">` +
     `<strong>${n}. ${escapeHtml(poi.name)}</strong>` +

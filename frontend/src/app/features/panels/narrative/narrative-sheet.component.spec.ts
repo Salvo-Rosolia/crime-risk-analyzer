@@ -8,21 +8,21 @@ const riskModels: RiskModel[] = [
     risks: [
       {
         hazard: 'h-spec',
-        confidence: 'speculativo',
+        confidence: 'ipotesi',
         tag: 'SPECULATIVO',
         hazard_label_it: 'Ipotesi',
         hazard_label_en: 'Hypothesis',
       },
       {
         hazard: 'h-onto',
-        confidence: 'confermato',
+        confidence: 'verificato',
         tag: 'ONTOLOGIA',
         hazard_label_it: 'Borseggio',
         hazard_label_en: 'Pickpocketing',
       },
       {
         hazard: 'h-ctx',
-        confidence: 'plausibile',
+        confidence: 'da_confermare',
         tag: 'CONTESTO',
         hazard_label_it: 'Contesto',
         hazard_label_en: 'Context',
@@ -262,7 +262,7 @@ describe('NarrativeSheetComponent', () => {
         risks: [
           {
             hazard: 'h-spec-2',
-            confidence: 'speculativo' as const,
+            confidence: 'ipotesi' as const,
             tag: 'SPECULATIVO' as const,
             hazard_label_it: 'Nuova ipotesi',
             hazard_label_en: 'New hypothesis',

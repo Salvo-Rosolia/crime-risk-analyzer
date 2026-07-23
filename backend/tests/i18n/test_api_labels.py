@@ -26,7 +26,7 @@ def _stub_labels(monkeypatch: pytest.MonkeyPatch) -> None:  # pyright: ignore[re
 
 
 def test_risk_item_autofills_it_and_en_labels() -> None:
-    item = RiskItem(hazard="Bank_robbery", confidence="confermato", tag="ONTOLOGIA")
+    item = RiskItem(hazard="Bank_robbery", confidence="verificato", tag="ONTOLOGIA")
     assert item.hazard_label_it == "Rapina in banca"
     assert item.hazard_label_en == "Bank robbery"
 
@@ -34,7 +34,7 @@ def test_risk_item_autofills_it_and_en_labels() -> None:
 def test_risk_item_keeps_explicit_labels() -> None:
     item = RiskItem(
         hazard="Bank_robbery",
-        confidence="confermato",
+        confidence="verificato",
         tag="ONTOLOGIA",
         hazard_label_it="Custom",
         hazard_label_en="Custom EN",
@@ -49,7 +49,7 @@ def test_poi_out_autofills_terminus_labels() -> None:
         terminus_class="Bank",
         lat=1.0,
         lon=2.0,
-        confidence="confermato",
+        confidence="verificato",
     )
     assert poi.terminus_label_it == "Banca"
     assert poi.terminus_label_en == "Bank"

@@ -1,7 +1,7 @@
 """Test del vocabolario tipizzato confidence/tag (#59).
 
 Il vocabolario centralizza i valori canonici di ``confidence`` (minuscolo:
-``confermato``/``plausibile``/``speculativo``) e ``tag`` (maiuscolo:
+``verificato``/``da_confermare``/``ipotesi``) e ``tag`` (maiuscolo:
 ``ONTOLOGIA``/``CONTESTO``/``SPECULATIVO``) usati dal citation layer, piu' il
 modello :class:`ConfidenceSummary` che sostituisce il vecchio ``dict[str, int]``.
 """
@@ -17,22 +17,22 @@ from crime_risk_analyzer.models.vocab import ConfidenceSummary
 def test_confidence_summary_defaults_to_zero() -> None:
     summary = ConfidenceSummary()
 
-    assert summary.confermato == 0
-    assert summary.plausibile == 0
-    assert summary.speculativo == 0
+    assert summary.verificato == 0
+    assert summary.da_confermare == 0
+    assert summary.ipotesi == 0
 
 
 def test_confidence_summary_accepts_counts() -> None:
-    summary = ConfidenceSummary(confermato=2, plausibile=1, speculativo=3)
+    summary = ConfidenceSummary(verificato=2, da_confermare=1, ipotesi=3)
 
-    assert summary.confermato == 2
-    assert summary.plausibile == 1
-    assert summary.speculativo == 3
+    assert summary.verificato == 2
+    assert summary.da_confermare == 1
+    assert summary.ipotesi == 3
 
 
 def test_confidence_summary_rejects_negative() -> None:
     with pytest.raises(ValidationError):
-        ConfidenceSummary(confermato=-1)
+        ConfidenceSummary(verificato=-1)
 
 
 def test_confidence_literal_rejects_unknown_value() -> None:
@@ -55,7 +55,7 @@ def test_tag_literal_rejects_unknown_value() -> None:
     from crime_risk_analyzer.rag.generation import RiskItem
 
     with pytest.raises(ValidationError):
-        RiskItem(hazard="x", confidence="confermato", tag="alto")  # pyright: ignore[reportArgumentType]
+        RiskItem(hazard="x", confidence="verificato", tag="alto")  # pyright: ignore[reportArgumentType]
 
 
 def test_confidence_summary_has_no_numeric_danger_scoring_field() -> None:
@@ -67,7 +67,7 @@ def test_confidence_summary_has_no_numeric_danger_scoring_field() -> None:
     ``punteggio_totale``/``livello_rischio``). L'insieme esatto lo blocca e
     rende il test rosso, forzando una revisione cosciente (_project.md §Vincoli)."""
     assert set(ConfidenceSummary.model_fields) == {
-        "confermato",
-        "plausibile",
-        "speculativo",
+        "verificato",
+        "da_confermare",
+        "ipotesi",
     }
