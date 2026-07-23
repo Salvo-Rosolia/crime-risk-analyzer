@@ -14,23 +14,6 @@
   color: var(--accent-2);
 }
 
-.cra-filter-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-  margin-bottom: var(--space-2);
-}
-
-.cra-chip {
-  font-family: var(--font-sans);
-  font-size: 0.72rem;
-  font-weight: 600;
-  padding: 2px var(--space-2);
-  border: 1.5px solid;
-  border-radius: 999px;
-  cursor: pointer;
-}
-
 .cra-hidden-bar {
   margin: 0 0 var(--space-2);
   font-size: 0.75rem;

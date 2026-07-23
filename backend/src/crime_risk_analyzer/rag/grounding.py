@@ -13,11 +13,11 @@ ogni rischio strutturato ha ``tag="ONTOLOGIA"``: la FONTE e' sempre l'ontologia.
 La ``confidence`` gradua invece la FORZA PROBATORIA del rischio in base alla
 verificabilita' del POI in OSM (#202):
 
-- ``confermato`` = hazard ontologico su un POI con ``name`` OSM non vuoto (doppio
+- ``verificato`` = hazard ontologico su un POI con ``name`` OSM non vuoto (doppio
   ancoraggio: ontologia + entita' OSM verificabile).
-- ``plausibile`` = hazard ontologico su una feature OSM anonima (``name`` vuoto/
+- ``da_confermare`` = hazard ontologico su una feature OSM anonima (``name`` vuoto/
   whitespace): l'ancoraggio OSM e' debole, il supporto poggia sulla sola ontologia.
-- ``speculativo`` = NON prodotto qui (rimandato, fuori scope): resta 0.
+- ``ipotesi`` = NON prodotto qui (rimandato, fuori scope): resta 0.
 
 Il ``tag`` resta ``ONTOLOGIA`` per entrambi i livelli (la fonte non cambia, cambia
 solo la forza probatoria). La confidence qualifica la prova, MAI la pericolosita'
@@ -48,17 +48,17 @@ __all__ = [
 _TAG: Tag = "ONTOLOGIA"
 #: Confidence per un hazard su POI con nome OSM (doppio ancoraggio: ontologia +
 #: entita' OSM verificabile).
-_CONFIDENCE_NAMED: Confidence = "confermato"
+_CONFIDENCE_NAMED: Confidence = "verificato"
 #: Confidence per un hazard su feature OSM anonima (ancoraggio OSM debole): il
 #: supporto poggia sulla sola ontologia, la fonte (tag) resta comunque ONTOLOGIA.
-_CONFIDENCE_ANONYMOUS: Confidence = "plausibile"
+_CONFIDENCE_ANONYMOUS: Confidence = "da_confermare"
 
 
 def confidence_from_poi_name(name: str) -> Confidence:
     """Grada la confidence dalla verificabilita' del POI in OSM (#202).
 
-    ``confermato`` se ``name`` (strip) e' non vuoto (entita' OSM verificabile,
-    doppio ancoraggio ontologia + OSM), ``plausibile`` se vuoto/whitespace
+    ``verificato`` se ``name`` (strip) e' non vuoto (entita' OSM verificabile,
+    doppio ancoraggio ontologia + OSM), ``da_confermare`` se vuoto/whitespace
     (feature anonima, ancoraggio OSM debole). Il tag della fonte resta ONTOLOGIA
     in entrambi i casi.
 
@@ -117,15 +117,15 @@ def ground(context: RetrievalContext) -> GroundedContext:
 
     Per ogni POI costruisce i rischi ontologici (tag ``ONTOLOGIA``) con la
     citazione SPARQL per-hazard; la ``confidence`` di TUTTI i rischi del POI e'
-    ``confermato`` se il POI ha un nome OSM, ``plausibile`` se e' una feature
+    ``verificato`` se il POI ha un nome OSM, ``da_confermare`` se e' una feature
     anonima (:func:`confidence_from_poi_name`, #202). I POI fuori ontologia
     (``GenericUrbanPOI``/profilo vuoto) restano con ``risks=[]``. Il
-    ``confidence_summary`` conta i livelli reali; ``speculativo`` resta 0
+    ``confidence_summary`` conta i livelli reali; ``ipotesi`` resta 0
     (rimandato, fuori scope).
     """
     validated: list[ValidatedRisk] = []
-    n_confermato = 0
-    n_plausibile = 0
+    n_verificato = 0
+    n_da_confermare = 0
     for poi in context["pois"]:
         profile = context["profiles"][poi["terminus_class"]]
         confidence = confidence_from_poi_name(poi["name"])
@@ -139,9 +139,9 @@ def ground(context: RetrievalContext) -> GroundedContext:
             for hazard in profile.hazards
         ]
         if confidence == _CONFIDENCE_NAMED:
-            n_confermato += len(risks)
+            n_verificato += len(risks)
         else:
-            n_plausibile += len(risks)
+            n_da_confermare += len(risks)
         validated.append(
             {
                 "poi": poi["name"],
@@ -155,8 +155,8 @@ def ground(context: RetrievalContext) -> GroundedContext:
         "zona": context["zona"],
         "validated_risks": validated,
         "confidence_summary": {
-            "confermato": n_confermato,
-            "plausibile": n_plausibile,
-            "speculativo": 0,
+            "verificato": n_verificato,
+            "da_confermare": n_da_confermare,
+            "ipotesi": 0,
         },
     }

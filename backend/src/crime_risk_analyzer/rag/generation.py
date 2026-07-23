@@ -50,7 +50,7 @@ RULE_NO_DANGER_RATING = (
     'ne\' punteggi, percentuali, voti o scale NUMERICHE (es. "rischio 73%", '
     '"7/10") ne\' scale QUALITATIVE di livello di pericolo (es. "rischio '
     'ALTO/MEDIO/BASSO", "zona pericolosa/sicura"). Descrivi i fattori di rischio '
-    "in forma discorsiva; i livelli confermato/plausibile/speculativo qualificano "
+    "in forma discorsiva; i livelli verificato/da_confermare/ipotesi qualificano "
     "la forza probatoria delle singole affermazioni, non la magnitudo del pericolo"
 )
 
@@ -127,12 +127,12 @@ _RULE_OVERVIEW_NO_ZONE_LEVEL = (
 _CONFIDENCE_LEVELS = (
     "LIVELLI DI CONFIDENZA (qualificano la forza probatoria, MAI la "
     "pericolosita'):\n"
-    "- confermato: hazard ontologico su un POI OSM verificabile, cioe' con nome "
+    "- verificato: hazard ontologico su un POI OSM verificabile, cioe' con nome "
     "proprio (doppio ancoraggio: ontologia + entita' OSM identificabile)\n"
-    "- plausibile: hazard ontologico su una feature OSM anonima, cioe' senza nome "
+    "- da_confermare: hazard ontologico su una feature OSM anonima, cioe' senza nome "
     "(ancoraggio OSM debole: il supporto poggia sulla sola ontologia), oppure "
     "rischio supportato solo dal contesto OSM/input senza ancoraggio ontologico\n"
-    "- speculativo: solo ragionamento per analogia su POI non coperti "
+    "- ipotesi: solo ragionamento per analogia su POI non coperti "
     "dall'ontologia"
 )
 
@@ -235,7 +235,7 @@ class RiskItem(BaseModel):
 
     hazard: str = Field(description="Nome dell'hazard (classe ontologica reale).")
     confidence: Confidence = Field(
-        description="Livello qualitativo: confermato/plausibile/speculativo."
+        description="Livello qualitativo: verificato/da_confermare/ipotesi."
     )
     tag: Tag | None = Field(
         default=None, description="Tag fonte: ONTOLOGIA/CONTESTO/SPECULATIVO."
@@ -287,7 +287,7 @@ class GenerationResult(BaseModel):
     )
     confidence_summary: ConfidenceSummary = Field(
         default_factory=ConfidenceSummary,
-        description="Conteggio per livello (confermato/plausibile/speculativo).",
+        description="Conteggio per livello (verificato/da_confermare/ipotesi).",
     )
     llm_used: str = Field(description="Model id esatto che ha prodotto la narrativa.")
     tokens_input: int = Field(ge=0, description="Token di input fatturati.")

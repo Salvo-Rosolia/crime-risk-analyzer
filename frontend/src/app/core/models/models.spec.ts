@@ -12,7 +12,7 @@ describe('models (contratto /analyze)', () => {
           terminus_class: 'ArchaeologicalSite',
           lat: 41.8908,
           lon: 12.4918,
-          confidence: 'confermato',
+          confidence: 'verificato',
           sparql_path: 'ArchaeologicalSite → hasAnthropicHazard → borseggioTuristi',
           terminus_label_it: 'Sito archeologico',
           terminus_label_en: 'Archaeological site',
@@ -24,7 +24,7 @@ describe('models (contratto /analyze)', () => {
           risks: [
             {
               hazard: 'borseggioTuristi',
-              confidence: 'confermato',
+              confidence: 'verificato',
               tag: 'ONTOLOGIA',
               hazard_label_it: 'Borseggio turisti',
               hazard_label_en: 'Tourist pickpocketing',
@@ -34,7 +34,7 @@ describe('models (contratto /analyze)', () => {
       ],
       narrativa: "L'area del Colosseo...",
       narrativa_fonti: { overview: '', ontologia: '', contesto: '', speculativo: '' },
-      confidence_summary: { confermato: 2, plausibile: 0, speculativo: 1 },
+      confidence_summary: { verificato: 2, da_confermare: 0, ipotesi: 1 },
       llm_used: 'claude-sonnet-4-6',
       latenza_ms: 2340,
       tokens_input: 512,
@@ -43,13 +43,13 @@ describe('models (contratto /analyze)', () => {
       cache_hit: true,
       fallback: false,
     };
-    expect(sample.poi[0].confidence).toBe('confermato');
+    expect(sample.poi[0].confidence).toBe('verificato');
   });
 
   it('RiskItem.tag accetta null (il BE emette Tag|None quando il rischio non è ancorato/taggato)', () => {
     const ri: RiskItem = {
       hazard: 'x',
-      confidence: 'speculativo',
+      confidence: 'ipotesi',
       tag: null,
       hazard_label_it: 'X',
       hazard_label_en: 'X',
@@ -58,9 +58,9 @@ describe('models (contratto /analyze)', () => {
   });
 
   it('Action è un discriminated union restringibile per type', () => {
-    const a: Action = { type: 'SET_FILTER', level: 'plausibile' };
+    const a: Action = { type: 'SET_FILTER', level: 'da_confermare' };
     const narrowed = a.type === 'SET_FILTER' ? a.level : null;
-    expect(narrowed).toBe('plausibile');
+    expect(narrowed).toBe('da_confermare');
   });
 
   it('AppState iniziale è costruibile con i campi attesi (completoData/baselineData separati)', () => {
@@ -100,7 +100,7 @@ describe('models (contratto /analyze)', () => {
       risk_models: [],
       narrativa: '',
       narrativa_fonti: { overview: '', ontologia: '', contesto: '', speculativo: '' },
-      confidence_summary: { confermato: 0, plausibile: 0, speculativo: 0 },
+      confidence_summary: { verificato: 0, da_confermare: 0, ipotesi: 0 },
       llm_used: '',
       latenza_ms: 0,
       tokens_input: 0,

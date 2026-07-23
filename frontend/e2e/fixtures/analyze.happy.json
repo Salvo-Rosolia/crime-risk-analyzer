@@ -8,7 +8,7 @@
       "terminus_class": "ArchaeologicalSite",
       "lat": 41.8902,
       "lon": 12.4922,
-      "confidence": "confermato",
+      "confidence": "verificato",
       "sparql_path": "ArchaeologicalSite → hasAnthropicHazard → borseggioTuristi",
       "terminus_label_it": "Sito archeologico",
       "terminus_label_en": "Archaeological site"
@@ -19,7 +19,7 @@
       "terminus_class": "Square",
       "lat": 41.8955,
       "lon": 12.4823,
-      "confidence": "plausibile",
+      "confidence": "da_confermare",
       "sparql_path": "Square → hasEnvironmentalHazard → scarsaIlluminazione",
       "terminus_label_it": "Piazza",
       "terminus_label_en": "Square"
@@ -30,7 +30,7 @@
       "terminus_class": "Alley",
       "lat": 41.8933,
       "lon": 12.4834,
-      "confidence": "speculativo",
+      "confidence": "ipotesi",
       "sparql_path": null,
       "terminus_label_it": "Vicolo",
       "terminus_label_en": "Alley"
@@ -41,7 +41,7 @@
       "terminus_class": "Fountain",
       "lat": 41.9009,
       "lon": 12.4833,
-      "confidence": "confermato",
+      "confidence": "verificato",
       "sparql_path": "Fountain → hasAnthropicHazard → furtoConDestrezza",
       "terminus_label_it": "Fontana monumentale",
       "terminus_label_en": "Monumental fountain"
@@ -52,7 +52,7 @@
       "terminus_class": "Underpass",
       "lat": 41.8912,
       "lon": 12.4945,
-      "confidence": "speculativo",
+      "confidence": "ipotesi",
       "sparql_path": null,
       "terminus_label_it": "Sottopasso",
       "terminus_label_en": "Underpass"
@@ -63,7 +63,7 @@
       "terminus_class": "Alley",
       "lat": 41.8927,
       "lon": 12.4838,
-      "confidence": "speculativo",
+      "confidence": "ipotesi",
       "sparql_path": null,
       "terminus_label_it": "Vicolo",
       "terminus_label_en": "Alley"
@@ -75,14 +75,14 @@
       "risks": [
         {
           "hazard": "borseggioTuristi",
-          "confidence": "confermato",
+          "confidence": "verificato",
           "tag": "ONTOLOGIA",
           "hazard_label_it": "Borseggio turisti",
           "hazard_label_en": "Tourist pickpocketing"
         },
         {
           "hazard": "affollamentoSerale",
-          "confidence": "plausibile",
+          "confidence": "da_confermare",
           "tag": "CONTESTO",
           "hazard_label_it": "Affollamento serale",
           "hazard_label_en": "Evening overcrowding"
@@ -94,7 +94,7 @@
       "risks": [
         {
           "hazard": "scarsaIlluminazione",
-          "confidence": "plausibile",
+          "confidence": "da_confermare",
           "tag": "CONTESTO",
           "hazard_label_it": "Scarsa illuminazione",
           "hazard_label_en": "Poor lighting"
@@ -106,14 +106,14 @@
       "risks": [
         {
           "hazard": "aggressioneNotturna",
-          "confidence": "speculativo",
+          "confidence": "ipotesi",
           "tag": "SPECULATIVO",
           "hazard_label_it": "Aggressione notturna",
           "hazard_label_en": "Night-time assault"
         },
         {
           "hazard": "assenzaControlloSociale",
-          "confidence": "speculativo",
+          "confidence": "ipotesi",
           "tag": null,
           "hazard_label_it": "Assenza di controllo sociale",
           "hazard_label_en": "Lack of social control"
@@ -125,7 +125,7 @@
       "risks": [
         {
           "hazard": "furtoConDestrezza",
-          "confidence": "confermato",
+          "confidence": "verificato",
           "tag": "ONTOLOGIA",
           "hazard_label_it": "Furto con destrezza",
           "hazard_label_en": "Pickpocketing"
@@ -137,7 +137,7 @@
       "risks": [
         {
           "hazard": "assenzaTelecamere",
-          "confidence": "speculativo",
+          "confidence": "ipotesi",
           "tag": "SPECULATIVO",
           "hazard_label_it": "Assenza di telecamere di sorveglianza",
           "hazard_label_en": "Lack of camera surveillance"
@@ -149,7 +149,7 @@
       "risks": [
         {
           "hazard": "vieDiFugaLimitate",
-          "confidence": "speculativo",
+          "confidence": "ipotesi",
           "tag": "SPECULATIVO",
           "hazard_label_it": "Vie di fuga limitate",
           "hazard_label_en": "Limited escape routes"
@@ -164,7 +164,7 @@
     "contesto": "Piazza Venezia presenta scarsa illuminazione serale; il Colosseo registra affollamento nelle ore serali, entrambi fattori osservati dal contesto OSM.",
     "speculativo": "Vicolo Oscuro, Sottopasso Buio e Vicolo Cieco restano ipotesi non ancorate all'ontologia: aggressione notturna, assenza di telecamere e vie di fuga limitate, legate alla mancanza di controllo sociale."
   },
-  "confidence_summary": { "confermato": 2, "plausibile": 2, "speculativo": 4 },
+  "confidence_summary": { "verificato": 2, "da_confermare": 2, "ipotesi": 4 },
   "llm_used": "claude-sonnet-4-6",
   "latenza_ms": 2340,
   "tokens_input": 812,

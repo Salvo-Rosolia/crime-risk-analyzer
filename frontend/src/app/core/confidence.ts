@@ -7,11 +7,11 @@ export interface ConfMeta {
   label: string;
 }
 
-export const CONF: Readonly<Record<'confermato' | 'plausibile' | 'speculativo', ConfMeta>> =
+export const CONF: Readonly<Record<'verificato' | 'da_confermare' | 'ipotesi', ConfMeta>> =
   Object.freeze({
-    confermato: { color: '#1a7a40', bg: '#eef7f1', dot: '●', label: 'Confermato' },
-    plausibile: { color: '#b8870a', bg: '#fbf4e4', dot: '◐', label: 'Plausibile' },
-    speculativo: { color: '#c2620a', bg: '#fbeee2', dot: '○', label: 'Speculativo' },
+    verificato: { color: '#1a7a40', bg: '#eef7f1', dot: '●', label: 'Verificato' },
+    da_confermare: { color: '#b8870a', bg: '#fbf4e4', dot: '◐', label: 'Da confermare' },
+    ipotesi: { color: '#c2620a', bg: '#fbeee2', dot: '○', label: 'Ipotesi' },
   });
 
 export const DIM_COLOR = '#b6b3a9';
@@ -19,17 +19,17 @@ export const DIM_COLOR = '#b6b3a9';
 /**
  * Colore + descrizione breve per i titoli di sezione dei tag fonte (Stato C "Fattori di rischio
  * · per fonte", Stato B narrativa strutturata per fonte): il colore ricalca deliberatamente
- * quello di `CONF` per il livello di confidence analogo (ONTOLOGIA↔confermato, CONTESTO↔plausibile,
- * SPECULATIVO↔speculativo) — stessa palette, un solo posto dove cambiarla.
+ * quello di `CONF` per il livello di confidence analogo (ONTOLOGIA↔verificato, CONTESTO↔da_confermare,
+ * SPECULATIVO↔ipotesi) — stessa palette, un solo posto dove cambiarla.
  */
 export const SRC_TAG_META: Readonly<Record<SourceTag, { color: string; description: string }>> =
   Object.freeze({
-    ONTOLOGIA: { color: CONF.confermato.color, description: 'da ontologia formale' },
-    CONTESTO: { color: CONF.plausibile.color, description: 'da contesto ambientale' },
-    SPECULATIVO: { color: CONF.speculativo.color, description: 'inferenza non verificata' },
+    ONTOLOGIA: { color: CONF.verificato.color, description: 'da ontologia formale' },
+    CONTESTO: { color: CONF.da_confermare.color, description: 'da contesto ambientale' },
+    SPECULATIVO: { color: CONF.ipotesi.color, description: 'inferenza non verificata' },
   });
 
-const UNKNOWN_TAG_META = { color: CONF.speculativo.color, description: '' };
+const UNKNOWN_TAG_META = { color: CONF.ipotesi.color, description: '' };
 
 /**
  * Variante di `SRC_TAG_META` sicura per tag generici (`string`, non ristretti a `SourceTag`):
@@ -44,8 +44,26 @@ export function srcTagMeta(tag: string): { color: string; description: string } 
   );
 }
 
+const UNKNOWN_CONF_META: ConfMeta = Object.freeze({
+  color: DIM_COLOR,
+  bg: DIM_COLOR,
+  dot: '?',
+  label: 'Sconosciuto',
+});
+
+/**
+ * Variante di `CONF` sicura per un livello di confidence potenzialmente fuori contratto (difesa in
+ * profondità, story #207): un valore non riconosciuto (typo, dato legacy, mismatch di migrazione
+ * del vocabolario) degrada a un placeholder invece di far collassare il template in un TypeError
+ * di change detection (`CONF[level]` indicizzato direttamente sarebbe `undefined`). Stesso
+ * pattern di `srcTagMeta` per i tag fonte.
+ */
+export function confMeta(level: string): ConfMeta {
+  return (CONF as Record<string, ConfMeta>)[level] ?? UNKNOWN_CONF_META;
+}
+
 export function pinColor(level: string): string {
-  return (CONF as Record<string, ConfMeta>)[level]?.color ?? DIM_COLOR;
+  return confMeta(level).color;
 }
 
 export function deriveCoverage(
@@ -73,7 +91,7 @@ export function coverageBadgeText(total: number, anchored: number): string {
  * `HeaderControlsComponent` — un solo posto per la stessa regola di conteggio (DRY).
  */
 export function poiConfidenceCounts(pois: Poi[] | null | undefined): Record<Confidence, number> {
-  const counts: Record<Confidence, number> = { confermato: 0, plausibile: 0, speculativo: 0 };
+  const counts: Record<Confidence, number> = { verificato: 0, da_confermare: 0, ipotesi: 0 };
   for (const poi of pois ?? []) counts[poi.confidence]++;
   return counts;
 }

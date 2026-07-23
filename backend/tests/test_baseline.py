@@ -90,7 +90,7 @@ def test_baseline_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     assert body["narrativa"] == ""
     assert body["llm_used"] == ""
     assert body["fallback"] is False
-    assert [p["confidence"] for p in body["poi"]] == ["confermato", "speculativo"]
+    assert [p["confidence"] for p in body["poi"]] == ["verificato", "ipotesi"]
     assert body["risk_models"][0]["poi"] == "Banca A"
 
 
@@ -202,9 +202,9 @@ def test_baseline_zero_pois(monkeypatch: pytest.MonkeyPatch) -> None:
     assert body["poi"] == []
     assert body["risk_models"] == []
     assert body["confidence_summary"] == {
-        "confermato": 0,
-        "plausibile": 0,
-        "speculativo": 0,
+        "verificato": 0,
+        "da_confermare": 0,
+        "ipotesi": 0,
     }
     assert body["narrativa"] == ""
     assert body["fallback"] is False

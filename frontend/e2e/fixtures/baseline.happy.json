@@ -8,7 +8,7 @@
       "terminus_class": "ReligiousSite",
       "lat": 45.4642,
       "lon": 9.19,
-      "confidence": "confermato",
+      "confidence": "verificato",
       "sparql_path": null,
       "terminus_label_it": "Sito religioso",
       "terminus_label_en": "Religious site"
@@ -19,7 +19,7 @@
       "terminus_class": "ShoppingArcade",
       "lat": 45.4656,
       "lon": 9.19,
-      "confidence": "confermato",
+      "confidence": "verificato",
       "sparql_path": null,
       "terminus_label_it": "Galleria commerciale",
       "terminus_label_en": "Shopping arcade"
@@ -31,7 +31,7 @@
       "risks": [
         {
           "hazard": "borseggioTuristi",
-          "confidence": "confermato",
+          "confidence": "verificato",
           "tag": "ONTOLOGIA",
           "hazard_label_it": "Borseggio turisti",
           "hazard_label_en": "Tourist pickpocketing"
@@ -43,7 +43,7 @@
       "risks": [
         {
           "hazard": "affollamentoSerale",
-          "confidence": "confermato",
+          "confidence": "verificato",
           "tag": "ONTOLOGIA",
           "hazard_label_it": "Affollamento serale",
           "hazard_label_en": "Evening overcrowding"
@@ -53,7 +53,7 @@
   ],
   "narrativa": "",
   "narrativa_fonti": { "overview": "", "ontologia": "", "contesto": "", "speculativo": "" },
-  "confidence_summary": { "confermato": 0, "plausibile": 0, "speculativo": 0 },
+  "confidence_summary": { "verificato": 0, "da_confermare": 0, "ipotesi": 0 },
   "llm_used": "",
   "latenza_ms": 0,
   "tokens_input": 0,

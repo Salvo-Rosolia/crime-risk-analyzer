@@ -88,5 +88,5 @@
 
 .cra-loading-step.cra-step-done::before {
   content: '●';
-  color: var(--c-confermato);
+  color: var(--c-verificato);
 }

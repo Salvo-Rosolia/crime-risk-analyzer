@@ -89,7 +89,7 @@ def test_ground_happy_path_multi_class() -> None:
         {
             "hazard": "Robbery",
             "tag": "ONTOLOGIA",
-            "confidence": "confermato",
+            "confidence": "verificato",
             "source": "Bank → havingHazard → Robbery",
         }
     ]
@@ -147,14 +147,14 @@ def test_ground_zero_pois() -> None:
 
     assert out["validated_risks"] == []
     assert out["confidence_summary"] == {
-        "confermato": 0,
-        "plausibile": 0,
-        "speculativo": 0,
+        "verificato": 0,
+        "da_confermare": 0,
+        "ipotesi": 0,
     }
 
 
-def test_ground_confidence_summary_counts_all_confermato() -> None:
-    # POI tutti con nome OSM -> ogni rischio e' confermato (doppio ancoraggio)
+def test_ground_confidence_summary_counts_all_verificato() -> None:
+    # POI tutti con nome OSM -> ogni rischio e' verificato (doppio ancoraggio)
     bank = _profile(
         "Bank",
         hazards=["Robbery", "Fraud"],
@@ -174,14 +174,14 @@ def test_ground_confidence_summary_counts_all_confermato() -> None:
     )
 
     assert out["confidence_summary"] == {
-        "confermato": 3,
-        "plausibile": 0,
-        "speculativo": 0,
+        "verificato": 3,
+        "da_confermare": 0,
+        "ipotesi": 0,
     }
 
 
-def test_ground_named_poi_risks_are_confermato() -> None:
-    # #202: POI con nome OSM = entita' verificabile -> hazard ontologico confermato
+def test_ground_named_poi_risks_are_verificato() -> None:
+    # #202: POI con nome OSM = entita' verificabile -> hazard ontologico verificato
     # (doppio ancoraggio: ontologia + POI OSM identificabile).
     prof = _profile(
         "Bank", hazards=["Robbery"], sparql_paths=["Bank → havingHazard → Robbery"]
@@ -189,13 +189,13 @@ def test_ground_named_poi_risks_are_confermato() -> None:
     out = ground(_ctx([_poi("1", "Banca A", "Bank")], {"Bank": prof}))
 
     risk = out["validated_risks"][0]["risks"][0]
-    assert risk["confidence"] == "confermato"
+    assert risk["confidence"] == "verificato"
     assert risk["tag"] == "ONTOLOGIA"
 
 
-def test_ground_anonymous_poi_risks_are_plausibile() -> None:
+def test_ground_anonymous_poi_risks_are_da_confermare() -> None:
     # #202: feature OSM senza nome = ancoraggio OSM debole -> hazard ontologico
-    # plausibile. La FONTE resta l'ontologia: il tag NON cambia (cambia solo la
+    # da_confermare. La FONTE resta l'ontologia: il tag NON cambia (cambia solo la
     # forza probatoria).
     prof = _profile(
         "Bank", hazards=["Robbery"], sparql_paths=["Bank → havingHazard → Robbery"]
@@ -203,23 +203,23 @@ def test_ground_anonymous_poi_risks_are_plausibile() -> None:
     out = ground(_ctx([_poi("1", "", "Bank")], {"Bank": prof}))
 
     risk = out["validated_risks"][0]["risks"][0]
-    assert risk["confidence"] == "plausibile"
+    assert risk["confidence"] == "da_confermare"
     assert risk["tag"] == "ONTOLOGIA"
 
 
-def test_ground_whitespace_name_poi_is_plausibile() -> None:
-    # #202: un nome di soli whitespace e' una feature anonima -> plausibile.
+def test_ground_whitespace_name_poi_is_da_confermare() -> None:
+    # #202: un nome di soli whitespace e' una feature anonima -> da_confermare.
     prof = _profile(
         "Bank", hazards=["Robbery"], sparql_paths=["Bank → havingHazard → Robbery"]
     )
     out = ground(_ctx([_poi("1", "   ", "Bank")], {"Bank": prof}))
 
-    assert out["validated_risks"][0]["risks"][0]["confidence"] == "plausibile"
+    assert out["validated_risks"][0]["risks"][0]["confidence"] == "da_confermare"
 
 
 def test_ground_confidence_summary_mixed_counts() -> None:
-    # #202: input reale misto -> conteggi reali con confermato>0 E plausibile>0,
-    # speculativo resta 0 (rimandato, fuori scope).
+    # #202: input reale misto -> conteggi reali con verificato>0 E da_confermare>0,
+    # ipotesi resta 0 (rimandato, fuori scope).
     bank = _profile(
         "Bank",
         hazards=["Robbery", "Fraud"],
@@ -239,9 +239,9 @@ def test_ground_confidence_summary_mixed_counts() -> None:
     )
 
     assert out["confidence_summary"] == {
-        "confermato": 2,
-        "plausibile": 1,
-        "speculativo": 0,
+        "verificato": 2,
+        "da_confermare": 1,
+        "ipotesi": 0,
     }
 
 
@@ -280,10 +280,10 @@ def test_ground_output_conforms_to_generation_consumer() -> None:
                 }
             )
             assert item.tag == "ONTOLOGIA"
-            assert item.confidence == "confermato"
+            assert item.confidence == "verificato"
 
     # confidence_summary validabile dal modello canonico
     cs = ConfidenceSummary.model_validate(out["confidence_summary"])
-    assert cs.confermato == 1
-    assert cs.plausibile == 0
-    assert cs.speculativo == 0
+    assert cs.verificato == 1
+    assert cs.da_confermare == 0
+    assert cs.ipotesi == 0

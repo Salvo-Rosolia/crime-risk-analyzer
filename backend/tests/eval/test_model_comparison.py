@@ -95,7 +95,7 @@ def test_model_arms_zones_anchored_to_c1_roster() -> None:
 # --- confronto a due modelli (offline, record sintetici) --------------------
 
 #: Metriche sintetiche per zona (grounding, hallucination, latency_ms, cost_usd),
-#: allineate posizionalmente a ROSTER[:4]. Scenario plausibile ma INVENTATO
+#: allineate posizionalmente a ROSTER[:4]. Scenario verosimile ma INVENTATO
 #: (nessuna run reale): Claude piu' accurato ma piu' caro e lento; Groq/Llama
 #: piu' economico e veloce con qualita' proxy piu' bassa. Servono solo a rendere
 #: delta e separazione costo/latenza verificabili offline.
@@ -304,7 +304,7 @@ def _resp163(narrativa: str) -> AnalyzeResponse:
                 terminus_class="Bank",
                 lat=41.0,
                 lon=12.0,
-                confidence="confermato",
+                confidence="verificato",
                 sparql_path="Bank → havingHazard → Bank_robbery",
             )
         ],
@@ -314,14 +314,14 @@ def _resp163(narrativa: str) -> AnalyzeResponse:
                 risks=[
                     RiskItem(
                         hazard="Bank_robbery",
-                        confidence="confermato",
+                        confidence="verificato",
                         tag="ONTOLOGIA",
                     )
                 ],
             )
         ],
         narrativa=narrativa,
-        confidence_summary=ConfidenceSummary(confermato=1),
+        confidence_summary=ConfidenceSummary(verificato=1),
         llm_used="claude-sonnet-4-6",
         latenza_ms=100,
         repro=Repro(temperature=0.0, seed=0, prompt_hash="ph"),

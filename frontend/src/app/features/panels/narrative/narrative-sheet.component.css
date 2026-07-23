@@ -51,9 +51,9 @@
   align-items: center;
   gap: var(--space-1);
   font-size: 0.68rem;
-  color: var(--c-plausibile-ink);
-  background: var(--c-plausibile-bg);
-  border: 1px solid var(--c-plausibile);
+  color: var(--c-da-confermare-ink);
+  background: var(--c-da-confermare-bg);
+  border: 1px solid var(--c-da-confermare);
   border-radius: 4px;
   padding: 1px var(--space-2);
   white-space: nowrap;

@@ -2,17 +2,18 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
 import { CONF, poiConfidenceCounts } from '@core/confidence';
 import { Confidence, NumberedPoi, Poi } from '@core/models/models';
 import { matchesFilter, poiDisplayLabel } from '@core/ui-helpers';
-
-const LEVELS: readonly Confidence[] = ['confermato', 'plausibile', 'speculativo'];
+import { ConfidenceFilterComponent } from '@features/panels/confidence-filter/confidence-filter.component';
 
 /**
  * Pannello "Lista POI" (Stato B / B·Filtro): card numerate accoppiate ai marker della mappa
- * (stesso numero, stesso ordine dell'array `pois`) + filter bar per confidence
- * (`SET_FILTER`/`CLEAR_FILTER`, spec-frontend.md §Stato B·Filtro).
+ * (stesso numero, stesso ordine dell'array `pois`) + controllo unificato "Confidenza"
+ * (legenda + filtro in un solo elemento, story #207: `SET_FILTER`/`CLEAR_FILTER`,
+ * spec-frontend.md §Stato B·Filtro).
  */
 @Component({
   selector: 'cra-poi-panel',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [ConfidenceFilterComponent],
   templateUrl: './poi-panel.component.html',
   styleUrl: './poi-panel.component.css',
 })
@@ -25,7 +26,6 @@ export class PoiPanelComponent {
   readonly setFilter = output<Confidence>();
   readonly clearFilter = output<void>();
 
-  protected readonly levels = LEVELS;
   protected readonly conf = CONF;
   protected readonly poiLabel = poiDisplayLabel;
 
@@ -44,7 +44,7 @@ export class PoiPanelComponent {
     poiConfidenceCounts(this.pois()),
   );
 
-  protected onChipClick(level: Confidence): void {
+  protected onLevelClick(level: Confidence): void {
     if (this.filter() === level) {
       this.clearFilter.emit();
     } else {

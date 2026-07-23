@@ -1,14 +1,12 @@
 <div class="cra-detail-header">
   <button type="button" class="cra-detail-back" (click)="closeDetail.emit()">‹ indietro</button>
-  <span class="cra-detail-pin" [style.background]="conf[poi().confidence].color">{{
-    number()
-  }}</span>
+  <span class="cra-detail-pin" [style.background]="pinColor(poi().confidence)">{{ number() }}</span>
   <div class="cra-detail-heading">
     <div class="cra-detail-name">{{ poi().name }}</div>
     <div class="cra-detail-class">tc:{{ poi().terminus_class }} · {{ detailModel().poiLabel }}</div>
   </div>
-  <span class="cra-badge-confidence" [style.color]="conf[poi().confidence].color">
-    {{ conf[poi().confidence].dot }} {{ conf[poi().confidence].label }}
+  <span class="cra-badge-confidence" [style.color]="pinColor(poi().confidence)">
+    {{ confMeta(poi().confidence).dot }} {{ confMeta(poi().confidence).label }}
   </span>
 </div>
 
@@ -23,8 +21,8 @@
           }
           <span class="cra-citation-part">{{ part }}</span>
         }
-        <span class="cra-badge-confidence" [style.color]="conf[poi().confidence].color">
-          {{ conf[poi().confidence].dot }} {{ conf[poi().confidence].label }}
+        <span class="cra-badge-confidence" [style.color]="pinColor(poi().confidence)">
+          {{ confMeta(poi().confidence).dot }} {{ confMeta(poi().confidence).label }}
         </span>
       </div>
     } @else {
@@ -45,8 +43,8 @@
         <ul class="cra-factor-list">
           @for (risk of group.risks; track risk.hazard) {
             <li class="cra-factor-row">
-              <span class="cra-badge-confidence" [style.color]="conf[risk.confidence].color">
-                {{ conf[risk.confidence].dot }} {{ conf[risk.confidence].label }}
+              <span class="cra-badge-confidence" [style.color]="pinColor(risk.confidence)">
+                {{ confMeta(risk.confidence).dot }} {{ confMeta(risk.confidence).label }}
               </span>
               <span class="cra-factor-label">{{ hazardLabel(risk) }}</span>
             </li>
