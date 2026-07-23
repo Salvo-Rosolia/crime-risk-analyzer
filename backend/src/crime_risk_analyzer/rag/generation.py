@@ -22,6 +22,7 @@ Riproducibilita' (generation.md §Riproducibilita'): ``temperature``/``seed``/
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 import time
 from typing import Any, Protocol
@@ -323,31 +324,120 @@ def _normalize_user_question(domanda: str | None) -> str:
     return re.sub(r"-{2,}", "- -", collapsed)
 
 
-def build_context_str(
-    context_dict: dict[str, Any], *, domanda: str | None = None
-) -> str:
-    """Assembla la parte VARIABILE del prompt dal context validato.
+#: Budget di DEFAULT (stima) di token dello ``user_content`` della narrativa
+#: (#210). DEVE combaciare con ``Settings.llm_context_budget_tokens`` (config.py,
+#: default 9000): la config non puo' importare questo modulo (ciclo
+#: config <- llm.client <- generation), quindi il valore e' duplicato e tenuto in
+#: sync a mano. E' solo il fallback per le chiamate dirette/di test: a runtime il
+#: valore reale arriva da Settings via l'orchestrator (DI, nessuno stato globale).
+DEFAULT_CONTEXT_BUDGET_TOKENS = 9000
 
-    Segue il formato di generation.md §Contesto per richiesta: zona + un blocco
-    per POI con hazard (tag + confidence), vulnerabilita' e path ontologico.
-    I tag/confidence sono quelli gia' assegnati dal grounding: qui non si
-    rivaluta nulla, si serializza solo per il modello.
+#: Rank di ANCORAGGIO dei livelli di confidence (piu' basso = piu' ancorato), usato
+#: come criterio SECONDARIO di rilevanza nel troncamento del contesto (#210): a
+#: parita' di numero di rischi entra prima il POI con la confidence piu' ancorata.
+#: NON e' un ordinamento di pericolosita' (vincolo legale): gradua solo la forza
+#: probatoria, coerente con :data:`_CONFIDENCE_LEVELS`.
+_CONFIDENCE_ANCHOR_RANK: dict[str, int] = {
+    "confermato": 0,
+    "plausibile": 1,
+    "speculativo": 2,
+}
+#: Rank per un POI senza rischi o con confidence sconosciuta: meno ancorato di
+#: qualunque livello noto, quindi ordinato per ultimo a parita' di rischi.
+_LEAST_ANCHORED_RANK = 3
 
-    ``domanda`` e' la domanda libera opzionale dell'utente (#119): input NON
-    fidato, quindi normalizzata (:func:`_normalize_user_question`) e racchiusa in
-    coda in un fence (:data:`USER_INPUT_FENCE_OPEN`/:data:`USER_INPUT_FENCE_CLOSE`)
-    che la marca come DATO, non istruzioni. La precedenza delle regole legali sul
-    suo contenuto e' imposta da :data:`RULE_USER_INPUT_NOT_INSTRUCTIONS` nel
-    system prompt. ``None`` (o stringa vuota/whitespace) lascia lo user_content
-    invariato.
+
+def _estimate_tokens(text: str) -> int:
+    """Stima CONSERVATIVA (dependency-free) dei token di ``text`` (#210).
+
+    Euristica ``ceil(len / 3.5)``: nessun tokenizer come dipendenza (coerente con
+    lo stile del progetto). Il divisore 3.5 (< ~4 char/token tipici) SOVRASTIMA
+    leggermente, cosi' il budget di contesto resta un tetto prudente e la richiesta
+    reale sta sotto il TPM del provider. Monotona non decrescente nella lunghezza.
     """
-    zona = str(context_dict.get("zona", ""))
-    validated = context_dict.get("validated_risks", [])
+    return math.ceil(len(text) / 3.5)
 
+
+def _relevance_sort_key(poi: dict[str, Any]) -> tuple[int, int]:
+    """Chiave di rilevanza di un POI per il troncamento del contesto (#210).
+
+    Primario: numero di rischi DECRESCENTE (``-len``). Secondario: confidence piu'
+    ancorata prima (:data:`_CONFIDENCE_ANCHOR_RANK`, il minimo tra i rischi del
+    POI). L'ordine originale fa da terzo criterio implicito: ``sorted`` e' stabile,
+    quindi a parita' di chiave i POI mantengono la posizione di partenza.
+    """
+    risks = poi.get("risks", [])
+    if risks:
+        best_anchor = min(
+            _CONFIDENCE_ANCHOR_RANK.get(
+                str(risk.get("confidence", "")), _LEAST_ANCHORED_RANK
+            )
+            for risk in risks
+        )
+    else:
+        best_anchor = _LEAST_ANCHORED_RANK
+    return (-len(risks), best_anchor)
+
+
+def _truncation_note(n_included: int, n_total: int) -> str:
+    """Riga di trasparenza quando il contesto e' troncato per budget (#210).
+
+    Dichiara che all'LLM sono passati i primi ``n_included`` POI (i piu' rilevanti)
+    su ``n_total`` totali, ricordando che gli altri restano comunque in mappa e in
+    lista: cosi' il modello puo' dichiararlo nella narrativa.
+    """
+    return (
+        f"NB: per limiti di lunghezza sono analizzati i {n_included} POI piu' "
+        f"rilevanti su {n_total}; gli altri sono comunque in mappa e nella lista."
+    )
+
+
+def _poi_block_lines(poi: dict[str, Any]) -> list[str]:
+    """Righe del blocco di un singolo POI (hazard + vulnerabilita' + path)."""
+    name = str(poi.get("poi", ""))
+    terminus = str(poi.get("terminus_class", ""))
+    lines: list[str] = [f"  POI: {name} ({terminus})"]
+
+    risks = poi.get("risks", [])
+    if risks:
+        lines.append("  Hazard verificati:")
+        for risk in risks:
+            hazard = str(risk.get("hazard", ""))
+            hazard_it = label_it(hazard)
+            tag = risk.get("tag")
+            confidence = str(risk.get("confidence", ""))
+            tag_str = f"[{tag}] " if tag else ""
+            lines.append(f"    - {tag_str}{hazard} / {hazard_it} ({confidence})")
+    else:
+        lines.append("  Hazard verificati: nessuno (POI non coperto)")
+
+    vulns = poi.get("vulnerabilities", [])
+    if vulns:
+        lines.append(f"  Vulnerabilita': {', '.join(str(v) for v in vulns)}")
+
+    path = poi.get("sparql_path")
+    if path:
+        lines.append(f"  Path ontologico: {path}")
+    lines.append("")
+    return lines
+
+
+def _assemble_context(
+    zona: str,
+    pois: list[dict[str, Any]],
+    *,
+    domanda_norm: str,
+    note: str | None,
+) -> str:
+    """Serializza lo ``user_content`` per un dato insieme di POI.
+
+    Il VOCABOLARIO CONTROLLATO e' calcolato SOLO sui POI passati (coerente con cio'
+    che il modello vede quando il contesto e' troncato). ``note`` (opzionale) e' la
+    riga di trasparenza sul troncamento; ``domanda_norm`` (gia' sanificata) chiude
+    lo user_content in un fence come input non fidato (#119).
+    """
     all_hazards = [
-        str(risk.get("hazard", ""))
-        for poi in validated
-        for risk in poi.get("risks", [])
+        str(risk.get("hazard", "")) for poi in pois for risk in poi.get("risks", [])
     ]
     vocab = controlled_vocab_for(all_hazards)
 
@@ -359,36 +449,13 @@ def build_context_str(
         )
         lines.append("  " + "; ".join(vocab))
         lines.append("")
-    lines.append("POI RILEVANTI:")
-
-    for poi in validated:
-        name = str(poi.get("poi", ""))
-        terminus = str(poi.get("terminus_class", ""))
-        lines.append(f"  POI: {name} ({terminus})")
-
-        risks = poi.get("risks", [])
-        if risks:
-            lines.append("  Hazard verificati:")
-            for risk in risks:
-                hazard = str(risk.get("hazard", ""))
-                hazard_it = label_it(hazard)
-                tag = risk.get("tag")
-                confidence = str(risk.get("confidence", ""))
-                tag_str = f"[{tag}] " if tag else ""
-                lines.append(f"    - {tag_str}{hazard} / {hazard_it} ({confidence})")
-        else:
-            lines.append("  Hazard verificati: nessuno (POI non coperto)")
-
-        vulns = poi.get("vulnerabilities", [])
-        if vulns:
-            lines.append(f"  Vulnerabilita': {', '.join(str(v) for v in vulns)}")
-
-        path = poi.get("sparql_path")
-        if path:
-            lines.append(f"  Path ontologico: {path}")
+    if note:
+        lines.append(note)
         lines.append("")
+    lines.append("POI RILEVANTI:")
+    for poi in pois:
+        lines.extend(_poi_block_lines(poi))
 
-    domanda_norm = _normalize_user_question(domanda)
     if domanda_norm:
         # Fence esplicito per input NON fidato (#119): la domanda e' racchiusa e
         # marcata come dato. ``domanda_norm`` e' gia' sanificata da
@@ -401,6 +468,77 @@ def build_context_str(
         lines.append(USER_INPUT_FENCE_CLOSE)
 
     return "\n".join(lines).rstrip() + "\n"
+
+
+def build_context_str(
+    context_dict: dict[str, Any],
+    *,
+    domanda: str | None = None,
+    context_budget_tokens: int = DEFAULT_CONTEXT_BUDGET_TOKENS,
+) -> str:
+    """Assembla la parte VARIABILE del prompt dal context validato.
+
+    Segue il formato di generation.md §Contesto per richiesta: zona + un blocco
+    per POI con hazard (tag + confidence), vulnerabilita' e path ontologico.
+    I tag/confidence sono quelli gia' assegnati dal grounding: qui non si
+    rivaluta nulla, si serializza solo per il modello.
+
+    Budget di token del contesto (#210): se lo user_content con TUTTI i POI supera
+    la stima ``context_budget_tokens`` (:func:`_estimate_tokens`), i POI sono
+    ordinati per rilevanza (:func:`_relevance_sort_key`) e inclusi GREEDY finche' la
+    stima resta nel budget; una riga di trasparenza (:func:`_truncation_note`)
+    dichiara N inclusi su M. Cosi' su una zona densa la richiesta non sfora il TPM
+    del provider. Mappa/lista/``confidence_summary`` restano COMPLETI a monte
+    (orchestrator): qui si riduce solo cosa entra nel prompt. Se tutti i POI ci
+    stanno, nessuna nota e comportamento invariato.
+
+    ``domanda`` e' la domanda libera opzionale dell'utente (#119): input NON
+    fidato, quindi normalizzata (:func:`_normalize_user_question`) e racchiusa in
+    coda in un fence (:data:`USER_INPUT_FENCE_OPEN`/:data:`USER_INPUT_FENCE_CLOSE`)
+    che la marca come DATO, non istruzioni. La precedenza delle regole legali sul
+    suo contenuto e' imposta da :data:`RULE_USER_INPUT_NOT_INSTRUCTIONS` nel
+    system prompt. ``None`` (o stringa vuota/whitespace) lascia lo user_content
+    invariato.
+    """
+    zona = str(context_dict.get("zona", ""))
+    validated: list[dict[str, Any]] = list(context_dict.get("validated_risks", []))
+    domanda_norm = _normalize_user_question(domanda)
+    m_total = len(validated)
+
+    # Caso comune (contesto nel budget): include tutti i POI, nessuna nota ->
+    # comportamento invariato. Con <=1 POI non c'e' nulla da troncare.
+    full = _assemble_context(zona, validated, domanda_norm=domanda_norm, note=None)
+    if m_total <= 1 or _estimate_tokens(full) <= context_budget_tokens:
+        return full
+
+    # Troncamento: qui il set completo (senza nota) supera gia' il budget, quindi
+    # una nota ci sara' di sicuro (N < M sempre) e va CONTATA nella stima greedy.
+    ordered = sorted(validated, key=_relevance_sort_key)
+    selected: list[dict[str, Any]] = []
+    for poi in ordered:
+        candidate = [*selected, poi]
+        text = _assemble_context(
+            zona,
+            candidate,
+            domanda_norm=domanda_norm,
+            note=_truncation_note(len(candidate), m_total),
+        )
+        if _estimate_tokens(text) <= context_budget_tokens:
+            selected = candidate
+        else:
+            break
+
+    # Config degenere (persino il solo POI piu' rilevante sfora il budget): meglio
+    # un contesto minimo di UN POI che uno vuoto (la nota resta veritiera).
+    if not selected:
+        selected = ordered[:1]
+
+    return _assemble_context(
+        zona,
+        selected,
+        domanda_norm=domanda_norm,
+        note=_truncation_note(len(selected), m_total),
+    )
 
 
 def _risk_models_from_context(context_dict: dict[str, Any]) -> list[RiskModel]:
@@ -443,6 +581,7 @@ async def generate_analysis(
     llm_client: _LLMClientLike,
     *,
     domanda: str | None = None,
+    context_budget_tokens: int = DEFAULT_CONTEXT_BUDGET_TOKENS,
 ) -> GenerationResult:
     """Genera l'analisi del rischio dal context validato.
 
@@ -455,8 +594,16 @@ async def generate_analysis(
     e' trattata come input non fidato e messa nel fence) e, quando presente,
     inclusa nel ``repro.prompt_hash`` (:func:`_prompt_hash_with_domanda`) cosi'
     il run resta ricostruibile; ``None`` = comportamento invariato.
+
+    ``context_budget_tokens`` (#210) e' il tetto di token del contesto passato a
+    :func:`build_context_str`: solo i POI piu' rilevanti che ci stanno entrano nel
+    prompt (mappa/lista restano complete), cosi' su una zona densa la richiesta
+    non sfora il TPM del provider. Il valore reale arriva da Settings via
+    l'orchestrator; il default e' il fallback conservativo.
     """
-    user_content = build_context_str(context_dict, domanda=domanda)
+    user_content = build_context_str(
+        context_dict, domanda=domanda, context_budget_tokens=context_budget_tokens
+    )
 
     start = time.perf_counter()
     response = await llm_client.generate(SYSTEM_PROMPT, user_content)

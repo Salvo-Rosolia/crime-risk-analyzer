@@ -90,6 +90,35 @@ def test_valid_llm_timeout_and_max_tokens_from_env(
     assert settings.llm_max_tokens == 2048
 
 
+def test_llm_context_budget_tokens_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Senza env il budget di contesto LLM ha il default conservativo (#210)."""
+    monkeypatch.delenv("LLM_CONTEXT_BUDGET_TOKENS", raising=False)
+
+    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+
+    assert settings.llm_context_budget_tokens == 9000
+
+
+def test_llm_context_budget_tokens_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Il budget di contesto LLM e' sovrascrivibile da env (#210)."""
+    monkeypatch.setenv("LLM_CONTEXT_BUDGET_TOKENS", "5000")
+
+    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+
+    assert settings.llm_context_budget_tokens == 5000
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "-100"])
+def test_invalid_llm_context_budget_tokens_rejected(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    """llm_context_budget_tokens < 1 e' respinto al load (almeno 1 token, #210)."""
+    monkeypatch.setenv("LLM_CONTEXT_BUDGET_TOKENS", value)
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+
+
 def test_secrets_not_leaked() -> None:
     """SecretStr non espone il valore in repr/str; get_secret_value lo restituisce."""
     settings = Settings(

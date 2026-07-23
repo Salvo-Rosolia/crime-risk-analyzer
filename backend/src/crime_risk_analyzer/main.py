@@ -69,6 +69,7 @@ async def analyze(
     request: AnalyzeRequest,
     executor: Annotated[RiskQueryExecutor, Depends(get_executor)],
     llm_client: Annotated[LLMClient, Depends(get_llm_client)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> AnalyzeResponse:
     """Pipeline completa: geocoding -> OSM -> SPARQL -> grounding -> LLM -> JSON.
 
@@ -78,7 +79,8 @@ async def analyze(
     Gli altri errori di dominio propagano agli handler centrali (#21); ``LLMError``
     e' gestito in :func:`run_analysis` come fallback strutturato (200).
     ``request.domanda`` (opzionale, #119) e' propagata fino allo ``user_content``
-    del prompt LLM.
+    del prompt LLM. Il budget di token del contesto (#210) arriva da ``Settings``
+    (DI) e limita i POI passati all'LLM su zone dense, senza sforare il TPM.
     """
     return await run_analysis(
         request.citta,
@@ -86,6 +88,7 @@ async def analyze(
         executor=executor,
         llm_client=llm_client,
         domanda=request.domanda,
+        context_budget_tokens=settings.llm_context_budget_tokens,
     )
 
 

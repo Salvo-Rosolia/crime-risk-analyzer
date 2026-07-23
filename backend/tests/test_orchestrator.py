@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 from pydantic import ValidationError
 
@@ -241,6 +243,27 @@ async def test_run_analysis_llm_fallback(monkeypatch: pytest.MonkeyPatch) -> Non
     assert [m.poi for m in resp.risk_models] == ["Banca A"]
     assert resp.risk_models[0].risks[0].hazard == "Bank_robbery"
     assert resp.confidence_summary.confermato == 1
+
+
+async def test_run_analysis_llm_fallback_logs_warning(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """#210: il fallback su LLMError emette un warning col messaggio dell'eccezione.
+
+    Prima l'errore veniva inghiottito senza traccia: un warning strutturato rende
+    diagnosticabili i fallback futuri (perche' la narrativa e' vuota)."""
+    _patch_io(monkeypatch)
+    with caplog.at_level(logging.WARNING, logger="crime_risk_analyzer.orchestrator"):
+        resp = await run_analysis(
+            "Roma",
+            "Centro",
+            executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+            llm_client=_RaisingLLMClient(),
+        )
+    assert resp.fallback is True
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert warnings, "il fallback deve emettere almeno un warning"
+    assert any("provider giu'" in r.getMessage() for r in warnings)
 
 
 async def test_run_analysis_llm_timeout_triggers_fallback(

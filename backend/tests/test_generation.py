@@ -27,6 +27,7 @@ from crime_risk_analyzer.rag.generation import (
     RiskItem,
     RiskModel,
     SourceProse,
+    _estimate_tokens,  # pyright: ignore[reportPrivateUsage]
     build_context_str,
     generate_analysis,
     parse_source_prose,
@@ -210,6 +211,129 @@ def test_build_context_str_adversarial_domanda_cannot_escape_fence(
     # difesa-in-profondita': nessun run di >=2 trattini sopravvive nel contenuto,
     # per QUALUNQUE lunghezza del run (regressione se il collasso non e' robusto)
     assert "--" not in content
+
+
+# --- #210: budget di token del contesto LLM (troncamento POI per rilevanza) ---
+
+
+def _poi_entry(
+    label: object, n_hazards: int, confidence: str = "confermato"
+) -> dict[str, Any]:
+    """POI validato sintetico con ``n_hazards`` rischi (per i test di budget)."""
+    return {
+        "poi": f"POI {label}",
+        "terminus_class": "Bank",
+        "risks": [
+            {
+                "hazard": f"Hazard{label}_{j}",
+                "tag": "ONTOLOGIA",
+                "confidence": confidence,
+                "source": f"Bank -> havingHazard -> Hazard{label}_{j}",
+            }
+            for j in range(n_hazards)
+        ],
+        "vulnerabilities": [],
+        "sparql_path": None,
+    }
+
+
+def _many_pois_context(entries: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"zona": "Centro", "validated_risks": entries}
+
+
+def test_estimate_tokens_matches_heuristic_and_is_monotonic() -> None:
+    # euristica dependency-free: ceil(len / 3.5)
+    assert _estimate_tokens("") == 0
+    assert _estimate_tokens("x" * 7) == 2  # ceil(7 / 3.5) == 2
+    assert _estimate_tokens("x" * 8) == 3  # ceil(8 / 3.5) == 3
+    # monotona non decrescente nella lunghezza del testo
+    assert _estimate_tokens("x" * 1000) > _estimate_tokens("x" * 100)
+    assert _estimate_tokens("x" * 100) >= _estimate_tokens("x" * 100)
+
+
+def test_build_context_str_includes_all_pois_under_budget_without_note() -> None:
+    # pochi POI sotto budget: tutti inclusi, NESSUNA nota (comportamento invariato)
+    ctx = _many_pois_context([_poi_entry(i, 1) for i in range(3)])
+
+    out = build_context_str(ctx)  # default generoso
+
+    assert out.count("  POI: ") == 3
+    assert "NB:" not in out
+    assert "piu' rilevanti su" not in out
+
+
+def test_build_context_str_truncates_pois_over_budget_with_note() -> None:
+    m = 40
+    ctx = _many_pois_context([_poi_entry(i, 2) for i in range(m)])
+    budget = 300
+
+    out = build_context_str(ctx, context_budget_tokens=budget)
+
+    # la stima dei token dello user_content resta entro il budget
+    assert _estimate_tokens(out) <= budget
+    # solo un sottoinsieme dei POI e' incluso
+    n_included = out.count("  POI: ")
+    assert 0 < n_included < m
+    # nota di trasparenza con N/M corretti
+    assert "NB:" in out
+    assert f"i {n_included} POI piu' rilevanti su {m}" in out
+
+
+def test_build_context_str_lower_budget_includes_fewer_pois() -> None:
+    ctx = _many_pois_context([_poi_entry(i, 2) for i in range(30)])
+
+    out_hi = build_context_str(ctx, context_budget_tokens=600)
+    out_lo = build_context_str(ctx, context_budget_tokens=200)
+
+    assert out_lo.count("  POI: ") < out_hi.count("  POI: ")
+    assert _estimate_tokens(out_hi) <= 600
+    assert _estimate_tokens(out_lo) <= 200
+
+
+def test_build_context_str_relevance_prefers_more_risks_first() -> None:
+    # POI a rilevanza crescente in input; sotto troncamento entrano prima i piu'
+    # rilevanti (piu' rischi), a prescindere dall'ordine di input.
+    ctx = _many_pois_context([_poi_entry(1, 1), _poi_entry(2, 2), _poi_entry(3, 3)])
+
+    out = build_context_str(ctx, context_budget_tokens=130)
+
+    pos_tre = out.find("POI 3")
+    assert pos_tre != -1  # il POI a piu' rischi e' incluso
+    for other in ("POI 2", "POI 1"):
+        pos = out.find(other)
+        if pos != -1:
+            assert pos_tre < pos  # i piu' rilevanti compaiono per primi
+
+
+def test_build_context_str_relevance_tiebreak_prefers_more_anchored() -> None:
+    # a PARITA' di numero di rischi entra prima la confidence piu' ancorata:
+    # 'confermato' precede 'speculativo' anche se compare dopo nell'input.
+    spec = _poi_entry("SPEC", 2, confidence="speculativo")
+    conf = _poi_entry("CONF", 2, confidence="confermato")
+    ctx = _many_pois_context([spec, conf])
+    conf_only = build_context_str(_many_pois_context([conf]))
+    # budget per un solo POI (con margine per la nota, non per un secondo blocco)
+    budget = _estimate_tokens(conf_only) + 20
+
+    out = build_context_str(ctx, context_budget_tokens=budget)
+
+    assert "POI CONF" in out
+    assert "POI SPEC" not in out
+
+
+def test_build_context_str_relevance_ranks_no_risk_poi_last() -> None:
+    # un POI senza rischi (fuori ontologia) e' il meno rilevante: sotto troncamento
+    # entra dopo i POI con rischi, anche se compare prima nell'input.
+    empty = _poi_entry("EMPTY", 0)  # nessun rischio
+    with_risk = _poi_entry("RISK", 2)
+    ctx = _many_pois_context([empty, with_risk])
+    risk_only = build_context_str(_many_pois_context([with_risk]))
+    budget = _estimate_tokens(risk_only) + 5  # entra un solo POI
+
+    out = build_context_str(ctx, context_budget_tokens=budget)
+
+    assert "POI RISK" in out
+    assert "POI EMPTY" not in out
 
 
 # --- generate_analysis: orchestrazione prompt -> LLM -> JSON ---

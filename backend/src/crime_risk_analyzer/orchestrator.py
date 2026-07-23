@@ -9,6 +9,7 @@ generation #23) e serializza lo schema canonico di ``/analyze``
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Protocol
 
@@ -19,6 +20,7 @@ from crime_risk_analyzer.llm.client import LLMError, LLMResponse
 from crime_risk_analyzer.models.risk import PoiRiskProfile
 from crime_risk_analyzer.models.vocab import Confidence, ConfidenceSummary
 from crime_risk_analyzer.rag.generation import (
+    DEFAULT_CONTEXT_BUDGET_TOKENS,
     Repro,
     RiskItem,
     RiskModel,
@@ -38,6 +40,8 @@ from crime_risk_analyzer.rag.retrieval import (
     RetrievalStats,
     retrieve,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class AnalyzeRequest(BaseModel):
@@ -268,16 +272,23 @@ async def run_analysis(
     poi_source: PoiSource | None = None,
     geo_source: GeoSource | None = None,
     domanda: str | None = None,
+    context_budget_tokens: int = DEFAULT_CONTEXT_BUDGET_TOKENS,
 ) -> AnalyzeResponse:
     """Esegue la pipeline completa e assembla la response canonica.
 
     ``retrieve`` (async) -> ``ground`` (sync) -> ``generate_analysis`` (async).
-    Su :class:`LLMError` ritorna i soli dati strutturati (``fallback=True``).
+    Su :class:`LLMError` ritorna i soli dati strutturati (``fallback=True``) e
+    logga un warning col messaggio dell'eccezione, cosi' i fallback (narrativa
+    vuota) restano diagnosticabili invece di essere inghiottiti in silenzio (#210).
     ``latenza_ms`` e' end-to-end sull'intera pipeline.
 
     ``domanda`` (opzionale, #119) e' la domanda libera dell'utente: viene
     propagata a :func:`generate_analysis` e iniettata nello ``user_content`` del
     prompt LLM; ``None`` = comportamento invariato.
+
+    ``context_budget_tokens`` (#210) e' il tetto di token del contesto passato al
+    generation layer: su una zona densa i POI oltre budget non entrano nel prompt
+    (mappa/lista restano complete) e la richiesta non sfora il TPM del provider.
 
     ``geo_source`` (opzionale, #169) e' propagato a :func:`retrieve` per il replay
     del geo nell'harness di eval; ``None`` = geocoding live (prodotto invariato).
@@ -289,10 +300,22 @@ async def run_analysis(
     grounded = ground(retrieval_ctx)
     poi_out = _build_poi_list(retrieval_ctx, grounded)
     try:
-        gen = await generate_analysis(dict(grounded), llm_client, domanda=domanda)
+        gen = await generate_analysis(
+            dict(grounded),
+            llm_client,
+            domanda=domanda,
+            context_budget_tokens=context_budget_tokens,
+        )
         tokens_input = gen.tokens_input
         tokens_output = gen.tokens_output
-    except LLMError:
+    except LLMError as exc:
+        logger.warning(
+            "Generazione LLM fallita per %s/%s: fallback strutturato (narrativa "
+            "vuota). Causa: %s",
+            citta,
+            zona,
+            exc,
+        )
         tokens_input = 0
         tokens_output = 0
         return _structured_response(

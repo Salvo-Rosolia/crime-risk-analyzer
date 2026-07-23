@@ -39,6 +39,15 @@ class Settings(BaseSettings):
     # Default storico 1024 (generation.md §Riproducibilita'); configurabile per
     # tuning senza toccare il codice. Vincolo ``ge=1``: almeno 1 token.
     llm_max_tokens: int = Field(default=1024, ge=1)
+    # Budget massimo (STIMA) di token dello ``user_content`` della narrativa
+    # passato all'LLM (#210). Il generation layer include GREEDY, per rilevanza,
+    # solo i POI che ci stanno in questo budget (mappa/lista/confidence_summary
+    # restano completi): cosi' su una zona densa la richiesta non sfora il limite
+    # TPM del provider. Tenere ``stima(system_prompt) + budget + llm_max_tokens``
+    # sotto il TPM del provider (Groq free = 12000): default conservativo con
+    # margine. Vincolo ``ge=1``: un misconfig da env (0/negativo) e' respinto al
+    # load, non lasciato degenerare in un contesto vuoto a runtime.
+    llm_context_budget_tokens: int = Field(default=9000, ge=1)
     cache_enabled: bool = True
     # Geocoding hardening (#115). ``cache_enabled`` (sopra) gate la cache dei
     # risultati di geocoding (prima setting dichiarato ma inutilizzato).
