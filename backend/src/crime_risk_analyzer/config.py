@@ -79,11 +79,12 @@ class Settings(BaseSettings):
     # ricentrata). Questa e' la semi-ampiezza minima (in gradi) imposta al bbox,
     # espandendo SIMMETRICAMENTE attorno al punto medio (mai rimpicciolendo un
     # bbox gia' piu' grande della soglia), cosi' una zona-landmark mantiene
-    # un'area di ricerca Overpass utilizzabile (~1.1 km lat / ~0.8 km lon alla
-    # latitudine di Roma). Valore validato empiricamente (0.01 gradi -> ~50 POI
-    # attorno al Colosseo). Vincolo ``gt=0``: un misconfig da env (0/negativo) e'
+    # un'area di ricerca Overpass utilizzabile (~0.5 km lat / ~0.37 km lon alla
+    # latitudine di Roma, cioe' ~500 m di raggio). #212 ha ridotto il default a
+    # 0.0045 (= 500 m / 111320) per risultati piu' aderenti alla zona indicata
+    # (era 0.01 = ~1.1 km). Vincolo ``gt=0``: un misconfig da env (0/negativo) e'
     # respinto al load, non lasciato degenerare in un bbox nullo a runtime.
-    geocoding_min_bbox_half_span_deg: float = Field(default=0.01, gt=0)
+    geocoding_min_bbox_half_span_deg: float = Field(default=0.0045, gt=0)
     default_city: str = "Roma"
     # Citta SUGGERITE, esposte come autocomplete da ``GET /cities`` — NON un
     # vincolo di validazione (#191): ``POST /analyze``/``/analyze/baseline``

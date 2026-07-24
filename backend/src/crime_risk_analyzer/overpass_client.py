@@ -35,12 +35,14 @@ __all__ = ["Bbox", "MAX_POIS", "OverpassError", "PER_SELECTOR_CAP", "Poi", "fetc
 DEFAULT_OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 
 #: Numero massimo di POI restituiti per richiesta (orchestrator.md / retrieval.md).
-MAX_POIS = 50
+#: #212: ridotto da 50 a 20 per risultati meno affollati e piu' leggibili.
+MAX_POIS = 20
 
 #: Cap di elementi restituiti da Overpass PER selettore: evita che selettori densi
 #: (es. highway=bus_stop, amenity=place_of_worship) monopolizzino il budget affamando
 #: le classi rare. La curatela finale/bilanciata e' dell'orchestrator (#79).
-PER_SELECTOR_CAP = 5
+#: #212: ridotto da 5 a 3 per piu' varieta' di tipi e meno doppioni dello stesso tipo.
+PER_SELECTOR_CAP = 3
 
 #: Timeout (secondi) del primo tentativo e del retry esteso.
 _TIMEOUT_S = 30.0
