@@ -241,7 +241,7 @@ def test_geocoding_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.geocoding_min_delay_seconds == 1.1
     assert settings.geocoding_timeout_seconds == 10.0
     assert settings.geocoding_country_codes == "it"
-    assert settings.geocoding_min_bbox_half_span_deg == 0.01
+    assert settings.geocoding_min_bbox_half_span_deg == 0.0045
 
 
 @pytest.mark.parametrize("value", ["0", "-1", "-0.5"])

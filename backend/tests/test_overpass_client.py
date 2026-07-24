@@ -14,6 +14,7 @@ from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.overpass_client import (
     DEFAULT_OVERPASS_URL,
     MAX_POIS,
+    PER_SELECTOR_CAP,
     OverpassError,
     fetch_pois,
 )
@@ -185,11 +186,11 @@ async def test_fetch_pois_query_uses_key_value_selectors_and_caps() -> None:
     assert "41.88,12.48,41.9,12.5" in body
     assert 'node["amenity"="bank"]' in body
     assert 'way["tourism"="museum"]' in body
-    assert "out center 5" in body
+    assert f"out center {PER_SELECTOR_CAP}" in body
     assert "[out:json][timeout:25]" in body
     # un 'out center' per selettore: con 2 selettori devono essere
     # esattamente 2 blocchi.
-    assert body.count("out center 5") == 2
+    assert body.count(f"out center {PER_SELECTOR_CAP}") == 2
 
 
 @respx.mock
