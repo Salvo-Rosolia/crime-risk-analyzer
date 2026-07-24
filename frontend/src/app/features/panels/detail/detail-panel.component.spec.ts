@@ -183,16 +183,149 @@ describe('DetailPanelComponent', () => {
     expect(text).toContain('Fattore ignoto');
   });
 
-  it('footer: azioni non operative presenti ("Segnala errore" / "Esporta scheda"), disabilitate in questa iterazione', () => {
+  it('rework UI: il footer con le azioni non operative è stato rimosso (niente placeholder disabilitati)', () => {
     setup(makePoi());
-    const buttons: HTMLButtonElement[] = Array.from(
-      fixture.nativeElement.querySelectorAll('.cra-detail-footer button'),
-    );
-    expect(buttons).toHaveLength(2);
-    expect(buttons.every((b) => b.disabled)).toBe(true);
+    expect(fixture.nativeElement.querySelector('.cra-detail-footer')).toBeNull();
     const text = fixture.nativeElement.textContent;
-    expect(text).toContain('Segnala errore');
-    expect(text).toContain('Esporta scheda');
-    expect(text).not.toContain('Assegna pattuglia');
+    expect(text).not.toContain('Segnala errore');
+    expect(text).not.toContain('Esporta scheda');
+  });
+
+  it('rework UI: la Provenienza (citazione SPARQL) è mostrata DOPO i Fattori di rischio', () => {
+    setup(makePoi());
+    const eyebrows = Array.from(
+      fixture.nativeElement.querySelectorAll('.cra-detail-body .cra-detail-section .cra-eyebrow'),
+    ).map((h) => (h as HTMLElement).textContent?.trim());
+    expect(eyebrows[0]).toContain('Fattori di rischio');
+    expect(eyebrows[1]).toContain('Provenienza');
+  });
+
+  it('accordion (default adattivo): con ≤3 fattori totali tutti i gruppi partono aperti', () => {
+    setup(makePoi()); // riskModels: 3 rischi, 1 per gruppo → total 3
+    expect(fixture.nativeElement.querySelectorAll('.cra-source-group').length).toBe(3);
+    expect(fixture.nativeElement.querySelectorAll('.cra-factor-row').length).toBe(3);
+    const headers = Array.from(
+      fixture.nativeElement.querySelectorAll('.cra-source-header'),
+    ) as HTMLElement[];
+    headers.forEach((h) => expect(h.getAttribute('aria-expanded')).toBe('true'));
+  });
+
+  it('accordion (default adattivo): con >3 fattori resta aperto solo il primo gruppo (ONTOLOGIA), gli altri collassati ma col conteggio', () => {
+    const richModels: RiskModel[] = [
+      {
+        poi: 'Colosseo',
+        risks: [
+          {
+            hazard: 'o1',
+            confidence: 'verificato',
+            tag: 'ONTOLOGIA',
+            hazard_label_it: 'Onto 1',
+            hazard_label_en: '',
+          },
+          {
+            hazard: 'o2',
+            confidence: 'verificato',
+            tag: 'ONTOLOGIA',
+            hazard_label_it: 'Onto 2',
+            hazard_label_en: '',
+          },
+          {
+            hazard: 'c1',
+            confidence: 'da_confermare',
+            tag: 'CONTESTO',
+            hazard_label_it: 'Ctx 1',
+            hazard_label_en: '',
+          },
+          {
+            hazard: 's1',
+            confidence: 'ipotesi',
+            tag: 'SPECULATIVO',
+            hazard_label_it: 'Spec 1',
+            hazard_label_en: '',
+          },
+          {
+            hazard: 's2',
+            confidence: 'ipotesi',
+            tag: 'SPECULATIVO',
+            hazard_label_it: 'Spec 2',
+            hazard_label_en: '',
+          },
+        ],
+      },
+    ];
+    setup(makePoi(), richModels);
+    expect(fixture.nativeElement.querySelectorAll('.cra-source-group').length).toBe(3);
+    expect(fixture.nativeElement.querySelectorAll('.cra-factor-row').length).toBe(2); // solo ONTOLOGIA
+    const headers = Array.from(
+      fixture.nativeElement.querySelectorAll('.cra-source-header'),
+    ) as HTMLElement[];
+    expect(headers.map((h) => h.getAttribute('aria-expanded'))).toEqual(['true', 'false', 'false']);
+    const counts = Array.from(fixture.nativeElement.querySelectorAll('.cra-source-count')).map(
+      (c) => (c as HTMLElement).textContent?.trim(),
+    );
+    expect(counts).toEqual(['2', '1', '2']);
+  });
+
+  it("accordion: cliccando un'intestazione-fonte si collassa/espande il suo elenco di fattori", () => {
+    setup(makePoi());
+    expect(fixture.nativeElement.querySelectorAll('.cra-factor-row').length).toBe(3);
+    const first = fixture.nativeElement.querySelector('.cra-source-header') as HTMLElement;
+    first.click();
+    fixture.detectChanges();
+    expect(first.getAttribute('aria-expanded')).toBe('false');
+    expect(fixture.nativeElement.querySelectorAll('.cra-factor-row').length).toBe(2);
+    first.click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.cra-factor-row').length).toBe(3);
+  });
+
+  it('accordion: cambiando POI lo stato di apertura si resetta al default adattivo del nuovo POI (nessuno stato residuo)', () => {
+    const r = (
+      hazard: string,
+      tag: RiskModel['risks'][number]['tag'],
+      confidence: Poi['confidence'],
+    ) => ({ hazard, confidence, tag, hazard_label_it: hazard, hazard_label_en: '' });
+    const models: RiskModel[] = [
+      {
+        poi: 'Colosseo',
+        risks: [
+          r('o1', 'ONTOLOGIA', 'verificato'),
+          r('o2', 'ONTOLOGIA', 'verificato'),
+          r('c1', 'CONTESTO', 'da_confermare'),
+          r('s1', 'SPECULATIVO', 'ipotesi'),
+          r('s2', 'SPECULATIVO', 'ipotesi'),
+        ],
+      },
+      {
+        poi: 'Duomo',
+        risks: [
+          r('do1', 'ONTOLOGIA', 'verificato'),
+          r('dc1', 'CONTESTO', 'da_confermare'),
+          r('ds1', 'SPECULATIVO', 'ipotesi'),
+          r('ds2', 'SPECULATIVO', 'ipotesi'),
+        ],
+      },
+    ];
+    const aria = (el: Element) => el.getAttribute('aria-expanded');
+
+    setup(makePoi({ id: '1', name: 'Colosseo' }), models);
+    // POI A (>3 fattori): default adattivo → solo ONTOLOGIA aperto
+    expect(
+      Array.from(fixture.nativeElement.querySelectorAll('.cra-source-header')).map(aria),
+    ).toEqual(['true', 'false', 'false']);
+    // l'utente espande manualmente SPECULATIVO (stato divergente dal default)
+    (fixture.nativeElement.querySelectorAll('.cra-source-header')[2] as HTMLElement).click();
+    fixture.detectChanges();
+    expect(aria(fixture.nativeElement.querySelectorAll('.cra-source-header')[2])).toBe('true');
+
+    // cambio POI SENZA rimontare il componente (come la navigazione reale tra POI)
+    fixture.componentRef.setInput('poi', makePoi({ id: '2', name: 'Duomo' }));
+    fixture.detectChanges();
+
+    // POI B segue il SUO default adattivo (>3 → solo ONTOLOGIA): SPECULATIVO di nuovo chiuso,
+    // nessuno stato residuo del POI precedente.
+    expect(
+      Array.from(fixture.nativeElement.querySelectorAll('.cra-source-header')).map(aria),
+    ).toEqual(['true', 'false', 'false']);
   });
 });

@@ -1,18 +1,64 @@
 <div class="cra-detail-header">
   <button type="button" class="cra-detail-back" (click)="closeDetail.emit()">‹ indietro</button>
-  <span class="cra-detail-pin" [style.background]="pinColor(poi().confidence)">{{ number() }}</span>
-  <div class="cra-detail-heading">
-    <div class="cra-detail-name">{{ poi().name }}</div>
-    <div class="cra-detail-class">tc:{{ poi().terminus_class }} · {{ detailModel().poiLabel }}</div>
+
+  <div class="cra-detail-id">
+    <span class="cra-detail-pin" [style.background]="pinColor(poi().confidence)">{{
+      number()
+    }}</span>
+    <div class="cra-detail-heading">
+      <div class="cra-detail-name-row">
+        <span class="cra-detail-name">{{ poi().name }}</span>
+        <span class="cra-badge-confidence" [style.color]="pinColor(poi().confidence)">
+          {{ confMeta(poi().confidence).dot }} {{ confMeta(poi().confidence).label }}
+        </span>
+      </div>
+      <div class="cra-detail-class">
+        tc:{{ poi().terminus_class }} · {{ detailModel().poiLabel }}
+      </div>
+    </div>
   </div>
-  <span class="cra-badge-confidence" [style.color]="pinColor(poi().confidence)">
-    {{ confMeta(poi().confidence).dot }} {{ confMeta(poi().confidence).label }}
-  </span>
 </div>
 
 <div class="cra-detail-body">
   <section class="cra-detail-section">
-    <h3 class="cra-eyebrow">Citazioni ontologia · path SPARQL</h3>
+    <h3 class="cra-eyebrow">Fattori di rischio · per fonte</h3>
+    @for (group of orderedGroups(); track group.tag) {
+      <div class="cra-source-group">
+        <button
+          type="button"
+          class="cra-source-header"
+          [class.cra-source-open]="isOpen(group.tag)"
+          [style.borderColor]="srcMeta(group.tag).color"
+          [attr.aria-expanded]="isOpen(group.tag)"
+          (click)="toggleGroup(group.tag)"
+        >
+          <span class="cra-source-tag" [style.color]="srcMeta(group.tag).color"
+            >[{{ group.tag }}]</span
+          >
+          <span class="cra-source-desc">{{ srcMeta(group.tag).description }}</span>
+          <span class="cra-source-count">{{ group.risks.length }}</span>
+          <span class="cra-source-chev" aria-hidden="true">{{
+            isOpen(group.tag) ? '▾' : '▸'
+          }}</span>
+        </button>
+        @if (isOpen(group.tag)) {
+          <ul class="cra-factor-list">
+            @for (risk of group.risks; track risk.hazard) {
+              <li class="cra-factor-row">
+                <span class="cra-factor-label">{{ hazardLabel(risk) }}</span>
+                <span class="cra-badge-confidence" [style.color]="pinColor(risk.confidence)">
+                  {{ confMeta(risk.confidence).dot }} {{ confMeta(risk.confidence).label }}
+                </span>
+              </li>
+            }
+          </ul>
+        }
+      </div>
+    }
+  </section>
+
+  <section class="cra-detail-section cra-provenance">
+    <h3 class="cra-eyebrow">Provenienza · path SPARQL</h3>
     @if (detailModel().sparqlParts.length > 0) {
       <div class="cra-citation-line">
         @for (part of detailModel().sparqlParts; track $index) {
@@ -21,55 +67,9 @@
           }
           <span class="cra-citation-part">{{ part }}</span>
         }
-        <span class="cra-badge-confidence" [style.color]="pinColor(poi().confidence)">
-          {{ confMeta(poi().confidence).dot }} {{ confMeta(poi().confidence).label }}
-        </span>
       </div>
     } @else {
       <p class="cra-citation-empty">Nessuna citazione ontologica disponibile per questo POI.</p>
     }
   </section>
-
-  <section class="cra-detail-section">
-    <h3 class="cra-eyebrow">Fattori di rischio · per fonte</h3>
-    @for (group of orderedGroups(); track group.tag) {
-      <div class="cra-source-group">
-        <div class="cra-source-header" [style.borderColor]="srcMeta(group.tag).color">
-          <span class="cra-source-tag" [style.color]="srcMeta(group.tag).color"
-            >[{{ group.tag }}]</span
-          >
-          <span class="cra-source-desc">{{ srcMeta(group.tag).description }}</span>
-        </div>
-        <ul class="cra-factor-list">
-          @for (risk of group.risks; track risk.hazard) {
-            <li class="cra-factor-row">
-              <span class="cra-badge-confidence" [style.color]="pinColor(risk.confidence)">
-                {{ confMeta(risk.confidence).dot }} {{ confMeta(risk.confidence).label }}
-              </span>
-              <span class="cra-factor-label">{{ hazardLabel(risk) }}</span>
-            </li>
-          }
-        </ul>
-      </div>
-    }
-  </section>
-</div>
-
-<div class="cra-detail-footer">
-  <button
-    type="button"
-    class="cra-btn-outline"
-    disabled
-    title="Non disponibile in questa iterazione: nessun endpoint di feedback nell'API canonica"
-  >
-    ⚐ Segnala errore
-  </button>
-  <button
-    type="button"
-    class="cra-btn-outline"
-    disabled
-    title="Non disponibile in questa iterazione"
-  >
-    ⤓ Esporta scheda
-  </button>
 </div>
