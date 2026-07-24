@@ -6,6 +6,7 @@ import {
   effect,
   inject,
   input,
+  linkedSignal,
   output,
 } from '@angular/core';
 import { confMeta, pinColor, srcTagMeta } from '@core/confidence';
@@ -60,6 +61,41 @@ export class DetailPanelComponent {
   protected readonly orderedGroups = computed(() => orderGroupsByTag(this.detailModel().groups));
   protected readonly srcMeta = srcTagMeta;
   protected readonly panelAriaLabel = computed(() => `Dettaglio POI: ${this.poi().name}`);
+
+  /**
+   * Soglia dell'accordion adattivo (rework UI): con pochi fattori totali i gruppi-fonte partono
+   * tutti aperti (nessun attrito); oltre soglia resta aperto solo il gruppo più affidabile presente
+   * (ONTOLOGIA è primo in `orderGroupsByTag`) e gli altri si collassano, ma sempre col conteggio
+   * visibile — così si tuck il meno-certo, non il verificato.
+   */
+  private static readonly ADAPTIVE_OPEN_THRESHOLD = 3;
+
+  /**
+   * Tag dei gruppi-fonte attualmente espansi. `linkedSignal` (non `signal`) perché lo stato di
+   * apertura deve RESETTARSI al default adattivo quando cambia il POI selezionato — il componente
+   * non si rimonta navigando tra POI, cambia solo `poi()` (vedi l'effect di focus sotto) — pur
+   * restando modificabile dai click dell'utente sullo stesso POI.
+   */
+  protected readonly openTags = linkedSignal<string, Set<string>>({
+    source: () => this.poi().id,
+    computation: () => {
+      const groups = this.orderedGroups();
+      const total = groups.reduce((n, g) => n + g.risks.length, 0);
+      const openAll = total <= DetailPanelComponent.ADAPTIVE_OPEN_THRESHOLD;
+      return new Set((openAll ? groups : groups.slice(0, 1)).map((g) => g.tag));
+    },
+  });
+
+  protected isOpen(tag: string): boolean {
+    return this.openTags().has(tag);
+  }
+
+  protected toggleGroup(tag: string): void {
+    const next = new Set(this.openTags());
+    if (next.has(tag)) next.delete(tag);
+    else next.add(tag);
+    this.openTags.set(next);
+  }
 
   constructor() {
     effect(() => {

@@ -183,16 +183,99 @@ describe('DetailPanelComponent', () => {
     expect(text).toContain('Fattore ignoto');
   });
 
-  it('footer: azioni non operative presenti ("Segnala errore" / "Esporta scheda"), disabilitate in questa iterazione', () => {
+  it('rework UI: il footer con le azioni non operative è stato rimosso (niente placeholder disabilitati)', () => {
     setup(makePoi());
-    const buttons: HTMLButtonElement[] = Array.from(
-      fixture.nativeElement.querySelectorAll('.cra-detail-footer button'),
-    );
-    expect(buttons).toHaveLength(2);
-    expect(buttons.every((b) => b.disabled)).toBe(true);
+    expect(fixture.nativeElement.querySelector('.cra-detail-footer')).toBeNull();
     const text = fixture.nativeElement.textContent;
-    expect(text).toContain('Segnala errore');
-    expect(text).toContain('Esporta scheda');
-    expect(text).not.toContain('Assegna pattuglia');
+    expect(text).not.toContain('Segnala errore');
+    expect(text).not.toContain('Esporta scheda');
+  });
+
+  it('rework UI: la Provenienza (citazione SPARQL) è mostrata DOPO i Fattori di rischio', () => {
+    setup(makePoi());
+    const eyebrows = Array.from(
+      fixture.nativeElement.querySelectorAll('.cra-detail-body .cra-detail-section .cra-eyebrow'),
+    ).map((h) => (h as HTMLElement).textContent?.trim());
+    expect(eyebrows[0]).toContain('Fattori di rischio');
+    expect(eyebrows[1]).toContain('Provenienza');
+  });
+
+  it('accordion (default adattivo): con ≤3 fattori totali tutti i gruppi partono aperti', () => {
+    setup(makePoi()); // riskModels: 3 rischi, 1 per gruppo → total 3
+    expect(fixture.nativeElement.querySelectorAll('.cra-source-group').length).toBe(3);
+    expect(fixture.nativeElement.querySelectorAll('.cra-factor-row').length).toBe(3);
+    const headers = Array.from(
+      fixture.nativeElement.querySelectorAll('.cra-source-header'),
+    ) as HTMLElement[];
+    headers.forEach((h) => expect(h.getAttribute('aria-expanded')).toBe('true'));
+  });
+
+  it('accordion (default adattivo): con >3 fattori resta aperto solo il primo gruppo (ONTOLOGIA), gli altri collassati ma col conteggio', () => {
+    const richModels: RiskModel[] = [
+      {
+        poi: 'Colosseo',
+        risks: [
+          {
+            hazard: 'o1',
+            confidence: 'verificato',
+            tag: 'ONTOLOGIA',
+            hazard_label_it: 'Onto 1',
+            hazard_label_en: '',
+          },
+          {
+            hazard: 'o2',
+            confidence: 'verificato',
+            tag: 'ONTOLOGIA',
+            hazard_label_it: 'Onto 2',
+            hazard_label_en: '',
+          },
+          {
+            hazard: 'c1',
+            confidence: 'da_confermare',
+            tag: 'CONTESTO',
+            hazard_label_it: 'Ctx 1',
+            hazard_label_en: '',
+          },
+          {
+            hazard: 's1',
+            confidence: 'ipotesi',
+            tag: 'SPECULATIVO',
+            hazard_label_it: 'Spec 1',
+            hazard_label_en: '',
+          },
+          {
+            hazard: 's2',
+            confidence: 'ipotesi',
+            tag: 'SPECULATIVO',
+            hazard_label_it: 'Spec 2',
+            hazard_label_en: '',
+          },
+        ],
+      },
+    ];
+    setup(makePoi(), richModels);
+    expect(fixture.nativeElement.querySelectorAll('.cra-source-group').length).toBe(3);
+    expect(fixture.nativeElement.querySelectorAll('.cra-factor-row').length).toBe(2); // solo ONTOLOGIA
+    const headers = Array.from(
+      fixture.nativeElement.querySelectorAll('.cra-source-header'),
+    ) as HTMLElement[];
+    expect(headers.map((h) => h.getAttribute('aria-expanded'))).toEqual(['true', 'false', 'false']);
+    const counts = Array.from(fixture.nativeElement.querySelectorAll('.cra-source-count')).map(
+      (c) => (c as HTMLElement).textContent?.trim(),
+    );
+    expect(counts).toEqual(['2', '1', '2']);
+  });
+
+  it("accordion: cliccando un'intestazione-fonte si collassa/espande il suo elenco di fattori", () => {
+    setup(makePoi());
+    expect(fixture.nativeElement.querySelectorAll('.cra-factor-row').length).toBe(3);
+    const first = fixture.nativeElement.querySelector('.cra-source-header') as HTMLElement;
+    first.click();
+    fixture.detectChanges();
+    expect(first.getAttribute('aria-expanded')).toBe('false');
+    expect(fixture.nativeElement.querySelectorAll('.cra-factor-row').length).toBe(2);
+    first.click();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.cra-factor-row').length).toBe(3);
   });
 });
