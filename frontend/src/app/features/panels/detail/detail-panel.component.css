@@ -66,6 +66,16 @@
   text-decoration: underline;
 }
 
+/* Focus da tastiera coerente col resto dell'app (outline teal, cfr. poi-panel): sia il link
+   "‹ indietro" sia le intestazioni-accordion sono <button>, qui esplicitiamo il ring invece di
+   affidarci a quello nativo del browser. */
+.cra-detail-back:focus-visible,
+.cra-source-header:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
 .cra-detail-id {
   display: flex;
   align-items: flex-start;

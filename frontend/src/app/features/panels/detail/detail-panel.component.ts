@@ -74,7 +74,11 @@ export class DetailPanelComponent {
    * Tag dei gruppi-fonte attualmente espansi. `linkedSignal` (non `signal`) perché lo stato di
    * apertura deve RESETTARSI al default adattivo quando cambia il POI selezionato — il componente
    * non si rimonta navigando tra POI, cambia solo `poi()` (vedi l'effect di focus sotto) — pur
-   * restando modificabile dai click dell'utente sullo stesso POI.
+   * restando modificabile dai click dell'utente sullo stesso POI. La chiave di reset è `poi().id`
+   * (identità del POI); da notare che `computation` legge anche `orderedGroups()` (che dipende da
+   * `riskModels()`), quindi in teoria pure un cambio di riferimento dei risk_models a parità di POI
+   * resetterebbe i toggle — oggi non raggiungibile perché `transition.ts` azzera `selectedPoiId`
+   * (smontando questa vista) ogni volta che i dati potrebbero cambiare.
    */
   protected readonly openTags = linkedSignal<string, Set<string>>({
     source: () => this.poi().id,

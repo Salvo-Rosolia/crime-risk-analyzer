@@ -278,4 +278,54 @@ describe('DetailPanelComponent', () => {
     fixture.detectChanges();
     expect(fixture.nativeElement.querySelectorAll('.cra-factor-row').length).toBe(3);
   });
+
+  it('accordion: cambiando POI lo stato di apertura si resetta al default adattivo del nuovo POI (nessuno stato residuo)', () => {
+    const r = (
+      hazard: string,
+      tag: RiskModel['risks'][number]['tag'],
+      confidence: Poi['confidence'],
+    ) => ({ hazard, confidence, tag, hazard_label_it: hazard, hazard_label_en: '' });
+    const models: RiskModel[] = [
+      {
+        poi: 'Colosseo',
+        risks: [
+          r('o1', 'ONTOLOGIA', 'verificato'),
+          r('o2', 'ONTOLOGIA', 'verificato'),
+          r('c1', 'CONTESTO', 'da_confermare'),
+          r('s1', 'SPECULATIVO', 'ipotesi'),
+          r('s2', 'SPECULATIVO', 'ipotesi'),
+        ],
+      },
+      {
+        poi: 'Duomo',
+        risks: [
+          r('do1', 'ONTOLOGIA', 'verificato'),
+          r('dc1', 'CONTESTO', 'da_confermare'),
+          r('ds1', 'SPECULATIVO', 'ipotesi'),
+          r('ds2', 'SPECULATIVO', 'ipotesi'),
+        ],
+      },
+    ];
+    const aria = (el: Element) => el.getAttribute('aria-expanded');
+
+    setup(makePoi({ id: '1', name: 'Colosseo' }), models);
+    // POI A (>3 fattori): default adattivo → solo ONTOLOGIA aperto
+    expect(
+      Array.from(fixture.nativeElement.querySelectorAll('.cra-source-header')).map(aria),
+    ).toEqual(['true', 'false', 'false']);
+    // l'utente espande manualmente SPECULATIVO (stato divergente dal default)
+    (fixture.nativeElement.querySelectorAll('.cra-source-header')[2] as HTMLElement).click();
+    fixture.detectChanges();
+    expect(aria(fixture.nativeElement.querySelectorAll('.cra-source-header')[2])).toBe('true');
+
+    // cambio POI SENZA rimontare il componente (come la navigazione reale tra POI)
+    fixture.componentRef.setInput('poi', makePoi({ id: '2', name: 'Duomo' }));
+    fixture.detectChanges();
+
+    // POI B segue il SUO default adattivo (>3 → solo ONTOLOGIA): SPECULATIVO di nuovo chiuso,
+    // nessuno stato residuo del POI precedente.
+    expect(
+      Array.from(fixture.nativeElement.querySelectorAll('.cra-source-header')).map(aria),
+    ).toEqual(['true', 'false', 'false']);
+  });
 });
