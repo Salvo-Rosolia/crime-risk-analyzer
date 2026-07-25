@@ -11,6 +11,9 @@
   left: var(--space-4);
   z-index: 1;
   width: var(--panel-max-width);
+  /* A layout largo (#218) la narrativa è a destra, non sotto: il dock è a TUTTA ALTEZZA (riserva 0).
+     Sotto 1100px la riserva viene ripristinata dalla media query in fondo. */
+  --dock-narr-reserve: 0px;
   max-height: calc(
     100vh - var(--header-height) - var(--space-4) * 2 - var(--dock-narr-reserve, 56px)
   );
@@ -25,16 +28,19 @@
 }
 
 /*
- * Coordinamento altezza dock↔narrativa (#199, criteri d'accettazione 2 e 5): la narrativa
- * bottom-sheet aperta occupa fino a 45vh (`narrative-sheet.component.css`, stesso `--space-4` di
- * margine dal bordo) — riserviamo quello spazio + un margine di sicurezza così il dock si accorcia
- * e non la copre mai. Chiusa, la narrativa collassa al solo header (poche decine di px): riserviamo
- * un valore minimo fisso al suo posto (var `--dock-narr-reserve` di default sopra, 56px: margine
- * di sicurezza sopra la stima dell'header collassato, ~41px + bordo host, per non ridursi a un
- * gap di 1px soggetto ad arrotondamenti del motore di rendering).
+ * Coordinamento altezza dock↔narrativa SOLO sotto 1100px (#218): a layout largo la narrativa è un
+ * pannello a destra (non sotto), quindi il dock resta a tutta altezza (`--dock-narr-reserve: 0`
+ * sopra). Sotto 1100px la narrativa torna bottom-sheet full-width e il dock deve accorciarsi per
+ * non coprirla — si ripristina la riserva storica (#199): 45vh + margini quando la narrativa è
+ * aperta, un minimo fisso (~header collassato + bordo) quando è chiusa.
  */
-:host.cra-dock-narr-open {
-  --dock-narr-reserve: calc(45vh + var(--space-4) * 2);
+@media (max-width: 1099px) {
+  :host {
+    --dock-narr-reserve: 56px;
+  }
+  :host.cra-dock-narr-open {
+    --dock-narr-reserve: calc(45vh + var(--space-4) * 2);
+  }
 }
 
 /* Dock collassato (`TOGGLE_POI_PANEL`/`poiPanelOpen`, #199 decisione 3): si riduce a una
