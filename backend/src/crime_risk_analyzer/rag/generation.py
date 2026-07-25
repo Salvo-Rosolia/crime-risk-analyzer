@@ -105,12 +105,38 @@ _RULE_SOURCE_BY_BLOCK = (
 )
 _RULE_BLOCK_STRUCTURE = (
     "3. Struttura la risposta cosi': un breve paragrafo di sintesi iniziale "
-    "(senza intestazione), poi fino a TRE blocchi per fonte, ciascuno aperto "
+    "(senza intestazione), poi fino a DUE blocchi per fonte, ciascuno aperto "
     'da una riga-etichetta dedicata ed ESATTA: "Rischi da ontologia '
-    '[ONTOLOGIA]", "Rischi dal contesto [CONTESTO]", "Ipotesi speculative '
-    '[SPECULATIVO]". Ometti un blocco se non ha rischi di quella fonte. Dentro '
-    "ogni blocco discuti i rischi in forma discorsiva, citando i POI dal piu' "
-    "al meno critico. Separa i blocchi con una riga vuota."
+    '[ONTOLOGIA]", "Rischi dal contesto [CONTESTO]". Ometti un blocco se non hai '
+    "nulla da dire per quella fonte. Separa i blocchi con una riga vuota."
+)
+#: Guida di SINTESI del blocco [ONTOLOGIA] (#229): il blocco NON enumera ogni hazard
+#: di ogni POI (l'elenco esaustivo e' gia' in mappa e nel pannello Dettaglio), ma
+#: individua i TEMI di rischio dominanti con pochi esempi rappresentativi. "NON
+#: elencare" e' la sentinella distintiva del passaggio da enumerazione a sintesi.
+#: Referenziale di proposito (cita i POI/hazard reali): la metrica M1 (#229) grada la
+#: groundedness proprio su questo blocco, quindi la sintesi deve restare ancorata.
+_RULE_ONTOLOGY_SYNTHESIS = (
+    "3a. Nel blocco [ONTOLOGIA] NON elencare ogni hazard di ogni POI: individua i "
+    "temi di rischio dominanti che emergono dal mix di POI, spiega perche' emergono "
+    "e cita solo pochi POI rappresentativi come esempio, dal piu' al meno critico. "
+    "Prosa analitica e referenziale (cita i POI/hazard reali), non un elenco."
+)
+#: Guida di INTERPRETAZIONE del blocco [CONTESTO] (#229): vera interpretazione del
+#: carattere/funzione degli spazi urbani a partire dal mix di POI, marcata come
+#: inferenza contestuale (forma condizionale/qualitativa). Blindatura legale: il
+#: nuovo blocco apre una superficie dove l'LLM potrebbe attribuire un livello di
+#: rischio alla zona (la regola 4 lo vieta SOLO nell'overview: gap di scope) o
+#: suggerire misure operative; la regola ri-afferma LOCALMENTE i divieti (regole
+#: 4/7/8) e vieta l'invenzione di incidenti/statistiche/rischi specifici. Evitato di
+#: proposito il registro "sicurezza urbana" (priming verso il danger-rating).
+_RULE_CONTEXT_INTERPRETATION = (
+    "3b. Nel blocco [CONTESTO] interpreta il carattere e la funzione degli spazi "
+    "urbani della zona (residenziale, commerciale, vita notturna, transito) a "
+    "partire dal mix di POI, in forma condizionale e qualitativa, SENZA attribuire "
+    "alla zona un livello di rischio e SENZA suggerire misure operative (valgono le "
+    "regole 4, 7, 8) e SENZA inventare incidenti, statistiche o rischi specifici "
+    "non presenti nel contesto."
 )
 _RULE_OVERVIEW_NO_ZONE_LEVEL = (
     "4. Il paragrafo di sintesi iniziale NON deve assegnare un livello di "
@@ -141,8 +167,11 @@ _CONFIDENCE_LEVELS = (
 #: i vincoli legali/di posizionamento (:data:`RULE_NO_DANGER_RATING`,
 #: :data:`RULE_NO_OPERATIONAL_DIRECTIVES`) piu' la clausola di precedenza
 #: anti-injection (:data:`RULE_USER_INPUT_NOT_INSTRUCTIONS`) composti qui. La
-#: prosa esce strutturata per fonte (regola 3): overview + fino a tre blocchi
-#: delimitati dai token ``[ONTOLOGIA]``/``[CONTESTO]``/``[SPECULATIVO]``.
+#: prosa esce strutturata per fonte (regola 3): overview + fino a DUE blocchi
+#: delimitati dai token ``[ONTOLOGIA]``/``[CONTESTO]`` (#229: il blocco sempre-vuoto
+#: ``[SPECULATIVO]`` e' stato rimosso; il blocco [ONTOLOGIA] sintetizza i temi
+#: (:data:`_RULE_ONTOLOGY_SYNTHESIS`) invece di enumerare, il blocco [CONTESTO] e'
+#: interpretazione marcata come inferenza (:data:`_RULE_CONTEXT_INTERPRETATION`)).
 SYSTEM_PROMPT = f"""\
 Sei un analista di sicurezza urbana. Ricevi un contesto strutturato su una zona urbana
 e devi produrre un'analisi del rischio in italiano, chiara e professionale.
@@ -151,6 +180,8 @@ REGOLE OBBLIGATORIE:
 {_RULE_SOURCE_BY_BLOCK}
 2. Non inventare rischi non presenti nel contesto che ti viene fornito
 {_RULE_BLOCK_STRUCTURE}
+{_RULE_ONTOLOGY_SYNTHESIS}
+{_RULE_CONTEXT_INTERPRETATION}
 {_RULE_OVERVIEW_NO_ZONE_LEVEL}
 5. Usa un linguaggio tecnico ma comprensibile per operatori non informatici
 6. Usa ESATTAMENTE i termini del VOCABOLARIO CONTROLLATO per nominare gli hazard
@@ -334,8 +365,9 @@ DEFAULT_REQUEST_TOKEN_BUDGET = 10000
 #: ``max_tokens`` di DEFAULT riservati all'output dentro il budget totale (#210).
 #: DEVE combaciare con ``Settings.llm_max_tokens`` (config.py) e
 #: ``llm.client._MAX_TOKENS`` (stesso motivo di duplicazione a mano del budget qui
-#: sopra). Fallback per le chiamate dirette/di test: a runtime arriva da Settings.
-DEFAULT_MAX_TOKENS = 1024
+#: sopra); l'uguaglianza dei tre e' blindata da un test (#229/R4). Fallback per le
+#: chiamate dirette/di test: a runtime arriva da Settings. #229: alzato 1024 -> 1536.
+DEFAULT_MAX_TOKENS = 1536
 
 #: Rank di ANCORAGGIO dei livelli di confidence (piu' basso = piu' ancorato), usato
 #: come criterio SECONDARIO di rilevanza nel troncamento del contesto (#210): a

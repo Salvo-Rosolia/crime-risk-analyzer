@@ -200,7 +200,7 @@ async def test_claude_uses_exact_model_and_params() -> None:
 
     call = fake.calls[0]
     assert call["model"] == "claude-sonnet-4-6"
-    assert call["max_tokens"] == 1024
+    assert call["max_tokens"] == 1536  # #229: default alzato 1024 -> 1536
     assert call["temperature"] == 0.2
     # system come blocco con cache_control ephemeral (prompt caching)
     assert call["system"] == [
@@ -252,7 +252,7 @@ async def test_groq_uses_chat_messages_and_params() -> None:
 
     call = fake.calls[0]
     assert call["model"] == "llama-3.3-70b-versatile"
-    assert call["max_tokens"] == 1024
+    assert call["max_tokens"] == 1536  # #229: default alzato 1024 -> 1536
     assert call["temperature"] == 0.2
     assert call["seed"] == 42
     assert call["messages"] == [
@@ -454,6 +454,24 @@ async def test_groq_length_finish_reason_is_mapped_to_llm_error() -> None:
 
     with pytest.raises(LLMError):
         await client.generate(_SYSTEM, _USER)
+
+
+async def test_truncation_guard_fires_regardless_of_max_tokens_value() -> None:
+    """#229/D6: la guardia anti-troncamento scatta sul SEGNALE del provider
+    (``stop_reason=max_tokens`` / ``finish_reason=length``), NON sul valore di
+    ``max_tokens``. Alzare il tetto a 1536 (o oltre) non disattiva la rete di
+    sicurezza: un output troncato resta scartato -> LLMError -> fallback, a qualunque
+    ``max_tokens``. Cosi' "1536 basta" resta un claim empirico (smoke run live),
+    mentre la guardia garantisce che un eventuale troncamento non sia mai servito."""
+    claude = _FakeAnthropic()
+    claude.stop_reason = "max_tokens"
+    with pytest.raises(LLMError):
+        await LLMClient.for_claude(claude, max_tokens=4096).generate(_SYSTEM, _USER)
+
+    groq = _FakeGroq()
+    groq.finish_reason = "length"
+    with pytest.raises(LLMError):
+        await LLMClient.for_groq(groq, max_tokens=4096).generate(_SYSTEM, _USER)
 
 
 async def test_claude_normal_stop_reason_does_not_raise() -> None:

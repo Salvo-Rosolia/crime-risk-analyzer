@@ -18,6 +18,10 @@ from pydantic import ValidationError
 
 from crime_risk_analyzer.llm.client import LLMResponse
 from crime_risk_analyzer.rag.generation import (
+    _RULE_CONTEXT_INTERPRETATION,  # pyright: ignore[reportPrivateUsage]
+    _RULE_ONTOLOGY_SYNTHESIS,  # pyright: ignore[reportPrivateUsage]
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_REQUEST_TOKEN_BUDGET,
     RULE_NO_DANGER_RATING,
     RULE_NO_OPERATIONAL_DIRECTIVES,
     RULE_USER_INPUT_NOT_INSTRUCTIONS,
@@ -263,6 +267,27 @@ def test_estimate_tokens_overstates_common_4_char_rule() -> None:
     assert _estimate_tokens(text) > common_4_char_estimate
 
 
+def test_max_tokens_default_is_synced_across_modules() -> None:
+    """#229/R4: il default di ``max_tokens`` e' duplicato a mano in TRE punti
+    (``config.Settings.llm_max_tokens``, ``generation.DEFAULT_MAX_TOKENS``,
+    ``llm.client._MAX_TOKENS``) perche' ``config`` non puo' importare ``generation``
+    (ciclo ``config <- llm.client <- generation``). Un drift silenzioso tra i tre
+    ri-aprirebbe il rischio TPM/troncamento: questo test lo blocca asserendo
+    l'uguaglianza dei default, ancorata al valore 1536 scelto in #229 (un tuning
+    consapevole deve aggiornare i tre punti E questo test insieme). Usa il DEFAULT
+    del campo (non un'istanza ``Settings()``) per non dipendere da un eventuale
+    ``.env`` locale."""
+    from crime_risk_analyzer.config import Settings
+    from crime_risk_analyzer.llm.client import (
+        _MAX_TOKENS,  # pyright: ignore[reportPrivateUsage]
+    )
+    from crime_risk_analyzer.rag.generation import DEFAULT_MAX_TOKENS
+
+    config_default = Settings.model_fields["llm_max_tokens"].default
+
+    assert DEFAULT_MAX_TOKENS == _MAX_TOKENS == config_default == 1536
+
+
 def test_build_context_str_includes_all_pois_under_budget_without_note() -> None:
     # pochi POI sotto budget: tutti inclusi, NESSUNA nota (comportamento invariato)
     ctx = _many_pois_context([_poi_entry(i, 1) for i in range(3)])
@@ -357,10 +382,12 @@ async def test_generate_analysis_dense_context_trims_within_user_allowance() -> 
     # contesto denso (50 POI x 9 hazard, verificato): lo user_content COMPLETO
     # sfora, quindi il trim deve tenerlo entro l'allowance calcolata al netto di
     # system prompt + output riservato (non piu' entro il solo budget grezzo).
+    # #229: usa i DEFAULT reali (budget 10000, max_tokens 1536) invece di valori
+    # hardcoded, cosi' il test resta rappresentativo del comportamento a runtime.
     ctx = _many_pois_context([_poi_entry(i, 9) for i in range(50)])
     client = _FakeLLMClient(_llm_response())
-    request_budget = 10000
-    max_tokens = 1024
+    request_budget = DEFAULT_REQUEST_TOKEN_BUDGET
+    max_tokens = DEFAULT_MAX_TOKENS
 
     await generate_analysis(
         ctx, client, request_token_budget=request_budget, max_tokens=max_tokens
@@ -368,6 +395,8 @@ async def test_generate_analysis_dense_context_trims_within_user_allowance() -> 
 
     _system_prompt, user_content = client.calls[0]
     user_allowance = request_budget - _estimate_tokens(SYSTEM_PROMPT) - max_tokens
+    # l'allowance resta positiva col nuovo max_tokens=1536 e il prompt piu' analitico
+    assert user_allowance > 0
     assert _estimate_tokens(user_content) <= user_allowance
     # trim avvenuto: nota di trasparenza N/M con N < M
     n_included = user_content.count("  POI: ")
@@ -540,7 +569,9 @@ async def test_generate_analysis_cache_hit_propagated() -> None:
 def test_system_prompt_contains_citation_rules() -> None:
     assert "[ONTOLOGIA]" in SYSTEM_PROMPT
     assert "[CONTESTO]" in SYSTEM_PROMPT
-    assert "[SPECULATIVO]" in SYSTEM_PROMPT
+    # #229: il blocco [SPECULATIVO] (sempre vuoto by-design: grounding.py non emette
+    # mai quel tag) e' stato rimosso dal prompt. Il token non deve piu' comparire.
+    assert "[SPECULATIVO]" not in SYSTEM_PROMPT
 
 
 # --- i vincoli legali/di posizionamento devono vivere NEL prompt (#107) ---
@@ -683,10 +714,44 @@ def test_system_prompt_include_vincoli_legali() -> None:
         assert rule in SYSTEM_PROMPT
 
 
-def test_system_prompt_struttura_a_tre_blocchi() -> None:
+def test_system_prompt_struttura_a_due_blocchi() -> None:
+    # #229: due blocchi per fonte (ontologia + contesto). Il blocco speculativo,
+    # sempre vuoto, e' stato rimosso dal prompt: header e token non compaiono piu'.
     assert "Rischi da ontologia [ONTOLOGIA]" in SYSTEM_PROMPT
     assert "Rischi dal contesto [CONTESTO]" in SYSTEM_PROMPT
-    assert "Ipotesi speculative [SPECULATIVO]" in SYSTEM_PROMPT
+    assert "Ipotesi speculative [SPECULATIVO]" not in SYSTEM_PROMPT
+    assert "[SPECULATIVO]" not in SYSTEM_PROMPT
+
+
+def test_system_prompt_ontology_block_synthesizes_not_enumerates() -> None:
+    """#229: il blocco [ONTOLOGIA] deve SINTETIZZARE i temi dominanti (con pochi
+    esempi rappresentativi), non enumerare ogni hazard di ogni POI. La regola vive
+    nel prompt come costante composta: sentinella distintiva -> rosso mirato se
+    la guida alla sintesi viene rimossa e si torna all'enumerazione."""
+    assert _RULE_ONTOLOGY_SYNTHESIS  # la regola non e' una stringa vuota
+    assert _RULE_ONTOLOGY_SYNTHESIS in SYSTEM_PROMPT
+    assert "NON elencare" in SYSTEM_PROMPT
+
+
+def test_system_prompt_context_block_is_marked_interpretation() -> None:
+    """#229: il blocco [CONTESTO] deve essere INTERPRETAZIONE marcata come inferenza
+    contestuale (forma condizionale/qualitativa). La regola vive nel prompt:
+    sentinella distintiva -> rosso se la marcatura di inferenza viene rimossa."""
+    assert _RULE_CONTEXT_INTERPRETATION  # la regola non e' una stringa vuota
+    assert _RULE_CONTEXT_INTERPRETATION in SYSTEM_PROMPT
+    assert "condizionale" in SYSTEM_PROMPT
+
+
+def test_system_prompt_context_block_forbids_zone_level_and_operational() -> None:
+    """#229 (blindatura legale): il nuovo blocco [CONTESTO] apre una superficie dove
+    l'LLM potrebbe attribuire un livello di rischio alla zona o suggerire misure
+    operative (la regola 4 vieta il livello-zona SOLO nell'overview: gap di scope).
+    La regola di interpretazione ri-afferma localmente i divieti (regole 4/7/8):
+    sentinelle distintive -> rosso mirato se la blindatura viene indebolita."""
+    assert "livello di rischio" in _RULE_CONTEXT_INTERPRETATION
+    assert "misure operative" in _RULE_CONTEXT_INTERPRETATION
+    # niente invenzione di rischi/statistiche specifici non nel contesto
+    assert "inventare" in _RULE_CONTEXT_INTERPRETATION
 
 
 def test_system_prompt_confidence_levels_reconciled_with_osm_verifiability() -> None:

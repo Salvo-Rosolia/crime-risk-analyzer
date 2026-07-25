@@ -1,9 +1,21 @@
 """Metriche deterministiche di valutazione (#34).
 
-v1 strutturali sulla AnalyzeResponse. Proxy testuali (vedi caveat EN/IT nella
-spec): grounding e hallucination si appoggiano ai tag fonte
-([ONTOLOGIA]/[CONTESTO]/[SPECULATIVO]) e ai nomi POI/hazard. La validazione
-dell'accordo proxy-vs-annotazione gold umana vive in ``eval/gold.py`` (#109).
+Metriche strutturali sulla AnalyzeResponse. ``grounding``/``hallucination`` sono
+PROXY testuali (vedi caveat EN/IT nella spec): misurano se le asserzioni di rischio
+citano i dati ancorati (nomi POI/hazard, label EN/IT #77).
+
+**Semantica M1 (#229, ``METRICS_VERSION == 2``).** Il proxy grada SOLO le asserzioni
+del blocco ``[ONTOLOGIA]`` — l'unico layer con backing strutturato dal grounding
+(``grounding.py`` emette solo il tag ``ONTOLOGIA``). L'``overview`` di sintesi e il
+blocco ``[CONTESTO]`` sono INTERPRETAZIONE dell'LLM (conoscenza generale, non un dato
+ontologico): la loro qualita'/fabbricazione NON e' gradabile da un proxy deterministico
+di ancoraggio ed e' delegata al gold umano (#109/#152), oltre a essere frenata a monte
+dal prompt (regola 2 + ``[CONTESTO]`` "senza inventare"). L'attribuzione della fonte e'
+per BLOCCO (header #196), non per tag inline: il proxy v1 (pre-#229) cercava ``[TAG]``
+nella singola frase e, con i tag ora solo negli header, era mal-calibrato su output
+reale — motivo del cambio (non una regressione). La validazione dell'accordo
+proxy-vs-annotazione gold umana vive in ``eval/gold.py`` (#109), da rifare su questa
+definizione prima di un claim forte.
 """
 
 from __future__ import annotations
@@ -13,8 +25,17 @@ import re
 from crime_risk_analyzer.eval.pricing import cost_usd
 from crime_risk_analyzer.eval.schema import Metrics
 from crime_risk_analyzer.orchestrator import AnalyzeResponse
+from crime_risk_analyzer.rag.generation import parse_source_prose
 
-_TAG_RE = re.compile(r"\[(ONTOLOGIA|CONTESTO|SPECULATIVO)\]")
+#: Generazione della SEMANTICA del proxy grounding/hallucination (#229). ``1`` era il
+#: proxy inline-tag (pre-#229): cercava ``[TAG]`` nella singola frase, ma la struttura
+#: a blocchi #196 mette il tag SOLO nell'header -> su output reale il proxy v1 era
+#: mal-calibrato. ``2`` e' M1 block-aware: grada SOLO le asserzioni del blocco
+#: [ONTOLOGIA] (l'unico layer con backing strutturato dal grounding), delegando
+#: l'interpretazione [CONTESTO] al gold umano (#152). Espone la versione cosi' che un
+#: confronto (compare.py/winner.py #157) non mescoli silenziosamente generazioni di
+#: metrica: i valori pre-#229 su output reale non sono confrontabili con questi.
+METRICS_VERSION = 2
 
 
 def _sentences(text: str) -> list[str]:
@@ -43,68 +64,87 @@ def _anchors(resp: AnalyzeResponse) -> set[str]:
     return {a for a in anchors if a.strip()}
 
 
-def _assertive_sentences(resp: AnalyzeResponse, anchors: set[str]) -> list[str]:
-    """Frasi che fanno un'asserzione di dominio: taggate O che nominano un dato.
+def _ontology_assertions(resp: AnalyzeResponse) -> list[str]:
+    """Asserzioni gradabili dal proxy (M1, #229): le frasi del blocco [ONTOLOGIA].
 
-    Denominatore di grounding/hallucination (#163). Le frasi né taggate né
-    ancorate (connettivo/filler) restano fuori: non sono asserzioni verificabili,
-    quindi non gonfiano né sgonfiano il tasso di allucinazione.
+    :func:`~crime_risk_analyzer.rag.generation.parse_source_prose` isola il CORPO del
+    blocco ``[ONTOLOGIA]`` dalla narrativa a blocchi (#196): l'header e' gia' escluso
+    dal parser, l'``overview`` e il blocco ``[CONTESTO]`` finiscono in campi separati e
+    NON entrano qui (interpretazione -> gold umano). Ogni frase-corpo del blocco e' una
+    asserzione ontologica: il denominatore di grounding/hallucination. Una narrativa
+    senza blocco ``[ONTOLOGIA]`` riconoscibile (vuota o non compliant) ritorna ``[]``:
+    la distinzione tra ramo VACUO e NON-ATTRIBUZIONE e' fatta in :func:`_grade`.
     """
-    return [
-        s
-        for s in _sentences(resp.narrativa)
-        if _TAG_RE.search(s) or any(a in s.lower() for a in anchors)
-    ]
+    ontology_prose = parse_source_prose(resp.narrativa).ontologia
+    return _sentences(ontology_prose)
 
 
-def _grounded_sentences(assertive: list[str], anchors: set[str]) -> list[str]:
-    """Asserzioni citate bene: taggate AND ancorate ai dati (POI/hazard)."""
-    return [
-        s
-        for s in assertive
-        if _TAG_RE.search(s) and any(a in s.lower() for a in anchors)
-    ]
+def _grounded(assertions: list[str], anchors: set[str]) -> list[str]:
+    """Asserzioni ontologiche ancorate: nominano un dato reale (POI/hazard, label)."""
+    return [s for s in assertions if any(a in s.lower() for a in anchors)]
+
+
+def _grade(resp: AnalyzeResponse) -> tuple[int, int] | None:
+    """``(grounded, assertions)`` del blocco [ONTOLOGIA], o ``None`` se non gradabile.
+
+    ``None`` = ramo VACUO (grounding 1.0 / hallucination 0.0), riservato ai casi in cui
+    il proxy non ha legittimamente nulla da gradare:
+    - narrativa vuota (fallback strutturato: nessun output LLM da giudicare);
+    - nessun ancoraggio disponibile (``_anchors`` vuoto: nessun dato da citare).
+
+    Il caso "narrativa PIENA con dati da citare ma SENZA asserzioni ontologiche" (es.
+    modello che non emette l'header [ONTOLOGIA], o lo emette vuoto) NON e' vacuo: e'
+    NON-ATTRIBUZIONE e vale ``(0, 1)`` -> grounding 0.0 / hallucination 1.0. Cosi' un
+    modello non puo' ottenere un punteggio perfetto omettendo l'header (l'asse
+    hallucination e' il criterio PRIMARIO di ``winner.py``, #157): l'evasione perde
+    invece di vincere.
+    """
+    if not resp.narrativa.strip():
+        return None
+    anchors = _anchors(resp)
+    if not anchors:
+        return None
+    assertions = _ontology_assertions(resp)
+    if not assertions:
+        return (0, 1)
+    return (len(_grounded(assertions, anchors)), len(assertions))
 
 
 def grounding(resp: AnalyzeResponse) -> float:
-    """Frazione di ASSERZIONI citate e ancorate ai dati [0,1].
+    """Frazione di ASSERZIONI ONTOLOGICHE ancorate ai dati [0,1] (M1, #229).
 
-    Asserzione = frase taggata O che nomina un dato (POI/hazard). Narrativa
-    vuota → 1.0 (vacuamente ancorata, ramo esclusivo che precede il resto).
-    Narrativa non vuota ma senza asserzioni → 0.0 (nulla ancorato).
+    Asserzione = frase del blocco ``[ONTOLOGIA]`` (:func:`_ontology_assertions`);
+    grounded = asserzione che nomina un ancoraggio (POI/hazard, label EN/IT #77).
+    Rami vacui (:func:`_grade` -> ``None``: narrativa vuota o nessun ancoraggio da
+    citare) → 1.0. Narrativa piena con dati da citare ma senza asserzioni ontologiche
+    (header assente/vuoto) → 0.0 (non-attribuzione, non "vacua"). ``overview``/
+    ``[CONTESTO]`` sono esclusi (interpretazione, delegata al gold).
     """
-    if not resp.narrativa.strip():
+    graded = _grade(resp)
+    if graded is None:
         return 1.0
-    anchors = _anchors(resp)
-    assertive = _assertive_sentences(resp, anchors)
-    if not assertive:
-        return 0.0
-    grounded = _grounded_sentences(assertive, anchors)
-    return len(grounded) / len(assertive)
+    grounded, assertions = graded
+    return grounded / assertions
 
 
 def hallucination(resp: AnalyzeResponse) -> float:
-    """Frazione di ASSERZIONI NON citate/ancorate ai dati [0,1].
+    """Frazione di ASSERZIONI ONTOLOGICHE NON ancorate ai dati [0,1] (M1, #229).
 
-    Complemento di :func:`grounding` sullo stesso denominatore (le asserzioni):
-    ``hallucination == 1 - grounding`` sui record con asserzioni > 0. Rispetto a
-    #109 il denominatore non è più "le sole frasi taggate": una frase che afferma
-    su un dato (nomina un POI/hazard) SENZA citare conta come allucinazione (cat.3,
-    reperto A #163), altrimenti un modello che cita poco vincerebbe l'asse del
-    verdetto. Ispeziona tutte le classi-tag ([ONTOLOGIA]/[CONTESTO]/[SPECULATIVO]).
-    Narrativa vuota → 0.0 (ramo esclusivo). Narrativa piena senza asserzioni → 1.0
-    (ha prodotto testo senza ancorare nulla). La validazione proxy-vs-gold umano
-    resta in :mod:`crime_risk_analyzer.eval.gold` (#109), da rifare su questa
-    definizione prima di un claim forte.
+    Complemento di :func:`grounding` sullo stesso denominatore (le asserzioni del blocco
+    ``[ONTOLOGIA]``): ``hallucination == 1 - grounding`` su ogni ramo (a meno
+    dell'arrotondamento in virgola mobile). Una frase nel blocco ontologia che asserisce
+    un rischio senza ancoraggio reale e' fabbricazione e conta come allucinazione
+    (invariante #109 preservato DENTRO il layer con backing). Rami vacui → 0.0;
+    narrativa piena senza asserzioni ontologiche → 1.0 (non-attribuzione).
+    La fabbricazione nell'interpretazione ``[CONTESTO]`` NON e' rilevata dal proxy
+    (delegata al gold umano #109/#152): la validazione proxy-vs-gold resta in
+    :mod:`crime_risk_analyzer.eval.gold`, da rifare su questa definizione.
     """
-    if not resp.narrativa.strip():
+    graded = _grade(resp)
+    if graded is None:
         return 0.0
-    anchors = _anchors(resp)
-    assertive = _assertive_sentences(resp, anchors)
-    if not assertive:
-        return 1.0
-    grounded = _grounded_sentences(assertive, anchors)
-    return (len(assertive) - len(grounded)) / len(assertive)
+    grounded, assertions = graded
+    return (assertions - grounded) / assertions
 
 
 def latency_ms(resp: AnalyzeResponse) -> int:

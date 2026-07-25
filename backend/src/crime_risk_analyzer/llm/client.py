@@ -34,7 +34,10 @@ CLAUDE_MODEL = "claude-sonnet-4-6"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 
 #: Parametri fissi condivisi (generation.md §Riproducibilita').
-_MAX_TOKENS = 1024
+#: #229: default alzato 1024 -> 1536 (margine anti-troncamento sul caso denso). DEVE
+#: restare in sync con ``config.Settings.llm_max_tokens`` e
+#: ``generation.DEFAULT_MAX_TOKENS`` (test_generation::..._synced_across_modules).
+_MAX_TOKENS = 1536
 _DEFAULT_TEMPERATURE = 0.2
 _DEFAULT_SEED = 42
 
