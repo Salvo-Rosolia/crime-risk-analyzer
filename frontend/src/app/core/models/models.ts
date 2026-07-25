@@ -1,4 +1,4 @@
-export type Confidence = 'verificato' | 'da_confermare' | 'ipotesi';
+export type Confidence = 'verificato' | 'da_confermare';
 export type SourceTag = 'ONTOLOGIA' | 'CONTESTO' | 'SPECULATIVO';
 
 export interface Poi {
@@ -7,7 +7,9 @@ export interface Poi {
   terminus_class: string;
   lat: number;
   lon: number;
-  confidence: Confidence;
+  /** `null` se il POI è fuori ontologia (nessun rischio da qualificare, #220): nessun badge di
+   * confidence, pin neutro, non filtrabile come categoria (niente chip/riga di filtro). */
+  confidence: Confidence | null;
   sparql_path: string | null;
   /** Etichetta IT controllata della classe (display, #77). Sempre presente lato BE (default ""). */
   terminus_label_it: string;
@@ -41,7 +43,6 @@ export interface RiskModel {
 export interface ConfidenceSummary {
   verificato: number;
   da_confermare: number;
-  ipotesi: number;
 }
 export interface Repro {
   temperature: number;

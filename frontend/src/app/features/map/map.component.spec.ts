@@ -55,7 +55,7 @@ function makeResp(pois: Poi[]): AnalyzeResponse {
     risk_models: [],
     narrativa: '',
     narrativa_fonti: { overview: '', ontologia: '', contesto: '', speculativo: '' },
-    confidence_summary: { verificato: 0, da_confermare: 0, ipotesi: 0 },
+    confidence_summary: { verificato: 0, da_confermare: 0 },
     llm_used: '',
     latenza_ms: 0,
     tokens_input: 0,
@@ -137,10 +137,17 @@ describe('MapComponent', () => {
     });
 
     it('colora il pin secondo la confidence del POI', () => {
-      fixture.componentRef.setInput('data', makeResp([makePoi({ confidence: 'ipotesi' })]));
+      fixture.componentRef.setInput('data', makeResp([makePoi({ confidence: 'da_confermare' })]));
       fixture.detectChanges();
       const [opts] = (L.divIcon as jest.Mock).mock.calls.at(-1) as [{ html: string }];
-      expect(opts.html).toContain(CONF.ipotesi.color);
+      expect(opts.html).toContain(CONF.da_confermare.color);
+    });
+
+    it('#220: un POI fuori ontologia (confidence null) rende un pin neutro (DIM_COLOR), non un colore di confidence', () => {
+      fixture.componentRef.setInput('data', makeResp([makePoi({ confidence: null })]));
+      fixture.detectChanges();
+      const [opts] = (L.divIcon as jest.Mock).mock.calls.at(-1) as [{ html: string }];
+      expect(opts.html).toContain(DIM_COLOR);
     });
 
     it('applica lo stato dim (grigio, opacità ridotta) ai marker esclusi dal filtro attivo', () => {
@@ -148,7 +155,7 @@ describe('MapComponent', () => {
         'data',
         makeResp([
           makePoi({ id: '0', confidence: 'verificato' }),
-          makePoi({ id: '1', confidence: 'ipotesi' }),
+          makePoi({ id: '1', confidence: 'da_confermare' }),
         ]),
       );
       fixture.componentRef.setInput('filter', 'verificato');
@@ -163,13 +170,32 @@ describe('MapComponent', () => {
         'data',
         makeResp([
           makePoi({ id: '0', confidence: 'verificato' }),
-          makePoi({ id: '1', confidence: 'ipotesi' }),
+          makePoi({ id: '1', confidence: 'da_confermare' }),
         ]),
       );
       fixture.detectChanges();
       const calls = (L.divIcon as jest.Mock).mock.calls as [{ html: string }][];
       expect(calls[0][0].html).not.toContain(DIM_COLOR);
       expect(calls[1][0].html).not.toContain(DIM_COLOR);
+    });
+
+    it('#220: un POI fuori ontologia (confidence null) è dim quando un filtro è attivo (non corrisponde ad alcuna categoria) e pieno senza filtro', () => {
+      fixture.componentRef.setInput(
+        'data',
+        makeResp([
+          makePoi({ id: '0', confidence: 'verificato' }),
+          makePoi({ id: '1', confidence: null }),
+        ]),
+      );
+      fixture.componentRef.setInput('filter', 'verificato');
+      fixture.detectChanges();
+      let calls = (L.divIcon as jest.Mock).mock.calls as [{ html: string }][];
+      expect(calls[1][0].html).toContain('opacity:0.45');
+
+      fixture.componentRef.setInput('filter', null);
+      fixture.detectChanges();
+      calls = (L.divIcon as jest.Mock).mock.calls as [{ html: string }][];
+      expect(calls.at(-1)![0].html).toContain('opacity:1');
     });
 
     it('applica lo stato focus (34px, più grande) al marker selezionato', () => {

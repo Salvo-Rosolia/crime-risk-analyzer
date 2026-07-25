@@ -32,7 +32,7 @@ const dataWithRows: AnalyzeResponse = {
         },
         {
           hazard: 'h2',
-          confidence: 'ipotesi',
+          confidence: 'da_confermare',
           tag: 'SPECULATIVO',
           hazard_label_it: 'Accattonaggio',
           hazard_label_en: 'Begging',
@@ -42,7 +42,7 @@ const dataWithRows: AnalyzeResponse = {
   ],
   narrativa: '',
   narrativa_fonti: { overview: '', ontologia: '', contesto: '', speculativo: '' },
-  confidence_summary: { verificato: 1, da_confermare: 0, ipotesi: 1 },
+  confidence_summary: { verificato: 1, da_confermare: 0 },
   llm_used: '',
   latenza_ms: 0,
   tokens_input: 0,

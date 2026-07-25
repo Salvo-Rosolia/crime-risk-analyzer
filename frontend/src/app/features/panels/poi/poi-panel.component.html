@@ -22,16 +22,18 @@
         [attr.aria-current]="selectedId() === item.poi.id ? 'true' : null"
         (click)="selectPoi.emit(item.poi.id)"
       >
-        <span class="cra-poi-pin-badge" [style.background]="conf[item.poi.confidence].color">{{
+        <span class="cra-poi-pin-badge" [style.background]="pinColor(item.poi.confidence)">{{
           item.number
         }}</span>
         <span class="cra-poi-info">
           <span class="cra-poi-name">{{ item.poi.name }}</span>
           <span class="cra-poi-class">{{ poiLabel(item.poi) }}</span>
         </span>
-        <span class="cra-badge-confidence" [style.color]="conf[item.poi.confidence].color">
-          {{ conf[item.poi.confidence].dot }} {{ conf[item.poi.confidence].label }}
-        </span>
+        @if (item.poi.confidence) {
+          <span class="cra-badge-confidence" [style.color]="confMeta(item.poi.confidence).color">
+            {{ confMeta(item.poi.confidence).dot }} {{ confMeta(item.poi.confidence).label }}
+          </span>
+        }
       </button>
     </li>
   }

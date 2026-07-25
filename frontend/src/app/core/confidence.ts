@@ -7,29 +7,36 @@ export interface ConfMeta {
   label: string;
 }
 
-export const CONF: Readonly<Record<'verificato' | 'da_confermare' | 'ipotesi', ConfMeta>> =
-  Object.freeze({
-    verificato: { color: '#1a7a40', bg: '#eef7f1', dot: '●', label: 'Verificato' },
-    da_confermare: { color: '#b8870a', bg: '#fbf4e4', dot: '◐', label: 'Da confermare' },
-    ipotesi: { color: '#c2620a', bg: '#fbeee2', dot: '○', label: 'Ipotesi' },
-  });
+export const CONF: Readonly<Record<Confidence, ConfMeta>> = Object.freeze({
+  verificato: { color: '#1a7a40', bg: '#eef7f1', dot: '●', label: 'Verificato' },
+  da_confermare: { color: '#b8870a', bg: '#fbf4e4', dot: '◐', label: 'Da confermare' },
+});
 
 export const DIM_COLOR = '#b6b3a9';
 
 /**
+ * Colore del tag fonte SPECULATIVO (sezioni per-fonte Stato B/C, badge, chip). In precedenza
+ * "presa in prestito" da `CONF.ipotesi` (livello di confidence rimosso, #220): il vocabolario dei
+ * `SourceTag` (ONTOLOGIA/CONTESTO/SPECULATIVO) è un asse ORTOGONALE alla confidence (un rischio
+ * SPECULATIVO oggi porta comunque `confidence: 'da_confermare'`, mai `null`) e non deve dipendere
+ * dai suoi livelli. Costante nominata dedicata: la palette dei tag-fonte resta invariata anche se
+ * cambiano i livelli di confidence.
+ */
+export const SPECULATIVE_TAG_COLOR = '#c2620a';
+
+/**
  * Colore + descrizione breve per i titoli di sezione dei tag fonte (Stato C "Fattori di rischio
- * · per fonte", Stato B narrativa strutturata per fonte): il colore ricalca deliberatamente
- * quello di `CONF` per il livello di confidence analogo (ONTOLOGIA↔verificato, CONTESTO↔da_confermare,
- * SPECULATIVO↔ipotesi) — stessa palette, un solo posto dove cambiarla.
+ * · per fonte", Stato B narrativa strutturata per fonte): ONTOLOGIA/CONTESTO ricalcano il colore
+ * del livello di confidence analogo, SPECULATIVO usa la propria costante dedicata (vedi sopra).
  */
 export const SRC_TAG_META: Readonly<Record<SourceTag, { color: string; description: string }>> =
   Object.freeze({
     ONTOLOGIA: { color: CONF.verificato.color, description: 'da ontologia formale' },
     CONTESTO: { color: CONF.da_confermare.color, description: 'da contesto ambientale' },
-    SPECULATIVO: { color: CONF.ipotesi.color, description: 'inferenza non verificata' },
+    SPECULATIVO: { color: SPECULATIVE_TAG_COLOR, description: 'inferenza non verificata' },
   });
 
-const UNKNOWN_TAG_META = { color: CONF.ipotesi.color, description: '' };
+const UNKNOWN_TAG_META = { color: SPECULATIVE_TAG_COLOR, description: '' };
 
 /**
  * Variante di `SRC_TAG_META` sicura per tag generici (`string`, non ristretti a `SourceTag`):
@@ -52,17 +59,20 @@ const UNKNOWN_CONF_META: ConfMeta = Object.freeze({
 });
 
 /**
- * Variante di `CONF` sicura per un livello di confidence potenzialmente fuori contratto (difesa in
- * profondità, story #207): un valore non riconosciuto (typo, dato legacy, mismatch di migrazione
- * del vocabolario) degrada a un placeholder invece di far collassare il template in un TypeError
- * di change detection (`CONF[level]` indicizzato direttamente sarebbe `undefined`). Stesso
- * pattern di `srcTagMeta` per i tag fonte.
+ * Variante di `CONF` sicura per un livello di confidence potenzialmente fuori contratto O assente
+ * (difesa in profondità, story #207/#220): un valore non riconosciuto (typo, dato legacy, mismatch
+ * di migrazione del vocabolario) o `null`/`undefined` (POI fuori ontologia, #220: nessun rischio da
+ * qualificare) degrada a un placeholder — pin neutro — invece di far collassare il template in un
+ * TypeError di change detection (`CONF[level]` indicizzato direttamente sarebbe `undefined`).
+ * Stesso pattern di `srcTagMeta` per i tag fonte.
  */
-export function confMeta(level: string): ConfMeta {
-  return (CONF as Record<string, ConfMeta>)[level] ?? UNKNOWN_CONF_META;
+export function confMeta(level: string | null | undefined): ConfMeta {
+  return (
+    (level != null ? (CONF as Record<string, ConfMeta>)[level] : undefined) ?? UNKNOWN_CONF_META
+  );
 }
 
-export function pinColor(level: string): string {
+export function pinColor(level: string | null | undefined): string {
   return confMeta(level).color;
 }
 
@@ -88,17 +98,21 @@ export function coverageBadgeText(total: number, anchored: number): string {
 /**
  * Conteggio dei POI per il proprio livello di confidence (campo `Poi.confidence`, non i rischi
  * di `confidence_summary`): fonte sia dei chip filtro di `PoiPanelComponent` sia di quelli in
- * `HeaderControlsComponent` — un solo posto per la stessa regola di conteggio (DRY).
+ * `HeaderControlsComponent` — un solo posto per la stessa regola di conteggio (DRY). I POI fuori
+ * ontologia (`confidence: null`, #220) non sono filtrabili come categoria: non contribuiscono a
+ * nessuna delle 2 chiavi (niente chip/riga dedicata, coerente con `LEVELS` a 2 valori).
  */
 export function poiConfidenceCounts(pois: Poi[] | null | undefined): Record<Confidence, number> {
-  const counts: Record<Confidence, number> = { verificato: 0, da_confermare: 0, ipotesi: 0 };
-  for (const poi of pois ?? []) counts[poi.confidence]++;
+  const counts: Record<Confidence, number> = { verificato: 0, da_confermare: 0 };
+  for (const poi of pois ?? []) {
+    if (poi.confidence) counts[poi.confidence]++;
+  }
   return counts;
 }
 
 export function pinHTML(
   n: number,
-  conf: string,
+  conf: string | null | undefined,
   { focus = false, dim = false }: { focus?: boolean; dim?: boolean } = {},
 ): string {
   const color = dim ? DIM_COLOR : pinColor(conf);

@@ -1,6 +1,7 @@
 import {
   CONF,
   DIM_COLOR,
+  SPECULATIVE_TAG_COLOR,
   SRC_TAG_META,
   confMeta,
   coverageBadgeText,
@@ -21,10 +22,9 @@ describe('confidence', () => {
     expect(pinColor('boh')).toBe(DIM_COLOR);
   });
 
-  it('confMeta: risolve i 3 livelli noti da CONF', () => {
+  it('confMeta: risolve i 2 livelli noti da CONF', () => {
     expect(confMeta('verificato')).toEqual(CONF.verificato);
     expect(confMeta('da_confermare')).toEqual(CONF.da_confermare);
-    expect(confMeta('ipotesi')).toEqual(CONF.ipotesi);
   });
 
   it('confMeta: fallback difensivo per un livello fuori contratto (colore DIM_COLOR, dot/label placeholder)', () => {
@@ -34,6 +34,16 @@ describe('confidence', () => {
       dot: '?',
       label: 'Sconosciuto',
     });
+  });
+
+  it('confMeta: un POI fuori ontologia (confidence null/undefined, #220) degrada allo stesso fallback — pin neutro', () => {
+    expect(confMeta(null)).toEqual({
+      color: DIM_COLOR,
+      bg: DIM_COLOR,
+      dot: '?',
+      label: 'Sconosciuto',
+    });
+    expect(confMeta(undefined)).toEqual(confMeta(null));
   });
 
   it('deriveCoverage: total = somma summary, anchored = risk con tag ONTOLOGIA', () => {
@@ -70,8 +80,8 @@ describe('confidence', () => {
         ],
       },
     ];
-    expect(deriveCoverage({ verificato: 2, da_confermare: 1, ipotesi: 1 }, riskModels)).toEqual({
-      total: 4,
+    expect(deriveCoverage({ verificato: 2, da_confermare: 1 }, riskModels)).toEqual({
+      total: 3,
       anchored: 2,
     });
   });
@@ -102,6 +112,12 @@ describe('confidence', () => {
     expect(html).toContain('opacity:0.45');
   });
 
+  it('pinHTML: un POI fuori ontologia (confidence null, #220) rende un pin neutro (DIM_COLOR), non dim di per sé', () => {
+    const html = pinHTML(2, null);
+    expect(html).toContain(DIM_COLOR);
+    expect(html).toContain('opacity:1');
+  });
+
   it('CONF è immutabile', () => {
     expect(Object.isFrozen(CONF)).toBe(true);
   });
@@ -122,22 +138,22 @@ describe('confidence', () => {
       poi('1', 'verificato'),
       poi('2', 'verificato'),
       poi('3', 'da_confermare'),
-      poi('4', 'ipotesi'),
+      poi('4', null),
     ];
-    expect(poiConfidenceCounts(pois)).toEqual({ verificato: 2, da_confermare: 1, ipotesi: 1 });
+    expect(poiConfidenceCounts(pois)).toEqual({ verificato: 2, da_confermare: 1 });
   });
 
   it('poiConfidenceCounts: input null/undefined/vuoto → tutti i livelli a zero', () => {
-    const zero = { verificato: 0, da_confermare: 0, ipotesi: 0 };
+    const zero = { verificato: 0, da_confermare: 0 };
     expect(poiConfidenceCounts(null)).toEqual(zero);
     expect(poiConfidenceCounts(undefined)).toEqual(zero);
     expect(poiConfidenceCounts([])).toEqual(zero);
   });
 
-  it('SRC_TAG_META: colore allineato a CONF per il livello analogo, con breve descrizione', () => {
+  it('SRC_TAG_META: colore allineato a CONF per il livello analogo, con breve descrizione; SPECULATIVO usa la costante dedicata', () => {
     expect(SRC_TAG_META.ONTOLOGIA.color).toBe(CONF.verificato.color);
     expect(SRC_TAG_META.CONTESTO.color).toBe(CONF.da_confermare.color);
-    expect(SRC_TAG_META.SPECULATIVO.color).toBe(CONF.ipotesi.color);
+    expect(SRC_TAG_META.SPECULATIVO.color).toBe(SPECULATIVE_TAG_COLOR);
     expect(SRC_TAG_META.ONTOLOGIA.description).toBe('da ontologia formale');
     expect(SRC_TAG_META.CONTESTO.description).toBe('da contesto ambientale');
     expect(SRC_TAG_META.SPECULATIVO.description).toBe('inferenza non verificata');
@@ -153,7 +169,7 @@ describe('confidence', () => {
     expect(srcTagMeta('SPECULATIVO')).toEqual(SRC_TAG_META.SPECULATIVO);
   });
 
-  it('srcTagMeta: fallback difensivo per tag fuori contratto (colore ipotesi, nessuna descrizione)', () => {
-    expect(srcTagMeta('ALTRO')).toEqual({ color: CONF.ipotesi.color, description: '' });
+  it('srcTagMeta: fallback difensivo per tag fuori contratto (colore SPECULATIVE_TAG_COLOR, nessuna descrizione)', () => {
+    expect(srcTagMeta('ALTRO')).toEqual({ color: SPECULATIVE_TAG_COLOR, description: '' });
   });
 });

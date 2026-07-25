@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
-import { CONF, poiConfidenceCounts } from '@core/confidence';
+import { confMeta, pinColor, poiConfidenceCounts } from '@core/confidence';
 import { Confidence, NumberedPoi, Poi } from '@core/models/models';
 import { matchesFilter, poiDisplayLabel } from '@core/ui-helpers';
 import { ConfidenceFilterComponent } from '@features/panels/confidence-filter/confidence-filter.component';
@@ -26,7 +26,13 @@ export class PoiPanelComponent {
   readonly setFilter = output<Confidence>();
   readonly clearFilter = output<void>();
 
-  protected readonly conf = CONF;
+  /**
+   * Accesso via funzione pura anziché indicizzazione diretta `CONF[poi.confidence]` (#220): un POI
+   * fuori ontologia ha `confidence: null` — `pinColor`/`confMeta` degradano al fallback "pin
+   * neutro" invece di lanciare un TypeError di change detection su una chiave `null`.
+   */
+  protected readonly pinColor = pinColor;
+  protected readonly confMeta = confMeta;
   protected readonly poiLabel = poiDisplayLabel;
 
   protected readonly numbered = computed<NumberedPoi[]>(() =>

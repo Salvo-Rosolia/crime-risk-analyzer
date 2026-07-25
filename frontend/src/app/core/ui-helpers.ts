@@ -168,9 +168,11 @@ export function buildBaseRows(
  * Regola unica "il POI corrisponde al filtro di confidence attivo" — consumata sia da
  * `PoiPanelComponent` (semantica "nascondi": esclude i non corrispondenti dalla lista)
  * sia da `MapComponent` (semantica "attenua": i non corrispondenti restano visibili ma `dim`).
- * `filter` nullo = nessun filtro attivo, tutti i POI corrispondono.
+ * `filter` nullo = nessun filtro attivo, tutti i POI corrispondono (incluso un POI fuori ontologia,
+ * `confidence: null`, #220). Con un filtro attivo un POI `null` non corrisponde MAI: non è
+ * filtrabile come categoria (nessun livello lo rappresenta in `LEVELS`).
  */
-export function matchesFilter(confidence: Confidence, filter: Confidence | null): boolean {
+export function matchesFilter(confidence: Confidence | null, filter: Confidence | null): boolean {
   return filter == null || confidence === filter;
 }
 
@@ -221,19 +223,27 @@ export function buildSourceTabs(
 
 /**
  * Markup del popup Leaflet per un marker POI: numero, nome, etichetta IT e badge confidence.
- * Fallback difensivo (`confMeta`, `core/confidence.ts`) se `confidence` non è uno dei 3 livelli
- * noti: una voce imprevista non deve interrompere il `forEach` di redraw dei marker successivi.
+ * Un POI fuori ontologia (`confidence: null`, #220) non mostra la riga di badge (nessun badge,
+ * coerente con la card di `PoiPanelComponent` e l'header di `DetailPanelComponent`). Fallback
+ * difensivo (`confMeta`, `core/confidence.ts`) se `confidence` è una stringa fuori contratto (non
+ * uno dei 2 livelli noti): una voce imprevista non deve interrompere il `forEach` di redraw dei
+ * marker successivi.
  */
 export function poiPopupHTML(
   poi: Pick<Poi, 'name' | 'confidence' | 'terminus_class' | 'terminus_label_it'>,
   n: number,
 ): string {
-  const meta = confMeta(poi.confidence);
+  const confLine = poi.confidence
+    ? (() => {
+        const meta = confMeta(poi.confidence);
+        return `<div class="cra-poi-popup-conf" style="color:${meta.color}">${meta.dot} ${meta.label}</div>`;
+      })()
+    : '';
   return (
     `<div class="cra-poi-popup">` +
     `<strong>${n}. ${escapeHtml(poi.name)}</strong>` +
     `<div class="cra-poi-popup-class">${escapeHtml(poiDisplayLabel(poi))}</div>` +
-    `<div class="cra-poi-popup-conf" style="color:${meta.color}">${meta.dot} ${meta.label}</div>` +
+    confLine +
     `</div>`
   );
 }

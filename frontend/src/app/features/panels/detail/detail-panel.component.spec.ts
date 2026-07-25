@@ -23,7 +23,7 @@ const riskModels: RiskModel[] = [
     risks: [
       {
         hazard: 'h-spec',
-        confidence: 'ipotesi',
+        confidence: 'da_confermare',
         tag: 'SPECULATIVO',
         hazard_label_it: 'Ipotesi speculativa',
         hazard_label_en: 'Speculative hypothesis',
@@ -80,6 +80,12 @@ describe('DetailPanelComponent', () => {
     setup(makePoi({ confidence: 'da_confermare' }));
     const text = fixture.nativeElement.textContent;
     expect(text).toContain('Da confermare');
+  });
+
+  it("#220: un POI fuori ontologia (confidence null) non mostra il badge di confidence nell'header, ma il pin resta neutro", () => {
+    setup(makePoi({ confidence: null, sparql_path: null }), []);
+    expect(fixture.nativeElement.querySelector('.cra-badge-confidence')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.cra-detail-pin')).not.toBeNull();
   });
 
   it('mostra il pulsante "‹ indietro" (Vista Dettaglio del dock, #199) e il click emette closeDetail', () => {
@@ -238,14 +244,14 @@ describe('DetailPanelComponent', () => {
           },
           {
             hazard: 's1',
-            confidence: 'ipotesi',
+            confidence: 'da_confermare',
             tag: 'SPECULATIVO',
             hazard_label_it: 'Spec 1',
             hazard_label_en: '',
           },
           {
             hazard: 's2',
-            confidence: 'ipotesi',
+            confidence: 'da_confermare',
             tag: 'SPECULATIVO',
             hazard_label_it: 'Spec 2',
             hazard_label_en: '',
@@ -292,8 +298,8 @@ describe('DetailPanelComponent', () => {
           r('o1', 'ONTOLOGIA', 'verificato'),
           r('o2', 'ONTOLOGIA', 'verificato'),
           r('c1', 'CONTESTO', 'da_confermare'),
-          r('s1', 'SPECULATIVO', 'ipotesi'),
-          r('s2', 'SPECULATIVO', 'ipotesi'),
+          r('s1', 'SPECULATIVO', 'da_confermare'),
+          r('s2', 'SPECULATIVO', 'da_confermare'),
         ],
       },
       {
@@ -301,8 +307,8 @@ describe('DetailPanelComponent', () => {
         risks: [
           r('do1', 'ONTOLOGIA', 'verificato'),
           r('dc1', 'CONTESTO', 'da_confermare'),
-          r('ds1', 'SPECULATIVO', 'ipotesi'),
-          r('ds2', 'SPECULATIVO', 'ipotesi'),
+          r('ds1', 'SPECULATIVO', 'da_confermare'),
+          r('ds2', 'SPECULATIVO', 'da_confermare'),
         ],
       },
     ];

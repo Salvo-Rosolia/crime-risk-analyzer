@@ -32,7 +32,7 @@ describe('PoiPanelComponent', () => {
     makePoi({
       id: '3',
       name: 'Vicolo Y',
-      confidence: 'ipotesi',
+      confidence: null,
       terminus_class: 'Alley',
       terminus_label_it: '',
     }),
@@ -125,16 +125,33 @@ describe('PoiPanelComponent', () => {
   });
 
   it("la numerazione delle card resta quella dell'array originale anche filtrando", () => {
-    fixture.componentRef.setInput('filter', 'ipotesi');
+    fixture.componentRef.setInput('filter', 'da_confermare');
     fixture.detectChanges();
     const badge = fixture.nativeElement.querySelector('.cra-poi-pin-badge');
-    expect(badge.textContent.trim()).toBe('3');
+    expect(badge.textContent.trim()).toBe('2');
   });
 
-  it('mostra il conteggio per ciascun livello di confidence nel controllo Confidenza', () => {
+  it('mostra il conteggio per ciascun livello di confidence nel controllo Confidenza (#220: solo 2 livelli, il POI fuori ontologia non è conteggiato)', () => {
     const counts = Array.from(
       fixture.nativeElement.querySelectorAll('.cra-confidence-row-count'),
     ).map((el) => (el as HTMLElement).textContent?.trim());
-    expect(counts).toEqual(['1', '1', '1']);
+    expect(counts).toEqual(['1', '1']);
+  });
+
+  it('#220: un POI fuori ontologia (confidence null) resta visibile senza filtro attivo, senza badge testuale di confidence', () => {
+    const cards = fixture.nativeElement.querySelectorAll('.cra-poi-card');
+    const vicoloCard = cards[2] as HTMLElement;
+    expect(vicoloCard.textContent).toContain('Vicolo Y');
+    expect(vicoloCard.querySelector('.cra-badge-confidence')).toBeNull();
+    expect(vicoloCard.querySelector('.cra-poi-pin-badge')).not.toBeNull();
+  });
+
+  it('#220: un POI fuori ontologia (confidence null) non è filtrabile come categoria: con un filtro attivo scompare dalla lista come i livelli non corrispondenti', () => {
+    fixture.componentRef.setInput('filter', 'verificato');
+    fixture.detectChanges();
+    const names = Array.from(fixture.nativeElement.querySelectorAll('.cra-poi-name')).map((el) =>
+      (el as HTMLElement).textContent?.trim(),
+    );
+    expect(names).not.toContain('Vicolo Y');
   });
 });

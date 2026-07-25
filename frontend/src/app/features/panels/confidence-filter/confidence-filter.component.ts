@@ -2,22 +2,22 @@ import { ChangeDetectionStrategy, Component, input, output } from '@angular/core
 import { CONF } from '@core/confidence';
 import { Confidence } from '@core/models/models';
 
-const LEVELS: readonly Confidence[] = ['verificato', 'da_confermare', 'ipotesi'];
+const LEVELS: readonly Confidence[] = ['verificato', 'da_confermare'];
 
 const ZERO_COUNTS: Readonly<Record<Confidence, number>> = Object.freeze({
   verificato: 0,
   da_confermare: 0,
-  ipotesi: 0,
 });
 
 /**
  * Significato breve di ciascun livello di confidence (story #207): distinto dalla `label` di
  * `CONF` (nome del livello) — qui è la spiegazione mostrata accanto al nome, non riusata altrove.
+ * I POI fuori ontologia (`confidence: null`, #220) non sono una categoria filtrabile: nessuna riga
+ * dedicata in questo elenco (niente chip, niente riga di filtro).
  */
 const MEANINGS: Readonly<Record<Confidence, string>> = Object.freeze({
   verificato: 'entità identificata in mappa',
   da_confermare: 'punto anonimo in mappa',
-  ipotesi: 'fuori ontologia',
 });
 
 /**

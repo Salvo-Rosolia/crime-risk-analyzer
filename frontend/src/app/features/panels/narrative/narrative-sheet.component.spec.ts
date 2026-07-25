@@ -8,7 +8,7 @@ const riskModels: RiskModel[] = [
     risks: [
       {
         hazard: 'h-spec',
-        confidence: 'ipotesi',
+        confidence: 'da_confermare',
         tag: 'SPECULATIVO',
         hazard_label_it: 'Ipotesi',
         hazard_label_en: 'Hypothesis',
@@ -262,7 +262,7 @@ describe('NarrativeSheetComponent', () => {
         risks: [
           {
             hazard: 'h-spec-2',
-            confidence: 'ipotesi' as const,
+            confidence: 'da_confermare' as const,
             tag: 'SPECULATIVO' as const,
             hazard_label_it: 'Nuova ipotesi',
             hazard_label_en: 'New hypothesis',

@@ -58,7 +58,7 @@
     "contesto": "Scarsa illuminazione osservata presso l'Arco di Costantino, fattore di contesto ambientale.",
     "speculativo": ""
   },
-  "confidence_summary": { "verificato": 1, "da_confermare": 1, "ipotesi": 0 },
+  "confidence_summary": { "verificato": 1, "da_confermare": 1 },
   "llm_used": "claude-sonnet-4-6",
   "latenza_ms": 1980,
   "tokens_input": 640,

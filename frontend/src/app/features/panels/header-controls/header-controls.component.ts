@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
 import { CONF, coverageBadgeText, deriveCoverage, poiConfidenceCounts } from '@core/confidence';
 import { AnalyzeResponse, Confidence, Mode } from '@core/models/models';
 
-const LEVELS: readonly Confidence[] = ['verificato', 'da_confermare', 'ipotesi'];
+const LEVELS: readonly Confidence[] = ['verificato', 'da_confermare'];
 
 interface ModeOption {
   value: Mode;

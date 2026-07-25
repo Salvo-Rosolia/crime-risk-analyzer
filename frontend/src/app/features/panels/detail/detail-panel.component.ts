@@ -47,11 +47,15 @@ export class DetailPanelComponent {
   private readonly elementRef = inject(ElementRef<HTMLElement>);
 
   /**
-   * Accesso difensivo alla confidence (story #207, fix-review): un valore fuori contratto
-   * (mismatch di migrazione, dato legacy) degrada a un placeholder invece di far collassare la
-   * vista in un TypeError di change detection — `conf[livello]` indicizzato direttamente sarebbe
-   * `undefined` per un livello ignoto. `pinColor` per il colore, `confMeta` per dot/label:
-   * stesso pattern difensivo già usato altrove in `core/confidence.ts`.
+   * Accesso difensivo alla confidence (story #207/#220, fix-review): un valore fuori contratto
+   * (mismatch di migrazione, dato legacy) o `null` (POI fuori ontologia, #220) degrada a un
+   * placeholder — pin neutro sul `.cra-detail-pin` (sempre renderizzato) — invece di far
+   * collassare la vista in un TypeError di change detection — `conf[livello]` indicizzato
+   * direttamente sarebbe `undefined`. Il badge testuale dell'header (`.cra-badge-confidence`)
+   * viene invece OMESSO del tutto per un POI `null` (nessun badge, template), non degradato al
+   * placeholder "Sconosciuto": quel fallback resta per i soli valori fuori contratto. `pinColor`
+   * per il colore, `confMeta` per dot/label: stesso pattern difensivo già usato altrove in
+   * `core/confidence.ts`.
    */
   protected readonly pinColor = pinColor;
   protected readonly confMeta = confMeta;
