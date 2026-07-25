@@ -99,43 +99,66 @@ test.describe('"+ Nuova richiesta" (#199 decisione 4): conferma leggera IN-APP, 
   });
 });
 
-test.describe("Dock e narrativa non si sovrappongono mai (#199 criteri d'accettazione 2/3/5)", () => {
-  test('a narrativa aperta il dock termina sopra il bottom-sheet; chiudendola il dock si allunga restando comunque sopra', async ({
+test.describe('Layout largo (#218): dock a sinistra a tutta altezza, narrativa a destra, affiancati', () => {
+  test('dock e narrativa non si sovrappongono (dock sinistra, narrativa destra); il dock è a tutta altezza; la mappa resta visibile al centro; collassando la narrativa la mappa riprende la parte bassa-destra', async ({
     page,
   }) => {
     await gotoResults(page);
 
-    // narrativa aperta di default (narrOpen: true, fixture con 6 POI e narrativa_fonti completa):
-    // il dock deve terminare SOPRA il bottom-sheet, mai sovrapporsi.
-    const dockBoxOpen = await S.panelDock(page).boundingBox();
+    const viewport = page.viewportSize()!;
+    // il progetto punta a laptop (viewport e2e Desktop Chrome 1280px ≥ 1100): narrativa a DESTRA.
+    const dockBox = await S.panelDock(page).boundingBox();
     const narrBoxOpen = await S.narrativeSheet(page).boundingBox();
-    expect(dockBoxOpen).not.toBeNull();
+    expect(dockBox).not.toBeNull();
     expect(narrBoxOpen).not.toBeNull();
-    expect(dockBoxOpen!.y + dockBoxOpen!.height).toBeLessThanOrEqual(narrBoxOpen!.y + 1);
 
-    // mappa sempre visibile (nessun pannello la copre interamente, #199 criterio 3): un punto in
-    // alto a destra, fuori dal dock (a sinistra) e dal bottom-sheet (in basso), deve restare sopra
-    // `cra-map` nel test di hit (nessun pannello sopra quel punto).
-    const mapBox = await page.locator('cra-map').boundingBox();
-    expect(mapBox).not.toBeNull();
-    const probeX = mapBox!.x + mapBox!.width - 40;
-    const probeY = mapBox!.y + 40;
-    const isMapOnTop = await page.evaluate(
+    // affiancati: il dock (sinistra) termina prima dell'inizio della narrativa (destra).
+    expect(dockBox!.x + dockBox!.width).toBeLessThanOrEqual(narrBoxOpen!.x + 1);
+
+    // dock a TUTTA ALTEZZA: arriva vicino al fondo del viewport (molto oltre il vecchio cap ~45vh).
+    expect(dockBox!.y + dockBox!.height).toBeGreaterThan(viewport.height * 0.8);
+
+    // mappa visibile al centro: un punto centrale (fuori da entrambi i pannelli) è sopra `cra-map`.
+    const isMapCenter = await page.evaluate(
+      ([x, y]) => document.elementFromPoint(x, y)?.closest('cra-map') != null,
+      [viewport.width / 2, viewport.height / 2],
+    );
+    expect(isMapCenter).toBe(true);
+
+    // collassa la narrativa: si riduce in altezza (solo header) e la parte bassa-destra torna mappa.
+    await S.narrativeHeader(page).click();
+    await expect(S.narrativeHeader(page)).toHaveAttribute('aria-expanded', 'false');
+    const narrBoxClosed = await S.narrativeSheet(page).boundingBox();
+    expect(narrBoxClosed).not.toBeNull();
+    expect(narrBoxClosed!.height).toBeLessThan(narrBoxOpen!.height);
+
+    const probeX = narrBoxOpen!.x + narrBoxOpen!.width / 2;
+    const probeY = viewport.height - 60;
+    const isMapBottomRight = await page.evaluate(
       ([x, y]) => document.elementFromPoint(x, y)?.closest('cra-map') != null,
       [probeX, probeY],
     );
-    expect(isMapOnTop).toBe(true);
+    expect(isMapBottomRight).toBe(true);
+  });
+});
 
-    // chiudi la narrativa: il dock si allunga (più spazio libero), ma resta comunque sopra
-    // l'header collassato del bottom-sheet.
-    await S.narrativeHeader(page).click();
-    await expect(S.narrativeHeader(page)).toHaveAttribute('aria-expanded', 'false');
+test.describe('Responsive <1100px (#218 criterio 4): fallback bottom-sheet', () => {
+  test('a finestra stretta la narrativa torna in basso a tutta larghezza e il dock si accorcia sopra di essa (cap ripristinato)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 900, height: 800 });
+    await gotoResults(page);
 
-    const dockBoxClosed = await S.panelDock(page).boundingBox();
-    const narrBoxClosed = await S.narrativeHeader(page).boundingBox();
-    expect(dockBoxClosed).not.toBeNull();
-    expect(narrBoxClosed).not.toBeNull();
-    expect(dockBoxClosed!.y + dockBoxClosed!.height).toBeLessThanOrEqual(narrBoxClosed!.y + 1);
-    expect(dockBoxClosed!.height).toBeGreaterThan(dockBoxOpen!.height);
+    const dockBox = await S.panelDock(page).boundingBox();
+    const narrBox = await S.narrativeSheet(page).boundingBox();
+    expect(dockBox).not.toBeNull();
+    expect(narrBox).not.toBeNull();
+
+    // narrativa a tutta larghezza in basso (occupa quasi tutta la larghezza del viewport)
+    expect(narrBox!.width).toBeGreaterThan(900 * 0.8);
+    // dock SOPRA la narrativa (bottom-sheet), non affiancato — comportamento storico #199
+    expect(dockBox!.y + dockBox!.height).toBeLessThanOrEqual(narrBox!.y + 1);
+    // cap d'altezza ripristinato: il dock non arriva al fondo (lascia spazio al bottom-sheet)
+    expect(dockBox!.y + dockBox!.height).toBeLessThan(800 * 0.75);
   });
 });
