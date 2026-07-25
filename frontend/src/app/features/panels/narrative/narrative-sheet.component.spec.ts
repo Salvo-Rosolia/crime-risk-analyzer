@@ -306,4 +306,14 @@ describe('NarrativeSheetComponent', () => {
     setup({ open: false });
     expect(fixture.nativeElement.querySelector('.cra-narr-body')).toBeNull();
   });
+
+  it('#218: la classe host cra-narr-collapsed riflette lo stato collassato (guida il CSS pannello-destro vs full-height)', () => {
+    setup({ open: false });
+    expect(fixture.nativeElement.classList.contains('cra-narr-collapsed')).toBe(true);
+  });
+
+  it('#218: da aperto il pannello NON ha la classe collapsed', () => {
+    setup({ open: true });
+    expect(fixture.nativeElement.classList.contains('cra-narr-collapsed')).toBe(false);
+  });
 });

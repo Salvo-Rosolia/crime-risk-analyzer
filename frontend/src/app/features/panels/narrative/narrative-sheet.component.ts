@@ -13,18 +13,26 @@ import { RiskModel, SourceProse, SourceTag } from '@core/models/models';
 import { SourceTab, buildSourceTabs } from '@core/ui-helpers';
 
 /**
- * Bottom-sheet "Narrativa generata" (Stato B, spec-frontend.md §Stato B): overview discorsivo +
- * un tab per fonte (ONTOLOGIA → CONTESTO → SPECULATIVO, via `buildSourceTabs`) con prosa
- * (`narrativa_fonti`) + hazard, banner anti-hallucination SEMPRE visibile (anche da collassato —
- * vive nell'header, non nel corpo collassabile) e bottone "Rigenera" (re-POST `/analyze`, nessun
- * endpoint nuovo: spec-frontend.md §API). Componente "thin": nessuna chiamata store/http diretta,
- * solo output verso lo shell.
+ * "Narrativa generata" (Stato B): a layout largo è un PANNELLO A DESTRA a tutta altezza (#218),
+ * sotto 1100px torna bottom-sheet full-width (posizionamento in `narrative-sheet.component.css`).
+ * Contenuto: overview discorsivo + un tab per fonte (ONTOLOGIA → CONTESTO → SPECULATIVO, via
+ * `buildSourceTabs`) con prosa (`narrativa_fonti`) + hazard, banner anti-hallucination SEMPRE
+ * visibile (anche da collassato — vive nell'header, non nel corpo collassabile) e bottone
+ * "Rigenera" (re-POST `/analyze`, nessun endpoint nuovo). Componente "thin": nessuna chiamata
+ * store/http diretta, solo output verso lo shell; il collasso è guidato da `open()` (classe host
+ * `cra-narr-collapsed`).
  */
 @Component({
   selector: 'cra-narrative-sheet',
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './narrative-sheet.component.html',
   styleUrl: './narrative-sheet.component.css',
+  host: {
+    // Layout pannello-destro (#218): classe host quando collassato, così il CSS riduce l'altezza
+    // al solo header (il corpo è già sfilato via `@if(open())`) senza stirare il pannello a
+    // tutta altezza. Il banner di sicurezza resta comunque nell'header, sempre visibile.
+    '[class.cra-narr-collapsed]': '!open()',
+  },
 })
 export class NarrativeSheetComponent {
   readonly citta = input<string | null>(null);

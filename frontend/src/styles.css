@@ -42,6 +42,9 @@
   --space-4: 16px;
   --header-height: 50px;
   --panel-max-width: 340px;
+  /* Larghezza del pannello narrativa a destra (#218, layout largo); accanto a --panel-max-width
+     del dock così le due larghezze dei pannelli laterali stanno in un solo posto. */
+  --narr-panel-width: 300px;
   --panel-bg: rgba(251, 250, 246, 0.98);
   /* Scrim dietro il LoadingOverlay: blocca visivamente pan/zoom della mappa durante il caricamento. */
   --scrim: rgba(33, 31, 27, 0.4);

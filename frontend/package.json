@@ -32,6 +32,9 @@
     ]
   },
   "private": true,
+  "overrides": {
+    "brace-expansion": "^5.0.8"
+  },
   "dependencies": {
     "@angular/common": "^20.3.26",
     "@angular/compiler": "^20.3.26",
@@ -50,7 +53,7 @@
     "@angular/build": "^20.3.32",
     "@angular/cli": "^20.3.32",
     "@angular/compiler-cli": "^20.3.26",
-    "@playwright/test": "^1.61.1",
+    "@playwright/test": "^1.62.0",
     "@types/jest": "^30.0.0",
     "@types/leaflet": "^1.9.21",
     "angular-eslint": "21.0.1",
@@ -61,7 +64,7 @@
     "jest-preset-angular": "^17.0.0",
     "prettier": "^3.9.5",
     "typescript": "~5.9.2",
-    "typescript-eslint": "8.64.0"
+    "typescript-eslint": "8.65.0"
   },
   "allowScripts": {
     "@parcel/watcher@2.5.6": true,
