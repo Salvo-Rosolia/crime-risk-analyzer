@@ -32,6 +32,9 @@
     ]
   },
   "private": true,
+  "overrides": {
+    "brace-expansion": "^5.0.8"
+  },
   "dependencies": {
     "@angular/common": "^20.3.26",
     "@angular/compiler": "^20.3.26",
