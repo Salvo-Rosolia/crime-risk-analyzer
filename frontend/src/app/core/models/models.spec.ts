@@ -1,4 +1,11 @@
-import { Action, AnalyzeResponse, AppState, BaselineParams, RiskItem } from '@core/models/models';
+import {
+  Action,
+  AnalyzeResponse,
+  AppState,
+  BaselineParams,
+  Poi,
+  RiskItem,
+} from '@core/models/models';
 
 describe('models (contratto /analyze)', () => {
   it('un oggetto conforme alla fixture demo è assegnabile a AnalyzeResponse', () => {
@@ -34,7 +41,7 @@ describe('models (contratto /analyze)', () => {
       ],
       narrativa: "L'area del Colosseo...",
       narrativa_fonti: { overview: '', ontologia: '', contesto: '', speculativo: '' },
-      confidence_summary: { verificato: 2, da_confermare: 0, ipotesi: 1 },
+      confidence_summary: { verificato: 2, da_confermare: 0 },
       llm_used: 'claude-sonnet-4-6',
       latenza_ms: 2340,
       tokens_input: 512,
@@ -49,12 +56,27 @@ describe('models (contratto /analyze)', () => {
   it('RiskItem.tag accetta null (il BE emette Tag|None quando il rischio non è ancorato/taggato)', () => {
     const ri: RiskItem = {
       hazard: 'x',
-      confidence: 'ipotesi',
+      confidence: 'da_confermare',
       tag: null,
       hazard_label_it: 'X',
       hazard_label_en: 'X',
     };
     expect(ri.tag).toBeNull();
+  });
+
+  it('Poi.confidence accetta null (POI fuori ontologia, #220: nessun rischio da qualificare — nessun badge, pin neutro)', () => {
+    const poi: Poi = {
+      id: '2',
+      name: 'Vicolo Oscuro',
+      terminus_class: 'Alley',
+      lat: 0,
+      lon: 0,
+      confidence: null,
+      sparql_path: null,
+      terminus_label_it: '',
+      terminus_label_en: '',
+    };
+    expect(poi.confidence).toBeNull();
   });
 
   it('Action è un discriminated union restringibile per type', () => {
@@ -100,7 +122,7 @@ describe('models (contratto /analyze)', () => {
       risk_models: [],
       narrativa: '',
       narrativa_fonti: { overview: '', ontologia: '', contesto: '', speculativo: '' },
-      confidence_summary: { verificato: 0, da_confermare: 0, ipotesi: 0 },
+      confidence_summary: { verificato: 0, da_confermare: 0 },
       llm_used: '',
       latenza_ms: 0,
       tokens_input: 0,

@@ -64,7 +64,9 @@ test.describe('INPUT→LOADING→RESULTS: parità marker/card/badge col fixture'
     const counts = poiConfidenceCounts(analyze.poi);
     const levels = Object.keys(counts) as Confidence[];
 
-    // Sanity check: il fixture mescola i 3 livelli (nessun livello a 0), come richiesto dal task.
+    // Sanity check: il fixture mescola i 2 livelli (nessun livello a 0), come richiesto dal task.
+    // #220: il conteggio per livello esclude di proposito i POI fuori ontologia
+    // (`confidence: null`), non filtrabili come categoria.
     for (const level of levels) expect(counts[level]).toBeGreaterThan(0);
 
     for (const level of levels) {
@@ -78,12 +80,21 @@ test.describe('INPUT→LOADING→RESULTS: parità marker/card/badge col fixture'
     }
   });
 
-  test('badge di confidence su ogni card corrisponde al livello del POI nel fixture (stesso ordine/numero del marker)', async ({
+  test('badge di confidence su ogni card corrisponde al livello del POI nel fixture (stesso ordine/numero del marker); #220: i POI fuori ontologia (confidence null) non hanno badge', async ({
     page,
   }) => {
-    await expect(S.poiCardConfidenceBadges(page)).toHaveCount(analyze.poi.length);
-    for (let i = 0; i < analyze.poi.length; i++) {
-      const meta = CONF[analyze.poi[i].confidence];
+    const withConfidence = analyze.poi.filter(
+      (p): p is typeof p & { confidence: Confidence } => p.confidence != null,
+    );
+    const outOfOntology = analyze.poi.filter((p) => p.confidence == null);
+
+    // Sanity check sul fixture: il mix include almeno un POI fuori ontologia, altrimenti
+    // l'asserzione "nessun badge" sotto sarebbe vacua.
+    expect(outOfOntology.length).toBeGreaterThan(0);
+
+    await expect(S.poiCardConfidenceBadges(page)).toHaveCount(withConfidence.length);
+    for (let i = 0; i < withConfidence.length; i++) {
+      const meta = CONF[withConfidence[i].confidence];
       await expect(S.poiCardConfidenceBadges(page).nth(i)).toHaveText(`${meta.dot} ${meta.label}`);
     }
   });

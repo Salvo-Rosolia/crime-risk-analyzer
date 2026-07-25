@@ -8,8 +8,9 @@ import type { AnalyzeResponse, Poi, RiskModel } from '../src/app/core/models/mod
 /**
  * Scenari RESULTS→DETAIL e RESULTS→FILTER (#69 Task 4), sullo stesso fixture `analyze.happy.json`
  * di Task 3 (Colosseo=verificato con sparql_path, Piazza Venezia=da_confermare, Vicolo
- * Oscuro=ipotesi con sparql_path null; +3 POI aggiuntivi introdotti dal fix-review #69 per
- * rendere distinti i conteggi confidence, vedi `results.spec.ts`). Nessun valore hardcodato
+ * Oscuro=fuori ontologia (confidence null, #220) con sparql_path null; +3 POI aggiuntivi
+ * introdotti dal fix-review #69 per rendere distinti i conteggi confidence, vedi
+ * `results.spec.ts`). Nessun valore hardcodato
  * slegato dal fixture: i conteggi/testi attesi derivano da `analyze.poi`/`analyze.risk_models`.
  *
  * L'ordine atteso dei fattori di rischio (`detailFactorLabels`) è derivato dalla STESSA logica di
@@ -78,8 +79,9 @@ test.describe('RESULTS→DETAIL: accoppiamento bidirezionale marker↔card', () 
   test('click su una card apre il dettaglio POI ed evidenzia (focus) il marker accoppiato', async ({
     page,
   }) => {
-    // POI 2 = Vicolo Oscuro: ipotesi, sparql_path null (nessuna citazione), un solo gruppo
-    // SPECULATIVO che assorbe anche il rischio con tag null (`orderGroupsByTag`).
+    // POI 2 = Vicolo Oscuro: fuori ontologia (confidence null, #220), sparql_path null (nessuna
+    // citazione), un solo gruppo SPECULATIVO che assorbe anche il rischio con tag null
+    // (`orderGroupsByTag`).
     const poi = analyze.poi[2];
 
     await S.poiCards(page).nth(2).click();

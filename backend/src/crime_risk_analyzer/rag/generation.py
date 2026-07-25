@@ -51,7 +51,7 @@ RULE_NO_DANGER_RATING = (
     'ne\' punteggi, percentuali, voti o scale NUMERICHE (es. "rischio 73%", '
     '"7/10") ne\' scale QUALITATIVE di livello di pericolo (es. "rischio '
     'ALTO/MEDIO/BASSO", "zona pericolosa/sicura"). Descrivi i fattori di rischio '
-    "in forma discorsiva; i livelli verificato/da_confermare/ipotesi qualificano "
+    "in forma discorsiva; i livelli verificato/da_confermare qualificano "
     "la forza probatoria delle singole affermazioni, non la magnitudo del pericolo"
 )
 
@@ -132,9 +132,7 @@ _CONFIDENCE_LEVELS = (
     "proprio (doppio ancoraggio: ontologia + entita' OSM identificabile)\n"
     "- da_confermare: hazard ontologico su una feature OSM anonima, cioe' senza nome "
     "(ancoraggio OSM debole: il supporto poggia sulla sola ontologia), oppure "
-    "rischio supportato solo dal contesto OSM/input senza ancoraggio ontologico\n"
-    "- ipotesi: solo ragionamento per analogia su POI non coperti "
-    "dall'ontologia"
+    "rischio supportato solo dal contesto OSM/input senza ancoraggio ontologico"
 )
 
 #: System prompt — parte FISSA del prompt, versionata su Git e inviata come
@@ -236,7 +234,7 @@ class RiskItem(BaseModel):
 
     hazard: str = Field(description="Nome dell'hazard (classe ontologica reale).")
     confidence: Confidence = Field(
-        description="Livello qualitativo: verificato/da_confermare/ipotesi."
+        description="Livello qualitativo: verificato/da_confermare."
     )
     tag: Tag | None = Field(
         default=None, description="Tag fonte: ONTOLOGIA/CONTESTO/SPECULATIVO."
@@ -288,7 +286,7 @@ class GenerationResult(BaseModel):
     )
     confidence_summary: ConfidenceSummary = Field(
         default_factory=ConfidenceSummary,
-        description="Conteggio per livello (verificato/da_confermare/ipotesi).",
+        description="Conteggio per livello (verificato/da_confermare).",
     )
     llm_used: str = Field(description="Model id esatto che ha prodotto la narrativa.")
     tokens_input: int = Field(ge=0, description="Token di input fatturati.")
@@ -347,7 +345,6 @@ DEFAULT_MAX_TOKENS = 1024
 _CONFIDENCE_ANCHOR_RANK: dict[str, int] = {
     "verificato": 0,
     "da_confermare": 1,
-    "ipotesi": 2,
 }
 #: Rank per un POI senza rischi o con confidence sconosciuta: meno ancorato di
 #: qualunque livello noto, quindi ordinato per ultimo a parita' di rischi.

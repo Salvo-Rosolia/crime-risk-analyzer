@@ -149,7 +149,6 @@ def test_ground_zero_pois() -> None:
     assert out["confidence_summary"] == {
         "verificato": 0,
         "da_confermare": 0,
-        "ipotesi": 0,
     }
 
 
@@ -176,7 +175,6 @@ def test_ground_confidence_summary_counts_all_verificato() -> None:
     assert out["confidence_summary"] == {
         "verificato": 3,
         "da_confermare": 0,
-        "ipotesi": 0,
     }
 
 
@@ -218,8 +216,7 @@ def test_ground_whitespace_name_poi_is_da_confermare() -> None:
 
 
 def test_ground_confidence_summary_mixed_counts() -> None:
-    # #202: input reale misto -> conteggi reali con verificato>0 E da_confermare>0,
-    # ipotesi resta 0 (rimandato, fuori scope).
+    # #202: input reale misto -> conteggi reali con verificato>0 E da_confermare>0.
     bank = _profile(
         "Bank",
         hazards=["Robbery", "Fraud"],
@@ -241,7 +238,6 @@ def test_ground_confidence_summary_mixed_counts() -> None:
     assert out["confidence_summary"] == {
         "verificato": 2,
         "da_confermare": 1,
-        "ipotesi": 0,
     }
 
 
@@ -286,4 +282,3 @@ def test_ground_output_conforms_to_generation_consumer() -> None:
     cs = ConfidenceSummary.model_validate(out["confidence_summary"])
     assert cs.verificato == 1
     assert cs.da_confermare == 0
-    assert cs.ipotesi == 0

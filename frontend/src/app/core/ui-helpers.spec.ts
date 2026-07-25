@@ -54,7 +54,7 @@ describe('ui-helpers', () => {
         risks: [
           {
             hazard: 'h-spec',
-            confidence: 'ipotesi',
+            confidence: 'da_confermare',
             tag: 'SPECULATIVO',
             hazard_label_it: 'H spec',
             hazard_label_en: 'H spec',
@@ -165,7 +165,7 @@ describe('ui-helpers', () => {
       SPECULATIVO: [
         {
           hazard: 'h-spec',
-          confidence: 'ipotesi',
+          confidence: 'da_confermare',
           tag: 'SPECULATIVO',
           hazard_label_it: 'H spec',
           hazard_label_en: 'H spec',
@@ -247,7 +247,7 @@ describe('ui-helpers', () => {
           },
           {
             hazard: 'h2',
-            confidence: 'ipotesi',
+            confidence: 'da_confermare',
             tag: 'SPECULATIVO',
             hazard_label_it: '',
             hazard_label_en: '',
@@ -298,14 +298,19 @@ describe('ui-helpers', () => {
     expect(buildBaseRows(undefined, undefined)).toEqual([]);
   });
 
-  it('matchesFilter: filtro null → sempre true (nessun filtro attivo)', () => {
+  it('matchesFilter: filtro null → sempre true (nessun filtro attivo), incluso un POI fuori ontologia (confidence null)', () => {
     expect(matchesFilter('verificato', null)).toBe(true);
-    expect(matchesFilter('ipotesi', null)).toBe(true);
+    expect(matchesFilter(null, null)).toBe(true);
   });
 
   it('matchesFilter: filtro attivo → true solo per la confidence corrispondente', () => {
     expect(matchesFilter('da_confermare', 'da_confermare')).toBe(true);
     expect(matchesFilter('verificato', 'da_confermare')).toBe(false);
+  });
+
+  it('matchesFilter: con un filtro attivo, un POI fuori ontologia (confidence null, #220) non corrisponde mai (non filtrabile come categoria)', () => {
+    expect(matchesFilter(null, 'verificato')).toBe(false);
+    expect(matchesFilter(null, 'da_confermare')).toBe(false);
   });
 
   it("poiPopupHTML: include numero, nome, etichetta IT e badge confidence; esegue escape dell'HTML", () => {
@@ -357,6 +362,23 @@ describe('ui-helpers', () => {
     expect(() => poiPopupHTML(poi, 1)).not.toThrow();
     expect(poiPopupHTML(poi, 1)).toContain(DIM_COLOR);
   });
+
+  it('poiPopupHTML: un POI fuori ontologia (confidence null, #220) non mostra la riga di badge confidence', () => {
+    const poi: Poi = {
+      id: '1',
+      name: 'Vicolo Oscuro',
+      terminus_class: 'Alley',
+      lat: 0,
+      lon: 0,
+      confidence: null,
+      sparql_path: null,
+      terminus_label_it: 'Vicolo',
+      terminus_label_en: 'Alley',
+    };
+    const html = poiPopupHTML(poi, 1);
+    expect(html).not.toContain('cra-poi-popup-conf');
+    expect(html).toContain('Vicolo Oscuro');
+  });
 });
 
 describe('buildSourceTabs', () => {
@@ -403,7 +425,7 @@ describe('buildSourceTabs', () => {
         risks: [
           {
             hazard: 'H',
-            confidence: 'ipotesi',
+            confidence: 'da_confermare',
             tag: 'SPECULATIVO',
             hazard_label_it: 'Accattonaggio',
             hazard_label_en: '',

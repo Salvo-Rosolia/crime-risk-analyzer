@@ -8,9 +8,11 @@
     <div class="cra-detail-heading">
       <div class="cra-detail-name-row">
         <span class="cra-detail-name">{{ poi().name }}</span>
-        <span class="cra-badge-confidence" [style.color]="pinColor(poi().confidence)">
-          {{ confMeta(poi().confidence).dot }} {{ confMeta(poi().confidence).label }}
-        </span>
+        @if (poi().confidence) {
+          <span class="cra-badge-confidence" [style.color]="pinColor(poi().confidence)">
+            {{ confMeta(poi().confidence).dot }} {{ confMeta(poi().confidence).label }}
+          </span>
+        }
       </div>
       <div class="cra-detail-class">
         tc:{{ poi().terminus_class }} · {{ detailModel().poiLabel }}

@@ -94,7 +94,7 @@ def _context_dict(**overrides: Any) -> dict[str, Any]:
                 "sparql_path": "Heritage -> hasHazard -> MassTouristTargeting",
             }
         ],
-        "confidence_summary": {"verificato": 1, "da_confermare": 1, "ipotesi": 0},
+        "confidence_summary": {"verificato": 1, "da_confermare": 1},
     }
     base.update(overrides)
     return base
@@ -138,7 +138,7 @@ def test_build_context_str_handles_poi_without_risks() -> None:
                 "sparql_path": None,
             }
         ],
-        confidence_summary={"verificato": 0, "da_confermare": 0, "ipotesi": 0},
+        confidence_summary={"verificato": 0, "da_confermare": 0},
     )
 
     out = build_context_str(ctx)
@@ -319,8 +319,8 @@ def test_build_context_str_relevance_prefers_more_risks_first() -> None:
 
 def test_build_context_str_relevance_tiebreak_prefers_more_anchored() -> None:
     # a PARITA' di numero di rischi entra prima la confidence piu' ancorata:
-    # 'verificato' precede 'ipotesi' anche se compare dopo nell'input.
-    spec = _poi_entry("SPEC", 2, confidence="ipotesi")
+    # 'verificato' precede 'da_confermare' anche se compare dopo nell'input.
+    spec = _poi_entry("SPEC", 2, confidence="da_confermare")
     conf = _poi_entry("CONF", 2, confidence="verificato")
     ctx = _many_pois_context([spec, conf])
     conf_only = build_context_str(_many_pois_context([conf]))
@@ -485,7 +485,6 @@ async def test_generate_analysis_carries_confidence_summary_from_context() -> No
 
     assert result.confidence_summary.verificato == 1
     assert result.confidence_summary.da_confermare == 1
-    assert result.confidence_summary.ipotesi == 0
 
 
 async def test_generate_analysis_builds_risk_models_from_context() -> None:

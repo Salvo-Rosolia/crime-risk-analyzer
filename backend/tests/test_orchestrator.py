@@ -134,7 +134,7 @@ def test_build_poi_list_confidence_and_path() -> None:
         ]
     }
     out = _build_poi_list(retrieval_ctx, grounded)  # type: ignore[arg-type]
-    assert [p.confidence for p in out] == ["verificato", "ipotesi"]
+    assert [p.confidence for p in out] == ["verificato", None]
     assert out[0].sparql_path == "Bank → havingHazard → Bank_robbery"
     assert out[0].id == "1"
     assert out[1].sparql_path is None
@@ -143,7 +143,7 @@ def test_build_poi_list_confidence_and_path() -> None:
 def test_build_poi_list_confidence_unified_with_per_risk() -> None:
     # #202/M1: la confidence per-POI e' unificata col livello per-rischio del
     # grounding: named+risks -> verificato; anonymous+risks -> da_confermare;
-    # no-risks -> ipotesi (marcatore del POI fuori ontologia).
+    # no-risks -> None (POI fuori ontologia: nessuna confidence da qualificare, #220).
     retrieval_ctx = {
         "pois": [
             _poi("1", "Banca A", "Bank"),
@@ -159,7 +159,17 @@ def test_build_poi_list_confidence_unified_with_per_risk() -> None:
         ]
     }
     out = _build_poi_list(retrieval_ctx, grounded)  # type: ignore[arg-type]
-    assert [p.confidence for p in out] == ["verificato", "da_confermare", "ipotesi"]
+    assert [p.confidence for p in out] == ["verificato", "da_confermare", None]
+
+
+def test_build_poi_list_poi_fuori_ontologia_confidence_none() -> None:
+    # #220: un POI FUORI ONTOLOGIA (nessun rischio) non ha una confidence da
+    # qualificare -> confidence None (il livello "ipotesi" e' stato rimosso). Il
+    # None marca l'assenza di rischi, non un livello di forza probatoria.
+    retrieval_ctx = {"pois": [_poi("1", "Bar Roma", "GenericUrbanPOI")]}
+    grounded = {"validated_risks": [_vr("Bar Roma", "GenericUrbanPOI", [])]}
+    out = _build_poi_list(retrieval_ctx, grounded)  # type: ignore[arg-type]
+    assert out[0].confidence is None
 
 
 def test_build_poi_list_strict_zip_mismatch() -> None:
@@ -188,7 +198,7 @@ def test_structured_response_no_llm() -> None:
     grounded = {
         "zona": "Centro",
         "validated_risks": [_vr("Banca A", "Bank", ["Bank_robbery"])],
-        "confidence_summary": {"verificato": 1, "da_confermare": 0, "ipotesi": 0},
+        "confidence_summary": {"verificato": 1, "da_confermare": 0},
     }
     poi_out = _build_poi_list(
         {"pois": [_poi("1", "Banca A", "Bank")]},  # type: ignore[arg-type]
@@ -342,7 +352,6 @@ async def test_run_analysis_zero_pois(monkeypatch: pytest.MonkeyPatch) -> None:
     assert resp.risk_models == []
     assert resp.confidence_summary.verificato == 0
     assert resp.confidence_summary.da_confermare == 0
-    assert resp.confidence_summary.ipotesi == 0
     assert resp.fallback is False
 
 

@@ -17,7 +17,6 @@ verificabilita' del POI in OSM (#202):
   ancoraggio: ontologia + entita' OSM verificabile).
 - ``da_confermare`` = hazard ontologico su una feature OSM anonima (``name`` vuoto/
   whitespace): l'ancoraggio OSM e' debole, il supporto poggia sulla sola ontologia.
-- ``ipotesi`` = NON prodotto qui (rimandato, fuori scope): resta 0.
 
 Il ``tag`` resta ``ONTOLOGIA`` per entrambi i livelli (la fonte non cambia, cambia
 solo la forza probatoria). La confidence qualifica la prova, MAI la pericolosita'
@@ -120,8 +119,7 @@ def ground(context: RetrievalContext) -> GroundedContext:
     ``verificato`` se il POI ha un nome OSM, ``da_confermare`` se e' una feature
     anonima (:func:`confidence_from_poi_name`, #202). I POI fuori ontologia
     (``GenericUrbanPOI``/profilo vuoto) restano con ``risks=[]``. Il
-    ``confidence_summary`` conta i livelli reali; ``ipotesi`` resta 0
-    (rimandato, fuori scope).
+    ``confidence_summary`` conta i livelli reali.
     """
     validated: list[ValidatedRisk] = []
     n_verificato = 0
@@ -157,6 +155,5 @@ def ground(context: RetrievalContext) -> GroundedContext:
         "confidence_summary": {
             "verificato": n_verificato,
             "da_confermare": n_da_confermare,
-            "ipotesi": 0,
         },
     }

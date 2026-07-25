@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { HeaderControlsComponent } from './header-controls.component';
-import type { AnalyzeResponse } from '@core/models/models';
+import type { AnalyzeResponse, Confidence } from '@core/models/models';
 
 const data: AnalyzeResponse = {
   citta: 'Roma',
@@ -45,7 +45,7 @@ const data: AnalyzeResponse = {
       terminus_class: 'x',
       lat: 0,
       lon: 0,
-      confidence: 'ipotesi',
+      confidence: null,
       sparql_path: null,
       terminus_label_it: '',
       terminus_label_en: '',
@@ -67,7 +67,7 @@ const data: AnalyzeResponse = {
   ],
   narrativa: '',
   narrativa_fonti: { overview: '', ontologia: '', contesto: '', speculativo: '' },
-  confidence_summary: { verificato: 3, da_confermare: 1, ipotesi: 1 },
+  confidence_summary: { verificato: 4, da_confermare: 1 },
   llm_used: '',
   latenza_ms: 0,
   tokens_input: 0,
@@ -84,7 +84,7 @@ describe('HeaderControlsComponent', () => {
     inputs: {
       data?: AnalyzeResponse | null;
       mode?: 'completo' | 'base';
-      filter?: 'verificato' | 'da_confermare' | 'ipotesi' | null;
+      filter?: Confidence | null;
       loading?: boolean;
     } = {},
   ): void {
@@ -163,13 +163,16 @@ describe('HeaderControlsComponent', () => {
     );
   });
 
-  it('mostra i chip confidence con il conteggio dei POI (non dei rischi) per livello', () => {
+  it('mostra i chip confidence con il conteggio dei POI (non dei rischi) per livello; #220: solo 2 livelli, il POI D fuori ontologia (confidence null) non ha una categoria propria', () => {
     setup({ data, mode: 'completo' });
+    const chips: HTMLButtonElement[] = Array.from(
+      fixture.nativeElement.querySelectorAll('.cra-chip'),
+    );
+    expect(chips.length).toBe(2);
     const text = fixture.nativeElement.textContent;
     expect(text).toContain('Verificato');
     expect(text).toContain('2');
     expect(text).toContain('Da confermare');
-    expect(text).toContain('Ipotesi');
   });
 
   it('click su un chip emette setFilter; riclic sul chip attivo emette clearFilter', () => {

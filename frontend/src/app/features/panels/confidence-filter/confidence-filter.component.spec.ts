@@ -9,7 +9,7 @@ const KEY_NOTE =
 describe('ConfidenceFilterComponent', () => {
   let fixture: ComponentFixture<ConfidenceFilterComponent>;
 
-  const counts: Record<Confidence, number> = { verificato: 2, da_confermare: 1, ipotesi: 3 };
+  const counts: Record<Confidence, number> = { verificato: 2, da_confermare: 1 };
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
@@ -20,28 +20,26 @@ describe('ConfidenceFilterComponent', () => {
     fixture.detectChanges();
   });
 
-  it('rende i 3 livelli con nome, significato e conteggio', () => {
+  it('rende i 2 livelli con nome, significato e conteggio', () => {
     const text = fixture.nativeElement.textContent;
     expect(text).toContain('Verificato');
     expect(text).toContain('entità identificata in mappa');
     expect(text).toContain('Da confermare');
     expect(text).toContain('punto anonimo in mappa');
-    expect(text).toContain('Ipotesi');
-    expect(text).toContain('fuori ontologia');
   });
 
-  it("mostra i 3 livelli nell'ordine Verificato → Da confermare → Ipotesi", () => {
+  it("mostra i 2 livelli nell'ordine Verificato → Da confermare", () => {
     const names: string[] = Array.from(
       fixture.nativeElement.querySelectorAll('.cra-confidence-row-name'),
     ).map((el) => (el as HTMLElement).textContent?.trim());
-    expect(names).toEqual(['Verificato', 'Da confermare', 'Ipotesi']);
+    expect(names).toEqual(['Verificato', 'Da confermare']);
   });
 
   it('mostra il conteggio di ciascun livello', () => {
     const counts_: string[] = Array.from(
       fixture.nativeElement.querySelectorAll('.cra-confidence-row-count'),
     ).map((el) => (el as HTMLElement).textContent?.trim());
-    expect(counts_).toEqual(['2', '1', '3']);
+    expect(counts_).toEqual(['2', '1']);
   });
 
   it('ACCEPTANCE (fail-if-removed): mostra la nota chiave — la confidence non è un livello di pericolosità', () => {
@@ -52,7 +50,7 @@ describe('ConfidenceFilterComponent', () => {
     const group = fixture.nativeElement.querySelector('[role="group"]');
     expect(group.getAttribute('aria-label')).toBe('Filtra per confidence');
     const rows = fixture.nativeElement.querySelectorAll('.cra-confidence-row');
-    expect(rows.length).toBe(3);
+    expect(rows.length).toBe(2);
     rows.forEach((row: HTMLElement) => expect(row.tagName).toBe('BUTTON'));
   });
 

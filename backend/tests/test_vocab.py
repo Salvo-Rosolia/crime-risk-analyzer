@@ -1,7 +1,7 @@
 """Test del vocabolario tipizzato confidence/tag (#59).
 
 Il vocabolario centralizza i valori canonici di ``confidence`` (minuscolo:
-``verificato``/``da_confermare``/``ipotesi``) e ``tag`` (maiuscolo:
+``verificato``/``da_confermare``) e ``tag`` (maiuscolo:
 ``ONTOLOGIA``/``CONTESTO``/``SPECULATIVO``) usati dal citation layer, piu' il
 modello :class:`ConfidenceSummary` che sostituisce il vecchio ``dict[str, int]``.
 """
@@ -19,15 +19,13 @@ def test_confidence_summary_defaults_to_zero() -> None:
 
     assert summary.verificato == 0
     assert summary.da_confermare == 0
-    assert summary.ipotesi == 0
 
 
 def test_confidence_summary_accepts_counts() -> None:
-    summary = ConfidenceSummary(verificato=2, da_confermare=1, ipotesi=3)
+    summary = ConfidenceSummary(verificato=2, da_confermare=1)
 
     assert summary.verificato == 2
     assert summary.da_confermare == 1
-    assert summary.ipotesi == 3
 
 
 def test_confidence_summary_rejects_negative() -> None:
@@ -69,5 +67,4 @@ def test_confidence_summary_has_no_numeric_danger_scoring_field() -> None:
     assert set(ConfidenceSummary.model_fields) == {
         "verificato",
         "da_confermare",
-        "ipotesi",
     }
