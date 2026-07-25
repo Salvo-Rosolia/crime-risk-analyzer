@@ -1,23 +1,30 @@
 /*
- * Bottom-sheet fisso: stessa "chrome" a riquadro dei pannelli (`.cra-panel` in app.css) ma
- * gestita qui perché, a differenza di quelli, ha un'altezza variabile guidata da `open()`
- * (collassabile) invece del solo `max-height` con scroll interno.
+ * Narrativa in PANNELLO DESTRO a tutta altezza (#218): a differenza del vecchio bottom-sheet
+ * full-width, sta a destra e libera l'altezza per mappa e dock (che torna a tutta altezza) —
+ * scelta ottimizzata per laptop (largo ma basso). Collassabile via `open()` (classe host
+ * `cra-narr-collapsed`): resta solo l'header, col banner di sicurezza SEMPRE visibile. Sotto
+ * 1100px torna bottom-sheet full-width (media query in fondo), col dock che ripristina il cap.
  */
 :host {
   position: absolute;
-  left: var(--space-4);
+  top: var(--space-4);
   right: var(--space-4);
   bottom: var(--space-4);
+  width: var(--narr-panel-width);
   z-index: 3;
   display: flex;
   flex-direction: column;
-  max-height: 45vh;
   overflow: hidden;
   pointer-events: auto;
   background: var(--panel-bg);
   border: var(--panel-border) solid var(--ink);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
+}
+
+/* Collassato: altezza automatica (solo header) → libera la parte bassa a destra per la mappa. */
+:host(.cra-narr-collapsed) {
+  bottom: auto;
 }
 
 .cra-eyebrow {
@@ -27,14 +34,17 @@
   text-transform: uppercase;
   color: var(--accent-2);
   margin: 0;
-  white-space: nowrap;
 }
 
+/* Header a più righe: nel pannello stretto (300px) chevron+titolo, banner e Rigenera vanno a capo
+   ordinatamente; a bottom-sheet (media query) torna una riga sola. */
 .cra-narr-header {
   flex: 0 0 auto;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
+  row-gap: var(--space-1);
   padding: var(--space-2) var(--space-3);
   cursor: pointer;
 }
@@ -56,7 +66,6 @@
   border: 1px solid var(--c-da-confermare);
   border-radius: 4px;
   padding: 1px var(--space-2);
-  white-space: nowrap;
 }
 
 .cra-narr-spacer {
@@ -167,4 +176,28 @@
   padding-left: 1.1em;
   font-size: 0.82rem;
   line-height: 1.6;
+}
+
+/*
+ * Fallback bottom-sheet sotto 1100px (#218): su finestre strette il pannello destro strozzerebbe
+ * la mappa, quindi la narrativa torna in basso a tutta larghezza (layout storico), col dock che
+ * ripristina il cap d'altezza (panel-dock.component.css, stessa media query).
+ */
+@media (max-width: 1099px) {
+  :host {
+    top: auto;
+    left: var(--space-4);
+    width: auto;
+    max-height: 45vh;
+  }
+  :host(.cra-narr-collapsed) {
+    top: auto;
+    bottom: var(--space-4);
+  }
+  .cra-narr-header {
+    flex-wrap: nowrap;
+  }
+  .cra-eyebrow {
+    white-space: nowrap;
+  }
 }
