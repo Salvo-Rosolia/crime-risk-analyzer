@@ -1,0 +1,182 @@
+[
+  {
+    "id": "1295390657",
+    "name": "BPER Banca",
+    "lat": 40.851508,
+    "lon": 14.2688291,
+    "osm_tags": "amenity=bank",
+    "terminus_class": "Bank",
+    "citta": "Napoli"
+  },
+  {
+    "id": "3062007796",
+    "name": "Intesa Sanpaolo",
+    "lat": 40.8517121,
+    "lon": 14.2709043,
+    "osm_tags": "amenity=bank",
+    "terminus_class": "Bank",
+    "citta": "Napoli"
+  },
+  {
+    "id": "4779252524",
+    "name": "Monte dei Paschi di Siena",
+    "lat": 40.8549592,
+    "lon": 14.2711457,
+    "osm_tags": "amenity=bank",
+    "terminus_class": "Bank",
+    "citta": "Napoli"
+  },
+  {
+    "id": "8849783825",
+    "name": "",
+    "lat": 40.8520452,
+    "lon": 14.2727307,
+    "osm_tags": "amenity=atm",
+    "terminus_class": "Bank",
+    "citta": "Napoli"
+  },
+  {
+    "id": "10769049781",
+    "name": "",
+    "lat": 40.8529073,
+    "lon": 14.2722786,
+    "osm_tags": "amenity=atm",
+    "terminus_class": "Bank",
+    "citta": "Napoli"
+  },
+  {
+    "id": "11795114958",
+    "name": "",
+    "lat": 40.8529084,
+    "lon": 14.2722915,
+    "osm_tags": "amenity=atm",
+    "terminus_class": "Bank",
+    "citta": "Napoli"
+  },
+  {
+    "id": "6982408055",
+    "name": "",
+    "lat": 40.8531583,
+    "lon": 14.2725569,
+    "osm_tags": "amenity=bureau_de_change",
+    "terminus_class": "Bank",
+    "citta": "Napoli"
+  },
+  {
+    "id": "11473300113",
+    "name": "Forexchange",
+    "lat": 40.8522977,
+    "lon": 14.271969,
+    "osm_tags": "amenity=bureau_de_change",
+    "terminus_class": "Bank",
+    "citta": "Napoli"
+  },
+  {
+    "id": "1527315922",
+    "name": "Presidio Ospedaliero Santissima Annunziata",
+    "lat": 40.8510067,
+    "lon": 14.265417,
+    "osm_tags": "amenity=hospital",
+    "terminus_class": "Hospital",
+    "citta": "Napoli"
+  },
+  {
+    "id": "3062007807",
+    "name": "Farmacia de Biasi",
+    "lat": 40.8516787,
+    "lon": 14.2704305,
+    "osm_tags": "amenity=pharmacy",
+    "terminus_class": "Pharmacy",
+    "citta": "Napoli"
+  },
+  {
+    "id": "6982408067",
+    "name": "Farmacia Leone",
+    "lat": 40.8522183,
+    "lon": 14.2726068,
+    "osm_tags": "amenity=pharmacy",
+    "terminus_class": "Pharmacy",
+    "citta": "Napoli"
+  },
+  {
+    "id": "7158648844",
+    "name": "",
+    "lat": 40.851205,
+    "lon": 14.2676031,
+    "osm_tags": "amenity=pharmacy",
+    "terminus_class": "Pharmacy",
+    "citta": "Napoli"
+  },
+  {
+    "id": "3484514024",
+    "name": "Carabinieri - Stazione Arenaccia",
+    "lat": 40.8564308,
+    "lon": 14.2700537,
+    "osm_tags": "amenity=police",
+    "terminus_class": "National_police",
+    "citta": "Napoli"
+  },
+  {
+    "id": "6883204087",
+    "name": "Polizia Ferroviaria",
+    "lat": 40.8536053,
+    "lon": 14.2724756,
+    "osm_tags": "amenity=police",
+    "terminus_class": "National_police",
+    "citta": "Napoli"
+  },
+  {
+    "id": "13823793272",
+    "name": "Polizia Municipale",
+    "lat": 40.8529753,
+    "lon": 14.2717924,
+    "osm_tags": "amenity=police",
+    "terminus_class": "National_police",
+    "citta": "Napoli"
+  },
+  {
+    "id": "13810507283",
+    "name": "Comune di Napoli - II Municipalità (Mercato-Pendino)",
+    "lat": 40.8481365,
+    "lon": 14.2694344,
+    "osm_tags": "amenity=townhall",
+    "terminus_class": "Town_hall",
+    "citta": "Napoli"
+  },
+  {
+    "id": "11260208400",
+    "name": "SMS P. Colletta",
+    "lat": 40.8560322,
+    "lon": 14.2676538,
+    "osm_tags": "amenity=school",
+    "terminus_class": "School",
+    "citta": "Napoli"
+  },
+  {
+    "id": "260320958",
+    "name": "",
+    "lat": 40.847612,
+    "lon": 14.2686842,
+    "osm_tags": "amenity=school",
+    "terminus_class": "School",
+    "citta": "Napoli"
+  },
+  {
+    "id": "262949451",
+    "name": "ISIS «Isabella d'Este»",
+    "lat": 40.8484397,
+    "lon": 14.2665999,
+    "osm_tags": "amenity=school",
+    "terminus_class": "School",
+    "citta": "Napoli"
+  },
+  {
+    "id": "321903743",
+    "name": "Asilo Nido Marcellino",
+    "lat": 40.8480022,
+    "lon": 14.2725786,
+    "osm_tags": "amenity=kindergarten",
+    "terminus_class": "Kindergarten",
+    "citta": "Napoli"
+  }
+]

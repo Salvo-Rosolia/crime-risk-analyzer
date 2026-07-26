@@ -1,0 +1,182 @@
+[
+  {
+    "id": "637555114",
+    "name": "",
+    "lat": 41.8935773,
+    "lon": 12.49386,
+    "osm_tags": "amenity=bank",
+    "terminus_class": "Bank",
+    "citta": "Roma"
+  },
+  {
+    "id": "465627962",
+    "name": "Monte dei Paschi di Siena",
+    "lat": 41.8898049,
+    "lon": 12.4954479,
+    "osm_tags": "amenity=atm",
+    "terminus_class": "Bank",
+    "citta": "Roma"
+  },
+  {
+    "id": "1660412603",
+    "name": "Postamat",
+    "lat": 41.8939638,
+    "lon": 12.4900911,
+    "osm_tags": "amenity=atm",
+    "terminus_class": "Bank",
+    "citta": "Roma"
+  },
+  {
+    "id": "4377755228",
+    "name": "Euronet",
+    "lat": 41.8934959,
+    "lon": 12.4891075,
+    "osm_tags": "amenity=atm",
+    "terminus_class": "Bank",
+    "citta": "Roma"
+  },
+  {
+    "id": "1542758952",
+    "name": "Change",
+    "lat": 41.8892718,
+    "lon": 12.4939673,
+    "osm_tags": "amenity=bureau_de_change",
+    "terminus_class": "Bank",
+    "citta": "Roma"
+  },
+  {
+    "id": "202877536",
+    "name": "Policlinico militare Celio",
+    "lat": 41.8866856,
+    "lon": 12.4981244,
+    "osm_tags": "amenity=hospital",
+    "terminus_class": "Hospital",
+    "citta": "Roma"
+  },
+  {
+    "id": "685494953",
+    "name": "Enorfarm",
+    "lat": 41.8941847,
+    "lon": 12.4908351,
+    "osm_tags": "amenity=pharmacy",
+    "terminus_class": "Pharmacy",
+    "citta": "Roma"
+  },
+  {
+    "id": "4269910891",
+    "name": "",
+    "lat": 41.8938776,
+    "lon": 12.4910032,
+    "osm_tags": "amenity=pharmacy",
+    "terminus_class": "Pharmacy",
+    "citta": "Roma"
+  },
+  {
+    "id": "4715498561",
+    "name": "",
+    "lat": 41.8892151,
+    "lon": 12.4951407,
+    "osm_tags": "amenity=pharmacy",
+    "terminus_class": "Pharmacy",
+    "citta": "Roma"
+  },
+  {
+    "id": "7203162603",
+    "name": "Commisariato di Polizia Celio",
+    "lat": 41.8881466,
+    "lon": 12.4953314,
+    "osm_tags": "amenity=police",
+    "terminus_class": "National_police",
+    "citta": "Roma"
+  },
+  {
+    "id": "11058143111",
+    "name": "Carabinieri - Reparto Operativo di Roma",
+    "lat": 41.8945359,
+    "lon": 12.4944652,
+    "osm_tags": "amenity=police",
+    "terminus_class": "National_police",
+    "citta": "Roma"
+  },
+  {
+    "id": "13526023453",
+    "name": "Corte di giustizia tributaria di Roma",
+    "lat": 41.8900954,
+    "lon": 12.4958065,
+    "osm_tags": "amenity=courthouse",
+    "terminus_class": "Government_office",
+    "citta": "Roma"
+  },
+  {
+    "id": "13526023454",
+    "name": "Corte di giustizia tributaria del Lazio",
+    "lat": 41.8900942,
+    "lon": 12.4958492,
+    "osm_tags": "amenity=courthouse",
+    "terminus_class": "Government_office",
+    "citta": "Roma"
+  },
+  {
+    "id": "11058143130",
+    "name": "Istituto professionale Leonardo Da Vinci",
+    "lat": 41.893854,
+    "lon": 12.4906319,
+    "osm_tags": "amenity=school",
+    "terminus_class": "School",
+    "citta": "Roma"
+  },
+  {
+    "id": "1190977619",
+    "name": "Liceo scientifico Camillo Cavour",
+    "lat": 41.8930389,
+    "lon": 12.4908043,
+    "osm_tags": "amenity=school",
+    "terminus_class": "School",
+    "citta": "Roma"
+  },
+  {
+    "id": "1190977620",
+    "name": "",
+    "lat": 41.8921704,
+    "lon": 12.4911284,
+    "osm_tags": "amenity=school",
+    "terminus_class": "School",
+    "citta": "Roma"
+  },
+  {
+    "id": "6251333335",
+    "name": "Biblioteca di Ingegneria civile, meccanica e aerospaziale G. Boaga",
+    "lat": 41.8930992,
+    "lon": 12.4932551,
+    "osm_tags": "amenity=library",
+    "terminus_class": "Public_building",
+    "citta": "Roma"
+  },
+  {
+    "id": "6251333336",
+    "name": "Biblioteca Ingegneria astronautica, elettrica ed energetica - sede Ingegneria elettrica",
+    "lat": 41.8936936,
+    "lon": 12.4942545,
+    "osm_tags": "amenity=library",
+    "terminus_class": "Public_building",
+    "citta": "Roma"
+  },
+  {
+    "id": "6251346678",
+    "name": "Biblioteca di Ingegneria meccanica e aerospaziale - sede principale",
+    "lat": 41.8932329,
+    "lon": 12.4930525,
+    "osm_tags": "amenity=library",
+    "terminus_class": "Public_building",
+    "citta": "Roma"
+  },
+  {
+    "id": "44449059",
+    "name": "Chiesa dei Santi Gioacchino e Anna ai Monti",
+    "lat": 41.8944961,
+    "lon": 12.4939774,
+    "osm_tags": "amenity=place_of_worship",
+    "terminus_class": "Place_of_worship",
+    "citta": "Roma"
+  }
+]

@@ -1,0 +1,182 @@
+[
+  {
+    "id": "559941055",
+    "name": "UniCredit Bank",
+    "lat": 45.0582422,
+    "lon": 7.6838002,
+    "osm_tags": "amenity=bank",
+    "terminus_class": "Bank",
+    "citta": "Torino"
+  },
+  {
+    "id": "1467593778",
+    "name": "Intesa Sanpaolo",
+    "lat": 45.05923,
+    "lon": 7.6809975,
+    "osm_tags": "amenity=bank",
+    "terminus_class": "Bank",
+    "citta": "Torino"
+  },
+  {
+    "id": "1489359312",
+    "name": "BNL",
+    "lat": 45.0674531,
+    "lon": 7.6809185,
+    "osm_tags": "amenity=bank",
+    "terminus_class": "Bank",
+    "citta": "Torino"
+  },
+  {
+    "id": "2068706579",
+    "name": "Postamat",
+    "lat": 45.0598576,
+    "lon": 7.6831263,
+    "osm_tags": "amenity=atm",
+    "terminus_class": "Bank",
+    "citta": "Torino"
+  },
+  {
+    "id": "2908687038",
+    "name": "Postamat",
+    "lat": 45.0628802,
+    "lon": 7.6773183,
+    "osm_tags": "amenity=atm",
+    "terminus_class": "Bank",
+    "citta": "Torino"
+  },
+  {
+    "id": "4500559421",
+    "name": "Postamat",
+    "lat": 45.0595146,
+    "lon": 7.6778534,
+    "osm_tags": "amenity=atm",
+    "terminus_class": "Bank",
+    "citta": "Torino"
+  },
+  {
+    "id": "5113659510",
+    "name": "cambio valuta",
+    "lat": 45.0664364,
+    "lon": 7.6837303,
+    "osm_tags": "amenity=bureau_de_change",
+    "terminus_class": "Bank",
+    "citta": "Torino"
+  },
+  {
+    "id": "11384728482",
+    "name": "GVarallo",
+    "lat": 45.0609797,
+    "lon": 7.682993,
+    "osm_tags": "amenity=bureau_de_change",
+    "terminus_class": "Bank",
+    "citta": "Torino"
+  },
+  {
+    "id": "10698816652",
+    "name": "Istituto Fisioterapico Torino -1898",
+    "lat": 45.0600922,
+    "lon": 7.6752654,
+    "osm_tags": "amenity=clinic",
+    "terminus_class": "Hospital",
+    "citta": "Torino"
+  },
+  {
+    "id": "619193786",
+    "name": "Porta Nuova",
+    "lat": 45.0625208,
+    "lon": 7.6770144,
+    "osm_tags": "amenity=pharmacy",
+    "terminus_class": "Pharmacy",
+    "citta": "Torino"
+  },
+  {
+    "id": "1333701639",
+    "name": "Farmacia San Salvario",
+    "lat": 45.0582612,
+    "lon": 7.6831173,
+    "osm_tags": "amenity=pharmacy",
+    "terminus_class": "Pharmacy",
+    "citta": "Torino"
+  },
+  {
+    "id": "2018187040",
+    "name": "S. Salvatore",
+    "lat": 45.0585688,
+    "lon": 7.6777588,
+    "osm_tags": "amenity=pharmacy",
+    "terminus_class": "Pharmacy",
+    "citta": "Torino"
+  },
+  {
+    "id": "1320426595",
+    "name": "Polizia Ferroviaria",
+    "lat": 45.0604273,
+    "lon": 7.6783348,
+    "osm_tags": "amenity=police",
+    "terminus_class": "National_police",
+    "citta": "Torino"
+  },
+  {
+    "id": "2284034343",
+    "name": "Scuola Elementare Statale \"G. Carducci\"",
+    "lat": 45.065608,
+    "lon": 7.677361,
+    "osm_tags": "amenity=school",
+    "terminus_class": "School",
+    "citta": "Torino"
+  },
+  {
+    "id": "2284034348",
+    "name": "Scuola Media Statale \"A. Meucci\"",
+    "lat": 45.0656268,
+    "lon": 7.6772895,
+    "osm_tags": "amenity=school",
+    "terminus_class": "School",
+    "citta": "Torino"
+  },
+  {
+    "id": "243074534",
+    "name": "Liceo Classico Statale \"Massimo D'Azeglio\"",
+    "lat": 45.0647406,
+    "lon": 7.6759854,
+    "osm_tags": "amenity=school",
+    "terminus_class": "School",
+    "citta": "Torino"
+  },
+  {
+    "id": "1328540432",
+    "name": "Bay",
+    "lat": 45.0579021,
+    "lon": 7.6818556,
+    "osm_tags": "amenity=kindergarten",
+    "terminus_class": "Kindergarten",
+    "citta": "Torino"
+  },
+  {
+    "id": "2284034346",
+    "name": "Scuola Materna Statale",
+    "lat": 45.0656681,
+    "lon": 7.6771768,
+    "osm_tags": "amenity=kindergarten",
+    "terminus_class": "Kindergarten",
+    "citta": "Torino"
+  },
+  {
+    "id": "12548906803",
+    "name": "Antro - Uno spazio in cui condividere",
+    "lat": 45.0584312,
+    "lon": 7.6784592,
+    "osm_tags": "amenity=community_centre",
+    "terminus_class": "Public_building",
+    "citta": "Torino"
+  },
+  {
+    "id": "64903146",
+    "name": "Tempio Israelitico",
+    "lat": 45.0602703,
+    "lon": 7.6821417,
+    "osm_tags": "amenity=place_of_worship",
+    "terminus_class": "Place_of_worship",
+    "citta": "Torino"
+  }
+]
