@@ -68,5 +68,9 @@ def get(citta: str, zona: str, *, now: float | None = None) -> ZoneContext | Non
 
 
 def clear() -> None:
-    """Svuota la cache (usata dai test e dal lifespan)."""
+    """Svuota la cache: serve ai test, che condividono il processo.
+
+    Non e' agganciata al ``lifespan``: un processo appena avviato ha gia' la
+    cache vuota, quindi la' non avrebbe nulla da fare.
+    """
     _STORE.clear()

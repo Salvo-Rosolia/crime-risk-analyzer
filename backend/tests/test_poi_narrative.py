@@ -16,7 +16,11 @@ from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.models.risk import PoiRiskProfile
 from crime_risk_analyzer.orchestrator import run_analysis
 from crime_risk_analyzer.overpass_client import Poi
-from crime_risk_analyzer.poi_narrative import PoiNotFoundError, run_poi_narrative
+from crime_risk_analyzer.poi_narrative import (
+    PoiNarrativeResponse,
+    PoiNotFoundError,
+    run_poi_narrative,
+)
 from crime_risk_analyzer.rag import retrieval
 from crime_risk_analyzer.sparql_module.query_executor import get_executor
 
@@ -263,6 +267,30 @@ def test_endpoint_returns_404_for_unknown_poi(monkeypatch: pytest.MonkeyPatch) -
     )
     assert resp.status_code == 404
     assert resp.json()["detail"]["errore"] == "poi_non_nel_contesto"
+
+
+# --- #184: guardia anti-scoring estesa al contratto di ``/analyze/poi`` (#197) ---
+# Stesso pattern exact-set di ``test_orchestrator``: il grep sul payload qui sotto
+# intercetta solo nomi di campo gia' noti, mentre l'insieme esatto rende rosso
+# QUALUNQUE campo nuovo, costringendo a una revisione cosciente del vincolo legale.
+
+
+def test_poi_narrative_response_has_no_numeric_danger_scoring_field() -> None:
+    """Contratto della risposta ``/analyze/poi``: nessuno scoring numerico di
+    pericolosita' (_project.md §Vincoli). I campi numerici presenti
+    (``tokens_*``/``latenza_ms``) misurano costo e performance, NON la magnitudo
+    del pericolo. Un campo di rating aggiunto qui romperebbe l'insieme esatto."""
+    assert set(PoiNarrativeResponse.model_fields) == {
+        "poi_id",
+        "narrativa",
+        "narrativa_fonti",
+        "risk_models",
+        "tokens_input",
+        "tokens_output",
+        "latenza_ms",
+        "repro",
+        "fallback",
+    }
 
 
 def test_endpoint_response_never_contains_a_danger_score(

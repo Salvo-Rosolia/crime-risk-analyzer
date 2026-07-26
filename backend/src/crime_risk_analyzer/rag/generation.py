@@ -329,14 +329,14 @@ class GenerationResult(BaseModel):
     repro: Repro = Field(description="Parametri per la riproducibilita' del run.")
 
 
-def _normalize_user_question(domanda: str | None) -> str:
-    """Normalizza/sanifica la ``domanda`` utente (input non fidato, #119).
+def normalize_untrusted_line(text: str) -> str:
+    """Appiattisce su UNA riga un testo non fidato destinato al prompt (#119).
 
     Garanzia PRIMARIA anti-evasione: ``str.split()`` (senza argomenti divide su
     qualunque whitespace: spazi, tab, newline) + ``join`` con spazio singolo
-    collassano la domanda su UNA sola riga. Non essendo mai una riga autonoma,
-    la domanda NON puo' riprodurre una riga-delimitatore di chiusura del fence
-    ne' forgiare righe/heading/sezioni che mimino la struttura del prompt, per
+    collassano il testo su UNA sola riga. Non essendo mai una riga autonoma, il
+    testo NON puo' riprodurre una riga-delimitatore di chiusura del fence ne'
+    forgiare righe/heading/sezioni che mimino la struttura del prompt, per
     QUALUNQUE contenuto.
 
     Difesa-in-profondita' (cosmetica, sul contenuto mid-line): ``re.sub`` collassa
@@ -345,12 +345,23 @@ def _normalize_user_question(domanda: str | None) -> str:
     residui sui run con lunghezza != multiplo di 3). NON e' la garanzia principale:
     quella resta il collasso a riga singola qui sopra.
 
-    Ritorna ``""`` per None/vuoto/whitespace (nessuna sezione domanda ->
-    comportamento invariato). Collassare gli a-capo interni di una "domanda" e'
-    semanticamente accettabile.
+    Nessuna censura: il contenuto resta integrale, cambia solo la sua capacita' di
+    fare STRUTTURA. Sorgente unica della regola, condivisa dalla ``domanda``
+    utente (:func:`_normalize_user_question`) e dai nomi OSM che entrano nel
+    prompt per-POI (#197, :mod:`~crime_risk_analyzer.rag.poi_generation`): una
+    seconda implementazione potrebbe divergere proprio sul caso che conta.
     """
-    collapsed = " ".join((domanda or "").split())
-    return re.sub(r"-{2,}", "- -", collapsed)
+    return re.sub(r"-{2,}", "- -", " ".join(text.split()))
+
+
+def _normalize_user_question(domanda: str | None) -> str:
+    """Normalizza/sanifica la ``domanda`` utente (input non fidato, #119).
+
+    Delega a :func:`normalize_untrusted_line`; ritorna ``""`` per None/vuoto/
+    whitespace (nessuna sezione domanda -> comportamento invariato). Collassare
+    gli a-capo interni di una "domanda" e' semanticamente accettabile.
+    """
+    return normalize_untrusted_line(domanda or "")
 
 
 #: Budget di DEFAULT (stima) di token dell'INTERA richiesta LLM (#210): copre

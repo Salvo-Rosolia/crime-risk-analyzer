@@ -30,6 +30,7 @@ from crime_risk_analyzer.rag.generation import (
     Repro,
     SourceProse,
     _LLMClientLike,  # pyright: ignore[reportPrivateUsage]
+    normalize_untrusted_line,
     parse_source_prose,
 )
 from crime_risk_analyzer.rag.grounding import GroundedRisk
@@ -95,11 +96,18 @@ def build_poi_context_str(
     e sintesi da :mod:`poi_context`. L'ordine e' quello ricevuto, che i
     produttori garantiscono totale.
     """
+    # I nomi (del punto e dei vicini) arrivano da OpenStreetMap, che chiunque puo'
+    # editare: qui il nome e' il SOGGETTO del prompt, non una riga fra tante come
+    # nell'analisi di zona, quindi un nome con a-capo potrebbe forgiare righe e
+    # mimare le sezioni del contesto. Appiattiti su una riga (#119, stessa regola
+    # della domanda utente). Il resto del contesto viene dall'ontologia o da
+    # etichette del vocabolario controllato: non e' testo non fidato.
     lines = [
         f"Citta': {citta}",
         f"Zona: {zona}",
         "",
-        f"PUNTO SELEZIONATO: {poi_name} (classe: {poi_label_it})",
+        f"PUNTO SELEZIONATO: {normalize_untrusted_line(poi_name)} "
+        f"(classe: {poi_label_it})",
     ]
     if sparql_path:
         lines.append(f"Percorso ontologico: {sparql_path}")
@@ -118,7 +126,8 @@ def build_poi_context_str(
     lines.append("VICINATO (punti piu' prossimi, in ordine di distanza):")
     if neighbours:
         lines.extend(
-            f"  - {n['name']} ({n['label_it']}), {n['distance_m']} m"
+            f"  - {normalize_untrusted_line(n['name'])} ({n['label_it']}), "
+            f"{n['distance_m']} m"
             for n in neighbours
         )
     else:
