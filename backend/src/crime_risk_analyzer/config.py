@@ -36,9 +36,14 @@ class Settings(BaseSettings):
     # non lasciato esplodere nel layer LLM a runtime.
     llm_timeout_seconds: float = Field(default=30.0, gt=0)
     # Tetto di token di output della generazione (Anthropic/Groq ``max_tokens``).
-    # Default storico 1024 (generation.md §Riproducibilita'); configurabile per
-    # tuning senza toccare il codice. Vincolo ``ge=1``: almeno 1 token.
-    llm_max_tokens: int = Field(default=1024, ge=1)
+    # #229: alzato 1024 -> 1536 per dare margine anti-troncamento sul caso denso con
+    # la narrativa piu' analitica (guardia anti-troncamento invariata: finish=stop ->
+    # LLMError -> fallback). DEVE restare in sync con ``generation.DEFAULT_MAX_TOKENS``
+    # e ``llm.client._MAX_TOKENS`` (test_generation::..._synced_across_modules).
+    # Il budget totale richiesta (``llm_request_token_budget``) resta 10000 < TPM Groq
+    # free 12000; l'allowance user_content cala di 512 ma resta capiente (~20 POI).
+    # Configurabile per tuning senza toccare il codice. Vincolo ``ge=1``.
+    llm_max_tokens: int = Field(default=1536, ge=1)
     # Tetto massimo (STIMA) di token dell'INTERA richiesta LLM (#210): copre
     # system prompt + user_content + i ``llm_max_tokens`` riservati all'output,
     # NON solo lo user_content. Il generation layer ricava l'allowance per lo

@@ -342,28 +342,44 @@ def _mv(resp: AnalyzeResponse) -> MetricValues:
     )
 
 
-def test_reperto_a_sparsely_citing_arm_loses_on_hallucination() -> None:
-    """Guard end-to-end del buco reperto A: chi cita poco perde l'asse allucinazione.
+def _ont163(*sentences: str) -> str:
+    """Narrativa a blocchi (#196/#229): corpo del blocco [ONTOLOGIA] dalle frasi date.
+
+    M1 grada il corpo del blocco [ONTOLOGIA]; la fonte e' nell'header, non inline.
+    """
+    body = "\n".join(sentences)
+    return f"Sintesi della zona.\n\nRischi da ontologia [ONTOLOGIA]\n{body}"
+
+
+def test_arm_padding_ontology_with_unanchored_claims_loses_on_hallucination() -> None:
+    """Guard end-to-end (analogo M1 del reperto A #163): chi riempie il blocco
+    [ONTOLOGIA] di asserzioni NON ancorate perde l'asse allucinazione.
 
     Entrambi i bracci hanno stesso costo/latenza (stesso _resp163) → decide solo
-    l'asse hallucination. Prima di #163 il braccio 'sparse' avrebbe hallucination
-    0.0 (una sola frase taggata, ancorata) e avrebbe VINTO; col nuovo denominatore
-    le 3 asserzioni non citate lo portano a 0.75 e perde.
+    l'asse hallucination. Sotto M1 (#229) la "citazione" non e' piu' un tag inline ma
+    l'appartenenza al blocco [ONTOLOGIA]: un braccio che nel blocco cita i dati in ogni
+    frase ha hallucination 0.0; un braccio che padda il blocco con 3 asserzioni che non
+    nominano alcun dato reale sale a 0.75 e perde. (Valori metrica identici al guard
+    #163 originale: solo la forma della narrativa passa da inline-tag a blocchi.)
     """
     well = _mv(
-        _resp163(
-            "[ONTOLOGIA] Banca A presenta rischio rapina. "
-            "[ONTOLOGIA] Banca A subisce furti frequenti."
+        _ont163_resp(
+            "Banca A presenta rischio rapina.",
+            "Banca A subisce furti frequenti.",
         )
     )
     sparse = _mv(
-        _resp163(
-            "[ONTOLOGIA] Banca A presenta rischio rapina. "
-            "Banca A è pericolosa di notte. "
-            "Banca A preoccupa i residenti. "
-            "Banca A resta un punto critico."
+        _ont163_resp(
+            "Banca A presenta rischio rapina.",
+            "La situazione desta preoccupazione di notte.",
+            "I residenti restano inquieti.",
+            "Resta un punto critico da monitorare.",
         )
     )
     verdict = decide_winner(well, sparse, label_a="claude", label_b="groq")
     assert verdict.winner == "claude"
     assert verdict.deciding_axis == "hallucination"
+
+
+def _ont163_resp(*sentences: str) -> AnalyzeResponse:
+    return _resp163(_ont163(*sentences))

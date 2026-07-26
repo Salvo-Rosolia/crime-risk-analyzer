@@ -45,14 +45,21 @@ def _response(narrativa: str) -> AnalyzeResponse:
     )
 
 
+# #229 (M1): forma a blocchi reale (#196), il proxy grada il corpo del blocco
+# [ONTOLOGIA]. La label IT controllata dell'hazard (#77) resta un ancoraggio valido,
+# cosi' il match regge quando la narrativa cita l'hazard in italiano.
+def _ontology_narrativa(body: str) -> str:
+    return f"Sintesi della zona.\n\nRischi da ontologia [ONTOLOGIA]\n{body}"
+
+
 def test_it_hazard_term_is_anchored() -> None:
     # La narrativa cita l'hazard SOLO in italiano: prima di #77 non era ancorato.
-    resp = _response("Presente una rapina in banca [ONTOLOGIA].")
+    resp = _response(_ontology_narrativa("Presente una rapina in banca."))
     assert grounding(resp) == 1.0
     assert hallucination(resp) == 0.0
 
 
 def test_unrelated_it_sentence_is_not_anchored() -> None:
-    resp = _response("Presente un furto di biciclette [ONTOLOGIA].")
+    resp = _response(_ontology_narrativa("Presente un furto di biciclette."))
     assert grounding(resp) == 0.0
     assert hallucination(resp) == 1.0
