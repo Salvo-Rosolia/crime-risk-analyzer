@@ -27,7 +27,7 @@ from crime_risk_analyzer.eval.snapshots import (
     snapshot_path,
 )
 from crime_risk_analyzer.models.geo import Bbox
-from crime_risk_analyzer.overpass_client import Poi
+from crime_risk_analyzer.overpass_client import OFFLINE_RETRY, Poi
 
 _capture = eval_main._capture  # pyright: ignore[reportPrivateUsage]
 _snapshot_reusable = eval_main._snapshot_reusable  # pyright: ignore[reportPrivateUsage]
@@ -376,6 +376,33 @@ async def test_capture_analyze_never_builds_client(
     for citta, zona in (("Roma", "Centro"), ("Milano", "Duomo")):
         path = snapshot_path(tmp_path, make_snapshot_key(citta, zona))
         assert load_snapshot(path) == _sample_pois()
+
+
+async def test_capture_usa_la_politica_di_ritentativo_offline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#232: la sorgente live della cattura passa a Overpass la politica OFFLINE.
+
+    Senza questo test la politica esisterebbe senza che la cattura la usi: il
+    difetto (rinuncia al secondo 429) resterebbe identico con del codice nuovo
+    accanto. Verifica il CABLAGGIO, non la politica in sé.
+    """
+    visti: list[object] = []
+
+    async def _spia(
+        bbox: Bbox, citta: str, *args: object, **kwargs: object
+    ) -> list[Poi]:
+        visti.append(kwargs.get("retry"))
+        return _sample_pois()
+
+    monkeypatch.setattr(eval_main, "fetch_pois", _spia)
+
+    out = await eval_main._offline_fetch_pois(  # pyright: ignore[reportPrivateUsage]
+        Bbox(41.0, 12.0, 41.1, 12.1), "Roma"
+    )
+
+    assert out == _sample_pois()
+    assert visti == [OFFLINE_RETRY]
 
 
 async def test_capture_partial_skip_captures_only_missing(

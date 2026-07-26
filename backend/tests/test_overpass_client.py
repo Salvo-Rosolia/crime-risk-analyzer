@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import httpx
@@ -13,7 +14,9 @@ from crime_risk_analyzer import overpass_client
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.overpass_client import (
     DEFAULT_OVERPASS_URL,
+    INTERACTIVE_RETRY,
     MAX_POIS,
+    OFFLINE_RETRY,
     PER_SELECTOR_CAP,
     OverpassError,
     fetch_pois,
@@ -29,8 +32,17 @@ def _sample() -> dict[str, object]:
 
 @pytest.fixture(autouse=True)
 def _no_retry_pause(monkeypatch: pytest.MonkeyPatch) -> None:  # pyright: ignore[reportUnusedFunction]
-    """Azzera la pausa di cortesia del retry: nessuno sleep reale, suite veloce."""
-    monkeypatch.setattr(overpass_client, "_RETRY_PAUSE_S", 0.0)
+    """Azzera le pause della politica interattiva: nessuno sleep reale (#232).
+
+    ``fetch_pois`` risolve la politica di default AL MOMENTO DELLA CHIAMATA
+    (``retry or INTERACTIVE_RETRY``), non come default di firma: per questo
+    sostituire l'attributo di modulo qui basta a rendere la suite istantanea.
+    """
+    monkeypatch.setattr(
+        overpass_client,
+        "INTERACTIVE_RETRY",
+        replace(overpass_client.INTERACTIVE_RETRY, pause_s=(0.0,)),
+    )
 
 
 @respx.mock
@@ -171,6 +183,174 @@ async def test_fetch_pois_does_not_retry_on_non_retryable_status() -> None:
         await fetch_pois(_BBOX, "Roma")
 
     assert route.call_count == 1
+
+
+# --- #232: politica di ritentativo esplicita, e cattura offline che puo' attendere ---
+# Le pause NON sono mai reali: ogni test inietta uno ``sleep`` che le registra.
+
+
+def _recording_sleep(attese: list[float]):  # noqa: ANN202  (closure di test)
+    async def _sleep(secondi: float) -> None:
+        attese.append(secondi)
+
+    return _sleep
+
+
+@respx.mock
+async def test_offline_policy_supera_due_risposte_ritentabili() -> None:
+    """Lo scenario reale del 26/07: 504 poi 429 non devono far fallire la cattura.
+
+    Con la politica interattiva (un solo ritentativo) questa sequenza fallisce: e'
+    esattamente il difetto di #232, che aveva costretto a un backoff scritto a mano
+    fuori dal codice.
+    """
+    attese: list[float] = []
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=[
+            httpx.Response(504, text="gateway timeout"),
+            httpx.Response(429, text="rate limited"),
+            httpx.Response(200, json=_sample()),
+        ]
+    )
+
+    pois = await fetch_pois(
+        _BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(attese)
+    )
+
+    assert route.call_count == 3
+    assert len(pois) > 0
+    # Pause crescenti dichiarate dalla politica, nell'ordine.
+    assert attese == list(OFFLINE_RETRY.pause_s[:2])
+
+
+@respx.mock
+async def test_politica_interattiva_resta_a_un_solo_ritentativo() -> None:
+    """Il percorso /analyze resta fail-fast: nessuna regressione di latenza (#232).
+
+    Un utente sta aspettando: due tentativi e poi l'errore, come prima di #232.
+    """
+    attese: list[float] = []
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(504, text="gateway timeout")
+    )
+
+    with pytest.raises(OverpassError):
+        await fetch_pois(_BBOX, "Roma", sleep=_recording_sleep(attese))
+
+    assert route.call_count == 2
+    assert len(INTERACTIVE_RETRY.pause_s) == 1
+    assert len(attese) == 1
+
+
+@respx.mock
+async def test_retry_after_e_onorato_quando_supera_la_pausa_prevista() -> None:
+    """``Retry-After: 30`` con pausa prevista di 5s -> si attende 30s (#232)."""
+    attese: list[float] = []
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=[
+            httpx.Response(429, headers={"Retry-After": "30"}, text="rate limited"),
+            httpx.Response(200, json=_sample()),
+        ]
+    )
+
+    await fetch_pois(_BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(attese))
+
+    assert attese == [30.0]
+
+
+@respx.mock
+async def test_retry_after_non_accorcia_la_pausa_di_cortesia() -> None:
+    """``Retry-After: 1`` non abbassa la pausa sotto quella prevista: verso un
+    servizio pubblico gratuito la cortesia e' un minimo, non un massimo (#232)."""
+    attese: list[float] = []
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=[
+            httpx.Response(429, headers={"Retry-After": "1"}, text="rate limited"),
+            httpx.Response(200, json=_sample()),
+        ]
+    )
+
+    await fetch_pois(_BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(attese))
+
+    assert attese == [OFFLINE_RETRY.pause_s[0]]
+
+
+@respx.mock
+async def test_retry_after_esagerato_e_limitato_dal_tetto() -> None:
+    """Un ``Retry-After`` enorme non blocca la cattura per ore: vale il tetto (#232)."""
+    attese: list[float] = []
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=[
+            httpx.Response(429, headers={"Retry-After": "100000"}, text="rate limited"),
+            httpx.Response(200, json=_sample()),
+        ]
+    )
+
+    await fetch_pois(_BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(attese))
+
+    assert attese == [OFFLINE_RETRY.retry_after_cap_s]
+
+
+@respx.mock
+async def test_retry_after_illeggibile_ricade_sulla_pausa_prevista() -> None:
+    """Forma HTTP-date di ``Retry-After``: non interpretata, si usa la pausa
+    prevista invece di fallire o di attendere a caso (#232)."""
+    attese: list[float] = []
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=[
+            httpx.Response(
+                429,
+                headers={"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"},
+                text="rate limited",
+            ),
+            httpx.Response(200, json=_sample()),
+        ]
+    )
+
+    await fetch_pois(_BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(attese))
+
+    assert attese == [OFFLINE_RETRY.pause_s[0]]
+
+
+@respx.mock
+async def test_status_non_ritentabile_non_attende_mai() -> None:
+    """Un 400 non e' transitorio: nessuna pausa, errore immediato (#232)."""
+    attese: list[float] = []
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(400, text="bad request")
+    )
+
+    with pytest.raises(OverpassError):
+        await fetch_pois(
+            _BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(attese)
+        )
+
+    assert attese == []
+
+
+@respx.mock
+async def test_offline_policy_esaurita_solleva_overpass_error() -> None:
+    """Anche la politica lunga ha un limite: esaurita, errore chiaro (#232)."""
+    attese: list[float] = []
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(429, text="rate limited")
+    )
+
+    with pytest.raises(OverpassError):
+        await fetch_pois(
+            _BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(attese)
+        )
+
+    assert route.call_count == 1 + len(OFFLINE_RETRY.pause_s)
+    assert attese == list(OFFLINE_RETRY.pause_s)
+
+
+def test_politica_offline_attende_piu_della_interattiva() -> None:
+    """La cattura offline puo' permettersi minuti, l'interattivo no (#232): il
+    contratto fra le due politiche e' esplicito e verificato, non implicito."""
+    assert sum(OFFLINE_RETRY.pause_s) > sum(INTERACTIVE_RETRY.pause_s)
+    assert len(OFFLINE_RETRY.pause_s) > len(INTERACTIVE_RETRY.pause_s)
+    assert OFFLINE_RETRY.retry_after_cap_s >= INTERACTIVE_RETRY.retry_after_cap_s
 
 
 @respx.mock

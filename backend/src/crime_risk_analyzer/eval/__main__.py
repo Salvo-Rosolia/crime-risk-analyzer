@@ -29,7 +29,12 @@ from crime_risk_analyzer.eval.snapshots import (
 )
 from crime_risk_analyzer.ontology import load_ontology
 from crime_risk_analyzer.orchestrator import run_baseline
-from crime_risk_analyzer.overpass_client import fetch_pois
+from crime_risk_analyzer.overpass_client import (
+    OFFLINE_RETRY,
+    Bbox,
+    Poi,
+    fetch_pois,
+)
 from crime_risk_analyzer.rag.retrieval import PoiSource
 from crime_risk_analyzer.sparql_module.query_executor import get_executor
 
@@ -63,6 +68,18 @@ def _snapshot_reusable(path: Path) -> bool:
     return True
 
 
+async def _offline_fetch_pois(bbox: Bbox, citta: str) -> list[Poi]:
+    """Sorgente live della cattura: backoff lungo di cortesia (#232).
+
+    La cattura e' il primo passo di ogni run di valutazione: se non completa, non
+    esiste esperimento. Qui attendere e' gratis, quindi vale
+    :data:`OFFLINE_RETRY` invece della politica interattiva, che il 26/07 ha
+    rinunciato al secondo tentativo (504 poi 429) costringendo a un backoff
+    scritto a mano fuori dal codice — cioe' a una run non riproducibile.
+    """
+    return await fetch_pois(bbox, citta, retry=OFFLINE_RETRY)
+
+
 async def _capture(
     config_path: Path,
     results_dir: Path,
@@ -72,7 +89,7 @@ async def _capture(
 ) -> None:
     config = load_config(config_path)
     executor = get_executor()
-    inner = poi_source or fetch_pois
+    inner = poi_source or _offline_fetch_pois
     for case in config.cases:
         # Cattura chiavata per (citta, zona) (#110): i bracci comparativi
         # riusano la stessa fixture, senza query Overpass divergenti per braccio.
