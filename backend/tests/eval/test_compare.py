@@ -46,6 +46,7 @@ def _rec(
     model: str = "claude",
     status: RunStatus = RunStatus.OK,
     snapshot_id: str | None = None,
+    narrativa: str = "x",
 ) -> RunRecord:
     """RunRecord minimale con metriche controllate per i test di confronto."""
     return RunRecord(
@@ -62,7 +63,7 @@ def _rec(
             latency_ms=latency_ms,
             cost_usd=cost_usd,
         ),
-        narrativa="x",
+        narrativa=narrativa,
         n_poi=1,
         provenance=Provenance(
             code_commit="c",
@@ -695,3 +696,98 @@ def test_compare_experiments_refuses_overwrite_without_force(tmp_path: Path) -> 
     with pytest.raises(FileExistsError):
         compare_experiments(tmp_path, "a-exp", "b-exp", stem="dup")
     compare_experiments(tmp_path, "a-exp", "b-exp", stem="dup", force=True)
+
+
+# --- Braccio strutturalmente vacuo: assi di qualita' non applicabili (#231) ---
+#
+# Osservato sulla prima run reale: il braccio `baseline` (nessun LLM) non produce
+# narrativa, cade nel ramo VACUO di metrics.py (grounding 1.0 / hallucination 0.0)
+# e cosi' "vince" gli assi di qualita' per assenza di testo da giudicare. La
+# regola vacua e' corretta per il FALLBACK; qui va marcata come non interpretabile.
+
+
+def _analyze_rec(citta: str, zona: str, *, narrativa: str = "prosa reale") -> RunRecord:
+    return _rec(
+        "analyze-exp",
+        citta,
+        zona,
+        grounding=0.700,
+        hallucination=0.300,
+        latency_ms=3000,
+        cost_usd=0.005,
+        narrativa=narrativa,
+    )
+
+
+def _silent_rec(citta: str, zona: str, *, narrativa: str = "") -> RunRecord:
+    """Record del braccio senza LLM: status OK, nessuna narrativa (by design)."""
+    return _rec(
+        "baseline-exp",
+        citta,
+        zona,
+        grounding=1.000,
+        hallucination=0.000,
+        latency_ms=2,
+        cost_usd=0.0,
+        mode="baseline",
+        model="baseline",
+        narrativa=narrativa,
+    )
+
+
+def test_compare_records_flags_arm_that_never_produces_narrativa() -> None:
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo")],
+        [_silent_rec("Roma", "Colosseo")],
+        label_a="analyze",
+        label_b="baseline",
+    )
+    assert comparison.vacuous_arms == ["baseline"]
+
+
+def test_compare_records_does_not_flag_arm_with_narrativa_on_some_zones() -> None:
+    """Un braccio muto su UNA zona ma parlante su un'altra NON e' vacuo."""
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo"), _analyze_rec("Milano", "Duomo")],
+        [
+            _silent_rec("Roma", "Colosseo"),
+            _silent_rec("Milano", "Duomo", narrativa="ha parlato qui"),
+        ],
+        label_a="analyze",
+        label_b="baseline",
+    )
+    assert comparison.vacuous_arms == []
+
+
+def test_compare_records_flags_arm_whose_narrativa_is_only_whitespace() -> None:
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo")],
+        [_silent_rec("Roma", "Colosseo", narrativa="   \n  ")],
+        label_a="analyze",
+        label_b="baseline",
+    )
+    assert comparison.vacuous_arms == ["baseline"]
+
+
+def test_markdown_marks_quality_axes_not_applicable_for_vacuous_arm() -> None:
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo")],
+        [_silent_rec("Roma", "Colosseo")],
+        label_a="analyze",
+        label_b="baseline",
+    )
+    md = to_markdown(comparison)
+    assert "Assi di qualità non applicabili" in md
+    assert "`baseline`" in md
+    # Il caveat deve precedere la nota metodologica generica: si legge prima.
+    assert md.index("Assi di qualità non applicabili") < md.index("Nota metodologica")
+
+
+def test_markdown_has_no_quality_caveat_when_both_arms_generate() -> None:
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo")],
+        [_analyze_rec("Roma", "Colosseo", narrativa="anche qui prosa")],
+        label_a="claude",
+        label_b="groq",
+    )
+    assert "Assi di qualità non applicabili" not in to_markdown(comparison)

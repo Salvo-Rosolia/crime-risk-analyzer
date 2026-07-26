@@ -37,6 +37,7 @@ def _rec(
     latency_ms: int,
     cost_usd: float,
     status: RunStatus = RunStatus.OK,
+    narrativa: str = "x",
 ) -> RunRecord:
     return RunRecord(
         run_id=make_run_id(experiment, citta, zona, "analyze", "groq", rep),
@@ -52,7 +53,7 @@ def _rec(
             latency_ms=latency_ms,
             cost_usd=cost_usd,
         ),
-        narrativa="x",
+        narrativa=narrativa,
         n_poi=1,
         provenance=Provenance(
             code_commit="c",
@@ -585,3 +586,79 @@ def test_build_repeated_report_refuses_overwrite_without_force(tmp_path: Path) -
         stem="dup",
         force=True,
     )
+
+
+# --- Verdetto trattenuto sul braccio muto (#231) ---------------------------
+#
+# Sulla prima run reale il report dichiarava vincitore il braccio `baseline`
+# (nessun LLM, narrativa vuota) sull'asse hallucination: 0.000 per assenza di
+# testo da giudicare. La vacuita' va letta sui record GREZZI, non su quelli
+# ripiegati: `repeat._mean_record` azzera sempre `narrativa` (la media di piu'
+# testi non esiste), quindi dedurla dal fold marcherebbe muto ogni braccio.
+
+
+def _silent_arm(experiment: str) -> list[RunRecord]:
+    """Braccio senza LLM: 3 ripetizioni OK, nessuna narrativa (by design)."""
+    return [
+        _rec(
+            experiment,
+            "Roma",
+            "Colosseo",
+            rep=r,
+            model_id="baseline",
+            grounding=1.0,
+            hallucination=0.0,
+            latency_ms=2,
+            cost_usd=0.0,
+            narrativa="",
+        )
+        for r in range(3)
+    ]
+
+
+def test_repeated_report_withholds_verdict_when_an_arm_never_generates(
+    tmp_path: Path,
+) -> None:
+    _write_arm(
+        tmp_path,
+        _arm("analyze-exp", "llama-3.3-70b-versatile", (0.84, 0.16, 22697, 0.005)),
+    )
+    _write_arm(tmp_path, _silent_arm("baseline-exp"))
+    md_path, json_path = build_repeated_report(
+        tmp_path,
+        "analyze-exp",
+        "baseline-exp",
+        label_a="analyze",
+        label_b="baseline",
+        stem="ablation",
+    )
+    md = md_path.read_text(encoding="utf-8")
+    assert "NON APPLICABILE" in md
+    assert "ha scorato meglio" not in md
+    assert "`baseline`" in md
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert payload["winner"] is None
+    assert payload["quality_verdict"]["applicable"] is False
+    assert payload["quality_verdict"]["vacuous_arms"] == ["baseline"]
+
+
+def test_repeated_report_still_declares_verdict_when_both_arms_generate(
+    tmp_path: Path,
+) -> None:
+    """Nessuna regressione sul confronto legittimo modello-vs-modello."""
+    _write_arm(
+        tmp_path, _arm("claude-exp", "claude-sonnet-4-6", (0.90, 0.10, 3000, 0.012))
+    )
+    _write_arm(
+        tmp_path,
+        _arm("groq-exp", "llama-3.3-70b-versatile", (0.70, 0.20, 1000, 0.0006)),
+    )
+    md_path, json_path = build_repeated_report(
+        tmp_path, "claude-exp", "groq-exp", label_a="claude", label_b="groq", stem="due"
+    )
+    md = md_path.read_text(encoding="utf-8")
+    assert "`claude` ha scorato meglio" in md
+    assert "NON APPLICABILE" not in md
+    assert "Assi di qualità non applicabili" not in md
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert payload["winner"]["winner"] == "claude"
