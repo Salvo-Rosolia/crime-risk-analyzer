@@ -8,6 +8,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from crime_risk_analyzer import zone_context_cache
 from crime_risk_analyzer.geocoding import GeoResult, ZoneNotFoundError
 from crime_risk_analyzer.llm.client import LLMError, LLMResponse, get_llm_client
 from crime_risk_analyzer.main import create_app
@@ -344,3 +345,28 @@ async def test_run_analysis_threads_geo_source(
         geo_source=_geo,
     )
     assert seen == [("Roma", "Colosseo")]
+
+
+async def test_run_analysis_populates_the_zone_context_cache() -> None:
+    """#197: il contesto calcolato da /analyze resta disponibile a /analyze/poi."""
+
+    async def _geo(citta: str, zona: str) -> GeoResult:
+        return GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50))
+
+    async def _fetch(bbox: Bbox, citta: str) -> list[Poi]:
+        return _pois(citta)
+
+    zone_context_cache.clear()
+    await run_analysis(
+        "Roma",
+        "Colosseo",
+        executor=_FakeProfiler(),
+        llm_client=_FakeLLMClient(),
+        poi_source=_fetch,
+        geo_source=_geo,
+    )
+    cached = zone_context_cache.get("Roma", "Colosseo")
+    assert cached is not None
+    assert cached["retrieval"]["zona"] == "Colosseo"
+    assert [p["name"] for p in cached["retrieval"]["pois"]] == ["Banca A", "Bar Roma"]
+    assert len(cached["grounded"]["validated_risks"]) == 2

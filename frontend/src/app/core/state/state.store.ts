@@ -49,6 +49,77 @@ export class StateStore {
   /** Stato aperto/chiuso del dock Lista/Dettaglio POI (`TOGGLE_POI_PANEL`, #199): collassabile per
    * liberare completamente la mappa. */
   readonly poiPanelOpen = computed(() => this._state().poiPanelOpen);
+  /** Id del POI la cui narrativa è in generazione (#197), `null` se nessuna. */
+  readonly poiNarrativeLoading = computed(() => this._state().poiNarrativeLoading);
+  /** Errore dell'ultima generazione POI fallita (#197), stato grezzo. */
+  readonly poiNarrativeError = computed(() => this._state().poiNarrativeError);
+  /**
+   * L'errore da MOSTRARE (#197): solo in Vista Dettaglio. Una generazione può fallire dopo che
+   * l'utente è tornato alla lista (l'azzeramento su `SELECT_POI`/`DESELECT_POI` copre gli errori
+   * già presenti, non quelli che arrivano dopo): lì il banner riguarderebbe un punto che non è
+   * più lo scope mostrato.
+   */
+  readonly poiNarrativeErrorInScope = computed(() =>
+    this._state().screen === 'DETAIL' ? this._state().poiNarrativeError : null,
+  );
+
+  /**
+   * Narrativa del POI selezionato, se c'è una selezione E la sua narrativa è già arrivata (#197).
+   * Finché è in volo resta `null`, così il pannello mostra la narrativa di zona invece di
+   * svuotarsi: la vista non sfarfalla e l'operatore non perde il testo che stava leggendo.
+   */
+  private readonly currentPoiNarrative = computed(() => {
+    // Guardia su DETAIL, come `selectedDetail` in app.ts (#199): `TOGGLE_MODE` non azzera
+    // `selectedPoiId`, quindi un giro Completo→Base→Completo tornerebbe in RESULTS con una
+    // selezione residua e il pannello mostrerebbe la narrativa di un POI mentre il dock mostra
+    // la lista. Lo scope deve dipendere dallo schermo, non dal solo id residuo.
+    const s = this._state();
+    if (s.screen !== 'DETAIL') return null;
+    return s.selectedPoiId ? (s.poiNarratives[s.selectedPoiId] ?? null) : null;
+  });
+  /**
+   * Narrativa dello SCOPE corrente (#197): quella del POI se disponibile, altrimenti quella di
+   * zona. Il pannello destro legge da qui e non sa nulla della selezione.
+   */
+  readonly currentNarrativa = computed(
+    () => this.currentPoiNarrative()?.narrativa ?? this._state().completoData?.narrativa ?? '',
+  );
+  readonly currentNarrativaFonti = computed(
+    () => this.currentPoiNarrative()?.fonti ?? this._state().completoData?.narrativa_fonti ?? null,
+  );
+  readonly currentRiskModels = computed(
+    () => this.currentPoiNarrative()?.riskModels ?? this._state().completoData?.risk_models ?? [],
+  );
+  /**
+   * Nome del punto CHE IL PANNELLO STA MOSTRANDO (#197), `null` in scope zona. Deriva dalla
+   * stessa risposta della prosa (`riskModels[0].poi`, sempre presente lato BE), non dalla lista
+   * POI: così l'intestazione non può nominare un punto mentre il corpo mostra ancora la zona —
+   * è esattamente il caso della narrativa richiesta ma non ancora arrivata.
+   */
+  readonly currentScopePoiName = computed(
+    () => this.currentPoiNarrative()?.riskModels[0]?.poi ?? null,
+  );
+  /**
+   * Generazione in corso PER LA SELEZIONE CORRENTE (#197). Deselezionando durante il volo la
+   * richiesta prosegue (il risultato finirà comunque in cache), ma non è più lo scope mostrato:
+   * dichiararla ancora metterebbe «generazione in corso» sopra la narrativa di zona.
+   */
+  readonly poiNarrativePending = computed(() => {
+    const s = this._state();
+    return s.screen === 'DETAIL' && s.poiNarrativeLoading === s.selectedPoiId;
+  });
+  /** L'LLM è caduto sul punto mostrato (#197): niente prosa, restano i rischi strutturati. */
+  readonly poiNarrativeFallback = computed(() => this.currentPoiNarrative()?.fallback ?? false);
+  /**
+   * Il punto mostrato non ha alcun rischio ancorato all'ontologia (#197/#220: classe fuori
+   * ontologia). La narrativa esiste ma è interamente inferenza contestuale: il pannello deve
+   * dirlo, altrimenti un testo senza ancoraggio si presenta come tutti gli altri.
+   */
+  readonly poiNarrativeUngrounded = computed(() => {
+    const narrative = this.currentPoiNarrative();
+    if (!narrative) return false;
+    return narrative.riskModels.every((m) => m.risks.length === 0);
+  });
 
   dispatch(action: Action): void {
     this._state.update((s) => transition(s, action));
@@ -84,6 +155,39 @@ export class StateStore {
         type: 'LOAD_ERROR',
         message: errorMessage(err, 'Endpoint /analyze/baseline non ancora disponibile.'),
         pipeline: 'base',
+      });
+    }
+  }
+
+  /**
+   * Genera la narrativa di un POI, se non è già in cache di sessione (#197).
+   *
+   * Ogni generazione è una chiamata LLM: ricliccare un POI già visto non rispende, e la cache si
+   * invalida da sé alla ANALYZE successiva (il contesto di zona cambia). `force` serve al bottone
+   * «rigenera». Senza `lastQuery` non c'è una zona a cui riferire il POI, quindi non si chiama
+   * nulla: la richiesta sarebbe un 404 annunciato.
+   */
+  async loadPoiNarrative(poiId: string, options?: { force?: boolean }): Promise<void> {
+    const query = this._state().lastQuery;
+    if (!query) return;
+    if (!options?.force && this._state().poiNarratives[poiId]) return;
+    this.dispatch({ type: 'POI_NARRATIVE_START', poiId });
+    try {
+      const res = await this.api.poiNarrative(query.citta, query.zona, poiId);
+      this.dispatch({
+        type: 'POI_NARRATIVE_SUCCESS',
+        poiId,
+        data: {
+          narrativa: res.narrativa,
+          fonti: res.narrativa_fonti,
+          riskModels: res.risk_models,
+          fallback: res.fallback,
+        },
+      });
+    } catch (err) {
+      this.dispatch({
+        type: 'POI_NARRATIVE_ERROR',
+        message: errorMessage(err, 'Errore nella generazione della narrativa del punto.'),
       });
     }
   }

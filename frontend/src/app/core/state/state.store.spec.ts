@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ApiService } from '@core/api/api.service';
 import { StateStore } from '@core/state/state.store';
-import { AnalyzeResponse } from '@core/models/models';
+import { AnalyzeResponse, PoiNarrativeResponse } from '@core/models/models';
 
 const data: AnalyzeResponse = {
   citta: 'Roma',
@@ -21,14 +21,45 @@ const data: AnalyzeResponse = {
   fallback: false,
 };
 
+const poiResp: PoiNarrativeResponse = {
+  poi_id: 'node/1',
+  narrativa: 'narrativa del POI',
+  narrativa_fonti: {
+    overview: '',
+    ontologia: 'rischio rapina',
+    contesto: 'accanto a una scuola',
+    speculativo: '',
+  },
+  risk_models: [
+    {
+      poi: 'Banca A',
+      risks: [
+        {
+          hazard: 'Bank_robbery',
+          confidence: 'verificato',
+          tag: 'ONTOLOGIA',
+          hazard_label_it: 'Rapina in banca',
+          hazard_label_en: 'Bank robbery',
+        },
+      ],
+    },
+  ],
+  tokens_input: 10,
+  tokens_output: 20,
+  latenza_ms: 120,
+  repro: { temperature: 0, seed: 0, prompt_hash: 'h' },
+  fallback: false,
+};
+
 describe('StateStore', () => {
   let store: StateStore;
-  let api: { analyze: jest.Mock; analyzeBaseline: jest.Mock };
+  let api: { analyze: jest.Mock; analyzeBaseline: jest.Mock; poiNarrative: jest.Mock };
 
   beforeEach(() => {
     api = {
       analyze: jest.fn(),
       analyzeBaseline: jest.fn(),
+      poiNarrative: jest.fn(),
     };
     TestBed.configureTestingModule({
       providers: [StateStore, { provide: ApiService, useValue: api }],
@@ -252,6 +283,156 @@ describe('StateStore', () => {
       await store.startBaselineAnalysis({ citta: 'Milano', zona: 'Duomo' });
 
       expect(store.lastQuery()).toEqual({ citta: 'Roma', zona: 'Colosseo', domanda: null });
+    });
+  });
+
+  describe('narrativa POI (#197)', () => {
+    /** Porta lo store in RESULTS con lastQuery valorizzato: `loadPoiNarrative` ne ha bisogno. */
+    async function analyzed(): Promise<void> {
+      api.analyze.mockResolvedValue({ ...data, narrativa: 'narrativa di zona' });
+      await store.startAnalysis('Roma', 'Colosseo', null);
+    }
+
+    beforeEach(() => {
+      api.poiNarrative.mockResolvedValue(poiResp);
+    });
+
+    it("loadPoiNarrative chiama l'API con l'ultima query e memorizza il risultato", async () => {
+      await analyzed();
+      await store.loadPoiNarrative('node/1');
+      expect(api.poiNarrative).toHaveBeenCalledWith('Roma', 'Colosseo', 'node/1');
+      expect(store.state().poiNarratives['node/1'].narrativa).toBe('narrativa del POI');
+    });
+
+    it("loadPoiNarrative non richiama l'API se la narrativa è già in cache", async () => {
+      await analyzed();
+      await store.loadPoiNarrative('node/1');
+      await store.loadPoiNarrative('node/1');
+      expect(api.poiNarrative).toHaveBeenCalledTimes(1);
+    });
+
+    it('loadPoiNarrative con force bypassa la cache (bottone «rigenera»)', async () => {
+      await analyzed();
+      await store.loadPoiNarrative('node/1');
+      await store.loadPoiNarrative('node/1', { force: true });
+      expect(api.poiNarrative).toHaveBeenCalledTimes(2);
+    });
+
+    it('loadPoiNarrative senza una query precedente non chiama l’API', async () => {
+      await store.loadPoiNarrative('node/1');
+      expect(api.poiNarrative).not.toHaveBeenCalled();
+    });
+
+    it('loadPoiNarrative su errore popola poiNarrativeError e sblocca il caricamento', async () => {
+      await analyzed();
+      api.poiNarrative.mockRejectedValue(new Error('boom'));
+      await store.loadPoiNarrative('node/1');
+      expect(store.poiNarrativeError()).toBe('boom');
+      expect(store.poiNarrativeLoading()).toBeNull();
+    });
+
+    it('loadPoiNarrative su 404 mostra il messaggio del backend', async () => {
+      await analyzed();
+      api.poiNarrative.mockRejectedValue(
+        new HttpErrorResponse({
+          status: 404,
+          error: { detail: { errore: 'poi_non_nel_contesto', messaggio: 'rilancia l’analisi' } },
+        }),
+      );
+      await store.loadPoiNarrative('node/1');
+      expect(store.poiNarrativeError()).toBe('rilancia l’analisi');
+    });
+
+    it('currentNarrativa segue lo scope: POI se selezionato, zona altrimenti', async () => {
+      await analyzed();
+      await store.loadPoiNarrative('node/1');
+      store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
+      expect(store.currentNarrativa()).toBe('narrativa del POI');
+      expect(store.currentNarrativaFonti()?.ontologia).toBe('rischio rapina');
+      expect(store.currentRiskModels()).toEqual(poiResp.risk_models);
+      store.dispatch({ type: 'DESELECT_POI' });
+      expect(store.currentNarrativa()).toBe('narrativa di zona');
+    });
+
+    it("l'errore di un POI non sopravvive al ritorno alla lista", async () => {
+      await analyzed();
+      api.poiNarrative.mockRejectedValue(new Error('boom'));
+      store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
+      await store.loadPoiNarrative('node/1');
+      expect(store.poiNarrativeError()).toBe('boom');
+
+      store.dispatch({ type: 'DESELECT_POI' });
+      expect(store.poiNarrativeError()).toBeNull();
+    });
+
+    it("l'errore di un POI non sopravvive alla selezione di un altro POI già in cache", async () => {
+      await analyzed();
+      await store.loadPoiNarrative('node/1');
+      api.poiNarrative.mockRejectedValue(new Error('boom'));
+      store.dispatch({ type: 'SELECT_POI', id: 'node/2' });
+      await store.loadPoiNarrative('node/2');
+      expect(store.poiNarrativeError()).toBe('boom');
+
+      // 'node/1' è già in cache: loadPoiNarrative esce subito, senza POI_NARRATIVE_START.
+      store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
+      await store.loadPoiNarrative('node/1');
+      expect(store.poiNarrativeError()).toBeNull();
+    });
+
+    it('un POI selezionato senza narrativa ancora pronta mostra quella di zona', async () => {
+      await analyzed();
+      store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
+      expect(store.currentNarrativa()).toBe('narrativa di zona');
+    });
+
+    it('il caricamento è dichiarato solo se riguarda la selezione corrente', async () => {
+      await analyzed();
+      store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
+      store.dispatch({ type: 'POI_NARRATIVE_START', poiId: 'node/1' });
+      expect(store.poiNarrativePending()).toBe(true);
+
+      // Tornando alla lista la generazione resta in volo, ma non è più lo scope mostrato.
+      store.dispatch({ type: 'DESELECT_POI' });
+      expect(store.poiNarrativePending()).toBe(false);
+    });
+
+    it('lo scope mostrato è nominato solo quando è davvero la narrativa del punto', async () => {
+      await analyzed();
+      store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
+      // Narrativa non ancora arrivata: il corpo mostra la zona, quindi nessun nome di punto.
+      expect(store.currentScopePoiName()).toBeNull();
+
+      await store.loadPoiNarrative('node/1');
+      expect(store.currentScopePoiName()).toBe('Banca A');
+
+      store.dispatch({ type: 'DESELECT_POI' });
+      expect(store.currentScopePoiName()).toBeNull();
+    });
+
+    it('un POI fuori ontologia è segnalato come privo di ancoraggio', async () => {
+      await analyzed();
+      api.poiNarrative.mockResolvedValue({
+        ...poiResp,
+        poi_id: 'node/2',
+        risk_models: [{ poi: 'Bar Roma', risks: [] }],
+      });
+      store.dispatch({ type: 'SELECT_POI', id: 'node/2' });
+      await store.loadPoiNarrative('node/2');
+      expect(store.poiNarrativeUngrounded()).toBe(true);
+
+      // Un punto ANCORATO all'ontologia non deve ereditare l'avviso del precedente.
+      api.poiNarrative.mockResolvedValue(poiResp);
+      store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
+      await store.loadPoiNarrative('node/1');
+      expect(store.poiNarrativeUngrounded()).toBe(false);
+    });
+
+    it('il fallback dell’LLM sul POI è esposto come stato distinto', async () => {
+      await analyzed();
+      api.poiNarrative.mockResolvedValue({ ...poiResp, narrativa: '', fallback: true });
+      store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
+      await store.loadPoiNarrative('node/1');
+      expect(store.poiNarrativeFallback()).toBe(true);
     });
   });
 });

@@ -41,6 +41,16 @@ export class NarrativeSheetComponent {
   readonly narrativaFonti = input<SourceProse | null>(null);
   readonly riskModels = input<RiskModel[]>([]);
   readonly open = input<boolean>(true);
+  /** Generazione in corso (#197): il corpo lo dichiara, il contenuto precedente resta visibile. */
+  readonly loading = input<boolean>(false);
+  /** Errore dell'ultima generazione (#197); `null` quando non c'è nulla da segnalare. */
+  readonly error = input<string | null>(null);
+  /** Nome del punto quando il pannello mostra la narrativa di UN POI (#197); `null` in scope zona. */
+  readonly poiName = input<string | null>(null);
+  /** Il punto mostrato non ha rischi ancorati all'ontologia (#197): la prosa è tutta inferenza. */
+  readonly ungrounded = input<boolean>(false);
+  /** L'LLM è caduto sul punto mostrato (#197): restano i soli dati strutturati. */
+  readonly fallback = input<boolean>(false);
 
   readonly toggleNarrative = output<void>();
   readonly regenerate = output<void>();

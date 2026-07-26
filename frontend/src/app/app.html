@@ -47,13 +47,24 @@
       (resetConfirmed)="onResetConfirmed()"
     />
 
+    <!--
+      Il pannello è legato allo SCOPE corrente (#197), non più direttamente a `completoData`:
+      i selettori `current*` dello store restituiscono la narrativa del POI quando c'è una
+      selezione con narrativa pronta, quella di zona altrimenti. Il componente resta "thin" e
+      non sa nulla della selezione.
+    -->
     <cra-narrative-sheet
       [citta]="store.completoData()?.citta ?? null"
       [zona]="store.completoData()?.zona_normalizzata ?? null"
-      [narrativa]="store.completoData()?.narrativa ?? ''"
-      [narrativaFonti]="store.completoData()?.narrativa_fonti ?? null"
-      [riskModels]="store.completoData()?.risk_models ?? []"
+      [narrativa]="store.currentNarrativa()"
+      [narrativaFonti]="store.currentNarrativaFonti()"
+      [riskModels]="store.currentRiskModels()"
       [open]="store.narrOpen()"
+      [poiName]="store.currentScopePoiName()"
+      [loading]="store.poiNarrativePending()"
+      [error]="store.poiNarrativeErrorInScope()"
+      [ungrounded]="store.poiNarrativeUngrounded()"
+      [fallback]="store.poiNarrativeFallback()"
       (toggleNarrative)="onToggleNarr()"
       (regenerate)="onRegenerate()"
     />

@@ -24,6 +24,9 @@ export const initialState: AppState = {
   lastQuery: null,
   poiPanelOpen: true,
   narrOpen: true,
+  poiNarratives: {},
+  poiNarrativeLoading: null,
+  poiNarrativeError: null,
 };
 
 export function transition(state: AppState, action: Action): AppState {
@@ -38,6 +41,13 @@ export function transition(state: AppState, action: Action): AppState {
         error: null,
         selectedPoiId: null,
         filter: null,
+        // Le narrative POI (#197) sono ancorate al vicinato del contesto di zona appena
+        // sostituito: tenerle mostrerebbe, sul POI di una zona nuova, un testo scritto per
+        // un'altra. Si invalidano qui, non alla SELECT_POI, così il costo LLM resta pagato
+        // una volta sola per POI finché la zona non cambia.
+        poiNarratives: {},
+        poiNarrativeLoading: null,
+        poiNarrativeError: null,
         // lastQuery è la sorgente di "Rigenera", funzione SOLO del sistema completo (review
         // #67-bis, bloccante B): una ANALYZE della pipeline base non deve sovrascriverlo, altrimenti
         // Rigenera rilancerebbe l'ultima ricerca Base invece dell'ultima analisi completo. Il Base
@@ -82,10 +92,19 @@ export function transition(state: AppState, action: Action): AppState {
         mode: action.pipeline,
         error: action.message,
       };
+    // `poiNarrativeError` si azzera a ogni cambio di scope (#197): l'errore riguarda la
+    // generazione di UN punto, quindi non deve sopravvivere né al ritorno alla lista né alla
+    // selezione di un altro POI. Va fatto qui e non in `loadPoiNarrative`, che su un POI già in
+    // cache esce prima di dispatchare `POI_NARRATIVE_START` e lascerebbe il banner appeso.
     case 'SELECT_POI':
-      return { ...state, screen: 'DETAIL', selectedPoiId: action.id };
+      return { ...state, screen: 'DETAIL', selectedPoiId: action.id, poiNarrativeError: null };
     case 'DESELECT_POI':
-      return { ...state, screen: state.filter != null ? 'FILTER' : 'RESULTS', selectedPoiId: null };
+      return {
+        ...state,
+        screen: state.filter != null ? 'FILTER' : 'RESULTS',
+        selectedPoiId: null,
+        poiNarrativeError: null,
+      };
     case 'SET_FILTER': {
       // Filtro/dettaglio esistono solo nel sistema completo: la ricerca del POI selezionato usa
       // sempre completoData, mai baselineData (che non ha selezione/dettaglio).
@@ -118,6 +137,18 @@ export function transition(state: AppState, action: Action): AppState {
       return { ...state, poiPanelOpen: !state.poiPanelOpen };
     case 'TOGGLE_NARR':
       return { ...state, narrOpen: !state.narrOpen };
+    case 'POI_NARRATIVE_START':
+      return { ...state, poiNarrativeLoading: action.poiId, poiNarrativeError: null };
+    case 'POI_NARRATIVE_SUCCESS':
+      return {
+        ...state,
+        poiNarratives: { ...state.poiNarratives, [action.poiId]: action.data },
+        poiNarrativeLoading: null,
+        poiNarrativeError: null,
+      };
+    case 'POI_NARRATIVE_ERROR':
+      // Le narrative già in cache restano: il fallimento riguarda la sola generazione in corso.
+      return { ...state, poiNarrativeLoading: null, poiNarrativeError: action.message };
     default:
       return state;
   }

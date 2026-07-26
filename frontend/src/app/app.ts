@@ -59,6 +59,9 @@ export class App {
 
   protected onPoiClick(id: string): void {
     this.store.dispatch({ type: 'SELECT_POI', id });
+    // Narrativa specifica del punto (#197): generata alla selezione, non in anticipo per tutti i
+    // POI (sarebbe una chiamata LLM per pin). Lo store salta la chiamata se è già in cache.
+    void this.store.loadPoiNarrative(id);
   }
 
   protected onCloseDetail(): void {
@@ -107,12 +110,22 @@ export class App {
   }
 
   /**
-   * "Rigenera" (bottom-sheet narrativa): re-POST /analyze con l'ultima query completa
+   * "Rigenera" (pannello narrativa): agisce sullo SCOPE mostrato (#197). In Vista Dettaglio
+   * rigenera la narrativa del POI selezionato (`force`, bypassa la cache di sessione) — rilanciare
+   * l'intera analisi di zona qui costerebbe geocoding + Overpass + un LLM di zona per riscrivere un
+   * testo che l'utente sta guardando su un singolo punto, e per giunta smonterebbe la selezione.
+   *
+   * Altrimenti resta il comportamento di zona: re-POST /analyze con l'ultima query completa
    * (spec-frontend.md §API — "nessun endpoint nuovo"), riusando `startAnalysis` così come fa
    * `onAnalyze` per l'InputPanel. `LOAD_SUCCESS` sostituisce `completoData` per intero (non lo
    * accoda), quindi non duplica i risultati precedenti; non tocca mai `baselineData`.
    */
   protected onRegenerate(): void {
+    const id = this.store.screen() === 'DETAIL' ? this.store.selectedPoiId() : null;
+    if (id) {
+      void this.store.loadPoiNarrative(id, { force: true });
+      return;
+    }
     const query = this.store.lastQuery();
     if (!query) return;
     void this.store.startAnalysis(query.citta, query.zona, query.domanda);

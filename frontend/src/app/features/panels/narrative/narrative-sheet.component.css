@@ -100,6 +100,40 @@
   border-top: var(--panel-border) solid var(--ink);
 }
 
+/* Stato della generazione per-POI (#197): righe di servizio sopra il contenuto, distinte dalla
+   prosa. L'errore riusa la famiglia amber degli avvisi (--c-da-confermare-*), che è già il
+   registro visivo dei messaggi non bloccanti: il contenuto precedente resta leggibile sotto. */
+.cra-narr-loading,
+.cra-narr-error,
+.cra-narr-fallback,
+.cra-narr-ungrounded {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.cra-narr-loading {
+  color: var(--ink-2);
+  font-style: italic;
+}
+
+/* Errore e fallback condividono il registro amber degli avvisi: entrambi dicono che la prosa
+   attesa non c'è. L'avviso di assenza di ancoraggio ontologico (#197/#220) è invece una NOTA
+   epistemica su un testo che c'è ed è leggibile, quindi resta neutro e non allarmista. */
+.cra-narr-error,
+.cra-narr-fallback {
+  color: var(--c-da-confermare-ink);
+  background: var(--c-da-confermare-bg);
+  padding: 6px 10px;
+  border-left: 3px solid var(--c-da-confermare);
+}
+
+.cra-narr-ungrounded {
+  color: var(--ink-2);
+  padding: 6px 10px;
+  border-left: 3px solid var(--hair-strong);
+}
+
 .cra-narr-lead {
   margin: 0;
   font-size: 0.9rem;

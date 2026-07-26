@@ -2,7 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { ApiService } from '@core/api/api.service';
-import { AnalyzeResponse } from '@core/models/models';
+import { AnalyzeResponse, PoiNarrativeResponse } from '@core/models/models';
 
 const resp: AnalyzeResponse = {
   citta: 'Roma',
@@ -18,6 +18,18 @@ const resp: AnalyzeResponse = {
   tokens_output: 0,
   repro: { temperature: 0.2, seed: 0, prompt_hash: 'x' },
   cache_hit: false,
+  fallback: false,
+};
+
+const poiResp: PoiNarrativeResponse = {
+  poi_id: 'node/1',
+  narrativa: 'Sintesi.',
+  narrativa_fonti: { overview: 'Sintesi.', ontologia: '', contesto: '', speculativo: '' },
+  risk_models: [],
+  tokens_input: 10,
+  tokens_output: 20,
+  latenza_ms: 120,
+  repro: { temperature: 0, seed: 0, prompt_hash: 'h' },
   fallback: false,
 };
 
@@ -93,6 +105,21 @@ describe('ApiService', () => {
   it('analyze: su errore /analyze rigetta la Promise', async () => {
     const p = api.analyze('Roma', 'Colosseo');
     http.expectOne('/analyze').flush('boom', { status: 500, statusText: 'Server Error' });
+    await expect(p).rejects.toBeTruthy();
+  });
+
+  it('poiNarrative: POST /analyze/poi con citta, zona e poi_id (#197)', async () => {
+    const p = api.poiNarrative('Roma', 'Colosseo', 'node/1');
+    const req = http.expectOne('/analyze/poi');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ citta: 'Roma', zona: 'Colosseo', poi_id: 'node/1' });
+    req.flush(poiResp);
+    await expect(p).resolves.toEqual(poiResp);
+  });
+
+  it('poiNarrative: su errore /analyze/poi rigetta la Promise', async () => {
+    const p = api.poiNarrative('Roma', 'Colosseo', 'node/1');
+    http.expectOne('/analyze/poi').flush('boom', { status: 404, statusText: 'Not Found' });
     await expect(p).rejects.toBeTruthy();
   });
 

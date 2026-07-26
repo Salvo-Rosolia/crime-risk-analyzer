@@ -77,6 +77,33 @@ export interface AnalyzeResponse {
   fallback: boolean;
 }
 
+/** Risposta di `POST /analyze/poi` (#197): narrativa del singolo POI selezionato. */
+export interface PoiNarrativeResponse {
+  poi_id: string;
+  narrativa: string;
+  narrativa_fonti: SourceProse;
+  /** Rischi del SOLO POI richiesto (una voce), per le citazioni nel pannello. */
+  risk_models: RiskModel[];
+  tokens_input: number;
+  tokens_output: number;
+  latenza_ms: number;
+  repro: Repro;
+  /** True se l'LLM è caduto: solo dati strutturati, `narrativa` vuota. */
+  fallback: boolean;
+}
+
+/**
+ * Narrativa di un POI già generata in questa sessione (#197). Tenuta in cache per id perché ogni
+ * generazione è una chiamata LLM: ricliccare un POI già visto non deve rispendere. Il bottone
+ * «rigenera» bypassa la cache esplicitamente.
+ */
+export interface PoiNarrative {
+  narrativa: string;
+  fonti: SourceProse;
+  riskModels: RiskModel[];
+  fallback: boolean;
+}
+
 export interface BaselineParams {
   citta: string;
   zona: string;
@@ -127,6 +154,13 @@ export interface AppState {
   lastQuery: LastQuery | null;
   poiPanelOpen: boolean;
   narrOpen: boolean;
+  /** Narrative POI già generate in questa sessione, per id (#197). Azzerate da ogni nuova ANALYZE:
+   * il contesto di zona è cambiato, quindi il vicinato su cui erano ancorate non vale più. */
+  poiNarratives: Record<string, PoiNarrative>;
+  /** Id del POI la cui narrativa è in caricamento, `null` se nessuna. */
+  poiNarrativeLoading: string | null;
+  /** Messaggio d'errore dell'ultima generazione POI fallita. */
+  poiNarrativeError: string | null;
 }
 
 export type Action =
@@ -149,4 +183,8 @@ export type Action =
   | { type: 'TOGGLE_MODE'; mode: Mode }
   | { type: 'RESET' }
   | { type: 'TOGGLE_POI_PANEL' }
-  | { type: 'TOGGLE_NARR' };
+  | { type: 'TOGGLE_NARR' }
+  /** Generazione della narrativa di un POI avviata (#197): il pannello mostra il caricamento. */
+  | { type: 'POI_NARRATIVE_START'; poiId: string }
+  | { type: 'POI_NARRATIVE_SUCCESS'; poiId: string; data: PoiNarrative }
+  | { type: 'POI_NARRATIVE_ERROR'; message: string };

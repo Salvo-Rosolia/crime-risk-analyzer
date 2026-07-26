@@ -15,6 +15,7 @@ from typing import Protocol
 
 from pydantic import BaseModel, Field, model_validator
 
+from crime_risk_analyzer import zone_context_cache
 from crime_risk_analyzer.i18n.terminus_labels import label_en, label_it
 from crime_risk_analyzer.llm.client import LLMError, LLMResponse
 from crime_risk_analyzer.models.risk import PoiRiskProfile
@@ -41,6 +42,7 @@ from crime_risk_analyzer.rag.retrieval import (
     RetrievalStats,
     retrieve,
 )
+from crime_risk_analyzer.zone_context_cache import ZoneContext
 
 logger = logging.getLogger(__name__)
 
@@ -298,12 +300,22 @@ async def run_analysis(
 
     ``geo_source`` (opzionale, #169) e' propagato a :func:`retrieve` per il replay
     del geo nell'harness di eval; ``None`` = geocoding live (prodotto invariato).
+
+    Effetto collaterale (#197): il contesto (retrieval + grounding) e' depositato
+    in :mod:`~crime_risk_analyzer.zone_context_cache`, cosi' ``/analyze/poi`` puo'
+    generare la narrativa di un POI senza rifare geocoding e Overpass a ogni clic.
     """
     start = time.perf_counter()
     retrieval_ctx = await retrieve(
         citta, zona, executor=executor, poi_source=poi_source, geo_source=geo_source
     )
     grounded = ground(retrieval_ctx)
+    # Il contesto resta disponibile a /analyze/poi (#197): evita una chiamata
+    # Overpass per ogni clic su un POI. Cache limitata con TTL, non stato di
+    # sessione: a cache fredda l'endpoint POI ricostruisce da se'.
+    zone_context_cache.put(
+        citta, zona, ZoneContext(retrieval=retrieval_ctx, grounded=grounded)
+    )
     poi_out = _build_poi_list(retrieval_ctx, grounded)
     try:
         gen = await generate_analysis(

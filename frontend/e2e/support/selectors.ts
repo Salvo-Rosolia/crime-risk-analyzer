@@ -156,4 +156,8 @@ export const S = {
    * `narrative-sheet.component.html:15`). */
   narrativeRegenerateButton: (p: Page): Locator =>
     p.locator('cra-narrative-sheet').getByRole('button', { name: 'Rigenera' }),
+  /** Pannello narrativa: riga di stato durante la generazione per-POI (#197, `.cra-narr-loading`). */
+  narrativeLoading: (p: Page): Locator => p.locator('cra-narrative-sheet .cra-narr-loading'),
+  /** Pannello narrativa: messaggio di errore della generazione per-POI (#197, `.cra-narr-error`). */
+  narrativeError: (p: Page): Locator => p.locator('cra-narrative-sheet .cra-narr-error'),
 };
