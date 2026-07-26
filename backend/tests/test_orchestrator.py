@@ -211,8 +211,13 @@ def test_structured_response_no_llm() -> None:
         grounded,  # type: ignore[arg-type]
         latenza_ms=5,
         fallback=False,
+        # L'impronta del contesto (#242) arriva dal chiamante: qui e' un
+        # letterale, perche' il test verifica l'assemblaggio della response
+        # senza LLM, non il calcolo dell'impronta.
+        contesto_hash="h-ctx",
     )
     assert resp.narrativa == ""
+    assert resp.contesto_hash == "h-ctx"
     assert resp.llm_used == ""
     assert resp.cache_hit is False
     assert resp.fallback is False
@@ -654,7 +659,10 @@ def test_analyze_response_has_no_numeric_danger_scoring_field() -> None:
     pericolosita' (_project.md §Vincoli). I campi numerici presenti
     (``latenza_ms``/``tokens_input``/``tokens_output``) misurano costo e
     performance della run, NON la magnitudo del pericolo: sono legittimi. Un
-    campo di rating aggiunto qui romperebbe l'insieme esatto."""
+    campo di rating aggiunto qui romperebbe l'insieme esatto.
+
+    ``contesto_hash`` (#242) e' un digest opaco di IDENTITA' del contesto, non
+    una misura: non gradua nulla e non e' confrontabile per ordine."""
     assert set(AnalyzeResponse.model_fields) == {
         "citta",
         "zona_normalizzata",
@@ -670,6 +678,7 @@ def test_analyze_response_has_no_numeric_danger_scoring_field() -> None:
         "repro",
         "cache_hit",
         "fallback",
+        "contesto_hash",
     }
 
 

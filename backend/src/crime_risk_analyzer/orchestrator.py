@@ -16,6 +16,7 @@ from typing import Protocol
 from pydantic import BaseModel, Field, model_validator
 
 from crime_risk_analyzer import zone_context_cache
+from crime_risk_analyzer.context_fingerprint import fingerprint
 from crime_risk_analyzer.i18n.terminus_labels import label_en, label_it
 from crime_risk_analyzer.llm.client import LLMError, LLMResponse
 from crime_risk_analyzer.models.risk import PoiRiskProfile
@@ -177,6 +178,14 @@ class AnalyzeResponse(BaseModel):
         default=False,
         description="True se l'LLM e' caduto: response con soli dati strutturati.",
     )
+    contesto_hash: str = Field(
+        description=(
+            "Impronta del contesto di zona (#242): identifica la lista di POI "
+            "di questa risposta. Il client la rimanda OPACA in /analyze/poi, "
+            "che rifiuta con 409 se il contesto che userebbe non e' questo. "
+            "Digest di identita', non una misura: nessuno scoring."
+        ),
+    )
 
 
 def _build_poi_list(
@@ -236,8 +245,14 @@ def _structured_response(
     *,
     latenza_ms: int,
     fallback: bool,
+    contesto_hash: str,
 ) -> AnalyzeResponse:
-    """Assembla la AnalyzeResponse SENZA LLM (baseline e fallback di /analyze)."""
+    """Assembla la AnalyzeResponse SENZA LLM (baseline e fallback di /analyze).
+
+    ``contesto_hash`` arriva dal chiamante, che ha il ``RetrievalContext``:
+    l'impronta accompagna anche le response senza narrativa, cosi' un click su
+    un POI in modalita' Base o dopo un fallback LLM non resta senza (#242).
+    """
     return AnalyzeResponse(
         citta=citta,
         zona_normalizzata=zona,
@@ -252,6 +267,7 @@ def _structured_response(
         repro=Repro(temperature=0.0, seed=0, prompt_hash=""),
         cache_hit=False,
         fallback=fallback,
+        contesto_hash=contesto_hash,
     )
 
 
@@ -316,6 +332,10 @@ async def run_analysis(
     zone_context_cache.put(
         citta, zona, ZoneContext(retrieval=retrieval_ctx, grounded=grounded)
     )
+    # Impronta della lista POI di QUESTA cattura (#242): /analyze/poi la
+    # confronta con quella del contesto che userebbe e rifiuta (409) se
+    # divergono, invece di generare prosa su un intorno che a schermo non c'e'.
+    contesto_hash = fingerprint(retrieval_ctx["pois"])
     poi_out = _build_poi_list(retrieval_ctx, grounded)
     try:
         gen = await generate_analysis(
@@ -338,7 +358,13 @@ async def run_analysis(
         tokens_input = 0
         tokens_output = 0
         return _structured_response(
-            citta, zona, poi_out, grounded, latenza_ms=_elapsed_ms(start), fallback=True
+            citta,
+            zona,
+            poi_out,
+            grounded,
+            latenza_ms=_elapsed_ms(start),
+            fallback=True,
+            contesto_hash=contesto_hash,
         )
     return AnalyzeResponse(
         citta=citta,
@@ -355,6 +381,7 @@ async def run_analysis(
         repro=gen.repro,
         cache_hit=gen.cache_hit,
         fallback=False,
+        contesto_hash=contesto_hash,
     )
 
 
@@ -408,6 +435,14 @@ async def run_baseline(
         retrieval_ctx = _filter_pois_by_type(retrieval_ctx, tipo)
     grounded = ground(retrieval_ctx)
     poi_out = _build_poi_list(retrieval_ctx, grounded)
+    # Impronta calcolata DOPO l'eventuale filtro per ``tipo_poi`` (#119): deve
+    # identificare la lista effettivamente restituita, non quella pre-filtro.
     return _structured_response(
-        citta, zona, poi_out, grounded, latenza_ms=_elapsed_ms(start), fallback=False
+        citta,
+        zona,
+        poi_out,
+        grounded,
+        latenza_ms=_elapsed_ms(start),
+        fallback=False,
+        contesto_hash=fingerprint(retrieval_ctx["pois"]),
     )
