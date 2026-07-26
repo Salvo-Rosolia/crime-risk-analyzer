@@ -65,5 +65,6 @@
   "tokens_output": 198,
   "repro": { "temperature": 0.2, "seed": 43, "prompt_hash": "def456" },
   "cache_hit": false,
-  "fallback": false
+  "fallback": false,
+  "contesto_hash": "e2e-contesto-regenerate"
 }

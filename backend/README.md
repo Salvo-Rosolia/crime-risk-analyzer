@@ -58,8 +58,9 @@ backend/
 ├── src/
 │   └── crime_risk_analyzer/        # package applicativo (src-layout)
 │       ├── __init__.py             # __version__
-│       ├── main.py                 # create_app() + app + endpoint (/health, /cities, POST /analyze, POST /analyze/baseline) + CORS + lifespan
+│       ├── main.py                 # create_app() + app + endpoint (/health, /cities, POST /analyze, POST /analyze/baseline, POST /analyze/poi) + CORS + lifespan
 │       ├── config.py               # Settings (env, pydantic-settings)
+│       ├── context_fingerprint.py  # impronta della lista POI di un contesto di zona (identità, non misura)
 │       ├── errors.py               # errori di dominio + mappatura errore → HTTP
 │       ├── ontology.py             # caricamento ontologia RDF in memoria (rdflib)
 │       ├── ontology_materialize.py # materializzazione offline OWL → Turtle (tool one-shot)
