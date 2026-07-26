@@ -90,8 +90,30 @@ def _std_metrics(valid: list[RunRecord]) -> MetricValues:
     )
 
 
-def _mean_record(source: RunRecord, metrics: Metrics, status: RunStatus) -> RunRecord:
-    """Record-media di una zona; riusa la provenienza (snapshot_id) di ``source``."""
+def _representative_narrativa(group: list[RunRecord]) -> str:
+    """Narrativa di UNA ripetizione del gruppo, non una media (#231).
+
+    La media di più testi non esiste, ma la DISPONIBILITÀ di testo sì, ed è
+    un'informazione che il record-media deve conservare: a valle è ciò che
+    distingue una zona su cui il braccio ha prodotto prosa (gradabile) da una su
+    cui è rimasto muto, dove ``grounding``/``hallucination`` valgono 1.0/0.0 per
+    vacuità. Azzerarla farebbe leggere come muto OGNI braccio ripiegato.
+
+    Restituisce il testo della prima ripetizione che ne ha prodotto uno; stringa
+    vuota se nessuna ha parlato. Non è un campione statistico: serve a rispondere
+    a «questa zona ha prodotto narrativa?», non a rappresentarne il contenuto.
+    """
+    return next((rec.narrativa for rec in group if rec.narrativa.strip()), "")
+
+
+def _mean_record(
+    source: RunRecord, metrics: Metrics, status: RunStatus, narrativa: str = ""
+) -> RunRecord:
+    """Record-media di una zona; riusa la provenienza (snapshot_id) di ``source``.
+
+    ``narrativa`` è rappresentativa, non mediata: vedi
+    :func:`_representative_narrativa`.
+    """
     return RunRecord(
         run_id=f"{source.experiment}__{source.citta}__{source.zona}__mean".lower(),
         experiment=source.experiment,
@@ -101,7 +123,7 @@ def _mean_record(source: RunRecord, metrics: Metrics, status: RunStatus) -> RunR
         model_id=source.model_id,
         status=status,
         metrics=metrics,
-        narrativa="",
+        narrativa=narrativa,
         n_poi=source.n_poi,
         provenance=source.provenance,
     )
@@ -141,7 +163,14 @@ def fold_arm(records: list[RunRecord]) -> FoldedArm:
         # i fallback sono gia' esclusi da media/std (#163) e il loro segnale
         # viaggia via ZoneVariance.n_fallback (reso visibile nel report, #165.3).
         # Cambiare qui lo status altererebbe la selezione zone di compare_records.
-        mean_records.append(_mean_record(valid[0], _mean_metrics(valid), RunStatus.OK))
+        mean_records.append(
+            _mean_record(
+                valid[0],
+                _mean_metrics(valid),
+                RunStatus.OK,
+                _representative_narrativa(valid),
+            )
+        )
         variances.append(
             ZoneVariance(
                 citta=citta,

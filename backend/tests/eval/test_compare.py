@@ -8,18 +8,21 @@ nessuna run live LLM/Overpass.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 from pytest import MonkeyPatch
 
 from crime_risk_analyzer.eval.compare import (
+    VACUOUS_CAVEAT_HEAD,
     Comparison,
     FailedZone,
     MetricValues,
     ZoneComparison,
     compare_experiments,
     compare_records,
+    is_vacuous_arm,
     to_csv,
     to_markdown,
     write_comparison,
@@ -777,10 +780,10 @@ def test_markdown_marks_quality_axes_not_applicable_for_vacuous_arm() -> None:
         label_b="baseline",
     )
     md = to_markdown(comparison)
-    assert "Assi di qualità non applicabili" in md
+    assert VACUOUS_CAVEAT_HEAD in md
     assert "`baseline`" in md
     # Il caveat deve precedere la nota metodologica generica: si legge prima.
-    assert md.index("Assi di qualità non applicabili") < md.index("Nota metodologica")
+    assert md.index(VACUOUS_CAVEAT_HEAD) < md.index("Nota metodologica")
 
 
 def test_markdown_has_no_quality_caveat_when_both_arms_generate() -> None:
@@ -790,4 +793,92 @@ def test_markdown_has_no_quality_caveat_when_both_arms_generate() -> None:
         label_a="claude",
         label_b="groq",
     )
-    assert "Assi di qualità non applicabili" not in to_markdown(comparison)
+    assert VACUOUS_CAVEAT_HEAD not in to_markdown(comparison)
+
+
+# --- Vacuita' per ZONA, non solo per braccio (#231, review C2) --------------
+#
+# `status=OK` con narrativa vuota e' raggiungibile in produzione: il client Groq
+# ritorna `content or ""` senza sollevare (llm/client.py), quindi l'orchestrator
+# risponde fallback=False e l'harness registra OK. Una singola zona muta prende
+# hallucination 0.000 vacuo e puo' spostare la media che decide il verdetto.
+
+
+def test_compare_records_flags_the_single_zone_where_an_arm_stays_silent() -> None:
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo"), _analyze_rec("Milano", "Duomo")],
+        [
+            _silent_rec("Roma", "Colosseo"),
+            _silent_rec("Milano", "Duomo", narrativa="qui il modello ha parlato"),
+        ],
+        label_a="analyze",
+        label_b="baseline",
+    )
+    # Il braccio non e' vacuo (parla su Milano), ma Roma resta non interpretabile.
+    assert comparison.vacuous_arms == []
+    assert [(z.citta, z.zona, z.arms) for z in comparison.vacuous_zones] == [
+        ("Roma", "Colosseo", ["baseline"])
+    ]
+
+
+def test_compare_records_has_no_vacuous_zones_when_both_arms_speak_everywhere() -> None:
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo")],
+        [_analyze_rec("Roma", "Colosseo", narrativa="anche qui prosa")],
+        label_a="claude",
+        label_b="groq",
+    )
+    assert comparison.vacuous_zones == []
+
+
+def test_markdown_names_the_vacuous_zone_when_the_arm_is_not_wholly_silent() -> None:
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo"), _analyze_rec("Milano", "Duomo")],
+        [
+            _silent_rec("Roma", "Colosseo"),
+            _silent_rec("Milano", "Duomo", narrativa="qui ha parlato"),
+        ],
+        label_a="analyze",
+        label_b="baseline",
+    )
+    md = to_markdown(comparison)
+    assert VACUOUS_CAVEAT_HEAD in md
+    assert "Roma" in md
+
+
+def test_markdown_puts_the_vacuity_warning_before_the_numbers() -> None:
+    """L'avviso deve precedere la tabella: chi legge non deve incontrare prima
+    un delta di qualità che l'avviso poi smentisce (review C1)."""
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo")],
+        [_silent_rec("Roma", "Colosseo")],
+        label_a="analyze",
+        label_b="baseline",
+    )
+    md = to_markdown(comparison)
+    assert md.index(VACUOUS_CAVEAT_HEAD) < md.index("| citta | zona |")
+
+
+def test_is_vacuous_arm_is_false_for_an_arm_without_records() -> None:
+    """Un braccio vuoto non è muto: non è un braccio (regola documentata)."""
+    assert is_vacuous_arm([]) is False
+
+
+def test_compare_experiments_writes_the_vacuity_warning_to_disk(tmp_path: Path) -> None:
+    """AC3: il percorso non ripetuto (quello che il CLI `compare` chiama) deve
+    portare l'avviso nel .md e `vacuous_arms` nel .json scritti su disco."""
+    write_record(tmp_path, _analyze_rec("Roma", "Colosseo"))
+    write_record(tmp_path, _silent_rec("Roma", "Colosseo"))
+    compare_experiments(
+        tmp_path,
+        "analyze-exp",
+        "baseline-exp",
+        label_a="analyze",
+        label_b="baseline",
+        stem="cli",
+    )
+    md = (tmp_path / "cli.md").read_text(encoding="utf-8")
+    assert VACUOUS_CAVEAT_HEAD in md
+    payload = json.loads((tmp_path / "cli.json").read_text(encoding="utf-8"))
+    assert payload["vacuous_arms"] == ["baseline"]
+    assert payload["vacuous_zones"][0]["zona"] == "Colosseo"

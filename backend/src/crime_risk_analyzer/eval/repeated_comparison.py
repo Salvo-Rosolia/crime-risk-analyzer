@@ -15,13 +15,15 @@ from pathlib import Path
 
 from crime_risk_analyzer.eval.aggregate import load_runs
 from crime_risk_analyzer.eval.compare import (
+    VACUOUS_REASON,
     Comparison,
     MetricValues,
+    VacuousZone,
     compare_records,
     guard_no_overwrite,
-    is_vacuous_arm,
     to_json,
     to_markdown,
+    vacuity_subject,
 )
 from crime_risk_analyzer.eval.repeat import FoldedArm, ZoneVariance, fold_arm
 from crime_risk_analyzer.eval.schema import Metrics
@@ -206,28 +208,27 @@ def winner_markdown(
     return "\n".join(lines) + "\n"
 
 
-def verdict_na_markdown(vacuous_arms: list[str], k_label: str) -> str:
-    """Sezione «verdetto trattenuto»: un braccio non genera, gli assi non reggono.
+def verdict_na_markdown(
+    vacuous_arms: list[str], vacuous_zones: list[VacuousZone], k_label: str
+) -> str:
+    """Sezione «verdetto trattenuto»: manca il testo, gli assi non reggono.
 
-    Sostituisce :func:`winner_markdown` quando almeno un braccio è vacuo (#231):
-    stessa intestazione (struttura del report stabile), ma al posto del verdetto
-    la ragione per cui su questi assi non se ne può emettere nessuno — in nessuna
-    delle due direzioni.
+    Sostituisce :func:`winner_markdown` quando la vacuità tocca un braccio intero
+    o anche solo una zona (#231): stessa intestazione (struttura del report
+    stabile), ma al posto del verdetto la ragione per cui su questi assi non se ne
+    può emettere nessuno — in nessuna delle due direzioni. Una sola zona vacua
+    basta: entra nella media che il criterio lessicografico confronta.
     """
-    quoted = " e ".join(f"`{label}`" for label in vacuous_arms)
-    verbo = "non produce" if len(vacuous_arms) == 1 else "non producono"
     return (
         f"### Esito del criterio proxy (esplorativo, K={k_label})\n"
         "\n"
-        f"> **NON APPLICABILE.** Il braccio {quoted} {verbo} narrativa in nessuna "
-        "ripetizione: su un braccio muto `grounding`/`hallucination` valgono "
-        "1.0/0.0 per assenza di testo da giudicare (ramo vacuo di `metrics.py`), "
-        "non per merito. Dichiarare un vincitore su questi assi premierebbe il "
-        "silenzio, quindi il verdetto è **trattenuto**: il criterio lessicografico "
-        "(#157) è definito per il confronto tra modelli che generano ENTRAMBI. "
-        "Restano confrontabili le misure operative (latenza, costo) nelle tabelle "
-        "sopra; la qualità dell'interpretazione è materia di annotazione umana "
-        "(#152).\n"
+        f"> **NON APPLICABILE.** {vacuity_subject(vacuous_arms, vacuous_zones)}: "
+        f"{VACUOUS_REASON}. Quei valori entrano nella media che il criterio "
+        "confronta, quindi dichiarare un vincitore premierebbe il silenzio: il "
+        "verdetto è **trattenuto**. Il criterio lessicografico (#157) è definito "
+        "per il confronto tra modelli che generano ENTRAMBI. Restano confrontabili "
+        "le misure operative (latenza, costo) nelle tabelle sopra; la qualità "
+        "dell'interpretazione è materia di annotazione umana (#152).\n"
     )
 
 
@@ -248,34 +249,27 @@ def build_repeated_report(
     Se un file target esiste e ``force`` è ``False`` solleva
     :class:`FileExistsError` (guardia anti-sovrascrittura, #165).
 
-    Se un braccio non produce narrativa in nessuna ripetizione (#231) il verdetto
+    Se manca la narrativa — un braccio muto in ogni run, o anche una sola zona su
+    cui un braccio tace (#231) — il verdetto
     è TRATTENUTO: ``winner`` è ``None`` nel JSON, ``quality_verdict.applicable``
     è ``False`` e il Markdown motiva l'astensione al posto del vincitore. Le
     tabelle (incluse le operative) restano invariate.
     """
     la = label_a or experiment_a
     lb = label_b or experiment_b
-    runs_a = load_runs(results_dir, experiment=experiment_a)
-    runs_b = load_runs(results_dir, experiment=experiment_b)
-    folded_a = fold_arm(runs_a)
-    folded_b = fold_arm(runs_b)
-    # Vacuità letta sui record GREZZI (#231): i record-media del fold hanno
-    # narrativa azzerata per costruzione, quindi inferirla dal fold marcherebbe
-    # muto ogni braccio — anche in un legittimo confronto modello-vs-modello.
-    vacuous = [
-        label for label, runs in ((la, runs_a), (lb, runs_b)) if is_vacuous_arm(runs)
-    ]
+    folded_a = fold_arm(load_runs(results_dir, experiment=experiment_a))
+    folded_b = fold_arm(load_runs(results_dir, experiment=experiment_b))
     comparison = compare_records(
-        folded_a.mean_records,
-        folded_b.mean_records,
-        label_a=la,
-        label_b=lb,
-        vacuous_arms=vacuous,
+        folded_a.mean_records, folded_b.mean_records, label_a=la, label_b=lb
     )
-    # Nessun verdetto se un braccio non genera: premierebbe il silenzio.
+    # Nessun verdetto se manca il testo, a livello di braccio O di singola zona
+    # (#231): premierebbe il silenzio. La vacuità arriva dai record-media, che
+    # conservano la DISPONIBILITÀ di narrativa (repeat._representative_narrativa),
+    # non una media di testi (che non esiste).
+    withheld = bool(comparison.vacuous_arms or comparison.vacuous_zones)
     winner = (
         None
-        if vacuous
+        if withheld
         else decide_winner(comparison.mean_a, comparison.mean_b, label_a=la, label_b=lb)
     )
     k_lo, k_hi = _k_range(folded_a, folded_b)
@@ -288,7 +282,7 @@ def build_repeated_report(
     )
     k_label = f"{k_lo}" if k_hi == k_lo else f"{k_lo}..{k_hi}"
     verdict_section = (
-        verdict_na_markdown(vacuous, k_label)
+        verdict_na_markdown(comparison.vacuous_arms, comparison.vacuous_zones, k_label)
         if winner is None
         else winner_markdown(
             winner, k_lo, folded_a=folded_a, folded_b=folded_b, k_hi=k_hi
@@ -312,11 +306,13 @@ def build_repeated_report(
         "comparison": json.loads(to_json(comparison)),
         "winner": winner.model_dump() if winner is not None else None,
         "quality_verdict": {
-            "applicable": not vacuous,
-            "vacuous_arms": vacuous,
+            "applicable": not withheld,
+            "vacuous_arms": comparison.vacuous_arms,
+            "vacuous_zones": [z.model_dump() for z in comparison.vacuous_zones],
             "reason": (
-                "un braccio non produce narrativa: metriche di qualità vacue (#231)"
-                if vacuous
+                "manca la narrativa su cui i proxy di qualità si pronunciano: "
+                "metriche vacue (#231)"
+                if withheld
                 else ""
             ),
         },

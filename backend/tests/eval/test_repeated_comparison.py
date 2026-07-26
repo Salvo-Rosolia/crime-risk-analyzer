@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from pytest import MonkeyPatch
 
-from crime_risk_analyzer.eval.compare import compare_records
+from crime_risk_analyzer.eval.compare import VACUOUS_CAVEAT_HEAD, compare_records
 from crime_risk_analyzer.eval.harness import make_run_id, write_record
 from crime_risk_analyzer.eval.repeat import fold_arm
 from crime_risk_analyzer.eval.repeated_comparison import (
@@ -659,6 +659,125 @@ def test_repeated_report_still_declares_verdict_when_both_arms_generate(
     md = md_path.read_text(encoding="utf-8")
     assert "`claude` ha scorato meglio" in md
     assert "NON APPLICABILE" not in md
-    assert "Assi di qualità non applicabili" not in md
+    assert VACUOUS_CAVEAT_HEAD not in md
     payload = json.loads(json_path.read_text(encoding="utf-8"))
     assert payload["winner"]["winner"] == "claude"
+
+
+def _half_silent_arm(experiment: str) -> list[RunRecord]:
+    """Braccio che tace su Roma (OK, narrativa vuota) e parla su Milano."""
+    silent = [
+        _rec(
+            experiment,
+            "Roma",
+            "Colosseo",
+            rep=r,
+            model_id="m",
+            grounding=1.0,
+            hallucination=0.0,
+            latency_ms=10,
+            cost_usd=0.0,
+            narrativa="",
+        )
+        for r in range(3)
+    ]
+    speaking = [
+        _rec(
+            experiment,
+            "Milano",
+            "Duomo",
+            rep=r,
+            model_id="m",
+            grounding=0.60,
+            hallucination=0.40,
+            latency_ms=10,
+            cost_usd=0.0,
+            narrativa="prosa reale",
+        )
+        for r in range(3)
+    ]
+    return silent + speaking
+
+
+def _speaking_arm(experiment: str) -> list[RunRecord]:
+    """Braccio che parla su entrambe le zone, con hallucination peggiore."""
+    return [
+        _rec(
+            experiment,
+            citta,
+            zona,
+            rep=r,
+            model_id="m",
+            grounding=0.50,
+            hallucination=0.50,
+            latency_ms=1000,
+            cost_usd=0.001,
+            narrativa="prosa reale",
+        )
+        for citta, zona in (("Roma", "Colosseo"), ("Milano", "Duomo"))
+        for r in range(3)
+    ]
+
+
+def test_repeated_report_withholds_verdict_when_a_single_zone_is_vacuous(
+    tmp_path: Path,
+) -> None:
+    """Review C2: la zona muta abbassa la media di hallucination del braccio e
+    gli farebbe vincere l'asse primario senza alcun avviso."""
+    _write_arm(tmp_path, _speaking_arm("loud-exp"))
+    _write_arm(tmp_path, _half_silent_arm("half-exp"))
+    md_path, json_path = build_repeated_report(
+        tmp_path, "loud-exp", "half-exp", label_a="loud", label_b="half", stem="mix"
+    )
+    md = md_path.read_text(encoding="utf-8")
+    assert "ha scorato meglio" not in md
+    assert "NON APPLICABILE" in md
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert payload["winner"] is None
+    assert payload["quality_verdict"]["applicable"] is False
+    assert payload["comparison"]["vacuous_zones"][0]["zona"] == "Colosseo"
+
+
+def test_repeated_report_keeps_operational_table_when_verdict_withheld(
+    tmp_path: Path,
+) -> None:
+    """Il report promette che latenza e costo restano confrontabili: verificalo."""
+    _write_arm(
+        tmp_path,
+        _arm("analyze-exp", "llama-3.3-70b-versatile", (0.84, 0.16, 22697, 0.005)),
+    )
+    _write_arm(tmp_path, _silent_arm("baseline-exp"))
+    md_path, _ = build_repeated_report(
+        tmp_path,
+        "analyze-exp",
+        "baseline-exp",
+        label_a="analyze",
+        label_b="baseline",
+        stem="op",
+    )
+    md = md_path.read_text(encoding="utf-8")
+    assert "Costo e latenza (metriche operative)" in md
+    # Entrambi i bracci restano affiancati sugli assi operativi, con il delta.
+    assert "latency_ms_analyze" in md
+    assert "cost_usd_baseline" in md
+    assert "latency_ms_delta" in md
+
+
+def test_repeated_report_marks_verdict_applicable_in_the_happy_path(
+    tmp_path: Path,
+) -> None:
+    """La chiave additiva esiste anche quando il verdetto c'è (non solo se vacuo)."""
+    _write_arm(
+        tmp_path, _arm("claude-exp", "claude-sonnet-4-6", (0.90, 0.10, 3000, 0.012))
+    )
+    _write_arm(
+        tmp_path,
+        _arm("groq-exp", "llama-3.3-70b-versatile", (0.70, 0.20, 1000, 0.0006)),
+    )
+    _, json_path = build_repeated_report(
+        tmp_path, "claude-exp", "groq-exp", label_a="claude", label_b="groq", stem="ok"
+    )
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert payload["quality_verdict"]["applicable"] is True
+    assert payload["quality_verdict"]["vacuous_arms"] == []
+    assert payload["comparison"]["vacuous_zones"] == []

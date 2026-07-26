@@ -94,6 +94,20 @@ class FailedZone(BaseModel):
     status_b: str
 
 
+class VacuousZone(BaseModel):
+    """Zona su cui un braccio non ha prodotto narrativa (#231).
+
+    Non è un'esclusione: la zona resta nell'aggregato (le misure operative sono
+    valide). Segnala che su QUELLA zona le metriche di qualità del braccio in
+    ``arms`` sono vacue, quindi la media che ne discende non regge un verdetto.
+    """
+
+    citta: str
+    zona: str
+    #: Label dei bracci rimasti muti su questa zona (uno o entrambi).
+    arms: list[str]
+
+
 class Comparison(BaseModel):
     """Confronto: zone comparate + aggregato + zone escluse (ERROR/FALLBACK)."""
 
@@ -113,6 +127,11 @@ class Comparison(BaseModel):
     #: il confronto va avvertito e nessun verdetto va emesso su quegli assi.
     #: Vuota nel caso normale (entrambi i bracci generano).
     vacuous_arms: list[str] = []
+    #: Zone su cui un braccio è rimasto muto pur non essendo muto in assoluto
+    #: (#231): granularità più fine di ``vacuous_arms``, perché una sola zona
+    #: vacua sposta la media che decide il verdetto. Sovrainsieme: se un braccio
+    #: è in ``vacuous_arms``, tutte le sue zone sono anche qui.
+    vacuous_zones: list[VacuousZone] = []
 
 
 @dataclass(frozen=True)
@@ -162,37 +181,81 @@ PROXY_CAVEAT = (
 )
 
 
-#: Avviso stampato quando un braccio è strutturalmente vacuo (#231). Precede il
-#: caveat generico sui proxy: chi legge deve sapere PRIMA che su questi assi il
-#: confronto non è interpretabile, non dopo aver guardato i numeri.
-VACUOUS_ARM_CAVEAT_HEAD = "> ⚠️ **Assi di qualità non applicabili.**"
+#: Titolo dell'avviso di vacuità (#231). Stampato PRIMA delle tabelle: chi legge
+#: deve sapere che su questi assi il confronto non è interpretabile prima di
+#: incontrare i numeri, non dopo. Fonte unica del wording (lo riusa il report
+#: ripetuto per motivare il verdetto trattenuto).
+VACUOUS_CAVEAT_HEAD = "> ⚠️ **Assi di qualità non applicabili.**"
+
+#: Spiegazione del perché un braccio muto non merita 1.0/0.0. Condivisa tra il
+#: caveat delle tabelle e la sezione «verdetto trattenuto» del report ripetuto:
+#: una sola formulazione, nessun drift tra i due moduli.
+VACUOUS_REASON = (
+    "`grounding`/`hallucination` cadono nel ramo vacuo di `metrics.py` "
+    "(1.0/0.0 perché non c'è testo da giudicare), che non è un merito"
+)
 
 
-def _vacuous_caveat(labels: list[str]) -> str:
-    """Avviso per i bracci vacui: perché gli assi di qualità non si leggono."""
-    quoted = " e ".join(f"`{label}`" for label in labels)
-    verbo = "non produce" if len(labels) == 1 else "non producono"
-    return (
-        f"{VACUOUS_ARM_CAVEAT_HEAD} Il braccio {quoted} {verbo} narrativa in "
-        "nessuna run: `grounding`/`hallucination` cadono nel ramo vacuo di "
-        "`metrics.py` (1.0/0.0 perché non c'è testo da giudicare), che non è un "
-        "merito. Su questi assi il confronto NON è interpretabile in nessuna "
-        "direzione; restano confrontabili le misure operative (latenza, costo)."
+def _quote_arms(labels: list[str]) -> tuple[str, str]:
+    """(label citate, verbo concordato) per i messaggi di vacuità."""
+    quoted = " e ".join(f"`{label}`" for label in dict.fromkeys(labels))
+    verbo = "non produce" if len(set(labels)) == 1 else "non producono"
+    return quoted, verbo
+
+
+def vacuity_subject(vacuous_arms: list[str], vacuous_zones: list[VacuousZone]) -> str:
+    """Frase che dice CHI è rimasto muto e DOVE (braccio intero o singole zone).
+
+    Preferisce la formulazione per braccio quando il braccio è muto ovunque: è
+    più informativa di elencarne tutte le zone.
+    """
+    if vacuous_arms:
+        quoted, verbo = _quote_arms(vacuous_arms)
+        return f"Il braccio {quoted} {verbo} narrativa in nessuna run"
+    zone_desc = ", ".join(
+        f"{z.citta}/{z.zona} ({', '.join(f'`{a}`' for a in z.arms)})"
+        for z in vacuous_zones
     )
+    return f"Su alcune zone un braccio non ha prodotto narrativa — {zone_desc}"
+
+
+def _vacuous_caveat(vacuous_arms: list[str], vacuous_zones: list[VacuousZone]) -> str:
+    """Avviso per le tabelle: perché gli assi di qualità non si leggono."""
+    return (
+        f"{VACUOUS_CAVEAT_HEAD} {vacuity_subject(vacuous_arms, vacuous_zones)}: "
+        f"{VACUOUS_REASON}. Su questi assi il confronto NON è interpretabile in "
+        "nessuna direzione; restano confrontabili le misure operative (latenza, "
+        "costo)."
+    )
+
+
+def has_narrativa(record: RunRecord) -> bool:
+    """True se il record porta narrativa non vuota (#231).
+
+    Unico punto in cui si decide cosa conta come «ha parlato». ``status=OK`` con
+    narrativa vuota è raggiungibile in produzione — il client ritorna
+    ``content or ""`` senza sollevare, quindi l'orchestrator risponde
+    ``fallback=False`` — perciò lo status NON basta a riconoscere una zona muta.
+    """
+    return bool(record.narrativa.strip())
 
 
 def is_vacuous_arm(records: list[RunRecord]) -> bool:
     """True se NESSUN record del braccio ha prodotto narrativa (#231).
 
-    Un braccio è vacuo per costruzione (``mode='baseline'``: nessun LLM) o per
-    fallimento totale (tutte le ripetizioni in fallback): in entrambi i casi non
-    esiste testo su cui i proxy di qualità possano dire qualcosa. Un braccio che
-    tace su ALCUNE zone e parla su altre NON è vacuo: lì le zone mute sono già
-    gestite dall'esclusione per status (``FALLBACK``, #163).
+    Un braccio è vacuo per costruzione (``mode='baseline'``: nessun LLM) o
+    perché non ha mai prodotto testo. In entrambi i casi non esiste materiale su
+    cui i proxy di qualità possano dire qualcosa. Un braccio che tace su ALCUNE
+    zone e parla su altre NON è vacuo: quelle zone sono raccolte in
+    ``Comparison.vacuous_zones`` e trattengono comunque il verdetto.
 
     Un braccio vuoto (nessun record) non è vacuo: non è un braccio.
+
+    Confine dichiarato: rileva l'assenza di TESTO, non ogni ramo vacuo di
+    ``metrics.py``. Una narrativa piena ma senza ancoraggi da citare (zona senza
+    POI) è anch'essa gradata 1.0/0.0 per vacuità e NON è intercettata qui.
     """
-    return bool(records) and all(not rec.narrativa.strip() for rec in records)
+    return bool(records) and not any(has_narrativa(rec) for rec in records)
 
 
 def _to_values(m: Metrics) -> MetricValues:
@@ -246,7 +309,6 @@ def compare_records(
     *,
     label_a: str,
     label_b: str,
-    vacuous_arms: list[str] | None = None,
 ) -> Comparison:
     """Unisce due bracci per ``(citta, zona)`` e calcola i delta A - B.
 
@@ -254,18 +316,12 @@ def compare_records(
     (narrativa vuota → metriche non di qualità) sono escluse da zone comparate e
     medie, e raccolte in ``Comparison.failed`` (#163). Solo ``OK`` resta incluso.
 
-    Un braccio che non produce narrativa in NESSUNA run (``mode='baseline'``, o
-    fallimento totale) è marcato in ``Comparison.vacuous_arms`` (#231): le sue
-    metriche di qualità sono vacue per costruzione, non un merito, e a valle
-    nessun verdetto va emesso su quegli assi. Non è un errore e non esclude
-    zone: le medie operative (latenza, costo) restano valide.
-
-    ``vacuous_arms`` permette al chiamante di DICHIARARE i bracci muti invece di
-    farli inferire. Serve a chi confronta record *derivati*: i record-media del
-    fold (#157) hanno ``narrativa`` azzerata per costruzione (la media di più
-    testi non esiste, ``repeat._mean_record``), quindi l'inferenza li marcherebbe
-    tutti muti — falso positivo che spegnerebbe anche i verdetti legittimi. Chi
-    passa record grezzi lascia ``None`` e l'inferenza fa il suo lavoro.
+    Le zone su cui un braccio non ha prodotto narrativa sono marcate in
+    ``Comparison.vacuous_zones``, e un braccio muto su TUTTE le zone anche in
+    ``Comparison.vacuous_arms`` (#231): lì le metriche di qualità sono vacue, non
+    un merito, e a valle nessun verdetto va emesso su quegli assi. Non è un
+    errore e non esclude zone: le misure operative (latenza, costo) restano
+    valide e confrontabili.
 
     Solleva :class:`ValueError` se: un braccio ha record duplicati per una zona;
     i due bracci coprono zone diverse (iso-input violato); una zona appaiata ha
@@ -287,6 +343,7 @@ def compare_records(
         raise ValueError("nessuna zona da confrontare: entrambi i bracci sono vuoti")
     zones: list[ZoneComparison] = []
     failed: list[FailedZone] = []
+    vacuous_zones: list[VacuousZone] = []
     for key in sorted(keys_a):
         rec_a = index_a[key]
         rec_b = index_b[key]
@@ -316,6 +373,18 @@ def compare_records(
                 )
             )
             continue
+        # Zona muta (#231): status OK ma nessun testo prodotto da un braccio. La
+        # zona resta comparata (le misure operative valgono), ma le sue metriche
+        # di qualità sono vacue e non possono sostenere un verdetto.
+        silent = [
+            label
+            for label, rec in ((label_a, rec_a), (label_b, rec_b))
+            if not has_narrativa(rec)
+        ]
+        if silent:
+            vacuous_zones.append(
+                VacuousZone(citta=rec_a.citta, zona=rec_a.zona, arms=silent)
+            )
         zones.append(
             ZoneComparison(
                 citta=rec_a.citta,
@@ -331,15 +400,11 @@ def compare_records(
             "nessun braccio ha prodotto output utilizzabile): "
             f"{[(f.citta, f.zona) for f in failed]}"
         )
-    vacuous = (
-        list(vacuous_arms)
-        if vacuous_arms is not None
-        else [
-            label
-            for label, arm in ((label_a, arm_a), (label_b, arm_b))
-            if is_vacuous_arm(arm)
-        ]
-    )
+    vacuous = [
+        label
+        for label, arm in ((label_a, arm_a), (label_b, arm_b))
+        if is_vacuous_arm(arm)
+    ]
     return Comparison(
         label_a=label_a,
         label_b=label_b,
@@ -349,6 +414,7 @@ def compare_records(
         mean_delta=_mean([z.delta for z in zones]),
         failed=failed,
         vacuous_arms=vacuous,
+        vacuous_zones=vacuous_zones,
     )
 
 
@@ -469,15 +535,17 @@ def to_markdown(comparison: Comparison) -> str:
     presenti — la sezione delle zone escluse (run in errore).
     """
     cols = _columns(comparison.label_a, comparison.label_b)
-    lines = _markdown_table(cols, _rows(comparison))
+    lines: list[str] = []
+    # Vacuità (#231): l'avviso apre il report, PRIMA della tabella. Al contrario
+    # chi legge incontrerebbe un delta di qualità e solo dopo la nota che lo
+    # dichiara non interpretabile — l'ordine in cui si sbaglia a leggere.
+    if comparison.vacuous_arms or comparison.vacuous_zones:
+        lines.append(_vacuous_caveat(comparison.vacuous_arms, comparison.vacuous_zones))
+        lines.append("")
+    lines.extend(_markdown_table(cols, _rows(comparison)))
     # Vista operativa separata + caveat sui proxy di qualità (#33).
     lines.append("")
     lines.append(operational_markdown(comparison).rstrip("\n"))
-    # Braccio muto (#231): avvisa PRIMA del caveat generico, così non si legge un
-    # 1.0/0.0 vacuo come se fosse un risultato di qualità.
-    if comparison.vacuous_arms:
-        lines.append("")
-        lines.append(_vacuous_caveat(comparison.vacuous_arms))
     lines.append("")
     lines.append(PROXY_CAVEAT)
     if comparison.failed:
