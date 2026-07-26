@@ -6,8 +6,28 @@ Estratto da test_orchestrator.py per evitare duplicazione.
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from crime_risk_analyzer.eval.snapshots import save_snapshot
 from crime_risk_analyzer.llm.client import LLMResponse
+from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.models.risk import PoiRiskProfile
+from crime_risk_analyzer.overpass_client import Poi
+
+#: Area di prova per gli snapshot scritti come fixture.
+BBOX_DI_PROVA = Bbox(41.0, 12.0, 41.1, 12.1)
+
+
+def scrivi_snapshot(path: Path, pois: list[Poi], *, citta: str = "Roma") -> None:
+    """``save_snapshot`` con una provenienza di prova.
+
+    Da #241 area e citta' sono obbligatorie in ``save_snapshot``: una provenienza
+    che omette l'area interrogata non serve a nessuno. I test che usano lo
+    snapshot solo come FIXTURE (idempotenza, replay, skip) non hanno nulla da dire
+    sulla provenienza: passano da qui invece di ripetere valori che non stanno
+    verificando. Chi verifica la provenienza chiama ``save_snapshot`` diretto.
+    """
+    save_snapshot(path, pois, bbox=BBOX_DI_PROVA, citta=citta)
 
 
 class FakeProfiler:

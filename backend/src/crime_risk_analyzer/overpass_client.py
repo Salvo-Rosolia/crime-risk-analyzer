@@ -22,6 +22,7 @@ esperimento. Una sola implementazione, parametrizzata.
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TypedDict, cast
@@ -61,6 +62,8 @@ MAX_POIS = 20
 #: #212: ridotto da 5 a 3 per piu' varieta' di tipi e meno doppioni dello stesso tipo.
 PER_SELECTOR_CAP = 3
 
+logger = logging.getLogger(__name__)
+
 #: Status HTTP ritentabili: 429 (rate limit) e 5xx di gateway/overload. Una
 #: risposta con questi status non e' un errore definitivo ma una condizione
 #: transitoria di Overpass -> merita un ritentativo come un timeout.
@@ -83,25 +86,32 @@ class RetryPolicy:
     timeout_s: float
     #: Timeout dei ritentativi (piu' lungo: un 504 sotto carico ha bisogno d'aria).
     retry_timeout_s: float
-    #: Tetto al ``Retry-After`` onorato: un valore ostile o assurdo non deve
-    #: trasformare un ritentativo in un blocco indefinito.
-    retry_after_cap_s: float
+    #: Quanta attesa richiesta da ``Retry-After`` questa politica e' disposta ad
+    #: accettare. ``None`` = header IGNORATO: e' il caso interattivo, dove
+    #: allungare l'attesa perche' il server lo chiede peggiorerebbe proprio la
+    #: latenza che si vuole tenere bassa. Un valore = tetto: oltre quello si
+    #: rinuncia subito invece di ritentare presto, che sarebbe hammering verso un
+    #: servizio pubblico gratuito che ha appena detto «piu' tardi».
+    retry_after_cap_s: float | None
 
 
 #: Percorso interattivo (``/analyze``): un utente sta aspettando, quindi fallire
-#: presto e' corretto. E' il comportamento pre-#232, invariato per non
-#: peggiorare la latenza percepita.
+#: presto e' corretto. E' il comportamento pre-#232 alla lettera — un ritentativo,
+#: un secondo di pausa, ``Retry-After`` ignorato — perche' quel percorso non deve
+#: guadagnare latenza. Vale anche per ``capture_city`` (#31), dove il tempo di
+#: parete e' la metrica ``switch_ms`` e una pausa piu' lunga la falsificherebbe.
 INTERACTIVE_RETRY = RetryPolicy(
     pause_s=(1.0,),
     timeout_s=30.0,
     retry_timeout_s=60.0,
-    retry_after_cap_s=5.0,
+    retry_after_cap_s=None,
 )
 
 #: Cattura offline degli snapshot di valutazione: qui attendere e' gratis e
 #: fallire significa non avere esperimento (#232). Le pause sono di cortesia
 #: verso un servizio pubblico gratuito — un 429 e' quota di slot esaurita e si
-#: libera in decine di secondi — per un'attesa totale di ~2.5 minuti.
+#: libera in decine di secondi — e sommano 155s; col timeout di ogni tentativo il
+#: caso peggiore per una zona sfiora i 7 minuti.
 OFFLINE_RETRY = RetryPolicy(
     pause_s=(5.0, 15.0, 45.0, 90.0),
     timeout_s=30.0,
@@ -274,16 +284,32 @@ def _retry_after_s(response: httpx.Response | None) -> float | None:
         return None
 
 
-def _pausa(response: httpx.Response | None, prevista: float, cap: float) -> float:
-    """Quanto attendere prima del prossimo tentativo.
+def _attesa_prima_del_ritentativo(
+    response: httpx.Response | None, prevista: float, cap: float | None
+) -> float:
+    """Quanto attendere prima del prossimo tentativo, o rinuncia.
 
-    Mai meno della pausa prevista dalla politica — verso un servizio pubblico
-    gratuito la cortesia e' un minimo, non un massimo — mai meno di quanto il
-    server ha chiesto con ``Retry-After``, e mai piu' del tetto della politica.
+    Mai meno della pausa prevista dalla politica: verso un servizio pubblico
+    gratuito la cortesia e' un minimo, non un massimo — quindi un ``Retry-After``
+    piu' breve non la accorcia. Il tetto NON tocca la pausa prevista (che la
+    politica ha dichiarato di proposito) ma solo la richiesta del server.
+
+    Solleva :class:`OverpassError` se il server chiede piu' del tetto: ritentare
+    prima sarebbe hammering verso chi ha appena detto «piu' tardi», e brucerebbe
+    i ritentativi restanti in tentativi con probabilita' nulla. Meglio fermarsi
+    dicendo quando ritentare.
     """
+    if cap is None:
+        return prevista
     richiesta = _retry_after_s(response)
-    attesa = prevista if richiesta is None else max(prevista, richiesta)
-    return min(attesa, cap)
+    if richiesta is None:
+        return prevista
+    if richiesta > cap:
+        raise OverpassError(
+            f"Overpass ha chiesto di ritentare fra {richiesta:.0f}s, oltre il "
+            f"tetto di {cap:.0f}s di questa politica: riprova piu' tardi"
+        )
+    return max(prevista, richiesta)
 
 
 async def fetch_pois(
@@ -318,10 +344,27 @@ async def fetch_pois(
         # (response None) sia su uno status transitorio (429/5xx). Uno status
         # non-2xx NON ritentabile (400/403/404) esce subito dal ciclo e fallisce
         # piu' sotto, senza attendere.
-        for prevista in policy.pause_s:
+        for tentativo, prevista in enumerate(policy.pause_s, start=1):
             if response is not None and response.status_code not in _RETRYABLE_STATUS:
                 break
-            await sleep(_pausa(response, prevista, policy.retry_after_cap_s))
+            attesa = _attesa_prima_del_ritentativo(
+                response, prevista, policy.retry_after_cap_s
+            )
+            # Log a ogni ritentativo (#232): con la politica offline l'attesa
+            # complessiva arriva a minuti, e senza traccia «processo appeso» e
+            # «backoff di cortesia in corso» sono indistinguibili — la condizione
+            # che il 26/07 ha spinto a scrivere il backoff a mano in una shell.
+            esito = (
+                "timeout" if response is None else f"ha risposto {response.status_code}"
+            )
+            logger.warning(
+                "Overpass %s: ritentativo %d/%d fra %.0fs",
+                esito,
+                tentativo,
+                len(policy.pause_s),
+                attesa,
+            )
+            await sleep(attesa)
             response = await _try_post(
                 client, overpass_url, query, policy.retry_timeout_s
             )

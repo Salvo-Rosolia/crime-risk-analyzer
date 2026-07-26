@@ -240,6 +240,86 @@ async def test_politica_interattiva_resta_a_un_solo_ritentativo() -> None:
     assert route.call_count == 2
     assert len(INTERACTIVE_RETRY.pause_s) == 1
     assert len(attese) == 1
+    # I timeout restano quelli di prima di #232: la latenza del caso peggiore su
+    # /analyze non cambia (30s + 1s + 60s).
+    assert INTERACTIVE_RETRY.timeout_s == 30.0
+    assert INTERACTIVE_RETRY.retry_timeout_s == 60.0
+
+
+@respx.mock
+async def test_politica_interattiva_ignora_retry_after() -> None:
+    """La pausa interattiva resta 1s anche se il server chiede di piu' (#232).
+
+    È il criterio «nessuna regressione di latenza percepita» preso alla lettera:
+    su ``/analyze`` un utente sta aspettando, e allungare l'attesa perché
+    Overpass lo chiede peggiorerebbe proprio ciò che si vuole tenere basso. Vale
+    anche per ``capture_city`` (#31), dove la pausa cade DENTRO la finestra
+    cronometrata di ``switch_ms`` (soglia 5000ms): un cap piu' alto avrebbe fatto
+    fallire la metrica di una contribuzione della tesi al primo 429 transitorio.
+    """
+    attese: list[float] = []
+    # Politica reale, NON quella azzerata dalla fixture: qui il valore è il punto.
+    monkeypatch_free = replace(overpass_client.INTERACTIVE_RETRY, pause_s=(1.0,))
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=[
+            httpx.Response(429, headers={"Retry-After": "60"}, text="rate limited"),
+            httpx.Response(200, json=_sample()),
+        ]
+    )
+
+    await fetch_pois(
+        _BBOX, "Roma", retry=monkeypatch_free, sleep=_recording_sleep(attese)
+    )
+
+    assert attese == [1.0]
+    assert INTERACTIVE_RETRY.retry_after_cap_s is None
+
+
+@respx.mock
+async def test_retry_after_oltre_il_tetto_fa_rinunciare_subito() -> None:
+    """Se il server chiede piu' del tetto, si rinuncia invece di ritentare presto.
+
+    Ritentare prima di quanto Overpass ha chiesto sarebbe hammering verso un
+    servizio pubblico gratuito (#232 lo esclude esplicitamente) e brucerebbe i
+    ritentativi restanti in tentativi con probabilita' nulla. Il messaggio dice
+    quanto il server ha chiesto, così l'operatore sa quando riprovare.
+    """
+    attese: list[float] = []
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(
+            429, headers={"Retry-After": "3600"}, text="rate limited"
+        )
+    )
+
+    with pytest.raises(OverpassError, match="3600"):
+        await fetch_pois(
+            _BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(attese)
+        )
+
+    assert route.call_count == 1  # nessun secondo tentativo
+    assert attese == []  # e nessuna attesa spesa
+
+
+@respx.mock
+async def test_ritentativi_lasciano_traccia_nei_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Ogni ritentativo è dichiarato (#232): con la politica offline l'attesa
+    complessiva arriva a minuti, e senza traccia «processo appeso» e «backoff di
+    cortesia in corso» sono indistinguibili — la condizione che il 26/07 ha
+    spinto a scrivere il backoff a mano in una shell."""
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=[
+            httpx.Response(504, text="gateway timeout"),
+            httpx.Response(200, json=_sample()),
+        ]
+    )
+
+    with caplog.at_level("WARNING"):
+        await fetch_pois(_BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep([]))
+
+    messaggi = [r.getMessage() for r in caplog.records]
+    assert any("504" in m and "ritentativo 1/4" in m for m in messaggi), messaggi
 
 
 @respx.mock
@@ -273,22 +353,6 @@ async def test_retry_after_non_accorcia_la_pausa_di_cortesia() -> None:
     await fetch_pois(_BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(attese))
 
     assert attese == [OFFLINE_RETRY.pause_s[0]]
-
-
-@respx.mock
-async def test_retry_after_esagerato_e_limitato_dal_tetto() -> None:
-    """Un ``Retry-After`` enorme non blocca la cattura per ore: vale il tetto (#232)."""
-    attese: list[float] = []
-    respx.post(DEFAULT_OVERPASS_URL).mock(
-        side_effect=[
-            httpx.Response(429, headers={"Retry-After": "100000"}, text="rate limited"),
-            httpx.Response(200, json=_sample()),
-        ]
-    )
-
-    await fetch_pois(_BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(attese))
-
-    assert attese == [OFFLINE_RETRY.retry_after_cap_s]
 
 
 @respx.mock
@@ -350,7 +414,26 @@ def test_politica_offline_attende_piu_della_interattiva() -> None:
     contratto fra le due politiche e' esplicito e verificato, non implicito."""
     assert sum(OFFLINE_RETRY.pause_s) > sum(INTERACTIVE_RETRY.pause_s)
     assert len(OFFLINE_RETRY.pause_s) > len(INTERACTIVE_RETRY.pause_s)
-    assert OFFLINE_RETRY.retry_after_cap_s >= INTERACTIVE_RETRY.retry_after_cap_s
+    # Solo la politica offline onora Retry-After; l'interattiva lo ignora.
+    assert INTERACTIVE_RETRY.retry_after_cap_s is None
+    assert OFFLINE_RETRY.retry_after_cap_s is not None
+
+
+def test_il_tetto_non_accorcia_le_pause_dichiarate() -> None:
+    """Il tetto vale sulla richiesta del server, non sulla pausa della politica.
+
+    Con ``min(attesa, cap)`` una politica futura con pause piu' lunghe del tetto
+    si sarebbe vista accorciare la cortesia in silenzio: invariante esplicitata
+    qui invece di restare implicita nei valori attuali (review m1).
+    """
+    assert OFFLINE_RETRY.retry_after_cap_s is not None
+    lunga = replace(OFFLINE_RETRY, pause_s=(300.0,), retry_after_cap_s=60.0)
+    assert (
+        overpass_client._attesa_prima_del_ritentativo(  # pyright: ignore[reportPrivateUsage]
+            None, lunga.pause_s[0], lunga.retry_after_cap_s
+        )
+        == 300.0
+    )
 
 
 @respx.mock

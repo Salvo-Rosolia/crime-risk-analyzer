@@ -1,7 +1,9 @@
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 from crime_risk_analyzer.eval.snapshots import (
+    FORMATO_SNAPSHOT,
     capturing_source,
     load_snapshot,
     offline_geo_source,
@@ -28,13 +30,13 @@ _BBOX = Bbox(41.0, 12.0, 41.1, 12.1)
 
 def test_save_load_roundtrip(tmp_path: Path) -> None:
     p = tmp_path / "snap.json"
-    save_snapshot(p, _POIS)  # type: ignore[arg-type]
+    save_snapshot(p, _POIS, bbox=_BBOX, citta="Roma")  # type: ignore[arg-type]
     assert load_snapshot(p)[0]["name"] == "Banca A"
 
 
 async def test_replay_source_returns_saved_pois(tmp_path: Path) -> None:
     p = tmp_path / "snap.json"
-    save_snapshot(p, _POIS)  # type: ignore[arg-type]
+    save_snapshot(p, _POIS, bbox=_BBOX, citta="Roma")  # type: ignore[arg-type]
     source = replay_source(p)
     out = await source(Bbox(41.0, 12.0, 41.1, 12.1), "Roma")
     assert out[0]["name"] == "Banca A"
@@ -75,26 +77,33 @@ def test_snapshot_porta_la_provenienza_di_cattura(tmp_path: Path) -> None:
         p,
         _POIS,  # type: ignore[arg-type]
         bbox=_BBOX,
-        now="2026-07-26T18:40:00+00:00",
+        citta="Roma",
+        zona="Colosseo",
+        clock=lambda: datetime(2026, 7, 26, 18, 40, tzinfo=UTC),
     )
 
     scritto = json.loads(p.read_text(encoding="utf-8"))
+    assert scritto["formato"] == FORMATO_SNAPSHOT
     prov = scritto["provenienza"]
     assert prov["catturato_il"] == "2026-07-26T18:40:00+00:00"
     assert prov["bbox"] == [41.0, 12.0, 41.1, 12.1]
-    # I cap fanno parte di «quale query ha prodotto questo file»: #212 li ha
-    # cambiati (50->20, 5->3) e senza registrarli due fixture indistinguibili
-    # possono derivare da interrogazioni diverse.
-    assert prov["max_pois"] == MAX_POIS
-    assert prov["per_selector_cap"] == PER_SELECTOR_CAP
-    assert prov["n_selettori"] > 0
-    assert len(prov["selettori_osm_hash"]) == 64
+    assert prov["citta"] == "Roma"
+    # La zona non è ricavabile dal file: lo slug del nome è lossy, quindi senza
+    # questo campo il legame zona↔bbox non sarebbe verificabile.
+    assert prov["zona"] == "Colosseo"
+    # Costanti del codice che ha SCRITTO il file: il nome lo dichiara, perché da
+    # qui non si può sapere cosa un ``inner`` arbitrario abbia interrogato.
+    conf = prov["configurazione_canonica"]
+    assert conf["max_pois"] == MAX_POIS
+    assert conf["per_selector_cap"] == PER_SELECTOR_CAP
+    assert conf["n_selettori"] > 0
+    assert len(conf["selettori_hash"]) == 64
 
 
 def test_istante_di_cattura_reale_quando_non_iniettato(tmp_path: Path) -> None:
     """Senza clock iniettato l'istante è quello vero, in UTC con offset esplicito."""
     p = tmp_path / "snap.json"
-    save_snapshot(p, _POIS, bbox=_BBOX)  # type: ignore[arg-type]
+    save_snapshot(p, _POIS, bbox=_BBOX, citta="Roma")  # type: ignore[arg-type]
 
     catturato = json.loads(p.read_text(encoding="utf-8"))["provenienza"]["catturato_il"]
     assert catturato.endswith("+00:00")
@@ -126,9 +135,15 @@ def test_snapshot_committati_restano_leggibili() -> None:
 def test_scrittura_senza_churn_di_line_ending(tmp_path: Path) -> None:
     """Nessun CRLF: su Windows il working tree divergeva dal blob in git, e con
     ``core.autocrlf=false`` i 4 file risultavano modificati dopo ogni capture pur
-    essendo identici nel contenuto (stessa classe del difetto chiuso in #103)."""
+    essendo identici nel contenuto (stessa classe del difetto chiuso in #103).
+
+    Onestà sulla portata: questa guardia ha denti solo su Windows. In CI
+    (``ubuntu-latest``) ``write_text`` produce LF anche senza ``newline=""``,
+    quindi il test è verde per costruzione e una rimozione di quel parametro non
+    verrebbe intercettata dalla pipeline.
+    """
     p = tmp_path / "snap.json"
-    save_snapshot(p, _POIS, bbox=_BBOX)  # type: ignore[arg-type]
+    save_snapshot(p, _POIS, bbox=_BBOX, citta="Roma")  # type: ignore[arg-type]
 
     assert b"\r\n" not in p.read_bytes()
 

@@ -24,16 +24,11 @@ from crime_risk_analyzer.eval.repeated_comparison import build_repeated_report
 from crime_risk_analyzer.eval.snapshots import (
     capturing_source,
     load_snapshot,
+    offline_fetch_pois,
     snapshot_path,
 )
 from crime_risk_analyzer.ontology import load_ontology
 from crime_risk_analyzer.orchestrator import run_baseline
-from crime_risk_analyzer.overpass_client import (
-    OFFLINE_RETRY,
-    Bbox,
-    Poi,
-    fetch_pois,
-)
 from crime_risk_analyzer.rag.retrieval import PoiSource
 from crime_risk_analyzer.sparql_module.query_executor import get_executor
 
@@ -66,23 +61,12 @@ def _snapshot_reusable(path: Path) -> bool:
         return False
     try:
         load_snapshot(path)
-    # ``json.JSONDecodeError`` è una sottoclasse di ``ValueError``, che copre
-    # anche il formato non riconosciuto sollevato da ``load_snapshot`` (#241).
-    except (ValueError, UnicodeDecodeError):
+    # Una sola clausola: ``json.JSONDecodeError`` e ``UnicodeDecodeError`` sono
+    # entrambe sottoclassi di ``ValueError``, che copre anche il formato non
+    # riconosciuto sollevato da ``load_snapshot`` (#241).
+    except ValueError:
         return False
     return True
-
-
-async def _offline_fetch_pois(bbox: Bbox, citta: str) -> list[Poi]:
-    """Sorgente live della cattura: backoff lungo di cortesia (#232).
-
-    La cattura e' il primo passo di ogni run di valutazione: se non completa, non
-    esiste esperimento. Qui attendere e' gratis, quindi vale
-    :data:`OFFLINE_RETRY` invece della politica interattiva, che il 26/07 ha
-    rinunciato al secondo tentativo (504 poi 429) costringendo a un backoff
-    scritto a mano fuori dal codice — cioe' a una run non riproducibile.
-    """
-    return await fetch_pois(bbox, citta, retry=OFFLINE_RETRY)
 
 
 async def _capture(
@@ -94,7 +78,9 @@ async def _capture(
 ) -> None:
     config = load_config(config_path)
     executor = get_executor()
-    inner = poi_source or _offline_fetch_pois
+    # Politica di ritentativo lunga per default (#232): la sorgente della cattura
+    # vive in ``snapshots`` accanto a ``capturing_source``, non qui.
+    inner = poi_source or offline_fetch_pois
     for case in config.cases:
         # Cattura chiavata per (citta, zona) (#110): i bracci comparativi
         # riusano la stessa fixture, senza query Overpass divergenti per braccio.
@@ -119,7 +105,7 @@ async def _capture(
                 case.zona,
                 path,
             )
-        source = capturing_source(path, inner=inner)
+        source = capturing_source(path, inner=inner, zona=case.zona)
         # Percorso SENZA LLM qualunque sia il ``mode`` del config (#233): la
         # cattura e' acquisizione di input, non un esperimento. Lo snapshot lo
         # scrive ``capturing_source`` quando il fetch Overpass ritorna, e la

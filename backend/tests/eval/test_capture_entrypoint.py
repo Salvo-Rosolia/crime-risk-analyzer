@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 import crime_risk_analyzer.eval.__main__ as eval_main
+from crime_risk_analyzer.eval import snapshots
 from crime_risk_analyzer.eval.harness import make_snapshot_key
 from crime_risk_analyzer.eval.schema import (
     ExperimentConfig,
@@ -23,11 +24,11 @@ from crime_risk_analyzer.eval.schema import (
 )
 from crime_risk_analyzer.eval.snapshots import (
     load_snapshot,
-    save_snapshot,
     snapshot_path,
 )
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.overpass_client import OFFLINE_RETRY, Poi
+from tests.eval._doubles import scrivi_snapshot
 
 _capture = eval_main._capture  # pyright: ignore[reportPrivateUsage]
 _snapshot_reusable = eval_main._snapshot_reusable  # pyright: ignore[reportPrivateUsage]
@@ -140,7 +141,7 @@ async def test_capture_skips_if_snapshot_exists(
     await _capture(config_path, tmp_path, poi_source=counting_live)
     assert calls == 1
     # Sentinella: una ri-cattura la sovrascriverebbe.
-    save_snapshot(path, _sentinel_pois())
+    scrivi_snapshot(path, _sentinel_pois())
 
     with caplog.at_level(logging.INFO):
         await _capture(config_path, tmp_path, poi_source=counting_live)
@@ -153,7 +154,7 @@ async def test_capture_skips_if_snapshot_exists(
 def test_snapshot_reusable_true_for_valid(tmp_path: Path) -> None:
     """Fix 1 (#148): uno snapshot esistente, non vuoto e JSON valido è riusabile."""
     path = tmp_path / "snap.json"
-    save_snapshot(path, _sample_pois())
+    scrivi_snapshot(path, _sample_pois())
     assert _snapshot_reusable(path) is True
 
 
@@ -249,7 +250,7 @@ async def test_capture_force_recaptures(tmp_path: Path, capture_env: None) -> No
 
     await _capture(config_path, tmp_path, poi_source=counting_live)
     assert calls == 1
-    save_snapshot(path, _sentinel_pois())
+    scrivi_snapshot(path, _sentinel_pois())
 
     await _capture(config_path, tmp_path, force=True, poi_source=counting_live)
     assert calls == 2  # ri-cattura live
@@ -314,7 +315,7 @@ async def test_capture_all_present_never_builds_client(
     )
     # Pre-crea uno snapshot valido: la singola (citta, zona) va in skip.
     path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
-    save_snapshot(path, _sample_pois())
+    scrivi_snapshot(path, _sample_pois())
 
     # Non deve sollevare: né il builder né la live vengono toccati.
     await _capture(config_path, tmp_path, poi_source=unused_live)
@@ -388,13 +389,15 @@ async def test_capture_analyze_never_builds_client(
 
 
 async def test_capture_usa_la_politica_di_ritentativo_offline(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, capture_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """#232: la sorgente live della cattura passa a Overpass la politica OFFLINE.
+    """#232: la cattura, SENZA sorgente iniettata, arriva a Overpass con la
+    politica OFFLINE.
 
-    Senza questo test la politica esisterebbe senza che la cattura la usi: il
-    difetto (rinuncia al secondo 429) resterebbe identico con del codice nuovo
-    accanto. Verifica il CABLAGGIO, non la politica in sé.
+    Non passa ``poi_source``: è l'unico modo di coprire la riga di cablaggio
+    (``inner = poi_source or offline_fetch_pois``). Un test che chiamasse
+    ``offline_fetch_pois`` direttamente lascerebbe verde un ritorno a
+    ``fetch_pois``, cioè il difetto di #232 intatto con del codice nuovo accanto.
     """
     visti: list[object] = []
 
@@ -404,14 +407,14 @@ async def test_capture_usa_la_politica_di_ritentativo_offline(
         visti.append(kwargs.get("retry"))
         return _sample_pois()
 
-    monkeypatch.setattr(eval_main, "fetch_pois", _spia)
+    monkeypatch.setattr(snapshots, "fetch_pois", _spia)
 
-    out = await eval_main._offline_fetch_pois(  # pyright: ignore[reportPrivateUsage]
-        Bbox(41.0, 12.0, 41.1, 12.1), "Roma"
-    )
+    config_path = _write_config(tmp_path, "Roma", "Centro")
+    await _capture(config_path, tmp_path)
 
-    assert out == _sample_pois()
     assert visti == [OFFLINE_RETRY]
+    path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
+    assert load_snapshot(path) == _sample_pois()
 
 
 async def test_capture_partial_skip_captures_only_missing(
@@ -441,7 +444,7 @@ async def test_capture_partial_skip_captures_only_missing(
 
     # Pre-crea SOLO lo snapshot di Roma con una sentinella (deve restare intatto).
     roma_path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
-    save_snapshot(roma_path, _sentinel_pois())
+    scrivi_snapshot(roma_path, _sentinel_pois())
     milano_path = snapshot_path(tmp_path, make_snapshot_key("Milano", "Duomo"))
 
     await _capture(config_path, tmp_path, poi_source=recording_live)

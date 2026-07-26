@@ -6,16 +6,24 @@ fixture sono la radice della catena di riproducibilità. OpenStreetMap è una
 sorgente viva: fra sei mesi la stessa query darà POI diversi, quindi senza
 istante di cattura «questi sono i POI di quella zona» non è verificabile.
 
-Il formato su file è un envelope ``{"provenienza": ..., "poi": [...]}``, ma
-``load_snapshot`` legge anche la lista nuda dei file catturati prima di #241: i 4
-snapshot committati con #231 devono restare rigiocabili, altrimenti si romperebbe
-il confronto iso-input già pubblicato.
+Il formato su file è un envelope ``{"formato": 2, "provenienza": ..., "poi": [...]}``,
+ma ``load_snapshot`` legge anche la lista nuda dei file catturati prima di #241: i
+4 snapshot committati con #231 devono restare rigiocabili, altrimenti si
+romperebbe il confronto iso-input già pubblicato.
+
+**Quei 4 file non hanno provenienza e non è stata fabbricata**: inventarne
+l'istante di cattura sarebbe stato un record falso. L'unico riferimento temporale
+disponibile per loro è la data del commit che li ha introdotti (#231, 26/07/2026);
+l'avranno reale alla prossima cattura, che però cambierebbe le fixture e quindi la
+comparabilità dei risultati già pubblicati — perciò è una decisione dell'autore,
+non un effetto collaterale.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TypedDict, cast
@@ -24,6 +32,7 @@ from crime_risk_analyzer.geocoding import GeoResult
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.overpass_client import (
     MAX_POIS,
+    OFFLINE_RETRY,
     PER_SELECTOR_CAP,
     Poi,
     fetch_pois,
@@ -32,30 +41,54 @@ from crime_risk_analyzer.rag.retrieval import GeoSource, PoiSource
 from crime_risk_analyzer.sparql_module.osm_mapping import OSM_SELECTORS
 
 
-class SnapshotProvenance(TypedDict):
-    """Da dove viene una fixture POI: istante, area, e query che l'ha prodotta."""
+class ConfigurazioneCanonica(TypedDict):
+    """Costanti del codice che ha SCRITTO il file, non della query che l'ha prodotto.
 
-    #: Istante di cattura, ISO-8601 con offset esplicito (UTC).
-    catturato_il: str
-    #: Bbox interrogato, ``[min_lat, min_lon, max_lat, max_lon]``; ``None`` se
-    #: la cattura non l'ha dichiarato (chiamate diverse da ``capturing_source``).
-    bbox: list[float] | None
-    #: Impronta dell'insieme di selettori OSM usati: identifica la *versione* del
-    #: binding senza copiarne 50 righe in ogni fixture.
-    selettori_osm_hash: str
+    La distinzione non è pedanteria: ``capturing_source`` accetta un ``inner``
+    arbitrario e ``fetch_pois`` accetta ``osm_selectors`` su misura, quindi da qui
+    non si può sapere cosa sia stato davvero interrogato. Registrare queste
+    costanti è utile — insieme al commit, dicono con quale binding e con quali cap
+    lavorava il codice — ma il nome deve dire cosa sono, perché una provenienza
+    che afferma piu' di quanto sa è peggio di una che tace.
+    """
+
+    selettori_hash: str
     n_selettori: int
-    #: Cap che hanno plasmato il contenuto: #212 li ha cambiati (50->20, 5->3), e
-    #: senza registrarli due fixture indistinguibili possono derivare da
-    #: interrogazioni diverse.
+    #: #212 li ha cambiati (50->20, 5->3): due fixture indistinguibili possono
+    #: derivare da interrogazioni con cap diversi.
     max_pois: int
     per_selector_cap: int
+
+
+class SnapshotProvenance(TypedDict):
+    """Da dove viene una fixture POI: istante, area, zona, configurazione."""
+
+    #: Istante di cattura, ISO-8601 con offset esplicito (UTC). È l'orologio del
+    #: processo che ha chiesto i dati: dice «quando ho chiesto», non «quale stato
+    #: di OSM ho ottenuto» (per quello servirebbe ``osm3s.timestamp_osm_base`` del
+    #: payload Overpass, che il contratto PoiSource oggi non trasporta).
+    catturato_il: str
+    #: Bbox interrogato, ``[min_lat, min_lon, max_lat, max_lon]``.
+    bbox: list[float]
+    citta: str
+    #: ``None`` solo se il chiamante non l'ha dichiarata: lo slug del nome file è
+    #: lossy, quindi senza questo campo il legame zona↔bbox non è verificabile.
+    zona: str | None
+    configurazione_canonica: ConfigurazioneCanonica
 
 
 class SnapshotFile(TypedDict):
     """Formato su file di una fixture POI (#241)."""
 
+    #: Versione del formato: permette a un lettore piu' vecchio di fallire
+    #: dicendolo, invece di iterare le chiavi di un dizionario credendole POI.
+    formato: int
     provenienza: SnapshotProvenance
     poi: list[Poi]
+
+
+#: Versione corrente del formato su file (1 = lista nuda pre-#241, implicita).
+FORMATO_SNAPSHOT = 2
 
 
 def _selettori_hash() -> str:
@@ -78,14 +111,18 @@ def save_snapshot(
     path: Path,
     pois: list[Poi],
     *,
-    bbox: Bbox | None = None,
-    now: str | None = None,
+    bbox: Bbox,
+    citta: str,
+    zona: str | None = None,
+    clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> None:
     """Serializza i POI e la loro provenienza su file (crea le cartelle).
 
-    ``now`` (ISO-8601) è iniettabile per i test; ``None`` = istante reale in UTC.
-    ``bbox`` è quello con cui la cattura è stata chiesta: lo passa
-    :func:`capturing_source`, che lo riceve dal chiamante.
+    ``bbox`` e ``citta`` sono OBBLIGATORI: una provenienza che omette l'area
+    interrogata non serve a nessuno, e renderli opzionali permetteva di scrivere
+    un record con ``"bbox": null``. ``clock`` è iniettabile per i test — un
+    callable e non una stringa, così l'istante non può essere fabbricato a mano:
+    è il campo su cui poggia l'onestà dell'artefatto.
 
     Scrive con ``newline=""`` (nessuna traduzione): su Windows il default
     produceva CRLF nel working tree contro il blob LF in git, e con
@@ -93,15 +130,18 @@ def save_snapshot(
     pur essendo identiche nel contenuto (#241, stessa classe di #103).
     """
     contenuto: SnapshotFile = {
+        "formato": FORMATO_SNAPSHOT,
         "provenienza": {
-            "catturato_il": now or datetime.now(UTC).isoformat(),
-            "bbox": None
-            if bbox is None
-            else [bbox.min_lat, bbox.min_lon, bbox.max_lat, bbox.max_lon],
-            "selettori_osm_hash": _selettori_hash(),
-            "n_selettori": len(OSM_SELECTORS),
-            "max_pois": MAX_POIS,
-            "per_selector_cap": PER_SELECTOR_CAP,
+            "catturato_il": clock().isoformat(),
+            "bbox": [bbox.min_lat, bbox.min_lon, bbox.max_lat, bbox.max_lon],
+            "citta": citta,
+            "zona": zona,
+            "configurazione_canonica": {
+                "selettori_hash": _selettori_hash(),
+                "n_selettori": len(OSM_SELECTORS),
+                "max_pois": MAX_POIS,
+                "per_selector_cap": PER_SELECTOR_CAP,
+            },
         },
         "poi": list(pois),
     }
@@ -144,16 +184,33 @@ def replay_source(path: Path) -> PoiSource:
     return _source
 
 
-def capturing_source(path: Path, inner: PoiSource = fetch_pois) -> PoiSource:
+async def offline_fetch_pois(bbox: Bbox, citta: str) -> list[Poi]:
+    """Sorgente live della cattura: backoff lungo di cortesia (#232).
+
+    Vive qui, accanto a :func:`capturing_source`, e non nel CLI: la politica di
+    ritentativo della cattura è una proprietà della cattura, e come default
+    dell'helper evita che un chiamante ottenga per distrazione quella
+    interattiva, che il 26/07 ha rinunciato al secondo tentativo (504 poi 429)
+    costringendo a un backoff scritto a mano fuori dal codice — cioè a una run
+    non riproducibile.
+    """
+    return await fetch_pois(bbox, citta, retry=OFFLINE_RETRY)
+
+
+def capturing_source(
+    path: Path, inner: PoiSource = offline_fetch_pois, *, zona: str | None = None
+) -> PoiSource:
     """PoiSource che chiama ``inner`` (Overpass reale) e salva lo snapshot.
 
     Il ``bbox`` ricevuto finisce nella provenienza (#241): è l'area effettivamente
-    interrogata, non una ricostruita a posteriori dalla zona.
+    interrogata, non una ricostruita a posteriori. ``zona`` non è ricavabile né dal
+    bbox né dai POI (lo slug del nome file è lossy), quindi va passata dal
+    chiamante perché il legame zona↔bbox resti verificabile dal file.
     """
 
     async def _source(bbox: Bbox, citta: str) -> list[Poi]:
         pois = await inner(bbox, citta)
-        save_snapshot(path, pois, bbox=bbox)
+        save_snapshot(path, pois, bbox=bbox, citta=citta, zona=zona)
         return pois
 
     return _source
