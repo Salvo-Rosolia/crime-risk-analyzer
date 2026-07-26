@@ -8,18 +8,21 @@ nessuna run live LLM/Overpass.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 from pytest import MonkeyPatch
 
 from crime_risk_analyzer.eval.compare import (
+    VACUOUS_CAVEAT_HEAD,
     Comparison,
     FailedZone,
     MetricValues,
     ZoneComparison,
     compare_experiments,
     compare_records,
+    is_vacuous_arm,
     to_csv,
     to_markdown,
     write_comparison,
@@ -46,6 +49,7 @@ def _rec(
     model: str = "claude",
     status: RunStatus = RunStatus.OK,
     snapshot_id: str | None = None,
+    narrativa: str = "x",
 ) -> RunRecord:
     """RunRecord minimale con metriche controllate per i test di confronto."""
     return RunRecord(
@@ -62,7 +66,7 @@ def _rec(
             latency_ms=latency_ms,
             cost_usd=cost_usd,
         ),
-        narrativa="x",
+        narrativa=narrativa,
         n_poi=1,
         provenance=Provenance(
             code_commit="c",
@@ -695,3 +699,186 @@ def test_compare_experiments_refuses_overwrite_without_force(tmp_path: Path) -> 
     with pytest.raises(FileExistsError):
         compare_experiments(tmp_path, "a-exp", "b-exp", stem="dup")
     compare_experiments(tmp_path, "a-exp", "b-exp", stem="dup", force=True)
+
+
+# --- Braccio strutturalmente vacuo: assi di qualita' non applicabili (#231) ---
+#
+# Osservato sulla prima run reale: il braccio `baseline` (nessun LLM) non produce
+# narrativa, cade nel ramo VACUO di metrics.py (grounding 1.0 / hallucination 0.0)
+# e cosi' "vince" gli assi di qualita' per assenza di testo da giudicare. La
+# regola vacua e' corretta per il FALLBACK; qui va marcata come non interpretabile.
+
+
+def _analyze_rec(citta: str, zona: str, *, narrativa: str = "prosa reale") -> RunRecord:
+    return _rec(
+        "analyze-exp",
+        citta,
+        zona,
+        grounding=0.700,
+        hallucination=0.300,
+        latency_ms=3000,
+        cost_usd=0.005,
+        narrativa=narrativa,
+    )
+
+
+def _silent_rec(citta: str, zona: str, *, narrativa: str = "") -> RunRecord:
+    """Record del braccio senza LLM: status OK, nessuna narrativa (by design)."""
+    return _rec(
+        "baseline-exp",
+        citta,
+        zona,
+        grounding=1.000,
+        hallucination=0.000,
+        latency_ms=2,
+        cost_usd=0.0,
+        mode="baseline",
+        model="baseline",
+        narrativa=narrativa,
+    )
+
+
+def test_compare_records_flags_arm_that_never_produces_narrativa() -> None:
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo")],
+        [_silent_rec("Roma", "Colosseo")],
+        label_a="analyze",
+        label_b="baseline",
+    )
+    assert comparison.vacuous_arms == ["baseline"]
+
+
+def test_compare_records_does_not_flag_arm_with_narrativa_on_some_zones() -> None:
+    """Un braccio muto su UNA zona ma parlante su un'altra NON e' vacuo."""
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo"), _analyze_rec("Milano", "Duomo")],
+        [
+            _silent_rec("Roma", "Colosseo"),
+            _silent_rec("Milano", "Duomo", narrativa="ha parlato qui"),
+        ],
+        label_a="analyze",
+        label_b="baseline",
+    )
+    assert comparison.vacuous_arms == []
+
+
+def test_compare_records_flags_arm_whose_narrativa_is_only_whitespace() -> None:
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo")],
+        [_silent_rec("Roma", "Colosseo", narrativa="   \n  ")],
+        label_a="analyze",
+        label_b="baseline",
+    )
+    assert comparison.vacuous_arms == ["baseline"]
+
+
+def test_markdown_marks_quality_axes_not_applicable_for_vacuous_arm() -> None:
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo")],
+        [_silent_rec("Roma", "Colosseo")],
+        label_a="analyze",
+        label_b="baseline",
+    )
+    md = to_markdown(comparison)
+    assert VACUOUS_CAVEAT_HEAD in md
+    assert "`baseline`" in md
+    # Il caveat deve precedere la nota metodologica generica: si legge prima.
+    assert md.index(VACUOUS_CAVEAT_HEAD) < md.index("Nota metodologica")
+
+
+def test_markdown_has_no_quality_caveat_when_both_arms_generate() -> None:
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo")],
+        [_analyze_rec("Roma", "Colosseo", narrativa="anche qui prosa")],
+        label_a="claude",
+        label_b="groq",
+    )
+    assert VACUOUS_CAVEAT_HEAD not in to_markdown(comparison)
+
+
+# --- Vacuita' per ZONA, non solo per braccio (#231, review C2) --------------
+#
+# `status=OK` con narrativa vuota e' raggiungibile in produzione: il client Groq
+# ritorna `content or ""` senza sollevare (llm/client.py), quindi l'orchestrator
+# risponde fallback=False e l'harness registra OK. Una singola zona muta prende
+# hallucination 0.000 vacuo e puo' spostare la media che decide il verdetto.
+
+
+def test_compare_records_flags_the_single_zone_where_an_arm_stays_silent() -> None:
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo"), _analyze_rec("Milano", "Duomo")],
+        [
+            _silent_rec("Roma", "Colosseo"),
+            _silent_rec("Milano", "Duomo", narrativa="qui il modello ha parlato"),
+        ],
+        label_a="analyze",
+        label_b="baseline",
+    )
+    # Il braccio non e' vacuo (parla su Milano), ma Roma resta non interpretabile.
+    assert comparison.vacuous_arms == []
+    assert [(z.citta, z.zona, z.arms) for z in comparison.vacuous_zones] == [
+        ("Roma", "Colosseo", ["baseline"])
+    ]
+
+
+def test_compare_records_has_no_vacuous_zones_when_both_arms_speak_everywhere() -> None:
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo")],
+        [_analyze_rec("Roma", "Colosseo", narrativa="anche qui prosa")],
+        label_a="claude",
+        label_b="groq",
+    )
+    assert comparison.vacuous_zones == []
+
+
+def test_markdown_names_the_vacuous_zone_when_the_arm_is_not_wholly_silent() -> None:
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo"), _analyze_rec("Milano", "Duomo")],
+        [
+            _silent_rec("Roma", "Colosseo"),
+            _silent_rec("Milano", "Duomo", narrativa="qui ha parlato"),
+        ],
+        label_a="analyze",
+        label_b="baseline",
+    )
+    md = to_markdown(comparison)
+    assert VACUOUS_CAVEAT_HEAD in md
+    assert "Roma" in md
+
+
+def test_markdown_puts_the_vacuity_warning_before_the_numbers() -> None:
+    """L'avviso deve precedere la tabella: chi legge non deve incontrare prima
+    un delta di qualità che l'avviso poi smentisce (review C1)."""
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo")],
+        [_silent_rec("Roma", "Colosseo")],
+        label_a="analyze",
+        label_b="baseline",
+    )
+    md = to_markdown(comparison)
+    assert md.index(VACUOUS_CAVEAT_HEAD) < md.index("| citta | zona |")
+
+
+def test_is_vacuous_arm_is_false_for_an_arm_without_records() -> None:
+    """Un braccio vuoto non è muto: non è un braccio (regola documentata)."""
+    assert is_vacuous_arm([]) is False
+
+
+def test_compare_experiments_writes_the_vacuity_warning_to_disk(tmp_path: Path) -> None:
+    """AC3: il percorso non ripetuto (quello che il CLI `compare` chiama) deve
+    portare l'avviso nel .md e `vacuous_arms` nel .json scritti su disco."""
+    write_record(tmp_path, _analyze_rec("Roma", "Colosseo"))
+    write_record(tmp_path, _silent_rec("Roma", "Colosseo"))
+    compare_experiments(
+        tmp_path,
+        "analyze-exp",
+        "baseline-exp",
+        label_a="analyze",
+        label_b="baseline",
+        stem="cli",
+    )
+    md = (tmp_path / "cli.md").read_text(encoding="utf-8")
+    assert VACUOUS_CAVEAT_HEAD in md
+    payload = json.loads((tmp_path / "cli.json").read_text(encoding="utf-8"))
+    assert payload["vacuous_arms"] == ["baseline"]
+    assert payload["vacuous_zones"][0]["zona"] == "Colosseo"

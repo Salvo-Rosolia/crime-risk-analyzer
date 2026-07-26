@@ -1,0 +1,182 @@
+[
+  {
+    "id": "441162764",
+    "name": "Monte dei Paschi di Siena",
+    "lat": 45.463163,
+    "lon": 9.19406,
+    "osm_tags": "amenity=bank",
+    "terminus_class": "Bank",
+    "citta": "Milano"
+  },
+  {
+    "id": "715948248",
+    "name": "UniCredit",
+    "lat": 45.4603059,
+    "lon": 9.1884443,
+    "osm_tags": "amenity=bank",
+    "terminus_class": "Bank",
+    "citta": "Milano"
+  },
+  {
+    "id": "1273580572",
+    "name": "BOC",
+    "lat": 45.4664516,
+    "lon": 9.1890467,
+    "osm_tags": "amenity=bank",
+    "terminus_class": "Bank",
+    "citta": "Milano"
+  },
+  {
+    "id": "5417230104",
+    "name": "",
+    "lat": 45.4644622,
+    "lon": 9.1874456,
+    "osm_tags": "amenity=atm",
+    "terminus_class": "Bank",
+    "citta": "Milano"
+  },
+  {
+    "id": "5486065968",
+    "name": "Intesa Sanpaolo",
+    "lat": 45.4686346,
+    "lon": 9.1888662,
+    "osm_tags": "amenity=atm",
+    "terminus_class": "Bank",
+    "citta": "Milano"
+  },
+  {
+    "id": "5841697411",
+    "name": "",
+    "lat": 45.4666574,
+    "lon": 9.1931389,
+    "osm_tags": "amenity=atm",
+    "terminus_class": "Bank",
+    "citta": "Milano"
+  },
+  {
+    "id": "1940587376",
+    "name": "",
+    "lat": 45.4640203,
+    "lon": 9.1884141,
+    "osm_tags": "amenity=bureau_de_change",
+    "terminus_class": "Bank",
+    "citta": "Milano"
+  },
+  {
+    "id": "1940587379",
+    "name": "Best and Fast",
+    "lat": 45.4645704,
+    "lon": 9.188421,
+    "osm_tags": "amenity=bureau_de_change",
+    "terminus_class": "Bank",
+    "citta": "Milano"
+  },
+  {
+    "id": "2401890314",
+    "name": "Forexchange",
+    "lat": 45.4644886,
+    "lon": 9.188417,
+    "osm_tags": "amenity=bureau_de_change",
+    "terminus_class": "Bank",
+    "citta": "Milano"
+  },
+  {
+    "id": "3030452589",
+    "name": "Santagostino Donna",
+    "lat": 45.4626043,
+    "lon": 9.1935327,
+    "osm_tags": "amenity=clinic",
+    "terminus_class": "Hospital",
+    "citta": "Milano"
+  },
+  {
+    "id": "7235042678",
+    "name": "Clinica Baviera",
+    "lat": 45.4611597,
+    "lon": 9.1894037,
+    "osm_tags": "amenity=clinic",
+    "terminus_class": "Hospital",
+    "citta": "Milano"
+  },
+  {
+    "id": "568383423",
+    "name": "Farmacia Dell'Orso",
+    "lat": 45.4690765,
+    "lon": 9.1878001,
+    "osm_tags": "amenity=pharmacy",
+    "terminus_class": "Pharmacy",
+    "citta": "Milano"
+  },
+  {
+    "id": "661556413",
+    "name": "Farmacia Carlo Alberto",
+    "lat": 45.4626069,
+    "lon": 9.1882702,
+    "osm_tags": "amenity=pharmacy",
+    "terminus_class": "Pharmacy",
+    "citta": "Milano"
+  },
+  {
+    "id": "715904515",
+    "name": "Farmacia Carlo Erba",
+    "lat": 45.4648556,
+    "lon": 9.1893457,
+    "osm_tags": "amenity=pharmacy",
+    "terminus_class": "Pharmacy",
+    "citta": "Milano"
+  },
+  {
+    "id": "5033959334",
+    "name": "Carabinieri - Comando Compagnia Milano Duomo",
+    "lat": 45.4625819,
+    "lon": 9.1848412,
+    "osm_tags": "amenity=police",
+    "terminus_class": "National_police",
+    "citta": "Milano"
+  },
+  {
+    "id": "5033959344",
+    "name": "Polizia di Stato - Commissariato Centro",
+    "lat": 45.4628284,
+    "lon": 9.1850397,
+    "osm_tags": "amenity=police",
+    "terminus_class": "National_police",
+    "citta": "Milano"
+  },
+  {
+    "id": "13061786040",
+    "name": "Questura - Ufficio Passaporti",
+    "lat": 45.4647043,
+    "lon": 9.1852048,
+    "osm_tags": "amenity=police",
+    "terminus_class": "National_police",
+    "citta": "Milano"
+  },
+  {
+    "id": "3405716896",
+    "name": "Municipio di Milano",
+    "lat": 45.4666979,
+    "lon": 9.1904565,
+    "osm_tags": "amenity=townhall",
+    "terminus_class": "Town_hall",
+    "citta": "Milano"
+  },
+  {
+    "id": "5611562222",
+    "name": "Tribunale Ecclesiastico Regionale Lombardo",
+    "lat": 45.4634346,
+    "lon": 9.1934517,
+    "osm_tags": "amenity=courthouse",
+    "terminus_class": "Government_office",
+    "citta": "Milano"
+  },
+  {
+    "id": "2391329539",
+    "name": "Istituto Marangoni",
+    "lat": 45.4675339,
+    "lon": 9.1943721,
+    "osm_tags": "amenity=school",
+    "terminus_class": "School",
+    "citta": "Milano"
+  }
+]

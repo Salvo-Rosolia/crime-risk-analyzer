@@ -15,12 +15,15 @@ from pathlib import Path
 
 from crime_risk_analyzer.eval.aggregate import load_runs
 from crime_risk_analyzer.eval.compare import (
+    VACUOUS_REASON,
     Comparison,
     MetricValues,
+    VacuousZone,
     compare_records,
     guard_no_overwrite,
     to_json,
     to_markdown,
+    vacuity_subject,
 )
 from crime_risk_analyzer.eval.repeat import FoldedArm, ZoneVariance, fold_arm
 from crime_risk_analyzer.eval.schema import Metrics
@@ -205,6 +208,30 @@ def winner_markdown(
     return "\n".join(lines) + "\n"
 
 
+def verdict_na_markdown(
+    vacuous_arms: list[str], vacuous_zones: list[VacuousZone], k_label: str
+) -> str:
+    """Sezione «verdetto trattenuto»: manca il testo, gli assi non reggono.
+
+    Sostituisce :func:`winner_markdown` quando la vacuità tocca un braccio intero
+    o anche solo una zona (#231): stessa intestazione (struttura del report
+    stabile), ma al posto del verdetto la ragione per cui su questi assi non se ne
+    può emettere nessuno — in nessuna delle due direzioni. Una sola zona vacua
+    basta: entra nella media che il criterio lessicografico confronta.
+    """
+    return (
+        f"### Esito del criterio proxy (esplorativo, K={k_label})\n"
+        "\n"
+        f"> **NON APPLICABILE.** {vacuity_subject(vacuous_arms, vacuous_zones)}: "
+        f"{VACUOUS_REASON}. Quei valori entrano nella media che il criterio "
+        "confronta, quindi dichiarare un vincitore premierebbe il silenzio: il "
+        "verdetto è **trattenuto**. Il criterio lessicografico (#157) è definito "
+        "per il confronto tra modelli che generano ENTRAMBI. Restano confrontabili "
+        "le misure operative (latenza, costo) nelle tabelle sopra; la qualità "
+        "dell'interpretazione è materia di annotazione umana (#152).\n"
+    )
+
+
 def build_repeated_report(
     results_dir: Path,
     experiment_a: str,
@@ -221,6 +248,12 @@ def build_repeated_report(
     (comparison #33 + oggetti ``winner`` e ``variance``). Ritorna i due path.
     Se un file target esiste e ``force`` è ``False`` solleva
     :class:`FileExistsError` (guardia anti-sovrascrittura, #165).
+
+    Se manca la narrativa — un braccio muto in ogni run, o anche una sola zona su
+    cui un braccio tace (#231) — il verdetto
+    è TRATTENUTO: ``winner`` è ``None`` nel JSON, ``quality_verdict.applicable``
+    è ``False`` e il Markdown motiva l'astensione al posto del vincitore. Le
+    tabelle (incluse le operative) restano invariate.
     """
     la = label_a or experiment_a
     lb = label_b or experiment_b
@@ -229,7 +262,16 @@ def build_repeated_report(
     comparison = compare_records(
         folded_a.mean_records, folded_b.mean_records, label_a=la, label_b=lb
     )
-    winner = decide_winner(comparison.mean_a, comparison.mean_b, label_a=la, label_b=lb)
+    # Nessun verdetto se manca il testo, a livello di braccio O di singola zona
+    # (#231): premierebbe il silenzio. La vacuità arriva dai record-media, che
+    # conservano la DISPONIBILITÀ di narrativa (repeat._representative_narrativa),
+    # non una media di testi (che non esiste).
+    withheld = bool(comparison.vacuous_arms or comparison.vacuous_zones)
+    winner = (
+        None
+        if withheld
+        else decide_winner(comparison.mean_a, comparison.mean_b, label_a=la, label_b=lb)
+    )
     k_lo, k_hi = _k_range(folded_a, folded_b)
     k = _k_of(folded_a, folded_b)  # max, per il payload JSON (contratto stabile)
     warning = (
@@ -237,6 +279,14 @@ def build_repeated_report(
         "fa la media di zone con basi campionarie diverse.\n\n"
         if k_lo != k_hi
         else ""
+    )
+    k_label = f"{k_lo}" if k_hi == k_lo else f"{k_lo}..{k_hi}"
+    verdict_section = (
+        verdict_na_markdown(comparison.vacuous_arms, comparison.vacuous_zones, k_label)
+        if winner is None
+        else winner_markdown(
+            winner, k_lo, folded_a=folded_a, folded_b=folded_b, k_hi=k_hi
+        )
     )
     md = (
         "\n".join(
@@ -247,17 +297,25 @@ def build_repeated_report(
                     comparison, folded_a, folded_b, k_lo, k_hi=k_hi
                 ).rstrip("\n"),
                 "",
-                warning
-                + winner_markdown(
-                    winner, k_lo, folded_a=folded_a, folded_b=folded_b, k_hi=k_hi
-                ).rstrip("\n"),
+                warning + verdict_section.rstrip("\n"),
             ]
         )
         + "\n"
     )
     payload = {
         "comparison": json.loads(to_json(comparison)),
-        "winner": winner.model_dump(),
+        "winner": winner.model_dump() if winner is not None else None,
+        "quality_verdict": {
+            "applicable": not withheld,
+            "vacuous_arms": comparison.vacuous_arms,
+            "vacuous_zones": [z.model_dump() for z in comparison.vacuous_zones],
+            "reason": (
+                "manca la narrativa su cui i proxy di qualità si pronunciano: "
+                "metriche vacue (#231)"
+                if withheld
+                else ""
+            ),
+        },
         "variance": {
             "k": k,
             "label_a": la,
