@@ -41,6 +41,10 @@ export class NarrativeSheetComponent {
   readonly narrativaFonti = input<SourceProse | null>(null);
   readonly riskModels = input<RiskModel[]>([]);
   readonly open = input<boolean>(true);
+  /** Generazione in corso (#197): il corpo lo dichiara, il contenuto precedente resta visibile. */
+  readonly loading = input<boolean>(false);
+  /** Errore dell'ultima generazione (#197); `null` quando non c'è nulla da segnalare. */
+  readonly error = input<string | null>(null);
 
   readonly toggleNarrative = output<void>();
   readonly regenerate = output<void>();

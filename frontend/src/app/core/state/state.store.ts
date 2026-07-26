@@ -60,8 +60,13 @@ export class StateStore {
    * svuotarsi: la vista non sfarfalla e l'operatore non perde il testo che stava leggendo.
    */
   private readonly currentPoiNarrative = computed(() => {
-    const id = this._state().selectedPoiId;
-    return id ? (this._state().poiNarratives[id] ?? null) : null;
+    // Guardia su DETAIL, come `selectedDetail` in app.ts (#199): `TOGGLE_MODE` non azzera
+    // `selectedPoiId`, quindi un giro Completo→Base→Completo tornerebbe in RESULTS con una
+    // selezione residua e il pannello mostrerebbe la narrativa di un POI mentre il dock mostra
+    // la lista. Lo scope deve dipendere dallo schermo, non dal solo id residuo.
+    const s = this._state();
+    if (s.screen !== 'DETAIL') return null;
+    return s.selectedPoiId ? (s.poiNarratives[s.selectedPoiId] ?? null) : null;
   });
   /**
    * Narrativa dello SCOPE corrente (#197): quella del POI se disponibile, altrimenti quella di

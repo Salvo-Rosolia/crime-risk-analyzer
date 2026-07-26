@@ -100,6 +100,28 @@
   border-top: var(--panel-border) solid var(--ink);
 }
 
+/* Stato della generazione per-POI (#197): righe di servizio sopra il contenuto, distinte dalla
+   prosa. L'errore riusa la famiglia amber degli avvisi (--c-da-confermare-*), che è già il
+   registro visivo dei messaggi non bloccanti: il contenuto precedente resta leggibile sotto. */
+.cra-narr-loading,
+.cra-narr-error {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.cra-narr-loading {
+  color: var(--ink-2);
+  font-style: italic;
+}
+
+.cra-narr-error {
+  color: var(--c-da-confermare-ink);
+  background: var(--c-da-confermare-bg);
+  padding: 6px 10px;
+  border-left: 3px solid var(--c-da-confermare);
+}
+
 .cra-narr-lead {
   margin: 0;
   font-size: 0.9rem;

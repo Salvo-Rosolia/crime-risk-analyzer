@@ -20,7 +20,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { App } from './app';
 import { ApiService } from '@core/api/api.service';
 import { StateStore } from '@core/state/state.store';
-import type { AnalyzeResponse } from '@core/models/models';
+import type { AnalyzeResponse, PoiNarrativeResponse } from '@core/models/models';
 
 const emptyResp: AnalyzeResponse = {
   citta: 'Roma',
@@ -41,13 +41,19 @@ const emptyResp: AnalyzeResponse = {
 
 describe('App shell', () => {
   let store: StateStore;
-  let api: { cities: jest.Mock; analyze: jest.Mock; analyzeBaseline: jest.Mock };
+  let api: {
+    cities: jest.Mock;
+    analyze: jest.Mock;
+    analyzeBaseline: jest.Mock;
+    poiNarrative: jest.Mock;
+  };
 
   beforeEach(async () => {
     api = {
       cities: jest.fn().mockResolvedValue([]),
       analyze: jest.fn(),
       analyzeBaseline: jest.fn(),
+      poiNarrative: jest.fn(),
     };
     await TestBed.configureTestingModule({
       imports: [App],
@@ -842,6 +848,128 @@ describe('App shell', () => {
       expect(store.screen()).toBe('RESULTS');
       expect(store.completoData()).toBe(emptyResp);
       expect(f.nativeElement.querySelector('.cra-btn-new-request')).toBeTruthy();
+    });
+  });
+
+  describe('narrativa del POI selezionato (#197)', () => {
+    const zoneResp: AnalyzeResponse = {
+      ...emptyResp,
+      narrativa: 'panoramica di zona',
+      narrativa_fonti: {
+        overview: 'panoramica di zona',
+        ontologia: '',
+        contesto: '',
+        speculativo: '',
+      },
+      poi: [
+        {
+          id: 'poi-1',
+          name: 'Banca A',
+          terminus_class: 'Bank',
+          lat: 41.89,
+          lon: 12.49,
+          confidence: 'verificato',
+          sparql_path: null,
+          terminus_label_it: 'Banca',
+          terminus_label_en: 'Bank',
+        },
+      ],
+    };
+
+    const poiResp: PoiNarrativeResponse = {
+      poi_id: 'poi-1',
+      narrativa: 'ritratto del punto',
+      narrativa_fonti: {
+        overview: 'ritratto del punto',
+        ontologia: '',
+        contesto: '',
+        speculativo: '',
+      },
+      risk_models: [],
+      tokens_input: 10,
+      tokens_output: 20,
+      latenza_ms: 100,
+      repro: { temperature: 0, seed: 0, prompt_hash: 'h' },
+      fallback: false,
+    };
+
+    /** Shell montata e già in RESULTS con una zona analizzata (quindi `lastQuery` valorizzato). */
+    async function analyzed(): Promise<ComponentFixture<App>> {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+      api.analyze.mockResolvedValue(zoneResp);
+      await store.startAnalysis('Roma', 'Colosseo', null);
+      f.detectChanges();
+      return f;
+    }
+
+    it('selezionando un POI ne chiede la narrativa', async () => {
+      const f = await analyzed();
+      api.poiNarrative.mockResolvedValue(poiResp);
+      const spy = jest.spyOn(store, 'loadPoiNarrative');
+
+      (f.nativeElement.querySelector('.cra-poi-card') as HTMLElement).click();
+
+      expect(spy).toHaveBeenCalledWith('poi-1');
+    });
+
+    it('ACCEPTANCE: la narrativa mostrata segue lo scope — POI se selezionato, zona se deselezionato', async () => {
+      const f = await analyzed();
+      expect(f.nativeElement.textContent).toContain('panoramica di zona');
+
+      api.poiNarrative.mockResolvedValue(poiResp);
+      (f.nativeElement.querySelector('.cra-poi-card') as HTMLElement).click();
+      await f.whenStable();
+      f.detectChanges();
+
+      expect(api.poiNarrative).toHaveBeenCalledWith('Roma', 'Colosseo', 'poi-1');
+      expect(f.nativeElement.textContent).toContain('ritratto del punto');
+      expect(f.nativeElement.textContent).not.toContain('panoramica di zona');
+
+      store.dispatch({ type: 'DESELECT_POI' });
+      f.detectChanges();
+      expect(f.nativeElement.textContent).toContain('panoramica di zona');
+    });
+
+    it('«Rigenera» con un POI selezionato rigenera QUEL POI e non rilancia l’analisi di zona', async () => {
+      const f = await analyzed();
+      api.poiNarrative.mockResolvedValue(poiResp);
+      (f.nativeElement.querySelector('.cra-poi-card') as HTMLElement).click();
+      await f.whenStable();
+      f.detectChanges();
+
+      const poiSpy = jest.spyOn(store, 'loadPoiNarrative');
+      const zoneSpy = jest.spyOn(store, 'startAnalysis');
+      (f.nativeElement.querySelector('.cra-btn-regen') as HTMLElement).click();
+
+      expect(poiSpy).toHaveBeenCalledWith('poi-1', { force: true });
+      expect(zoneSpy).not.toHaveBeenCalled();
+    });
+
+    it('«Rigenera» senza selezione rilancia l’analisi di zona (comportamento invariato)', async () => {
+      const f = await analyzed();
+      const zoneSpy = jest.spyOn(store, 'startAnalysis');
+
+      (f.nativeElement.querySelector('.cra-btn-regen') as HTMLElement).click();
+
+      expect(zoneSpy).toHaveBeenCalledWith('Roma', 'Colosseo', null);
+    });
+
+    it('durante la generazione il pannello dichiara il caricamento', async () => {
+      const f = await analyzed();
+      store.dispatch({ type: 'POI_NARRATIVE_START', poiId: 'poi-1' });
+      f.detectChanges();
+      expect(f.nativeElement.querySelector('.cra-narr-loading')).toBeTruthy();
+    });
+
+    it('un errore di generazione è mostrato nel pannello', async () => {
+      const f = await analyzed();
+      store.dispatch({ type: 'POI_NARRATIVE_ERROR', message: 'rilancia l’analisi' });
+      f.detectChanges();
+      const err = f.nativeElement.querySelector('.cra-narr-error');
+      expect(err).toBeTruthy();
+      expect(err.textContent).toContain('rilancia l’analisi');
     });
   });
 });

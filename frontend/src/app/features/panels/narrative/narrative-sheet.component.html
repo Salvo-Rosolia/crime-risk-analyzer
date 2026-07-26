@@ -17,6 +17,11 @@
 
 @if (open()) {
   <div class="cra-narr-body">
+    @if (loading()) {
+      <p class="cra-narr-loading" role="status">Generazione della narrativa in corso…</p>
+    } @else if (error()) {
+      <p class="cra-narr-error" role="alert">{{ error() }}</p>
+    }
     @if (leadText()) {
       <p class="cra-narr-lead">{{ leadText() }}</p>
     }
