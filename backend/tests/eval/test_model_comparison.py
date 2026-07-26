@@ -327,6 +327,7 @@ def _resp163(narrativa: str) -> AnalyzeResponse:
         repro=Repro(temperature=0.0, seed=0, prompt_hash="ph"),
         cache_hit=False,
         fallback=False,
+        contesto_hash="h-ctx",
         tokens_input=10,
         tokens_output=20,
     )

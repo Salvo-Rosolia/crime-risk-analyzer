@@ -24,12 +24,23 @@ export class ApiService {
   }
 
   /**
-   * Narrativa del singolo POI selezionato (`POST /analyze/poi`, #197). Il client manda solo l'id:
-   * classe, rischi e percorso ontologico sono ri-derivati dal server dal contesto di zona.
+   * Narrativa del singolo POI selezionato (`POST /analyze/poi`, #197). Il client manda solo l'id e
+   * l'impronta del contesto che sta mostrando (#242): classe, rischi e percorso ontologico sono
+   * ri-derivati dal server, e l'impronta è confrontata dal backend, mai usata per il prompt.
    */
-  poiNarrative(citta: string, zona: string, poiId: string): Promise<PoiNarrativeResponse> {
+  poiNarrative(
+    citta: string,
+    zona: string,
+    poiId: string,
+    contestoHash: string,
+  ): Promise<PoiNarrativeResponse> {
     return firstValueFrom(
-      this.http.post<PoiNarrativeResponse>('/analyze/poi', { citta, zona, poi_id: poiId }),
+      this.http.post<PoiNarrativeResponse>('/analyze/poi', {
+        citta,
+        zona,
+        poi_id: poiId,
+        contesto_hash: contestoHash,
+      }),
     );
   }
 }

@@ -54,6 +54,9 @@ def _resp(
         repro=Repro(temperature=0.0, seed=0, prompt_hash="ph"),
         cache_hit=False,
         fallback=False,
+        # Valore finto: qui si misurano le metriche sulla narrativa, l'impronta
+        # del contesto (#242) e' irrilevante e un letterale lo dichiara.
+        contesto_hash="h-ctx",
         tokens_input=tokens[0],
         tokens_output=tokens[1],
     )

@@ -42,6 +42,7 @@ def _response(narrativa: str) -> AnalyzeResponse:
         latenza_ms=10,
         repro=Repro(temperature=0.0, seed=0, prompt_hash="h"),
         cache_hit=False,
+        contesto_hash="h-ctx",
     )
 
 

@@ -15,7 +15,10 @@ export interface MockOpts {
   analyzeStatus?: number;
   /** Risposta di `POST /analyze/poi` (#197): narrativa del singolo POI selezionato. */
   poiNarrative?: unknown;
-  /** Status HTTP della risposta `/analyze/poi` (default 200; 404 = POI fuori dal contesto). */
+  /**
+   * Status HTTP della risposta `/analyze/poi` (default 200; 404 = POI fuori dal contesto,
+   * 409 = contesto disallineato rispetto a quello mostrato, #242).
+   */
   poiNarrativeStatus?: number;
 }
 

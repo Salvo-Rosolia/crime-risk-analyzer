@@ -9,12 +9,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from crime_risk_analyzer import zone_context_cache
+from crime_risk_analyzer.context_fingerprint import fingerprint
 from crime_risk_analyzer.geocoding import GeoResult, ZoneNotFoundError
 from crime_risk_analyzer.llm.client import LLMError, LLMResponse, get_llm_client
 from crime_risk_analyzer.main import create_app
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.models.risk import PoiRiskProfile
-from crime_risk_analyzer.orchestrator import run_analysis
+from crime_risk_analyzer.orchestrator import run_analysis, run_baseline
 from crime_risk_analyzer.overpass_client import OverpassError, Poi
 from crime_risk_analyzer.rag import retrieval
 from crime_risk_analyzer.sparql_module.query_executor import get_executor
@@ -370,3 +371,113 @@ async def test_run_analysis_populates_the_zone_context_cache() -> None:
     assert cached["retrieval"]["zona"] == "Colosseo"
     assert [p["name"] for p in cached["retrieval"]["pois"]] == ["Banca A", "Bar Roma"]
     assert len(cached["grounded"]["validated_risks"]) == 2
+
+
+# --- #242: impronta del contesto nella response ---
+# ``retrieve`` passa la lista di POI COSI' COM'E' dalla source al contesto
+# (``pois = await source(...)``: nessun filtro, nessun riordino), quindi
+# l'impronta della response identifica esattamente la lista prodotta dalla
+# sorgente e il confronto con ``fingerprint(_pois(...))`` e' legittimo.
+
+
+async def test_run_analysis_espone_l_impronta_del_contesto() -> None:
+    """#242: l'impronta identifica la lista POI che la response mostra."""
+
+    async def _geo(citta: str, zona: str) -> GeoResult:
+        return GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50))
+
+    async def _fetch(bbox: Bbox, citta: str) -> list[Poi]:
+        return _pois(citta)
+
+    zone_context_cache.clear()
+    resp = await run_analysis(
+        "Roma",
+        "Colosseo",
+        executor=_FakeProfiler(),
+        llm_client=_FakeLLMClient(),
+        poi_source=_fetch,
+        geo_source=_geo,
+    )
+    assert resp.contesto_hash == fingerprint(_pois("Roma"))
+
+
+async def test_impronta_diversa_se_il_set_di_poi_cambia() -> None:
+    """Due catture con POI diversi non possono avere la stessa impronta:
+    e' la condizione perche' /analyze/poi rilevi la divergenza (#242)."""
+
+    async def _geo(citta: str, zona: str) -> GeoResult:
+        return GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50))
+
+    async def _fetch_pieno(bbox: Bbox, citta: str) -> list[Poi]:
+        return _pois(citta)
+
+    async def _fetch_ridotto(bbox: Bbox, citta: str) -> list[Poi]:
+        return _pois(citta)[:1]
+
+    zone_context_cache.clear()
+    pieno = await run_analysis(
+        "Roma",
+        "Colosseo",
+        executor=_FakeProfiler(),
+        llm_client=_FakeLLMClient(),
+        poi_source=_fetch_pieno,
+        geo_source=_geo,
+    )
+    zone_context_cache.clear()
+    ridotto = await run_analysis(
+        "Roma",
+        "Colosseo",
+        executor=_FakeProfiler(),
+        llm_client=_FakeLLMClient(),
+        poi_source=_fetch_ridotto,
+        geo_source=_geo,
+    )
+    assert pieno.contesto_hash != ridotto.contesto_hash
+
+
+async def test_baseline_espone_l_impronta_del_contesto() -> None:
+    """Anche la pipeline senza LLM emette l'impronta: la response e' la stessa
+    e il frontend in modalita' Base non deve restare senza (#242)."""
+
+    async def _geo(citta: str, zona: str) -> GeoResult:
+        return GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50))
+
+    async def _fetch(bbox: Bbox, citta: str) -> list[Poi]:
+        return _pois(citta)
+
+    resp = await run_baseline(
+        "Roma",
+        "Colosseo",
+        executor=_FakeProfiler(),
+        poi_source=_fetch,
+        geo_source=_geo,
+    )
+    assert resp.contesto_hash == fingerprint(_pois("Roma"))
+
+
+async def test_impronta_baseline_calcolata_dopo_il_filtro_tipo_poi() -> None:
+    """L'impronta identifica la lista RESTITUITA, non quella pre-filtro (#242).
+
+    Senza questo test un refactor che riportasse ``fingerprint`` sopra
+    ``_filter_pois_by_type`` (#119) resterebbe verde e reintrodurrebbe la
+    divergenza che #242 chiude: un'impronta che identifica POI mai mostrati.
+    """
+
+    async def _geo(citta: str, zona: str) -> GeoResult:
+        return GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50))
+
+    async def _fetch(bbox: Bbox, citta: str) -> list[Poi]:
+        return _pois(citta)
+
+    resp = await run_baseline(
+        "Roma",
+        "Colosseo",
+        executor=_FakeProfiler(),
+        poi_source=_fetch,
+        geo_source=_geo,
+        tipo_poi="Bank",
+    )
+    filtrati = [p for p in _pois("Roma") if p["terminus_class"] == "Bank"]
+    assert [p.name for p in resp.poi] == [p["name"] for p in filtrati]
+    assert resp.contesto_hash == fingerprint(filtrati)
+    assert resp.contesto_hash != fingerprint(_pois("Roma"))

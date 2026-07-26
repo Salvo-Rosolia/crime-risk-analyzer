@@ -108,17 +108,22 @@ describe('ApiService', () => {
     await expect(p).rejects.toBeTruthy();
   });
 
-  it('poiNarrative: POST /analyze/poi con citta, zona e poi_id (#197)', async () => {
-    const p = api.poiNarrative('Roma', 'Colosseo', 'node/1');
+  it('poiNarrative: POST /analyze/poi con citta, zona, poi_id e impronta del contesto (#242)', async () => {
+    const p = api.poiNarrative('Roma', 'Colosseo', 'node/1', 'h-ctx');
     const req = http.expectOne('/analyze/poi');
     expect(req.request.method).toBe('POST');
-    expect(req.request.body).toEqual({ citta: 'Roma', zona: 'Colosseo', poi_id: 'node/1' });
+    expect(req.request.body).toEqual({
+      citta: 'Roma',
+      zona: 'Colosseo',
+      poi_id: 'node/1',
+      contesto_hash: 'h-ctx',
+    });
     req.flush(poiResp);
     await expect(p).resolves.toEqual(poiResp);
   });
 
   it('poiNarrative: su errore /analyze/poi rigetta la Promise', async () => {
-    const p = api.poiNarrative('Roma', 'Colosseo', 'node/1');
+    const p = api.poiNarrative('Roma', 'Colosseo', 'node/1', 'h-ctx');
     http.expectOne('/analyze/poi').flush('boom', { status: 404, statusText: 'Not Found' });
     await expect(p).rejects.toBeTruthy();
   });

@@ -37,6 +37,7 @@ const emptyResp: AnalyzeResponse = {
   repro: { temperature: 0, seed: 0, prompt_hash: '' },
   cache_hit: false,
   fallback: false,
+  contesto_hash: 'h-ctx',
 };
 
 describe('App shell', () => {
@@ -938,7 +939,14 @@ describe('App shell', () => {
       await f.whenStable();
       f.detectChanges();
 
-      expect(api.poiNarrative).toHaveBeenCalledWith('Roma', 'Colosseo', 'poi-1');
+      // L'impronta viene dalla risposta di zona mostrata (#242), non da un letterale a parte:
+      // se il fixture cambia, il test resta corretto invece di diventare una bugia verde.
+      expect(api.poiNarrative).toHaveBeenCalledWith(
+        'Roma',
+        'Colosseo',
+        'poi-1',
+        zoneResp.contesto_hash,
+      );
       expect(f.nativeElement.textContent).toContain('ritratto del punto');
       expect(f.nativeElement.textContent).not.toContain('panoramica di zona');
 

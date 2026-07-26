@@ -49,6 +49,7 @@ describe('models (contratto /analyze)', () => {
       repro: { temperature: 0.2, seed: 42, prompt_hash: 'abc123' },
       cache_hit: true,
       fallback: false,
+      contesto_hash: 'h-ctx',
     };
     expect(sample.poi[0].confidence).toBe('verificato');
   });
@@ -130,6 +131,7 @@ describe('models (contratto /analyze)', () => {
       repro: { temperature: 0, seed: 0, prompt_hash: '' },
       cache_hit: false,
       fallback: false,
+      contesto_hash: 'h-ctx',
     };
     const analyze: Action = { type: 'ANALYZE', citta: 'Roma', zona: 'Colosseo', pipeline: 'base' };
     const success: Action = { type: 'LOAD_SUCCESS', data: minimalResponse, pipeline: 'base' };

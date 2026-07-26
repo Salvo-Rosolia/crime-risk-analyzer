@@ -51,7 +51,7 @@ test.describe('narrativa specifica del POI (#197)', () => {
     await expect(S.narrativeLead(page)).toHaveText(analyze.narrativa_fonti.overview);
   });
 
-  test('la narrativa del POI è chiesta al backend con l’id del punto selezionato', async ({
+  test('la narrativa del POI è chiesta al backend con l’id del punto e l’impronta del contesto', async ({
     page,
   }) => {
     await gotoResults(page, { poiNarrative });
@@ -61,10 +61,13 @@ test.describe('narrativa specifica del POI (#197)', () => {
       S.poiCards(page).nth(0).click(),
     ]);
 
+    // L'impronta è quella ricevuta dall'analisi di zona, rimandata verbatim (#242): il backend la
+    // confronta col contesto che userebbe, quindi la narrativa non può nascere su un altro intorno.
     expect(request.postDataJSON()).toEqual({
       citta: analyze.citta,
       zona: analyze.zona_normalizzata,
       poi_id: analyze.poi[0].id,
+      contesto_hash: analyze.contesto_hash,
     });
   });
 
@@ -112,6 +115,27 @@ test.describe('narrativa specifica del POI (#197)', () => {
 
     await S.poiCards(page).nth(0).click();
 
+    await expect(S.narrativeError(page)).toContainText('rilancia l’analisi di zona');
+    await expect(S.narrativeLead(page)).toHaveText(analyze.narrativa_fonti.overview);
+  });
+
+  test('un 409 di contesto disallineato è mostrato nel pannello senza perdere la narrativa di zona', async ({
+    page,
+  }) => {
+    await gotoResults(page, {
+      poiNarrativeStatus: 409,
+      poiNarrative: {
+        detail: {
+          errore: 'contesto_disallineato',
+          messaggio: 'il contesto della zona è cambiato: rilancia l’analisi di zona',
+        },
+      },
+    });
+
+    await S.poiCards(page).nth(0).click();
+
+    // La narrativa del punto non arriva: al suo posto il pannello dichiara il conflitto e la
+    // narrativa di ZONA resta leggibile, invece di essere sostituita da prosa non verificata.
     await expect(S.narrativeError(page)).toContainText('rilancia l’analisi di zona');
     await expect(S.narrativeLead(page)).toHaveText(analyze.narrativa_fonti.overview);
   });

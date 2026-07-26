@@ -75,6 +75,13 @@ export interface AnalyzeResponse {
   repro: Repro;
   cache_hit: boolean;
   fallback: boolean;
+  /**
+   * Impronta del contesto di zona (#242): identifica la lista `poi` di questa risposta. Il client
+   * la rimanda OPACA in `/analyze/poi` — non la interpreta e non la ricalcola — e il backend
+   * risponde 409 se il contesto che userebbe non è questo. Garantisce che la narrativa di un punto
+   * nasca sul contesto mostrato, non su uno ricostruito diverso.
+   */
+  contesto_hash: string;
 }
 
 /** Risposta di `POST /analyze/poi` (#197): narrativa del singolo POI selezionato. */

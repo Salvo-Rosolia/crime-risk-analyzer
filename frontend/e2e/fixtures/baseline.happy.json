@@ -60,5 +60,6 @@
   "tokens_output": 0,
   "repro": { "temperature": 0, "seed": 0, "prompt_hash": "" },
   "cache_hit": false,
-  "fallback": false
+  "fallback": false,
+  "contesto_hash": "e2e-contesto-baseline"
 }

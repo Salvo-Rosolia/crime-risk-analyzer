@@ -129,14 +129,21 @@ async def analyze_poi(
     """Narrativa del singolo POI selezionato (#197).
 
     Riusa il contesto di zona calcolato da ``/analyze`` (cache con TTL); a cache
-    fredda lo ricostruisce, al costo di una chiamata Overpass. ``poi_id`` fuori
-    dal contesto -> ``PoiNotFoundError`` -> 404 (handler centrale). Tutti i dati
-    di rischio sono ri-derivati dal server: il client fornisce solo l'id.
+    fredda lo ricostruisce, al costo di una chiamata Overpass. ``contesto_hash``
+    (#242) e' l'impronta del contesto che il client sta mostrando: se non
+    identifica il contesto che l'endpoint userebbe -> ``ContextMismatchError``
+    -> 409, cosi' la narrativa non puo' nascere su un vicinato diverso da quello
+    a schermo. ``poi_id`` fuori dal contesto -> ``PoiNotFoundError`` -> 404
+    (handler centrale). I dati di RISCHIO sono tutti ri-derivati dal server: del
+    punto il client fornisce solo l'id e un'impronta opaca. ``citta`` e ``zona``
+    restano invece stringhe del client che raggiungono il prompt non sanificate,
+    come nel percorso di zona (#119): l'impronta non copre quel vettore.
     """
     return await run_poi_narrative(
         request.citta,
         request.zona,
         request.poi_id,
+        contesto_hash=request.contesto_hash,
         executor=executor,
         llm_client=llm_client,
     )

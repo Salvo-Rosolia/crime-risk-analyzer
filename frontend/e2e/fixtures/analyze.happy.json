@@ -171,5 +171,6 @@
   "tokens_output": 264,
   "repro": { "temperature": 0.2, "seed": 42, "prompt_hash": "abc123" },
   "cache_hit": false,
-  "fallback": false
+  "fallback": false,
+  "contesto_hash": "e2e-contesto-happy"
 }
