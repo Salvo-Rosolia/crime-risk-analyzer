@@ -51,8 +51,17 @@ export class StateStore {
   readonly poiPanelOpen = computed(() => this._state().poiPanelOpen);
   /** Id del POI la cui narrativa è in generazione (#197), `null` se nessuna. */
   readonly poiNarrativeLoading = computed(() => this._state().poiNarrativeLoading);
-  /** Errore dell'ultima generazione POI fallita (#197). */
+  /** Errore dell'ultima generazione POI fallita (#197), stato grezzo. */
   readonly poiNarrativeError = computed(() => this._state().poiNarrativeError);
+  /**
+   * L'errore da MOSTRARE (#197): solo in Vista Dettaglio. Una generazione può fallire dopo che
+   * l'utente è tornato alla lista (l'azzeramento su `SELECT_POI`/`DESELECT_POI` copre gli errori
+   * già presenti, non quelli che arrivano dopo): lì il banner riguarderebbe un punto che non è
+   * più lo scope mostrato.
+   */
+  readonly poiNarrativeErrorInScope = computed(() =>
+    this._state().screen === 'DETAIL' ? this._state().poiNarrativeError : null,
+  );
 
   /**
    * Narrativa del POI selezionato, se c'è una selezione E la sua narrativa è già arrivata (#197).
@@ -81,6 +90,36 @@ export class StateStore {
   readonly currentRiskModels = computed(
     () => this.currentPoiNarrative()?.riskModels ?? this._state().completoData?.risk_models ?? [],
   );
+  /**
+   * Nome del punto CHE IL PANNELLO STA MOSTRANDO (#197), `null` in scope zona. Deriva dalla
+   * stessa risposta della prosa (`riskModels[0].poi`, sempre presente lato BE), non dalla lista
+   * POI: così l'intestazione non può nominare un punto mentre il corpo mostra ancora la zona —
+   * è esattamente il caso della narrativa richiesta ma non ancora arrivata.
+   */
+  readonly currentScopePoiName = computed(
+    () => this.currentPoiNarrative()?.riskModels[0]?.poi ?? null,
+  );
+  /**
+   * Generazione in corso PER LA SELEZIONE CORRENTE (#197). Deselezionando durante il volo la
+   * richiesta prosegue (il risultato finirà comunque in cache), ma non è più lo scope mostrato:
+   * dichiararla ancora metterebbe «generazione in corso» sopra la narrativa di zona.
+   */
+  readonly poiNarrativePending = computed(() => {
+    const s = this._state();
+    return s.screen === 'DETAIL' && s.poiNarrativeLoading === s.selectedPoiId;
+  });
+  /** L'LLM è caduto sul punto mostrato (#197): niente prosa, restano i rischi strutturati. */
+  readonly poiNarrativeFallback = computed(() => this.currentPoiNarrative()?.fallback ?? false);
+  /**
+   * Il punto mostrato non ha alcun rischio ancorato all'ontologia (#197/#220: classe fuori
+   * ontologia). La narrativa esiste ma è interamente inferenza contestuale: il pannello deve
+   * dirlo, altrimenti un testo senza ancoraggio si presenta come tutti gli altri.
+   */
+  readonly poiNarrativeUngrounded = computed(() => {
+    const narrative = this.currentPoiNarrative();
+    if (!narrative) return false;
+    return narrative.riskModels.every((m) => m.risks.length === 0);
+  });
 
   dispatch(action: Action): void {
     this._state.update((s) => transition(s, action));

@@ -36,9 +36,11 @@ test.describe('narrativa specifica del POI (#197)', () => {
 
     await S.poiCards(page).nth(0).click();
 
-    // In DETAIL la stessa area mostra la narrativa del PUNTO, rigenerata per la selezione.
+    // In DETAIL la stessa area mostra la narrativa del PUNTO, rigenerata per la selezione,
+    // e l'intestazione dichiara lo scope invece di spacciarla per narrativa di zona.
     await expect(S.detailPanel(page)).toBeVisible();
     await expect(S.narrativeLead(page)).toHaveText(poiNarrative.narrativa_fonti.overview);
+    await expect(S.narrativeHeader(page)).toContainText(analyze.poi[0].name);
 
     // La prosa per fonte del POI alimenta i tab come quella di zona.
     await expect(S.narrativeTabPanels(page).first()).toContainText(

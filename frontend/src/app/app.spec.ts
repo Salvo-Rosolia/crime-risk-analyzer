@@ -885,7 +885,22 @@ describe('App shell', () => {
         contesto: '',
         speculativo: '',
       },
-      risk_models: [],
+      // Il BE restituisce SEMPRE esattamente un RiskModel, quello del POI richiesto
+      // (`poi_narrative.run_poi_narrative`): la fixture deve rispettarlo.
+      risk_models: [
+        {
+          poi: 'Banca A',
+          risks: [
+            {
+              hazard: 'Bank_robbery',
+              confidence: 'verificato',
+              tag: 'ONTOLOGIA',
+              hazard_label_it: 'Rapina in banca',
+              hazard_label_en: 'Bank robbery',
+            },
+          ],
+        },
+      ],
       tokens_input: 10,
       tokens_output: 20,
       latenza_ms: 100,
@@ -958,18 +973,78 @@ describe('App shell', () => {
 
     it('durante la generazione il pannello dichiara il caricamento', async () => {
       const f = await analyzed();
+      store.dispatch({ type: 'SELECT_POI', id: 'poi-1' });
       store.dispatch({ type: 'POI_NARRATIVE_START', poiId: 'poi-1' });
       f.detectChanges();
       expect(f.nativeElement.querySelector('.cra-narr-loading')).toBeTruthy();
     });
 
+    it('l’intestazione nomina il punto solo quando mostra la sua narrativa', async () => {
+      const f = await analyzed();
+      const header = () => f.nativeElement.querySelector('cra-narrative-sheet .cra-eyebrow');
+      expect(header().textContent).not.toContain('Banca A');
+
+      api.poiNarrative.mockResolvedValue(poiResp);
+      (f.nativeElement.querySelector('.cra-poi-card') as HTMLElement).click();
+      await f.whenStable();
+      f.detectChanges();
+
+      expect(header().textContent).toContain('Banca A');
+    });
+
+    it('un punto fuori ontologia dichiara di non avere ancoraggio ontologico', async () => {
+      const f = await analyzed();
+      api.poiNarrative.mockResolvedValue({
+        ...poiResp,
+        risk_models: [{ poi: 'Banca A', risks: [] }],
+      });
+      (f.nativeElement.querySelector('.cra-poi-card') as HTMLElement).click();
+      await f.whenStable();
+      f.detectChanges();
+
+      const notice = f.nativeElement.querySelector('.cra-narr-ungrounded');
+      expect(notice).toBeTruthy();
+      expect(notice.textContent).toContain('ontolog');
+    });
+
+    it('il fallback dell’LLM sul punto è dichiarato invece di lasciare il pannello muto', async () => {
+      const f = await analyzed();
+      api.poiNarrative.mockResolvedValue({ ...poiResp, narrativa: '', fallback: true });
+      (f.nativeElement.querySelector('.cra-poi-card') as HTMLElement).click();
+      await f.whenStable();
+      f.detectChanges();
+
+      expect(f.nativeElement.querySelector('.cra-narr-fallback')).toBeTruthy();
+    });
+
+    it('tornando alla lista sparisce il caricamento di una generazione ancora in volo', async () => {
+      const f = await analyzed();
+      store.dispatch({ type: 'SELECT_POI', id: 'poi-1' });
+      store.dispatch({ type: 'POI_NARRATIVE_START', poiId: 'poi-1' });
+      f.detectChanges();
+      expect(f.nativeElement.querySelector('.cra-narr-loading')).toBeTruthy();
+
+      store.dispatch({ type: 'DESELECT_POI' });
+      f.detectChanges();
+      expect(f.nativeElement.querySelector('.cra-narr-loading')).toBeFalsy();
+    });
+
     it('un errore di generazione è mostrato nel pannello', async () => {
       const f = await analyzed();
+      store.dispatch({ type: 'SELECT_POI', id: 'poi-1' });
       store.dispatch({ type: 'POI_NARRATIVE_ERROR', message: 'rilancia l’analisi' });
       f.detectChanges();
       const err = f.nativeElement.querySelector('.cra-narr-error');
       expect(err).toBeTruthy();
       expect(err.textContent).toContain('rilancia l’analisi');
+    });
+
+    it('un errore arrivato dopo il ritorno alla lista non invade la narrativa di zona', async () => {
+      const f = await analyzed();
+      // La generazione fallisce quando l'utente è già tornato alla Vista Lista.
+      store.dispatch({ type: 'POI_NARRATIVE_ERROR', message: 'boom' });
+      f.detectChanges();
+      expect(f.nativeElement.querySelector('.cra-narr-error')).toBeFalsy();
     });
   });
 });

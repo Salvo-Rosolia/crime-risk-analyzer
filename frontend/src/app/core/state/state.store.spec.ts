@@ -354,10 +354,85 @@ describe('StateStore', () => {
       expect(store.currentNarrativa()).toBe('narrativa di zona');
     });
 
+    it("l'errore di un POI non sopravvive al ritorno alla lista", async () => {
+      await analyzed();
+      api.poiNarrative.mockRejectedValue(new Error('boom'));
+      store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
+      await store.loadPoiNarrative('node/1');
+      expect(store.poiNarrativeError()).toBe('boom');
+
+      store.dispatch({ type: 'DESELECT_POI' });
+      expect(store.poiNarrativeError()).toBeNull();
+    });
+
+    it("l'errore di un POI non sopravvive alla selezione di un altro POI già in cache", async () => {
+      await analyzed();
+      await store.loadPoiNarrative('node/1');
+      api.poiNarrative.mockRejectedValue(new Error('boom'));
+      store.dispatch({ type: 'SELECT_POI', id: 'node/2' });
+      await store.loadPoiNarrative('node/2');
+      expect(store.poiNarrativeError()).toBe('boom');
+
+      // 'node/1' è già in cache: loadPoiNarrative esce subito, senza POI_NARRATIVE_START.
+      store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
+      await store.loadPoiNarrative('node/1');
+      expect(store.poiNarrativeError()).toBeNull();
+    });
+
     it('un POI selezionato senza narrativa ancora pronta mostra quella di zona', async () => {
       await analyzed();
       store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
       expect(store.currentNarrativa()).toBe('narrativa di zona');
+    });
+
+    it('il caricamento è dichiarato solo se riguarda la selezione corrente', async () => {
+      await analyzed();
+      store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
+      store.dispatch({ type: 'POI_NARRATIVE_START', poiId: 'node/1' });
+      expect(store.poiNarrativePending()).toBe(true);
+
+      // Tornando alla lista la generazione resta in volo, ma non è più lo scope mostrato.
+      store.dispatch({ type: 'DESELECT_POI' });
+      expect(store.poiNarrativePending()).toBe(false);
+    });
+
+    it('lo scope mostrato è nominato solo quando è davvero la narrativa del punto', async () => {
+      await analyzed();
+      store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
+      // Narrativa non ancora arrivata: il corpo mostra la zona, quindi nessun nome di punto.
+      expect(store.currentScopePoiName()).toBeNull();
+
+      await store.loadPoiNarrative('node/1');
+      expect(store.currentScopePoiName()).toBe('Banca A');
+
+      store.dispatch({ type: 'DESELECT_POI' });
+      expect(store.currentScopePoiName()).toBeNull();
+    });
+
+    it('un POI fuori ontologia è segnalato come privo di ancoraggio', async () => {
+      await analyzed();
+      api.poiNarrative.mockResolvedValue({
+        ...poiResp,
+        poi_id: 'node/2',
+        risk_models: [{ poi: 'Bar Roma', risks: [] }],
+      });
+      store.dispatch({ type: 'SELECT_POI', id: 'node/2' });
+      await store.loadPoiNarrative('node/2');
+      expect(store.poiNarrativeUngrounded()).toBe(true);
+
+      // Un punto ANCORATO all'ontologia non deve ereditare l'avviso del precedente.
+      api.poiNarrative.mockResolvedValue(poiResp);
+      store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
+      await store.loadPoiNarrative('node/1');
+      expect(store.poiNarrativeUngrounded()).toBe(false);
+    });
+
+    it('il fallback dell’LLM sul POI è esposto come stato distinto', async () => {
+      await analyzed();
+      api.poiNarrative.mockResolvedValue({ ...poiResp, narrativa: '', fallback: true });
+      store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
+      await store.loadPoiNarrative('node/1');
+      expect(store.poiNarrativeFallback()).toBe(true);
     });
   });
 });

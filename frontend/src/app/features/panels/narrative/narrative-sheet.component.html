@@ -9,7 +9,15 @@
   (keydown.space)="onHeaderSpace($event)"
 >
   <span class="cra-narr-chevron" aria-hidden="true">{{ open() ? '▾' : '▸' }}</span>
-  <h2 class="cra-eyebrow">◇ Narrativa generata — {{ citta() }} · {{ zona() }}</h2>
+  <!-- L'intestazione dichiara lo SCOPE del testo mostrato (#197): senza, la narrativa di un
+       singolo punto si presenterebbe con lo stesso titolo di quella di zona. -->
+  @if (poiName()) {
+    <h2 class="cra-eyebrow">
+      ◇ Narrativa del punto — {{ poiName() }} · {{ citta() }} · {{ zona() }}
+    </h2>
+  } @else {
+    <h2 class="cra-eyebrow">◇ Narrativa generata — {{ citta() }} · {{ zona() }}</h2>
+  }
   <span class="cra-hallucination-banner">⚠ supporto decisionale · valuta con fonti primarie</span>
   <span class="cra-narr-spacer"></span>
   <button type="button" class="cra-btn-regen" (click)="onRegenerate($event)">↺ Rigenera</button>
@@ -21,6 +29,16 @@
       <p class="cra-narr-loading" role="status">Generazione della narrativa in corso…</p>
     } @else if (error()) {
       <p class="cra-narr-error" role="alert">{{ error() }}</p>
+    } @else if (fallback()) {
+      <p class="cra-narr-fallback" role="alert">
+        Il modello non ha prodotto una narrativa per questo punto: restano i fattori di rischio
+        strutturati qui sotto.
+      </p>
+    } @else if (ungrounded()) {
+      <p class="cra-narr-ungrounded" role="note">
+        Questo punto non ha rischi associati dall'ontologia: il testo è interamente
+        un'interpretazione del contesto urbano, non un dato ancorato.
+      </p>
     }
     @if (leadText()) {
       <p class="cra-narr-lead">{{ leadText() }}</p>

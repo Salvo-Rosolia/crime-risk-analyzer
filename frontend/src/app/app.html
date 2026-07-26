@@ -60,8 +60,11 @@
       [narrativaFonti]="store.currentNarrativaFonti()"
       [riskModels]="store.currentRiskModels()"
       [open]="store.narrOpen()"
-      [loading]="store.poiNarrativeLoading() !== null"
-      [error]="store.poiNarrativeError()"
+      [poiName]="store.currentScopePoiName()"
+      [loading]="store.poiNarrativePending()"
+      [error]="store.poiNarrativeErrorInScope()"
+      [ungrounded]="store.poiNarrativeUngrounded()"
+      [fallback]="store.poiNarrativeFallback()"
       (toggleNarrative)="onToggleNarr()"
       (regenerate)="onRegenerate()"
     />

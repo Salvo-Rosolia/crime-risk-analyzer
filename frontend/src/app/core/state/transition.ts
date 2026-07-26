@@ -92,10 +92,19 @@ export function transition(state: AppState, action: Action): AppState {
         mode: action.pipeline,
         error: action.message,
       };
+    // `poiNarrativeError` si azzera a ogni cambio di scope (#197): l'errore riguarda la
+    // generazione di UN punto, quindi non deve sopravvivere né al ritorno alla lista né alla
+    // selezione di un altro POI. Va fatto qui e non in `loadPoiNarrative`, che su un POI già in
+    // cache esce prima di dispatchare `POI_NARRATIVE_START` e lascerebbe il banner appeso.
     case 'SELECT_POI':
-      return { ...state, screen: 'DETAIL', selectedPoiId: action.id };
+      return { ...state, screen: 'DETAIL', selectedPoiId: action.id, poiNarrativeError: null };
     case 'DESELECT_POI':
-      return { ...state, screen: state.filter != null ? 'FILTER' : 'RESULTS', selectedPoiId: null };
+      return {
+        ...state,
+        screen: state.filter != null ? 'FILTER' : 'RESULTS',
+        selectedPoiId: null,
+        poiNarrativeError: null,
+      };
     case 'SET_FILTER': {
       // Filtro/dettaglio esistono solo nel sistema completo: la ricerca del POI selezionato usa
       // sempre completoData, mai baselineData (che non ha selezione/dettaglio).
