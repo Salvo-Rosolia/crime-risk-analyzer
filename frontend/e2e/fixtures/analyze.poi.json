@@ -1,0 +1,29 @@
+{
+  "poi_id": "1",
+  "narrativa": "Il Colosseo è un sito archeologico ad altissima affluenza.\n\n[ONTOLOGIA]\nL'ontologia associa a questa classe il borseggio ai danni dei turisti.\n\n[CONTESTO]\nIl punto si trova a pochi metri da una fermata della metropolitana.\n",
+  "narrativa_fonti": {
+    "overview": "Il Colosseo è un sito archeologico ad altissima affluenza.",
+    "ontologia": "L'ontologia associa a questa classe il borseggio ai danni dei turisti.",
+    "contesto": "Il punto si trova a pochi metri da una fermata della metropolitana.",
+    "speculativo": ""
+  },
+  "risk_models": [
+    {
+      "poi": "Colosseo",
+      "risks": [
+        {
+          "hazard": "borseggioTuristi",
+          "confidence": "verificato",
+          "tag": "ONTOLOGIA",
+          "hazard_label_it": "Borseggio turisti",
+          "hazard_label_en": "Tourist pickpocketing"
+        }
+      ]
+    }
+  ],
+  "tokens_input": 900,
+  "tokens_output": 180,
+  "latenza_ms": 1200,
+  "repro": { "temperature": 0.0, "seed": 0, "prompt_hash": "abc" },
+  "fallback": false
+}

@@ -13,6 +13,10 @@ export interface MockOpts {
   baseline?: unknown;
   /** Status HTTP della risposta `/analyze` (default 200; usare 4xx/5xx per lo stato ERROR). */
   analyzeStatus?: number;
+  /** Risposta di `POST /analyze/poi` (#197): narrativa del singolo POI selezionato. */
+  poiNarrative?: unknown;
+  /** Status HTTP della risposta `/analyze/poi` (default 200; 404 = POI fuori dal contesto). */
+  poiNarrativeStatus?: number;
 }
 
 export async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
@@ -26,5 +30,16 @@ export async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
 
   if (opts.baseline !== undefined) {
     await page.route('**/analyze/baseline', (route) => route.fulfill({ json: opts.baseline }));
+  }
+
+  // `**/analyze` sopra non intercetta `/analyze/poi` (il glob àncora il suffisso), quindi la rotta
+  // per-POI va registrata a parte, come già per `/analyze/baseline`.
+  if (opts.poiNarrative !== undefined || opts.poiNarrativeStatus !== undefined) {
+    await page.route('**/analyze/poi', (route) =>
+      route.fulfill({
+        status: opts.poiNarrativeStatus ?? 200,
+        json: opts.poiNarrative ?? {},
+      }),
+    );
   }
 }
