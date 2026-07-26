@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from pathlib import Path
 
@@ -25,12 +24,11 @@ from crime_risk_analyzer.eval.repeated_comparison import build_repeated_report
 from crime_risk_analyzer.eval.snapshots import (
     capturing_source,
     load_snapshot,
+    offline_fetch_pois,
     snapshot_path,
 )
-from crime_risk_analyzer.llm.client import LLMClient
 from crime_risk_analyzer.ontology import load_ontology
-from crime_risk_analyzer.orchestrator import run_analysis, run_baseline
-from crime_risk_analyzer.overpass_client import fetch_pois
+from crime_risk_analyzer.orchestrator import run_baseline
 from crime_risk_analyzer.rag.retrieval import PoiSource
 from crime_risk_analyzer.sparql_module.query_executor import get_executor
 
@@ -51,6 +49,10 @@ def _snapshot_reusable(path: Path) -> bool:
       ``load_snapshot`` del replay non esploderà in parse. NON è "shape-valid":
       uno snapshot JSON valido ma semanticamente sbagliato (es. POI privi delle
       chiavi attese) NON è intercettato — la validazione di schema è fuori scope.
+      Dal #241 il confine si sposta di poco: un file JSON valido la cui forma
+      ``load_snapshot`` non riconosce (né lista nuda né envelope) solleva
+      ``ValueError`` e viene trattato come non riusabile, quindi ri-catturato,
+      invece di far esplodere la cattura.
     - Errori ambientali (``OSError``/``PermissionError`` su ``stat``/read) NON
       sono catturati di proposito: fail-loud voluto e, essendo la cattura
       idempotente, un re-run riprende comunque dai case già catturati.
@@ -59,7 +61,10 @@ def _snapshot_reusable(path: Path) -> bool:
         return False
     try:
         load_snapshot(path)
-    except (json.JSONDecodeError, UnicodeDecodeError):
+    # Una sola clausola: ``json.JSONDecodeError`` e ``UnicodeDecodeError`` sono
+    # entrambe sottoclassi di ``ValueError``, che copre anche il formato non
+    # riconosciuto sollevato da ``load_snapshot`` (#241).
+    except ValueError:
         return False
     return True
 
@@ -73,19 +78,9 @@ async def _capture(
 ) -> None:
     config = load_config(config_path)
     executor = get_executor()
-    inner = poi_source or fetch_pois
-    # Client LLM costruito LAZY e memoizzato (#148): un re-run tutto-skip non lo
-    # costruisce mai (offline davvero, nessuna API key richiesta); costruito al più
-    # una volta, al primo case non-skip che lo richiede. Baseline non lo tocca mai
-    # (fix T9): _llm_client() è invocato solo nel ramo mode != baseline.
-    llm_client: LLMClient | None = None
-
-    def _llm_client() -> LLMClient:
-        nonlocal llm_client
-        if llm_client is None:
-            llm_client = build_llm_eval_client(config)
-        return llm_client
-
+    # Politica di ritentativo lunga per default (#232): la sorgente della cattura
+    # vive in ``snapshots`` accanto a ``capturing_source``, non qui.
+    inner = poi_source or offline_fetch_pois
     for case in config.cases:
         # Cattura chiavata per (citta, zona) (#110): i bracci comparativi
         # riusano la stessa fixture, senza query Overpass divergenti per braccio.
@@ -110,19 +105,14 @@ async def _capture(
                 case.zona,
                 path,
             )
-        source = capturing_source(path, inner=inner)
-        if config.mode == "baseline":
-            await run_baseline(
-                case.citta, case.zona, executor=executor, poi_source=source
-            )
-        else:
-            await run_analysis(
-                case.citta,
-                case.zona,
-                executor=executor,
-                llm_client=_llm_client(),
-                poi_source=source,
-            )
+        source = capturing_source(path, inner=inner, zona=case.zona)
+        # Percorso SENZA LLM qualunque sia il ``mode`` del config (#233): la
+        # cattura e' acquisizione di input, non un esperimento. Lo snapshot lo
+        # scrive ``capturing_source`` quando il fetch Overpass ritorna, e la
+        # chiave e' (citta, zona) (#110): la narrativa che ``run_analysis``
+        # genererebbe qui e' output scartato a fronte di token reali — il 26/07 un
+        # terzo della quota giornaliera Groq, con la run K=3 bloccata per un'ora.
+        await run_baseline(case.citta, case.zona, executor=executor, poi_source=source)
 
 
 async def _run(

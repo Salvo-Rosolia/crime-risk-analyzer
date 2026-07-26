@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 import crime_risk_analyzer.eval.__main__ as eval_main
+from crime_risk_analyzer.eval import snapshots
 from crime_risk_analyzer.eval.harness import make_snapshot_key
 from crime_risk_analyzer.eval.schema import (
     ExperimentConfig,
@@ -23,11 +24,11 @@ from crime_risk_analyzer.eval.schema import (
 )
 from crime_risk_analyzer.eval.snapshots import (
     load_snapshot,
-    save_snapshot,
     snapshot_path,
 )
 from crime_risk_analyzer.models.geo import Bbox
-from crime_risk_analyzer.overpass_client import Poi
+from crime_risk_analyzer.overpass_client import OFFLINE_RETRY, Poi
+from tests.eval._doubles import scrivi_snapshot
 
 _capture = eval_main._capture  # pyright: ignore[reportPrivateUsage]
 _snapshot_reusable = eval_main._snapshot_reusable  # pyright: ignore[reportPrivateUsage]
@@ -140,7 +141,7 @@ async def test_capture_skips_if_snapshot_exists(
     await _capture(config_path, tmp_path, poi_source=counting_live)
     assert calls == 1
     # Sentinella: una ri-cattura la sovrascriverebbe.
-    save_snapshot(path, _sentinel_pois())
+    scrivi_snapshot(path, _sentinel_pois())
 
     with caplog.at_level(logging.INFO):
         await _capture(config_path, tmp_path, poi_source=counting_live)
@@ -153,7 +154,7 @@ async def test_capture_skips_if_snapshot_exists(
 def test_snapshot_reusable_true_for_valid(tmp_path: Path) -> None:
     """Fix 1 (#148): uno snapshot esistente, non vuoto e JSON valido è riusabile."""
     path = tmp_path / "snap.json"
-    save_snapshot(path, _sample_pois())
+    scrivi_snapshot(path, _sample_pois())
     assert _snapshot_reusable(path) is True
 
 
@@ -173,6 +174,15 @@ def test_snapshot_reusable_false_for_corrupt(tmp_path: Path) -> None:
     """Fix 1 (#148): un file troncato/corrotto (JSON non parsabile) non è riusabile."""
     path = tmp_path / "snap.json"
     path.write_text("[{ troncato non json", encoding="utf-8")
+    assert _snapshot_reusable(path) is False
+
+
+def test_snapshot_reusable_false_for_unknown_shape(tmp_path: Path) -> None:
+    """#241: JSON valido ma in una forma che ``load_snapshot`` non riconosce (né
+    lista nuda né envelope) non è riusabile → ri-cattura, non un'esplosione a
+    metà della capture."""
+    path = tmp_path / "snap.json"
+    path.write_text('{"qualcosa": "altro"}', encoding="utf-8")
     assert _snapshot_reusable(path) is False
 
 
@@ -240,7 +250,7 @@ async def test_capture_force_recaptures(tmp_path: Path, capture_env: None) -> No
 
     await _capture(config_path, tmp_path, poi_source=counting_live)
     assert calls == 1
-    save_snapshot(path, _sentinel_pois())
+    scrivi_snapshot(path, _sentinel_pois())
 
     await _capture(config_path, tmp_path, force=True, poi_source=counting_live)
     assert calls == 2  # ri-cattura live
@@ -252,13 +262,15 @@ async def test_capture_analyze_arms_share_key(
 ) -> None:
     """M1: due bracci analyze (claude, groq) catturano alla STESSA chiave (citta,
     zona); il secondo riusa lo snapshot del primo → nessuna query live divergente
-    (anti-confondimento #33, ramo analyze di _capture)."""
-    from tests.eval._doubles import FakeLLMClient
+    (anti-confondimento #33, ramo analyze di _capture).
 
-    def _fake_eval_client(config: ExperimentConfig) -> FakeLLMClient:
-        return FakeLLMClient()
+    Il builder esplode (#233): la cattura non deve toccare l'LLM nemmeno qui, dove
+    il config dichiara mode=analyze."""
 
-    monkeypatch.setattr(eval_main, "build_llm_eval_client", _fake_eval_client)
+    def _exploding_builder(config: ExperimentConfig) -> object:
+        raise AssertionError("la cattura non deve costruire il client LLM (#233)")
+
+    monkeypatch.setattr(eval_main, "build_llm_eval_client", _exploding_builder)
 
     calls = 0
 
@@ -303,7 +315,7 @@ async def test_capture_all_present_never_builds_client(
     )
     # Pre-crea uno snapshot valido: la singola (citta, zona) va in skip.
     path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
-    save_snapshot(path, _sample_pois())
+    scrivi_snapshot(path, _sample_pois())
 
     # Non deve sollevare: né il builder né la live vengono toccati.
     await _capture(config_path, tmp_path, poi_source=unused_live)
@@ -332,21 +344,25 @@ async def test_capture_baseline_never_builds_client(
     assert load_snapshot(path) == _sample_pois()  # catturato senza LLM
 
 
-async def test_capture_analyze_builds_client_once_across_cases(
+async def test_capture_analyze_never_builds_client(
     tmp_path: Path, capture_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Fix 2 (#148): con più case analyze da catturare, il client LLM è costruito
-    LAZY al primo case che lo richiede e MEMOIZZATO (una sola costruzione)."""
-    from tests.eval._doubles import FakeLLMClient
+    """#233: la cattura non chiama MAI l'LLM, nemmeno con ``mode=analyze`` e più
+    case da catturare ex-novo.
 
+    Sostituisce il test di #148 sulla costruzione lazy e memoizzata del client:
+    quell'invariante («non costruirlo su un re-run tutto-skip») è assorbita da
+    questa, più forte. La cattura è acquisizione di input, non un esperimento: la
+    narrativa generata qui sarebbe output scartato, e il 26/07 è costata un terzo
+    della quota giornaliera Groq, bloccando la run K=3."""
     builds = 0
 
-    def _counting_builder(config: ExperimentConfig) -> FakeLLMClient:
+    def _exploding_builder(config: ExperimentConfig) -> object:
         nonlocal builds
         builds += 1
-        return FakeLLMClient()
+        raise AssertionError("la cattura non deve costruire il client LLM (#233)")
 
-    monkeypatch.setattr(eval_main, "build_llm_eval_client", _counting_builder)
+    monkeypatch.setattr(eval_main, "build_llm_eval_client", _exploding_builder)
 
     async def live(bbox: Bbox, citta: str) -> list[Poi]:
         return _sample_pois()
@@ -365,7 +381,40 @@ async def test_capture_analyze_builds_client_once_across_cases(
 
     await _capture(config_path, tmp_path, poi_source=live)
 
-    assert builds == 1  # costruito una sola volta, condiviso tra i due case
+    assert builds == 0
+    # Gli snapshot ci sono comunque: la cattura resta completa senza LLM.
+    for citta, zona in (("Roma", "Centro"), ("Milano", "Duomo")):
+        path = snapshot_path(tmp_path, make_snapshot_key(citta, zona))
+        assert load_snapshot(path) == _sample_pois()
+
+
+async def test_capture_usa_la_politica_di_ritentativo_offline(
+    tmp_path: Path, capture_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#232: la cattura, SENZA sorgente iniettata, arriva a Overpass con la
+    politica OFFLINE.
+
+    Non passa ``poi_source``: è l'unico modo di coprire la riga di cablaggio
+    (``inner = poi_source or offline_fetch_pois``). Un test che chiamasse
+    ``offline_fetch_pois`` direttamente lascerebbe verde un ritorno a
+    ``fetch_pois``, cioè il difetto di #232 intatto con del codice nuovo accanto.
+    """
+    visti: list[object] = []
+
+    async def _spia(
+        bbox: Bbox, citta: str, *args: object, **kwargs: object
+    ) -> list[Poi]:
+        visti.append(kwargs.get("retry"))
+        return _sample_pois()
+
+    monkeypatch.setattr(snapshots, "fetch_pois", _spia)
+
+    config_path = _write_config(tmp_path, "Roma", "Centro")
+    await _capture(config_path, tmp_path)
+
+    assert visti == [OFFLINE_RETRY]
+    path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
+    assert load_snapshot(path) == _sample_pois()
 
 
 async def test_capture_partial_skip_captures_only_missing(
@@ -395,7 +444,7 @@ async def test_capture_partial_skip_captures_only_missing(
 
     # Pre-crea SOLO lo snapshot di Roma con una sentinella (deve restare intatto).
     roma_path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
-    save_snapshot(roma_path, _sentinel_pois())
+    scrivi_snapshot(roma_path, _sentinel_pois())
     milano_path = snapshot_path(tmp_path, make_snapshot_key("Milano", "Duomo"))
 
     await _capture(config_path, tmp_path, poi_source=recording_live)

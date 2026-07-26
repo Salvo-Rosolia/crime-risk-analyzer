@@ -307,6 +307,11 @@ async def capture_city(
     boundary_source: BoundarySource = fetch_city_boundary,
 ) -> CityCapture:
     """Capture live: geocode + fetch POI (cronometrati) + poligono città (non timed)."""
+    # Politica di ritentativo INTERATTIVA di proposito, non quella offline di #232:
+    # qui il tempo di parete È la metrica (``switch_ms``, tempo di aggiunta di una
+    # città nuova). Un backoff di cortesia di minuti la falsificherebbe, misurando
+    # la congestione di Overpass invece del costo di switch. Se la cattura del
+    # roster fallisce, si rilancia: non c'è nulla da preservare come in una run.
     source = poi_source or fetch_pois
     start = time.perf_counter()
     geo = geocode_zone(zona, citta)

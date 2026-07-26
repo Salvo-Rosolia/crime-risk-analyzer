@@ -20,11 +20,11 @@ from crime_risk_analyzer.eval.schema import (
 from crime_risk_analyzer.eval.snapshots import (
     capturing_source,
     load_snapshot,
-    save_snapshot,
     snapshot_path,
 )
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.overpass_client import Poi
+from tests.eval._doubles import scrivi_snapshot
 
 
 def _fake_geocode_fixture(zona: str, citta: str) -> dict[str, object]:
@@ -74,7 +74,7 @@ async def test_run_experiment_repeat_writes_k_records_no_overwrite(
         model="claude",
         cases=[RunCase(citta="Roma", zona="Centro")],
     )
-    save_snapshot(
+    scrivi_snapshot(
         snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
     )
     from crime_risk_analyzer.rag import retrieval
@@ -110,7 +110,7 @@ async def test_run_experiment_writes_records(
     )
     rid = make_run_id("exp", "Roma", "Centro", "analyze", "claude")
     # Snapshot chiavato per (citta, zona), condiviso dai bracci comparativi (#110).
-    save_snapshot(
+    scrivi_snapshot(
         snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
     )
 
@@ -171,7 +171,7 @@ async def test_run_experiment_baseline_no_llm_client(
         cases=[RunCase(citta="Roma", zona="Centro")],
     )
     # Snapshot chiavato per (citta, zona) (#110): baseline usa la stessa fixture.
-    save_snapshot(
+    scrivi_snapshot(
         snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
     )
 
@@ -215,7 +215,7 @@ async def test_run_experiment_error_isolation(
 
     # Solo (Roma, Centro) ha lo snapshot: chiave per (citta, zona) (#110).
     rid_ok = make_run_id("iso", "Roma", "Centro", "analyze", "claude")
-    save_snapshot(
+    scrivi_snapshot(
         snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
     )
     # Il secondo caso (Prati) non ha snapshot → FileNotFoundError → status=error.
@@ -260,7 +260,7 @@ async def test_run_does_not_geocode_when_replaying(
 
     # Pre-salva SOLO lo snapshot POI (nessun file geo esiste in #169).
     key = make_snapshot_key("Roma", "Colosseo")
-    save_snapshot(snapshot_path(tmp_path, key), _sample_pois())
+    scrivi_snapshot(snapshot_path(tmp_path, key), _sample_pois())
 
     from tests.eval._doubles import FakeLLMClient, FakeProfiler
 
@@ -331,7 +331,7 @@ async def test_comparative_arms_share_one_snapshot(
     from tests.eval._doubles import FakeLLMClient, FakeProfiler
 
     key = make_snapshot_key("Roma", "Centro")
-    save_snapshot(snapshot_path(tmp_path, key), _sample_pois())
+    scrivi_snapshot(snapshot_path(tmp_path, key), _sample_pois())
 
     cfg_claude = ExperimentConfig(
         name="ablation",
