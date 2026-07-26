@@ -252,13 +252,15 @@ async def test_capture_analyze_arms_share_key(
 ) -> None:
     """M1: due bracci analyze (claude, groq) catturano alla STESSA chiave (citta,
     zona); il secondo riusa lo snapshot del primo → nessuna query live divergente
-    (anti-confondimento #33, ramo analyze di _capture)."""
-    from tests.eval._doubles import FakeLLMClient
+    (anti-confondimento #33, ramo analyze di _capture).
 
-    def _fake_eval_client(config: ExperimentConfig) -> FakeLLMClient:
-        return FakeLLMClient()
+    Il builder esplode (#233): la cattura non deve toccare l'LLM nemmeno qui, dove
+    il config dichiara mode=analyze."""
 
-    monkeypatch.setattr(eval_main, "build_llm_eval_client", _fake_eval_client)
+    def _exploding_builder(config: ExperimentConfig) -> object:
+        raise AssertionError("la cattura non deve costruire il client LLM (#233)")
+
+    monkeypatch.setattr(eval_main, "build_llm_eval_client", _exploding_builder)
 
     calls = 0
 
@@ -332,21 +334,25 @@ async def test_capture_baseline_never_builds_client(
     assert load_snapshot(path) == _sample_pois()  # catturato senza LLM
 
 
-async def test_capture_analyze_builds_client_once_across_cases(
+async def test_capture_analyze_never_builds_client(
     tmp_path: Path, capture_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Fix 2 (#148): con più case analyze da catturare, il client LLM è costruito
-    LAZY al primo case che lo richiede e MEMOIZZATO (una sola costruzione)."""
-    from tests.eval._doubles import FakeLLMClient
+    """#233: la cattura non chiama MAI l'LLM, nemmeno con ``mode=analyze`` e più
+    case da catturare ex-novo.
 
+    Sostituisce il test di #148 sulla costruzione lazy e memoizzata del client:
+    quell'invariante («non costruirlo su un re-run tutto-skip») è assorbita da
+    questa, più forte. La cattura è acquisizione di input, non un esperimento: la
+    narrativa generata qui sarebbe output scartato, e il 26/07 è costata un terzo
+    della quota giornaliera Groq, bloccando la run K=3."""
     builds = 0
 
-    def _counting_builder(config: ExperimentConfig) -> FakeLLMClient:
+    def _exploding_builder(config: ExperimentConfig) -> object:
         nonlocal builds
         builds += 1
-        return FakeLLMClient()
+        raise AssertionError("la cattura non deve costruire il client LLM (#233)")
 
-    monkeypatch.setattr(eval_main, "build_llm_eval_client", _counting_builder)
+    monkeypatch.setattr(eval_main, "build_llm_eval_client", _exploding_builder)
 
     async def live(bbox: Bbox, citta: str) -> list[Poi]:
         return _sample_pois()
@@ -365,7 +371,11 @@ async def test_capture_analyze_builds_client_once_across_cases(
 
     await _capture(config_path, tmp_path, poi_source=live)
 
-    assert builds == 1  # costruito una sola volta, condiviso tra i due case
+    assert builds == 0
+    # Gli snapshot ci sono comunque: la cattura resta completa senza LLM.
+    for citta, zona in (("Roma", "Centro"), ("Milano", "Duomo")):
+        path = snapshot_path(tmp_path, make_snapshot_key(citta, zona))
+        assert load_snapshot(path) == _sample_pois()
 
 
 async def test_capture_partial_skip_captures_only_missing(

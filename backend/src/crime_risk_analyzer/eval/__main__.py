@@ -27,9 +27,8 @@ from crime_risk_analyzer.eval.snapshots import (
     load_snapshot,
     snapshot_path,
 )
-from crime_risk_analyzer.llm.client import LLMClient
 from crime_risk_analyzer.ontology import load_ontology
-from crime_risk_analyzer.orchestrator import run_analysis, run_baseline
+from crime_risk_analyzer.orchestrator import run_baseline
 from crime_risk_analyzer.overpass_client import fetch_pois
 from crime_risk_analyzer.rag.retrieval import PoiSource
 from crime_risk_analyzer.sparql_module.query_executor import get_executor
@@ -74,18 +73,6 @@ async def _capture(
     config = load_config(config_path)
     executor = get_executor()
     inner = poi_source or fetch_pois
-    # Client LLM costruito LAZY e memoizzato (#148): un re-run tutto-skip non lo
-    # costruisce mai (offline davvero, nessuna API key richiesta); costruito al più
-    # una volta, al primo case non-skip che lo richiede. Baseline non lo tocca mai
-    # (fix T9): _llm_client() è invocato solo nel ramo mode != baseline.
-    llm_client: LLMClient | None = None
-
-    def _llm_client() -> LLMClient:
-        nonlocal llm_client
-        if llm_client is None:
-            llm_client = build_llm_eval_client(config)
-        return llm_client
-
     for case in config.cases:
         # Cattura chiavata per (citta, zona) (#110): i bracci comparativi
         # riusano la stessa fixture, senza query Overpass divergenti per braccio.
@@ -111,18 +98,13 @@ async def _capture(
                 path,
             )
         source = capturing_source(path, inner=inner)
-        if config.mode == "baseline":
-            await run_baseline(
-                case.citta, case.zona, executor=executor, poi_source=source
-            )
-        else:
-            await run_analysis(
-                case.citta,
-                case.zona,
-                executor=executor,
-                llm_client=_llm_client(),
-                poi_source=source,
-            )
+        # Percorso SENZA LLM qualunque sia il ``mode`` del config (#233): la
+        # cattura e' acquisizione di input, non un esperimento. Lo snapshot lo
+        # scrive ``capturing_source`` quando il fetch Overpass ritorna, e la
+        # chiave e' (citta, zona) (#110): la narrativa che ``run_analysis``
+        # genererebbe qui e' output scartato a fronte di token reali — il 26/07 un
+        # terzo della quota giornaliera Groq, con la run K=3 bloccata per un'ora.
+        await run_baseline(case.citta, case.zona, executor=executor, poi_source=source)
 
 
 async def _run(
