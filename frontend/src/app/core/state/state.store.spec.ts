@@ -19,6 +19,7 @@ const data: AnalyzeResponse = {
   repro: { temperature: 0.2, seed: 0, prompt_hash: 'x' },
   cache_hit: false,
   fallback: false,
+  contesto_hash: 'h-ctx',
 };
 
 const poiResp: PoiNarrativeResponse = {
@@ -297,11 +298,37 @@ describe('StateStore', () => {
       api.poiNarrative.mockResolvedValue(poiResp);
     });
 
-    it("loadPoiNarrative chiama l'API con l'ultima query e memorizza il risultato", async () => {
+    it("loadPoiNarrative chiama l'API con l'ultima query, l'id e l'impronta del contesto", async () => {
       await analyzed();
       await store.loadPoiNarrative('node/1');
-      expect(api.poiNarrative).toHaveBeenCalledWith('Roma', 'Colosseo', 'node/1');
+      expect(api.poiNarrative).toHaveBeenCalledWith('Roma', 'Colosseo', 'node/1', 'h-ctx');
       expect(store.state().poiNarratives['node/1'].narrativa).toBe('narrativa del POI');
+    });
+
+    it("loadPoiNarrative non chiama l'API se la risposta di zona non porta un'impronta (#242)", async () => {
+      // Senza impronta non esiste una richiesta che il backend possa verificare: meglio non
+      // chiamare che spedire una richiesta destinata al 409.
+      api.analyze.mockResolvedValue({ ...data, contesto_hash: '' });
+      await store.startAnalysis('Roma', 'Colosseo', null);
+      await store.loadPoiNarrative('node/1');
+      expect(api.poiNarrative).not.toHaveBeenCalled();
+    });
+
+    it('loadPoiNarrative su 409 mostra il messaggio del backend (#242)', async () => {
+      await analyzed();
+      api.poiNarrative.mockRejectedValue(
+        new HttpErrorResponse({
+          status: 409,
+          error: {
+            detail: {
+              errore: 'contesto_disallineato',
+              messaggio: 'rilancia l’analisi di zona',
+            },
+          },
+        }),
+      );
+      await store.loadPoiNarrative('node/1');
+      expect(store.poiNarrativeError()).toBe('rilancia l’analisi di zona');
     });
 
     it("loadPoiNarrative non richiama l'API se la narrativa è già in cache", async () => {

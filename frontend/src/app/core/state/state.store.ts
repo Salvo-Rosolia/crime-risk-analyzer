@@ -166,14 +166,21 @@ export class StateStore {
    * invalida da sé alla ANALYZE successiva (il contesto di zona cambia). `force` serve al bottone
    * «rigenera». Senza `lastQuery` non c'è una zona a cui riferire il POI, quindi non si chiama
    * nulla: la richiesta sarebbe un 404 annunciato.
+   *
+   * L'impronta del contesto (#242) viene dalla risposta di zona MOSTRATA: se non corrispondesse
+   * alla coppia città/zona inviata, il backend risponderebbe 409 — il fallimento è sicuro per
+   * costruzione, mai una narrativa ancorata a un vicinato diverso da quello in mappa.
    */
   async loadPoiNarrative(poiId: string, options?: { force?: boolean }): Promise<void> {
     const query = this._state().lastQuery;
     if (!query) return;
+    // Senza impronta non esiste una richiesta che il backend possa verificare: non si chiama.
+    const contestoHash = this._state().completoData?.contesto_hash;
+    if (!contestoHash) return;
     if (!options?.force && this._state().poiNarratives[poiId]) return;
     this.dispatch({ type: 'POI_NARRATIVE_START', poiId });
     try {
-      const res = await this.api.poiNarrative(query.citta, query.zona, poiId);
+      const res = await this.api.poiNarrative(query.citta, query.zona, poiId, contestoHash);
       this.dispatch({
         type: 'POI_NARRATIVE_SUCCESS',
         poiId,

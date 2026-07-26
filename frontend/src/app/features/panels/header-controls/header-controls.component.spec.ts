@@ -75,6 +75,7 @@ const data: AnalyzeResponse = {
   repro: { temperature: 0, seed: 0, prompt_hash: '' },
   cache_hit: false,
   fallback: false,
+  contesto_hash: 'h-ctx',
 };
 
 describe('HeaderControlsComponent', () => {
