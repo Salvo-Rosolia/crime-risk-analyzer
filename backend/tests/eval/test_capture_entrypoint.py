@@ -176,6 +176,15 @@ def test_snapshot_reusable_false_for_corrupt(tmp_path: Path) -> None:
     assert _snapshot_reusable(path) is False
 
 
+def test_snapshot_reusable_false_for_unknown_shape(tmp_path: Path) -> None:
+    """#241: JSON valido ma in una forma che ``load_snapshot`` non riconosce (né
+    lista nuda né envelope) non è riusabile → ri-cattura, non un'esplosione a
+    metà della capture."""
+    path = tmp_path / "snap.json"
+    path.write_text('{"qualcosa": "altro"}', encoding="utf-8")
+    assert _snapshot_reusable(path) is False
+
+
 async def test_capture_recaptures_when_snapshot_corrupt(
     tmp_path: Path, capture_env: None, caplog: pytest.LogCaptureFixture
 ) -> None:

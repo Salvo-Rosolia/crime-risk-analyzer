@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from pathlib import Path
 
@@ -55,6 +54,10 @@ def _snapshot_reusable(path: Path) -> bool:
       ``load_snapshot`` del replay non esploderà in parse. NON è "shape-valid":
       uno snapshot JSON valido ma semanticamente sbagliato (es. POI privi delle
       chiavi attese) NON è intercettato — la validazione di schema è fuori scope.
+      Dal #241 il confine si sposta di poco: un file JSON valido la cui forma
+      ``load_snapshot`` non riconosce (né lista nuda né envelope) solleva
+      ``ValueError`` e viene trattato come non riusabile, quindi ri-catturato,
+      invece di far esplodere la cattura.
     - Errori ambientali (``OSError``/``PermissionError`` su ``stat``/read) NON
       sono catturati di proposito: fail-loud voluto e, essendo la cattura
       idempotente, un re-run riprende comunque dai case già catturati.
@@ -63,7 +66,9 @@ def _snapshot_reusable(path: Path) -> bool:
         return False
     try:
         load_snapshot(path)
-    except (json.JSONDecodeError, UnicodeDecodeError):
+    # ``json.JSONDecodeError`` è una sottoclasse di ``ValueError``, che copre
+    # anche il formato non riconosciuto sollevato da ``load_snapshot`` (#241).
+    except (ValueError, UnicodeDecodeError):
         return False
     return True
 
