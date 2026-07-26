@@ -1,5 +1,5 @@
 import { initialState, transition } from '@core/state/transition';
-import { AnalyzeResponse, AppState } from '@core/models/models';
+import { AnalyzeResponse, AppState, PoiNarrative } from '@core/models/models';
 
 const data: AnalyzeResponse = {
   citta: 'Roma',
@@ -330,5 +330,67 @@ describe('transition (FSM)', () => {
     expect(s.pendingCitta).toBe('Milano');
     expect(s.pendingZona).toBe('Prati');
     expect(s.lastQuery).toEqual({ citta: 'Milano', zona: 'Prati', domanda: null });
+  });
+
+  describe('narrativa POI (#197)', () => {
+    const narrativa: PoiNarrative = {
+      narrativa: 'testo',
+      fonti: { overview: '', ontologia: 'testo', contesto: '', speculativo: '' },
+      riskModels: [],
+      fallback: false,
+    };
+
+    it('POI_NARRATIVE_START segna il POI in caricamento e pulisce l’errore', () => {
+      const s = transition(
+        { ...initialState, poiNarrativeError: 'vecchio' },
+        { type: 'POI_NARRATIVE_START', poiId: 'node/1' },
+      );
+      expect(s.poiNarrativeLoading).toBe('node/1');
+      expect(s.poiNarrativeError).toBeNull();
+    });
+
+    it('POI_NARRATIVE_SUCCESS memorizza la narrativa e azzera il caricamento', () => {
+      const s = transition(
+        { ...initialState, poiNarrativeLoading: 'node/1' },
+        { type: 'POI_NARRATIVE_SUCCESS', poiId: 'node/1', data: narrativa },
+      );
+      expect(s.poiNarratives['node/1']).toEqual(narrativa);
+      expect(s.poiNarrativeLoading).toBeNull();
+    });
+
+    it('POI_NARRATIVE_ERROR conserva le narrative già in cache', () => {
+      const before: AppState = {
+        ...initialState,
+        poiNarratives: { 'node/9': narrativa },
+        poiNarrativeLoading: 'node/1',
+      };
+      const s = transition(before, { type: 'POI_NARRATIVE_ERROR', message: 'boom' });
+      expect(s.poiNarrativeError).toBe('boom');
+      expect(s.poiNarrativeLoading).toBeNull();
+      expect(s.poiNarratives['node/9']).toBeDefined();
+    });
+
+    it('ANALYZE invalida le narrative POI: il contesto è cambiato', () => {
+      const before: AppState = {
+        ...initialState,
+        poiNarratives: { 'node/1': narrativa },
+        poiNarrativeLoading: 'node/1',
+        poiNarrativeError: 'boom',
+      };
+      const s = transition(before, {
+        type: 'ANALYZE',
+        citta: 'Roma',
+        zona: 'Trastevere',
+        pipeline: 'completo',
+      });
+      expect(s.poiNarratives).toEqual({});
+      expect(s.poiNarrativeLoading).toBeNull();
+      expect(s.poiNarrativeError).toBeNull();
+    });
+
+    it('RESET riporta le narrative POI allo stato iniziale', () => {
+      const before: AppState = { ...initialState, poiNarratives: { 'node/1': narrativa } };
+      expect(transition(before, { type: 'RESET' }).poiNarratives).toEqual({});
+    });
   });
 });

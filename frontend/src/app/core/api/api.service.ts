@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
-import { AnalyzeResponse, BaselineParams } from '@core/models/models';
+import { AnalyzeResponse, BaselineParams, PoiNarrativeResponse } from '@core/models/models';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
@@ -21,5 +21,15 @@ export class ApiService {
 
   analyzeBaseline(params: BaselineParams): Promise<AnalyzeResponse> {
     return firstValueFrom(this.http.post<AnalyzeResponse>('/analyze/baseline', params));
+  }
+
+  /**
+   * Narrativa del singolo POI selezionato (`POST /analyze/poi`, #197). Il client manda solo l'id:
+   * classe, rischi e percorso ontologico sono ri-derivati dal server dal contesto di zona.
+   */
+  poiNarrative(citta: string, zona: string, poiId: string): Promise<PoiNarrativeResponse> {
+    return firstValueFrom(
+      this.http.post<PoiNarrativeResponse>('/analyze/poi', { citta, zona, poi_id: poiId }),
+    );
   }
 }
