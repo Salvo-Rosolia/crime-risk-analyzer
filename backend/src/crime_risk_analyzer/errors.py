@@ -12,6 +12,7 @@ Mappa (orchestrator.md):
   * :class:`GeocodingError`     -> ``503`` (servizio di geocoding non raggiungibile)
   * :class:`OverpassError`      -> ``503`` (Overpass non raggiungibile dopo retry)
   * :class:`PoiNotFoundError`   -> ``404`` (POI fuori dall'analisi corrente, #197)
+  * :class:`ContextMismatchError` -> ``409`` (contesto di zona disallineato, #242)
 
 Nessuna allowlist di citta' (#191): una citta' italiana inesistente non e'
 respinta a monte, ma fallisce al geocoding come :class:`ZoneNotFoundError` (422).
@@ -31,7 +32,7 @@ from fastapi.responses import JSONResponse
 
 from crime_risk_analyzer.geocoding import GeocodingError, ZoneNotFoundError
 from crime_risk_analyzer.overpass_client import OverpassError
-from crime_risk_analyzer.poi_narrative import PoiNotFoundError
+from crime_risk_analyzer.poi_narrative import ContextMismatchError, PoiNotFoundError
 
 
 async def _handle_zone_not_found(
@@ -87,6 +88,22 @@ async def _handle_poi_not_found(
     )
 
 
+async def _handle_context_mismatch(
+    _request: Request, exc: ContextMismatchError
+) -> JSONResponse:
+    """``ContextMismatchError`` -> ``409`` (contesto disallineato, #242).
+
+    Non e' un riferimento inesistente (404) ma un conflitto di stato: il contesto
+    mostrato all'utente e quello disponibile al server divergono, e l'operazione
+    torna possibile ripetendo l'analisi di zona. Il messaggio dice cosa fare,
+    cosi' la UI puo' riproporlo all'operatore.
+    """
+    return JSONResponse(
+        status_code=409,
+        content={"detail": {"errore": "contesto_disallineato", "messaggio": str(exc)}},
+    )
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     """Registra sull'``app`` la mappa centrale errore di dominio -> HTTP.
 
@@ -102,3 +119,4 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(GeocodingError, _handle_geocoding_error)  # pyright: ignore[reportArgumentType]
     app.add_exception_handler(OverpassError, _handle_overpass_error)  # pyright: ignore[reportArgumentType]
     app.add_exception_handler(PoiNotFoundError, _handle_poi_not_found)  # pyright: ignore[reportArgumentType]
+    app.add_exception_handler(ContextMismatchError, _handle_context_mismatch)  # pyright: ignore[reportArgumentType]
