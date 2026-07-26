@@ -249,9 +249,15 @@ def _structured_response(
 ) -> AnalyzeResponse:
     """Assembla la AnalyzeResponse SENZA LLM (baseline e fallback di /analyze).
 
-    ``contesto_hash`` arriva dal chiamante, che ha il ``RetrievalContext``:
-    l'impronta accompagna anche le response senza narrativa, cosi' un click su
-    un POI in modalita' Base o dopo un fallback LLM non resta senza (#242).
+    ``contesto_hash`` arriva dal chiamante, che ha il ``RetrievalContext``: il
+    contratto della response e' unico, quindi l'impronta accompagna anche le
+    response senza narrativa. Sul fallback LLM di ``/analyze`` e' pienamente
+    utilizzabile (la cache di zona e' popolata e il contesto e' quello). Sulla
+    baseline no: ``run_baseline`` non popola ``zone_context_cache`` e
+    ``/analyze/poi`` non conosce ``tipo_poi``, quindi un'impronta di baseline
+    FILTRATA non potrebbe che divergere dal contesto ricostruito. Non e' un
+    percorso raggiungibile dalla UI — la narrativa per-POI vive solo nella
+    pipeline completo (review backend M2).
     """
     return AnalyzeResponse(
         citta=citta,

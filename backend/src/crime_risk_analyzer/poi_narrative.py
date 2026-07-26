@@ -155,13 +155,13 @@ async def run_poi_narrative(
     soli dati strutturati con ``fallback=True``, come il percorso di zona.
     """
     cached = zone_context_cache.get(citta, zona)
+    ricostruito = cached is None
     if cached is None:
         retrieval_ctx = await retrieve(
             citta, zona, executor=executor, poi_source=poi_source, geo_source=geo_source
         )
         grounded = ground(retrieval_ctx)
         cached = ZoneContext(retrieval=retrieval_ctx, grounded=grounded)
-        zone_context_cache.put(citta, zona, cached)
 
     pois = cached["retrieval"]["pois"]
     # Il contesto che si userebbe e' quello mostrato? (#242) Confronto prima del
@@ -171,8 +171,19 @@ async def run_poi_narrative(
     if fingerprint(pois) != contesto_hash:
         raise ContextMismatchError(
             f"il contesto di {citta}/{zona} non e' quello dell'analisi che hai "
-            f"davanti: rilancia l'analisi di zona"
+            "davanti: rilancia l'analisi di zona"
         )
+    # Il deposito in cache avviene DOPO il confronto: un contesto ricostruito e
+    # rifiutato non e' mai stato davanti a nessuno, e memorizzarlo occuperebbe
+    # uno dei MAX_ZONES slot sfrattando, a cache piena, il contesto valido di
+    # un'altra zona (review backend M1).
+    if ricostruito:
+        zone_context_cache.put(citta, zona, cached)
+    # NB: da qui alla costruzione del prompt non c'e' alcun ``await``, e ``pois``
+    # e' un riferimento locale a una lista che nessuno muta. Un ``/analyze``
+    # concorrente che sovrascrive la voce di cache non puo' quindi far generare
+    # la prosa su una lista diversa da quella appena confrontata: inserire un
+    # ``await`` qui in mezzo romperebbe questa proprieta'.
     index = next((i for i, p in enumerate(pois) if p["id"] == poi_id), None)
     if index is None:
         raise PoiNotFoundError(

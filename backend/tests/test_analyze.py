@@ -453,3 +453,31 @@ async def test_baseline_espone_l_impronta_del_contesto() -> None:
         geo_source=_geo,
     )
     assert resp.contesto_hash == fingerprint(_pois("Roma"))
+
+
+async def test_impronta_baseline_calcolata_dopo_il_filtro_tipo_poi() -> None:
+    """L'impronta identifica la lista RESTITUITA, non quella pre-filtro (#242).
+
+    Senza questo test un refactor che riportasse ``fingerprint`` sopra
+    ``_filter_pois_by_type`` (#119) resterebbe verde e reintrodurrebbe la
+    divergenza che #242 chiude: un'impronta che identifica POI mai mostrati.
+    """
+
+    async def _geo(citta: str, zona: str) -> GeoResult:
+        return GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50))
+
+    async def _fetch(bbox: Bbox, citta: str) -> list[Poi]:
+        return _pois(citta)
+
+    resp = await run_baseline(
+        "Roma",
+        "Colosseo",
+        executor=_FakeProfiler(),
+        poi_source=_fetch,
+        geo_source=_geo,
+        tipo_poi="Bank",
+    )
+    filtrati = [p for p in _pois("Roma") if p["terminus_class"] == "Bank"]
+    assert [p.name for p in resp.poi] == [p["name"] for p in filtrati]
+    assert resp.contesto_hash == fingerprint(filtrati)
+    assert resp.contesto_hash != fingerprint(_pois("Roma"))

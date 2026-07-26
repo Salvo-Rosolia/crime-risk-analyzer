@@ -314,6 +314,58 @@ describe('StateStore', () => {
       expect(api.poiNarrative).not.toHaveBeenCalled();
     });
 
+    it('dopo una nuova analisi della zona il click su un POI manda la NUOVA impronta (#242)', async () => {
+      await analyzed();
+      api.analyze.mockResolvedValue({ ...data, contesto_hash: 'h-ctx-2' });
+      await store.startAnalysis('Roma', 'Colosseo', null);
+      await store.loadPoiNarrative('node/1');
+      expect(api.poiNarrative).toHaveBeenLastCalledWith('Roma', 'Colosseo', 'node/1', 'h-ctx-2');
+    });
+
+    it('scarta una generazione che arriva dopo una nuova analisi della zona (#242)', async () => {
+      // La verifica server-side copre solo ciò che passa dalla rete: se il risultato tardivo
+      // finisse in `poiNarratives`, un click successivo lo servirebbe dalla cache SENZA richiesta,
+      // mostrando prosa ancorata al vicinato dell'analisi precedente.
+      await analyzed();
+      let risolvi!: (v: PoiNarrativeResponse) => void;
+      api.poiNarrative.mockReturnValue(
+        new Promise<PoiNarrativeResponse>((r) => {
+          risolvi = r;
+        }),
+      );
+      const inVolo = store.loadPoiNarrative('node/1');
+
+      api.analyze.mockResolvedValue({ ...data, contesto_hash: 'h-ctx-2' });
+      await store.startAnalysis('Roma', 'Colosseo', null);
+
+      risolvi(poiResp);
+      await inVolo;
+
+      expect(store.state().poiNarratives['node/1']).toBeUndefined();
+      expect(store.poiNarrativeLoading()).toBeNull();
+    });
+
+    it('scarta anche il FALLIMENTO di una generazione superata da una nuova analisi (#242)', async () => {
+      // Simmetrico al caso del successo: un banner d'errore su un contesto che non è più a
+      // schermo parlerebbe di una richiesta che non riguarda ciò che l'utente sta guardando.
+      await analyzed();
+      let rifiuta!: (e: unknown) => void;
+      api.poiNarrative.mockReturnValue(
+        new Promise<PoiNarrativeResponse>((_, rej) => {
+          rifiuta = rej;
+        }),
+      );
+      const inVolo = store.loadPoiNarrative('node/1');
+
+      api.analyze.mockResolvedValue({ ...data, contesto_hash: 'h-ctx-2' });
+      await store.startAnalysis('Roma', 'Colosseo', null);
+
+      rifiuta(new Error('boom'));
+      await inVolo;
+
+      expect(store.poiNarrativeError()).toBeNull();
+    });
+
     it('loadPoiNarrative su 409 mostra il messaggio del backend (#242)', async () => {
       await analyzed();
       api.poiNarrative.mockRejectedValue(

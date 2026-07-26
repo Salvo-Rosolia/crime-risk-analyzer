@@ -18,6 +18,7 @@ from crime_risk_analyzer.orchestrator import run_analysis
 from crime_risk_analyzer.overpass_client import Poi
 from crime_risk_analyzer.poi_narrative import (
     ContextMismatchError,
+    PoiNarrativeRequest,
     PoiNarrativeResponse,
     PoiNotFoundError,
     run_poi_narrative,
@@ -283,18 +284,35 @@ async def _poi_source_divergente(bbox: Bbox, citta: str) -> list[Poi]:
     ]
 
 
-async def test_cache_calda_con_impronta_diversa_rifiuta() -> None:
-    """Il caso che l'issue non prevedeva: la zona e' stata ri-analizzata (altro
-    tab, «Rigenera» di zona) e la cache porta un contesto che non e' quello
-    mostrato. Senza confronto la narrativa nascerebbe su quell'altro contesto,
-    in silenzio."""
-    await _prime_cache()
+async def test_cache_calda_riscritta_da_una_seconda_analisi_rifiuta() -> None:
+    """Il caso che l'issue non prevedeva, riprodotto per intero: la stessa zona
+    viene ri-analizzata (altro tab, «Rigenera» di zona) e ``put`` sovrascrive la
+    voce di cache. Il client che mostra ancora la PRIMA analisi chiede la
+    narrativa di un POI: senza confronto nascerebbe sul contesto della seconda,
+    in silenzio.
+
+    Riprodurre la sovrascrittura, invece di mandare una stringa arbitraria, e'
+    cio' che rende il test una prova del criterio di accettazione 2: resterebbe
+    rosso anche se l'impronta fosse memorizzata al momento del ``put`` invece di
+    essere ricalcolata sulla lista che si sta per usare.
+    """
+    prima = await _prime_cache()
+    # Seconda analisi della STESSA zona: cattura OSM diversa, cache riscritta.
+    seconda = await run_analysis(
+        "Roma",
+        "Colosseo",
+        executor=_FakeProfiler(),
+        llm_client=_FakeLLMClient(),
+        poi_source=_poi_source_divergente,
+        geo_source=_geo_source,
+    )
+    assert seconda.contesto_hash != prima
     with pytest.raises(ContextMismatchError):
         await run_poi_narrative(
             "Roma",
             "Colosseo",
             _POI_ID,
-            contesto_hash="impronta-di-un-altra-analisi",
+            contesto_hash=prima,
             executor=_FakeProfiler(),
             llm_client=_FakeLLMClient(),
         )
@@ -337,6 +355,9 @@ async def test_cache_fredda_con_ricostruzione_divergente_rifiuta() -> None:
             poi_source=_poi_source_divergente,
             geo_source=_geo_source,
         )
+    # Il contesto rifiutato non entra in cache: nessuno l'ha mai avuto davanti, e
+    # occuparebbe uno slot sfrattando, a cache piena, una zona valida (review M1).
+    assert zone_context_cache.get("Roma", "Colosseo") is None
 
 
 async def test_l_impronta_non_entra_nel_prompt() -> None:
@@ -469,6 +490,20 @@ def test_endpoint_requires_the_context_fingerprint(
 # Stesso pattern exact-set di ``test_orchestrator``: il grep sul payload qui sotto
 # intercetta solo nomi di campo gia' noti, mentre l'insieme esatto rende rosso
 # QUALUNQUE campo nuovo, costringendo a una revisione cosciente del vincolo legale.
+
+
+def test_poi_narrative_request_surface_is_exactly_id_zone_and_fingerprint() -> None:
+    """Contratto della RICHIESTA (#197/#242): il client fornisce la zona, l'id
+    del punto e un'impronta opaca — nient'altro. Il claim di non-iniettabilita'
+    e' un vincolo sulla request: un futuro campo ``terminus_class``/``risks``
+    darebbe al client voce sui dati di rischio, che devono restare ri-derivati
+    dal server. L'insieme esatto lo blocca."""
+    assert set(PoiNarrativeRequest.model_fields) == {
+        "citta",
+        "zona",
+        "poi_id",
+        "contesto_hash",
+    }
 
 
 def test_poi_narrative_response_has_no_numeric_danger_scoring_field() -> None:

@@ -168,8 +168,14 @@ export class StateStore {
    * nulla: la richiesta sarebbe un 404 annunciato.
    *
    * L'impronta del contesto (#242) viene dalla risposta di zona MOSTRATA: se non corrispondesse
-   * alla coppia città/zona inviata, il backend risponderebbe 409 — il fallimento è sicuro per
-   * costruzione, mai una narrativa ancorata a un vicinato diverso da quello in mappa.
+   * alla coppia città/zona inviata, il backend risponderebbe 409 invece di generare prosa su un
+   * vicinato diverso da quello in mappa.
+   *
+   * La verifica server-side però copre solo ciò che passa dalla rete: un risultato che arriva
+   * DOPO una nuova analisi della zona verrebbe depositato in `poiNarratives` e poi servito dalla
+   * cache di sessione senza alcuna richiesta, quindi senza che il backend possa più confrontare
+   * nulla. Per questo il risultato è scartato se, quando arriva, l'impronta mostrata non è più
+   * quella con cui la richiesta è partita.
    */
   async loadPoiNarrative(poiId: string, options?: { force?: boolean }): Promise<void> {
     const query = this._state().lastQuery;
@@ -181,6 +187,7 @@ export class StateStore {
     this.dispatch({ type: 'POI_NARRATIVE_START', poiId });
     try {
       const res = await this.api.poiNarrative(query.citta, query.zona, poiId, contestoHash);
+      if (this.contestoCambiato(contestoHash)) return;
       this.dispatch({
         type: 'POI_NARRATIVE_SUCCESS',
         poiId,
@@ -192,10 +199,25 @@ export class StateStore {
         },
       });
     } catch (err) {
+      if (this.contestoCambiato(contestoHash)) return;
       this.dispatch({
         type: 'POI_NARRATIVE_ERROR',
         message: errorMessage(err, 'Errore nella generazione della narrativa del punto.'),
       });
     }
+  }
+
+  /**
+   * L'impronta mostrata è cambiata da quando la generazione è partita? (#242)
+   *
+   * Succede quando una nuova analisi della zona arriva mentre la generazione di un punto è ancora
+   * in volo: `ANALYZE` svuota `poiNarratives` e `completoData` porta un'altra impronta. Il
+   * risultato tardivo riguarda un contesto che non è più a schermo, quindi non va depositato né
+   * dichiarato: la cache di sessione lo servirebbe poi SENZA richiesta, aggirando la verifica
+   * server-side. `poiNarrativeLoading` è già stato azzerato da `ANALYZE`, quindi non resta appeso
+   * nulla — l'impronta cambia solo passando da lì.
+   */
+  private contestoCambiato(contestoHash: string): boolean {
+    return this._state().completoData?.contesto_hash !== contestoHash;
   }
 }
