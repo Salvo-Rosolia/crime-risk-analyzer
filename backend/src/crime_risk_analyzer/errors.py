@@ -11,6 +11,7 @@ Mappa (orchestrator.md):
   * :class:`ZoneNotFoundError`  -> ``422`` (zona non geocodificabile)
   * :class:`GeocodingError`     -> ``503`` (servizio di geocoding non raggiungibile)
   * :class:`OverpassError`      -> ``503`` (Overpass non raggiungibile dopo retry)
+  * :class:`PoiNotFoundError`   -> ``404`` (POI fuori dall'analisi corrente, #197)
 
 Nessuna allowlist di citta' (#191): una citta' italiana inesistente non e'
 respinta a monte, ma fallisce al geocoding come :class:`ZoneNotFoundError` (422).
@@ -30,6 +31,7 @@ from fastapi.responses import JSONResponse
 
 from crime_risk_analyzer.geocoding import GeocodingError, ZoneNotFoundError
 from crime_risk_analyzer.overpass_client import OverpassError
+from crime_risk_analyzer.poi_narrative import PoiNotFoundError
 
 
 async def _handle_zone_not_found(
@@ -69,6 +71,22 @@ async def _handle_overpass_error(_request: Request, exc: OverpassError) -> JSONR
     )
 
 
+async def _handle_poi_not_found(
+    _request: Request, exc: PoiNotFoundError
+) -> JSONResponse:
+    """``PoiNotFoundError`` -> ``404`` (POI fuori dall'analisi corrente, #197).
+
+    Non e' un errore di servizio ma di riferimento: il client ha chiesto la
+    narrativa di un POI che il contesto di zona corrente non contiene (zona
+    ri-analizzata, POI sparito da OSM). Il messaggio dice cosa fare (rilanciare
+    l'analisi), cosi' la UI puo' riproporlo all'operatore.
+    """
+    return JSONResponse(
+        status_code=404,
+        content={"detail": {"errore": "poi_non_nel_contesto", "messaggio": str(exc)}},
+    )
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     """Registra sull'``app`` la mappa centrale errore di dominio -> HTTP.
 
@@ -83,3 +101,4 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(ZoneNotFoundError, _handle_zone_not_found)  # pyright: ignore[reportArgumentType]
     app.add_exception_handler(GeocodingError, _handle_geocoding_error)  # pyright: ignore[reportArgumentType]
     app.add_exception_handler(OverpassError, _handle_overpass_error)  # pyright: ignore[reportArgumentType]
+    app.add_exception_handler(PoiNotFoundError, _handle_poi_not_found)  # pyright: ignore[reportArgumentType]

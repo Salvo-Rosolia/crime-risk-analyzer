@@ -3,7 +3,8 @@
 Espone la factory :func:`create_app` e un'istanza ``app`` pronta per Uvicorn
 (``uvicorn crime_risk_analyzer.main:app``). Registra gli endpoint di dominio —
 ``GET /health``, ``GET /cities``, ``POST /analyze`` e ``POST /analyze/baseline`` —
-e configura il CORS (#106) e il warm-up delle risorse nel ``lifespan``.
+``POST /analyze/poi`` (#197) — e configura il CORS (#106) e il warm-up delle
+risorse nel ``lifespan``.
 """
 
 from collections.abc import AsyncGenerator
@@ -25,6 +26,11 @@ from crime_risk_analyzer.orchestrator import (
     BaselineRequest,
     run_analysis,
     run_baseline,
+)
+from crime_risk_analyzer.poi_narrative import (
+    PoiNarrativeRequest,
+    PoiNarrativeResponse,
+    run_poi_narrative,
 )
 from crime_risk_analyzer.sparql_module.query_executor import (
     RiskQueryExecutor,
@@ -111,6 +117,28 @@ async def analyze_baseline(
         request.zona,
         executor=executor,
         tipo_poi=request.tipo_poi,
+    )
+
+
+@router.post("/analyze/poi")
+async def analyze_poi(
+    request: PoiNarrativeRequest,
+    executor: Annotated[RiskQueryExecutor, Depends(get_executor)],
+    llm_client: Annotated[LLMClient, Depends(get_llm_client)],
+) -> PoiNarrativeResponse:
+    """Narrativa del singolo POI selezionato (#197).
+
+    Riusa il contesto di zona calcolato da ``/analyze`` (cache con TTL); a cache
+    fredda lo ricostruisce, al costo di una chiamata Overpass. ``poi_id`` fuori
+    dal contesto -> ``PoiNotFoundError`` -> 404 (handler centrale). Tutti i dati
+    di rischio sono ri-derivati dal server: il client fornisce solo l'id.
+    """
+    return await run_poi_narrative(
+        request.citta,
+        request.zona,
+        request.poi_id,
+        executor=executor,
+        llm_client=llm_client,
     )
 
 
