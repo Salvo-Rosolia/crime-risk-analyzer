@@ -63,6 +63,9 @@ def _vr(
         "poi_id": poi_id,
         "terminus_class": terminus_class,
         "risks": risks,
+        # I tre assi non-hazard (#256): vuoti per default, i test che li verificano
+        # li popolano espressamente.
+        "critical_events": [],
         "vulnerabilities": [],
         "sparql_path": risks[0]["source"] if risks else None,
     }
@@ -191,6 +194,39 @@ def test_build_poi_list_strict_zip_mismatch() -> None:
             {"pois": [_poi("1", "Banca A", "Bank")]},  # type: ignore[arg-type]
             {"validated_risks": []},  # type: ignore[arg-type]
         )
+
+
+def test_build_poi_list_espone_gli_assi_con_etichette_e_citazione() -> None:
+    """Eventi critici e vulnerabilita' arrivano al contratto (#256).
+
+    L'executor SPARQL li estrae a ogni richiesta da sempre, ma gli eventi critici non
+    li leggeva nessuno e le vulnerabilita' finivano solo nel prompt: l'ontologia da'
+    quattro assi e la UI ne mostrava uno. Ognuno porta la propria citazione e
+    l'etichetta IT del vocabolario controllato, come gli hazard. Lo stakeholder resta
+    fuori finche' il vocabolario non lo copre (72 filler senza etichetta italiana).
+    """
+    retrieval_ctx = {"pois": [_poi("1", "Banca A", "Bank")]}
+    vr = _vr("Banca A", "Bank", ["Bank_robbery"], poi_id="1")
+    # Identifier REALI, presenti nel vocabolario controllato (#77): con un nome
+    # inventato ``label_it`` degraderebbe all'inglese de-underscorato e il test
+    # verificherebbe il fallback credendo di verificare il vocabolario.
+    vr["critical_events"] = [
+        {"name": "Hostages", "source": "Bank → havingCriticalEvent → Hostages"}
+    ]
+    vr["vulnerabilities"] = [
+        {
+            "name": "Poor_surveillance",
+            "source": "Bank → isVulnerableTo → Poor_surveillance",
+        }
+    ]
+    grounded = {"validated_risks": [vr]}
+
+    out = _build_poi_list(retrieval_ctx, grounded)[0]  # type: ignore[arg-type]
+
+    assert [e.name for e in out.critical_events] == ["Hostages"]
+    assert out.critical_events[0].source == "Bank → havingCriticalEvent → Hostages"
+    assert out.critical_events[0].label_it == "Ostaggi"
+    assert out.vulnerabilities[0].label_it == "Sorveglianza insufficiente"
 
 
 def test_build_poi_list_rejects_id_misalignment() -> None:
@@ -772,6 +808,47 @@ def test_poi_out_has_no_numeric_danger_scoring_field() -> None:
         "sparql_path",
         "terminus_label_it",
         "terminus_label_en",
+        # #256: gli assi TERMINUS oltre agli hazard. Sono ELENCHI QUALITATIVI di
+        # entita' ancorate, nessun conteggio e nessuna gradazione: non aprono il
+        # vettore dello scoring che questo test difende. Lo stakeholder non c'e':
+        # il vocabolario controllato non lo copre (vedi rag/grounding.py).
+        "critical_events",
+        "vulnerabilities",
+    }
+
+
+def test_poi_out_ontology_axes_reject_numeric_value() -> None:
+    """Vettore oltre l'exact-set: cambio di TIPO di un asse in un numero.
+
+    L'insieme esatto intercetta l'AGGIUNTA di un campo, non la sostituzione di una
+    lista qualitativa con un conteggio — che sarebbe scoring travestito (#184 aveva
+    riconosciuto lo stesso vettore per la ``confidence``). Pydantic lo rifiuta: qui
+    lo si pinna, cosi' un refactor futuro non lo apre in silenzio."""
+    for asse in ("critical_events", "vulnerabilities"):
+        with pytest.raises(ValidationError):
+            PoiOut(
+                id="1",
+                name="Banca A",
+                terminus_class="Bank",
+                lat=41.9,
+                lon=12.5,
+                **{asse: 3},  # pyright: ignore[reportArgumentType]
+            )
+
+
+def test_ontology_item_has_no_numeric_danger_scoring_field() -> None:
+    """L'entita' di un asse non-hazard porta nome, citazione ed etichette.
+
+    Nessun campo numerico e nessun livello: un ``peso``/``gravita'`` qui sarebbe
+    esattamente lo scoring di pericolosita' vietato (_project.md §Vincoli), ed e' il
+    posto piu' probabile dove intrufolarlo ora che gli assi sono quattro."""
+    from crime_risk_analyzer.orchestrator import OntologyItem
+
+    assert set(OntologyItem.model_fields) == {
+        "name",
+        "source",
+        "label_it",
+        "label_en",
     }
 
 

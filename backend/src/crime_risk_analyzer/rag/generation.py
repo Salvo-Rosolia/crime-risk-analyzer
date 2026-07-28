@@ -481,9 +481,14 @@ def _poi_block_lines(poi: dict[str, Any]) -> list[str]:
     else:
         lines.append("  Hazard verificati: nessuno (POI non coperto)")
 
-    vulns = poi.get("vulnerabilities", [])
+    # Da #256 le vulnerabilita' del context validato portano anche la citazione
+    # (``{name, source}``): nel prompt entra il solo nome, come prima. La citazione
+    # serve alla UI, non al modello — il testo del prompt resta invariato, quindi
+    # narrativa e metriche di valutazione non si muovono.
+    vulns: list[dict[str, Any]] = list(poi.get("vulnerabilities", []))
     if vulns:
-        lines.append(f"  Vulnerabilita': {', '.join(str(v) for v in vulns)}")
+        nomi = [str(v["name"]) for v in vulns]
+        lines.append(f"  Vulnerabilita': {', '.join(nomi)}")
 
     path = poi.get("sparql_path")
     if path:

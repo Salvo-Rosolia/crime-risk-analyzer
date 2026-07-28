@@ -111,6 +111,34 @@ class BaselineRequest(BaseModel):
     )
 
 
+class OntologyItem(BaseModel):
+    """Entita' ontologica di un asse non-hazard, con citazione ed etichette (#256).
+
+    Nessuna ``confidence`` e nessun ``tag``: la forza probatoria e' un bit derivato
+    dal nome del POI, quindi identica per ogni asserzione ontologica su quel punto —
+    il badge del POI le qualifica tutte insieme — e la fonte e' l'ontologia per
+    costruzione. Nessun campo numerico: sono elenchi qualitativi, come gli hazard
+    (vincolo legale anti-scoring, _project.md §Vincoli).
+    """
+
+    name: str = Field(
+        description="Nome-classe TERMINUS bare (es. 'Poor_surveillance')."
+    )
+    source: str = Field(
+        description="Citazione lineare 'Classe → property → entita' dal grounding."
+    )
+    label_it: str = Field(default="", description="Etichetta IT controllata (display).")
+    label_en: str = Field(default="", description="Etichetta EN corretta (display).")
+
+    @model_validator(mode="after")
+    def _fill_labels(self) -> OntologyItem:
+        if not self.label_it:
+            self.label_it = label_it(self.name)
+        if not self.label_en:
+            self.label_en = label_en(self.name)
+        return self
+
+
 class PoiOut(BaseModel):
     """POI nello schema canonico ``/analyze`` (coords + confidence + path)."""
 
@@ -134,6 +162,24 @@ class PoiOut(BaseModel):
     terminus_label_en: str = Field(
         default="", description="Etichetta EN corretta della classe (display)."
     )
+    critical_events: list[OntologyItem] = Field(
+        default_factory=list[OntologyItem],
+        description=(
+            "Eventi critici della classe TERMINUS (havingCriticalEvent), ciascuno "
+            "con la propria citazione (#256)."
+        ),
+    )
+    vulnerabilities: list[OntologyItem] = Field(
+        default_factory=list[OntologyItem],
+        description=(
+            "Vulnerabilita' della classe (isVulnerableTo + havingVulnerability): "
+            "arrivavano solo al prompt, senza citazione (#256)."
+        ),
+    )
+    # NB: l'asse ``stakeholders`` (havingPerformer) NON e' esposto, di proposito: il
+    # vocabolario controllato non ha la categoria e 72 dei suoi filler non hanno
+    # etichetta italiana, quindi la sezione uscirebbe in inglese in una UI italiana.
+    # Vedi il commento in ``rag/grounding.py``.
 
     @model_validator(mode="after")
     def _fill_labels(self) -> PoiOut:
@@ -226,6 +272,16 @@ def _build_poi_list(
                 lon=poi["lon"],
                 confidence=confidence,
                 sparql_path=vr["sparql_path"],
+                # I tre assi arrivano dal grounding, che li ha ancorati (#256): qui
+                # si serializza, non si ri-deriva nulla.
+                critical_events=[
+                    OntologyItem(name=e["name"], source=e["source"])
+                    for e in vr["critical_events"]
+                ],
+                vulnerabilities=[
+                    OntologyItem(name=e["name"], source=e["source"])
+                    for e in vr["vulnerabilities"]
+                ],
             )
         )
     return out

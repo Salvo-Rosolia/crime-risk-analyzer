@@ -205,7 +205,9 @@ async def run_poi_narrative(
             poi_name=poi["name"],
             poi_label_it=label_it(poi["terminus_class"]),
             risks=vr["risks"],
-            vulnerabilities=vr["vulnerabilities"],
+            # Al prompt va il solo nome: la citazione che #256 aggiunge serve alla
+            # UI. Cosi' il testo del prompt per-POI resta identico.
+            vulnerabilities=[v["name"] for v in vr["vulnerabilities"]],
             sparql_path=vr["sparql_path"],
             neighbours=neighbours,
             zone_summary=zone_summary,
