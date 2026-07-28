@@ -21,6 +21,7 @@ const dataWithRows: AnalyzeResponse = {
   ],
   risk_models: [
     {
+      poi_id: '1',
       poi: 'Colosseo',
       risks: [
         {

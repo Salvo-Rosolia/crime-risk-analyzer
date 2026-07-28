@@ -95,7 +95,9 @@ export function buildDetailModel(
   riskModels: RiskModel[] | null | undefined,
 ): DetailModel {
   const sparqlParts = poi.sparql_path ? poi.sparql_path.split(' → ') : [];
-  const model = (riskModels ?? []).find((r) => r.poi === poi.name);
+  // Aggancio per `poi_id`, non per nome: i nomi OSM non sono né unici né sempre presenti,
+  // quindi un `find` per nome fa vedere sul dettaglio di un punto i rischi di un altro.
+  const model = (riskModels ?? []).find((r) => r.poi_id === poi.id);
   const groups: Record<string, RiskItem[]> = {};
   for (const risk of model?.risks ?? []) {
     const tag = risk.tag || 'SPECULATIVO';
@@ -140,7 +142,7 @@ export interface BaseRow {
 /**
  * Righe della tabella "POI · Hazard · Categoria" dello Stato Sistema base (ablation,
  * spec-frontend.md §Stato Sistema base): una riga per ogni coppia (POI, hazard), stesso
- * abbinamento POI↔RiskModel per nome usato da `buildDetailModel`. "Categoria" resta la
+ * abbinamento POI↔RiskModel per `poi_id` usato da `buildDetailModel`. "Categoria" resta la
  * terminus class grezza (prefisso `tc:`), deliberatamente tecnica e non tradotta — coerente
  * con la povertà visiva voluta dal confronto ablation (il sistema completo mostra invece
  * l'etichetta IT curata in `poiDisplayLabel`).
@@ -151,7 +153,7 @@ export function buildBaseRows(
 ): BaseRow[] {
   const rows: BaseRow[] = [];
   for (const p of poi ?? []) {
-    const model = (riskModels ?? []).find((r) => r.poi === p.name);
+    const model = (riskModels ?? []).find((r) => r.poi_id === p.id);
     for (const risk of model?.risks ?? []) {
       rows.push({
         poiId: p.id,

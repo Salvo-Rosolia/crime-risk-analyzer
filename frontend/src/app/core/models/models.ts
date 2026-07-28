@@ -37,6 +37,11 @@ export interface RiskItem {
   hazard_label_en: string;
 }
 export interface RiskModel {
+  /** Id OSM del POI: la chiave con cui si attribuiscono i rischi al punto giusto. I nomi OSM non
+   * sono né unici né sempre presenti (le feature anonime arrivano con `name` vuoto), quindi
+   * agganciare per nome fa vedere, sul dettaglio di un punto, i rischi di un altro. */
+  poi_id: string;
+  /** Nome del POI, per il display: non identifica nulla. */
   poi: string;
   risks: RiskItem[];
 }

@@ -19,6 +19,7 @@ function makePoi(overrides: Partial<Poi> = {}): Poi {
 
 const riskModels: RiskModel[] = [
   {
+    poi_id: '1',
     poi: 'Colosseo',
     risks: [
       {
@@ -136,7 +137,9 @@ describe('DetailPanelComponent', () => {
   });
 
   it('omette i gruppi senza fattori e non fallisce se il POI non ha risk_models corrispondenti', () => {
-    setup(makePoi({ name: 'Sconosciuto' }), riskModels);
+    // Il non-match si costruisce sull'id, che è la chiave di aggancio: un nome diverso
+    // non basta più (e non doveva bastare, era il difetto).
+    setup(makePoi({ id: 'id-senza-rischi' }), riskModels);
     expect(fixture.nativeElement.querySelectorAll('.cra-source-tag').length).toBe(0);
     expect(fixture.nativeElement.querySelectorAll('.cra-factor-row').length).toBe(0);
   });
@@ -170,6 +173,7 @@ describe('DetailPanelComponent', () => {
     const outOfContractPoi = makePoi({ confidence: 'boh' as unknown as Poi['confidence'] });
     const outOfContractRiskModels: RiskModel[] = [
       {
+        poi_id: '1',
         poi: 'Colosseo',
         risks: [
           {
@@ -219,6 +223,7 @@ describe('DetailPanelComponent', () => {
   it('accordion (default adattivo): con >3 fattori resta aperto solo il primo gruppo (ONTOLOGIA), gli altri collassati ma col conteggio', () => {
     const richModels: RiskModel[] = [
       {
+        poi_id: '1',
         poi: 'Colosseo',
         risks: [
           {
@@ -293,6 +298,7 @@ describe('DetailPanelComponent', () => {
     ) => ({ hazard, confidence, tag, hazard_label_it: hazard, hazard_label_en: '' });
     const models: RiskModel[] = [
       {
+        poi_id: '1',
         poi: 'Colosseo',
         risks: [
           r('o1', 'ONTOLOGIA', 'verificato'),
@@ -303,6 +309,7 @@ describe('DetailPanelComponent', () => {
         ],
       },
       {
+        poi_id: '2',
         poi: 'Duomo',
         risks: [
           r('do1', 'ONTOLOGIA', 'verificato'),

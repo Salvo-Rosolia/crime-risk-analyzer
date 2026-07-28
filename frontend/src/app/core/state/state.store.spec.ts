@@ -33,6 +33,7 @@ const poiResp: PoiNarrativeResponse = {
   },
   risk_models: [
     {
+      poi_id: 'node/1',
       poi: 'Banca A',
       risks: [
         {
@@ -493,7 +494,7 @@ describe('StateStore', () => {
       api.poiNarrative.mockResolvedValue({
         ...poiResp,
         poi_id: 'node/2',
-        risk_models: [{ poi: 'Bar Roma', risks: [] }],
+        risk_models: [{ poi_id: 'node/2', poi: 'Bar Roma', risks: [] }],
       });
       store.dispatch({ type: 'SELECT_POI', id: 'node/2' });
       await store.loadPoiNarrative('node/2');

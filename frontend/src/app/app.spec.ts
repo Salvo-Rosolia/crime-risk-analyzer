@@ -99,6 +99,7 @@ describe('App shell', () => {
       ...emptyResp,
       risk_models: [
         {
+          poi_id: 'poi-1',
           poi: 'Colosseo',
           risks: [
             {
@@ -278,6 +279,7 @@ describe('App shell', () => {
       ],
       risk_models: [
         {
+          poi_id: 'poi-1',
           poi: 'Colosseo',
           risks: [
             {
@@ -453,6 +455,7 @@ describe('App shell', () => {
       ],
       risk_models: [
         {
+          poi_id: '1',
           poi: 'Stazione',
           risks: [
             {
@@ -507,6 +510,7 @@ describe('App shell', () => {
         ],
         risk_models: [
           {
+            poi_id: 'c1',
             poi: 'CompletoPOI',
             risks: [
               {
@@ -890,6 +894,7 @@ describe('App shell', () => {
       // (`poi_narrative.run_poi_narrative`): la fixture deve rispettarlo.
       risk_models: [
         {
+          poi_id: 'poi-1',
           poi: 'Banca A',
           risks: [
             {
@@ -1004,7 +1009,7 @@ describe('App shell', () => {
       const f = await analyzed();
       api.poiNarrative.mockResolvedValue({
         ...poiResp,
-        risk_models: [{ poi: 'Banca A', risks: [] }],
+        risk_models: [{ poi_id: 'poi-1', poi: 'Banca A', risks: [] }],
       });
       (f.nativeElement.querySelector('.cra-poi-card') as HTMLElement).click();
       await f.whenStable();

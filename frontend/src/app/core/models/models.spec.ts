@@ -27,6 +27,7 @@ describe('models (contratto /analyze)', () => {
       ],
       risk_models: [
         {
+          poi_id: '1',
           poi: 'Colosseo',
           risks: [
             {

@@ -4,6 +4,7 @@ import type { RiskModel, SourceProse } from '@core/models/models';
 
 const riskModels: RiskModel[] = [
   {
+    poi_id: '1',
     poi: 'Colosseo',
     risks: [
       {
@@ -258,6 +259,7 @@ describe('NarrativeSheetComponent', () => {
     // Nuovo set di dati: solo SPECULATIVO (CONTESTO, il tag attivo, sparisce).
     fixture.componentRef.setInput('riskModels', [
       {
+        poi_id: '2',
         poi: 'Duomo',
         risks: [
           {
