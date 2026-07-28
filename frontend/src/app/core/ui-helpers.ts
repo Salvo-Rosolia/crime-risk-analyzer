@@ -1,5 +1,13 @@
 import { confMeta } from '@core/confidence';
-import { Confidence, Poi, RiskItem, RiskModel, SourceProse, SourceTag } from '@core/models/models';
+import {
+  Confidence,
+  OntologyItem,
+  Poi,
+  RiskItem,
+  RiskModel,
+  SourceProse,
+  SourceTag,
+} from '@core/models/models';
 
 /**
  * Ordine canonico dei tag fonte (spec-frontend.md, cross-cutting: Stato B narrativa per fonte E
@@ -47,6 +55,13 @@ export function validateInputPanel({
 /** Etichetta IT controllata dell'hazard (#77) con fallback all'identificatore di classe grezzo. */
 export function hazardDisplayLabel(risk: Pick<RiskItem, 'hazard' | 'hazard_label_it'>): string {
   return risk.hazard_label_it || risk.hazard;
+}
+
+/** Etichetta IT controllata di un'entità ontologica (#256) con fallback all'identificatore grezzo.
+ * Stesso pattern di `hazardDisplayLabel`/`poiDisplayLabel`: la regola vive qui e non nel template,
+ * così il ramo di fallback è esercitabile da un test. */
+export function ontologyDisplayLabel(item: Pick<OntologyItem, 'name' | 'label_it'>): string {
+  return item.label_it || item.name;
 }
 
 /** Etichetta IT controllata della classe POI (#77) con fallback all'identificatore di classe grezzo. */

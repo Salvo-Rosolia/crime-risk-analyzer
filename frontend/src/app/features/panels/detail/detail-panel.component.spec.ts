@@ -136,6 +136,111 @@ describe('DetailPanelComponent', () => {
     expect(text).toContain('Ipotesi speculativa');
   });
 
+  it('mostra gli assi ontologici oltre agli hazard, ciascuno con la propria citazione', () => {
+    // #256: l'ontologia dà quattro assi e il pannello ne mostrava uno. Eventi critici e
+    // stakeholder non li leggeva nessuno, le vulnerabilità finivano solo nel prompt.
+    setup(
+      makePoi({
+        critical_events: [
+          {
+            name: 'Heist',
+            source: 'Bank → havingCriticalEvent → Heist',
+            label_it: 'Colpo in banca',
+            label_en: 'Heist',
+          },
+        ],
+        vulnerabilities: [
+          {
+            name: 'Poor_surveillance',
+            source: 'Bank → isVulnerableTo → Poor_surveillance',
+            label_it: 'Sorveglianza scarsa',
+            label_en: 'Poor surveillance',
+          },
+        ],
+      }),
+    );
+
+    const text = fixture.nativeElement.textContent;
+    expect(fixture.nativeElement.querySelectorAll('.cra-axis-group').length).toBe(2);
+    expect(text).toContain('Colpo in banca');
+    expect(text).toContain('Sorveglianza scarsa');
+    // la citazione accompagna la voce: senza, l'asse non è verificabile
+    expect(text).toContain('havingCriticalEvent');
+  });
+
+  it('non mostra alcun asse ontologico se il POI non ne ha', () => {
+    setup(makePoi());
+    expect(fixture.nativeElement.querySelectorAll('.cra-axis-group').length).toBe(0);
+  });
+
+  it('mostra solo gli assi popolati, non tutti o nessuno', () => {
+    // Il filtro è PER ASSE: un test con tutti e tre popolati non distinguerebbe questo
+    // comportamento da un tutto-o-niente sull'unione.
+    setup(
+      makePoi({
+        vulnerabilities: [
+          {
+            name: 'Poor_surveillance',
+            source: 'Bank → isVulnerableTo → Poor_surveillance',
+            label_it: 'Sorveglianza scarsa',
+            label_en: 'Poor surveillance',
+          },
+        ],
+      }),
+    );
+
+    expect(fixture.nativeElement.querySelectorAll('.cra-axis-group').length).toBe(1);
+    expect(fixture.nativeElement.textContent).toContain('Vulnerabilità');
+    expect(fixture.nativeElement.textContent).not.toContain('Eventi critici');
+  });
+
+  it('un POI fuori ontologia con assi popolati li mostra, senza badge da cui ereditare un livello', () => {
+    // #220: `confidence: null` significa «nessun rischio da qualificare», non «ignoto», quindi il
+    // badge in testa non c'è. Gli altri tre assi vengono da property OWL indipendenti dagli hazard,
+    // quindi possono esserci comunque: le voci restano nude, sono fatti sulla classe TERMINUS.
+    setup(
+      makePoi({
+        confidence: null,
+        critical_events: [
+          {
+            name: 'Heritage_damage',
+            source: 'Archaeological_site → havingCriticalEvent → Heritage_damage',
+            label_it: 'Danneggiamento del patrimonio',
+            label_en: 'Heritage damage',
+          },
+        ],
+      }),
+    );
+
+    expect(fixture.nativeElement.querySelectorAll('.cra-axis-group').length).toBe(1);
+    expect(fixture.nativeElement.textContent).toContain('Danneggiamento del patrimonio');
+    // Il badge da cui le voci dovrebbero «ereditare» la qualifica è quello dell'INTESTAZIONE:
+    // `.cra-badge-confidence` compare anche sulle righe dei fattori di rischio, quindi la query
+    // va ristretta o passerebbe (o fallirebbe) per il motivo sbagliato.
+    expect(
+      fixture.nativeElement.querySelector('.cra-detail-name-row .cra-badge-confidence'),
+    ).toBeNull();
+  });
+
+  it("usa l'identificatore grezzo quando l'etichetta IT manca", () => {
+    setup(
+      makePoi({
+        critical_events: [
+          {
+            name: 'Bank_robbery',
+            source: 'Bank → havingCriticalEvent → Bank_robbery',
+            label_it: '',
+            label_en: 'Bank robbery',
+          },
+        ],
+      }),
+    );
+
+    expect(fixture.nativeElement.querySelector('.cra-axis-label').textContent).toContain(
+      'Bank_robbery',
+    );
+  });
+
   it('omette i gruppi senza fattori e non fallisce se il POI non ha risk_models corrispondenti', () => {
     // Il non-match si costruisce sull'id, che è la chiave di aggancio: un nome diverso
     // non basta più (e non doveva bastare, era il difetto).

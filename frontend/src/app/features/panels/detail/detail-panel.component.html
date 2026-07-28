@@ -59,6 +59,25 @@
     }
   </section>
 
+  @if (ontologyAxes().length) {
+    <section class="cra-detail-section">
+      <h3 class="cra-eyebrow">Contesto ontologico · per asse</h3>
+      @for (asse of ontologyAxes(); track asse.titolo) {
+        <div class="cra-axis-group">
+          <h4 class="cra-axis-title">{{ asse.titolo }}</h4>
+          <ul class="cra-axis-list">
+            @for (voce of asse.voci; track voce.name) {
+              <li class="cra-axis-row">
+                <span class="cra-axis-label">{{ axisLabel(voce) }}</span>
+                <span class="cra-axis-source">{{ voce.source }}</span>
+              </li>
+            }
+          </ul>
+        </div>
+      }
+    </section>
+  }
+
   <section class="cra-detail-section cra-provenance">
     <h3 class="cra-eyebrow">Provenienza · path SPARQL</h3>
     @if (detailModel().sparqlParts.length > 0) {
