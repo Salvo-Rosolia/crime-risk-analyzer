@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from crime_risk_analyzer.overpass_client import (
     OFFLINE_RETRY,
     PER_SELECTOR_CAP,
     OverpassError,
+    Poi,
     fetch_pois,
 )
 
@@ -43,6 +45,198 @@ def _no_retry_pause(monkeypatch: pytest.MonkeyPatch) -> None:  # pyright: ignore
         "INTERACTIVE_RETRY",
         replace(overpass_client.INTERACTIVE_RETRY, pause_s=(0.0,)),
     )
+
+
+def _poi_a(poi_id: str, lat: float, lon: float, terminus_class: str = "Bank") -> Poi:
+    """POI sintetico posizionato a mano (per i test di selezione, #254)."""
+    return Poi(
+        id=poi_id,
+        name=f"POI {poi_id}",
+        lat=lat,
+        lon=lon,
+        osm_tags="amenity=bank",
+        terminus_class=terminus_class,
+        citta="Roma",
+    )
+
+
+# --- #254: quali POI entrano nei MAX_POIS posti ---
+
+
+def test_select_pois_prefers_the_nearest_to_the_center() -> None:
+    """I posti vanno ai POI piu' vicini al centro dell'area, non ai primi arrivati.
+
+    Prima di #254 il taglio prendeva i primi ``MAX_POIS`` nell'ordine in cui
+    Overpass li emetteva, cioe' nell'ordine dei selettori dichiarati: i POI delle
+    famiglie di tag in coda non entravano mai in una zona densa.
+    """
+    center_lat, center_lon = _BBOX.center()
+    lontano = _poi_a("lontano", center_lat + 0.02, center_lon)
+    vicino = _poi_a("vicino", center_lat + 0.0001, center_lon)
+
+    selected = overpass_client.select_pois(
+        [lontano, vicino], _BBOX.center(), max_pois=1
+    )
+
+    assert [p["id"] for p in selected] == ["vicino"]
+
+
+def test_select_pois_caps_a_dense_class_while_other_classes_are_present() -> None:
+    """Una classe densa non si prende tutti i posti se ci sono altre classi.
+
+    In centro citta' i POI piu' vicini sono spesso della stessa classe (otto
+    bancomat entro 150 m): senza tetto la zona verrebbe descritta su un campione
+    omogeneo, cioe' la distorsione che #254 chiude, solo con un'altra causa.
+    """
+    lat, lon = _BBOX.center()
+    banche = [_poi_a(f"bank-{i}", lat + 0.0001 * i, lon, "Bank") for i in range(5)]
+    altre = [
+        _poi_a("school", lat + 0.001, lon, "School"),
+        _poi_a("museum", lat + 0.0011, lon, "Museum"),
+    ]
+
+    selected = overpass_client.select_pois(
+        banche + altre, (lat, lon), max_pois=5, per_class_cap=3
+    )
+
+    per_classe = Counter(p["terminus_class"] for p in selected)
+    assert per_classe == Counter({"Bank": 3, "School": 1, "Museum": 1})
+
+
+def test_select_pois_fills_remaining_slots_when_only_capped_classes_are_left() -> None:
+    """Il tetto non deve far restituire MENO POI di quanti la zona ne abbia.
+
+    In una zona di sole banche un tetto rigido restituirebbe 3 punti invece di
+    ``max_pois``: peggio di prima. Esauriti i candidati di altre classi, i posti
+    rimasti si riempiono coi piu' vicini fra gli scartati, mantenendo l'ordine di
+    distanza.
+    """
+    lat, lon = _BBOX.center()
+    banche = [_poi_a(f"bank-{i}", lat + 0.0001 * i, lon, "Bank") for i in range(6)]
+
+    selected = overpass_client.select_pois(
+        banche, (lat, lon), max_pois=5, per_class_cap=3
+    )
+
+    assert [p["id"] for p in selected] == [
+        "bank-0",
+        "bank-1",
+        "bank-2",
+        "bank-3",
+        "bank-4",
+    ]
+
+
+def test_select_pois_esce_sempre_in_ordine_di_distanza() -> None:
+    """Anche i POI riammessi dal secondo giro stanno al loro posto in distanza.
+
+    Non e' cosmetica: l'impronta del contesto (#242) e' SENSIBILE all'ordine — un
+    riordino a contenuto invariato fa rispondere 409 a ``/analyze/poi`` — e la
+    numerazione dei marker in mappa segue questa lista. Senza il riordino finale
+    l'uscita sarebbe ``bank-0, bank-1, bank-2, school, bank-3``.
+    """
+    lat, lon = _BBOX.center()
+    banche = [_poi_a(f"bank-{i}", lat + 0.0001 * i, lon, "Bank") for i in range(4)]
+    scuola = _poi_a("school", lat + 0.005, lon, "School")
+
+    selected = overpass_client.select_pois(
+        [*banche, scuola], (lat, lon), max_pois=5, per_class_cap=3
+    )
+
+    assert [p["id"] for p in selected] == [
+        "bank-0",
+        "bank-1",
+        "bank-2",
+        "bank-3",
+        "school",
+    ]
+
+
+def test_select_pois_breaks_distance_ties_by_id() -> None:
+    """A parita' di distanza vince l'``id`` minore.
+
+    Senza un criterio di rottura dei pareggi due esecuzioni sullo stesso input
+    possono produrre prompt diversi e ``repro.prompt_hash`` diverge, rendendo la
+    run non ricostruibile.
+    """
+    lat, lon = _BBOX.center()
+    selected = overpass_client.select_pois(
+        [_poi_a("b", lat + 0.001, lon), _poi_a("a", lat + 0.001, lon)],
+        (lat, lon),
+        max_pois=1,
+    )
+
+    assert [p["id"] for p in selected] == ["a"]
+
+
+@respx.mock
+async def test_fetch_pois_deduplica_elementi_emessi_da_piu_blocchi() -> None:
+    """Lo stesso oggetto OSM emesso da piu' blocchi ``out`` entra una volta sola.
+
+    La query ha un blocco per selettore e ogni ``out`` stampa il PROPRIO set:
+    verificato dal vivo sul bbox del Colosseo, dove l'Arco di Costantino
+    (``tourism=attraction`` + ``historic=monument``) e la Basilica di San Pietro in
+    Vincoli (``amenity=place_of_worship`` + ``tourism=attraction``) arrivano due
+    volte. Finche' il taglio era «i primi 20 emessi» i blocchi che li duplicano non
+    entravano mai in output; con la selezione per prossimita' i doppioni sono i piu'
+    vicini, quindi si mangerebbero i posti proprio delle classi che #254 vuole far
+    emergere, e ``zone_composition`` conterebbe tre luoghi di culto dove ce n'e' uno.
+    """
+    lat, lon = _BBOX.center()
+    arco: dict[str, object] = {
+        "type": "way",
+        "id": 23590989,
+        "center": {"lat": lat, "lon": lon},
+        "tags": {
+            "tourism": "attraction",
+            "historic": "monument",
+            "name": "Arco di Costantino",
+        },
+    }
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json={"elements": [arco, dict(arco)]})
+    )
+
+    pois = await fetch_pois(_BBOX, "Roma")
+
+    assert [p["id"] for p in pois] == ["23590989"]
+
+
+@respx.mock
+async def test_fetch_pois_keeps_the_nearest_even_if_emitted_last() -> None:
+    """Il POI piu' vicino al centro entra anche se Overpass lo emette per ultimo.
+
+    E' il difetto di #254 preso dal punto d'ingresso reale: l'ordine di emissione
+    e' quello dei selettori dichiarati, quindi prima un POI oltre il ventesimo
+    posto non entrava mai, per quanto vicino fosse.
+    """
+    lat, lon = _BBOX.center()
+    elements: list[dict[str, object]] = [
+        {
+            "id": 1000 + i,
+            "lat": lat + 0.01,
+            "lon": lon,
+            "tags": {"amenity": "bank", "name": f"Lontana {i}"},
+        }
+        for i in range(MAX_POIS)
+    ]
+    elements.append(
+        {
+            "id": 9999,
+            "lat": lat,
+            "lon": lon,
+            "tags": {"tourism": "museum", "name": "Museo sul centro"},
+        }
+    )
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json={"elements": elements})
+    )
+
+    pois = await fetch_pois(_BBOX, "Roma")
+
+    assert len(pois) == MAX_POIS
+    assert pois[0]["id"] == "9999"
+    assert "Museum" in {p["terminus_class"] for p in pois}
 
 
 @respx.mock

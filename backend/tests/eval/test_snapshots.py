@@ -11,7 +11,11 @@ from crime_risk_analyzer.eval.snapshots import (
     save_snapshot,
 )
 from crime_risk_analyzer.models.geo import Bbox
-from crime_risk_analyzer.overpass_client import MAX_POIS, PER_SELECTOR_CAP
+from crime_risk_analyzer.overpass_client import (
+    MAX_POIS,
+    PER_CLASS_CAP,
+    PER_SELECTOR_CAP,
+)
 
 _POIS = [
     {
@@ -96,6 +100,10 @@ def test_snapshot_porta_la_provenienza_di_cattura(tmp_path: Path) -> None:
     conf = prov["configurazione_canonica"]
     assert conf["max_pois"] == MAX_POIS
     assert conf["per_selector_cap"] == PER_SELECTOR_CAP
+    # #254: la politica di selezione fa parte di cosa ha prodotto il file. Senza
+    # questo campo due fixture indistinguibili potrebbero venire da tetti per
+    # classe diversi, e uno snapshot pre-#254 non sarebbe riconoscibile come tale.
+    assert conf["per_class_cap"] == PER_CLASS_CAP
     assert conf["n_selettori"] > 0
     assert len(conf["selettori_hash"]) == 64
 

@@ -29,7 +29,7 @@ from typing import TypedDict, cast
 
 import httpx
 
-from crime_risk_analyzer.models.geo import Bbox
+from crime_risk_analyzer.models.geo import Bbox, haversine_m
 from crime_risk_analyzer.sparql_module.osm_mapping import (
     ORDINE_FAMIGLIE,
     OSM_SELECTORS,
@@ -41,12 +41,14 @@ __all__ = [
     "INTERACTIVE_RETRY",
     "MAX_POIS",
     "OFFLINE_RETRY",
+    "PER_CLASS_CAP",
     "PER_SELECTOR_CAP",
     "Bbox",
     "OverpassError",
     "Poi",
     "RetryPolicy",
     "fetch_pois",
+    "select_pois",
 ]
 
 #: Endpoint Overpass di default (override possibile via parametro).
@@ -56,11 +58,24 @@ DEFAULT_OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 #: #212: ridotto da 50 a 20 per risultati meno affollati e piu' leggibili.
 MAX_POIS = 20
 
-#: Cap di elementi restituiti da Overpass PER selettore: evita che selettori densi
-#: (es. highway=bus_stop, amenity=place_of_worship) monopolizzino il budget affamando
-#: le classi rare. La curatela finale/bilanciata e' dell'orchestrator (#79).
-#: #212: ridotto da 5 a 3 per piu' varieta' di tipi e meno doppioni dello stesso tipo.
-PER_SELECTOR_CAP = 3
+#: Cap di elementi restituiti da Overpass PER selettore: dimensiona il BACINO di
+#: CANDIDATI, non il risultato. La scelta dei ``MAX_POIS`` che escono e' di
+#: :func:`select_pois` (#254).
+#: #212 l'aveva ridotto a 3 quando il taglio era «i primi che arrivano»; con la
+#: selezione per prossimita' un bacino cosi' stretto renderebbe l'ordinamento poco
+#: significativo (si ordinerebbero 3 elementi per selettore scelti da Overpass).
+#: LIMITE DICHIARATO: ``out center N`` restituisce N elementi QUALSIASI, non i piu'
+#: vicini, quindi alzare il tetto riduce l'arbitrarieta' del bacino ma non la
+#: elimina. Resta uguale sui due percorsi (interattivo e cattura offline): un tetto
+#: diverso farebbe selezionare produzione e snapshot da bacini diversi, rompendo
+#: l'iso-input di #110.
+PER_SELECTOR_CAP = 10
+
+#: Quanti posti al massimo puo' prendere una singola classe TERMINUS dentro i
+#: ``MAX_POIS`` (#254). I posti eventualmente rimasti si riempiono comunque coi piu'
+#: vicini fra gli scartati, quindi il tetto non riduce mai il numero di POI
+#: restituiti: cambia solo la loro composizione.
+PER_CLASS_CAP = 3
 
 logger = logging.getLogger(__name__)
 
@@ -227,7 +242,13 @@ def _to_poi(element: Mapping[str, object], citta: str) -> Poi | None:
 
 
 def _parse_elements(payload: object, citta: str) -> list[Poi]:
-    """Mappa gli ``elements`` di una risposta Overpass in POI (cap a MAX_POIS)."""
+    """Mappa TUTTI gli ``elements`` di una risposta Overpass in POI.
+
+    Nessun taglio qui (#254): questa funzione produce il bacino di candidati, e
+    quali ``MAX_POIS`` escono lo decide :func:`select_pois`. Prima il taglio era
+    un ``break`` a ``MAX_POIS`` sull'ordine di emissione, cioe' sull'ordine di
+    dichiarazione dei selettori.
+    """
     if not isinstance(payload, Mapping):
         raise OverpassError("Risposta Overpass non valida: payload non oggetto")
     payload_map = cast(Mapping[str, object], payload)
@@ -237,15 +258,86 @@ def _parse_elements(payload: object, citta: str) -> list[Poi]:
     elements_list = cast(list[object], elements)
 
     pois: list[Poi] = []
+    visti: set[tuple[str, str]] = set()
     for element in elements_list:
         if not isinstance(element, Mapping):
             continue
-        poi = _to_poi(cast(Mapping[str, object], element), citta)
+        element_map = cast(Mapping[str, object], element)
+        # Identita' OSM = (type, id): la query ha un blocco per selettore e ogni
+        # ``out`` stampa il proprio set, quindi un oggetto con piu' tag mappati
+        # arriva una volta per blocco (verificato dal vivo: l'Arco di Costantino,
+        # ``tourism=attraction`` + ``historic=monument``, arriva due volte). Il
+        # ``type`` entra nella chiave perche' node e way vivono in namespace
+        # separati e lo stesso numero identifica due oggetti diversi (#265).
+        chiave = (str(element_map.get("type", "")), str(element_map.get("id", "")))
+        if chiave in visti:
+            continue
+        poi = _to_poi(element_map, citta)
         if poi is not None:
+            visti.add(chiave)
             pois.append(poi)
-        if len(pois) >= MAX_POIS:
-            break
     return pois
+
+
+def select_pois(
+    pois: list[Poi],
+    center: tuple[float, float],
+    *,
+    max_pois: int = MAX_POIS,
+    per_class_cap: int = PER_CLASS_CAP,
+) -> list[Poi]:
+    """I ``max_pois`` POI da restituire, scelti per prossimita' a ``center`` (#254).
+
+    Prima di #254 il taglio prendeva i primi ``MAX_POIS`` nell'ordine in cui
+    Overpass li emetteva, cioe' nell'ordine di dichiarazione dei selettori: in una
+    zona densa i primi selettori esaurivano i posti e le famiglie di tag in coda
+    non comparivano mai. Sui 4 snapshot catturati prima di questa modifica si vede
+    l'effetto: solo POI ``amenity=*``, nessun museo, monumento o stazione.
+
+    Ordinamento dichiarato: distanza crescente e, a parita' di distanza, ``id``
+    crescente come STRINGA. Serve perche' il contesto entra nel prompt e
+    ``repro.prompt_hash`` deve restare stabile a parita' di input. Non e' un
+    ordinamento totale in senso stretto: due oggetti OSM alle stesse coordinate e
+    con lo stesso id numerico pareggerebbero su entrambe le componenti e il
+    pareggio ricadrebbe sulla stabilita' di ``sorted``, cioe' sull'ordine di
+    emissione di Overpass. Oggi il caso non e' raggiungibile — ``_parse_elements``
+    deduplica per ``(type, id)`` — ma lo diventerebbe se l'``id`` del POI restasse
+    senza il tipo di elemento (#265).
+
+    Due giri sulla stessa lista ordinata. Nel primo entra un POI solo se la sua
+    classe TERMINUS non ha gia' ``per_class_cap`` posti: senza questo tetto, in
+    centro citta' i POI piu' vicini sono spesso tutti della stessa classe (otto
+    bancomat entro 150 m) e la zona verrebbe descritta su un campione omogeneo.
+    Il secondo giro riempie i posti eventualmente rimasti con gli scartati piu'
+    vicini: senza di esso una zona di sole banche restituirebbe ``per_class_cap``
+    punti invece di ``max_pois``, cioe' meno di prima.
+    """
+    lat, lon = center
+    ordinati = sorted(
+        pois,
+        key=lambda poi: (haversine_m(lat, lon, poi["lat"], poi["lon"]), poi["id"]),
+    )
+    scelti: list[Poi] = []
+    scartati: list[Poi] = []
+    per_classe: dict[str, int] = {}
+    for poi in ordinati:
+        if len(scelti) >= max_pois:
+            break
+        classe = poi["terminus_class"]
+        if per_classe.get(classe, 0) >= per_class_cap:
+            scartati.append(poi)
+            continue
+        per_classe[classe] = per_classe.get(classe, 0) + 1
+        scelti.append(poi)
+    if len(scelti) < max_pois:
+        scelti.extend(scartati[: max_pois - len(scelti)])
+        # Gli scartati sono piu' lontani dei scelti nel primo giro, ma non
+        # necessariamente in coda: si riordina per tenere l'invariante «la lista
+        # esce in ordine di distanza» (la numerazione in mappa la rispecchia).
+        scelti.sort(
+            key=lambda poi: (haversine_m(lat, lon, poi["lat"], poi["lon"]), poi["id"])
+        )
+    return scelti
 
 
 async def _try_post(
@@ -379,4 +471,6 @@ async def fetch_pois(
     except ValueError as exc:
         raise OverpassError("Risposta Overpass non e' JSON valido") from exc
 
-    return _parse_elements(payload, citta)
+    # Il bacino di candidati arriva completo; la scelta dei MAX_POIS che escono e'
+    # per prossimita' al centro dell'area interrogata, con tetto per classe (#254).
+    return select_pois(_parse_elements(payload, citta), bbox.center())

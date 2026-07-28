@@ -12,6 +12,19 @@ from __future__ import annotations
 from crime_risk_analyzer.models.geo import Bbox
 
 
+def test_bbox_center_is_the_midpoint() -> None:
+    """Il centro dell'area interrogata, usato per ordinare i POI per prossimita'.
+
+    E' il punto medio del bbox e non quello di Nominatim: la selezione vive in
+    ``fetch_pois``, che ha il bbox ma non il ``GeoResult``, e far dipendere
+    l'ordinamento dal geo lo renderebbe portante nella catena di valutazione,
+    dove le run usano un placeholder (#169).
+    """
+    bbox = Bbox(min_lat=41.88, min_lon=12.48, max_lat=41.90, max_lon=12.52)
+
+    assert bbox.center() == (41.89, 12.50)
+
+
 def test_bbox_named_fields() -> None:
     bbox = Bbox(min_lat=41.88, min_lon=12.48, max_lat=41.90, max_lon=12.50)
 

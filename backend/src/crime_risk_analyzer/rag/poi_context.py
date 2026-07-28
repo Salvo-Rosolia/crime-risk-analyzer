@@ -12,11 +12,11 @@ diverge e la run non e' ricostruibile.
 
 from __future__ import annotations
 
-import math
 from collections import Counter
 from typing import TypedDict
 
 from crime_risk_analyzer.i18n.terminus_labels import label_it
+from crime_risk_analyzer.models.geo import haversine_m
 from crime_risk_analyzer.overpass_client import Poi
 
 __all__ = [
@@ -25,25 +25,6 @@ __all__ = [
     "nearest_neighbours",
     "zone_composition",
 ]
-
-#: Raggio medio terrestre in metri (IUGG).
-_EARTH_RADIUS_M = 6_371_008.8
-
-
-def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """Distanza in metri fra due coordinate (haversine).
-
-    Haversine e non una proiezione piana: il costo e' irrilevante su una
-    ventina di punti e non introduce un errore di proiezione da giustificare.
-    """
-    phi1, phi2 = math.radians(lat1), math.radians(lat2)
-    d_phi = phi2 - phi1
-    d_lambda = math.radians(lon2 - lon1)
-    a = (
-        math.sin(d_phi / 2) ** 2
-        + math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2) ** 2
-    )
-    return 2 * _EARTH_RADIUS_M * math.asin(math.sqrt(a))
 
 
 class NeighbourPoi(TypedDict):
@@ -84,14 +65,24 @@ def nearest_neighbours(
 
 
 def zone_composition(pois: list[Poi], *, top: int = 3) -> str:
-    """Riga di sintesi della zona: totale POI e classi piu' frequenti in IT.
+    """Riga di sintesi del CAMPIONE di POI: quanti sono e le classi piu' frequenti.
 
-    Ordinamento totale: conteggio decrescente, a parita' di conteggio etichetta
-    in ordine alfabetico.
+    La riga entra nel prompt, quindi il testo dichiara che parla di una selezione e
+    non della zona (#254): i POI sono i piu' vicini al centro dell'area con un tetto
+    per classe TERMINUS, quindi il totale non e' il totale della zona e «classi
+    prevalenti» sarebbe un artefatto del tetto, che appiattisce i conteggi a un
+    plateau. Affermare un fatto sulla zona a partire dal campione e' esattamente il
+    tipo di asserzione non ancorata che il progetto non vuole mettere nel contesto.
+
+    Ordinamento totale: conteggio decrescente, a parita' di conteggio etichetta in
+    ordine alfabetico.
     """
     counts = Counter(label_it(p["terminus_class"]) for p in pois)
     ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:top]
     if not ranked:
-        return "0 punti di interesse nel contesto della zona."
+        return "0 punti di interesse selezionati nel contesto della zona."
     parti = ", ".join(f"{label} ({n})" for label, n in ranked)
-    return f"{len(pois)} punti di interesse nella zona; classi prevalenti: {parti}."
+    return (
+        f"{len(pois)} punti di interesse selezionati fra i piu' vicini al centro "
+        f"della zona; classi piu' frequenti fra questi: {parti}."
+    )

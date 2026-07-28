@@ -33,6 +33,7 @@ from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.overpass_client import (
     MAX_POIS,
     OFFLINE_RETRY,
+    PER_CLASS_CAP,
     PER_SELECTOR_CAP,
     Poi,
     fetch_pois,
@@ -58,6 +59,10 @@ class ConfigurazioneCanonica(TypedDict):
     #: derivare da interrogazioni con cap diversi.
     max_pois: int
     per_selector_cap: int
+    #: Tetto per classe TERMINUS della selezione (#254). E' parte di cosa ha
+    #: prodotto il file quanto i cap della query: la sua assenza identifica uno
+    #: snapshot catturato prima della selezione per prossimita'.
+    per_class_cap: int
 
 
 class SnapshotProvenance(TypedDict):
@@ -141,6 +146,7 @@ def save_snapshot(
                 "n_selettori": len(OSM_SELECTORS),
                 "max_pois": MAX_POIS,
                 "per_selector_cap": PER_SELECTOR_CAP,
+                "per_class_cap": PER_CLASS_CAP,
             },
         },
         "poi": list(pois),

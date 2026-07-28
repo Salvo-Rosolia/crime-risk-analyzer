@@ -88,6 +88,20 @@ def test_zone_composition_reports_total_and_top_classes() -> None:
     assert label_it("Bank") in out or label_it("School") in out
 
 
+def test_zone_composition_dichiara_di_parlare_del_campione() -> None:
+    """La riga entra nel prompt: non deve affermare fatti sulla ZONA (#254).
+
+    I POI sono una selezione — i piu' vicini al centro, con un tetto per classe —
+    quindi «20 punti di interesse nella zona» sarebbe falso sul totale e «classi
+    prevalenti» un artefatto del tetto, che appiattisce i conteggi a un plateau.
+    Il modello deve leggere che sta guardando un campione.
+    """
+    out = zone_composition(_zone(), top=2)
+
+    assert "selezionati" in out
+    assert "prevalenti" not in out
+
+
 def test_zone_composition_breaks_count_ties_alphabetically() -> None:
     pois = [
         _poi("a", "A", "Bank", 41.0, 12.0),
