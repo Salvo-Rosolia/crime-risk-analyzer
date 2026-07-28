@@ -310,6 +310,7 @@ def _resp163(narrativa: str) -> AnalyzeResponse:
         ],
         risk_models=[
             RiskModel(
+                poi_id="1",
                 poi="Banca A",
                 risks=[
                     RiskItem(

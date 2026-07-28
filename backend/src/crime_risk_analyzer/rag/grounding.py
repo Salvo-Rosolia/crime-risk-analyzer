@@ -78,8 +78,21 @@ class GroundedRisk(TypedDict):
 
 
 class ValidatedRisk(TypedDict):
-    """Rischi validati per un POI (forma letta da generation)."""
+    """Rischi validati per un POI (forma letta da generation).
 
+    ``poi_id`` e' l'id OSM del punto: e' la chiave con cui un consumatore attribuisce
+    questi rischi al POI giusto. Il ``poi`` (nome) resta per il display, ma i nomi OSM
+    non sono ne' unici ne' sempre presenti (le feature anonime arrivano con
+    ``name=""``), quindi non identificano nulla.
+
+    Limite noto dell'id, pre-esistente e non chiuso qui: ``overpass_client`` lo
+    costruisce dal solo ``element["id"]`` senza il tipo di elemento, e node e way
+    vivono in namespace OSM separati — ``node/123`` e ``way/123`` collasserebbero
+    sulla stessa stringa. Sui 4 snapshot committati non ci sono collisioni, ma
+    l'unicita' e' un fatto osservato, non garantito per costruzione.
+    """
+
+    poi_id: str
     poi: str
     terminus_class: str
     risks: list[GroundedRisk]
@@ -142,6 +155,7 @@ def ground(context: RetrievalContext) -> GroundedContext:
             n_da_confermare += len(risks)
         validated.append(
             {
+                "poi_id": poi["id"],
                 "poi": poi["name"],
                 "terminus_class": poi["terminus_class"],
                 "risks": risks,

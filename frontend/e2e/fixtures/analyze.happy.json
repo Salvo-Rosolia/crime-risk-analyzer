@@ -71,6 +71,7 @@
   ],
   "risk_models": [
     {
+      "poi_id": "1",
       "poi": "Colosseo",
       "risks": [
         {
@@ -90,6 +91,7 @@
       ]
     },
     {
+      "poi_id": "2",
       "poi": "Piazza Venezia",
       "risks": [
         {
@@ -102,6 +104,7 @@
       ]
     },
     {
+      "poi_id": "3",
       "poi": "Vicolo Oscuro",
       "risks": [
         {
@@ -121,6 +124,7 @@
       ]
     },
     {
+      "poi_id": "4",
       "poi": "Fontana di Trevi",
       "risks": [
         {
@@ -133,6 +137,7 @@
       ]
     },
     {
+      "poi_id": "5",
       "poi": "Sottopasso Buio",
       "risks": [
         {
@@ -145,6 +150,7 @@
       ]
     },
     {
+      "poi_id": "6",
       "poi": "Vicolo Cieco",
       "risks": [
         {

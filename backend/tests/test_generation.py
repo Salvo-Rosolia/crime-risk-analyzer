@@ -79,6 +79,7 @@ def _context_dict(**overrides: Any) -> dict[str, Any]:
         "validated_risks": [
             {
                 "poi": "Colosseo",
+                "poi_id": "1",
                 "terminus_class": "HeritageAttractionSite",
                 "risks": [
                     {
@@ -227,6 +228,7 @@ def _poi_entry(
     """POI validato sintetico con ``n_hazards`` rischi (per i test di budget)."""
     return {
         "poi": f"POI {label}",
+        "poi_id": f"id-{label}",
         "terminus_class": "Bank",
         "risks": [
             {
@@ -524,6 +526,9 @@ async def test_generate_analysis_builds_risk_models_from_context() -> None:
 
     assert len(result.risk_models) == 1
     rm = result.risk_models[0]
+    # L'id del POI deve sopravvivere anche a QUESTO layer: e' il ramo con LLM, quello
+    # che serve l'utente. Senza, il frontend non aggancia i rischi ad alcun punto.
+    assert rm.poi_id == "1"
     assert rm.poi == "Colosseo"
     assert len(rm.risks) == 2
     first = rm.risks[0]
@@ -673,10 +678,14 @@ def test_risk_item_has_no_numeric_danger_scoring_field() -> None:
 
 
 def test_risk_model_has_no_numeric_danger_scoring_field() -> None:
-    """I rischi raggruppati per POI: solo il nome del POI e la lista di
-    ``RiskItem`` qualitativi, nessun rating aggregato del POI/della zona
-    (_project.md §Vincoli). L'insieme esatto blinda il contratto."""
-    assert set(RiskModel.model_fields) == {"poi", "risks"}
+    """I rischi raggruppati per POI: identita' del punto (``poi_id`` + ``poi``) e
+    lista di ``RiskItem`` qualitativi, nessun rating aggregato del POI/della zona
+    (_project.md §Vincoli). L'insieme esatto blinda il contratto.
+
+    ``poi_id`` e' una chiave di IDENTITA', non una misura: non gradua e non e'
+    confrontabile per ordine, quindi non apre la porta allo scoring che questo
+    test difende."""
+    assert set(RiskModel.model_fields) == {"poi_id", "poi", "risks"}
 
 
 # --- #184: vettore oltre l'exact-set -> cambio di TIPO di un campo categoriale ---

@@ -49,6 +49,7 @@ describe('confidence', () => {
   it('deriveCoverage: total = somma summary, anchored = risk con tag ONTOLOGIA', () => {
     const riskModels: RiskModel[] = [
       {
+        poi_id: '1',
         poi: 'A',
         risks: [
           {
@@ -68,6 +69,7 @@ describe('confidence', () => {
         ],
       },
       {
+        poi_id: '2',
         poi: 'B',
         risks: [
           {

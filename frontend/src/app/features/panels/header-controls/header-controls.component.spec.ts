@@ -53,6 +53,7 @@ const data: AnalyzeResponse = {
   ],
   risk_models: [
     {
+      poi_id: '1',
       poi: 'A',
       risks: [
         {

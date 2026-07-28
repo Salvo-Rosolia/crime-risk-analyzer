@@ -115,12 +115,13 @@ class PoiNarrativeResponse(BaseModel):
 def _risk_model_of(vr: ValidatedRisk) -> RiskModel:
     """RiskModel del solo POI, per i tag fonte e le citazioni nel frontend.
 
-    ``RiskModel`` ha esattamente due campi (``poi``, ``risks``): la classe
+    ``RiskModel`` ha esattamente tre campi (``poi_id``, ``poi``, ``risks``): la classe
     TERMINUS, le vulnerabilita' e il ``sparql_path`` NON vivono qui — il
     frontend li ha gia' in ``PoiOut`` dall'analisi di zona. Stessa costruzione
     di ``orchestrator._risk_models_from_grounded``, per un solo POI.
     """
     return RiskModel(
+        poi_id=vr["poi_id"],
         poi=vr["poi"],
         risks=[
             RiskItem(hazard=r["hazard"], confidence=r["confidence"], tag=r["tag"])

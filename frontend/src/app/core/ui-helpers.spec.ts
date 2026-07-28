@@ -50,6 +50,7 @@ describe('ui-helpers', () => {
   it('buildNarrativeSections: raggruppa per tag in ordine ONTOLOGIA→CONTESTO→SPECULATIVO', () => {
     const rm: RiskModel[] = [
       {
+        poi_id: '1',
         poi: 'A',
         risks: [
           {
@@ -86,6 +87,7 @@ describe('ui-helpers', () => {
   it("buildNarrativeSections: preferisce hazard_label_it, fallback a hazard (identificatore grezzo) se l'etichetta manca", () => {
     const rm: RiskModel[] = [
       {
+        poi_id: '1',
         poi: 'A',
         risks: [
           {
@@ -125,6 +127,7 @@ describe('ui-helpers', () => {
     };
     const rm: RiskModel[] = [
       {
+        poi_id: '1',
         poi: 'Colosseo',
         risks: [
           {
@@ -140,6 +143,99 @@ describe('ui-helpers', () => {
     const out = buildDetailModel(poi, rm);
     expect(out.sparqlParts).toEqual(['A', 'B', 'C']);
     expect(out.groups['ONTOLOGIA']).toHaveLength(1);
+  });
+
+  it('buildDetailModel: due POI con lo STESSO nome ma id diversi ricevono rischi distinti', () => {
+    // L'altra metà del difetto: i nomi OSM non sono unici (due filiali si chiamano
+    // uguale). Con l'aggancio per nome vinceva la prima, anche a classi diverse.
+    const secondaFiliale: Poi = {
+      id: '2',
+      name: 'Farmacia Roma',
+      terminus_class: 'Pharmacy',
+      lat: 0,
+      lon: 0,
+      confidence: 'verificato',
+      sparql_path: 'Pharmacy → havingHazard → Theft',
+      terminus_label_it: 'Farmacia',
+      terminus_label_en: 'Pharmacy',
+    };
+    const rm: RiskModel[] = [
+      {
+        poi_id: '1',
+        poi: 'Farmacia Roma',
+        risks: [
+          {
+            hazard: 'Robbery',
+            confidence: 'verificato',
+            tag: 'ONTOLOGIA',
+            hazard_label_it: 'Rapina',
+            hazard_label_en: 'Robbery',
+          },
+        ],
+      },
+      {
+        poi_id: '2',
+        poi: 'Farmacia Roma',
+        risks: [
+          {
+            hazard: 'Theft',
+            confidence: 'verificato',
+            tag: 'ONTOLOGIA',
+            hazard_label_it: 'Furto',
+            hazard_label_en: 'Theft',
+          },
+        ],
+      },
+    ];
+    const out = buildDetailModel(secondaFiliale, rm);
+    expect(out.groups['ONTOLOGIA'].map((r) => r.hazard)).toEqual(['Theft']);
+  });
+
+  it('buildDetailModel: due POI senza nome restano distinti (aggancio per id, non per nome)', () => {
+    // Caso reale: nelle zone catturate 3-6 POI su 20 sono feature OSM anonime, e
+    // appartengono a classi diverse. Agganciando per nome, `find('')` restituisce il
+    // primo e il dettaglio della farmacia mostrerebbe i rischi della banca.
+    const farmaciaAnonima: Poi = {
+      id: '22',
+      name: '',
+      terminus_class: 'Pharmacy',
+      lat: 0,
+      lon: 0,
+      confidence: 'da_confermare',
+      sparql_path: 'Pharmacy → havingHazard → Theft',
+      terminus_label_it: 'Farmacia',
+      terminus_label_en: 'Pharmacy',
+    };
+    const rm: RiskModel[] = [
+      {
+        poi_id: '11',
+        poi: '',
+        risks: [
+          {
+            hazard: 'Bank_robbery',
+            confidence: 'da_confermare',
+            tag: 'ONTOLOGIA',
+            hazard_label_it: 'Rapina in banca',
+            hazard_label_en: 'Bank robbery',
+          },
+        ],
+      },
+      {
+        poi_id: '22',
+        poi: '',
+        risks: [
+          {
+            hazard: 'Theft',
+            confidence: 'da_confermare',
+            tag: 'ONTOLOGIA',
+            hazard_label_it: 'Furto',
+            hazard_label_en: 'Theft',
+          },
+        ],
+      },
+    ];
+    const out = buildDetailModel(farmaciaAnonima, rm);
+    expect(out.groups['ONTOLOGIA'].map((r) => r.hazard)).toEqual(['Theft']);
   });
 
   it("buildDetailModel: poiLabel preferisce terminus_label_it, fallback a terminus_class se l'etichetta manca", () => {
@@ -236,6 +332,7 @@ describe('ui-helpers', () => {
     ];
     const riskModels: RiskModel[] = [
       {
+        poi_id: '1',
         poi: 'Colosseo',
         risks: [
           {
@@ -255,6 +352,7 @@ describe('ui-helpers', () => {
         ],
       },
       {
+        poi_id: '2',
         poi: 'Banca X',
         risks: [
           {
@@ -276,6 +374,65 @@ describe('ui-helpers', () => {
       },
       { poiId: '1', poiName: 'Colosseo', hazardLabel: 'h2', category: 'tc:Archaeological_site' },
       { poiId: '2', poiName: 'Banca X', hazardLabel: 'Rapina', category: 'tc:Bank' },
+    ]);
+  });
+
+  it('buildBaseRows: due POI senza nome finiscono ciascuno sulla propria riga (aggancio per id)', () => {
+    const anonimi: Poi[] = [
+      {
+        id: '11',
+        name: '',
+        terminus_class: 'Bank',
+        lat: 0,
+        lon: 0,
+        confidence: 'da_confermare',
+        sparql_path: null,
+        terminus_label_it: 'Banca',
+        terminus_label_en: 'Bank',
+      },
+      {
+        id: '22',
+        name: '',
+        terminus_class: 'School',
+        lat: 0,
+        lon: 0,
+        confidence: 'da_confermare',
+        sparql_path: null,
+        terminus_label_it: 'Scuola',
+        terminus_label_en: 'School',
+      },
+    ];
+    const riskModels: RiskModel[] = [
+      {
+        poi_id: '11',
+        poi: '',
+        risks: [
+          {
+            hazard: 'Bank_robbery',
+            confidence: 'da_confermare',
+            tag: 'ONTOLOGIA',
+            hazard_label_it: 'Rapina in banca',
+            hazard_label_en: 'Bank robbery',
+          },
+        ],
+      },
+      {
+        poi_id: '22',
+        poi: '',
+        risks: [
+          {
+            hazard: 'Vandalism',
+            confidence: 'da_confermare',
+            tag: 'ONTOLOGIA',
+            hazard_label_it: 'Vandalismo',
+            hazard_label_en: 'Vandalism',
+          },
+        ],
+      },
+    ];
+    expect(buildBaseRows(anonimi, riskModels)).toEqual([
+      { poiId: '11', poiName: '', hazardLabel: 'Rapina in banca', category: 'tc:Bank' },
+      { poiId: '22', poiName: '', hazardLabel: 'Vandalismo', category: 'tc:School' },
     ]);
   });
 
@@ -392,6 +549,7 @@ describe('buildSourceTabs', () => {
   it('estrae overview e tab in ordine ONTOLOGIA→CONTESTO→SPECULATIVO', () => {
     const rm: RiskModel[] = [
       {
+        poi_id: '1',
         poi: 'P',
         risks: [
           {
@@ -421,6 +579,7 @@ describe('buildSourceTabs', () => {
   it('include un tab con sola prosa e uno con soli hazard', () => {
     const rm: RiskModel[] = [
       {
+        poi_id: '1',
         poi: 'P',
         risks: [
           {
@@ -454,6 +613,7 @@ describe('buildSourceTabs', () => {
   it('fonti null → overview vuoto, tab solo dagli hazard', () => {
     const rm: RiskModel[] = [
       {
+        poi_id: '1',
         poi: 'P',
         risks: [
           {

@@ -27,6 +27,7 @@
   ],
   "risk_models": [
     {
+      "poi_id": "r1",
       "poi": "Colosseo",
       "risks": [
         {
@@ -39,6 +40,7 @@
       ]
     },
     {
+      "poi_id": "r2",
       "poi": "Arco di Costantino",
       "risks": [
         {

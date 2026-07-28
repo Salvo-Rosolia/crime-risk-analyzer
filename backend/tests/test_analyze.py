@@ -258,6 +258,9 @@ def test_analyze_llm_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     assert body["fallback"] is True
     assert body["narrativa"] == ""
     assert body["risk_models"][0]["poi"] == "Banca A"
+    # Il NOME della chiave sul filo, non solo il valore: e' su ``poi_id`` che il
+    # frontend aggancia i rischi al punto, quindi un rename lato server lo romperebbe.
+    assert body["risk_models"][0]["poi_id"] == "1"
 
 
 def test_analyze_accepts_domanda(monkeypatch: pytest.MonkeyPatch) -> None:

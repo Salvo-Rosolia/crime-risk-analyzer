@@ -289,7 +289,17 @@ class RiskItem(BaseModel):
 class RiskModel(BaseModel):
     """Rischi raggruppati per POI (contributo del generation layer)."""
 
-    poi: str = Field(description="Nome del POI.")
+    poi_id: str = Field(
+        description=(
+            "Id OSM del POI: la chiave con cui il consumatore attribuisce i rischi "
+            "al punto giusto. Obbligatorio senza default — un gruppo di rischi che "
+            "non dice a quale punto appartiene e' esattamente il difetto da chiudere. "
+            "Chiave di IDENTITA', non una misura: non gradua e non e' ordinabile."
+        )
+    )
+    poi: str = Field(
+        description="Nome del POI (display; non unico, puo' essere vuoto)."
+    )
     risks: list[RiskItem] = Field(
         default_factory=list[RiskItem], description="Rischi ancorati per il POI."
     )
@@ -615,7 +625,17 @@ def _risk_models_from_context(context_dict: dict[str, Any]) -> list[RiskModel]:
             )
             for risk in poi.get("risks", [])
         ]
-        models.append(RiskModel(poi=str(poi.get("poi", "")), risks=items))
+        models.append(
+            RiskModel(
+                # Lettura SEVERA come nel gemello ``_risk_models_from_grounded``: un
+                # ``.get(..., "")`` qui lascerebbe passare un id vuoto proprio sul ramo
+                # con LLM (quello che serve l'utente), e il frontend non aggancerebbe
+                # nulla, in silenzio. Un nome vuoto e' un valore OSM reale, un id no.
+                poi_id=str(poi["poi_id"]),
+                poi=str(poi.get("poi", "")),
+                risks=items,
+            )
+        )
     return models
 
 
