@@ -42,7 +42,13 @@ def _poi(poi_id: str, name: str, terminus_class: str) -> dict[str, object]:
     }
 
 
-def _vr(poi: str, terminus_class: str, hazards: list[str]) -> dict[str, object]:
+def _vr(
+    poi: str, terminus_class: str, hazards: list[str], *, poi_id: str
+) -> dict[str, object]:
+    """Validated risk sintetico. ``poi_id`` e' OBBLIGATORIO e keyword-only: con un
+    default, una fixture poteva accoppiare un POI con id ``"1"`` a rischi con id
+    vuoto — la stessa divergenza che questa story chiude — senza che nessun test se
+    ne accorgesse."""
     risks = [
         {
             "hazard": h,
@@ -54,6 +60,7 @@ def _vr(poi: str, terminus_class: str, hazards: list[str]) -> dict[str, object]:
     ]
     return {
         "poi": poi,
+        "poi_id": poi_id,
         "terminus_class": terminus_class,
         "risks": risks,
         "vulnerabilities": [],
@@ -122,6 +129,12 @@ _BANK_PROFILE = PoiRiskProfile(
     sparql_paths=["Bank → havingHazard → Bank_robbery"],
 )
 
+_SCHOOL_PROFILE = PoiRiskProfile(
+    terminus_class="School",
+    hazards=["Vandalism"],
+    sparql_paths=["School → havingHazard → Vandalism"],
+)
+
 
 def test_build_poi_list_confidence_and_path() -> None:
     retrieval_ctx = {
@@ -129,8 +142,8 @@ def test_build_poi_list_confidence_and_path() -> None:
     }
     grounded = {
         "validated_risks": [
-            _vr("Banca A", "Bank", ["Bank_robbery"]),
-            _vr("Bar Roma", "GenericUrbanPOI", []),
+            _vr("Banca A", "Bank", ["Bank_robbery"], poi_id="1"),
+            _vr("Bar Roma", "GenericUrbanPOI", [], poi_id="2"),
         ]
     }
     out = _build_poi_list(retrieval_ctx, grounded)  # type: ignore[arg-type]
@@ -153,9 +166,9 @@ def test_build_poi_list_confidence_unified_with_per_risk() -> None:
     }
     grounded = {
         "validated_risks": [
-            _vr("Banca A", "Bank", ["Bank_robbery"]),
-            _vr("", "Bank", ["Bank_robbery"]),
-            _vr("Bar Roma", "GenericUrbanPOI", []),
+            _vr("Banca A", "Bank", ["Bank_robbery"], poi_id="1"),
+            _vr("", "Bank", ["Bank_robbery"], poi_id="2"),
+            _vr("Bar Roma", "GenericUrbanPOI", [], poi_id="3"),
         ]
     }
     out = _build_poi_list(retrieval_ctx, grounded)  # type: ignore[arg-type]
@@ -167,7 +180,7 @@ def test_build_poi_list_poi_fuori_ontologia_confidence_none() -> None:
     # qualificare -> confidence None (il livello "ipotesi" e' stato rimosso). Il
     # None marca l'assenza di rischi, non un livello di forza probatoria.
     retrieval_ctx = {"pois": [_poi("1", "Bar Roma", "GenericUrbanPOI")]}
-    grounded = {"validated_risks": [_vr("Bar Roma", "GenericUrbanPOI", [])]}
+    grounded = {"validated_risks": [_vr("Bar Roma", "GenericUrbanPOI", [], poi_id="1")]}
     out = _build_poi_list(retrieval_ctx, grounded)  # type: ignore[arg-type]
     assert out[0].confidence is None
 
@@ -180,15 +193,36 @@ def test_build_poi_list_strict_zip_mismatch() -> None:
         )
 
 
+def test_build_poi_list_rejects_id_misalignment() -> None:
+    """Liste di pari lunghezza ma disallineate per identita' devono fallire forte.
+
+    ``zip(strict=True)`` verifica solo le LUNGHEZZE: due liste riordinate in modo
+    diverso passerebbero, e ogni POI riceverebbe confidence e ``sparql_path`` di un
+    altro punto — la stessa misattribuzione silenziosa che questa story chiude, per
+    una via diversa. Ora che entrambe le liste portano l'id, il disallineamento e'
+    rilevabile.
+    """
+    with pytest.raises(ValueError):
+        _build_poi_list(
+            {"pois": [_poi("1", "Banca A", "Bank"), _poi("2", "Scuola", "School")]},  # type: ignore[arg-type]
+            {
+                "validated_risks": [
+                    _vr("Scuola", "School", ["Vandalism"], poi_id="2"),
+                    _vr("Banca A", "Bank", ["Bank_robbery"], poi_id="1"),
+                ]
+            },  # type: ignore[arg-type]
+        )
+
+
 def test_risk_models_from_grounded() -> None:
     grounded = {
         "validated_risks": [
-            _vr("Banca A", "Bank", ["Bank_robbery", "Theft"]),
-            _vr("Bar Roma", "GenericUrbanPOI", []),
+            _vr("Banca A", "Bank", ["Bank_robbery", "Theft"], poi_id="1"),
+            _vr("Bar Roma", "GenericUrbanPOI", [], poi_id="2"),
         ]
     }
     models = _risk_models_from_grounded(grounded)  # type: ignore[arg-type]
-    assert [m.poi for m in models] == ["Banca A", "Bar Roma"]
+    assert [(m.poi_id, m.poi) for m in models] == [("1", "Banca A"), ("2", "Bar Roma")]
     assert [r.hazard for r in models[0].risks] == ["Bank_robbery", "Theft"]
     assert models[0].risks[0].tag == "ONTOLOGIA"
     assert models[1].risks == []
@@ -197,7 +231,7 @@ def test_risk_models_from_grounded() -> None:
 def test_structured_response_no_llm() -> None:
     grounded = {
         "zona": "Centro",
-        "validated_risks": [_vr("Banca A", "Bank", ["Bank_robbery"])],
+        "validated_risks": [_vr("Banca A", "Bank", ["Bank_robbery"], poi_id="1")],
         "confidence_summary": {"verificato": 1, "da_confermare": 0},
     }
     poi_out = _build_poi_list(
@@ -343,6 +377,47 @@ async def test_run_analysis_anonymous_poi_da_confermare_end_to_end(
     assert resp.confidence_summary.da_confermare == 1
     assert resp.confidence_summary.verificato == 0
     assert [p.confidence for p in resp.poi] == ["da_confermare"]
+
+
+async def test_risk_models_distinguono_due_poi_anonimi_di_classe_diversa(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Due feature OSM anonime di classe diversa restano attribuibili al punto giusto.
+
+    Chi consuma la response aggancia i rischi al POI. Se l'unico identificatore e'
+    il ``name``, due POI senza nome collassano sul primo e il dettaglio di uno
+    mostra i rischi dell'altro: i nomi OSM non sono ne' unici ne' sempre presenti,
+    quindi l'``id`` e' l'unica chiave che regge.
+    """
+    anonimi: list[Poi] = [
+        {
+            "id": "11",
+            "name": "",
+            "lat": 41.89,
+            "lon": 12.49,
+            "osm_tags": "amenity=bank",
+            "terminus_class": "Bank",
+            "citta": "Roma",
+        },
+        {
+            "id": "22",
+            "name": "",
+            "lat": 41.90,
+            "lon": 12.50,
+            "osm_tags": "amenity=school",
+            "terminus_class": "School",
+            "citta": "Roma",
+        },
+    ]
+    _patch_io(monkeypatch, pois=anonimi)
+    resp = await run_analysis(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE, "School": _SCHOOL_PROFILE}),
+        llm_client=_FakeLLMClient(_llm_response()),
+    )
+    hazard_per_id = {m.poi_id: [r.hazard for r in m.risks] for m in resp.risk_models}
+    assert hazard_per_id == {"11": ["Bank_robbery"], "22": ["Vandalism"]}
 
 
 async def test_run_analysis_zero_pois(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -151,7 +151,9 @@ async def test_returns_narrative_for_a_poi_in_the_cached_zone() -> None:
     assert out.poi_id == _POI_ID
     assert out.narrativa != ""
     assert out.fallback is False
-    assert [rm.poi for rm in out.risk_models] == ["Banca A"]
+    # I rischi del punto portano il suo id, non solo il nome: e' l'id che il
+    # frontend usa per attribuirli, e i nomi OSM non identificano nulla.
+    assert [(rm.poi_id, rm.poi) for rm in out.risk_models] == [(_POI_ID, "Banca A")]
 
 
 async def test_cache_hit_does_not_touch_overpass() -> None:

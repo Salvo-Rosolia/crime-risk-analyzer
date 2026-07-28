@@ -84,6 +84,9 @@ def test_ground_happy_path_multi_class() -> None:
     assert len(out["validated_risks"]) == 2
     vr0 = out["validated_risks"][0]
     assert vr0["poi"] == "Banca A"
+    # L'id nasce qui: e' la chiave con cui i rischi restano attribuibili al punto.
+    assert vr0["poi_id"] == "1"
+    assert out["validated_risks"][1]["poi_id"] == "2"
     assert vr0["terminus_class"] == "Bank"
     assert vr0["risks"] == [
         {
@@ -137,6 +140,9 @@ def test_ground_includes_generic_poi_with_empty_risks() -> None:
 
     vr = out["validated_risks"][0]
     assert vr["poi"] == "Bar"
+    # Anche un POI senza rischi porta il proprio id: il consumatore aggancia per id
+    # tutti i punti, non solo quelli coperti dall'ontologia.
+    assert vr["poi_id"] == "1"
     assert vr["risks"] == []
     assert vr["vulnerabilities"] == []
     assert vr["sparql_path"] is None

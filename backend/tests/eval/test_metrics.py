@@ -37,6 +37,7 @@ def _resp(
         ],
         risk_models=[
             RiskModel(
+                poi_id="1",
                 poi="Banca A",
                 risks=[
                     RiskItem(

@@ -24,6 +24,7 @@ def _response(narrativa: str) -> AnalyzeResponse:
         ],
         risk_models=[
             RiskModel(
+                poi_id="1",
                 poi="Banca X",
                 risks=[
                     RiskItem(

@@ -204,6 +204,16 @@ def _build_poi_list(
     """
     out: list[PoiOut] = []
     for poi, vr in zip(retrieval_ctx["pois"], grounded["validated_risks"], strict=True):
+        # ``strict=True`` verifica le LUNGHEZZE, non l'allineamento di identita': due
+        # liste riordinate in modo diverso passerebbero, e ogni POI riceverebbe
+        # confidence e ``sparql_path`` di un altro punto. Ora che entrambe portano
+        # l'id, il disallineamento e' un errore forte invece di una misattribuzione
+        # silenziosa.
+        if poi["id"] != vr["poi_id"]:
+            raise ValueError(
+                "pois e validated_risks disallineati: "
+                f"{poi['id']!r} != {vr['poi_id']!r}"
+            )
         confidence: Confidence | None = (
             confidence_from_poi_name(poi["name"]) if vr["risks"] else None
         )
@@ -229,7 +239,7 @@ def _risk_models_from_grounded(grounded: GroundedContext) -> list[RiskModel]:
             RiskItem(hazard=r["hazard"], confidence=r["confidence"], tag=r["tag"])
             for r in vr["risks"]
         ]
-        models.append(RiskModel(poi=vr["poi"], risks=items))
+        models.append(RiskModel(poi_id=vr["poi_id"], poi=vr["poi"], risks=items))
     return models
 
 
