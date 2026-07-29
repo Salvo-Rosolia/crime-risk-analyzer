@@ -95,7 +95,14 @@ def _context_dict(**overrides: Any) -> dict[str, Any]:
                         "source": "Heritage -> hasHazard -> PickPocketing",
                     },
                 ],
-                "vulnerabilities": ["CrowdDensity"],
+                # Forma reale del grounding da #256: nome + citazione, non stringhe
+                # nude. Il doppio deve rispecchiare cio' che ``ground()`` produce.
+                "vulnerabilities": [
+                    {
+                        "name": "CrowdDensity",
+                        "source": "Heritage -> isVulnerableTo -> CrowdDensity",
+                    }
+                ],
                 "sparql_path": "Heritage -> hasHazard -> MassTouristTargeting",
             }
         ],

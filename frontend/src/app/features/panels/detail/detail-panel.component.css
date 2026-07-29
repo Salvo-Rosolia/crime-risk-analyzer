@@ -227,6 +227,45 @@
  * DOPO, separata da un filo, in mono più piccolo e attenuato (ink-2). Non è nascosta (è il cuore
  * della tesi: tracciabilità ontologica), solo de-enfatizzata come "da dove viene il dato".
  */
+/* #256: i tre assi TERMINUS oltre agli hazard. Registro visivo volutamente più sobrio
+   dei fattori di rischio: sono contesto ontologico verificabile, non rischi. */
+.cra-axis-group {
+  margin-bottom: 0.6rem;
+}
+
+.cra-axis-title {
+  margin: 0 0 0.25rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.cra-axis-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cra-axis-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.28rem 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.cra-axis-label {
+  font-size: 0.86rem;
+}
+
+.cra-axis-source {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--ink-2);
+  opacity: 0.8;
+  word-break: break-word;
+}
+
 .cra-provenance {
   border-top: 1px solid var(--hair-strong);
   padding-top: var(--space-3);

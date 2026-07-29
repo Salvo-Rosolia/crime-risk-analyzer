@@ -77,6 +77,20 @@ class GroundedRisk(TypedDict):
     source: str
 
 
+class OntologyEntity(TypedDict):
+    """Entita' ontologica di un asse non-hazard, con la propria citazione (#256).
+
+    Non porta ``confidence``: la forza probatoria e' un bit derivato dal NOME del
+    POI, quindi identica per ogni asserzione ontologica su quel punto — il badge
+    del POI le qualifica tutte, e ripeterlo per voce aggiungerebbe rumore invece di
+    informazione. Non porta ``tag`` per la stessa ragione: la fonte e' l'ontologia
+    per costruzione.
+    """
+
+    name: str
+    source: str
+
+
 class ValidatedRisk(TypedDict):
     """Rischi validati per un POI (forma letta da generation).
 
@@ -96,7 +110,13 @@ class ValidatedRisk(TypedDict):
     poi: str
     terminus_class: str
     risks: list[GroundedRisk]
-    vulnerabilities: list[str]
+    #: Gli assi TERMINUS oltre agli hazard (#256): l'executor li estraeva gia' a ogni
+    #: richiesta, ma ``critical_events`` non lo leggeva nessuno e le vulnerabilita'
+    #: arrivavano al prompt come stringhe nude, senza la citazione che le ancora. Ora
+    #: ognuno porta il proprio path. Lo stakeholder resta fuori: vedi
+    #: :data:`_PROPS_VULNERABILITY` e il commento sopra.
+    critical_events: list[OntologyEntity]
+    vulnerabilities: list[OntologyEntity]
     sparql_path: str | None
 
 
@@ -108,20 +128,44 @@ class GroundedContext(TypedDict):
     confidence_summary: dict[str, int]
 
 
-def _source_for_hazard(profile: PoiRiskProfile, hazard: str) -> str:
-    """Path SPARQL reale di ``hazard`` da ``profile.sparql_paths``.
+#: Le property TERMINUS per asse, nell'ordine in cui ``query_executor`` le
+#: interroga. La vulnerabilita' ne usa DUE (divergenza #78): entrambe vanno cercate
+#: o si perde il path di un filler legittimo.
+_PROPS_HAZARD = ("havingHazard",)
+_PROPS_CRITICAL_EVENT = ("havingCriticalEvent",)
+_PROPS_VULNERABILITY = ("isVulnerableTo", "havingVulnerability")
+#: ``havingPerformer`` (stakeholder) NON e' ancorato qui, di proposito: il vocabolario
+#: controllato (#77) non ha la categoria e 72 dei suoi filler non hanno etichetta
+#: italiana, quindi l'asse uscirebbe interamente in inglese in una UI italiana. Non
+#: e' calcolato-e-non-letto — sarebbe il difetto che #256 chiude — ma semplicemente
+#: non ancorato finche' il vocabolario non lo copre. Con ``_source_for``/``_entities``
+#: generalizzate, ri-aggiungerlo e' una riga per punto.
 
-    Un hazard puo' essere ereditato da una superclasse via ``rdfs:subClassOf*``: il
+
+def _source_for(profile: PoiRiskProfile, props: tuple[str, ...], filler: str) -> str:
+    """Path SPARQL reale di ``filler`` per una delle ``props``, dai ``sparql_paths``.
+
+    Un filler puo' essere ereditato da una superclasse via ``rdfs:subClassOf*``: il
     path reale cita quella classe, quindi va PRESO dai ``sparql_paths`` (non
-    sintetizzato da ``terminus_class``). Filtra su ``havingHazard`` e match per
-    filler esatto. Fallback sintetizzato solo se nessun path combacia (non atteso:
-    ``sparql_paths`` ha un path per filler).
+    sintetizzato da ``terminus_class``). Fallback sintetizzato sulla prima property
+    solo se nessun path combacia (non atteso: ``sparql_paths`` ha un path per
+    filler).
     """
     for path in profile.sparql_paths:
         parts = [segment.strip() for segment in path.split("→")]
-        if len(parts) == 3 and parts[1] == "havingHazard" and parts[2] == hazard:
+        if len(parts) == 3 and parts[1] in props and parts[2] == filler:
             return path
-    return f"{profile.terminus_class} → havingHazard → {hazard}"
+    return f"{profile.terminus_class} → {props[0]} → {filler}"
+
+
+def _entities(
+    profile: PoiRiskProfile, props: tuple[str, ...], fillers: list[str]
+) -> list[OntologyEntity]:
+    """Filler di un asse, ciascuno con la propria citazione."""
+    return [
+        OntologyEntity(name=filler, source=_source_for(profile, props, filler))
+        for filler in fillers
+    ]
 
 
 def ground(context: RetrievalContext) -> GroundedContext:
@@ -145,7 +189,7 @@ def ground(context: RetrievalContext) -> GroundedContext:
                 "hazard": hazard,
                 "tag": _TAG,
                 "confidence": confidence,
-                "source": _source_for_hazard(profile, hazard),
+                "source": _source_for(profile, _PROPS_HAZARD, hazard),
             }
             for hazard in profile.hazards
         ]
@@ -159,7 +203,12 @@ def ground(context: RetrievalContext) -> GroundedContext:
                 "poi": poi["name"],
                 "terminus_class": poi["terminus_class"],
                 "risks": risks,
-                "vulnerabilities": list(profile.vulnerabilities),
+                "critical_events": _entities(
+                    profile, _PROPS_CRITICAL_EVENT, profile.critical_events
+                ),
+                "vulnerabilities": _entities(
+                    profile, _PROPS_VULNERABILITY, profile.vulnerabilities
+                ),
                 "sparql_path": risks[0]["source"] if risks else None,
             }
         )

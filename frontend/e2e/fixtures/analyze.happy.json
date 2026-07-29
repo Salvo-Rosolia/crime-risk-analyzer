@@ -11,7 +11,23 @@
       "confidence": "verificato",
       "sparql_path": "ArchaeologicalSite → hasAnthropicHazard → borseggioTuristi",
       "terminus_label_it": "Sito archeologico",
-      "terminus_label_en": "Archaeological site"
+      "terminus_label_en": "Archaeological site",
+      "critical_events": [
+        {
+          "name": "danneggiamentoPatrimonio",
+          "source": "ArchaeologicalSite → havingCriticalEvent → danneggiamentoPatrimonio",
+          "label_it": "Danneggiamento del patrimonio",
+          "label_en": "Heritage damage"
+        }
+      ],
+      "vulnerabilities": [
+        {
+          "name": "affollamento",
+          "source": "ArchaeologicalSite → isVulnerableTo → affollamento",
+          "label_it": "Area affollata",
+          "label_en": "Crowded area"
+        }
+      ]
     },
     {
       "id": "2",

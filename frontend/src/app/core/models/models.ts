@@ -1,6 +1,20 @@
 export type Confidence = 'verificato' | 'da_confermare';
 export type SourceTag = 'ONTOLOGIA' | 'CONTESTO' | 'SPECULATIVO';
 
+/**
+ * Entità ontologica di un asse non-hazard (#256): eventi critici, vulnerabilità, stakeholder.
+ * Nessuna confidenza e nessun tag — la forza probatoria è un bit derivato dal nome del POI,
+ * quindi identica per ogni asserzione ontologica su quel punto, e il badge del POI le qualifica
+ * tutte insieme; la fonte è l'ontologia per costruzione.
+ */
+export interface OntologyItem {
+  name: string;
+  /** Citazione lineare `Classe → property → entità` prodotta dal grounding. */
+  source: string;
+  label_it: string;
+  label_en: string;
+}
+
 export interface Poi {
   id: string;
   name: string;
@@ -15,6 +29,15 @@ export interface Poi {
   terminus_label_it: string;
   /** Etichetta EN corretta della classe (display, #77). Sempre presente lato BE (default ""). */
   terminus_label_en: string;
+  /**
+   * Gli assi TERMINUS oltre agli hazard (#256), ciascuno con la propria citazione. Obbligatori
+   * lato backend (sempre serializzati), opzionali qui perché sono additivi e di sola
+   * visualizzazione: se mancano la sezione non compare, non viene mostrato un dato sbagliato.
+   * Il quarto asse (stakeholder) non è esposto dal backend finché il vocabolario controllato non
+   * lo copre: 72 dei suoi filler non hanno etichetta italiana.
+   */
+  critical_events?: OntologyItem[];
+  vulnerabilities?: OntologyItem[];
 }
 
 /** POI + il suo numero di visualizzazione (stesso ordine/numero del pin e della card accoppiati):

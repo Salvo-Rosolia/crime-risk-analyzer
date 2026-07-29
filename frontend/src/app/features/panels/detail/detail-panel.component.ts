@@ -11,7 +11,12 @@ import {
 } from '@angular/core';
 import { confMeta, pinColor, srcTagMeta } from '@core/confidence';
 import { Poi, RiskModel } from '@core/models/models';
-import { buildDetailModel, hazardDisplayLabel, orderGroupsByTag } from '@core/ui-helpers';
+import {
+  buildDetailModel,
+  hazardDisplayLabel,
+  ontologyDisplayLabel,
+  orderGroupsByTag,
+} from '@core/ui-helpers';
 
 /**
  * Scheda "Dettaglio POI" (Stato C, spec-frontend.md §Stato C): citazione SPARQL lineare
@@ -65,6 +70,28 @@ export class DetailPanelComponent {
   protected readonly orderedGroups = computed(() => orderGroupsByTag(this.detailModel().groups));
   protected readonly srcMeta = srcTagMeta;
   protected readonly panelAriaLabel = computed(() => `Dettaglio POI: ${this.poi().name}`);
+
+  protected readonly axisLabel = ontologyDisplayLabel;
+
+  /**
+   * Gli assi TERMINUS oltre agli hazard (#256), pronti per il template: solo quelli non vuoti,
+   * nell'ordine in cui l'executor SPARQL li interroga. Sono elenchi qualitativi con la propria
+   * citazione: nessun conteggio presentato come misura e nessuna gradazione per voce, perché la
+   * forza probatoria è un bit derivato dal nome del POI e vale identica per ogni sua asserzione
+   * ontologica — il badge in testa al pannello la dichiara una volta per tutte.
+   *
+   * Caso limite dichiarato: un POI senza hazard ha `confidence: null` (#220 — «nessun rischio da
+   * qualificare», non «ignoto») e quindi NESSUN badge, ma può avere gli altri tre assi popolati,
+   * perché vengono da property OWL indipendenti. Lì le voci restano nude: sono fatti sulla classe
+   * TERMINUS, veri quanto il mapping del POI, e non c'è un livello da ereditare.
+   */
+  protected readonly ontologyAxes = computed(() => {
+    const poi = this.poi();
+    return [
+      { titolo: 'Eventi critici', voci: poi.critical_events ?? [] },
+      { titolo: 'Vulnerabilità', voci: poi.vulnerabilities ?? [] },
+    ].filter((asse) => asse.voci.length > 0);
+  });
 
   /**
    * Soglia dell'accordion adattivo (rework UI): con pochi fattori totali i gruppi-fonte partono

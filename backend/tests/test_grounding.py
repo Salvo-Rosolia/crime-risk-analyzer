@@ -32,12 +32,16 @@ def _profile(
     terminus_class: str,
     *,
     hazards: list[str] | None = None,
+    critical_events: list[str] | None = None,
     vulnerabilities: list[str] | None = None,
     sparql_paths: list[str] | None = None,
 ) -> PoiRiskProfile:
+    """Profilo sintetico. Gli assi si passano da qui e non con ``model_copy(update=)``,
+    che bypasserebbe la validazione Pydantic del modello."""
     return PoiRiskProfile(
         terminus_class=terminus_class,
         hazards=hazards or [],
+        critical_events=critical_events or [],
         vulnerabilities=vulnerabilities or [],
         sparql_paths=sparql_paths or [],
     )
@@ -96,8 +100,82 @@ def test_ground_happy_path_multi_class() -> None:
             "source": "Bank → havingHazard → Robbery",
         }
     ]
-    assert vr0["vulnerabilities"] == ["Poor_surveillance"]
+    # Da #256 ogni asse porta la propria citazione, non il solo nome.
+    assert vr0["vulnerabilities"] == [
+        {
+            "name": "Poor_surveillance",
+            "source": "Bank → isVulnerableTo → Poor_surveillance",
+        }
+    ]
     assert vr0["sparql_path"] == "Bank → havingHazard → Robbery"
+
+
+def test_ground_ancora_anche_eventi_critici_e_vulnerabilita_col_proprio_path() -> None:
+    """L'executor estrae quattro assi TERMINUS: il grounding ne ancora tre.
+
+    Prima solo gli hazard diventavano rischi con citazione; gli eventi critici erano
+    calcolati a ogni richiesta e non letti da nessuno, e le vulnerabilita' arrivavano
+    al prompt come stringhe nude, senza il path che le ancora all'ontologia. Un asse
+    senza citazione non e' verificabile, quindi non puo' essere mostrato accanto a
+    quelli che lo sono. Il quarto asse (stakeholder) resta deliberatamente fuori
+    finche' il vocabolario controllato non lo copre: 72 dei suoi filler non hanno
+    etichetta italiana e la sezione uscirebbe in inglese.
+    """
+    prof = _profile(
+        "Bank",
+        hazards=["Robbery"],
+        critical_events=["Heist"],
+        vulnerabilities=["Poor_surveillance"],
+        sparql_paths=[
+            "Bank → havingHazard → Robbery",
+            "Bank → havingCriticalEvent → Heist",
+            "Bank → isVulnerableTo → Poor_surveillance",
+        ],
+    )
+
+    vr = ground(_ctx([_poi("1", "Banca A", "Bank")], {"Bank": prof}))[
+        "validated_risks"
+    ][0]
+
+    assert vr["critical_events"] == [
+        {"name": "Heist", "source": "Bank → havingCriticalEvent → Heist"}
+    ]
+    assert vr["vulnerabilities"] == [
+        {
+            "name": "Poor_surveillance",
+            "source": "Bank → isVulnerableTo → Poor_surveillance",
+        }
+    ]
+
+
+def test_ground_trova_il_path_anche_sulla_seconda_property_della_vulnerabilita() -> (
+    None
+):
+    """La vulnerabilita' usa DUE property (divergenza #78): entrambe vanno cercate.
+
+    Se ``_PROPS_VULNERABILITY`` perdesse ``havingVulnerability``, un filler che
+    nell'ontologia arriva da quella property non troverebbe il proprio path e
+    ``_source_for`` ne SINTETIZZEREBBE uno su ``isVulnerableTo``: una citazione
+    sintatticamente perfetta e FALSA, silenziosa, indistinguibile a valle da una
+    vera — in un layer che esiste per la verificabilita'. Senza questo test la
+    mutazione lasciava la suite verde.
+    """
+    prof = _profile(
+        "Bank",
+        vulnerabilities=["Poor_surveillance"],
+        sparql_paths=["Bank → havingVulnerability → Poor_surveillance"],
+    )
+
+    vr = ground(_ctx([_poi("1", "Banca", "Bank")], {"Bank": prof}))["validated_risks"][
+        0
+    ]
+
+    assert vr["vulnerabilities"] == [
+        {
+            "name": "Poor_surveillance",
+            "source": "Bank → havingVulnerability → Poor_surveillance",
+        }
+    ]
 
 
 def test_ground_source_uses_inherited_path() -> None:
