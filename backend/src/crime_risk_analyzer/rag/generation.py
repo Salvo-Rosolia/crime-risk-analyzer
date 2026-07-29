@@ -25,7 +25,8 @@ import hashlib
 import math
 import re
 import time
-from typing import Any, Protocol
+from collections.abc import Callable
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -462,22 +463,181 @@ def _truncation_note(n_included: int, n_total: int) -> str:
     )
 
 
+#: Formati del blocco POI dello ``user_content`` (#273).
+#:
+#: ``per_poi`` e' il formato storico e resta il DEFAULT: un blocco per punto, con
+#: l'insieme di hazard ripetuto per ogni POI della stessa classe. ``per_classe``
+#: scrive quell'insieme UNA volta per classe elencando sotto i punti che le
+#: appartengono. Non e' una riscrittura cosmetica: sulle zone reali la
+#: ripetizione e' meta' dell'elenco (20 POI del Colosseo = 135 righe di hazard
+#: per 63 necessarie), e il blocco POI pesa due terzi del prompt.
+#:
+#: Perche' due formati invece di sostituire: NON e' ovvio che il compatto sia
+#: migliore. La ripetizione per-POI potrebbe rinforzare l'associazione fra punto
+#: e rischio, e raggruppando il modello potrebbe nominare meno i singoli punti.
+#: Tenendo il vecchio come default la macchina di valutazione puo' misurare i due
+#: prompt sugli stessi snapshot e la scelta diventa un risultato invece di
+#: un'impressione — e nessun numero raccolto finora si muove.
+ContextFormat = Literal["per_poi", "per_classe"]
+
+#: Default esplicito: il formato storico. Cambiarlo muove la narrativa e rende
+#: non confrontabili le metriche raccolte, quindi va fatto con i numeri in mano.
+DEFAULT_CONTEXT_FORMAT: ContextFormat = "per_poi"
+
+#: Reso di un POI senza nome nell'elenco dei punti di una classe (#273). Nel
+#: formato per-POI il nome vuoto era un buco nella riga; qui piu' nomi stanno
+#: sulla stessa riga e l'anonimato va DETTO, non lasciato come spazio bianco.
+_ANONYMOUS_POI = "(punto anonimo)"
+
+
+def _poi_display_name(poi: dict[str, Any]) -> str:
+    """Nome del POI per il prompt, appiattito su una riga (#273).
+
+    Il nome arriva da OpenStreetMap, che chiunque puo' editare: un a-capo
+    potrebbe chiudere l'elenco dei punti e aprire una finta riga di hazard.
+    Normalizzato con la stessa regola della domanda utente (#119) — il contenuto
+    resta leggibile, la struttura non e' forgiabile.
+
+    La normalizzazione vale per ENTRAMBI i formati: un modulo con un ramo sicuro
+    e uno no e' una trappola. Verificato sui 4 snapshot del corpus che nessuno
+    degli 80 nomi cambia, quindi chiudere il buco non muove le metriche.
+
+    Un nome vuoto resta vuoto: il segnaposto :data:`_ANONYMOUS_POI` e' applicato
+    SOLO dal formato raggruppato. Metterlo qui cambierebbe il rendering del
+    formato per-POI sui punti anonimi — che nel corpus ci sono — e quello e'
+    proprio il byte che deve restare fermo perche' le metriche siano confrontabili.
+    """
+    return normalize_untrusted_line(str(poi.get("poi", "")))
+
+
+def _poi_confidence(poi: dict[str, Any]) -> str:
+    """Confidence del POI: la MENO ancorata fra quelle dei suoi rischi (#273).
+
+    ``ground()`` deriva la confidence dal NOME del POI
+    (:func:`~crime_risk_analyzer.rag.grounding.confidence_from_poi_name`), quindi
+    produce un unico valore per punto e la riduzione e' l'identita'. Esiste
+    comunque perche' nel formato raggruppato l'insieme di hazard appartiene alla
+    CLASSE: la confidence non puo' stare sulla riga del rischio, che e' condivisa
+    da piu' punti con valori diversi. Se un giorno l'invariante cadesse, scegliere
+    la meno ancorata degrada verso la cautela invece di sovra-dichiarare.
+    """
+    risks = poi.get("risks", [])
+    if not risks:
+        return ""
+    return max(
+        (str(r.get("confidence", "")) for r in risks),
+        key=lambda c: _CONFIDENCE_ANCHOR_RANK.get(c, _LEAST_ANCHORED_RANK),
+    )
+
+
+def _hazard_lines(risks: list[dict[str, Any]], *, with_confidence: bool) -> list[str]:
+    """Righe degli hazard. ``with_confidence`` distingue i due formati (#273).
+
+    Nel formato per-POI la confidence sta su ogni rischio (il blocco appartiene a
+    un punto solo); in quello per classe sta sull'elenco dei punti.
+    """
+    lines: list[str] = []
+    for risk in risks:
+        hazard = str(risk.get("hazard", ""))
+        tag = risk.get("tag")
+        tag_str = f"[{tag}] " if tag else ""
+        suffix = f" ({risk.get('confidence', '')})" if with_confidence else ""
+        lines.append(f"    - {tag_str}{hazard} / {label_it(hazard)}{suffix}")
+    return lines
+
+
+def _dedup_by(
+    items: list[dict[str, Any]], key: Callable[[dict[str, Any]], str]
+) -> list[dict[str, Any]]:
+    """Deduplica preservando l'ordine di prima apparizione (#273)."""
+    visti: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for item in items:
+        k = key(item)
+        if k not in visti:
+            visti.add(k)
+            out.append(item)
+    return out
+
+
+def _class_block_lines(terminus: str, pois: list[dict[str, Any]]) -> list[str]:
+    """Righe del blocco di una CLASSE TERMINUS e dei punti che le appartengono.
+
+    Hazard, vulnerabilita' e citazione sono scritti UNA volta: dipendono dalla
+    classe. I punti restano nominati uno per uno con la propria confidence, cosi'
+    l'attribuzione per POI — quella che la narrativa usa e che #255 ha reso
+    univoca nel contratto — non si perde nel raggruppamento.
+
+    Le vulnerabilita' restano gli identifier grezzi come nel formato per-POI: qui
+    si cambia UNA cosa sola, cosi' il confronto fra i due prompt isola il
+    raggruppamento e non due modifiche insieme.
+    """
+    voci: list[str] = []
+    for p in pois:
+        nome = _poi_display_name(p) or _ANONYMOUS_POI
+        conf = _poi_confidence(p)
+        voci.append(f"{nome} [{conf}]" if conf else nome)
+    lines = [
+        f"  Classe: {terminus} / {label_it(terminus)}",
+        f"  Punti ({len(pois)}): {'; '.join(voci)}",
+    ]
+
+    # UNIONE, non il primo POI del gruppo. I rischi vengono da ``profile()`` sulla
+    # classe, quindi due POI della stessa classe hanno lo stesso insieme e
+    # l'unione e' l'identita'. Prendere il primo darebbe lo stesso testo *finche'*
+    # quell'invariante tiene, e se un giorno cadesse i rischi degli altri punti
+    # spariderebbero dal prompt IN SILENZIO — il modello sarebbe informato di meno
+    # di quanto il grounding ha derivato. L'unione non puo' perdere nulla.
+    risks = _dedup_by(
+        [r for p in pois for r in p.get("risks", [])],
+        lambda r: str(r.get("hazard", "")),
+    )
+    if risks:
+        lines.append("  Hazard verificati:")
+        lines.extend(_hazard_lines(risks, with_confidence=False))
+    else:
+        lines.append("  Hazard verificati: nessuno (classe non coperta)")
+
+    vulns = _dedup_by(
+        [v for p in pois for v in p.get("vulnerabilities", [])],
+        lambda v: str(v["name"]),
+    )
+    if vulns:
+        lines.append("  Vulnerabilita': " + ", ".join(str(v["name"]) for v in vulns))
+
+    # La citazione e' una fra quelle della classe (come nel formato per-POI, che ne
+    # emette una per punto): rappresentativa, non esaustiva. L'unione non ha senso
+    # qui perche' ogni filler ha il suo path e sono gia' nei rischi.
+    path = pois[0].get("sparql_path")
+    if path:
+        lines.append(f"  Path ontologico: {path}")
+    lines.append("")
+    return lines
+
+
+def _group_by_class(pois: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """POI per classe TERMINUS, nell'ordine di PRIMA APPARIZIONE.
+
+    L'ordine dei POI in ingresso e' significativo — a monte lo decide la
+    rilevanza del troncamento (:func:`_relevance_sort_key`) — quindi va
+    preservato invece di ordinare per nome di classe.
+    """
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for poi in pois:
+        grouped.setdefault(str(poi.get("terminus_class", "")), []).append(poi)
+    return grouped
+
+
 def _poi_block_lines(poi: dict[str, Any]) -> list[str]:
     """Righe del blocco di un singolo POI (hazard + vulnerabilita' + path)."""
-    name = str(poi.get("poi", ""))
+    name = _poi_display_name(poi)
     terminus = str(poi.get("terminus_class", ""))
     lines: list[str] = [f"  POI: {name} ({terminus})"]
 
     risks = poi.get("risks", [])
     if risks:
         lines.append("  Hazard verificati:")
-        for risk in risks:
-            hazard = str(risk.get("hazard", ""))
-            hazard_it = label_it(hazard)
-            tag = risk.get("tag")
-            confidence = str(risk.get("confidence", ""))
-            tag_str = f"[{tag}] " if tag else ""
-            lines.append(f"    - {tag_str}{hazard} / {hazard_it} ({confidence})")
+        lines.extend(_hazard_lines(risks, with_confidence=True))
     else:
         lines.append("  Hazard verificati: nessuno (POI non coperto)")
 
@@ -503,6 +663,7 @@ def _assemble_context(
     *,
     domanda_norm: str,
     note: str | None,
+    context_format: ContextFormat = DEFAULT_CONTEXT_FORMAT,
 ) -> str:
     """Serializza lo ``user_content`` per un dato insieme di POI.
 
@@ -527,9 +688,17 @@ def _assemble_context(
     if note:
         lines.append(note)
         lines.append("")
-    lines.append("POI RILEVANTI:")
-    for poi in pois:
-        lines.extend(_poi_block_lines(poi))
+    if context_format == "per_classe":
+        lines.append(
+            "POI RILEVANTI (raggruppati per classe TERMINUS: hazard, "
+            "vulnerabilita' e citazione dipendono dalla classe, non dal punto):"
+        )
+        for terminus, gruppo in _group_by_class(pois).items():
+            lines.extend(_class_block_lines(terminus, gruppo))
+    else:
+        lines.append("POI RILEVANTI:")
+        for poi in pois:
+            lines.extend(_poi_block_lines(poi))
 
     if domanda_norm:
         # Fence esplicito per input NON fidato (#119): la domanda e' racchiusa e
@@ -550,6 +719,7 @@ def build_context_str(
     *,
     domanda: str | None = None,
     context_budget_tokens: int = DEFAULT_USER_CONTENT_BUDGET_TOKENS,
+    context_format: ContextFormat = DEFAULT_CONTEXT_FORMAT,
 ) -> str:
     """Assembla la parte VARIABILE del prompt dal context validato.
 
@@ -582,7 +752,13 @@ def build_context_str(
 
     # Caso comune (contesto nel budget): include tutti i POI, nessuna nota ->
     # comportamento invariato. Con <=1 POI non c'e' nulla da troncare.
-    full = _assemble_context(zona, validated, domanda_norm=domanda_norm, note=None)
+    full = _assemble_context(
+        zona,
+        validated,
+        domanda_norm=domanda_norm,
+        note=None,
+        context_format=context_format,
+    )
     if m_total <= 1 or _estimate_tokens(full) <= context_budget_tokens:
         return full
 
@@ -597,6 +773,7 @@ def build_context_str(
             candidate,
             domanda_norm=domanda_norm,
             note=_truncation_note(len(candidate), m_total),
+            context_format=context_format,
         )
         if _estimate_tokens(text) <= context_budget_tokens:
             selected = candidate
@@ -613,6 +790,7 @@ def build_context_str(
         selected,
         domanda_norm=domanda_norm,
         note=_truncation_note(len(selected), m_total),
+        context_format=context_format,
     )
 
 
@@ -668,6 +846,7 @@ async def generate_analysis(
     domanda: str | None = None,
     request_token_budget: int = DEFAULT_REQUEST_TOKEN_BUDGET,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    context_format: ContextFormat = DEFAULT_CONTEXT_FORMAT,
 ) -> GenerationResult:
     """Genera l'analisi del rischio dal context validato.
 
@@ -694,7 +873,10 @@ async def generate_analysis(
     """
     user_allowance = request_token_budget - _estimate_tokens(SYSTEM_PROMPT) - max_tokens
     user_content = build_context_str(
-        context_dict, domanda=domanda, context_budget_tokens=user_allowance
+        context_dict,
+        domanda=domanda,
+        context_budget_tokens=user_allowance,
+        context_format=context_format,
     )
 
     start = time.perf_counter()

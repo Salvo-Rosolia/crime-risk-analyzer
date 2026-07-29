@@ -7,6 +7,11 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from crime_risk_analyzer.rag.generation import (
+    DEFAULT_CONTEXT_FORMAT,
+    ContextFormat,
+)
+
 Mode = Literal["analyze", "baseline"]
 ModelChoice = Literal["claude", "groq"]
 
@@ -30,6 +35,16 @@ class Provenance(BaseModel):
     temperature: float = Field(description="Temperature fissata (0 in eval).")
     seed: int = Field(description="Seed loggato.")
     experiment: str = Field(description="Nome dell'esperimento.")
+    # ``prompt_hash`` copre il SOLO system prompt, mentre #273 cambia lo
+    # user_content: senza questo campo due run che differiscono solo per il
+    # formato del blocco POI sarebbero indistinguibili nei risultati, e un A/B fra
+    # i due prompt non sarebbe leggibile a posteriori. Default = formato storico,
+    # cosi' i record scritti prima di #273 restano leggibili ed etichettati per
+    # cio' che sono davvero (quelle run erano per-POI).
+    context_format: ContextFormat = Field(
+        default=DEFAULT_CONTEXT_FORMAT,
+        description="Formato del blocco POI dello user_content (#273).",
+    )
 
 
 class Metrics(BaseModel):
@@ -77,6 +92,16 @@ class ExperimentConfig(BaseModel):
     mode: Mode = Field(description="analyze (con LLM) o baseline (senza LLM).")
     model: ModelChoice = Field(description="Provider LLM (ignorato se mode=baseline).")
     cases: list[RunCase] = Field(description="Casi da eseguire.")
+    # Terza dimensione dell'esperimento accanto a mode/model (#273), opt-in: un
+    # esperimento che non la nomina si comporta esattamente come prima. Le due
+    # braccia di un A/B sul prompt vanno lanciate con DUE ``name`` distinti,
+    # perche' il formato non entra nel ``run_id`` (cambiarlo rinominerebbe ogni
+    # run esistente); ``Provenance.context_format`` rende poi ogni record
+    # auto-descrittivo.
+    context_format: ContextFormat = Field(
+        default=DEFAULT_CONTEXT_FORMAT,
+        description="Formato del blocco POI dello user_content (#273).",
+    )
 
 
 class RunRecord(BaseModel):
