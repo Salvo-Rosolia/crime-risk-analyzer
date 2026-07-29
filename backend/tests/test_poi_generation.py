@@ -62,6 +62,33 @@ def test_poi_prompt_forbids_rating_the_named_place() -> None:
     assert "singolo luogo" in lowered or "luogo nominato" in lowered
 
 
+def test_poi_prompt_binds_the_controlled_vocabulary() -> None:
+    """#272: il vocabolario nel contesto e' dato; serve la regola che lo impone.
+
+    Sul percorso di zona la regola 6 esiste ed e' quello che tiene la narrativa
+    in italiano. Qui mancava: il modello riceveva gli identifier e li traduceva
+    da se'. La regola porta il numero 6 come nel prompt di zona — la numerazione
+    e' condivisa fra i due percorsi.
+    """
+    assert "VOCABOLARIO CONTROLLATO" in POI_SYSTEM_PROMPT
+    riga = next(
+        r for r in POI_SYSTEM_PROMPT.splitlines() if "VOCABOLARIO CONTROLLATO" in r
+    )
+    assert riga.startswith("6.")
+    assert "ESATTAMENTE" in riga
+
+
+def test_poi_prompt_forbids_writing_the_ontology_identifiers() -> None:
+    """#272: il divieto va detto, non solo implicato dal vocabolario.
+
+    E' il difetto osservato: dal solo identifier il modello ha coniato «crimini
+    esplosivi». Vietare esplicitamente di riportare gli identifier chiude il caso
+    anche quando un termine manca dal vocabolario.
+    """
+    lowered = POI_SYSTEM_PROMPT.lower()
+    assert "identificator" in lowered
+
+
 def test_poi_prompt_declares_the_two_blocks() -> None:
     assert "[ONTOLOGIA]" in POI_SYSTEM_PROMPT
     assert "[CONTESTO]" in POI_SYSTEM_PROMPT
@@ -150,6 +177,102 @@ def test_context_str_neutralizes_a_neighbour_name_that_forges_prompt_structure()
         zone_summary="2 punti di interesse.",
     )
     assert sum(r.startswith("COMPOSIZIONE DELLA ZONA") for r in out.splitlines()) == 1
+
+
+def _risks_reali() -> list[GroundedRisk]:
+    """Rischi con identifier REALI del vocabolario controllato (#272).
+
+    ``Crime_explosion`` e' il caso che ha prodotto il difetto: significa
+    «impennata della criminalita'», non un'esplosione. Un identifier inventato
+    renderebbe l'asserzione vacua (``label_it`` degrada alla forma normalizzata,
+    che coincide col testo inglese e passerebbe comunque).
+    """
+    return [
+        GroundedRisk(
+            hazard="Crime_explosion",
+            tag="ONTOLOGIA",
+            confidence="verificato",
+            source="Bus_stops → havingHazard → Crime_explosion",
+        ),
+        GroundedRisk(
+            hazard="Traveler_robbery",
+            tag="ONTOLOGIA",
+            confidence="verificato",
+            source="Bus_stops → havingHazard → Traveler_robbery",
+        ),
+    ]
+
+
+def _context_reale(**override: object) -> str:
+    kwargs: dict[str, object] = {
+        "citta": "Roma",
+        "zona": "Colosseo",
+        "poi_name": "Colosseo (MB)",
+        "poi_label_it": "Fermate degli autobus",
+        "risks": _risks_reali(),
+        "vulnerabilities": ["Area_with_a_high_crime_rate", "Poor_police_control"],
+        "sparql_path": "Bus_stops → havingHazard → Crime_explosion",
+        "neighbours": _neighbours(),
+        "zone_summary": "20 punti di interesse nella zona.",
+    }
+    kwargs.update(override)
+    return build_poi_context_str(**kwargs)  # type: ignore[arg-type]
+
+
+def test_context_str_names_hazards_with_the_italian_label() -> None:
+    """#272: al modello serve l'etichetta italiana, non il solo identifier.
+
+    Col solo ``Crime_explosion`` il modello ha scritto «crimini esplosivi»: ha
+    tradotto l'identifier da se' e ha prodotto un'affermazione FALSA (l'ontologia
+    dice «impennata della criminalita'»). L'identifier resta — regge la citazione —
+    ma accanto deve comparire il termine che il testo deve usare.
+    """
+    out = _context_reale()
+    assert "Impennata della criminalità" in out
+    assert "Rapina al viaggiatore" in out
+    assert "Crime_explosion" in out, "l'identifier regge la citazione: non va rimosso"
+
+
+def test_context_str_constrains_naming_to_the_controlled_vocabulary() -> None:
+    """#272: le etichette vanno anche IMPOSTE, non solo rese disponibili.
+
+    E' il vincolo che sul percorso di zona tiene la narrativa in italiano; su
+    quello per-POI mancava del tutto.
+    """
+    out = _context_reale()
+    assert "VOCABOLARIO CONTROLLATO" in out
+    riga = next(r for r in out.splitlines() if "VOCABOLARIO CONTROLLATO" in r)
+    assert "ESATTAMENTE" in riga
+
+
+def test_context_str_names_vulnerabilities_with_the_italian_label() -> None:
+    """#272: anche le vulnerabilita' arrivavano come identifier nudi."""
+    out = _context_reale()
+    assert "Area ad alto tasso di criminalità" in out
+    assert "Scarso controllo di polizia" in out
+
+
+def test_controlled_vocabulary_covers_hazards_and_vulnerabilities() -> None:
+    """Il vincolo deve elencare i termini di TUTTI i nomi che il testo usera'.
+
+    Elencarne solo una parte lascerebbe scoperto proprio il resto: il modello
+    tradurrebbe da se' quello che non trova nel vocabolario.
+    """
+    out = _context_reale()
+    blocco = out.split("VOCABOLARIO CONTROLLATO", 1)[1].split("\n\n", 1)[0]
+    for termine in (
+        "Impennata della criminalità",
+        "Rapina al viaggiatore",
+        "Area ad alto tasso di criminalità",
+        "Scarso controllo di polizia",
+    ):
+        assert termine in blocco, f"{termine!r} manca dal vocabolario imposto"
+
+
+def test_context_str_omits_the_vocabulary_when_there_is_nothing_to_name() -> None:
+    """POI fuori ontologia: un vincolo su un elenco vuoto sarebbe rumore."""
+    out = _context_reale(risks=[], vulnerabilities=[], sparql_path=None)
+    assert "VOCABOLARIO CONTROLLATO" not in out
 
 
 async def test_generate_poi_narrative_returns_prose_and_provenance() -> None:

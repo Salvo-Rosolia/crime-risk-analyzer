@@ -15,6 +15,13 @@ riusate verbatim (non rinumerate) perche' il vincolo legale deve essere lo
 stesso testo in entrambi i percorsi, verificabile da un test. La regola 9 vale
 anche qui: i nomi dei POI arrivano da OpenStreetMap, cioe' testo esterno non
 fidato che entra nel contesto.
+
+Il vocabolario controllato (#272) e' invece l'unica regola con testo PROPRIO,
+non condiviso: qui il modello nomina anche le vulnerabilita', mentre la regola 6
+di zona parla dei soli hazard. Allineare i due testi vorrebbe dire toccare il
+prompt di zona, cioe' muovere la narrativa su cui poggiano le metriche di
+valutazione — rimandato a #273, che quel prompt lo riscrive comunque. Il numero
+6 resta quello di zona: la numerazione e' condivisa anche quando il testo no.
 """
 
 from __future__ import annotations
@@ -23,6 +30,7 @@ import time
 
 from pydantic import BaseModel, Field
 
+from crime_risk_analyzer.i18n.terminus_labels import controlled_vocab_for, label_it
 from crime_risk_analyzer.rag.generation import (
     RULE_NO_DANGER_RATING,
     RULE_NO_OPERATIONAL_DIRECTIVES,
@@ -50,6 +58,11 @@ quel punto si trova.
 
 Valgono i vincoli seguenti (stessa numerazione dell'analisi di zona: sono le \
 medesime regole, non una loro riformulazione):
+
+6. Usa ESATTAMENTE i termini del VOCABOLARIO CONTROLLATO per nominare rischi e \
+vulnerabilita'. Non riportare nel testo gli identificatori dell'ontologia (le \
+forme in inglese con underscore) e non tradurli da te': per ognuno il termine \
+italiano da usare ti e' fornito nel contesto.
 
 {RULE_NO_DANGER_RATING}
 
@@ -106,22 +119,48 @@ def build_poi_context_str(
         f"Citta': {citta}",
         f"Zona: {zona}",
         "",
-        f"PUNTO SELEZIONATO: {normalize_untrusted_line(poi_name)} "
-        f"(classe: {poi_label_it})",
     ]
+
+    # Vocabolario controllato IMPOSTO (#272). Senza di esso al modello arrivavano
+    # solo gli identifier dell'ontologia, e li traduceva da se': su
+    # ``Crime_explosion`` ha scritto «crimini esplosivi» dove l'ontologia dice
+    # «impennata della criminalita'» — non una resa brutta, un'affermazione FALSA
+    # in un percorso che promette verificabilita'. E' lo stesso vincolo che tiene
+    # in italiano la narrativa di zona; qui mancava del tutto. Copre hazard E
+    # vulnerabilita': elencarne una parte lascerebbe scoperto il resto.
+    vocab = controlled_vocab_for(
+        [r["hazard"] for r in risks] + list(vulnerabilities),
+    )
+    if vocab:
+        lines.append(
+            "VOCABOLARIO CONTROLLATO (usa ESATTAMENTE questi termini italiani "
+            "per nominare rischi e vulnerabilita'):"
+        )
+        lines.append("  " + "; ".join(vocab))
+        lines.append("")
+
+    lines.append(
+        f"PUNTO SELEZIONATO: {normalize_untrusted_line(poi_name)} "
+        f"(classe: {poi_label_it})"
+    )
     if sparql_path:
         lines.append(f"Percorso ontologico: {sparql_path}")
     if risks:
         lines.append("Rischi dall'ontologia:")
+        # ``identifier / etichetta IT``, la stessa forma del prompt di zona:
+        # l'identifier regge la citazione, l'etichetta e' il termine da usare.
         lines.extend(
-            f"  - {r['hazard']} [{r['tag']}] (confidence: {r['confidence']}, "
-            f"fonte: {r['source']})"
+            f"  - {r['hazard']} / {label_it(r['hazard'])} [{r['tag']}] "
+            f"(confidence: {r['confidence']}, fonte: {r['source']})"
             for r in risks
         )
     else:
         lines.append("Rischi dall'ontologia: nessuno (classe fuori ontologia).")
     if vulnerabilities:
-        lines.append("Vulnerabilita': " + "; ".join(vulnerabilities))
+        lines.append(
+            "Vulnerabilita': "
+            + "; ".join(f"{v} / {label_it(v)}" for v in vulnerabilities)
+        )
     lines.append("")
     lines.append("VICINATO (punti piu' prossimi, in ordine di distanza):")
     if neighbours:
