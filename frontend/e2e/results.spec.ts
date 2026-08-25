@@ -45,13 +45,11 @@ test.describe('INPUT→LOADING→RESULTS: parità marker/card/badge col fixture'
     await expect(S.poiCards(page)).toHaveCount(analyze.poi.length);
   });
 
-  test('badge Copertura coerente con confidence_summary + conteggio [ONTOLOGIA] del fixture', async ({
-    page,
-  }) => {
-    const { total, anchored } = deriveCoverage(analyze.confidence_summary, analyze.risk_models);
+  test("badge Copertura coerente coi POI ancorati all'ontologia del fixture", async ({ page }) => {
+    const { total, anchored } = deriveCoverage(analyze.poi);
 
-    // Sanity check sul fixture stesso: la somma di confidence_summary e il conteggio dei tag
-    // ONTOLOGIA nei risk_models NON sono 0, altrimenti l'asserzione sotto sarebbe vacua.
+    // Sanity check sul fixture stesso: totale POI e POI ancorati all'ontologia (confidence non
+    // nulla) NON sono 0, altrimenti l'asserzione sotto sarebbe vacua.
     expect(total).toBeGreaterThan(0);
     expect(anchored).toBeGreaterThan(0);
 
