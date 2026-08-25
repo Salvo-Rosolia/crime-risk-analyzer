@@ -46,54 +46,38 @@ describe('confidence', () => {
     expect(confMeta(undefined)).toEqual(confMeta(null));
   });
 
-  it('deriveCoverage: total = somma summary, anchored = risk con tag ONTOLOGIA', () => {
-    const riskModels: RiskModel[] = [
-      {
-        poi_id: '1',
-        poi: 'A',
-        risks: [
-          {
-            hazard: 'h1',
-            confidence: 'verificato',
-            tag: 'ONTOLOGIA',
-            hazard_label_it: 'H1',
-            hazard_label_en: 'H1',
-          },
-          {
-            hazard: 'h2',
-            confidence: 'da_confermare',
-            tag: 'CONTESTO',
-            hazard_label_it: 'H2',
-            hazard_label_en: 'H2',
-          },
-        ],
-      },
-      {
-        poi_id: '2',
-        poi: 'B',
-        risks: [
-          {
-            hazard: 'h3',
-            confidence: 'verificato',
-            tag: 'ONTOLOGIA',
-            hazard_label_it: 'H3',
-            hazard_label_en: 'H3',
-          },
-        ],
-      },
-    ];
-    expect(deriveCoverage({ verificato: 2, da_confermare: 1 }, riskModels)).toEqual({
-      total: 3,
-      anchored: 2,
+  describe('deriveCoverage', () => {
+    const basePoiFixture: Poi = {
+      id: '1',
+      name: 'Test POI',
+      terminus_class: 'x',
+      lat: 0,
+      lon: 0,
+      confidence: 'verificato',
+      sparql_path: null,
+      terminus_label_it: '',
+      terminus_label_en: '',
+    };
+
+    it('conta come ancorati solo i POI con confidence non nulla', () => {
+      const poi: Poi[] = [
+        { ...basePoiFixture, confidence: 'verificato' },
+        { ...basePoiFixture, confidence: 'da_confermare' },
+        { ...basePoiFixture, confidence: null },
+      ];
+      expect(deriveCoverage(poi)).toEqual({ total: 3, anchored: 2 });
+    });
+
+    it('gestisce lista vuota o assente', () => {
+      expect(deriveCoverage(null)).toEqual({ total: 0, anchored: 0 });
+      expect(deriveCoverage([])).toEqual({ total: 0, anchored: 0 });
     });
   });
 
-  it('deriveCoverage gestisce input null/undefined', () => {
-    expect(deriveCoverage(undefined, undefined)).toEqual({ total: 0, anchored: 0 });
-  });
-
-  it('coverageBadgeText formatta il testo qualitativo', () => {
-    expect(coverageBadgeText(4, 2)).toBe('Copertura 4 rischi · 2 ancorati a ontologia');
+  describe('coverageBadgeText', () => {
+    it('formatta "Copertura X su Y POI coperti da ontologia"', () => {
+      expect(coverageBadgeText(3, 2)).toBe('Copertura 2 su 3 POI coperti da ontologia');
+    });
   });
 
   it('pinHTML in focus usa dimensione 34 e include il numero', () => {

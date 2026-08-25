@@ -77,22 +77,17 @@ export function pinColor(level: string | null | undefined): string {
 }
 
 export function deriveCoverage(
-  confidenceSummary: Partial<ConfidenceSummary> | null | undefined,
-  riskModels: RiskModel[] | null | undefined,
+  poi: Poi[] | null | undefined,
 ): { total: number; anchored: number } {
-  const total = Object.values(confidenceSummary ?? {}).reduce(
-    (acc, n) => acc + (Number(n) || 0),
-    0,
-  );
-  const anchored = (riskModels ?? []).reduce(
-    (acc, model) => acc + (model.risks ?? []).filter((r) => r.tag === 'ONTOLOGIA').length,
-    0,
-  );
-  return { total, anchored };
+  const list = poi ?? [];
+  return {
+    total: list.length,
+    anchored: list.filter((p) => p.confidence != null).length,
+  };
 }
 
 export function coverageBadgeText(total: number, anchored: number): string {
-  return `Copertura ${total} rischi · ${anchored} ancorati a ontologia`;
+  return `Copertura ${anchored} su ${total} POI coperti da ontologia`;
 }
 
 /**
