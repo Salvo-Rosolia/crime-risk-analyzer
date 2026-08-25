@@ -53,9 +53,7 @@ export class HeaderControlsComponent {
     () => this.mode() === 'completo' && this.data() != null,
   );
 
-  protected readonly coverage = computed(() =>
-    deriveCoverage(this.data()?.confidence_summary, this.data()?.risk_models),
-  );
+  protected readonly coverage = computed(() => deriveCoverage(this.data()?.poi));
   protected readonly coverageText = computed(() => {
     const { total, anchored } = this.coverage();
     return coverageBadgeText(total, anchored);
