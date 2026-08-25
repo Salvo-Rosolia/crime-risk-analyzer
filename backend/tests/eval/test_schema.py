@@ -91,3 +91,53 @@ def test_experiment_config_rejects_unknown_mode() -> None:
             model="claude",
             cases=[RunCase(citta="Roma", zona="Centro")],
         )
+
+
+def test_experiment_config_defaults_to_the_historical_context_format() -> None:
+    """#273: la variante e' opt-in, cosi' nessun esperimento esistente si muove."""
+    cfg = ExperimentConfig(
+        name="exp", mode="analyze", model="groq", cases=[RunCase(citta="R", zona="C")]
+    )
+    assert cfg.context_format == "per_poi"
+
+
+def test_provenance_labels_a_legacy_record_as_per_poi() -> None:
+    """Un record scritto prima di #273 non ha il campo, e va letto per cio' che e'.
+
+    Il default non e' una comodita': quelle run SONO state prodotte col formato
+    per-POI, quindi etichettarle cosi' e' l'unica lettura veritiera. Senza default
+    il campo obbligatorio renderebbe illeggibile il corpus esistente.
+    """
+    legacy = {
+        "code_commit": "abc",
+        "ontology_hash": "def",
+        "snapshot_id": "roma__centro",
+        "model_id": "llama-3.3-70b-versatile",
+        "prompt_hash": "h",
+        "temperature": 0.0,
+        "seed": 0,
+        "experiment": "exp",
+    }
+    assert Provenance.model_validate(legacy).context_format == "per_poi"
+
+
+def test_provenance_records_the_grouped_format() -> None:
+    """Due run che differiscono solo per il formato devono essere distinguibili.
+
+    ``prompt_hash`` copre il solo system prompt, e #273 cambia lo user_content:
+    senza questo campo le due braccia di un A/B sarebbero indistinguibili nei
+    risultati.
+    """
+    prov = Provenance(
+        code_commit="abc",
+        ontology_hash="def",
+        snapshot_id="roma__centro",
+        model_id="llama-3.3-70b-versatile",
+        prompt_hash="h",
+        temperature=0.0,
+        seed=0,
+        experiment="exp",
+        context_format="per_classe",
+    )
+    assert prov.context_format == "per_classe"
+    assert "per_classe" in prov.model_dump_json()
