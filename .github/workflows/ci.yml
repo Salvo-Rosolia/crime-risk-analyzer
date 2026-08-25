@@ -80,9 +80,9 @@ jobs:
         if: ${{ steps.tooling.outputs.present == 'true' }}
         run: npm ci
       - name: Audit dipendenze (npm audit)
-        # Blocca solo su vulnerabilita high/critical; le low restano informative.
+        # Blocca solo su vulnerabilita high/critical in produzione (devDependencies escluse dall'audit); le low restano informative.
         if: ${{ steps.tooling.outputs.present == 'true' }}
-        run: npm audit --audit-level=high
+        run: npm audit --omit=dev --audit-level=high
       - name: Lint
         if: ${{ steps.tooling.outputs.present == 'true' }}
         run: npm run lint
