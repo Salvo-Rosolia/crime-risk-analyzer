@@ -125,15 +125,19 @@ def variance_markdown(
     for z in comparison.zones:
         key = (z.citta, z.zona)
         cells = [z.citta, z.zona]
+        va = std_a[key]
+        vb = std_b[key]
         for m in metrics:
             mean_a = _GETTERS[m](z.a)
             mean_b = _GETTERS[m](z.b)
-            sa = _STD_GETTERS[m](std_a[key].std)
-            sb = _STD_GETTERS[m](std_b[key].std)
-            cells.append(f"{_fmt(m, mean_a)} ± {_fmt(m, sa)}")
-            cells.append(f"{_fmt(m, mean_b)} ± {_fmt(m, sb)}")
-        va = std_a[key]
-        vb = std_b[key]
+            sa = _STD_GETTERS[m](va.std)
+            sb = _STD_GETTERS[m](vb.std)
+            cells.append(
+                "n/d" if va.n_reps < 2 else f"{_fmt(m, mean_a)} ± {_fmt(m, sa)}"
+            )
+            cells.append(
+                "n/d" if vb.n_reps < 2 else f"{_fmt(m, mean_b)} ± {_fmt(m, sb)}"
+            )
         cells.append(f"{va.n_reps}/{va.n_reps + va.n_dropped}")
         cells.append(f"{vb.n_reps}/{vb.n_reps + vb.n_dropped}")
         cells.append(str(va.n_fallback))
