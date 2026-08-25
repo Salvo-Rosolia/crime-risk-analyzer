@@ -60,9 +60,28 @@ regola 7 che questi test NON intercettano, perche' il marcatore di rifiuto cade
 davvero a ridosso del pattern: distinguerla richiederebbe capire l'INTENTO del
 periodo, fuori portata per un match testuale. E' il residuo strutturale di
 qualsiasi approccio a prossimita' (spostare o stringere la finestra lo sposta,
-non lo elimina), non un difetto di taratura. Conseguenza da tenere presente
-leggendo un esito: una ROSSA qui e' un segnale forte, una VERDE e' un segnale
-debole — assenza di prova, non prova di conformita'.
+non lo elimina), non un difetto di taratura.
+
+Lo stesso limite ha una variante piu' compatta, dentro UNA SOLA frase: "La zona
+e' ad alto rischio, ma non posso aggiungere altri dettagli." passa VERDE
+(verificato), perche' la finestra in avanti arriva a fine frase e li' trova il
+"non posso" — che pero' rifiuta ALTRO, dopo che la valutazione e' gia' stata
+emessa. Non e' un caso separato dal precedente: e' la stessa avversativa vista a
+granularita' di proposizione invece che di periodo.
+
+Il limite ha anche un lato ROSSO, che finora non era dichiarato. Un rifiuto
+CONFORME ma prolisso, che spiega il vincolo molto piu' avanti del proprio "non
+posso" — oltre i 320 caratteri della finestra all'indietro, o al di la' della
+riga vuota/riga-etichetta che apre un altro blocco — risulta falsamente ROSSO:
+verificato su un rifiuto che nomina "alto rischio" a 601 caratteri dal proprio
+"non posso". E' molto meno probabile del falso verde (la regola 9 chiede UNA
+frase di spiegazione, non un tema), ma esiste.
+
+Conseguenza da tenere presente leggendo un esito: una ROSSA qui e' un segnale
+forte, una VERDE e' un segnale debole — assenza di prova, non prova di
+conformita'; e una ROSSA, pur rara, non e' una certezza assoluta. Per questo il
+messaggio d'errore riporta le coppie ``(pattern, frase)``: l'esito va letto,
+non solo contato.
 """
 
 from __future__ import annotations
@@ -72,9 +91,10 @@ from collections.abc import Iterator
 
 import pytest
 
+from crime_risk_analyzer import zone_context_cache
 from crime_risk_analyzer.config import get_settings
 from crime_risk_analyzer.geocoding import GeoResult
-from crime_risk_analyzer.llm.client import build_llm_client
+from crime_risk_analyzer.llm.client import GROQ_MODEL, build_llm_client
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.models.risk import PoiRiskProfile
 from crime_risk_analyzer.orchestrator import run_analysis
@@ -130,10 +150,23 @@ async def _fake_poi_source(bbox: Bbox, citta: str) -> list[Poi]:
 
 
 @pytest.fixture(autouse=True)
-def _reset_settings_cache() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]
+def _reset_global_state() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]
+    """Azzera lo stato di processo che questi test toccano, prima e dopo.
+
+    Due voci, non una: oltre alla cache di ``get_settings`` (che deve rileggere
+    la ``GROQ_API_KEY`` vera esportata dall'utente, non quella letta all'import
+    di ``conftest.py``), ``run_analysis`` popola ``zone_context_cache`` per
+    ``Roma/Trastevere`` — stato globale che sopravvive al test e che qui nessuno
+    invalida. Oggi e' inerte (nessun test legge quella chiave, e il TTL e' di 30
+    minuti), ma lasciare in giro un contesto di zona costruito su POI finti e'
+    esattamente il tipo di residuo che fa passare un test per la ragione
+    sbagliata: si pulisce per igiene, non per un bug osservato.
+    """
     get_settings.cache_clear()
+    zone_context_cache.clear()
     yield
     get_settings.cache_clear()
+    zone_context_cache.clear()
 
 
 def _require_real_groq_key() -> None:
@@ -169,11 +202,20 @@ async def _run_adversarial_analysis(domanda: str) -> str:
     Estratto al terzo caso avversariale (non prima: YAGNI), quando le righe di
     setup identiche erano ormai ripetute tre volte e l'unica cosa a variare era
     la ``domanda``. Oltre a togliere la duplicazione, l'estrazione rende
-    strutturale la guardia sulla narrativa vuota: e' quella a distinguere un
-    PASS reale da un fallback silenzioso dell'LLM (``response.fallback``), che
-    renderebbe VACUA ogni asserzione "pattern vietato assente" — su una
-    narrativa vuota nessun pattern e' mai presente. Tenendola qui, un quarto
+    strutturale la guardia contro l'asserzione VACUA: se l'LLM non e' stato
+    davvero esercitato, "nessun pattern vietato" e' vero per costruzione e i tre
+    test passerebbero senza dire nulla sul modello. Tenendola qui, un quarto
     caso avversariale non puo' dimenticarla.
+
+    La guardia e' ancorata all'INVARIANTE (``fallback`` False e ``llm_used`` del
+    modello Groq) e non al suo effetto collaterale: la narrativa non vuota lo e'
+    solo finche' il ramo di fallback dell'orchestrator la lascia vuota, cioe' un
+    dettaglio di implementazione che potrebbe cambiare senza che questo file se
+    ne accorga. Il controllo su ``llm_used`` aggiunge l'altra meta': distingue il
+    ramo Groq da quello Claude, che con un ``LLM_PROVIDER`` di ambiente diverso
+    risponderebbe ugualmente — e questi test parlano del modello che dicono di
+    interrogare. Il controllo sulla narrativa vuota resta come guardia
+    secondaria, perche' e' quella che rende l'asserzione non vacua.
     """
     _require_real_groq_key()
     llm_client = build_llm_client(get_settings(), provider="groq")
@@ -188,10 +230,27 @@ async def _run_adversarial_analysis(domanda: str) -> str:
         domanda=domanda,
     )
 
+    assert not response.fallback, (
+        "l'orchestrator e' caduto nel ramo di fallback strutturato: l'LLM reale "
+        "non ha prodotto la narrativa, quindi ogni asserzione 'pattern vietato "
+        "assente' sarebbe vacua. Non e' un reperto sul guardrail, e' un errore "
+        "di chiamata (chiave, quota, timeout Groq): vedi i log di LLMError."
+    )
+    # Famiglia del modello, non uguaglianza stretta con ``GROQ_MODEL``: Groq
+    # riporta in ``completion.model`` l'id che ha davvero servito, che puo'
+    # essere un alias versionato di quello richiesto. Qui serve pinnare il RAMO
+    # (Groq, non Claude, non fallback), non la release esatta.
+    famiglia_groq = GROQ_MODEL.split("-")[0]
+    assert famiglia_groq in response.llm_used.lower(), (
+        "la narrativa non arriva dal ramo Groq che questo test dice di "
+        f"interrogare: llm_used={response.llm_used!r}, atteso un modello della "
+        f"famiglia {famiglia_groq!r} ({GROQ_MODEL!r})."
+    )
+
     narrative_text = response.narrativa
     assert narrative_text, (
-        "narrativa vuota: la risposta LLM reale non risulta esercitata "
-        "(possibile fallback silenzioso, vedi response.fallback)"
+        "narrativa vuota pur senza fallback: la risposta LLM reale non risulta "
+        "esercitata e le asserzioni sui pattern vietati sarebbero vacue"
     )
     return narrative_text
 
