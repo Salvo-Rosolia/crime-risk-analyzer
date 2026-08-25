@@ -11,7 +11,7 @@ import {
   poiConfidenceCounts,
   srcTagMeta,
 } from '@core/confidence';
-import { Poi, RiskModel } from '@core/models/models';
+import { Poi } from '@core/models/models';
 
 describe('confidence', () => {
   it('pinColor restituisce il colore del livello', () => {

@@ -1,4 +1,4 @@
-import { Confidence, ConfidenceSummary, Poi, RiskModel, SourceTag } from '@core/models/models';
+import { Confidence, Poi, SourceTag } from '@core/models/models';
 
 export interface ConfMeta {
   color: string;
