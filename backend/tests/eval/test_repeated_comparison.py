@@ -255,7 +255,9 @@ def test_variance_markdown_shows_nd_when_only_one_valid_repetition() -> None:
         claude.mean_records, groq.mean_records, label_a="claude", label_b="groq"
     )
     md = variance_markdown(cmp, claude, groq, k=3)
-    data_rows = [l for l in md.splitlines() if l.startswith("| ") and "---" not in l]
+    data_rows = [
+        line for line in md.splitlines() if line.startswith("| ") and "---" not in line
+    ]
     first_zone_row = data_rows[1]  # riga 0 e' l'header della tabella markdown
     assert "n/d" in first_zone_row
     # cella specifica del braccio claude (n_reps=1): niente falso "0.900 ± 0.000".
