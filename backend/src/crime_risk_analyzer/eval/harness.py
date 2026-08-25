@@ -149,6 +149,7 @@ def _record_from_response(
             temperature=resp.repro.temperature,
             seed=resp.repro.seed,
             experiment=config.name,
+            context_format=config.context_format,
         ),
     )
 
@@ -183,6 +184,7 @@ def _error_record(
             temperature=0.0,
             seed=0,
             experiment=config.name,
+            context_format=config.context_format,
         ),
     )
 
@@ -248,6 +250,7 @@ async def run_case(
                 llm_client=llm_client,
                 poi_source=source,
                 geo_source=geo_source,
+                context_format=config.context_format,
             )
     except Exception:  # noqa: BLE001 — un caso rotto non blocca l'esperimento
         return _error_record(

@@ -22,8 +22,10 @@ from crime_risk_analyzer.llm.client import LLMError, LLMResponse
 from crime_risk_analyzer.models.risk import PoiRiskProfile
 from crime_risk_analyzer.models.vocab import Confidence, ConfidenceSummary
 from crime_risk_analyzer.rag.generation import (
+    DEFAULT_CONTEXT_FORMAT,
     DEFAULT_MAX_TOKENS,
     DEFAULT_REQUEST_TOKEN_BUDGET,
+    ContextFormat,
     Repro,
     RiskItem,
     RiskModel,
@@ -366,6 +368,7 @@ async def run_analysis(
     domanda: str | None = None,
     request_token_budget: int = DEFAULT_REQUEST_TOKEN_BUDGET,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    context_format: ContextFormat = DEFAULT_CONTEXT_FORMAT,
 ) -> AnalyzeResponse:
     """Esegue la pipeline completa e assembla la response canonica.
 
@@ -416,6 +419,7 @@ async def run_analysis(
             domanda=domanda,
             request_token_budget=request_token_budget,
             max_tokens=max_tokens,
+            context_format=context_format,
         )
         tokens_input = gen.tokens_input
         tokens_output = gen.tokens_output

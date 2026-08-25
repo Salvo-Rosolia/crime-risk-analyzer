@@ -619,3 +619,89 @@ def test_guard_no_legacy_runs_clean_stale_removes_only_target(tmp_path: Path) ->
     assert rep_path.exists()  # (b) intatto
     assert other.exists()  # (c) intatto
     assert legacy_run_paths(tmp_path, "exp") == []
+
+
+async def test_run_experiment_propagates_and_records_the_context_format(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#273: la variante deve arrivare al prompt E finire nel record.
+
+    Se arrivasse al prompt senza essere registrata, un A/B fra i due formati
+    produrrebbe record indistinguibili (``prompt_hash`` copre il solo system
+    prompt); se fosse registrata senza arrivare al prompt, il record mentirebbe.
+    Il test chiude entrambi i lati.
+    """
+    from crime_risk_analyzer.llm.client import LLMResponse
+    from tests.eval._doubles import FakeProfiler, default_llm_response
+
+    visti: list[str] = []
+
+    class _Recording:
+        async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
+            visti.append(user_content)
+            return default_llm_response()
+
+    scrivi_snapshot(
+        snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
+    )
+    from crime_risk_analyzer.rag import retrieval
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
+
+    records = await run_experiment(
+        ExperimentConfig(
+            name="exp",
+            mode="analyze",
+            model="groq",
+            cases=[RunCase(citta="Roma", zona="Centro")],
+            context_format="per_classe",
+        ),
+        executor=FakeProfiler(),
+        llm_client=_Recording(),
+        results_dir=tmp_path,
+        code_commit="abc",
+        ontology_hash="def",
+    )
+
+    assert records[0].provenance.context_format == "per_classe"
+    assert "raggruppati per classe TERMINUS" in visti[0]
+
+
+async def test_run_experiment_default_keeps_the_historical_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Un esperimento che non nomina il formato non deve muoversi di un byte."""
+    from crime_risk_analyzer.llm.client import LLMResponse
+    from tests.eval._doubles import FakeProfiler, default_llm_response
+
+    visti: list[str] = []
+
+    class _Recording:
+        async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
+            visti.append(user_content)
+            return default_llm_response()
+
+    scrivi_snapshot(
+        snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
+    )
+    from crime_risk_analyzer.rag import retrieval
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
+
+    records = await run_experiment(
+        ExperimentConfig(
+            name="exp",
+            mode="analyze",
+            model="groq",
+            cases=[RunCase(citta="Roma", zona="Centro")],
+        ),
+        executor=FakeProfiler(),
+        llm_client=_Recording(),
+        results_dir=tmp_path,
+        code_commit="abc",
+        ontology_hash="def",
+    )
+
+    assert records[0].provenance.context_format == "per_poi"
+    assert "POI RILEVANTI:" in visti[0]
+    assert "raggruppati per classe" not in visti[0]
