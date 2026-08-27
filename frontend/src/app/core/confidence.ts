@@ -76,9 +76,7 @@ export function pinColor(level: string | null | undefined): string {
   return confMeta(level).color;
 }
 
-export function deriveCoverage(
-  poi: Poi[] | null | undefined,
-): { total: number; anchored: number } {
+export function deriveCoverage(poi: Poi[] | null | undefined): { total: number; anchored: number } {
   const list = poi ?? [];
   return {
     total: list.length,
