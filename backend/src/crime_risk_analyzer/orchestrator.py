@@ -199,7 +199,14 @@ class AnalyzeResponse(BaseModel):
     zona_normalizzata: str
     poi: list[PoiOut]
     risk_models: list[RiskModel]
-    narrativa: str
+    narrativa: str | None = Field(
+        default=None,
+        description=(
+            "Testo dell'analisi. None se non ancora generato (fase 1 di #259: "
+            "in arrivo da POST /analyze/narrative); stringa vuota in baseline "
+            "o quando l'LLM e' caduto (fallback)."
+        ),
+    )
     narrativa_fonti: SourceProse = Field(
         default_factory=SourceProse,
         description=(
@@ -314,8 +321,9 @@ def _structured_response(
     latenza_ms: int,
     fallback: bool,
     contesto_hash: str,
+    narrativa: str | None = "",
 ) -> AnalyzeResponse:
-    """Assembla la AnalyzeResponse SENZA LLM (baseline e fallback di /analyze).
+    """Assembla la AnalyzeResponse SENZA LLM (baseline, fallback, o fase 1 di #259).
 
     ``contesto_hash`` arriva dal chiamante, che ha il ``RetrievalContext``: il
     contratto della response e' unico, quindi l'impronta accompagna anche le
@@ -326,13 +334,18 @@ def _structured_response(
     FILTRATA non potrebbe che divergere dal contesto ricostruito. Non e' un
     percorso raggiungibile dalla UI — la narrativa per-POI vive solo nella
     pipeline completo (review backend M2).
+
+    ``narrativa``: ``""`` (default) per baseline/fallback — nessuna narrativa
+    arrivera' mai. ``None`` per la fase 1 di ``/analyze`` (#259): la narrativa e'
+    in arrivo da una chiamata separata a ``POST /analyze/narrative``, non e' un
+    fallback.
     """
     return AnalyzeResponse(
         citta=citta,
         zona_normalizzata=zona,
         poi=poi_out,
         risk_models=_risk_models_from_grounded(grounded),
-        narrativa="",
+        narrativa=narrativa,
         confidence_summary=ConfidenceSummary.model_validate(
             grounded["confidence_summary"]
         ),

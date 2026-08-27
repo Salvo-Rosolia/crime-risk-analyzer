@@ -138,7 +138,11 @@ def _record_from_response(
         model_id=model_id,
         status=status,
         metrics=compute_metrics(resp),
-        narrativa=resp.narrativa,
+        # ``resp.narrativa`` e' ``str | None`` da #259 (fase 1: narrativa non
+        # ancora generata); l'harness gira solo su ``run_analysis``/``run_baseline``,
+        # che oggi producono sempre una stringa (mai None) — la coercizione e'
+        # difensiva sul tipo, non un cambio di comportamento.
+        narrativa=resp.narrativa or "",
         n_poi=len(resp.poi),
         provenance=Provenance(
             code_commit=code_commit,

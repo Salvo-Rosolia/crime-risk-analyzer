@@ -75,7 +75,7 @@ def _ontology_assertions(resp: AnalyzeResponse) -> list[str]:
     senza blocco ``[ONTOLOGIA]`` riconoscibile (vuota o non compliant) ritorna ``[]``:
     la distinzione tra ramo VACUO e NON-ATTRIBUZIONE e' fatta in :func:`_grade`.
     """
-    ontology_prose = parse_source_prose(resp.narrativa).ontologia
+    ontology_prose = parse_source_prose(resp.narrativa or "").ontologia
     return _sentences(ontology_prose)
 
 
@@ -98,8 +98,12 @@ def _grade(resp: AnalyzeResponse) -> tuple[int, int] | None:
     modello non puo' ottenere un punteggio perfetto omettendo l'header (l'asse
     hallucination e' il criterio PRIMARIO di ``winner.py``, #157): l'evasione perde
     invece di vincere.
+
+    ``resp.narrativa`` e' ``str | None`` da #259 (fase 1: narrativa non ancora
+    generata): una narrativa ``None`` e' trattata come vuota, stesso ramo VACUO —
+    l'harness gira solo su pipeline che oggi producono sempre una stringa.
     """
-    if not resp.narrativa.strip():
+    if not (resp.narrativa or "").strip():
         return None
     anchors = _anchors(resp)
     if not anchors:
