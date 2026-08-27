@@ -208,6 +208,71 @@ def test_variance_markdown_shows_reps_count_when_dropped() -> None:
     assert "3/3" in md  # braccio groq: 3 valide su 3, nessuno scarto
 
 
+def test_variance_markdown_shows_nd_when_only_one_valid_repetition() -> None:
+    """Con 1 sola ripetizione valida su 3, la std non e' definita: n/d, non ± 0.000."""
+    claude_recs = [
+        _rec(
+            "claude-exp",
+            "Roma",
+            "Colosseo",
+            rep=0,
+            model_id="claude-sonnet-4-6",
+            grounding=0.90,
+            hallucination=0.10,
+            latency_ms=3000,
+            cost_usd=0.012,
+        ),
+        _rec(
+            "claude-exp",
+            "Roma",
+            "Colosseo",
+            rep=1,
+            model_id="claude-sonnet-4-6",
+            grounding=0.0,
+            hallucination=0.0,
+            latency_ms=0,
+            cost_usd=0.0,
+            status=RunStatus.ERROR,
+        ),
+        _rec(
+            "claude-exp",
+            "Roma",
+            "Colosseo",
+            rep=2,
+            model_id="claude-sonnet-4-6",
+            grounding=0.0,
+            hallucination=0.0,
+            latency_ms=0,
+            cost_usd=0.0,
+            status=RunStatus.FALLBACK,
+        ),
+    ]
+    groq_recs = _arm("groq-exp", "llama-3.3-70b-versatile", (0.70, 0.20, 1000, 0.0006))
+    claude = fold_arm(claude_recs)
+    groq = fold_arm(groq_recs)
+    assert claude.variances[0].n_reps == 1
+    cmp = compare_records(
+        claude.mean_records, groq.mean_records, label_a="claude", label_b="groq"
+    )
+    md = variance_markdown(cmp, claude, groq, k=3)
+    data_rows = [
+        line for line in md.splitlines() if line.startswith("| ") and "---" not in line
+    ]
+    first_zone_row = data_rows[1]  # riga 0 e' l'header della tabella markdown
+    assert "n/d" in first_zone_row
+    # cella specifica del braccio claude (n_reps=1): niente falso "0.900 ± 0.000".
+    cells = [c.strip() for c in first_zone_row.strip().strip("|").split("|")]
+    # ordine colonne: citta, zona, poi per ogni metrica (grounding, hallucination,
+    # latency_ms, cost_usd) la coppia claude/groq -> indici 2,4,6,8 = braccio claude.
+    assert cells[2] == "n/d"  # grounding_claude
+    assert cells[4] == "n/d"  # hallucination_claude
+    assert cells[6] == "n/d"  # latency_ms_claude
+    assert cells[8] == "n/d"  # cost_usd_claude
+    # il braccio groq (n_reps=3) resta media ± std, non "n/d".
+    assert cells[3] != "n/d"
+    assert "±" in cells[3]
+
+
 def test_variance_markdown_cell_values_match_getter_mapping() -> None:
     """Cella specifica con valore atteso: cattura uno scambio in _GETTERS/_STD_GETTERS.
 
