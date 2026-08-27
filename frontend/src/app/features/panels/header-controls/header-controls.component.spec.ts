@@ -158,10 +158,10 @@ describe('HeaderControlsComponent', () => {
     expect(fixture.nativeElement.querySelectorAll('.cra-chip').length).toBe(0);
   });
 
-  it('con dati in modalità completo mostra il badge Copertura qualitativo (via deriveCoverage/coverageBadgeText, somma confidence_summary = 5, non il conteggio POI)', () => {
+  it('con dati in modalità completo mostra il badge Copertura qualitativo (via deriveCoverage/coverageBadgeText, sui 4 POI di fixture 3 hanno confidence non nulla)', () => {
     setup({ data, mode: 'completo' });
     expect(fixture.nativeElement.textContent).toContain(
-      'Copertura 5 rischi · 1 ancorati a ontologia',
+      'Copertura 3 su 4 POI coperti da ontologia',
     );
   });
 
