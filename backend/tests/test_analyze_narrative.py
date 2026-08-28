@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import pytest
+
 from crime_risk_analyzer import zone_context_cache
 from crime_risk_analyzer.geocoding import GeoResult
+from crime_risk_analyzer.llm.client import LLMError, LLMResponse
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.models.risk import PoiRiskProfile
 from crime_risk_analyzer.overpass_client import Poi
+from crime_risk_analyzer.poi_narrative import ContextMismatchError
 
 _BANK = PoiRiskProfile(
     terminus_class="Bank",
@@ -95,3 +99,120 @@ async def test_fast_response_contesto_hash_matches_the_cached_context() -> None:
     cached = zone_context_cache.get("Roma", "Colosseo")
     assert cached is not None
     assert out.contesto_hash == fingerprint(cached["retrieval"]["pois"])
+
+
+class _FakeLLMClient:
+    async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
+        return LLMResponse(
+            text=(
+                "Sintesi.\n\n[ONTOLOGIA]\nRischio rapina.\n\n"
+                "[CONTESTO]\nZona centrale.\n"
+            ),
+            llm_used="test-model",
+            tokens_input=5,
+            tokens_output=8,
+            cache_hit=False,
+            temperature=0.2,
+            seed=42,
+            prompt_hash="h",
+        )
+
+
+class _RaisingLLMClient:
+    async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
+        raise LLMError("provider giu'")
+
+
+async def _prime_cache() -> str:
+    from crime_risk_analyzer.analyze_narrative import run_analysis_fast
+
+    zone_context_cache.clear()
+    resp = await run_analysis_fast(
+        "Roma",
+        "Colosseo",
+        executor=_FakeProfiler(),
+        poi_source=_poi_source,
+        geo_source=_geo_source,
+    )
+    assert resp.contesto_hash is not None
+    return resp.contesto_hash
+
+
+async def test_zone_narrative_returns_text_for_the_cached_zone() -> None:
+    from crime_risk_analyzer.analyze_narrative import run_zone_narrative
+
+    contesto_hash = await _prime_cache()
+    out = await run_zone_narrative(
+        "Roma",
+        "Colosseo",
+        contesto_hash=contesto_hash,
+        executor=_FakeProfiler(),
+        llm_client=_FakeLLMClient(),
+    )
+    assert out.narrativa != ""
+    assert out.fallback is False
+
+
+async def test_zone_narrative_cache_hit_does_not_touch_overpass() -> None:
+    from crime_risk_analyzer.analyze_narrative import run_zone_narrative
+
+    contesto_hash = await _prime_cache()
+
+    async def _exploding(bbox: Bbox, citta: str) -> list[Poi]:
+        raise AssertionError("Overpass non deve essere chiamato su cache hit")
+
+    out = await run_zone_narrative(
+        "Roma",
+        "Colosseo",
+        contesto_hash=contesto_hash,
+        executor=_FakeProfiler(),
+        llm_client=_FakeLLMClient(),
+        poi_source=_exploding,
+    )
+    assert out.narrativa != ""
+
+
+async def test_zone_narrative_context_mismatch_raises() -> None:
+    """Zona ri-analizzata fra le due chiamate (#242): stessa guardia di /analyze/poi."""
+    from crime_risk_analyzer.analyze_narrative import run_zone_narrative
+
+    await _prime_cache()
+    with pytest.raises(ContextMismatchError):
+        await run_zone_narrative(
+            "Roma",
+            "Colosseo",
+            contesto_hash="hash-vecchio-non-valido",
+            executor=_FakeProfiler(),
+            llm_client=_FakeLLMClient(),
+        )
+
+
+async def test_zone_narrative_llm_error_falls_back_without_raising() -> None:
+    from crime_risk_analyzer.analyze_narrative import run_zone_narrative
+
+    contesto_hash = await _prime_cache()
+    out = await run_zone_narrative(
+        "Roma",
+        "Colosseo",
+        contesto_hash=contesto_hash,
+        executor=_FakeProfiler(),
+        llm_client=_RaisingLLMClient(),
+    )
+    assert out.fallback is True
+    assert out.narrativa == ""
+
+
+def test_zone_narrative_response_has_no_numeric_danger_scoring_field() -> None:
+    """Stesso vincolo di `PoiNarrativeResponse` (_project.md §Vincoli): l'insieme
+    esatto impedisce di intrufolare un punteggio numerico di pericolosità."""
+    from crime_risk_analyzer.analyze_narrative import ZoneNarrativeResponse
+
+    assert set(ZoneNarrativeResponse.model_fields) == {
+        "narrativa",
+        "narrativa_fonti",
+        "tokens_input",
+        "tokens_output",
+        "latenza_ms",
+        "repro",
+        "fallback",
+    }
