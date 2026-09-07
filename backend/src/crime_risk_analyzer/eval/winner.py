@@ -78,11 +78,14 @@ _AXES: tuple[_AxisSpec, ...] = _QUALITY_AXES + _OPERATIONAL_AXES
 #: Ragione stampata quando la qualita' pareggia e lo spareggio operativo e'
 #: escluso (#236). Il verdetto trattenuto va MOTIVATO: un ``winner=None`` muto
 #: sarebbe indistinguibile dal pareggio a quattro assi di #157, che e' un altro
-#: fatto (li' anche latenza e costo coincidono).
+#: fatto (li' anche latenza e costo coincidono). Accenti veri e non apostrofi:
+#: questa stringa finisce nel report Markdown accanto a ``PROMPT_LENGTH_SIDE_EFFECT``
+#: e a ``verdict_na_markdown``, che li usano — il resto del modulo, che il lettore
+#: del report non vede, resta com'e'.
 NO_OPERATIONAL_TIEBREAK_REASON = (
-    "verdetto non decidibile: le metriche di qualita' pareggiano e velocita'/"
-    "costo non sono spareggi validi su questa coppia, perche' il prompt del "
-    "braccio senza ontologia e' strutturalmente piu' corto"
+    "verdetto non decidibile: le metriche di qualità pareggiano e velocità/"
+    "costo non sono spareggi validi su questa coppia, perché il prompt del "
+    "braccio senza ontologia è strutturalmente più corto"
 )
 
 #: Precisione di stampa per asse, esposta al renderer (Task 4).
