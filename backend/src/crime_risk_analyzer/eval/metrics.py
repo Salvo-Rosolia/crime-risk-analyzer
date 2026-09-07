@@ -5,9 +5,13 @@ PROXY testuali (vedi caveat EN/IT nella spec): misurano se le asserzioni di risc
 citano i dati ancorati (nomi POI/hazard, label EN/IT #77).
 
 **Semantica M1 (#229, ``METRICS_VERSION == 2``).** Il proxy grada SOLO le asserzioni
-del blocco ``[ONTOLOGIA]`` — l'unico layer con backing strutturato dal grounding
-(``grounding.py`` emette solo il tag ``ONTOLOGIA``). L'``overview`` di sintesi e il
-blocco ``[CONTESTO]`` sono INTERPRETAZIONE dell'LLM (conoscenza generale, non un dato
+del PRIMO blocco della narrativa, quello in cui il modello attribuisce rischi ai punti:
+nel braccio di prodotto e' ``[ONTOLOGIA]``, l'unico layer con backing strutturato dal
+grounding (``grounding.py`` emette solo il tag ``ONTOLOGIA``); nel braccio di ablazione
+(#236) e' ``[SINTESI-LLM]``, che backing non ne ha per costruzione — ed e' il punto
+dell'esperimento, misurare quanto quel blocco resti ancorato quando i dati ancorati non
+arrivano nel prompt. L'``overview`` di sintesi e il blocco
+``[CONTESTO]`` sono INTERPRETAZIONE dell'LLM (conoscenza generale, non un dato
 ontologico): la loro qualita'/fabbricazione NON e' gradabile da un proxy deterministico
 di ancoraggio ed e' delegata al gold umano (#109/#152), oltre a essere frenata a monte
 dal prompt (regola 2 + ``[CONTESTO]`` "senza inventare"). L'attribuzione della fonte e'
@@ -17,12 +21,10 @@ reale — motivo del cambio (non una regressione). La validazione dell'accordo
 proxy-vs-annotazione gold umana vive in ``eval/gold.py`` (#109), da rifare su questa
 definizione prima di un claim forte.
 
-**Blocco misurato per braccio (#236).** Il blocco gradato e' quello che il prompt di
-quel braccio chiede: ``[ONTOLOGIA]`` dove l'ontologia c'e' davvero, ``[SINTESI-LLM]``
-nel braccio ablato, che non ne ha consultata alcuna e non puo' dichiararlo. Cambia
-solo la riga-etichetta cercata (:data:`_MEASURED_TOKEN_BY_MODE`), non la formula: due
-narrative identiche sotto le due etichette prendono lo stesso punteggio, altrimenti il
-confronto tra i bracci misurerebbe l'etichetta invece dell'ancoraggio.
+**Come il braccio entra nel calcolo (#236).** Dal ``mode`` della run si ricava la sola
+riga-etichetta da cercare (:data:`_MEASURED_TOKEN_BY_MODE`); la formula non cambia, e
+due narrative identiche sotto le due etichette prendono lo stesso punteggio —
+altrimenti il confronto tra i bracci misurerebbe l'etichetta invece dell'ancoraggio.
 """
 
 from __future__ import annotations
