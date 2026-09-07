@@ -1,0 +1,18 @@
+# Normalizzazione fine-riga a livello di repo.
+# Tutti i file di testo sono LF nel repo e in working tree su qualsiasi OS:
+# elimina il churn CRLF/LF che rende illeggibili diff e PR (e fa fallire
+# `prettier --check` / `ruff format --check`) dopo checkout su Windows.
+* text=auto eol=lf
+
+# Binari: nessuna normalizzazione di fine riga.
+*.ico  binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.pdf  binary
+*.woff  binary
+*.woff2 binary
+*.gguf        binary
+*.safetensors binary
