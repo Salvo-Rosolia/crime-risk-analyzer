@@ -34,7 +34,7 @@ from crime_risk_analyzer.rag.generation import (
 )
 from crime_risk_analyzer.rag.no_ontology_generation import (
     _RULE_BLOCK_STRUCTURE_NO_ONTOLOGY,  # pyright: ignore[reportPrivateUsage]
-    _RULE_FIXED_BLOCK_LABELS,  # pyright: ignore[reportPrivateUsage]
+    _RULE_LLM_SYNTHESIS,  # pyright: ignore[reportPrivateUsage]
     LLM_SYNTHESIS_BLOCK_HEADER,
     LLM_SYNTHESIS_TOKEN,
     NO_ONTOLOGY_SYSTEM_PROMPT,
@@ -142,6 +142,25 @@ def test_no_ontology_prompt_keeps_the_three_legal_rules() -> None:
     assert "ALTO/MEDIO/BASSO" in NO_ONTOLOGY_SYSTEM_PROMPT
 
 
+def test_no_ontology_prompt_gets_no_extra_nudge_on_the_labels() -> None:
+    """Nessuna istruzione in piu' sul formato dell'etichetta al solo braccio ablato.
+
+    La 3a ablata apriva ripetendo che le righe-etichetta sono FISSE e vanno
+    riportate ESATTAMENTE: serviva quando il blocco si chiamava ``[ONTOLOGIA]``
+    anche qui e si temeva che un modello senza ontologia rifiutasse di aprirlo.
+    Ora che il blocco si chiama per quello che e', quella frase e' solo una
+    spinta che il braccio completo non riceve — e proprio sull'asse che decide
+    il confronto: chi non rispetta l'etichetta prende 0.0/1.0 per
+    non-attribuzione, quindi un aiuto a rispettarla vale punti.
+
+    L'indicazione di base resta nella regola 3, che i due bracci condividono.
+    """
+    assert "riportale ESATTAMENTE" not in NO_ONTOLOGY_SYSTEM_PROMPT
+    assert "sono FISSE" not in NO_ONTOLOGY_SYSTEM_PROMPT
+    for prompt in (NO_ONTOLOGY_SYSTEM_PROMPT, SYSTEM_PROMPT):
+        assert "riga-etichetta dedicata ed ESATTA" in prompt
+
+
 def test_no_ontology_prompt_labels_its_block_as_a_synthesis_of_the_model() -> None:
     """Il braccio ablato non dichiara un'ontologia che non ha consultato.
 
@@ -222,7 +241,7 @@ def test_both_arms_share_the_same_citation_limit() -> None:
     divergenza sarebbe invisibile.
     """
     assert CITATION_LIMIT_CLAUSE in _RULE_ONTOLOGY_SYNTHESIS
-    assert CITATION_LIMIT_CLAUSE in _RULE_FIXED_BLOCK_LABELS
+    assert CITATION_LIMIT_CLAUSE in _RULE_LLM_SYNTHESIS
     assert CITATION_LIMIT_CLAUSE in SYSTEM_PROMPT
     assert CITATION_LIMIT_CLAUSE in NO_ONTOLOGY_SYSTEM_PROMPT
     # Sentinella distintiva del limite (la stessa di #229 sul prompt di zona):

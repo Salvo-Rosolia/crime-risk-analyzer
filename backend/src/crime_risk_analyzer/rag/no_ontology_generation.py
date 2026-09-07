@@ -138,25 +138,29 @@ _RULE_ONLY_LISTED_POI = (
     "introdurre luoghi che non compaiono nell'elenco"
 )
 
-#: Le righe-etichetta sono parte del contratto di output, non una descrizione
-#: della fonte: senza questa istruzione un modello che non ha ricevuto alcuna
-#: ontologia potrebbe rifiutarsi di aprire il blocco (o aprirlo vuoto), e il
-#: braccio finirebbe misurato sul formato invece che sull'ancoraggio. Il testo
-#: NON dice al modello che e' dentro un esperimento: direbbe di piu' del
-#: necessario e cambierebbe il compito.
+#: Regola 3a di questo braccio, gemella di ``_RULE_ONTOLOGY_SYNTHESIS``: dice da
+#: dove vengono i rischi del primo blocco (qui dal modello, non dall'ontologia) e
+#: chiude con lo STESSO limite di citazione.
 #:
 #: Il LIMITE di quanti punti nominare non e' riscritto qui: e'
 #: :data:`CITATION_LIMIT_CLAUSE`, la stessa costante della 3a del braccio
 #: completo. Il proxy conta come ancoraggio anche il solo nominare un punto, e un
 #: braccio libero di elencarli tutti mentre l'altro cita pochi esempi verrebbe
 #: premiato per il vincolo che non ha. Cambia soltanto cio' che precede il limite,
-#: cioe' la descrizione della FONTE dei rischi, che qui non e' l'ontologia.
-_RULE_FIXED_BLOCK_LABELS = (
-    "3a. Le due righe-etichetta della regola 3 sono FISSE (sono i marcatori di "
-    "sezione attesi dal sistema che legge la risposta): riportale ESATTAMENTE "
-    "come scritte. Nel primo blocco raccogli i rischi che associ ai punti "
-    "elencati, in prosa analitica e referenziale che nomina i punti reali, non un "
-    f"elenco meccanico. {CITATION_LIMIT_CLAUSE}"
+#: cioe' la descrizione della FONTE dei rischi.
+#:
+#: La regola apriva ripetendo che le righe-etichetta sono FISSE e vanno riportate
+#: ESATTAMENTE. Quella giustificazione — un modello senza ontologia potrebbe
+#: rifiutarsi di aprire un blocco intitolato all'ontologia — e' DECADUTA da
+#: quando il blocco si chiama ``[SINTESI-LLM]`` e non finge piu' una provenienza
+#: che non ha. Rimossa: era rimasta una spinta che il braccio completo non
+#: riceve, proprio sull'asse che decide il confronto (chi non rispetta
+#: l'etichetta prende 0.0/1.0 per non-attribuzione, quindi aiutarlo a rispettarla
+#: vale punti). L'indicazione di base resta nella regola 3, condivisa.
+_RULE_LLM_SYNTHESIS = (
+    "3a. Nel primo blocco raccogli i rischi che associ ai punti elencati, in "
+    "prosa analitica e referenziale che nomina i punti reali, non un elenco "
+    f"meccanico. {CITATION_LIMIT_CLAUSE}"
 )
 
 #: System prompt del braccio ablato: stesso compito, stessa struttura di output e
@@ -172,7 +176,7 @@ REGOLE OBBLIGATORIE:
 {_RULE_SOURCE_BY_BLOCK}
 {_RULE_ONLY_LISTED_POI}
 {_RULE_BLOCK_STRUCTURE_NO_ONTOLOGY}
-{_RULE_FIXED_BLOCK_LABELS}
+{_RULE_LLM_SYNTHESIS}
 {_RULE_CONTEXT_INTERPRETATION}
 {_RULE_OVERVIEW_NO_ZONE_LEVEL}
 5. Usa un linguaggio tecnico ma comprensibile per operatori non informatici
