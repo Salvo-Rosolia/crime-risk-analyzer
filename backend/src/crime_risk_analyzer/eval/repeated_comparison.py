@@ -21,6 +21,7 @@ from crime_risk_analyzer.eval.compare import (
     VacuousZone,
     compare_records,
     guard_no_overwrite,
+    has_vacuous_quality_axes,
     is_ontology_isolating_pair,
     to_json,
     to_markdown,
@@ -283,7 +284,9 @@ def build_repeated_report(
     # (#231): premierebbe il silenzio. La vacuità arriva dai record-media, che
     # conservano la DISPONIBILITÀ di narrativa (repeat._representative_narrativa),
     # non una media di testi (che non esiste).
-    withheld = bool(comparison.vacuous_arms or comparison.vacuous_zones)
+    withheld = has_vacuous_quality_axes(
+        comparison.vacuous_arms, comparison.vacuous_zones
+    )
     # Su questa coppia il braccio ablato ha un prompt strutturalmente piu' corto,
     # quindi latenza e costo piu' bassi non sono un merito (#236): escludendoli
     # dallo spareggio, se la qualita' pareggia il verdetto resta dichiaratamente

@@ -16,9 +16,11 @@ from pytest import MonkeyPatch
 
 from crime_risk_analyzer.eval.compare import (
     CONFOUNDED_VARIABLE_HEAD,
+    ISOLATED_DELTA_CLAIM,
     ISOLATED_VARIABLE_HEAD,
     PROMPT_LENGTH_SIDE_EFFECT,
     VACUOUS_CAVEAT_HEAD,
+    VACUOUS_DELTA_CLAIM,
     Comparison,
     FailedZone,
     MetricValues,
@@ -889,6 +891,7 @@ def _no_ontology_rec(
     *,
     model: str = "claude",
     temperature: float = 0.0,
+    narrativa: str = "prosa senza ancoraggi",
 ) -> RunRecord:
     """Record del braccio ablato: con LLM, prompt senza contributo ontologico.
 
@@ -909,7 +912,7 @@ def _no_ontology_rec(
         mode="no_ontology_prompt",
         model=model,
         temperature=temperature,
-        narrativa="prosa senza ancoraggi",
+        narrativa=narrativa,
     )
 
 
@@ -1152,6 +1155,75 @@ def test_is_ontology_isolating_pair_recognizes_only_the_c3_pair() -> None:
     misto = [_analyze_rec("Roma", "Colosseo"), _no_ontology_rec("Milano", "Duomo")]
     ablato = [_no_ontology_rec("Roma", "Colosseo"), _no_ontology_rec("Milano", "Duomo")]
     assert not is_ontology_isolating_pair(misto, ablato)
+
+
+# --- #236 + #231: la dichiarazione di isolamento non contraddice la vacuita' ---
+#
+# I due blocchi che aprono il report parlano degli STESSI assi: uno diceva che il
+# delta di qualita' misura l'effetto dell'ontologia, l'altro che su quegli assi il
+# confronto non e' interpretabile in nessuna direzione. Erano stampati entrambi,
+# incondizionatamente, nello stesso documento.
+
+
+def _c3_pair_with_one_silent_zone() -> Comparison:
+    """Coppia C3 isolata (stesso modello/temperatura/formato) con UNA zona muta.
+
+    Stato raggiungibile in produzione: il client ritorna ``content or ""`` senza
+    sollevare, quindi una zona con ``status=OK`` e narrativa vuota entra
+    nell'aggregato con ``grounding``/``hallucination`` vacui (#231).
+    """
+    return compare_records(
+        [_analyze_rec("Roma", "Colosseo"), _analyze_rec("Milano", "Duomo")],
+        [
+            _no_ontology_rec("Roma", "Colosseo", narrativa=""),
+            _no_ontology_rec("Milano", "Duomo"),
+        ],
+        label_a="con-ontologia",
+        label_b="senza-ontologia",
+    )
+
+
+def test_isolation_does_not_claim_a_measured_delta_when_quality_axes_are_vacuous() -> (
+    None
+):
+    """Un solo blocco per volta puo' parlare degli assi di qualita'.
+
+    Con isolamento verificato E vacuita' il report affermava e negava la stessa
+    cosa a due righe di distanza: «il delta misura l'effetto dell'ancoraggio
+    ontologico» e, subito sotto, «su questi assi il confronto NON e'
+    interpretabile in nessuna direzione».
+    """
+    md = to_markdown(_c3_pair_with_one_silent_zone())
+    assert VACUOUS_CAVEAT_HEAD in md
+    assert ISOLATED_DELTA_CLAIM not in md
+
+
+def test_isolation_still_says_what_changes_between_the_arms_when_vacuous() -> None:
+    """La dichiarazione non sparisce: dice cosa cambia, senza promettere il delta.
+
+    Il disegno dei due bracci resta isolato (stesso modello, temperatura,
+    formato) e l'avviso sulla lunghezza del prompt serve ancora, perche' la
+    tabella operativa e' stampata comunque.
+    """
+    comparison = _c3_pair_with_one_silent_zone()
+    note = comparison.isolated_variable
+    assert ISOLATED_VARIABLE_HEAD in note
+    assert VACUOUS_DELTA_CLAIM in note
+    assert PROMPT_LENGTH_SIDE_EFFECT in note
+
+
+def test_isolation_keeps_claiming_the_measured_delta_without_vacuity() -> None:
+    """Non-regressione: senza vacuita' la nota resta quella di prima."""
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo")],
+        [_no_ontology_rec("Roma", "Colosseo")],
+        label_a="con-ontologia",
+        label_b="senza-ontologia",
+    )
+    md = to_markdown(comparison)
+    assert ISOLATED_DELTA_CLAIM in md
+    assert VACUOUS_DELTA_CLAIM not in md
+    assert VACUOUS_CAVEAT_HEAD not in md
 
 
 def test_compare_experiments_writes_the_vacuity_warning_to_disk(tmp_path: Path) -> None:

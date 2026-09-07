@@ -234,6 +234,32 @@ PROMPT_LENGTH_SIDE_EFFECT = (
     "velocità e costo non sono spareggi validi e il verdetto non li usa."
 )
 
+#: Cosa il delta di qualità significa quando la variabile È isolata (#236) e gli
+#: assi di qualità sono leggibili. Costante nominata perché è l'affermazione più
+#: impegnativa del report — quella che un lettore cita — e perché il ramo vacuo
+#: deve poterla SOSTITUIRE, non affiancare (vedi :data:`VACUOUS_DELTA_CLAIM`).
+ISOLATED_DELTA_CLAIM = (
+    "Il delta su `grounding`/`hallucination` misura quindi l'effetto "
+    "dell'ancoraggio ontologico su quanto la prosa nomina dati verificabili — "
+    "non la qualità complessiva dell'analisi, e non con la forza di un giudizio "
+    "umano (vedi la nota metodologica)."
+)
+
+#: Sostituisce :data:`ISOLATED_DELTA_CLAIM` quando il confronto ha assi di qualità
+#: vacui (#231): basta UNA zona muta in un braccio. I due blocchi che aprono il
+#: report parlano degli stessi assi, quindi affermare che il delta misura
+#: l'effetto dell'ontologia e poi che quegli assi non sono interpretabili in
+#: nessuna direzione è una contraddizione dentro lo stesso documento. L'isolamento
+#: resta vero come proprietà del DISEGNO (i due bracci condividono l'impostazione,
+#: è verificato sui record) e va detto: è il delta a non essere leggibile, non il
+#: disegno a essere sbagliato.
+VACUOUS_DELTA_CLAIM = (
+    "L'isolamento riguarda però il DISEGNO dei due bracci, non i numeri di "
+    "questo confronto: qui `grounding`/`hallucination` cadono nel ramo vacuo "
+    "(vedi l'avviso sugli assi di qualità), quindi il delta su quegli assi NON "
+    "va letto come effetto dell'ancoraggio ontologico, in nessuna direzione."
+)
+
 #: Coppia di ``mode`` che manipola il contributo ontologico nel prompt (#236):
 #: cambia cosa il prompt porta al modello. È l'unica coppia di bracci per cui il
 #: modulo dichiara la variabile — ``analyze`` vs ``baseline`` manipola la
@@ -313,7 +339,12 @@ def is_ontology_isolating_pair(arm_a: list[RunRecord], arm_b: list[RunRecord]) -
 
 
 def isolated_variable_note(
-    arm_a: list[RunRecord], arm_b: list[RunRecord], *, label_a: str, label_b: str
+    arm_a: list[RunRecord],
+    arm_b: list[RunRecord],
+    *,
+    label_a: str,
+    label_b: str,
+    quality_axes_vacuous: bool,
 ) -> str:
     """Dichiara la variabile manipolata, se i modi dei due bracci la rendono nota.
 
@@ -332,9 +363,18 @@ def isolated_variable_note(
     testuali, non giudizi umani). Dichiarare la variabile serve proprio a non
     leggere un delta come una misura della bontà dell'analisi.
 
-    Entrambi i rami chiudono con :data:`PROMPT_LENGTH_SIDE_EFFECT`: che il
-    braccio ablato sia più rapido ed economico è una proprietà dei due prompt,
-    quindi va detto sia quando la variabile è isolata sia quando non lo è.
+    ``quality_axes_vacuous`` (dal predicato condiviso
+    :func:`has_vacuous_quality_axes`, l'unico che decide se stampare l'avviso di
+    vacuità) sostituisce l'affermazione sul significato del delta: i due blocchi
+    che aprono il report parlano degli STESSI assi, e con la vacuità in gioco uno
+    diceva che il delta misura l'effetto dell'ontologia mentre l'altro, due righe
+    sotto, che su quegli assi non c'è nulla da leggere in nessuna direzione. Il
+    disegno resta isolato — quello è verificato sui record — ma i suoi numeri no.
+
+    Tutti i rami chiudono con :data:`PROMPT_LENGTH_SIDE_EFFECT`: che il braccio
+    ablato sia più rapido ed economico è una proprietà dei due prompt, quindi va
+    detto sia quando la variabile è isolata sia quando non lo è, e la tabella
+    operativa è stampata anche quando gli assi di qualità sono vacui.
     """
     if not is_ontology_isolating_pair(arm_a, arm_b):
         return ""
@@ -352,19 +392,17 @@ def isolated_variable_note(
             "attribuibile all'ancoraggio ontologico: per isolarlo, rilanciare i "
             f"due bracci con la stessa impostazione. {PROMPT_LENGTH_SIDE_EFFECT}"
         )
-    return (
+    what_changes = (
         f"{ISOLATED_VARIABLE_HEAD} I due bracci condividono modello, "
         "temperatura, formato del contesto, snapshot POI e dati strutturati "
         "della risposta "
         "(`poi[]`, `risk_models`, confidence, quindi gli stessi ancoraggi su cui "
         f"i proxy si calcolano). L'unica differenza è il PROMPT: `{con}` riceve "
         f"gli hazard che l'ontologia associa alle classi dei punti, `{senza}` "
-        "riceve solo nome e classe dei punti. Il delta su `grounding`/"
-        "`hallucination` misura quindi l'effetto dell'ancoraggio ontologico su "
-        "quanto la prosa nomina dati verificabili — non la qualità complessiva "
-        "dell'analisi, e non con la forza di un giudizio umano (vedi la nota "
-        f"metodologica). {PROMPT_LENGTH_SIDE_EFFECT}"
+        "riceve solo nome e classe dei punti."
     )
+    claim = VACUOUS_DELTA_CLAIM if quality_axes_vacuous else ISOLATED_DELTA_CLAIM
+    return f"{what_changes} {claim} {PROMPT_LENGTH_SIDE_EFFECT}"
 
 
 def _quote_arms(labels: list[str]) -> tuple[str, str]:
@@ -388,6 +426,24 @@ def vacuity_subject(vacuous_arms: list[str], vacuous_zones: list[VacuousZone]) -
         for z in vacuous_zones
     )
     return f"Su alcune zone un braccio non ha prodotto narrativa — {zone_desc}"
+
+
+def has_vacuous_quality_axes(
+    vacuous_arms: list[str], vacuous_zones: list[VacuousZone]
+) -> bool:
+    """True se su questo confronto ``grounding``/``hallucination`` non si leggono.
+
+    UNICO punto in cui si decide che gli assi di qualità sono vacui (#231), e per
+    questo esportato: lo consumano l'avviso in cima al report
+    (:func:`to_markdown`), la dichiarazione di variabile isolata
+    (:func:`isolated_variable_note`) e il verdetto trattenuto del report ripetuto.
+    Tre condizioni scritte a mano potrebbero divergere, e divergerebbero facendo
+    dire al documento una cosa e la sua negazione sugli stessi assi.
+
+    Basta UNA zona muta in un braccio: entra nella media che il confronto stampa
+    e che il criterio lessicografico userebbe per decidere.
+    """
+    return bool(vacuous_arms or vacuous_zones)
 
 
 def _vacuous_caveat(vacuous_arms: list[str], vacuous_zones: list[VacuousZone]) -> str:
@@ -587,7 +643,14 @@ def compare_records(
         vacuous_arms=vacuous,
         vacuous_zones=vacuous_zones,
         isolated_variable=isolated_variable_note(
-            arm_a, arm_b, label_a=label_a, label_b=label_b
+            arm_a,
+            arm_b,
+            label_a=label_a,
+            label_b=label_b,
+            # La nota è calcolata QUI, non nei renderer, perché la vacuità è nota
+            # solo dopo il join: così il campo (che finisce anche nel JSON) e
+            # l'avviso del Markdown non possono raccontare due storie diverse.
+            quality_axes_vacuous=has_vacuous_quality_axes(vacuous, vacuous_zones),
         ),
     )
 
@@ -719,7 +782,7 @@ def to_markdown(comparison: Comparison) -> str:
     # Vacuità (#231): l'avviso apre il report, PRIMA della tabella. Al contrario
     # chi legge incontrerebbe un delta di qualità e solo dopo la nota che lo
     # dichiara non interpretabile — l'ordine in cui si sbaglia a leggere.
-    if comparison.vacuous_arms or comparison.vacuous_zones:
+    if has_vacuous_quality_axes(comparison.vacuous_arms, comparison.vacuous_zones):
         lines.append(_vacuous_caveat(comparison.vacuous_arms, comparison.vacuous_zones))
         lines.append("")
     lines.extend(_markdown_table(cols, _rows(comparison)))
