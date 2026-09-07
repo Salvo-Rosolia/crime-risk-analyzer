@@ -17,6 +17,7 @@ from pytest import MonkeyPatch
 from crime_risk_analyzer.eval.compare import (
     CONFOUNDED_VARIABLE_HEAD,
     ISOLATED_VARIABLE_HEAD,
+    PROMPT_LENGTH_SIDE_EFFECT,
     VACUOUS_CAVEAT_HEAD,
     Comparison,
     FailedZone,
@@ -24,6 +25,7 @@ from crime_risk_analyzer.eval.compare import (
     ZoneComparison,
     compare_experiments,
     compare_records,
+    is_ontology_isolating_pair,
     is_vacuous_arm,
     to_csv,
     to_markdown,
@@ -1049,6 +1051,68 @@ def test_markdown_warns_before_the_numbers_when_the_pair_is_confounded() -> None
     md = to_markdown(comparison)
     assert CONFOUNDED_VARIABLE_HEAD in md
     assert md.index(CONFOUNDED_VARIABLE_HEAD) < md.index("| citta | zona |")
+
+
+def test_the_c3_note_warns_that_speed_and_cost_come_from_prompt_length() -> None:
+    """Il braccio ablato e' piu' veloce ed economico PER COSTRUZIONE.
+
+    Il suo prompt non porta hazard, vulnerabilita' e citazioni: e' piu' corto,
+    quindi consuma meno token e impiega meno tempo qualunque sia la qualita'
+    della prosa. Chi legge la tabella operativa vede un vantaggio dove c'e' solo
+    meno testo, percio' il report lo dichiara accanto alla variabile isolata.
+    """
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo")],
+        [_no_ontology_rec("Roma", "Colosseo")],
+        label_a="con-ontologia",
+        label_b="senza-ontologia",
+    )
+    assert PROMPT_LENGTH_SIDE_EFFECT in comparison.isolated_variable
+    assert PROMPT_LENGTH_SIDE_EFFECT in to_markdown(comparison)
+
+
+def test_the_prompt_length_warning_survives_a_confounded_pair() -> None:
+    """L'avviso resta anche quando la variabile NON e' isolata.
+
+    La lunghezza dei due prompt e' una proprieta' dei prompt: non dipende dal
+    fatto che i bracci condividano modello e temperatura, ne' da come vanno gli
+    assi di qualita'.
+    """
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo")],
+        [_no_ontology_rec("Roma", "Colosseo", model="groq")],
+        label_a="con-ontologia",
+        label_b="senza-ontologia",
+    )
+    assert CONFOUNDED_VARIABLE_HEAD in comparison.isolated_variable
+    assert PROMPT_LENGTH_SIDE_EFFECT in comparison.isolated_variable
+
+
+def test_the_prompt_length_warning_is_absent_from_other_pairs() -> None:
+    """Su ``analyze`` vs ``baseline`` non c'e' un prompt piu' corto da spiegare."""
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo")],
+        [_silent_rec("Roma", "Colosseo")],
+        label_a="analyze",
+        label_b="baseline",
+    )
+    assert PROMPT_LENGTH_SIDE_EFFECT not in to_markdown(comparison)
+
+
+def test_is_ontology_isolating_pair_recognizes_only_the_c3_pair() -> None:
+    """Il predicato che il verdetto consuma vive qui, derivato dai modi.
+
+    E' lo stesso riconoscimento della nota di isolamento: una seconda copia a
+    valle potrebbe divergere proprio sulla coppia che conta.
+    """
+    analyze = [_analyze_rec("Roma", "Colosseo")]
+    assert is_ontology_isolating_pair(analyze, [_no_ontology_rec("Roma", "Colosseo")])
+    assert not is_ontology_isolating_pair(analyze, [_silent_rec("Roma", "Colosseo")])
+    assert not is_ontology_isolating_pair(analyze, [_analyze_rec("Roma", "Colosseo")])
+    # Braccio MISTO: non esiste una coppia di modi da riconoscere.
+    misto = [_analyze_rec("Roma", "Colosseo"), _no_ontology_rec("Milano", "Duomo")]
+    ablato = [_no_ontology_rec("Roma", "Colosseo"), _no_ontology_rec("Milano", "Duomo")]
+    assert not is_ontology_isolating_pair(misto, ablato)
 
 
 def test_compare_experiments_writes_the_vacuity_warning_to_disk(tmp_path: Path) -> None:

@@ -217,6 +217,23 @@ ISOLATED_VARIABLE_HEAD = "> **Variabile isolata.**"
 #: nulla, e tacere lascerebbe il delta senza istruzioni di lettura.
 CONFOUNDED_VARIABLE_HEAD = "> ⚠️ **Variabile non isolata.**"
 
+#: Avviso che accompagna SEMPRE la coppia con/senza ontologia (#236), in qualunque
+#: dei due rami della nota: le differenze operative osservate tra questi bracci
+#: non sono un merito. Il prompt ablato non porta hazard, vulnerabilità e
+#: citazioni, quindi è più corto per costruzione e consuma meno token in meno
+#: tempo a prescindere da cosa scriva. Va detto accanto alla dichiarazione della
+#: variabile perché la tabella operativa (#33) affianca latenza e costo come
+#: fossero un esito del confronto — e su questa coppia sono un esito della
+#: lunghezza del testo inviato. Coerente con l'esclusione dello spareggio
+#: operativo dal verdetto (``winner.decide_winner``, ``operational_tiebreak``).
+PROMPT_LENGTH_SIDE_EFFECT = (
+    "Le eventuali differenze di `latency_ms`/`cost_usd` tra questi due bracci "
+    "NON sono un merito: il prompt senza ontologia è strutturalmente più corto "
+    "(non porta hazard, vulnerabilità e citazioni), quindi consuma meno token in "
+    "meno tempo a prescindere dalla qualità della prosa. Per questa coppia "
+    "velocità e costo non sono spareggi validi e il verdetto non li usa."
+)
+
 #: Coppia di ``mode`` che manipola il contributo ontologico nel prompt (#236):
 #: cambia cosa il prompt porta al modello. È l'unica coppia di bracci per cui il
 #: modulo dichiara la variabile — ``analyze`` vs ``baseline`` manipola la
@@ -272,6 +289,24 @@ def _setting_mismatch(
     return ""
 
 
+def is_ontology_isolating_pair(arm_a: list[RunRecord], arm_b: list[RunRecord]) -> bool:
+    """True se i modi dei due bracci sono la coppia che manipola l'ontologia (#236).
+
+    Derivato dai RECORD (il loro ``mode``), non dal nome degli esperimenti, come
+    :func:`isolated_variable_note` che lo riusa: su qualunque altra coppia
+    ritorna ``False`` e nulla cambia. Un braccio MISTO (più di un ``mode``) non
+    è riconoscibile e vale ``False``.
+
+    Lo consuma anche il verdetto a valle (``repeated_comparison``) per escludere
+    velocità e costo dallo spareggio: su questa coppia sono un effetto della
+    lunghezza del prompt (:data:`PROMPT_LENGTH_SIDE_EFFECT`), non un merito.
+    Predicato ESPORTATO invece di ricontrollato là: due riconoscimenti della
+    stessa coppia divergerebbero proprio sul caso che conta.
+    """
+    modes = frozenset({_single_mode(arm_a), _single_mode(arm_b)})
+    return modes == _ONTOLOGY_ISOLATING_MODES
+
+
 def isolated_variable_note(
     arm_a: list[RunRecord], arm_b: list[RunRecord], *, label_a: str, label_b: str
 ) -> str:
@@ -290,12 +325,16 @@ def isolated_variable_note(
     lettura dei delta di qualità resta quella del :data:`PROXY_CAVEAT` (proxy
     testuali, non giudizi umani). Dichiarare la variabile serve proprio a non
     leggere un delta come una misura della bontà dell'analisi.
+
+    Entrambi i rami chiudono con :data:`PROMPT_LENGTH_SIDE_EFFECT`: che il
+    braccio ablato sia più rapido ed economico è una proprietà dei due prompt,
+    quindi va detto sia quando la variabile è isolata sia quando non lo è.
     """
-    mode_a = _single_mode(arm_a)
-    mode_b = _single_mode(arm_b)
-    if frozenset({mode_a, mode_b}) != _ONTOLOGY_ISOLATING_MODES:
+    if not is_ontology_isolating_pair(arm_a, arm_b):
         return ""
-    con, senza = (label_a, label_b) if mode_a == "analyze" else (label_b, label_a)
+    con, senza = (
+        (label_a, label_b) if _single_mode(arm_a) == "analyze" else (label_b, label_a)
+    )
     mismatch = _setting_mismatch(arm_a, arm_b, label_a=label_a, label_b=label_b)
     if mismatch:
         return (
@@ -305,7 +344,7 @@ def isolated_variable_note(
             f"la stessa impostazione: {mismatch}. Cambia quindi più di una "
             "variabile e il delta su `grounding`/`hallucination` NON è "
             "attribuibile all'ancoraggio ontologico: per isolarlo, rilanciare i "
-            "due bracci con la stessa impostazione."
+            f"due bracci con la stessa impostazione. {PROMPT_LENGTH_SIDE_EFFECT}"
         )
     return (
         f"{ISOLATED_VARIABLE_HEAD} I due bracci condividono modello, "
@@ -317,7 +356,7 @@ def isolated_variable_note(
         "`hallucination` misura quindi l'effetto dell'ancoraggio ontologico su "
         "quanto la prosa nomina dati verificabili — non la qualità complessiva "
         "dell'analisi, e non con la forza di un giudizio umano (vedi la nota "
-        "metodologica)."
+        f"metodologica). {PROMPT_LENGTH_SIDE_EFFECT}"
     )
 
 

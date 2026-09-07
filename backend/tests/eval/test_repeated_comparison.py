@@ -449,6 +449,74 @@ def test_repeated_report_of_the_c3_pair_declares_the_variable_and_decides(
     assert data["comparison"]["isolated_variable"]
 
 
+def test_the_c3_verdict_never_falls_back_on_speed_or_cost(tmp_path: Path) -> None:
+    """Qualita' pari sulla coppia con/senza ontologia: nessun vincitore.
+
+    Il braccio ablato riceve un prompt strutturalmente piu' corto, quindi e'
+    piu' rapido e piu' economico per costruzione: se lo spareggio scendesse su
+    latenza o costo, il report direbbe che togliere l'ontologia «vince» — un
+    verdetto sulla lunghezza del prompt travestito da verdetto sulla qualita'.
+    """
+    _write_arm(
+        tmp_path,
+        _arm("con-onto-exp", "llama-3.3-70b-versatile", (0.80, 0.10, 3000, 0.0009)),
+    )
+    _write_arm(
+        tmp_path,
+        _arm(
+            "senza-onto-exp",
+            "llama-3.3-70b-versatile",
+            (0.80, 0.10, 1000, 0.0002),
+            mode="no_ontology_prompt",
+        ),
+    )
+    md_path, json_path = build_repeated_report(
+        tmp_path,
+        "con-onto-exp",
+        "senza-onto-exp",
+        label_a="con-ontologia",
+        label_b="senza-ontologia",
+        stem="c3-pari",
+    )
+    data = json.loads(json_path.read_text(encoding="utf-8"))
+    assert data["winner"]["winner"] is None
+    assert data["winner"]["deciding_axis"] is None
+    assert [c["axis"] for c in data["winner"]["chain"]] == [
+        "hallucination",
+        "grounding",
+    ]
+    md = md_path.read_text(encoding="utf-8")
+    assert "non decidibile" in md
+    assert "ha scorato meglio" not in md
+
+
+def test_the_model_pair_still_breaks_ties_on_speed(tmp_path: Path) -> None:
+    """Non-regressione #157: fra due MODELLI latenza e costo restano spareggi.
+
+    Li' i due bracci ricevono lo STESSO prompt, quindi una differenza di latenza
+    e' una proprieta' del modello — un merito misurabile, non un artefatto della
+    lunghezza del testo inviato.
+    """
+    _write_arm(
+        tmp_path, _arm("claude-exp", "claude-sonnet-4-6", (0.80, 0.10, 3000, 0.012))
+    )
+    _write_arm(
+        tmp_path,
+        _arm("groq-exp", "llama-3.3-70b-versatile", (0.80, 0.10, 1000, 0.0006)),
+    )
+    _, json_path = build_repeated_report(
+        tmp_path,
+        "claude-exp",
+        "groq-exp",
+        label_a="claude",
+        label_b="groq",
+        stem="modelli",
+    )
+    data = json.loads(json_path.read_text(encoding="utf-8"))
+    assert data["winner"]["deciding_axis"] == "latency_ms"
+    assert data["winner"]["winner"] == "groq"
+
+
 def test_main_compare_repeated_dispatch_writes_report(
     tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:
