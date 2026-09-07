@@ -72,8 +72,3 @@ backend/ontology/**
 *.pth
 *.gguf
 *.safetensors
-
-# ─────────────────────────────────────────────────────────────
-# Cartella scratch locale (tooling nei worktree)
-# ─────────────────────────────────────────────────────────────
-.superpowers/
