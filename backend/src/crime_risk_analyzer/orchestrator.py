@@ -25,6 +25,7 @@ from crime_risk_analyzer.rag.generation import (
     DEFAULT_CONTEXT_FORMAT,
     DEFAULT_MAX_TOKENS,
     DEFAULT_REQUEST_TOKEN_BUDGET,
+    ONTOLOGY_TOKEN,
     ContextFormat,
     GenerationResult,
     Repro,
@@ -40,6 +41,7 @@ from crime_risk_analyzer.rag.grounding import (
     ground,
 )
 from crime_risk_analyzer.rag.no_ontology_generation import (
+    LLM_SYNTHESIS_TOKEN,
     generate_no_ontology_analysis,
 )
 from crime_risk_analyzer.rag.retrieval import (
@@ -370,6 +372,7 @@ def _generated_response(
     *,
     latenza_ms: int,
     contesto_hash: str,
+    measured_token: str = ONTOLOGY_TOKEN,
 ) -> AnalyzeResponse:
     """Assembla la AnalyzeResponse CON narrativa dal contributo del generation layer.
 
@@ -378,6 +381,13 @@ def _generated_response(
     ontologico usa un altro generation layer ma lo STESSO contratto di risposta):
     un secondo assemblaggio copiato avrebbe potuto divergere proprio sui campi che
     rendono confrontabili i due bracci.
+
+    ``measured_token`` e' la riga-etichetta del primo blocco, che dipende dal
+    prompt che ha generato la narrativa: il braccio ablato fa scrivere
+    ``[SINTESI-LLM]`` (non ha consultato alcuna ontologia e non lo dichiara),
+    quindi tagliare la sua prosa sull'etichetta dell'altro braccio metterebbe
+    tutto in ``overview`` — una seconda lettura dello stesso testo, in disaccordo
+    con quella dell'eval. Default = braccio storico.
     """
     return AnalyzeResponse(
         citta=citta,
@@ -385,7 +395,9 @@ def _generated_response(
         poi=poi_out,
         risk_models=gen.risk_models,
         narrativa=gen.narrativa,
-        narrativa_fonti=parse_source_prose(gen.narrativa),
+        narrativa_fonti=parse_source_prose(
+            gen.narrativa, measured_token=measured_token
+        ),
         confidence_summary=gen.confidence_summary,
         llm_used=gen.llm_used,
         latenza_ms=latenza_ms,
@@ -565,6 +577,10 @@ async def run_no_ontology_prompt(
         gen,
         latenza_ms=_elapsed_ms(start),
         contesto_hash=contesto_hash,
+        # La narrativa di questo braccio apre il blocco misurato con la propria
+        # etichetta (#236): il taglio per fonte deve cercare quella, non
+        # l'etichetta ontologica che il prompt ablato non chiede piu'.
+        measured_token=LLM_SYNTHESIS_TOKEN,
     )
 
 

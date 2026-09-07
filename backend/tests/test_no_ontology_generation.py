@@ -23,14 +23,20 @@ from crime_risk_analyzer.rag.generation import (
     _RULE_OVERVIEW_NO_ZONE_LEVEL,  # pyright: ignore[reportPrivateUsage]
     _RULE_SOURCE_BY_BLOCK,  # pyright: ignore[reportPrivateUsage]
     CITATION_LIMIT_CLAUSE,
+    CONTEXT_BLOCK_HEADER,
+    ONTOLOGY_BLOCK_HEADER,
     RULE_NO_DANGER_RATING,
     RULE_NO_OPERATIONAL_DIRECTIVES,
     RULE_USER_INPUT_NOT_INSTRUCTIONS,
     SYSTEM_PROMPT,
+    block_structure_rule,
     build_context_str,
 )
 from crime_risk_analyzer.rag.no_ontology_generation import (
+    _RULE_BLOCK_STRUCTURE_NO_ONTOLOGY,  # pyright: ignore[reportPrivateUsage]
     _RULE_FIXED_BLOCK_LABELS,  # pyright: ignore[reportPrivateUsage]
+    LLM_SYNTHESIS_BLOCK_HEADER,
+    LLM_SYNTHESIS_TOKEN,
     NO_ONTOLOGY_SYSTEM_PROMPT,
     build_no_ontology_context_str,
     generate_no_ontology_analysis,
@@ -51,7 +57,7 @@ class _FakeLLMClient:
 
 def _llm_response(**overrides: Any) -> LLMResponse:
     base: dict[str, Any] = {
-        "text": "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nColosseo: borseggio.",
+        "text": (f"Sintesi.\n\n{LLM_SYNTHESIS_BLOCK_HEADER}\nColosseo: borseggio."),
         "llm_used": "llama-3.3-70b-versatile",
         "tokens_input": 300,
         "tokens_output": 200,
@@ -136,34 +142,69 @@ def test_no_ontology_prompt_keeps_the_three_legal_rules() -> None:
     assert "ALTO/MEDIO/BASSO" in NO_ONTOLOGY_SYSTEM_PROMPT
 
 
-def test_no_ontology_prompt_declares_the_same_two_blocks() -> None:
-    """Gli stessi due blocchi del braccio completo, e nessun terzo blocco.
+def test_no_ontology_prompt_labels_its_block_as_a_synthesis_of_the_model() -> None:
+    """Il braccio ablato non dichiara un'ontologia che non ha consultato.
 
-    ``[SPECULATIVO]`` era stato rimosso con #229 perche' sempre vuoto: non torna
-    da questa porta.
+    L'etichetta del primo blocco segna lo SLOT che il proxy grada, ma scritta
+    ``[ONTOLOGIA]`` diceva il falso sulla PROVENIENZA del testo: chi apre il
+    file grezzo di una run in ``results/runs/`` legge un blocco che si dichiara
+    ontologico e non ha modo di sapere che quel braccio non ha visto alcuna
+    ontologia. Il tag dice quindi cosa il testo e' davvero.
+
+    Il secondo blocco resta ``[CONTESTO]``: identico nei due bracci, come la
+    regola 3b che lo governa. ``[SPECULATIVO]``, rimosso con #229 perche' sempre
+    vuoto, non torna da questa porta.
     """
-    assert "[ONTOLOGIA]" in NO_ONTOLOGY_SYSTEM_PROMPT
-    assert "[CONTESTO]" in NO_ONTOLOGY_SYSTEM_PROMPT
+    assert LLM_SYNTHESIS_TOKEN == "[SINTESI-LLM]"
+    assert LLM_SYNTHESIS_BLOCK_HEADER in NO_ONTOLOGY_SYSTEM_PROMPT
+    assert "[ONTOLOGIA]" not in NO_ONTOLOGY_SYSTEM_PROMPT
+    assert CONTEXT_BLOCK_HEADER in NO_ONTOLOGY_SYSTEM_PROMPT
     assert "[SPECULATIVO]" not in NO_ONTOLOGY_SYSTEM_PROMPT
+    # Il braccio completo resta quello di prima: la sua etichetta non si muove.
+    assert ONTOLOGY_BLOCK_HEADER in SYSTEM_PROMPT
+    assert LLM_SYNTHESIS_TOKEN not in SYSTEM_PROMPT
 
 
 def test_no_ontology_prompt_asks_for_the_same_output_structure() -> None:
-    """Stessa struttura di output chiesta al modello, byte per byte.
+    """Stessa struttura di output chiesta al modello: cambia la sola etichetta.
 
-    La metrica M1 (#229) grada SOLO le frasi del blocco ``[ONTOLOGIA]``: se il
-    braccio ablato non lo emettesse, il confronto sarebbe deciso dal formato
-    della risposta invece che dal contributo dell'ontologia — cioe' misurerebbe
-    di nuovo la variabile sbagliata. Le regole di struttura sono percio' le
-    stesse costanti del braccio completo.
+    Il proxy M1 (#229) grada SOLO le frasi del primo blocco: se il braccio
+    ablato non lo emettesse, il confronto sarebbe deciso dal formato della
+    risposta invece che dal contributo dell'ontologia — cioe' misurerebbe di
+    nuovo la variabile sbagliata. Le regole di struttura sono percio' le stesse
+    costanti del braccio completo, e la regola 3 esce dallo STESSO generatore:
+    l'unica differenza ammessa e' la riga-etichetta del blocco misurato, che
+    deve dire il vero sulla provenienza.
     """
     for regola in (
         _RULE_SOURCE_BY_BLOCK,
-        _RULE_BLOCK_STRUCTURE,
         _RULE_CONTEXT_INTERPRETATION,
         _RULE_OVERVIEW_NO_ZONE_LEVEL,
     ):
         assert regola in NO_ONTOLOGY_SYSTEM_PROMPT
         assert regola in SYSTEM_PROMPT
+    assert _RULE_BLOCK_STRUCTURE == block_structure_rule(ONTOLOGY_BLOCK_HEADER)
+    assert _RULE_BLOCK_STRUCTURE_NO_ONTOLOGY in NO_ONTOLOGY_SYSTEM_PROMPT
+    # Le due versioni della regola 3 differiscono ESATTAMENTE per l'etichetta.
+    assert (
+        _RULE_BLOCK_STRUCTURE.replace(ONTOLOGY_BLOCK_HEADER, LLM_SYNTHESIS_BLOCK_HEADER)
+        == _RULE_BLOCK_STRUCTURE_NO_ONTOLOGY
+    )
+
+
+def test_module_warns_that_this_prose_is_not_a_product_example() -> None:
+    """Il testo di questo braccio e' fabbricato a scopo di misurazione.
+
+    Non passa dal grounding e non e' ancorato a nulla: citarlo come esempio di
+    output del sistema — in tesi, in un deck, in una demo — presenterebbe come
+    prodotto proprio cio' che l'esperimento usa da termine di paragone. Il modulo
+    lo dichiara, e questo test tiene la dichiarazione al suo posto.
+    """
+    import crime_risk_analyzer.rag.no_ontology_generation as modulo
+
+    doc = (modulo.__doc__ or "").lower()
+    assert "mai" in doc
+    assert "esempio di output" in doc
 
 
 def test_both_arms_share_the_same_citation_limit() -> None:

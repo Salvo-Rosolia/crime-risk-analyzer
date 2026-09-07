@@ -93,6 +93,43 @@ USER_INPUT_FENCE_OPEN = (
 )
 USER_INPUT_FENCE_CLOSE = "--- FINE DOMANDA UTENTE ---"
 
+#: Token di fonte: compaiono nelle righe-etichetta dei blocchi (regola 3) e
+#: :func:`parse_source_prose` li riusa come delimitatori per ricavare la prosa per
+#: fonte. :data:`ONTOLOGY_TOKEN` e' pubblico perche' il braccio di ablazione (#236)
+#: sostituisce proprio quello — il suo blocco misurato non viene dall'ontologia e
+#: non puo' dichiarare di venirne — e ``eval/metrics.py`` deve sapere quale token
+#: cercare per ciascun braccio.
+ONTOLOGY_TOKEN = "[ONTOLOGIA]"
+_CONTEXT_TOKEN = "[CONTESTO]"
+_SPECULATIVE_TOKEN = "[SPECULATIVO]"
+
+#: Righe-etichetta ESATTE dei due blocchi per fonte (regola 3): il modello le
+#: riporta verbatim e il parser le riconosce come delimitatori. Nominate come
+#: costanti perche' il braccio ablato ne sostituisce UNA e i test possono
+#: verificare che sia l'unica differenza tra i due prompt.
+ONTOLOGY_BLOCK_HEADER = f"Rischi da ontologia {ONTOLOGY_TOKEN}"
+CONTEXT_BLOCK_HEADER = f"Rischi dal contesto {_CONTEXT_TOKEN}"
+
+
+def block_structure_rule(measured_header: str) -> str:
+    """Regola 3 (struttura a blocchi) data la riga-etichetta del blocco MISURATO.
+
+    Generatore invece di una costante perche' i prompt del sistema condividono la
+    STRUTTURA della risposta ma non sempre la provenienza del primo blocco: nel
+    braccio di ablazione (#236) quel blocco non viene dall'ontologia e intitolarlo
+    a essa direbbe il falso. Cosi' l'unica differenza ammessa tra le due versioni
+    della regola e' l'etichetta, e un test lo verifica byte per byte; il blocco
+    ``[CONTESTO]`` e' identico in entrambe (stessa fonte, stessa regola 3b).
+    """
+    return (
+        "3. Struttura la risposta cosi': un breve paragrafo di sintesi iniziale "
+        "(senza intestazione), poi fino a DUE blocchi per fonte, ciascuno aperto "
+        f'da una riga-etichetta dedicata ed ESATTA: "{measured_header}", '
+        f'"{CONTEXT_BLOCK_HEADER}". Ometti un blocco se non hai '
+        "nulla da dire per quella fonte. Separa i blocchi con una riga vuota."
+    )
+
+
 #: Regole di STRUTTURA della narrativa (1/3/4), estratte come costanti nominate e
 #: COMPOSTE in :data:`SYSTEM_PROMPT` (stessa forma dei vincoli legali 7/8/9): le
 #: righe lunghe restano leggibili e sotto il limite di riga senza spezzare la
@@ -104,13 +141,7 @@ _RULE_SOURCE_BY_BLOCK = (
     "1. La fonte di ogni rischio e' indicata dal BLOCCO in cui lo collochi "
     "(regola 3): NON ripetere il tag accanto ai singoli rischi."
 )
-_RULE_BLOCK_STRUCTURE = (
-    "3. Struttura la risposta cosi': un breve paragrafo di sintesi iniziale "
-    "(senza intestazione), poi fino a DUE blocchi per fonte, ciascuno aperto "
-    'da una riga-etichetta dedicata ed ESATTA: "Rischi da ontologia '
-    '[ONTOLOGIA]", "Rischi dal contesto [CONTESTO]". Ometti un blocco se non hai '
-    "nulla da dire per quella fonte. Separa i blocchi con una riga vuota."
-)
+_RULE_BLOCK_STRUCTURE = block_structure_rule(ONTOLOGY_BLOCK_HEADER)
 #: LIMITE DI CITAZIONE del blocco misurato: quanti punti la prosa puo' nominare e
 #: come. Estratto come costante propria (#236) perche' e' CONDIVISO con il braccio
 #: di ablazione (:mod:`~crime_risk_analyzer.rag.no_ontology_generation`), che ha una
@@ -206,13 +237,20 @@ REGOLE OBBLIGATORIE:
 {_CONFIDENCE_LEVELS}"""
 
 
-#: Token di fonte usati sia come etichette-header nel prompt (regola 3) sia come
-#: delimitatori dai quali :func:`parse_source_prose` ricava la prosa per fonte.
-_SOURCE_TOKENS: tuple[tuple[str, str], ...] = (
-    ("ontologia", "[ONTOLOGIA]"),
-    ("contesto", "[CONTESTO]"),
-    ("speculativo", "[SPECULATIVO]"),
-)
+def _source_tokens(measured_token: str) -> tuple[tuple[str, str], ...]:
+    """Coppie ``(campo di SourceProse, token delimitatore)`` per il parser.
+
+    ``measured_token`` e' il token del PRIMO blocco, quello che il proxy di
+    valutazione grada: :data:`ONTOLOGY_TOKEN` nel braccio completo, un altro nel
+    braccio ablato (#236). Finisce nel campo ``ontologia`` in entrambi i casi: il
+    campo nomina lo SLOT della risposta, non la provenienza del testo, che e'
+    dichiarata dall'etichetta e dal ``mode`` della run.
+    """
+    return (
+        ("ontologia", measured_token),
+        ("contesto", _CONTEXT_TOKEN),
+        ("speculativo", _SPECULATIVE_TOKEN),
+    )
 
 
 class SourceProse(BaseModel):
@@ -229,7 +267,9 @@ class SourceProse(BaseModel):
     speculativo: str = ""
 
 
-def parse_source_prose(narrativa: str) -> SourceProse:
+def parse_source_prose(
+    narrativa: str, *, measured_token: str = ONTOLOGY_TOKEN
+) -> SourceProse:
     """Ricava :class:`SourceProse` dalla ``narrativa`` a blocchi (regola 3 del prompt).
 
     Ogni blocco e' aperto da una riga-header contenente il token della fonte
@@ -237,10 +277,15 @@ def parse_source_prose(narrativa: str) -> SourceProse:
     prima del primo token e' l'``overview``; ogni blocco va da fine-header al token
     successivo (per posizione, indipendentemente dall'ordine) o a fine testo.
     Fallback: nessun token -> tutto in ``overview`` (nessuna perdita di contenuto).
+
+    ``measured_token`` sostituisce il token del primo blocco (#236): il braccio di
+    ablazione non ha consultato alcuna ontologia e etichetta quel blocco per cio'
+    che e', quindi chi lo misura deve cercare l'etichetta del suo braccio. Il
+    default e' il braccio storico, cosi' i chiamanti di prodotto non cambiano.
     """
     text = narrativa or ""
     found: list[tuple[str, int, int]] = []
-    for field, token in _SOURCE_TOKENS:
+    for field, token in _source_tokens(measured_token):
         idx = text.find(token)
         if idx == -1:
             continue

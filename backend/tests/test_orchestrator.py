@@ -28,7 +28,10 @@ from crime_risk_analyzer.rag.generation import (
     USER_INPUT_FENCE_OPEN,
     SourceProse,
 )
-from crime_risk_analyzer.rag.no_ontology_generation import NO_ONTOLOGY_SYSTEM_PROMPT
+from crime_risk_analyzer.rag.no_ontology_generation import (
+    LLM_SYNTHESIS_BLOCK_HEADER,
+    NO_ONTOLOGY_SYSTEM_PROMPT,
+)
 from tests.eval._doubles import FakeLLMClient as _FakeLLMClient
 from tests.eval._doubles import FakeProfiler as _FakeProfiler
 from tests.eval._doubles import default_llm_response as _llm_response
@@ -859,6 +862,46 @@ async def test_run_no_ontology_prompt_keeps_the_structured_contract(
         (p.id, p.confidence, p.sparql_path) for p in riferimento.poi
     ]
     assert resp.contesto_hash == riferimento.contesto_hash
+
+
+async def test_run_no_ontology_prompt_splits_prose_on_its_own_block_label(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """La prosa per fonte si taglia sull'etichetta che il prompt ablato chiede.
+
+    Quel prompt fa scrivere ``[SINTESI-LLM]`` (#236: il braccio non ha
+    consultato alcuna ontologia e non lo dichiara). Tagliando la narrativa
+    sull'etichetta dell'ALTRO braccio, il blocco misurato non verrebbe
+    riconosciuto e finirebbe tutto in ``overview``: un campo che dice «nessuna
+    attribuzione» dove il modello ha invece attribuito, sullo stesso testo che
+    l'eval grada correttamente. Due letture divergenti dello stesso file.
+    """
+    _patch_io(monkeypatch)
+    narrativa = (
+        "Sintesi.\n\n"
+        f"{LLM_SYNTHESIS_BLOCK_HEADER}\nFurto.\n\n"
+        "Rischi dal contesto [CONTESTO]\nBorseggio."
+    )
+    response = LLMResponse(
+        text=narrativa,
+        llm_used="llama-3.3-70b-versatile",
+        tokens_input=10,
+        tokens_output=20,
+        cache_hit=False,
+        temperature=0.0,
+        seed=0,
+        prompt_hash="abc123",
+    )
+    resp = await run_no_ontology_prompt(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+        llm_client=_FakeLLMClient(response),
+    )
+    assert resp.narrativa == narrativa  # invariata, come nel braccio completo
+    assert resp.narrativa_fonti.overview == "Sintesi."
+    assert resp.narrativa_fonti.ontologia == "Furto."
+    assert resp.narrativa_fonti.contesto == "Borseggio."
 
 
 async def test_run_no_ontology_prompt_falls_back_on_llm_error(

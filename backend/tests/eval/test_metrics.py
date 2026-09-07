@@ -1,6 +1,9 @@
+from typing import get_args
+
 import pytest
 
 from crime_risk_analyzer.eval.metrics import (
+    _MEASURED_TOKEN_BY_MODE,  # pyright: ignore[reportPrivateUsage]
     METRICS_VERSION,
     compute_metrics,
     cost_usd_of,
@@ -8,9 +11,11 @@ from crime_risk_analyzer.eval.metrics import (
     hallucination,
     latency_ms,
 )
+from crime_risk_analyzer.eval.schema import Mode
 from crime_risk_analyzer.models.vocab import ConfidenceSummary
 from crime_risk_analyzer.orchestrator import AnalyzeResponse, PoiOut
 from crime_risk_analyzer.rag.generation import Repro, RiskItem, RiskModel
+from crime_risk_analyzer.rag.no_ontology_generation import LLM_SYNTHESIS_BLOCK_HEADER
 
 
 def _resp(
@@ -228,6 +233,77 @@ def test_empty_poi_name_does_not_anchor_everything() -> None:
     r = r.model_copy(update={"poi": [*r.poi, nameless]})
     assert hallucination(r) == 1.0
     assert grounding(r) == 0.0
+
+
+# --- #236: il blocco gradato dipende dal braccio, non il calcolo --------------
+
+
+def _narrativa_sintesi_llm(corpo: str) -> str:
+    """Narrativa del braccio ablato: stesso corpo, etichetta di blocco onesta.
+
+    Quel braccio non ha consultato alcuna ontologia, quindi non intitola il
+    blocco all'ontologia (vedi ``rag/no_ontology_generation.py``).
+    """
+    return f"Sintesi della zona.\n\n{LLM_SYNTHESIS_BLOCK_HEADER}\n{corpo}"
+
+
+def test_the_ablated_arm_is_graded_on_its_own_block_label() -> None:
+    """Stesso testo, etichette diverse, stesso punteggio.
+
+    Cambia SOLO quale riga-etichetta il proxy cerca, in base al ``mode`` della
+    run: se il punteggio cambiasse, il confronto tra i due bracci misurerebbe
+    l'etichetta invece dell'ancoraggio.
+    """
+    corpo = "Banca A presenta rischio rapina.\nIl Museo X rischia incendi."
+    ablato = _resp(_narrativa_sintesi_llm(corpo))
+    completo = _resp(_narrativa(corpo))
+    assert grounding(ablato, mode="no_ontology_prompt") == pytest.approx(0.5)
+    assert hallucination(ablato, mode="no_ontology_prompt") == pytest.approx(0.5)
+    assert grounding(ablato, mode="no_ontology_prompt") == grounding(completo)
+    assert hallucination(ablato, mode="no_ontology_prompt") == hallucination(completo)
+
+
+def test_the_complete_arm_is_still_graded_on_the_ontology_label() -> None:
+    """Non-regressione: per ``analyze`` il blocco gradato resta [ONTOLOGIA].
+
+    Il ``mode`` di default e' il braccio storico, cosi' ogni chiamata scritta
+    prima di #236 misura esattamente quello che misurava.
+    """
+    r = _resp(_narrativa("Banca A presenta rischio rapina."))
+    assert grounding(r, mode="analyze") == 1.0
+    assert grounding(r) == 1.0
+    assert hallucination(r) == 0.0
+
+
+def test_the_label_of_the_other_arm_does_not_open_the_graded_block() -> None:
+    """L'etichetta e' per braccio: quella dell'altro non apre il blocco.
+
+    Una run ablata che scrivesse comunque ``[ONTOLOGIA]`` (modello non
+    compliant) ricade nella NON-ATTRIBUZIONE come qualunque risposta priva del
+    blocco atteso: 0.0/1.0. Stesso trattamento dell'header omesso (#229), quindi
+    non c'e' un'etichetta «di comodo» che paghi.
+    """
+    r = _resp(_narrativa("Banca A presenta rischio rapina."))
+    assert grounding(r, mode="no_ontology_prompt") == 0.0
+    assert hallucination(r, mode="no_ontology_prompt") == 1.0
+
+
+def test_compute_metrics_grades_the_block_of_the_given_arm() -> None:
+    """Il ``mode`` arriva fino all'assemblaggio delle quattro metriche."""
+    r = _resp(_narrativa_sintesi_llm("Banca A presenta rischio rapina."))
+    assert compute_metrics(r, mode="no_ontology_prompt").grounding == 1.0
+    # Senza il mode giusto la stessa run risulterebbe non attribuita.
+    assert compute_metrics(r).grounding == 0.0
+
+
+def test_every_mode_declares_the_block_the_proxy_grades() -> None:
+    """Un braccio nuovo non puo' entrare senza dire su cosa viene misurato.
+
+    Il ``mode`` decide quale blocco il proxy grada: se la mappa restasse
+    indietro, la nuova modalita' verrebbe misurata sull'etichetta di un'altra e
+    prenderebbe 0.0/1.0 per non attribuzione, in silenzio.
+    """
+    assert set(get_args(Mode)) == set(_MEASURED_TOKEN_BY_MODE)
 
 
 def test_latency_passthrough() -> None:

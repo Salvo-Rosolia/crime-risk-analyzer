@@ -16,6 +16,13 @@ nella singola frase e, con i tag ora solo negli header, era mal-calibrato su out
 reale — motivo del cambio (non una regressione). La validazione dell'accordo
 proxy-vs-annotazione gold umana vive in ``eval/gold.py`` (#109), da rifare su questa
 definizione prima di un claim forte.
+
+**Blocco misurato per braccio (#236).** Il blocco gradato e' quello che il prompt di
+quel braccio chiede: ``[ONTOLOGIA]`` dove l'ontologia c'e' davvero, ``[SINTESI-LLM]``
+nel braccio ablato, che non ne ha consultata alcuna e non puo' dichiararlo. Cambia
+solo la riga-etichetta cercata (:data:`_MEASURED_TOKEN_BY_MODE`), non la formula: due
+narrative identiche sotto le due etichette prendono lo stesso punteggio, altrimenti il
+confronto tra i bracci misurerebbe l'etichetta invece dell'ancoraggio.
 """
 
 from __future__ import annotations
@@ -23,9 +30,10 @@ from __future__ import annotations
 import re
 
 from crime_risk_analyzer.eval.pricing import cost_usd
-from crime_risk_analyzer.eval.schema import Metrics
+from crime_risk_analyzer.eval.schema import Metrics, Mode
 from crime_risk_analyzer.orchestrator import AnalyzeResponse
-from crime_risk_analyzer.rag.generation import parse_source_prose
+from crime_risk_analyzer.rag.generation import ONTOLOGY_TOKEN, parse_source_prose
+from crime_risk_analyzer.rag.no_ontology_generation import LLM_SYNTHESIS_TOKEN
 
 #: Generazione della SEMANTICA del proxy grounding/hallucination (#229). ``1`` era il
 #: proxy inline-tag (pre-#229): cercava ``[TAG]`` nella singola frase, ma la struttura
@@ -36,6 +44,25 @@ from crime_risk_analyzer.rag.generation import parse_source_prose
 #: confronto (compare.py/winner.py #157) non mescoli silenziosamente generazioni di
 #: metrica: i valori pre-#229 su output reale non sono confrontabili con questi.
 METRICS_VERSION = 2
+
+#: Riga-etichetta del blocco che il proxy grada, PER BRACCIO (#236). Il braccio
+#: senza ontologia etichetta il suo blocco per cio' che e' — una sintesi del
+#: modello, non un dato ontologico — quindi cercare in ogni braccio la stessa
+#: stringa lo misurerebbe su un blocco che non emette: 0.0/1.0 per NON-ATTRIBUZIONE
+#: su ogni run, e il confronto C3 deciso dal nome dell'etichetta. Cambia SOLO la
+#: sottostringa cercata: la formula di grounding/hallucination e' la stessa.
+#: ``baseline`` non genera prosa (ramo vacuo di :func:`_grade`) ma resta mappato:
+#: la copertura esaustiva dei ``Mode`` e' verificata da un test, cosi' un braccio
+#: nuovo non puo' entrare senza dichiarare su cosa viene misurato.
+_MEASURED_TOKEN_BY_MODE: dict[Mode, str] = {
+    "analyze": ONTOLOGY_TOKEN,
+    "baseline": ONTOLOGY_TOKEN,
+    "no_ontology_prompt": LLM_SYNTHESIS_TOKEN,
+}
+
+#: Braccio assunto quando il chiamante non lo dichiara: quello storico. Tiene
+#: invariato ogni punto di misura scritto prima di #236.
+_DEFAULT_MODE: Mode = "analyze"
 
 
 def _sentences(text: str) -> list[str]:
@@ -64,19 +91,25 @@ def _anchors(resp: AnalyzeResponse) -> set[str]:
     return {a for a in anchors if a.strip()}
 
 
-def _ontology_assertions(resp: AnalyzeResponse) -> list[str]:
-    """Asserzioni gradabili dal proxy (M1, #229): le frasi del blocco [ONTOLOGIA].
+def _ontology_assertions(resp: AnalyzeResponse, mode: Mode) -> list[str]:
+    """Asserzioni gradabili dal proxy (M1, #229): le frasi del blocco misurato.
 
     :func:`~crime_risk_analyzer.rag.generation.parse_source_prose` isola il CORPO del
-    blocco ``[ONTOLOGIA]`` dalla narrativa a blocchi (#196): l'header e' gia' escluso
-    dal parser, l'``overview`` e il blocco ``[CONTESTO]`` finiscono in campi separati e
-    NON entrano qui (interpretazione -> gold umano). Ogni frase-corpo del blocco e' una
-    asserzione ontologica: il denominatore di grounding/hallucination. Una narrativa
-    senza blocco ``[ONTOLOGIA]`` riconoscibile (vuota o non compliant) ritorna ``[]``:
-    la distinzione tra ramo VACUO e NON-ATTRIBUZIONE e' fatta in :func:`_grade`.
+    blocco dalla narrativa a blocchi (#196): l'header e' gia' escluso dal parser,
+    l'``overview`` e il blocco ``[CONTESTO]`` finiscono in campi separati e NON entrano
+    qui (interpretazione -> gold umano). Ogni frase-corpo del blocco e' una asserzione
+    del braccio: il denominatore di grounding/hallucination. Una narrativa senza il
+    blocco atteso (vuota o non compliant) ritorna ``[]``: la distinzione tra ramo VACUO
+    e NON-ATTRIBUZIONE e' fatta in :func:`_grade`.
+
+    Quale riga-etichetta apra quel blocco dipende dal braccio
+    (:data:`_MEASURED_TOKEN_BY_MODE`): ``[ONTOLOGIA]`` dove l'ontologia c'e'
+    davvero, ``[SINTESI-LLM]`` nel braccio ablato (#236).
     """
-    ontology_prose = parse_source_prose(resp.narrativa or "").ontologia
-    return _sentences(ontology_prose)
+    prose = parse_source_prose(
+        resp.narrativa or "", measured_token=_MEASURED_TOKEN_BY_MODE[mode]
+    ).ontologia
+    return _sentences(prose)
 
 
 def _grounded(assertions: list[str], anchors: set[str]) -> list[str]:
@@ -84,20 +117,21 @@ def _grounded(assertions: list[str], anchors: set[str]) -> list[str]:
     return [s for s in assertions if any(a in s.lower() for a in anchors)]
 
 
-def _grade(resp: AnalyzeResponse) -> tuple[int, int] | None:
-    """``(grounded, assertions)`` del blocco [ONTOLOGIA], o ``None`` se non gradabile.
+def _grade(resp: AnalyzeResponse, mode: Mode) -> tuple[int, int] | None:
+    """``(grounded, assertions)`` del blocco misurato, o ``None`` se non gradabile.
 
     ``None`` = ramo VACUO (grounding 1.0 / hallucination 0.0), riservato ai casi in cui
     il proxy non ha legittimamente nulla da gradare:
     - narrativa vuota (fallback strutturato: nessun output LLM da giudicare);
     - nessun ancoraggio disponibile (``_anchors`` vuoto: nessun dato da citare).
 
-    Il caso "narrativa PIENA con dati da citare ma SENZA asserzioni ontologiche" (es.
-    modello che non emette l'header [ONTOLOGIA], o lo emette vuoto) NON e' vacuo: e'
+    Il caso "narrativa PIENA con dati da citare ma SENZA asserzioni nel blocco misurato"
+    (es. modello che non emette l'header atteso, o lo emette vuoto) NON e' vacuo: e'
     NON-ATTRIBUZIONE e vale ``(0, 1)`` -> grounding 0.0 / hallucination 1.0. Cosi' un
     modello non puo' ottenere un punteggio perfetto omettendo l'header (l'asse
     hallucination e' il criterio PRIMARIO di ``winner.py``, #157): l'evasione perde
-    invece di vincere.
+    invece di vincere. Ci ricade anche una run che emette l'header dell'ALTRO braccio:
+    l'etichetta attesa e' quella del suo ``mode``, non una qualsiasi.
 
     ``resp.narrativa`` e' ``str | None`` da #259 (fase 1: narrativa non ancora
     generata): una narrativa ``None`` e' trattata come vuota, stesso ramo VACUO —
@@ -108,43 +142,49 @@ def _grade(resp: AnalyzeResponse) -> tuple[int, int] | None:
     anchors = _anchors(resp)
     if not anchors:
         return None
-    assertions = _ontology_assertions(resp)
+    assertions = _ontology_assertions(resp, mode)
     if not assertions:
         return (0, 1)
     return (len(_grounded(assertions, anchors)), len(assertions))
 
 
-def grounding(resp: AnalyzeResponse) -> float:
-    """Frazione di ASSERZIONI ONTOLOGICHE ancorate ai dati [0,1] (M1, #229).
+def grounding(resp: AnalyzeResponse, *, mode: Mode = _DEFAULT_MODE) -> float:
+    """Frazione di ASSERZIONI del blocco misurato ancorate ai dati [0,1] (M1, #229).
 
-    Asserzione = frase del blocco ``[ONTOLOGIA]`` (:func:`_ontology_assertions`);
-    grounded = asserzione che nomina un ancoraggio (POI/hazard, label EN/IT #77).
-    Rami vacui (:func:`_grade` -> ``None``: narrativa vuota o nessun ancoraggio da
-    citare) → 1.0. Narrativa piena con dati da citare ma senza asserzioni ontologiche
-    (header assente/vuoto) → 0.0 (non-attribuzione, non "vacua"). ``overview``/
-    ``[CONTESTO]`` sono esclusi (interpretazione, delegata al gold).
+    Asserzione = frase del blocco misurato (:func:`_ontology_assertions`); grounded =
+    asserzione che nomina un ancoraggio (POI/hazard, label EN/IT #77). Rami vacui
+    (:func:`_grade` -> ``None``: narrativa vuota o nessun ancoraggio da citare) → 1.0.
+    Narrativa piena con dati da citare ma senza asserzioni nel blocco (header
+    assente/vuoto) → 0.0 (non-attribuzione, non "vacua"). ``overview``/``[CONTESTO]``
+    sono esclusi (interpretazione, delegata al gold).
+
+    ``mode`` seleziona la riga-etichetta del blocco da gradare
+    (:data:`_MEASURED_TOKEN_BY_MODE`, #236): stesso calcolo, altra sottostringa
+    cercata. Default = braccio storico ``analyze``.
     """
-    graded = _grade(resp)
+    graded = _grade(resp, mode)
     if graded is None:
         return 1.0
     grounded, assertions = graded
     return grounded / assertions
 
 
-def hallucination(resp: AnalyzeResponse) -> float:
-    """Frazione di ASSERZIONI ONTOLOGICHE NON ancorate ai dati [0,1] (M1, #229).
+def hallucination(resp: AnalyzeResponse, *, mode: Mode = _DEFAULT_MODE) -> float:
+    """Frazione di ASSERZIONI del blocco misurato NON ancorate ai dati [0,1] (M1, #229).
 
     Complemento di :func:`grounding` sullo stesso denominatore (le asserzioni del blocco
-    ``[ONTOLOGIA]``): ``hallucination == 1 - grounding`` su ogni ramo (a meno
-    dell'arrotondamento in virgola mobile). Una frase nel blocco ontologia che asserisce
+    misurato): ``hallucination == 1 - grounding`` su ogni ramo (a meno
+    dell'arrotondamento in virgola mobile). Una frase in quel blocco che asserisce
     un rischio senza ancoraggio reale e' fabbricazione e conta come allucinazione
     (invariante #109 preservato DENTRO il layer con backing). Rami vacui → 0.0;
-    narrativa piena senza asserzioni ontologiche → 1.0 (non-attribuzione).
+    narrativa piena senza asserzioni nel blocco → 1.0 (non-attribuzione).
     La fabbricazione nell'interpretazione ``[CONTESTO]`` NON e' rilevata dal proxy
     (delegata al gold umano #109/#152): la validazione proxy-vs-gold resta in
     :mod:`crime_risk_analyzer.eval.gold`, da rifare su questa definizione.
+
+    ``mode`` come in :func:`grounding`.
     """
-    graded = _grade(resp)
+    graded = _grade(resp, mode)
     if graded is None:
         return 0.0
     grounded, assertions = graded
@@ -163,11 +203,16 @@ def cost_usd_of(resp: AnalyzeResponse) -> float:
     return cost_usd(resp.llm_used, resp.tokens_input, resp.tokens_output)
 
 
-def compute_metrics(resp: AnalyzeResponse) -> Metrics:
-    """Assembla le quattro metriche dalla AnalyzeResponse."""
+def compute_metrics(resp: AnalyzeResponse, *, mode: Mode = _DEFAULT_MODE) -> Metrics:
+    """Assembla le quattro metriche dalla AnalyzeResponse.
+
+    ``mode`` e' il braccio della run: decide su quale blocco i due proxy testuali
+    si pronunciano (#236). L'harness lo passa dal ``ExperimentConfig``, unico
+    posto che lo conosce.
+    """
     return Metrics(
-        grounding=grounding(resp),
-        hallucination=hallucination(resp),
+        grounding=grounding(resp, mode=mode),
+        hallucination=hallucination(resp, mode=mode),
         latency_ms=latency_ms(resp),
         cost_usd=cost_usd_of(resp),
     )

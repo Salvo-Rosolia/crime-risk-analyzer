@@ -587,6 +587,57 @@ async def test_no_ontology_arm_is_not_a_vacuous_arm(
     assert not is_vacuous_arm(records)
 
 
+async def test_no_ontology_arm_is_measured_on_the_block_its_prompt_asks_for(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Il record porta il ``mode``, e il ``mode`` decide su cosa si misura.
+
+    Il prompt ablato chiede per onesta' un blocco ``[SINTESI-LLM]``: se
+    l'harness misurasse ogni braccio sull'etichetta ``[ONTOLOGIA]``, quel
+    braccio prenderebbe 0.0/1.0 per NON-ATTRIBUZIONE su ogni run e il confronto
+    C3 sarebbe deciso dal nome dell'etichetta invece che dall'ancoraggio.
+    """
+    from crime_risk_analyzer.llm.client import LLMResponse
+    from crime_risk_analyzer.rag import retrieval
+    from crime_risk_analyzer.rag.no_ontology_generation import (
+        LLM_SYNTHESIS_BLOCK_HEADER,
+    )
+    from tests.eval._doubles import FakeLLMClient, FakeProfiler
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
+    scrivi_snapshot(
+        snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
+    )
+    risposta = LLMResponse(
+        text=(
+            f"Sintesi della zona.\n\n{LLM_SYNTHESIS_BLOCK_HEADER}\n"
+            "Banca A presenta rischio rapina."
+        ),
+        llm_used="llama-3.3-70b-versatile",
+        tokens_input=10,
+        tokens_output=20,
+        cache_hit=False,
+        temperature=0.0,
+        seed=0,
+        prompt_hash="abc",
+    )
+    records = await run_experiment(
+        ExperimentConfig(
+            name="no-onto",
+            mode="no_ontology_prompt",
+            model="groq",
+            cases=[RunCase(citta="Roma", zona="Centro")],
+        ),
+        executor=FakeProfiler(),
+        llm_client=FakeLLMClient(risposta),
+        results_dir=tmp_path,
+        code_commit="abc",
+        ontology_hash="def",
+    )
+    assert records[0].metrics.grounding == 1.0
+    assert records[0].metrics.hallucination == 0.0
+
+
 async def test_no_ontology_arm_requires_an_llm_client(tmp_path: Path) -> None:
     """Senza client il braccio non ha senso: e' il braccio CON l'LLM.
 

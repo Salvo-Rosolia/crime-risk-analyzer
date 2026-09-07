@@ -10,16 +10,18 @@ NON i rischi che l'ontologia associa a quelle classi.
 
 Cosa resta identico al braccio completo (e perche'):
 
-- la STRUTTURA della risposta chiesta al modello (:data:`_RULE_BLOCK_STRUCTURE` e
-  compagne, importate e non ricopiate). La metrica M1 (#229) grada le sole frasi
-  del blocco ``[ONTOLOGIA]``: un braccio che non lo emette prenderebbe 0.0/1.0
-  per NON-ATTRIBUZIONE, e il confronto sarebbe deciso dal formato della risposta
-  invece che dall'ancoraggio. In questo braccio l'etichetta di blocco e' lo SLOT
-  in cui il modello mette i rischi che attribuisce ai punti — che nel braccio
-  completo arrivano dall'ontologia e qui dalla sua sola conoscenza parametrica:
-  e' esattamente il contrasto che C3 mette alla prova. La narrativa prodotta qui
-  vive solo in ``results/runs/``, non e' servita da nessuna rotta e non entra nel
-  citation layer del prodotto.
+- la STRUTTURA della risposta chiesta al modello (regola 3 dallo stesso
+  generatore :func:`block_structure_rule`, e le altre regole importate non
+  ricopiate). Il proxy M1 (#229) grada le sole frasi del PRIMO blocco: un braccio
+  che non lo emette prenderebbe 0.0/1.0 per NON-ATTRIBUZIONE, e il confronto
+  sarebbe deciso dal formato della risposta invece che dall'ancoraggio. Quel
+  blocco e' lo SLOT in cui il modello mette i rischi che attribuisce ai punti —
+  che nel braccio completo arrivano dall'ontologia e qui dalla sua sola
+  conoscenza parametrica: e' esattamente il contrasto che C3 mette alla prova.
+  Cambia percio' l'ETICHETTA: qui e' :data:`LLM_SYNTHESIS_BLOCK_HEADER`
+  (``[SINTESI-LLM]``) e non ``[ONTOLOGIA]``, che di quel testo direbbe una
+  provenienza falsa a chi apre il file grezzo della run senza sapere perche'
+  (``eval/metrics.py`` sa quale etichetta cercare dal ``mode`` del record).
 - i tre vincoli legali (:data:`RULE_NO_DANGER_RATING`,
   :data:`RULE_NO_OPERATIONAL_DIRECTIVES`, :data:`RULE_USER_INPUT_NOT_INSTRUCTIONS`),
   gli STESSI oggetti importati come fa :mod:`poi_generation`: non sono ablabili,
@@ -52,6 +54,21 @@ Cosa viene tolto (il contributo ontologico, tutto e solo lui):
   baseline. La sua meta' ancora applicabile resta pero' in piedi: i LUOGHI di cui
   parlare sono solo quelli elencati.
 
+ATTENZIONE, sull'uso della prosa che esce da qui: e' testo FABBRICATO A SCOPO DI
+MISURAZIONE e non va MAI citato come esempio di output reale del sistema — non in
+tesi, non in un deck, non in una demo. Non passa dal citation layer, i rischi che
+nomina non sono ancorati a nulla e nessuna rotta la serve: presentarla come
+prodotto mostrerebbe come risultato proprio cio' che l'esperimento usa da termine
+di paragone. Vive in ``results/runs/`` e li' resta.
+
+E' INTENZIONALE che tutta l'invenzione di questo braccio finisca nel blocco
+misurato (``[SINTESI-LLM]``) e non in quello di contesto: la regola 3b, identica
+nei due bracci, vieta comunque di inventare incidenti, statistiche o rischi
+specifici nel blocco ``[CONTESTO]``. Non e' quindi un'asimmetria a favore del
+braccio ablato — e' la stessa regola applicata a entrambi — e serve a garantire
+che cio' che il proxy grada contenga davvero tutto quello che il modello ha
+messo di suo.
+
 La numerazione delle regole e' quella del prompt di zona (il 6 manca, non e'
 rinumerato): stessa scelta di :mod:`poi_generation`, cosi' uno stesso numero
 indica lo stesso VINCOLO in tutti i prompt del sistema. Il testo reso non e'
@@ -70,7 +87,6 @@ from typing import Any
 
 from crime_risk_analyzer.models.vocab import ConfidenceSummary
 from crime_risk_analyzer.rag.generation import (
-    _RULE_BLOCK_STRUCTURE,  # pyright: ignore[reportPrivateUsage]
     _RULE_CONTEXT_INTERPRETATION,  # pyright: ignore[reportPrivateUsage]
     _RULE_OVERVIEW_NO_ZONE_LEVEL,  # pyright: ignore[reportPrivateUsage]
     _RULE_SOURCE_BY_BLOCK,  # pyright: ignore[reportPrivateUsage]
@@ -83,13 +99,36 @@ from crime_risk_analyzer.rag.generation import (
     _LLMClientLike,  # pyright: ignore[reportPrivateUsage]
     _poi_display_name,  # pyright: ignore[reportPrivateUsage]
     _risk_models_from_context,  # pyright: ignore[reportPrivateUsage]
+    block_structure_rule,
 )
 
 __all__ = [
+    "LLM_SYNTHESIS_BLOCK_HEADER",
+    "LLM_SYNTHESIS_TOKEN",
     "NO_ONTOLOGY_SYSTEM_PROMPT",
     "build_no_ontology_context_str",
     "generate_no_ontology_analysis",
 ]
+
+#: Token del blocco MISURATO in questo braccio (#236). Farlo scrivere
+#: ``[ONTOLOGIA]`` era comodo per il proxy — l'etichetta segnava lo slot da
+#: gradare — ma di quel testo dichiarava una provenienza FALSA: qui nessuna
+#: ontologia e' stata consultata, e chi legge il file grezzo di una run non ha
+#: modo di saperlo. Il tag dice percio' cosa il testo e' davvero, una sintesi del
+#: modello. Il calcolo del proxy non cambia: ``eval/metrics.py`` cerca questo
+#: token invece dell'altro in base al ``mode`` del record.
+LLM_SYNTHESIS_TOKEN = "[SINTESI-LLM]"
+
+#: Riga-etichetta ESATTA del blocco misurato in questo braccio: il modello la
+#: riporta verbatim (regola 3a) e il parser la riconosce come delimitatore.
+LLM_SYNTHESIS_BLOCK_HEADER = f"Rischi dalla sintesi del modello {LLM_SYNTHESIS_TOKEN}"
+
+#: Regola 3 di questo braccio: STESSO generatore del braccio completo, con la sola
+#: etichetta del blocco misurato sostituita. Non una copia: se la struttura della
+#: risposta divergesse, il confronto porterebbe dentro una seconda differenza
+#: oltre a quella che vuole isolare, e un test verifica che l'etichetta sia
+#: l'unica cosa a cambiare.
+_RULE_BLOCK_STRUCTURE_NO_ONTOLOGY = block_structure_rule(LLM_SYNTHESIS_BLOCK_HEADER)
 
 #: Sostituisce la regola 2 del braccio completo: senza rischi nel contesto,
 #: "non inventare rischi non presenti nel contesto" renderebbe il braccio muto.
@@ -132,7 +171,7 @@ chiara e professionale.
 REGOLE OBBLIGATORIE:
 {_RULE_SOURCE_BY_BLOCK}
 {_RULE_ONLY_LISTED_POI}
-{_RULE_BLOCK_STRUCTURE}
+{_RULE_BLOCK_STRUCTURE_NO_ONTOLOGY}
 {_RULE_FIXED_BLOCK_LABELS}
 {_RULE_CONTEXT_INTERPRETATION}
 {_RULE_OVERVIEW_NO_ZONE_LEVEL}

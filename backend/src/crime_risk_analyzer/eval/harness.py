@@ -138,7 +138,10 @@ def _record_from_response(
         mode=config.mode,
         model_id=model_id,
         status=status,
-        metrics=compute_metrics(resp),
+        # Il ``mode`` decide su quale blocco i proxy testuali si pronunciano
+        # (#236): il braccio ablato etichetta il suo blocco per cio' che e', e
+        # misurarlo sull'etichetta dell'altro lo darebbe per non attribuito.
+        metrics=compute_metrics(resp, mode=config.mode),
         # ``resp.narrativa`` e' ``str | None`` da #259 (fase 1: narrativa non
         # ancora generata); l'harness gira solo su ``run_analysis``/``run_baseline``,
         # che oggi producono sempre una stringa (mai None) — la coercizione e'
