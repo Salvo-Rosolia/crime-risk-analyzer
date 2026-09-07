@@ -21,12 +21,14 @@ from crime_risk_analyzer.orchestrator import (
     _structured_response,  # pyright: ignore[reportPrivateUsage]
     run_analysis,
     run_baseline,
+    run_no_ontology_prompt,
 )
 from crime_risk_analyzer.overpass_client import Poi
 from crime_risk_analyzer.rag.generation import (
     USER_INPUT_FENCE_OPEN,
     SourceProse,
 )
+from crime_risk_analyzer.rag.no_ontology_generation import NO_ONTOLOGY_SYSTEM_PROMPT
 from tests.eval._doubles import FakeLLMClient as _FakeLLMClient
 from tests.eval._doubles import FakeProfiler as _FakeProfiler
 from tests.eval._doubles import default_llm_response as _llm_response
@@ -794,6 +796,110 @@ async def test_run_baseline_tipo_poi_no_match_yields_empty(
     # nessun POI di quella classe -> lista vuota, nessun errore
     assert resp.poi == []
     assert resp.risk_models == []
+
+
+# --- #236: braccio di ablazione «LLM senza contributo ontologico nel prompt» ---
+
+
+async def test_run_no_ontology_prompt_hides_the_ontology_from_the_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Il modello vede i punti, non i rischi che l'ontologia associa alle classi.
+
+    E' l'unica variabile che il braccio manipola: se gli hazard finissero
+    comunque nel prompt, il confronto con ``analyze`` non isolerebbe nulla.
+    """
+    _patch_io(monkeypatch)
+    client = _RecordingLLMClient()
+
+    await run_no_ontology_prompt(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+        llm_client=client,
+    )
+
+    system, user = client.calls[0]
+    assert system == NO_ONTOLOGY_SYSTEM_PROMPT
+    assert "Bank_robbery" not in user
+    assert "Hazard verificati" not in user
+    assert "  POI: Banca A (Bank)" in user
+
+
+async def test_run_no_ontology_prompt_keeps_the_structured_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stessa response di ``run_analysis``: cambia il prompt, non il contratto.
+
+    ``risk_models``, ``sparql_path`` e ``confidence_summary`` restano ontologici
+    perche' sono il dato ancorato con cui ``eval/metrics.py`` costruisce gli
+    ancoraggi: se divergessero tra i bracci, il proxy misurerebbe denominatori
+    diversi e il confronto non sarebbe leggibile.
+    """
+    _patch_io(monkeypatch)
+    resp = await run_no_ontology_prompt(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+        llm_client=_FakeLLMClient(_llm_response()),
+    )
+    riferimento = await run_analysis(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+        llm_client=_FakeLLMClient(_llm_response()),
+    )
+
+    assert resp.fallback is False
+    assert resp.narrativa.startswith("Analisi:")
+    assert resp.risk_models == riferimento.risk_models
+    assert resp.confidence_summary == riferimento.confidence_summary
+    assert [(p.id, p.confidence, p.sparql_path) for p in resp.poi] == [
+        (p.id, p.confidence, p.sparql_path) for p in riferimento.poi
+    ]
+    assert resp.contesto_hash == riferimento.contesto_hash
+
+
+async def test_run_no_ontology_prompt_falls_back_on_llm_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stesso ramo di fallback strutturato del braccio completo."""
+    _patch_io(monkeypatch)
+    resp = await run_no_ontology_prompt(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+        llm_client=_RaisingLLMClient(),
+    )
+    assert resp.fallback is True
+    assert resp.narrativa == ""
+    assert resp.risk_models[0].risks[0].hazard == "Bank_robbery"
+
+
+async def test_run_no_ontology_prompt_does_not_touch_the_zone_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Il braccio sperimentale non deposita contesto per ``/analyze/poi``.
+
+    ``run_analysis`` popola la cache di zona perche' serve il prodotto (un clic
+    su un POI non deve rifare Overpass). Questo braccio non e' servito da alcuna
+    rotta: lasciare li' un contesto costruito per un'ablazione sarebbe stato di
+    processo che nessuno ha chiesto.
+    """
+    from crime_risk_analyzer import zone_context_cache
+
+    _patch_io(monkeypatch)
+    zone_context_cache.clear()
+    try:
+        await run_no_ontology_prompt(
+            "Roma",
+            "Centro",
+            executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+            llm_client=_FakeLLMClient(_llm_response()),
+        )
+        assert zone_context_cache.get("Roma", "Centro") is None
+    finally:
+        zone_context_cache.clear()
 
 
 # --- #119: max_length sulla domanda (bound su token/costo/superficie) ---

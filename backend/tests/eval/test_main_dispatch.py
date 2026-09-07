@@ -163,6 +163,35 @@ def test_main_run_analyze_builds_and_passes_llm_client(
     assert captured["clean_stale"] is False
 
 
+def test_main_run_no_ontology_builds_and_passes_llm_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#236: anche il braccio ablato e' un braccio CON modello.
+
+    La condizione di ``_run`` e' ``mode != 'baseline'``: se fosse
+    ``mode == 'analyze'`` il nuovo braccio girerebbe con ``llm_client=None`` e
+    l'harness lo manderebbe in errore su ogni caso, in silenzio.
+    """
+    sentinel = object()
+    captured: dict[str, object] = {}
+
+    async def fake_run_experiment(config: ExperimentConfig, **kwargs: object) -> None:
+        captured.update(kwargs)
+
+    def fake_build_client(config: ExperimentConfig) -> object:
+        return sentinel
+
+    monkeypatch.setattr(eval_main, "run_experiment", fake_run_experiment)
+    monkeypatch.setattr(eval_main, "get_executor", lambda: object())
+    monkeypatch.setattr(eval_main, "build_llm_eval_client", fake_build_client)
+
+    cfg = _write_config(tmp_path, mode="no_ontology_prompt")
+    _set_argv(monkeypatch, "run", "--config", str(cfg), "--results", str(tmp_path))
+
+    assert eval_main.main() == 0
+    assert captured["llm_client"] is sentinel
+
+
 # --- aggregate ---------------------------------------------------------------
 
 

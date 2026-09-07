@@ -9,6 +9,7 @@ import pytest
 from crime_risk_analyzer.eval.harness import (
     make_run_id,
     make_snapshot_key,
+    run_case,
     run_experiment,
 )
 from crime_risk_analyzer.eval.schema import (
@@ -450,6 +451,166 @@ async def test_capture_once_replayed_by_other_arm(
     assert records[0].status == RunStatus.OK
     assert calls == 1  # nessuna seconda cattura live
     assert records[0].provenance.snapshot_id == key
+
+
+async def test_no_ontology_arm_replays_the_snapshot_of_the_complete_arm(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#236: i due bracci del confronto C3 girano sullo STESSO snapshot POI.
+
+    Il braccio ablato non e' una seconda cattura: la chiave dello snapshot resta
+    ``(citta, zona)`` (#110), quindi la variabile che cambia tra i bracci e' solo
+    il prompt. Il test verifica insieme le due meta' del criterio di accettazione:
+    iso-input (stesso ``snapshot_id``, stessi POI, un solo file di snapshot) e
+    provenienza distinguibile (``run_id``, ``mode`` e ``prompt_hash`` diversi —
+    quest'ultimo perche' i due bracci mandano al modello system prompt diversi).
+    """
+    import hashlib
+
+    from crime_risk_analyzer.llm.client import LLMResponse
+    from crime_risk_analyzer.models.risk import PoiRiskProfile
+    from crime_risk_analyzer.rag import retrieval
+    from tests.eval._doubles import FakeProfiler, default_llm_response
+
+    class _HashingLLMClient:
+        """Doppio che hashea il system prompt come fa il client reale (#114)."""
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str]] = []
+
+        async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
+            self.calls.append((system_prompt, user_content))
+            return default_llm_response().model_copy(
+                update={
+                    "prompt_hash": hashlib.sha256(system_prompt.encode()).hexdigest()
+                }
+            )
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
+    key = make_snapshot_key("Roma", "Centro")
+    scrivi_snapshot(snapshot_path(tmp_path, key), _sample_pois())
+    profiler = FakeProfiler(
+        {
+            "Bank": PoiRiskProfile(
+                terminus_class="Bank",
+                hazards=["Bank_robbery"],
+                sparql_paths=["Bank → havingHazard → Bank_robbery"],
+            )
+        }
+    )
+
+    client_completo = _HashingLLMClient()
+    client_ablato = _HashingLLMClient()
+    rec_completo = (
+        await run_experiment(
+            ExperimentConfig(
+                name="ablation-analyze-groq",
+                mode="analyze",
+                model="groq",
+                cases=[RunCase(citta="Roma", zona="Centro")],
+            ),
+            executor=profiler,
+            llm_client=client_completo,
+            results_dir=tmp_path,
+            code_commit="abc",
+            ontology_hash="def",
+        )
+    )[0]
+    rec_ablato = (
+        await run_experiment(
+            ExperimentConfig(
+                name="ablation-no-ontology-groq",
+                mode="no_ontology_prompt",
+                model="groq",
+                cases=[RunCase(citta="Roma", zona="Centro")],
+            ),
+            executor=profiler,
+            llm_client=client_ablato,
+            results_dir=tmp_path,
+            code_commit="abc",
+            ontology_hash="def",
+        )
+    )[0]
+
+    assert rec_completo.status == RunStatus.OK
+    assert rec_ablato.status == RunStatus.OK
+    # Iso-input: stessa fixture, un solo file catturato, stesso numero di POI.
+    assert (
+        rec_ablato.provenance.snapshot_id == rec_completo.provenance.snapshot_id == key
+    )
+    assert rec_ablato.n_poi == rec_completo.n_poi == 1
+    assert list((tmp_path / "snapshots").glob("*.json")) == [
+        snapshot_path(tmp_path, key)
+    ]
+    # Provenienza: i due bracci restano distinguibili nei risultati.
+    assert rec_ablato.mode == "no_ontology_prompt"
+    assert rec_completo.mode == "analyze"
+    assert rec_ablato.run_id != rec_completo.run_id
+    assert rec_ablato.provenance.prompt_hash != rec_completo.provenance.prompt_hash
+    # La variabile isolata: l'ontologia arriva al prompt solo nel braccio completo.
+    assert "Bank_robbery" in client_completo.calls[0][1]
+    assert "Bank_robbery" not in client_ablato.calls[0][1]
+    assert "  POI: Banca A (Bank)" in client_ablato.calls[0][1]
+
+
+async def test_no_ontology_arm_is_not_a_vacuous_arm(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Il braccio produce prosa: i proxy di qualita' hanno di che pronunciarsi.
+
+    E' il difetto che #236 chiude rispetto a ``baseline``, muto per costruzione:
+    un braccio senza narrativa fa cadere ``grounding``/``hallucination`` nel ramo
+    vacuo e a valle il verdetto viene TRATTENUTO (#231).
+    """
+    from crime_risk_analyzer.eval.compare import has_narrativa, is_vacuous_arm
+    from crime_risk_analyzer.rag import retrieval
+    from tests.eval._doubles import FakeLLMClient, FakeProfiler
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
+    scrivi_snapshot(
+        snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
+    )
+    records = await run_experiment(
+        ExperimentConfig(
+            name="no-onto",
+            mode="no_ontology_prompt",
+            model="groq",
+            cases=[RunCase(citta="Roma", zona="Centro")],
+        ),
+        executor=FakeProfiler(),
+        llm_client=FakeLLMClient(),
+        results_dir=tmp_path,
+        code_commit="abc",
+        ontology_hash="def",
+    )
+    assert has_narrativa(records[0])
+    assert not is_vacuous_arm(records)
+
+
+async def test_no_ontology_arm_requires_an_llm_client(tmp_path: Path) -> None:
+    """Senza client il braccio non ha senso: e' il braccio CON l'LLM.
+
+    Il ramo di ``run_case`` che solleva e' quello di ``analyze``: se il nuovo mode
+    finisse per sbaglio nel ramo baseline, la run girerebbe senza modello e
+    produrrebbe un secondo braccio muto invece del confronto cercato.
+    """
+    from tests.eval._doubles import FakeProfiler
+
+    with pytest.raises(ValueError, match="llm_client"):
+        await run_case(
+            RunCase(citta="Roma", zona="Centro"),
+            ExperimentConfig(
+                name="no-onto",
+                mode="no_ontology_prompt",
+                model="groq",
+                cases=[RunCase(citta="Roma", zona="Centro")],
+            ),
+            executor=FakeProfiler(),
+            llm_client=None,
+            results_dir=tmp_path,
+            code_commit="c",
+            ontology_hash="o",
+        )
 
 
 def _legacy_record(experiment: str, citta: str, zona: str):

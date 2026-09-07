@@ -30,6 +30,7 @@ from crime_risk_analyzer.orchestrator import (
     _LLMClientLike,  # pyright: ignore[reportPrivateUsage]
     run_analysis,
     run_baseline,
+    run_no_ontology_prompt,
 )
 from crime_risk_analyzer.rag.retrieval import RiskProfiler
 
@@ -216,16 +217,16 @@ async def run_case(
 ) -> RunRecord:
     """Esegue un caso e ritorna il RunRecord (status=error su eccezione).
 
-    ``llm_client`` e' opzionale: richiesto solo per ``mode='analyze'``;
-    per ``mode='baseline'`` puo' essere ``None``.
-    Solleva :class:`ValueError` se ``mode='analyze'`` e ``llm_client is None``.
+    ``llm_client`` e' opzionale: richiesto dai bracci CON modello (``analyze`` e
+    ``no_ontology_prompt``, #236); per ``mode='baseline'`` puo' essere ``None``.
+    Solleva :class:`ValueError` se un braccio con modello riceve ``None``.
     """
     model_id: str
     if config.mode == "baseline":
         model_id = "baseline"
     else:
         if llm_client is None:
-            raise ValueError("llm_client required for mode=analyze")
+            raise ValueError(f"llm_client required for mode={config.mode}")
         model_id = _model_id_of(llm_client, config)
     run_id = make_run_id(
         config.name, case.citta, case.zona, config.mode, config.model, rep
@@ -242,6 +243,20 @@ async def run_case(
                 case.citta,
                 case.zona,
                 executor=executor,
+                poi_source=source,
+                geo_source=geo_source,
+            )
+        elif config.mode == "no_ontology_prompt":
+            assert llm_client is not None  # narrowing per pyright strict
+            # Braccio di ablazione (#236): stesse ``source``/``geo_source`` del
+            # braccio completo — cioe' lo STESSO snapshot POI, che e' il punto —
+            # e nessun ``context_format``, che nel prompt ablato non ha effetto
+            # (lo schema lo rifiuta a monte se qualcuno prova a impostarlo).
+            resp = await run_no_ontology_prompt(
+                case.citta,
+                case.zona,
+                executor=executor,
+                llm_client=llm_client,
                 poi_source=source,
                 geo_source=geo_source,
             )

@@ -67,7 +67,7 @@ backend/
 │       ├── ontology_namespaces.py  # IRI/namespace TERMINUS (single source of truth)
 │       ├── geocoding.py            # geocoding zone
 │       ├── overpass_client.py      # client Overpass per POI OSM
-│       ├── orchestrator.py         # cabla la pipeline di /analyze e /analyze/baseline (run_analysis/run_baseline)
+│       ├── orchestrator.py         # cabla la pipeline di /analyze e /analyze/baseline (run_analysis/run_baseline) + il braccio di ablazione con prompt senza ontologia (run_no_ontology_prompt, solo valutazione)
 │       ├── sparql_module/          # mapping OSM → TERMINUS + executor SPARQL (rischi via OWL restriction)
 │       ├── llm/                    # client LLM provider-agnostico (Claude/Groq)
 │       ├── rag/                    # pipeline RAG: retrieval, grounding, generation
