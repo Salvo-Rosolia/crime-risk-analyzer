@@ -15,6 +15,8 @@ import pytest
 from pytest import MonkeyPatch
 
 from crime_risk_analyzer.eval.compare import (
+    CONFOUNDED_VARIABLE_HEAD,
+    ISOLATED_VARIABLE_HEAD,
     VACUOUS_CAVEAT_HEAD,
     Comparison,
     FailedZone,
@@ -30,6 +32,7 @@ from crime_risk_analyzer.eval.compare import (
 from crime_risk_analyzer.eval.harness import write_record
 from crime_risk_analyzer.eval.schema import (
     Metrics,
+    Mode,
     Provenance,
     RunRecord,
     RunStatus,
@@ -45,8 +48,9 @@ def _rec(
     hallucination: float,
     latency_ms: int,
     cost_usd: float,
-    mode: str = "analyze",
+    mode: Mode = "analyze",
     model: str = "claude",
+    temperature: float = 0.0,
     status: RunStatus = RunStatus.OK,
     snapshot_id: str | None = None,
     narrativa: str = "x",
@@ -57,7 +61,7 @@ def _rec(
         experiment=experiment,
         citta=citta,
         zona=zona,
-        mode="analyze" if mode == "analyze" else "baseline",
+        mode=mode,
         model_id=model,
         status=status,
         metrics=Metrics(
@@ -74,7 +78,7 @@ def _rec(
             snapshot_id=snapshot_id or f"{citta}__{zona}".lower(),
             model_id=model,
             prompt_hash="p",
-            temperature=0.0,
+            temperature=temperature,
             seed=0,
             experiment=experiment,
         ),
@@ -862,6 +866,189 @@ def test_markdown_puts_the_vacuity_warning_before_the_numbers() -> None:
 def test_is_vacuous_arm_is_false_for_an_arm_without_records() -> None:
     """Un braccio vuoto non è muto: non è un braccio (regola documentata)."""
     assert is_vacuous_arm([]) is False
+
+
+# --- #236: il report dichiara quale variabile isola il confronto --------------
+
+
+def _no_ontology_rec(
+    citta: str,
+    zona: str,
+    *,
+    model: str = "claude",
+    temperature: float = 0.0,
+) -> RunRecord:
+    """Record del braccio ablato: con LLM, prompt senza contributo ontologico.
+
+    Modello e temperatura coincidono per default con quelli di
+    :func:`_analyze_rec`: e' la condizione reale della coppia (i due esperimenti
+    ``ablation-*-groq`` girano sullo stesso provider) e la sola in cui il
+    confronto isola davvero il contributo ontologico del prompt. I test del
+    confronto CONFUSO li sovrascrivono per far divergere un braccio.
+    """
+    return _rec(
+        "no-ontology-exp",
+        citta,
+        zona,
+        grounding=0.400,
+        hallucination=0.600,
+        latency_ms=2800,
+        cost_usd=0.004,
+        mode="no_ontology_prompt",
+        model=model,
+        temperature=temperature,
+        narrativa="prosa senza ancoraggi",
+    )
+
+
+def test_comparison_declares_the_isolated_variable_for_the_c3_pair() -> None:
+    """Il confronto analyze vs no_ontology_prompt sa cosa sta isolando.
+
+    La dichiarazione e' DERIVATA dai modi dei record, non cablata sul nome
+    dell'esperimento: due bracci qualsiasi restano etichettabili liberamente.
+    """
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo")],
+        [_no_ontology_rec("Roma", "Colosseo")],
+        label_a="con-ontologia",
+        label_b="senza-ontologia",
+    )
+    assert "con-ontologia" in comparison.isolated_variable
+    assert "senza-ontologia" in comparison.isolated_variable
+
+
+def test_comparison_declares_nothing_for_other_pairs() -> None:
+    """Su una coppia che non isola l'ontologia il report resta com'era.
+
+    ``analyze`` vs ``baseline`` (o due modelli) non manipola il contributo
+    ontologico: dichiarare che lo isola sarebbe falso.
+    """
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo")],
+        [_silent_rec("Roma", "Colosseo")],
+        label_a="analyze",
+        label_b="baseline",
+    )
+    assert comparison.isolated_variable == ""
+    assert ISOLATED_VARIABLE_HEAD not in to_markdown(comparison)
+
+
+def test_markdown_declares_the_isolated_variable_before_the_numbers() -> None:
+    """La dichiarazione precede la tabella e non promette piu' del proxy.
+
+    Va letta PRIMA dei delta (come l'avviso di vacuita'), e deve dire che le due
+    colonne di qualita' restano proxy testuali: il confronto isola l'ontologia,
+    non certifica la qualita' dell'analisi.
+    """
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo")],
+        [_no_ontology_rec("Roma", "Colosseo")],
+        label_a="con-ontologia",
+        label_b="senza-ontologia",
+    )
+    md = to_markdown(comparison)
+    assert ISOLATED_VARIABLE_HEAD in md
+    assert md.index(ISOLATED_VARIABLE_HEAD) < md.index("| citta | zona |")
+    assert md.index(ISOLATED_VARIABLE_HEAD) < md.index("Nota metodologica")
+
+
+def test_isolated_variable_survives_in_the_json_report(tmp_path: Path) -> None:
+    """Anche il deliverable machine-readable dichiara la variabile isolata."""
+    write_record(tmp_path, _analyze_rec("Roma", "Colosseo"))
+    write_record(tmp_path, _no_ontology_rec("Roma", "Colosseo"))
+    compare_experiments(
+        tmp_path,
+        "analyze-exp",
+        "no-ontology-exp",
+        label_a="con-ontologia",
+        label_b="senza-ontologia",
+        stem="c3",
+    )
+    payload = json.loads((tmp_path / "c3.json").read_text(encoding="utf-8"))
+    assert "con-ontologia" in payload["isolated_variable"]
+
+
+def test_isolated_variable_does_not_claim_a_shared_model_when_models_differ() -> None:
+    """La coppia di modi non basta a promettere «stesso modello».
+
+    I modi dicono cosa cambia nel PROMPT, non con che generatore la prosa e'
+    stata scritta: confrontando una run Claude con una run Groq la frase «i due
+    bracci condividono modello» e' falsa, e attribuirebbe all'ancoraggio
+    ontologico un delta prodotto da due modelli diversi — in un report che
+    finisce nel capitolo di valutazione della tesi.
+    """
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo")],
+        [_no_ontology_rec("Roma", "Colosseo", model="groq")],
+        label_a="con-ontologia",
+        label_b="senza-ontologia",
+    )
+    note = comparison.isolated_variable
+    assert "condividono modello" not in note
+    assert ISOLATED_VARIABLE_HEAD not in note
+    # Non basta tacere: la nota deve dire perche' il delta non e' attribuibile
+    # all'ontologia, e nominare i due modelli che il lettore sta confrontando.
+    assert CONFOUNDED_VARIABLE_HEAD in note
+    assert "`claude`" in note
+    assert "`groq`" in note
+
+
+def test_isolated_variable_does_not_claim_a_shared_temperature_when_it_varies() -> None:
+    """Stesso modello ma temperature diverse: la variabile resta confusa.
+
+    La temperatura decide quanto la prosa si allontana dal prompt, cioe' proprio
+    l'asse che i proxy misurano: promettere «stessa temperatura» senza guardare
+    la provenienza sposterebbe sull'ontologia un delta di campionamento.
+    """
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo")],
+        [_no_ontology_rec("Roma", "Colosseo", temperature=0.7)],
+        label_a="con-ontologia",
+        label_b="senza-ontologia",
+    )
+    note = comparison.isolated_variable
+    assert CONFOUNDED_VARIABLE_HEAD in note
+    assert "temperatura" in note
+    assert "0.7" in note
+
+
+def test_isolated_variable_does_not_claim_a_shared_model_within_a_mixed_arm() -> None:
+    """Un braccio che mescola due modelli non ha un modello da dichiarare.
+
+    ``load_runs`` filtra per nome esperimento: se lo stesso esperimento e' stato
+    rilanciato cambiando provider, il braccio arriva misto. Non c'e' un valore
+    unico da dire condiviso, quindi la nota non lo promette.
+    """
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo"), _analyze_rec("Milano", "Duomo")],
+        [
+            _no_ontology_rec("Roma", "Colosseo"),
+            _no_ontology_rec("Milano", "Duomo", model="groq"),
+        ],
+        label_a="con-ontologia",
+        label_b="senza-ontologia",
+    )
+    note = comparison.isolated_variable
+    assert "condividono modello" not in note
+    assert CONFOUNDED_VARIABLE_HEAD in note
+
+
+def test_markdown_warns_before_the_numbers_when_the_pair_is_confounded() -> None:
+    """L'avviso arriva nel report, e prima della tabella come la dichiarazione.
+
+    E' il documento che finisce nel capitolo di valutazione: leggere i delta e
+    solo dopo scoprire che i bracci non sono confrontabili e' l'ordine in cui si
+    sbaglia a leggere (stessa regola dell'avviso di vacuita').
+    """
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo")],
+        [_no_ontology_rec("Roma", "Colosseo", model="groq")],
+        label_a="con-ontologia",
+        label_b="senza-ontologia",
+    )
+    md = to_markdown(comparison)
+    assert CONFOUNDED_VARIABLE_HEAD in md
+    assert md.index(CONFOUNDED_VARIABLE_HEAD) < md.index("| citta | zona |")
 
 
 def test_compare_experiments_writes_the_vacuity_warning_to_disk(tmp_path: Path) -> None:
