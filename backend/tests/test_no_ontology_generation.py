@@ -31,6 +31,7 @@ from crime_risk_analyzer.rag.generation import (
     SYSTEM_PROMPT,
     block_structure_rule,
     build_context_str,
+    parse_source_prose,
 )
 from crime_risk_analyzer.rag.no_ontology_generation import (
     _RULE_BLOCK_STRUCTURE_NO_ONTOLOGY,  # pyright: ignore[reportPrivateUsage]
@@ -355,6 +356,24 @@ async def test_generate_no_ontology_keeps_the_structured_contract() -> None:
     assert [r.hazard for r in result.risk_models[0].risks] == ["PickPocketing"]
     assert result.confidence_summary.verificato == 1
     assert result.confidence_summary.da_confermare == 1
+
+
+def test_prose_split_anchors_on_the_real_header_for_the_ablated_tag() -> None:
+    """Anche il tag di questo braccio puo' comparire dentro un nome POI.
+
+    Il prompt ablato chiede di nominare i punti elencati (regola 2) e quei nomi
+    arrivano da OpenStreetMap: il parser deve trovare l'intestazione che il
+    modello ha scritto, non l'occorrenza dentro la frase. Vale come per il
+    braccio completo — la funzione di taglio e' la stessa per entrambi.
+    """
+    text = (
+        "In zona c'e' il Bar [SINTESI-LLM] Fake, molto frequentato.\n\n"
+        f"{LLM_SYNTHESIS_BLOCK_HEADER}\n"
+        "Il Bar [SINTESI-LLM] Fake porta rischi di rissa.\n"
+    )
+    out = parse_source_prose(text, measured_token=LLM_SYNTHESIS_TOKEN)
+    assert out.overview == "In zona c'e' il Bar [SINTESI-LLM] Fake, molto frequentato."
+    assert out.ontologia == "Il Bar [SINTESI-LLM] Fake porta rischi di rissa."
 
 
 async def test_generate_no_ontology_propagates_model_metadata() -> None:

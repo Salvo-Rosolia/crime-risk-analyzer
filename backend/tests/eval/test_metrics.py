@@ -108,6 +108,23 @@ def test_ontology_sentence_without_anchor_is_hallucination() -> None:
     assert grounding(r) == 0.0
 
 
+def test_a_poi_named_after_the_tag_does_not_corrupt_the_graded_block() -> None:
+    # Il prompt chiede di nominare i punti reali e i nomi arrivano da OSM, dove
+    # chiunque puo' chiamare un locale "Bar [ONTOLOGIA] Fake". Citato nella
+    # sintesi iniziale, il taglio per fonte si ancorava dentro quella frase: nel
+    # blocco gradato finivano l'intestazione vera e la prosa di overview, cioe'
+    # la metrica di questo esperimento misurava un altro testo (0.5/0.5 invece
+    # di 1.0/0.0). Il blocco gradato deve essere quello che il modello ha aperto.
+    r = _resp(
+        _narrativa(
+            "Banca A presenta rischio rapina.",
+            overview="In zona spicca il Bar [ONTOLOGIA] Fake, molto frequentato.",
+        )
+    )
+    assert grounding(r) == 1.0
+    assert hallucination(r) == 0.0
+
+
 def test_context_pure_interpretation_is_excluded_not_hallucination() -> None:
     # #229 (correzione all'over-penalizzazione): l'interpretazione pura in [CONTESTO]
     # (nessun ancoraggio) NON e' gradata dal proxy. Qui l'unico blocco gradato e'

@@ -253,6 +253,52 @@ def _source_tokens(measured_token: str) -> tuple[tuple[str, str], ...]:
     )
 
 
+#: Caratteri che possono seguire il token in una RIGA-ETICHETTA senza smettere di
+#: essere un'intestazione: whitespace piu' la decorazione che i modelli aggiungono
+#: spesso da soli (``**Rischi da ontologia [ONTOLOGIA]**``, ``[CONTESTO]:``).
+#: Delimitano quanto :func:`_block_header_index` e' permissivo nel riconoscere la
+#: riga d'apertura di un blocco: tutto cio' che segue il token DEVE stare qui,
+#: altrimenti quel token e' dentro una frase e non apre nulla.
+_HEADER_TRAILING_CHARS = " \t\r*_:#"
+
+
+def _block_header_index(text: str, token: str) -> int:
+    """Posizione del token nella RIGA-ETICHETTA che apre un blocco, o ``-1``.
+
+    Il prompt chiede l'etichetta su una riga dedicata (regola 3), quindi una riga
+    d'apertura e' una riga che dopo il token non dice altro. Cercare invece la
+    prima occorrenza QUALUNQUE e' fragile per un motivo concreto: la prosa nomina
+    POI reali e i nomi arrivano da OpenStreetMap, dove chiunque puo' chiamare un
+    locale ``Bar [ONTOLOGIA] Fake``. Bastava che il modello lo citasse nella
+    sintesi iniziale perche' il taglio si ancorasse dentro quella frase e il
+    blocco misurato — quello che alimenta grounding/allucinazione — contenesse
+    l'overview e l'intestazione vera.
+
+    Se nessuna riga apre un blocco (modello che scrive etichetta e prosa sulla
+    stessa riga) ritorna la PRIMA occorrenza, cioe' esattamente l'ancoraggio
+    storico: il riconoscimento diventa piu' preciso dove c'e' un'intestazione da
+    riconoscere, e non cambia il righello dove non c'e'.
+
+    Limite dichiarato: un nome POI che finisse col token e stesse a fine riga
+    resterebbe indistinguibile da un'intestazione. Non e' evitabile guardando il
+    solo testo generato, ed e' un caso remoto (i token sono maiuscoli tra
+    parentesi quadre); il caso reale — il tag in mezzo a una frase — e' chiuso.
+    """
+    pos = 0
+    fallback = -1
+    # split("\n"), non splitlines(): il resto del parser calcola i confini di riga
+    # solo su "\n", e due nozioni diverse di «riga» sposterebbero i tagli.
+    for line in text.split("\n"):
+        idx = line.find(token)
+        if idx != -1:
+            if fallback == -1:
+                fallback = pos + idx
+            if not line[idx + len(token) :].strip(_HEADER_TRAILING_CHARS):
+                return pos + idx
+        pos += len(line) + 1  # +1: il "\n" consumato dallo split
+    return fallback
+
+
 class SourceProse(BaseModel):
     """Prosa della narrativa suddivisa per fonte (campo additivo, display).
 
@@ -278,6 +324,11 @@ def parse_source_prose(
     successivo (per posizione, indipendentemente dall'ordine) o a fine testo.
     Fallback: nessun token -> tutto in ``overview`` (nessuna perdita di contenuto).
 
+    L'header e' cercato tra le RIGHE che aprono un blocco
+    (:func:`_block_header_index`), non tra tutte le occorrenze del token: un nome
+    POI che contiene l'etichetta — i nomi arrivano da OSM e il prompt chiede di
+    citare i punti reali — non deve spostare il taglio dentro una frase.
+
     ``measured_token`` sostituisce il token del primo blocco (#236): il braccio di
     ablazione non ha consultato alcuna ontologia e etichetta quel blocco per cio'
     che e', quindi chi lo misura deve cercare l'etichetta del suo braccio. Il
@@ -286,7 +337,7 @@ def parse_source_prose(
     text = narrativa or ""
     found: list[tuple[str, int, int]] = []
     for field, token in _source_tokens(measured_token):
-        idx = text.find(token)
+        idx = _block_header_index(text, token)
         if idx == -1:
             continue
         line_start = text.rfind("\n", 0, idx) + 1
