@@ -7,7 +7,9 @@ import logging
 import pytest
 from pydantic import ValidationError
 
+from crime_risk_analyzer.geocoding import GeoResult
 from crime_risk_analyzer.llm.client import LLMError, LLMResponse
+from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.models.risk import PoiRiskProfile
 from crime_risk_analyzer.orchestrator import (
     AnalyzeRequest,
@@ -124,6 +126,26 @@ def _patch_io(monkeypatch: pytest.MonkeyPatch, pois: list[Poi] | None = None) ->
 
     monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode)
     monkeypatch.setattr(retrieval, "fetch_pois", _fake_fetch)
+
+
+async def _geo_source(citta: str, zona: str) -> GeoResult:
+    """Doppio di geocoding per i test di ``_structured_response`` con narrativa
+    pendente (#259): evita Nominatim, come ``_poi_source`` evita Overpass."""
+    return GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50))
+
+
+async def _poi_source(bbox: Bbox, citta: str) -> list[Poi]:
+    return [
+        {
+            "id": "node/1",
+            "name": "Colosseo",
+            "lat": 41.8902,
+            "lon": 12.4922,
+            "osm_tags": "historic=monument",
+            "terminus_class": "Historical_monument",
+            "citta": citta,
+        }
+    ]
 
 
 _BANK_PROFILE = PoiRiskProfile(
@@ -296,6 +318,62 @@ def test_structured_response_no_llm() -> None:
     assert resp.confidence_summary.verificato == 1
 
 
+async def test_structured_response_narrativa_none_when_pending() -> None:
+    """``_structured_response`` con ``narrativa=None`` produce una risposta con
+    narrativa in attesa (fase 1 di #259): non e' un fallback, ``fallback`` resta
+    quello passato dal chiamante."""
+    from crime_risk_analyzer.rag.grounding import ground
+    from crime_risk_analyzer.rag.retrieval import retrieve
+
+    ctx = await retrieve(
+        "Roma",
+        "Colosseo",
+        executor=_FakeProfiler(),
+        poi_source=_poi_source,
+        geo_source=_geo_source,
+    )
+    grounded = ground(ctx)
+    poi_out = _build_poi_list(ctx, grounded)
+    resp = _structured_response(
+        "Roma",
+        "Colosseo",
+        poi_out,
+        grounded,
+        latenza_ms=0,
+        fallback=False,
+        contesto_hash="h",
+        narrativa=None,
+    )
+    assert resp.narrativa is None
+    assert resp.fallback is False
+
+
+def test_structured_response_default_narrativa_is_empty_string() -> None:
+    """Default invariato: chi non passa ``narrativa`` (``run_baseline``, fallback
+    di ``run_analysis``) continua a ricevere ``""``, non ``None`` — nessuna
+    regressione."""
+    from crime_risk_analyzer.rag.grounding import GroundedContext
+
+    # Nessun await necessario: costruiamo un GroundedContext minimale a mano,
+    # annotato esplicitamente (un dict letterale non annotato non passerebbe
+    # pyright strict come argomento tipizzato GroundedContext).
+    grounded: GroundedContext = {
+        "zona": "Colosseo",
+        "validated_risks": [],
+        "confidence_summary": {},
+    }
+    resp = _structured_response(
+        "Roma",
+        "Colosseo",
+        [],
+        grounded,
+        latenza_ms=0,
+        fallback=False,
+        contesto_hash="h",
+    )
+    assert resp.narrativa == ""
+
+
 async def test_run_analysis_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_io(monkeypatch)
     resp = await run_analysis(
@@ -307,6 +385,7 @@ async def test_run_analysis_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     assert resp.citta == "Roma"
     assert resp.zona_normalizzata == "Centro"
     assert resp.fallback is False
+    assert resp.narrativa is not None
     assert resp.narrativa.startswith("Analisi:")
     assert resp.llm_used == "claude-sonnet-4-6"
     assert [p.confidence for p in resp.poi] == ["verificato"]
