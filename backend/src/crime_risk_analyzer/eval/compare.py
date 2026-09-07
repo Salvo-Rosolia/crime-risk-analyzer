@@ -272,17 +272,20 @@ _ONTOLOGY_ISOLATING_MODES = frozenset({"analyze", "no_ontology_prompt"})
 #: Impostazioni che i due bracci devono CONDIVIDERE perché la coppia di modi
 #: isoli davvero il solo contributo ontologico del prompt: coppie ``(nome
 #: leggibile, accesso al record)``. Il ``mode`` dice cosa cambia nel prompt, non
-#: con quale generatore la prosa è stata scritta né con quale forma il blocco POI
-#: è stato reso: una run Claude contro una run Groq cambia prompt E modello
-#: insieme, e un braccio ``per_classe`` contro uno ``per_poi`` cambia prompt E
-#: formato — che #273 tiene opzionale proprio perché non è ovvio quale dei due
-#: faccia nominare più punti, cioè agisce sull'asse che i proxy misurano. Lo
+#: con quale generatore la prosa è stata scritta, né con quale forma il blocco POI
+#: è stato reso, né con quale campionamento il testo è stato estratto: una run
+#: Claude contro una run Groq cambia prompt E modello insieme, un braccio
+#: ``per_classe`` contro uno ``per_poi`` cambia prompt E formato — che #273 tiene
+#: opzionale proprio perché non è ovvio quale dei due faccia nominare più punti —
+#: e due semi diversi fanno estrarre dallo stesso prompt due prose diverse. Sono
+#: tutte dimensioni che agiscono sull'asse che i proxy misurano. Lo
 #: ``snapshot_id`` non è qui perché ``compare_records`` lo impone già sollevando
 #: su divergenza.
 _SHARED_SETTINGS: tuple[tuple[str, Callable[[RunRecord], object]], ...] = (
     ("modello", lambda rec: rec.model_id),
     ("temperatura", lambda rec: rec.provenance.temperature),
     ("formato del contesto", lambda rec: rec.provenance.context_format),
+    ("seed di campionamento", lambda rec: rec.provenance.seed),
 )
 
 
@@ -299,6 +302,20 @@ def _observed(
     return sorted({f"`{get(rec)}`" for rec in records})
 
 
+def _configured_records(records: list[RunRecord]) -> list[RunRecord]:
+    """Record che descrivono l'impostazione REALE dell'esperimento (#163).
+
+    Esclude ERROR e FALLBACK, gli stessi status che ``compare_records`` tiene
+    fuori da medie e delta. Un record di fallback non riporta la temperatura
+    configurata ma il placeholder di ``_structured_response``
+    (``Repro(temperature=0.0)``, scritto per costruzione quando l'LLM cade):
+    leggerlo come impostazione farebbe apparire misto un braccio che gira con
+    un'unica temperatura, e dichiarare confusa una variabile che nessuno ha
+    confuso.
+    """
+    return [rec for rec in records if rec.status not in _EXCLUDED_STATUSES]
+
+
 def _setting_mismatch(
     arm_a: list[RunRecord], arm_b: list[RunRecord], *, label_a: str, label_b: str
 ) -> str:
@@ -307,11 +324,14 @@ def _setting_mismatch(
     Ritorna una descrizione con i valori osservati per braccio, o ``""`` se
     l'impostazione è la stessa da entrambi i lati. Un braccio con valori MISTI
     conta come mancata condivisione: non esiste un valore unico da dichiarare
-    condiviso, quindi il confronto non isola nulla nemmeno lì.
+    condiviso, quindi il confronto non isola nulla nemmeno lì. Vale anche per un
+    braccio i cui record sono TUTTI falliti (nessun valore osservabile): non c'è
+    un'impostazione da dichiarare condivisa — ``compare_records`` solleva prima,
+    su quel caso, perché non resterebbe alcuna zona da confrontare.
     """
     for name, get in _SHARED_SETTINGS:
-        seen_a = _observed(arm_a, get)
-        seen_b = _observed(arm_b, get)
+        seen_a = _observed(_configured_records(arm_a), get)
+        seen_b = _observed(_configured_records(arm_b), get)
         if seen_a != seen_b or len(seen_a) != 1:
             return (
                 f"{name} (`{label_a}`: {', '.join(seen_a)}; "
@@ -352,11 +372,12 @@ def isolated_variable_note(
     confronto resta la primitiva generica di #32, e su qualunque altra coppia
     questa funzione ritorna ``""`` lasciando il report invariato.
 
-    Che i bracci condividano modello, temperatura e formato del contesto è
-    VERIFICATO sui record (:func:`_setting_mismatch`), non dedotto dai modi: due
-    run con generatori diversi cambiano prompt e modello insieme, e su quella
-    coppia la funzione dichiara che la variabile NON è isolata invece di
-    prometterlo.
+    Che i bracci condividano modello, temperatura, formato del contesto e seed è
+    VERIFICATO sui record (:func:`_setting_mismatch`, su :data:`_SHARED_SETTINGS`),
+    non dedotto dai modi: due run con generatori diversi cambiano prompt e modello
+    insieme, e su quella coppia la funzione dichiara che la variabile NON è
+    isolata invece di prometterlo. Il controllo guarda i soli record che
+    descrivono l'impostazione reale (:func:`_configured_records`).
 
     Il testo dice cosa cambia e cosa NON cambia tra i bracci, e si ferma lì: la
     lettura dei delta di qualità resta quella del :data:`PROXY_CAVEAT` (proxy
@@ -394,8 +415,8 @@ def isolated_variable_note(
         )
     what_changes = (
         f"{ISOLATED_VARIABLE_HEAD} I due bracci condividono modello, "
-        "temperatura, formato del contesto, snapshot POI e dati strutturati "
-        "della risposta "
+        "temperatura, formato del contesto, seed di campionamento, snapshot POI "
+        "e dati strutturati della risposta "
         "(`poi[]`, `risk_models`, confidence, quindi gli stessi ancoraggi su cui "
         f"i proxy si calcolano). L'unica differenza è il PROMPT: `{con}` riceve "
         f"gli hazard che l'ontologia associa alle classi dei punti, `{senza}` "

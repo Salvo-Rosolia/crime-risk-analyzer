@@ -56,6 +56,7 @@ def _rec(
     mode: Mode = "analyze",
     model: str = "claude",
     temperature: float = 0.0,
+    seed: int = 0,
     status: RunStatus = RunStatus.OK,
     snapshot_id: str | None = None,
     narrativa: str = "x",
@@ -85,7 +86,7 @@ def _rec(
             model_id=model,
             prompt_hash="p",
             temperature=temperature,
-            seed=0,
+            seed=seed,
             experiment=experiment,
             context_format=context_format,
         ),
@@ -726,6 +727,9 @@ def _analyze_rec(
     *,
     narrativa: str = "prosa reale",
     context_format: ContextFormat = "per_poi",
+    temperature: float = 0.0,
+    seed: int = 0,
+    status: RunStatus = RunStatus.OK,
 ) -> RunRecord:
     return _rec(
         "analyze-exp",
@@ -737,6 +741,9 @@ def _analyze_rec(
         cost_usd=0.005,
         narrativa=narrativa,
         context_format=context_format,
+        temperature=temperature,
+        seed=seed,
+        status=status,
     )
 
 
@@ -891,6 +898,7 @@ def _no_ontology_rec(
     *,
     model: str = "claude",
     temperature: float = 0.0,
+    seed: int = 0,
     narrativa: str = "prosa senza ancoraggi",
 ) -> RunRecord:
     """Record del braccio ablato: con LLM, prompt senza contributo ontologico.
@@ -912,6 +920,7 @@ def _no_ontology_rec(
         mode="no_ontology_prompt",
         model=model,
         temperature=temperature,
+        seed=seed,
         narrativa=narrativa,
     )
 
@@ -1155,6 +1164,74 @@ def test_is_ontology_isolating_pair_recognizes_only_the_c3_pair() -> None:
     misto = [_analyze_rec("Roma", "Colosseo"), _no_ontology_rec("Milano", "Duomo")]
     ablato = [_no_ontology_rec("Roma", "Colosseo"), _no_ontology_rec("Milano", "Duomo")]
     assert not is_ontology_isolating_pair(misto, ablato)
+
+
+# --- #236: il controllo di coerenza guarda i record giusti, e anche il seed ----
+
+
+def test_a_fallback_record_does_not_confound_the_pair_by_itself() -> None:
+    """Il placeholder del fallback non e' un'impostazione dell'esperimento.
+
+    ``_structured_response`` scrive sempre ``Repro(temperature=0.0)`` quando l'LLM
+    cade, qualunque temperatura sia configurata: con una temperatura reale diversa
+    da 0.0 il braccio sembrerebbe misto e il report dichiarerebbe un confondimento
+    mai configurato. Le medie escludono gia' ERROR/FALLBACK (#163) — il controllo
+    di coerenza deve guardare gli stessi record.
+    """
+    comparison = compare_records(
+        [
+            _analyze_rec("Roma", "Colosseo", temperature=0.7),
+            _analyze_rec(
+                "Milano",
+                "Duomo",
+                temperature=0.0,
+                status=RunStatus.FALLBACK,
+                narrativa="",
+            ),
+        ],
+        [
+            _no_ontology_rec("Roma", "Colosseo", temperature=0.7),
+            _no_ontology_rec("Milano", "Duomo", temperature=0.7),
+        ],
+        label_a="con-ontologia",
+        label_b="senza-ontologia",
+    )
+    note = comparison.isolated_variable
+    assert ISOLATED_VARIABLE_HEAD in note
+    assert CONFOUNDED_VARIABLE_HEAD not in note
+
+
+def test_isolated_variable_does_not_claim_isolation_when_the_seed_differs() -> None:
+    """Quarta dimensione dell'impostazione: il seed di campionamento.
+
+    Due semi diversi fanno campionare al modello due prose diverse dallo stesso
+    prompt: e' l'asse che i proxy misurano, quindi il delta non sarebbe
+    attribuibile all'ancoraggio ontologico piu' di quanto lo sia con due
+    temperature diverse.
+    """
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo", seed=0)],
+        [_no_ontology_rec("Roma", "Colosseo", seed=7)],
+        label_a="con-ontologia",
+        label_b="senza-ontologia",
+    )
+    note = comparison.isolated_variable
+    assert ISOLATED_VARIABLE_HEAD not in note
+    assert CONFOUNDED_VARIABLE_HEAD in note
+    assert "seed" in note
+    assert "`7`" in note
+
+
+def test_the_isolated_note_lists_the_seed_among_the_shared_settings() -> None:
+    """Cio' che la nota promette condiviso e' cio' che ha verificato."""
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo", seed=7)],
+        [_no_ontology_rec("Roma", "Colosseo", seed=7)],
+        label_a="con-ontologia",
+        label_b="senza-ontologia",
+    )
+    assert ISOLATED_VARIABLE_HEAD in comparison.isolated_variable
+    assert "seed" in comparison.isolated_variable
 
 
 # --- #236 + #231: la dichiarazione di isolamento non contraddice la vacuita' ---
