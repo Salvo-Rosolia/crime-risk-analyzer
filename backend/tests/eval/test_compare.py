@@ -39,6 +39,7 @@ from crime_risk_analyzer.eval.schema import (
     RunRecord,
     RunStatus,
 )
+from crime_risk_analyzer.rag.generation import ContextFormat
 
 
 def _rec(
@@ -56,6 +57,7 @@ def _rec(
     status: RunStatus = RunStatus.OK,
     snapshot_id: str | None = None,
     narrativa: str = "x",
+    context_format: ContextFormat = "per_poi",
 ) -> RunRecord:
     """RunRecord minimale con metriche controllate per i test di confronto."""
     return RunRecord(
@@ -83,6 +85,7 @@ def _rec(
             temperature=temperature,
             seed=0,
             experiment=experiment,
+            context_format=context_format,
         ),
     )
 
@@ -715,7 +718,13 @@ def test_compare_experiments_refuses_overwrite_without_force(tmp_path: Path) -> 
 # regola vacua e' corretta per il FALLBACK; qui va marcata come non interpretabile.
 
 
-def _analyze_rec(citta: str, zona: str, *, narrativa: str = "prosa reale") -> RunRecord:
+def _analyze_rec(
+    citta: str,
+    zona: str,
+    *,
+    narrativa: str = "prosa reale",
+    context_format: ContextFormat = "per_poi",
+) -> RunRecord:
     return _rec(
         "analyze-exp",
         citta,
@@ -725,6 +734,7 @@ def _analyze_rec(citta: str, zona: str, *, narrativa: str = "prosa reale") -> Ru
         latency_ms=3000,
         cost_usd=0.005,
         narrativa=narrativa,
+        context_format=context_format,
     )
 
 
@@ -1012,6 +1022,35 @@ def test_isolated_variable_does_not_claim_a_shared_temperature_when_it_varies() 
     assert CONFOUNDED_VARIABLE_HEAD in note
     assert "temperatura" in note
     assert "0.7" in note
+
+
+def test_isolated_variable_does_not_claim_isolation_when_context_format_differs() -> (
+    None
+):
+    """Terza dimensione dell'impostazione: il FORMATO del blocco POI (#273).
+
+    ``per_classe`` scrive l'insieme di hazard una volta per classe invece di
+    ripeterlo per punto: e' un secondo prompt, e #273 esiste proprio perche' non
+    e' ovvio quale dei due faccia nominare piu' punti — cioe' agisce sull'asse
+    che i proxy misurano. Confrontare un braccio raggruppato con l'ablato (che
+    per costruzione e' sempre ``per_poi``, lo schema rifiuta il resto)
+    cambierebbe formato E contributo ontologico insieme.
+
+    Difesa in profondita': nessuna config committata usa oggi ``per_classe``,
+    quindi qui non si sta chiudendo un bug attivo ma la porta da cui entrerebbe
+    il primo A/B sul formato.
+    """
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo", context_format="per_classe")],
+        [_no_ontology_rec("Roma", "Colosseo")],
+        label_a="con-ontologia",
+        label_b="senza-ontologia",
+    )
+    note = comparison.isolated_variable
+    assert ISOLATED_VARIABLE_HEAD not in note
+    assert CONFOUNDED_VARIABLE_HEAD in note
+    assert "per_classe" in note
+    assert "per_poi" in note
 
 
 def test_isolated_variable_does_not_claim_a_shared_model_within_a_mixed_arm() -> None:

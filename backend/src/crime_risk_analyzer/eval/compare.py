@@ -239,19 +239,24 @@ PROMPT_LENGTH_SIDE_EFFECT = (
 #: modulo dichiara la variabile — ``analyze`` vs ``baseline`` manipola la
 #: presenza dell'LLM, due modelli manipolano il modello. NECESSARIA ma non
 #: sufficiente: che il resto dell'impostazione sia condiviso lo verificano
-#: :data:`_SHARED_SETTINGS` (modello, temperatura) e ``compare_records`` (lo
-#: snapshot POI), non questa coppia.
+#: :data:`_SHARED_SETTINGS` (modello, temperatura, formato del contesto) e
+#: ``compare_records`` (lo snapshot POI), non questa coppia.
 _ONTOLOGY_ISOLATING_MODES = frozenset({"analyze", "no_ontology_prompt"})
 
 #: Impostazioni che i due bracci devono CONDIVIDERE perché la coppia di modi
 #: isoli davvero il solo contributo ontologico del prompt: coppie ``(nome
 #: leggibile, accesso al record)``. Il ``mode`` dice cosa cambia nel prompt, non
-#: con quale generatore la prosa è stata scritta: una run Claude contro una run
-#: Groq cambia prompt E modello insieme. Lo ``snapshot_id`` non è qui perché
-#: ``compare_records`` lo impone già sollevando su divergenza.
+#: con quale generatore la prosa è stata scritta né con quale forma il blocco POI
+#: è stato reso: una run Claude contro una run Groq cambia prompt E modello
+#: insieme, e un braccio ``per_classe`` contro uno ``per_poi`` cambia prompt E
+#: formato — che #273 tiene opzionale proprio perché non è ovvio quale dei due
+#: faccia nominare più punti, cioè agisce sull'asse che i proxy misurano. Lo
+#: ``snapshot_id`` non è qui perché ``compare_records`` lo impone già sollevando
+#: su divergenza.
 _SHARED_SETTINGS: tuple[tuple[str, Callable[[RunRecord], object]], ...] = (
     ("modello", lambda rec: rec.model_id),
     ("temperatura", lambda rec: rec.provenance.temperature),
+    ("formato del contesto", lambda rec: rec.provenance.context_format),
 )
 
 
@@ -316,10 +321,11 @@ def isolated_variable_note(
     confronto resta la primitiva generica di #32, e su qualunque altra coppia
     questa funzione ritorna ``""`` lasciando il report invariato.
 
-    Che i bracci condividano modello e temperatura è VERIFICATO sui record
-    (:func:`_setting_mismatch`), non dedotto dai modi: due run con generatori
-    diversi cambiano prompt e modello insieme, e su quella coppia la funzione
-    dichiara che la variabile NON è isolata invece di prometterlo.
+    Che i bracci condividano modello, temperatura e formato del contesto è
+    VERIFICATO sui record (:func:`_setting_mismatch`), non dedotto dai modi: due
+    run con generatori diversi cambiano prompt e modello insieme, e su quella
+    coppia la funzione dichiara che la variabile NON è isolata invece di
+    prometterlo.
 
     Il testo dice cosa cambia e cosa NON cambia tra i bracci, e si ferma lì: la
     lettura dei delta di qualità resta quella del :data:`PROXY_CAVEAT` (proxy
@@ -348,7 +354,8 @@ def isolated_variable_note(
         )
     return (
         f"{ISOLATED_VARIABLE_HEAD} I due bracci condividono modello, "
-        "temperatura, snapshot POI e dati strutturati della risposta "
+        "temperatura, formato del contesto, snapshot POI e dati strutturati "
+        "della risposta "
         "(`poi[]`, `risk_models`, confidence, quindi gli stessi ancoraggi su cui "
         f"i proxy si calcolano). L'unica differenza è il PROMPT: `{con}` riceve "
         f"gli hazard che l'ontologia associa alle classi dei punti, `{senza}` "
