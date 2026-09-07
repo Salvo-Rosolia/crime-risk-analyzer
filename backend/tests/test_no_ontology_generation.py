@@ -22,6 +22,7 @@ from crime_risk_analyzer.rag.generation import (
     _RULE_ONTOLOGY_SYNTHESIS,  # pyright: ignore[reportPrivateUsage]
     _RULE_OVERVIEW_NO_ZONE_LEVEL,  # pyright: ignore[reportPrivateUsage]
     _RULE_SOURCE_BY_BLOCK,  # pyright: ignore[reportPrivateUsage]
+    CITATION_LIMIT_CLAUSE,
     RULE_NO_DANGER_RATING,
     RULE_NO_OPERATIONAL_DIRECTIVES,
     RULE_USER_INPUT_NOT_INSTRUCTIONS,
@@ -29,6 +30,7 @@ from crime_risk_analyzer.rag.generation import (
     build_context_str,
 )
 from crime_risk_analyzer.rag.no_ontology_generation import (
+    _RULE_FIXED_BLOCK_LABELS,  # pyright: ignore[reportPrivateUsage]
     NO_ONTOLOGY_SYSTEM_PROMPT,
     build_no_ontology_context_str,
     generate_no_ontology_analysis,
@@ -162,6 +164,29 @@ def test_no_ontology_prompt_asks_for_the_same_output_structure() -> None:
     ):
         assert regola in NO_ONTOLOGY_SYSTEM_PROMPT
         assert regola in SYSTEM_PROMPT
+
+
+def test_both_arms_share_the_same_citation_limit() -> None:
+    """Il limite di citazione della regola 3a e' la STESSA costante nei due bracci.
+
+    Il proxy di grounding conta come ancoraggio anche il solo NOMINARE un punto
+    (gli ancoraggi di ``eval/metrics.py`` sono i nomi dei POI e degli hazard):
+    se il braccio ablato potesse nominare tutti i punti mentre quello completo
+    deve limitarsi a pochi esempi rappresentativi, prenderebbe punteggi alti
+    elencando posti invece che dicendo cose vere — e il delta misurerebbe
+    l'asimmetria del vincolo, non il contributo dell'ontologia.
+
+    Percio' il vincolo e' condiviso come COSTANTE, non riscritto a mano in due
+    posti: due testi simili divergono al primo che qualcuno tocca, e la
+    divergenza sarebbe invisibile.
+    """
+    assert CITATION_LIMIT_CLAUSE in _RULE_ONTOLOGY_SYNTHESIS
+    assert CITATION_LIMIT_CLAUSE in _RULE_FIXED_BLOCK_LABELS
+    assert CITATION_LIMIT_CLAUSE in SYSTEM_PROMPT
+    assert CITATION_LIMIT_CLAUSE in NO_ONTOLOGY_SYSTEM_PROMPT
+    # Sentinella distintiva del limite (la stessa di #229 sul prompt di zona):
+    # rosso mirato se il braccio ablato tornasse a poter elencare tutto.
+    assert "NON elencare" in NO_ONTOLOGY_SYSTEM_PROMPT
 
 
 def test_no_ontology_prompt_drops_the_ontological_instructions() -> None:

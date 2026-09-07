@@ -111,6 +111,21 @@ _RULE_BLOCK_STRUCTURE = (
     '[ONTOLOGIA]", "Rischi dal contesto [CONTESTO]". Ometti un blocco se non hai '
     "nulla da dire per quella fonte. Separa i blocchi con una riga vuota."
 )
+#: LIMITE DI CITAZIONE del blocco misurato: quanti punti la prosa puo' nominare e
+#: come. Estratto come costante propria (#236) perche' e' CONDIVISO con il braccio
+#: di ablazione (:mod:`~crime_risk_analyzer.rag.no_ontology_generation`), che ha una
+#: regola 3a diversa nella descrizione della fonte dei rischi ma deve avere lo
+#: STESSO limite: il proxy di ``eval/metrics.py`` conta come ancoraggio anche il
+#: solo nominare un POI, quindi un braccio libero di elencare tutti i punti mentre
+#: l'altro si limita a pochi esempi prenderebbe punteggi alti per il vincolo che
+#: NON ha, non per la veridicita' di cio' che dice. Una costante e non due testi
+#: simili scritti a mano: la seconda copia divergerebbe al primo che la tocca.
+CITATION_LIMIT_CLAUSE = (
+    "NON elencare ogni hazard di ogni POI: individua i temi di rischio dominanti "
+    "che emergono dal mix di POI, spiega perche' emergono e cita solo pochi POI "
+    "rappresentativi come esempio, dal piu' al meno critico."
+)
+
 #: Guida di SINTESI del blocco [ONTOLOGIA] (#229): il blocco NON enumera ogni hazard
 #: di ogni POI (l'elenco esaustivo e' gia' in mappa e nel pannello Dettaglio), ma
 #: individua i TEMI di rischio dominanti con pochi esempi rappresentativi. "NON
@@ -118,9 +133,7 @@ _RULE_BLOCK_STRUCTURE = (
 #: Referenziale di proposito (cita i POI/hazard reali): la metrica M1 (#229) grada la
 #: groundedness proprio su questo blocco, quindi la sintesi deve restare ancorata.
 _RULE_ONTOLOGY_SYNTHESIS = (
-    "3a. Nel blocco [ONTOLOGIA] NON elencare ogni hazard di ogni POI: individua i "
-    "temi di rischio dominanti che emergono dal mix di POI, spiega perche' emergono "
-    "e cita solo pochi POI rappresentativi come esempio, dal piu' al meno critico. "
+    f"3a. Nel blocco [ONTOLOGIA] {CITATION_LIMIT_CLAUSE} "
     "Prosa analitica e referenziale (cita i POI/hazard reali), non un elenco."
 )
 #: Guida di INTERPRETAZIONE del blocco [CONTESTO] (#229): vera interpretazione del

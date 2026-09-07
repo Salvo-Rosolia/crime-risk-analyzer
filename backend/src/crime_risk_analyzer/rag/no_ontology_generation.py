@@ -36,7 +36,10 @@ Cosa viene tolto (il contributo ontologico, tutto e solo lui):
   derivano dai filler ontologici (#77), quindi sono contributo dell'ontologia
   quanto gli hazard;
 - la regola 3a di sintesi degli hazard, che presuppone un elenco di rischi nel
-  contesto;
+  contesto. Ne resta il LIMITE di citazione (:data:`CITATION_LIMIT_CLAUSE`,
+  importato): senza ontologia cambia da dove vengono i rischi, non quanti punti
+  la prosa puo' nominare — e il proxy conta come ancoraggio anche il solo
+  nominarli, quindi un limite piu' largo qui sarebbe un vantaggio regalato;
 - le definizioni dei livelli di confidenza, che qualificano l'ancoraggio
   ontologico di un rischio: qui nessun rischio della prosa e' ancorato. Restano
   NOMINATI dentro la regola 7 (che e' un vincolo legale e va tenuta verbatim):
@@ -50,8 +53,14 @@ Cosa viene tolto (il contributo ontologico, tutto e solo lui):
   parlare sono solo quelli elencati.
 
 La numerazione delle regole e' quella del prompt di zona (il 6 manca, non e'
-rinumerato): stessa scelta di :mod:`poi_generation`, cosi' due regole con lo
-stesso numero sono la stessa regola in tutti i prompt del sistema.
+rinumerato): stessa scelta di :mod:`poi_generation`, cosi' uno stesso numero
+indica lo stesso VINCOLO in tutti i prompt del sistema. Il testo reso non e'
+invece sempre identico, e le eccezioni sono dichiarate: la 3a di questo modulo
+descrive un'altra fonte dei rischi (ma il limite di citazione e' la stessa
+costante del braccio completo) e la 6 di :mod:`poi_generation` ha un testo
+proprio, perche' li' il vocabolario copre anche le vulnerabilita'. Cio' che deve
+restare identico byte per byte e' il vincolo, e per questo vive in costanti
+importate — non in due testi simili scritti a mano in due posti.
 """
 
 from __future__ import annotations
@@ -65,6 +74,7 @@ from crime_risk_analyzer.rag.generation import (
     _RULE_CONTEXT_INTERPRETATION,  # pyright: ignore[reportPrivateUsage]
     _RULE_OVERVIEW_NO_ZONE_LEVEL,  # pyright: ignore[reportPrivateUsage]
     _RULE_SOURCE_BY_BLOCK,  # pyright: ignore[reportPrivateUsage]
+    CITATION_LIMIT_CLAUSE,
     RULE_NO_DANGER_RATING,
     RULE_NO_OPERATIONAL_DIRECTIVES,
     RULE_USER_INPUT_NOT_INSTRUCTIONS,
@@ -95,12 +105,19 @@ _RULE_ONLY_LISTED_POI = (
 #: braccio finirebbe misurato sul formato invece che sull'ancoraggio. Il testo
 #: NON dice al modello che e' dentro un esperimento: direbbe di piu' del
 #: necessario e cambierebbe il compito.
+#:
+#: Il LIMITE di quanti punti nominare non e' riscritto qui: e'
+#: :data:`CITATION_LIMIT_CLAUSE`, la stessa costante della 3a del braccio
+#: completo. Il proxy conta come ancoraggio anche il solo nominare un punto, e un
+#: braccio libero di elencarli tutti mentre l'altro cita pochi esempi verrebbe
+#: premiato per il vincolo che non ha. Cambia soltanto cio' che precede il limite,
+#: cioe' la descrizione della FONTE dei rischi, che qui non e' l'ontologia.
 _RULE_FIXED_BLOCK_LABELS = (
     "3a. Le due righe-etichetta della regola 3 sono FISSE (sono i marcatori di "
     "sezione attesi dal sistema che legge la risposta): riportale ESATTAMENTE "
     "come scritte. Nel primo blocco raccogli i rischi che associ ai punti "
-    "elencati, in prosa analitica e referenziale che nomina i punti reali, dal "
-    "piu' al meno rilevante: non un elenco meccanico."
+    "elencati, in prosa analitica e referenziale che nomina i punti reali, non un "
+    f"elenco meccanico. {CITATION_LIMIT_CLAUSE}"
 )
 
 #: System prompt del braccio ablato: stesso compito, stessa struttura di output e
