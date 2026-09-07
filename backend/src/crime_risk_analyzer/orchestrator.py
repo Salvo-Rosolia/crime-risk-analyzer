@@ -372,7 +372,7 @@ def _generated_response(
     *,
     latenza_ms: int,
     contesto_hash: str,
-    measured_token: str = ONTOLOGY_TOKEN,
+    measured_token: str,
 ) -> AnalyzeResponse:
     """Assembla la AnalyzeResponse CON narrativa dal contributo del generation layer.
 
@@ -382,12 +382,19 @@ def _generated_response(
     un secondo assemblaggio copiato avrebbe potuto divergere proprio sui campi che
     rendono confrontabili i due bracci.
 
-    ``measured_token`` e' la riga-etichetta del primo blocco, che dipende dal
-    prompt che ha generato la narrativa: il braccio ablato fa scrivere
+    ``measured_token`` e' il token della riga-etichetta del primo blocco, che
+    dipende dal prompt che ha generato la narrativa: il braccio ablato fa scrivere
     ``[SINTESI-LLM]`` (non ha consultato alcuna ontologia e non lo dichiara),
     quindi tagliare la sua prosa sull'etichetta dell'altro braccio metterebbe
     tutto in ``overview`` — una seconda lettura dello stesso testo, in disaccordo
-    con quella dell'eval. Default = braccio storico.
+    con quella dell'eval.
+
+    OBBLIGATORIO e senza default: con ``[ONTOLOGIA]`` come default un terzo
+    braccio che dimenticasse di dichiarare la propria etichetta non
+    sbaglierebbe in modo visibile — ``parse_source_prose`` non troverebbe nulla,
+    la prosa finirebbe tutta in ``overview`` e quella narrativa risulterebbe una
+    NON-ATTRIBUZIONE (0.0/1.0) senza che nessuno solleva. Farlo dichiarare a ogni
+    chiamante sposta quell'errore dal silenzio al type check.
     """
     return AnalyzeResponse(
         citta=citta,
@@ -510,6 +517,10 @@ async def run_analysis(
         gen,
         latenza_ms=_elapsed_ms(start),
         contesto_hash=contesto_hash,
+        # Il prompt di questo braccio chiede l'etichetta ontologica (regola 3):
+        # la prosa si taglia su quella. Dichiarato anche qui, dove sarebbe stato
+        # il default, perche' l'etichetta e' una proprieta' del prompt usato.
+        measured_token=ONTOLOGY_TOKEN,
     )
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 
 import pytest
@@ -17,6 +18,7 @@ from crime_risk_analyzer.orchestrator import (
     BaselineRequest,
     PoiOut,
     _build_poi_list,  # pyright: ignore[reportPrivateUsage]
+    _generated_response,  # pyright: ignore[reportPrivateUsage]
     _risk_models_from_grounded,  # pyright: ignore[reportPrivateUsage]
     _structured_response,  # pyright: ignore[reportPrivateUsage]
     run_analysis,
@@ -902,6 +904,21 @@ async def test_run_no_ontology_prompt_splits_prose_on_its_own_block_label(
     assert resp.narrativa_fonti.overview == "Sintesi."
     assert resp.narrativa_fonti.ontologia == "Furto."
     assert resp.narrativa_fonti.contesto == "Borseggio."
+
+
+def test_generated_response_has_no_default_measured_token() -> None:
+    """Il token del blocco misurato lo dichiara il chiamante, sempre.
+
+    Con un default, un terzo braccio che se lo dimenticasse erediterebbe
+    ``[ONTOLOGIA]``: ``parse_source_prose`` non troverebbe la sua etichetta,
+    tutta la prosa finirebbe in ``overview`` e la sua narrativa verrebbe misurata
+    come NON-ATTRIBUZIONE (0.0/1.0) senza alcun errore — la classe di bug che
+    #236 esiste per prevenire. Il tipo lo impedisce (pyright), questo test tiene
+    il default fuori anche da una futura «comodita'».
+    """
+    param = inspect.signature(_generated_response).parameters["measured_token"]
+    assert param.kind is inspect.Parameter.KEYWORD_ONLY
+    assert param.default is inspect.Parameter.empty
 
 
 async def test_run_no_ontology_prompt_falls_back_on_llm_error(
