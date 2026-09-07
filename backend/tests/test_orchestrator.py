@@ -851,6 +851,7 @@ async def test_run_no_ontology_prompt_keeps_the_structured_contract(
     )
 
     assert resp.fallback is False
+    assert resp.narrativa is not None
     assert resp.narrativa.startswith("Analisi:")
     assert resp.risk_models == riferimento.risk_models
     assert resp.confidence_summary == riferimento.confidence_summary
