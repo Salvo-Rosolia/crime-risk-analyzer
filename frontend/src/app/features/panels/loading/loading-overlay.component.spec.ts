@@ -28,12 +28,13 @@ describe('LoadingOverlayComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Analizzando la zona');
   });
 
-  it('elenca gli step cosmetici della pipeline reale (geocoding → Overpass → SPARQL → grounding → LLM)', () => {
+  it('elenca gli step cosmetici della fase 1 (geocoding → Overpass → SPARQL → grounding, nessuna generazione LLM qui)', () => {
     const text = fixture.nativeElement.textContent;
     for (const step of LOADING_STEPS) {
       expect(text).toContain(step);
     }
-    expect(LOADING_STEPS.length).toBe(5);
+    expect(LOADING_STEPS.length).toBe(4);
+    expect(text).not.toContain('LLM');
   });
 
   it('il primo step è "corrente" da subito', () => {

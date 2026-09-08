@@ -20,7 +20,11 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { App } from './app';
 import { ApiService } from '@core/api/api.service';
 import { StateStore } from '@core/state/state.store';
-import type { AnalyzeResponse, PoiNarrativeResponse } from '@core/models/models';
+import type {
+  AnalyzeResponse,
+  PoiNarrativeResponse,
+  ZoneNarrativeResponse,
+} from '@core/models/models';
 
 const emptyResp: AnalyzeResponse = {
   citta: 'Roma',
@@ -47,6 +51,7 @@ describe('App shell', () => {
     analyze: jest.Mock;
     analyzeBaseline: jest.Mock;
     poiNarrative: jest.Mock;
+    zoneNarrative: jest.Mock;
   };
 
   beforeEach(async () => {
@@ -55,6 +60,9 @@ describe('App shell', () => {
       analyze: jest.fn(),
       analyzeBaseline: jest.fn(),
       poiNarrative: jest.fn(),
+      // Default: mai risolve, così i test estranei alla narrativa di zona in background (#292)
+      // non devono preoccuparsene; i test dedicati sovrascrivono esplicitamente.
+      zoneNarrative: jest.fn().mockReturnValue(new Promise<ZoneNarrativeResponse>(() => undefined)),
     };
     await TestBed.configureTestingModule({
       imports: [App],
@@ -914,6 +922,26 @@ describe('App shell', () => {
       fallback: false,
     };
 
+    /**
+     * Risposta della fase 2 di zona (#259/#292) usata come default in questo blocco: ECHO dello
+     * stesso testo già presente nella fase 1 (`zoneResp`), così i test che ispezionano il DOM
+     * subito dopo `analyzed()` (prima che la fase 2 sia settled) non vedono alcuna differenza —
+     * qui l'interesse è tutto sulla narrativa del POI, non su quella di zona.
+     */
+    const zoneNarrativeResp: ZoneNarrativeResponse = {
+      narrativa: zoneResp.narrativa ?? '',
+      narrativa_fonti: zoneResp.narrativa_fonti,
+      tokens_input: 0,
+      tokens_output: 0,
+      latenza_ms: 0,
+      repro: { temperature: 0, seed: 0, prompt_hash: '' },
+      fallback: zoneResp.fallback,
+    };
+
+    beforeEach(() => {
+      api.zoneNarrative.mockResolvedValue(zoneNarrativeResp);
+    });
+
     /** Shell montata e già in RESULTS con una zona analizzata (quindi `lastQuery` valorizzato). */
     async function analyzed(): Promise<ComponentFixture<App>> {
       const f = TestBed.createComponent(App);
@@ -1032,6 +1060,9 @@ describe('App shell', () => {
 
     it('tornando alla lista sparisce il caricamento di una generazione ancora in volo', async () => {
       const f = await analyzed();
+      // Lascia settare la narrativa di ZONA in background (#292, echo neutro): il test riguarda
+      // solo il caricamento del POI, non deve dipendere dal timing di quel giro indipendente.
+      await f.whenStable();
       store.dispatch({ type: 'SELECT_POI', id: 'poi-1' });
       store.dispatch({ type: 'POI_NARRATIVE_START', poiId: 'poi-1' });
       f.detectChanges();

@@ -52,6 +52,9 @@ describe('NarrativeSheetComponent', () => {
       narrativaFonti?: SourceProse | null;
       riskModels?: RiskModel[];
       open?: boolean;
+      loading?: boolean;
+      error?: string | null;
+      fallback?: boolean;
     } = {},
   ): void {
     fixture = TestBed.createComponent(NarrativeSheetComponent);
@@ -64,6 +67,9 @@ describe('NarrativeSheetComponent', () => {
     );
     fixture.componentRef.setInput('riskModels', inputs.riskModels ?? riskModels);
     fixture.componentRef.setInput('open', inputs.open ?? true);
+    if (inputs.loading !== undefined) fixture.componentRef.setInput('loading', inputs.loading);
+    if (inputs.error !== undefined) fixture.componentRef.setInput('error', inputs.error);
+    if (inputs.fallback !== undefined) fixture.componentRef.setInput('fallback', inputs.fallback);
     fixture.detectChanges();
   }
 
@@ -317,5 +323,47 @@ describe('NarrativeSheetComponent', () => {
   it('#218: da aperto il pannello NON ha la classe collapsed', () => {
     setup({ open: true });
     expect(fixture.nativeElement.classList.contains('cra-narr-collapsed')).toBe(false);
+  });
+
+  describe('#292: i tre stati del dato (narrativa in arrivo / arrivata / errore-fallback)', () => {
+    it('loading: mostra un indicatore leggero, non un errore, anche se la narrativa è ancora vuota', () => {
+      setup({ loading: true, narrativa: '', narrativaFonti: null, riskModels: [] });
+      const loadingEl = fixture.nativeElement.querySelector('.cra-narr-loading');
+      expect(loadingEl).toBeTruthy();
+      expect(loadingEl.getAttribute('role')).toBe('status');
+      expect(fixture.nativeElement.querySelector('.cra-narr-error')).toBeNull();
+      expect(fixture.nativeElement.querySelector('.cra-narr-fallback')).toBeNull();
+    });
+
+    it('loading ha priorità sull’errore: se entrambi sono presenti si vede solo il caricamento', () => {
+      setup({ loading: true, error: 'boom' });
+      expect(fixture.nativeElement.querySelector('.cra-narr-loading')).toBeTruthy();
+      expect(fixture.nativeElement.querySelector('.cra-narr-error')).toBeNull();
+    });
+
+    it('narrativa arrivata (loading false, nessun errore/fallback): mostra il testo, nessun indicatore né alert', () => {
+      setup({ loading: false, error: null, fallback: false });
+      expect(fixture.nativeElement.querySelector('.cra-narr-loading')).toBeNull();
+      expect(fixture.nativeElement.querySelector('.cra-narr-error')).toBeNull();
+      expect(fixture.nativeElement.querySelector('.cra-narr-fallback')).toBeNull();
+      expect(fixture.nativeElement.textContent).toContain('Sintesi generale della zona.');
+    });
+
+    it('errore: mostra il messaggio in un alert, non l’indicatore di caricamento', () => {
+      setup({ error: 'Errore nella generazione della narrativa di zona.' });
+      const errEl = fixture.nativeElement.querySelector('.cra-narr-error');
+      expect(errEl).toBeTruthy();
+      expect(errEl.getAttribute('role')).toBe('alert');
+      expect(errEl.textContent).toContain('Errore nella generazione della narrativa di zona.');
+      expect(fixture.nativeElement.querySelector('.cra-narr-loading')).toBeNull();
+    });
+
+    it('fallback: mostra il messaggio di fallback già gestito oggi, non un errore generico', () => {
+      setup({ fallback: true });
+      const fallbackEl = fixture.nativeElement.querySelector('.cra-narr-fallback');
+      expect(fallbackEl).toBeTruthy();
+      expect(fallbackEl.textContent).toContain('non ha prodotto una narrativa');
+      expect(fixture.nativeElement.querySelector('.cra-narr-error')).toBeNull();
+    });
   });
 });

@@ -61,10 +61,10 @@
       [riskModels]="store.currentRiskModels()"
       [open]="store.narrOpen()"
       [poiName]="store.currentScopePoiName()"
-      [loading]="store.poiNarrativePending()"
-      [error]="store.poiNarrativeErrorInScope()"
+      [loading]="store.currentNarrativeLoading()"
+      [error]="store.currentNarrativeError()"
       [ungrounded]="store.poiNarrativeUngrounded()"
-      [fallback]="store.poiNarrativeFallback()"
+      [fallback]="store.currentNarrativeFallback()"
       (toggleNarrative)="onToggleNarr()"
       (regenerate)="onRegenerate()"
     />

@@ -27,6 +27,8 @@ export const initialState: AppState = {
   poiNarratives: {},
   poiNarrativeLoading: null,
   poiNarrativeError: null,
+  zoneNarrativeLoading: false,
+  zoneNarrativeError: null,
 };
 
 export function transition(state: AppState, action: Action): AppState {
@@ -48,6 +50,10 @@ export function transition(state: AppState, action: Action): AppState {
         poiNarratives: {},
         poiNarrativeLoading: null,
         poiNarrativeError: null,
+        // Narrativa di ZONA (#292): stesso ragionamento, un nuovo contesto rende in volo (se
+        // ancora pendente) o già mostrato (se un errore era rimasto) irrilevante.
+        zoneNarrativeLoading: false,
+        zoneNarrativeError: null,
         // lastQuery è la sorgente di "Rigenera", funzione SOLO del sistema completo (review
         // #67-bis, bloccante B): una ANALYZE della pipeline base non deve sovrascriverlo, altrimenti
         // Rigenera rilancerebbe l'ultima ricerca Base invece dell'ultima analisi completo. Il Base
@@ -149,6 +155,31 @@ export function transition(state: AppState, action: Action): AppState {
     case 'POI_NARRATIVE_ERROR':
       // Le narrative già in cache restano: il fallimento riguarda la sola generazione in corso.
       return { ...state, poiNarrativeLoading: null, poiNarrativeError: action.message };
+    case 'ZONE_NARRATIVE_START':
+      return { ...state, zoneNarrativeLoading: true, zoneNarrativeError: null };
+    case 'ZONE_NARRATIVE_SUCCESS':
+      // Aggiorna SOLO narrativa/narrativa_fonti/fallback/llm_used di completoData (nessun nuovo
+      // stato della FSM, #292): la mappa/i rischi/il badge Copertura restano quelli già mostrati
+      // dalla fase 1. `llm_used` della fase 1 è un placeholder (non ha più chiamato l'LLM): questo
+      // è il valore reale, di chi ha scritto la narrativa.
+      return {
+        ...state,
+        completoData: state.completoData
+          ? {
+              ...state.completoData,
+              narrativa: action.narrativa,
+              narrativa_fonti: action.narrativaFonti,
+              fallback: action.fallback,
+              llm_used: action.llmUsed,
+            }
+          : state.completoData,
+        zoneNarrativeLoading: false,
+        zoneNarrativeError: null,
+      };
+    case 'ZONE_NARRATIVE_ERROR':
+      // La narrativa di zona eventualmente già mostrata (fixture legacy o rigenerazione precedente)
+      // resta: il fallimento riguarda solo il nuovo giro in corso.
+      return { ...state, zoneNarrativeLoading: false, zoneNarrativeError: action.message };
     default:
       return state;
   }

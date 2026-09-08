@@ -53,15 +53,10 @@ export class StateStore {
   readonly poiNarrativeLoading = computed(() => this._state().poiNarrativeLoading);
   /** Errore dell'ultima generazione POI fallita (#197), stato grezzo. */
   readonly poiNarrativeError = computed(() => this._state().poiNarrativeError);
-  /**
-   * L'errore da MOSTRARE (#197): solo in Vista Dettaglio. Una generazione può fallire dopo che
-   * l'utente è tornato alla lista (l'azzeramento su `SELECT_POI`/`DESELECT_POI` copre gli errori
-   * già presenti, non quelli che arrivano dopo): lì il banner riguarderebbe un punto che non è
-   * più lo scope mostrato.
-   */
-  readonly poiNarrativeErrorInScope = computed(() =>
-    this._state().screen === 'DETAIL' ? this._state().poiNarrativeError : null,
-  );
+  /** Narrativa di ZONA (#259 fase 2, #292) in caricamento in background, stato grezzo. */
+  readonly zoneNarrativeLoading = computed(() => this._state().zoneNarrativeLoading);
+  /** Errore dell'ultima generazione di narrativa di ZONA fallita (#292), stato grezzo. */
+  readonly zoneNarrativeError = computed(() => this._state().zoneNarrativeError);
 
   /**
    * Narrativa del POI selezionato, se c'è una selezione E la sua narrativa è già arrivata (#197).
@@ -121,6 +116,34 @@ export class StateStore {
     return narrative.riskModels.every((m) => m.risks.length === 0);
   });
 
+  /**
+   * "narrativa in caricamento" dello SCOPE corrente (#292): in Vista Dettaglio segue il POI
+   * selezionato (`poiNarrativePending`), altrimenti la narrativa di ZONA in volo dopo la fase 1 di
+   * `/analyze` (#259). Stesso pattern di `currentNarrativa`/`currentNarrativaFonti`/
+   * `currentRiskModels`: il pannello legge solo da qui, non sa nulla della selezione.
+   */
+  readonly currentNarrativeLoading = computed(() => {
+    const s = this._state();
+    return s.screen === 'DETAIL' ? this.poiNarrativePending() : s.zoneNarrativeLoading;
+  });
+  /** Errore dello SCOPE corrente (#292): quello del POI in Vista Dettaglio, quello di ZONA altrove. */
+  readonly currentNarrativeError = computed(() => {
+    const s = this._state();
+    return s.screen === 'DETAIL' ? s.poiNarrativeError : s.zoneNarrativeError;
+  });
+  /**
+   * Fallback LLM dello SCOPE corrente (#292): quello del POI in Vista Dettaglio (`poiNarrativeFallback`),
+   * altrimenti quello riportato dall'ultima generazione di narrativa di ZONA riuscita
+   * (`completoData.fallback`, aggiornato da `ZONE_NARRATIVE_SUCCESS` — `false` di default nella
+   * fase 1, che non ha ancora tentato l'LLM).
+   */
+  readonly currentNarrativeFallback = computed(() => {
+    const s = this._state();
+    return s.screen === 'DETAIL'
+      ? this.poiNarrativeFallback()
+      : (s.completoData?.fallback ?? false);
+  });
+
   dispatch(action: Action): void {
     this._state.update((s) => transition(s, action));
   }
@@ -129,12 +152,19 @@ export class StateStore {
    * Pipeline 'completo': ogni azione dispatchata qui porta `pipeline: 'completo'` come letterale
    * fisso, mai letto da `state.mode` — così un `TOGGLE_MODE` dispatchato mentre questa richiesta è
    * ancora in volo non può dirottarne la risposta su `baselineData` (review #67-bis, bloccante A).
+   *
+   * Fase 1/2 (#259, #292): `/analyze` risponde SUBITO con `narrativa: null` (mappa, POI, rischi,
+   * badge Copertura sono già completi) e la FSM passa a RESULTS; la narrativa di ZONA arriva poi in
+   * background (`loadZoneNarrative`, non attesa qui) e aggiorna solo il campo narrativa dello stato
+   * già in RESULTS — mai un giro extra della FSM.
    */
   async startAnalysis(citta: string, zona: string, domanda?: string | null): Promise<void> {
     this.dispatch({ type: 'ANALYZE', citta, zona, domanda, pipeline: 'completo' });
     try {
-      const result = await this.api.analyze(citta, zona, domanda);
+      // Niente `domanda` qui (#292): la fase 1 non chiama più l'LLM, va solo a `loadZoneNarrative`.
+      const result = await this.api.analyze(citta, zona);
       this.dispatch({ type: 'LOAD_SUCCESS', data: result, pipeline: 'completo' });
+      void this.loadZoneNarrative(result.contesto_hash, citta, zona, domanda ?? null);
     } catch (err) {
       this.dispatch({
         type: 'LOAD_ERROR',
@@ -203,6 +233,44 @@ export class StateStore {
       this.dispatch({
         type: 'POI_NARRATIVE_ERROR',
         message: errorMessage(err, 'Errore nella generazione della narrativa del punto.'),
+      });
+    }
+  }
+
+  /**
+   * Genera la narrativa di ZONA in background dopo che la fase 1 di `/analyze` ha già risposto e
+   * portato la FSM in RESULTS (#259, #292): non è chiamata da un componente (a differenza di
+   * `loadPoiNarrative`, cablata alla selezione), ma da `startAnalysis` stesso, senza essere attesa.
+   *
+   * `domanda` va qui e non alla fase 1 (che non chiama più l'LLM, la ignorerebbe silenziosamente).
+   * `contestoHash` è l'impronta della risposta appena arrivata: senza, non c'è nulla che il backend
+   * possa verificare (stesso trattamento di `loadPoiNarrative`, #242). Un risultato (successo o
+   * errore) che arriva dopo che l'utente ha rifatto un'analisi di zona viene scartato — altrimenti
+   * finirebbe su un vicinato che non è più quello a schermo, aggirando la verifica server-side.
+   */
+  private async loadZoneNarrative(
+    contestoHash: string,
+    citta: string,
+    zona: string,
+    domanda: string | null,
+  ): Promise<void> {
+    if (!contestoHash) return;
+    this.dispatch({ type: 'ZONE_NARRATIVE_START' });
+    try {
+      const res = await this.api.zoneNarrative(citta, zona, contestoHash, domanda);
+      if (this.contestoCambiato(contestoHash)) return;
+      this.dispatch({
+        type: 'ZONE_NARRATIVE_SUCCESS',
+        narrativa: res.narrativa,
+        narrativaFonti: res.narrativa_fonti,
+        fallback: res.fallback,
+        llmUsed: res.llm_used,
+      });
+    } catch (err) {
+      if (this.contestoCambiato(contestoHash)) return;
+      this.dispatch({
+        type: 'ZONE_NARRATIVE_ERROR',
+        message: errorMessage(err, 'Errore nella generazione della narrativa di zona.'),
       });
     }
   }

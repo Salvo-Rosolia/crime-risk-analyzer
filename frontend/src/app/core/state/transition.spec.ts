@@ -394,4 +394,86 @@ describe('transition (FSM)', () => {
       expect(transition(before, { type: 'RESET' }).poiNarratives).toEqual({});
     });
   });
+
+  describe('narrativa di ZONA (#259 fase 2, #292)', () => {
+    it('ZONE_NARRATIVE_START segna la zona in caricamento e pulisce l’errore', () => {
+      const s = transition(
+        { ...initialState, zoneNarrativeError: 'vecchio' },
+        { type: 'ZONE_NARRATIVE_START' },
+      );
+      expect(s.zoneNarrativeLoading).toBe(true);
+      expect(s.zoneNarrativeError).toBeNull();
+    });
+
+    it('ZONE_NARRATIVE_SUCCESS aggiorna SOLO narrativa/narrativa_fonti/fallback/llm_used di completoData, senza cambiare screen', () => {
+      const results: AppState = {
+        ...initialState,
+        screen: 'RESULTS',
+        completoData: data,
+        zoneNarrativeLoading: true,
+      };
+      const s = transition(results, {
+        type: 'ZONE_NARRATIVE_SUCCESS',
+        narrativa: 'narrativa di zona generata',
+        narrativaFonti: {
+          overview: 'narrativa di zona generata',
+          ontologia: 'x',
+          contesto: 'y',
+          speculativo: 'z',
+        },
+        fallback: false,
+        llmUsed: 'llama-3.3-70b-versatile',
+      });
+      expect(s.screen).toBe('RESULTS');
+      expect(s.completoData?.narrativa).toBe('narrativa di zona generata');
+      expect(s.completoData?.narrativa_fonti.ontologia).toBe('x');
+      expect(s.completoData?.fallback).toBe(false);
+      // Diverso dal placeholder di fase 1 (`data.llm_used = 'test-model'`): prova che il valore
+      // riflette davvero chi ha scritto la narrativa, non è rimasto quello della fase 1.
+      expect(s.completoData?.llm_used).toBe('llama-3.3-70b-versatile');
+      // Il resto della fase 1 non viene toccato (stesso oggetto POI/risk_models).
+      expect(s.completoData?.poi).toBe(data.poi);
+      expect(s.completoData?.risk_models).toBe(data.risk_models);
+      expect(s.zoneNarrativeLoading).toBe(false);
+    });
+
+    it('ZONE_NARRATIVE_SUCCESS senza completoData non fallisce (guardia difensiva)', () => {
+      const s = transition(initialState, {
+        type: 'ZONE_NARRATIVE_SUCCESS',
+        narrativa: 'x',
+        narrativaFonti: { overview: '', ontologia: '', contesto: '', speculativo: '' },
+        fallback: false,
+        llmUsed: 'llama-3.3-70b-versatile',
+      });
+      expect(s.completoData).toBeNull();
+    });
+
+    it('ZONE_NARRATIVE_ERROR conserva la narrativa già mostrata', () => {
+      const before: AppState = {
+        ...initialState,
+        completoData: { ...data, narrativa: 'narrativa già mostrata' },
+        zoneNarrativeLoading: true,
+      };
+      const s = transition(before, { type: 'ZONE_NARRATIVE_ERROR', message: 'boom' });
+      expect(s.zoneNarrativeError).toBe('boom');
+      expect(s.zoneNarrativeLoading).toBe(false);
+      expect(s.completoData?.narrativa).toBe('narrativa già mostrata');
+    });
+
+    it('ANALYZE invalida la narrativa di zona in volo: il contesto è cambiato', () => {
+      const before: AppState = {
+        ...initialState,
+        zoneNarrativeLoading: true,
+        zoneNarrativeError: 'boom',
+      };
+      const s = transition(before, {
+        type: 'ANALYZE',
+        citta: 'Roma',
+        zona: 'Trastevere',
+        pipeline: 'completo',
+      });
+      expect(s.zoneNarrativeLoading).toBe(false);
+      expect(s.zoneNarrativeError).toBeNull();
+    });
+  });
 });

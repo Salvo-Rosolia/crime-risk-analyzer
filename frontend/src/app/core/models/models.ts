@@ -90,8 +90,13 @@ export interface AnalyzeResponse {
   zona_normalizzata: string;
   poi: Poi[];
   risk_models: RiskModel[];
-  narrativa: string;
-  /** Prosa della narrativa suddivisa per fonte (display, additivo; vuoto in baseline/fallback). */
+  /**
+   * `null` se non ancora generata (fase 1 di `/analyze`, #259/#292): arriva in un secondo tempo da
+   * `POST /analyze/narrativa`. Stringa vuota in baseline o quando l'LLM è caduto (fallback).
+   */
+  narrativa: string | null;
+  /** Prosa della narrativa suddivisa per fonte (display, additivo; vuoto in baseline/fallback/in
+   * attesa della fase 2). */
   narrativa_fonti: SourceProse;
   confidence_summary: ConfidenceSummary;
   llm_used: string;
@@ -125,6 +130,25 @@ export interface PoiNarrativeResponse {
   repro: Repro;
   /** True se l'LLM è caduto: solo dati strutturati, `narrativa` vuota. */
   fallback: boolean;
+}
+
+/**
+ * Risposta di `POST /analyze/narrativa` (#259 fase 2, #292): narrativa di ZONA generata in
+ * background dopo che `/analyze` ha già risposto con `narrativa: null`. Gemello di
+ * `PoiNarrativeResponse` senza `poi_id`/`risk_models`: i rischi di zona sono già nella fase 1
+ * (`AnalyzeResponse.risk_models`), qui arriva solo il testo.
+ */
+export interface ZoneNarrativeResponse {
+  narrativa: string;
+  narrativa_fonti: SourceProse;
+  tokens_input: number;
+  tokens_output: number;
+  latenza_ms: number;
+  repro: Repro;
+  /** True se l'LLM è caduto: `narrativa` vuota. */
+  fallback: boolean;
+  /** Modello che ha scritto la narrativa (fase 2, #292). */
+  llm_used: string;
 }
 
 /**
@@ -196,6 +220,13 @@ export interface AppState {
   poiNarrativeLoading: string | null;
   /** Messaggio d'errore dell'ultima generazione POI fallita. */
   poiNarrativeError: string | null;
+  /**
+   * Narrativa di ZONA (fase 2, #259/#292) in caricamento in background dopo che `/analyze` ha già
+   * risposto con `narrativa: null`. Azzerato da ogni nuova ANALYZE (nuovo contesto in volo).
+   */
+  zoneNarrativeLoading: boolean;
+  /** Messaggio d'errore dell'ultima generazione di narrativa di ZONA fallita (#292). */
+  zoneNarrativeError: string | null;
 }
 
 export type Action =
@@ -222,4 +253,15 @@ export type Action =
   /** Generazione della narrativa di un POI avviata (#197): il pannello mostra il caricamento. */
   | { type: 'POI_NARRATIVE_START'; poiId: string }
   | { type: 'POI_NARRATIVE_SUCCESS'; poiId: string; data: PoiNarrative }
-  | { type: 'POI_NARRATIVE_ERROR'; message: string };
+  | { type: 'POI_NARRATIVE_ERROR'; message: string }
+  /** Generazione della narrativa di ZONA avviata in background (#259 fase 2, #292): il pannello
+   * mostra il caricamento senza lasciare RESULTS (nessun nuovo stato della FSM). */
+  | { type: 'ZONE_NARRATIVE_START' }
+  | {
+      type: 'ZONE_NARRATIVE_SUCCESS';
+      narrativa: string;
+      narrativaFonti: SourceProse;
+      fallback: boolean;
+      llmUsed: string;
+    }
+  | { type: 'ZONE_NARRATIVE_ERROR'; message: string };
