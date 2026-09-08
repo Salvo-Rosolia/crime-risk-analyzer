@@ -38,6 +38,12 @@ def test_extract_follows_vulnerability_restriction() -> None:
     assert by_id["Unmanned_access"]["category"] == "vulnerability"
 
 
+def test_extract_follows_stakeholder_restriction() -> None:
+    records = extract.extract_records(_graph(), ["Bank"])
+    by_id = {r["identifier"]: r for r in records}
+    assert by_id["Branch_manager"]["category"] == "stakeholder"
+
+
 def test_extract_skips_seeds_absent_from_graph() -> None:
     records = extract.extract_records(_graph(), ["Bank", "Hospital"])
     ids = {r["identifier"] for r in records}

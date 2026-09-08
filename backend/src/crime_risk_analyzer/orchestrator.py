@@ -183,10 +183,14 @@ class PoiOut(BaseModel):
             "arrivavano solo al prompt, senza citazione (#256)."
         ),
     )
-    # NB: l'asse ``stakeholders`` (havingPerformer) NON e' esposto, di proposito: il
-    # vocabolario controllato non ha la categoria e 72 dei suoi filler non hanno
-    # etichetta italiana, quindi la sezione uscirebbe in inglese in una UI italiana.
-    # Vedi il commento in ``rag/grounding.py``.
+    stakeholders: list[OntologyItem] = Field(
+        default_factory=list[OntologyItem],
+        description=(
+            "Stakeholder della classe (havingPerformer), ciascuno con la propria "
+            "citazione: il quarto asse TERMINUS, esposto da quando il vocabolario "
+            "controllato copre anche questa categoria (#270)."
+        ),
+    )
 
     @model_validator(mode="after")
     def _fill_labels(self) -> PoiOut:
@@ -287,8 +291,8 @@ def _build_poi_list(
                 lon=poi["lon"],
                 confidence=confidence,
                 sparql_path=vr["sparql_path"],
-                # I tre assi arrivano dal grounding, che li ha ancorati (#256): qui
-                # si serializza, non si ri-deriva nulla.
+                # I quattro assi arrivano dal grounding, che li ha ancorati (#256/#270):
+                # qui si serializza, non si ri-deriva nulla.
                 critical_events=[
                     OntologyItem(name=e["name"], source=e["source"])
                     for e in vr["critical_events"]
@@ -296,6 +300,10 @@ def _build_poi_list(
                 vulnerabilities=[
                     OntologyItem(name=e["name"], source=e["source"])
                     for e in vr["vulnerabilities"]
+                ],
+                stakeholders=[
+                    OntologyItem(name=e["name"], source=e["source"])
+                    for e in vr["stakeholders"]
                 ],
             )
         )

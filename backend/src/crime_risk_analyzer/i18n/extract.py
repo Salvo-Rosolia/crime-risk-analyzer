@@ -46,6 +46,7 @@ _PROP_CATEGORY: dict[str, str] = {
     "havingCriticalEvent": "critical_event",
     "havingVulnerability": "vulnerability",
     "isVulnerableTo": "vulnerability",
+    "havingPerformer": "stakeholder",
 }
 
 _CATEGORY_ORDER: dict[str, int] = {
@@ -53,6 +54,7 @@ _CATEGORY_ORDER: dict[str, int] = {
     "hazard": 1,
     "critical_event": 2,
     "vulnerability": 3,
+    "stakeholder": 4,
 }
 
 _FILLER_Q = """
