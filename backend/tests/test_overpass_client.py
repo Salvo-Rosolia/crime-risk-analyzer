@@ -681,28 +681,22 @@ async def test_fetch_pois_user_agent_includes_contact_url() -> None:
 
 @respx.mock
 async def test_fetch_pois_raises_on_network_error() -> None:
-    """Errore di rete non-timeout (es. connessione) -> OverpassError."""
-    respx.post(DEFAULT_OVERPASS_URL).mock(side_effect=httpx.ConnectError("refused"))
+    """Errore di rete non-timeout (es. connessione) -> OverpassError immediata.
 
-    with pytest.raises(OverpassError):
-        await fetch_pois(_BBOX, "Roma")
-
-
-# --- #247: blip di trasporto (non-timeout) ritentabili SOLO in cattura offline ---
-
-
-@respx.mock
-async def test_politica_interattiva_resta_fail_fast_su_errore_di_trasporto() -> None:
-    """Il percorso /analyze non guadagna latenza per un blip di trasporto: resta
-    definitivo come prima di #247, nessun ritentativo aggiuntivo."""
+    Politica di default (interattiva): il percorso /analyze non deve guadagnare
+    latenza per un blip di trasporto, quindi nessun ritentativo aggiuntivo (#247).
+    """
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         side_effect=httpx.ConnectError("refused")
     )
 
     with pytest.raises(OverpassError):
-        await fetch_pois(_BBOX, "Roma", sleep=_recording_sleep([]))
+        await fetch_pois(_BBOX, "Roma")
 
     assert route.call_count == 1
+
+
+# --- #247: blip di trasporto (non-timeout) ritentabili SOLO in cattura offline ---
 
 
 @respx.mock

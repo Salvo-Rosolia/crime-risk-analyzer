@@ -348,13 +348,17 @@ def select_pois(
 
 
 #: Blip di trasporto non-timeout trattati come transitori quando la politica lo
-#: consente (#247): connessione rifiutata, connessione chiusa a meta' risposta,
-#: lettura interrotta. Overpass sotto carico chiude connessioni almeno quanto
-#: restituisce 504 -> stesso trattamento, non piu' un fallimento definitivo.
+#: consente (#247): l'intera famiglia ``NetworkError`` (connessione rifiutata,
+#: lettura o scrittura interrotta, chiusura anomala) piu' ``RemoteProtocolError``
+#: (connessione chiusa a meta' risposta). Overpass sotto carico chiude
+#: connessioni almeno quanto restituisce 504 -> stesso trattamento, non piu' un
+#: fallimento definitivo.
 _RETRYABLE_TRANSPORT_ERRORS: tuple[type[httpx.HTTPError], ...] = (
     httpx.ConnectError,
-    httpx.RemoteProtocolError,
     httpx.ReadError,
+    httpx.WriteError,
+    httpx.CloseError,
+    httpx.RemoteProtocolError,
 )
 
 
@@ -453,8 +457,10 @@ async def fetch_pois(
     ``retry`` risolto a :data:`INTERACTIVE_RETRY` quando ``None``: la risoluzione
     avviene alla CHIAMATA e non come default di firma, cosi' un test puo'
     sostituire la politica di default senza riscrivere ogni chiamante. La cattura
-    offline passa :data:`OFFLINE_RETRY` (#232). ``sleep`` e' iniettabile: i test
-    verificano le pause senza attenderle.
+    offline passa :data:`OFFLINE_RETRY` (#232), che ritenta anche un blip di
+    trasporto (:data:`_RETRYABLE_TRANSPORT_ERRORS`) come un 504 (#247); il
+    percorso interattivo lo tratta invece come definitivo, fail-fast. ``sleep``
+    e' iniettabile: i test verificano le pause senza attenderle.
     """
     policy = retry or INTERACTIVE_RETRY
     selectors = list(osm_selectors)
@@ -502,7 +508,7 @@ async def fetch_pois(
             )
 
     if response is None:
-        raise OverpassError("Overpass timeout dopo i ritentativi con timeout esteso")
+        raise OverpassError(f"Overpass irraggiungibile dopo i ritentativi: {motivo}")
     if not response.is_success:
         raise OverpassError(f"Overpass ha risposto {response.status_code}")
 
