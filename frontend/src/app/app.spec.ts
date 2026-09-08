@@ -936,6 +936,7 @@ describe('App shell', () => {
       latenza_ms: 0,
       repro: { temperature: 0, seed: 0, prompt_hash: '' },
       fallback: zoneResp.fallback,
+      llm_used: zoneResp.llm_used,
     };
 
     beforeEach(() => {
