@@ -499,6 +499,34 @@ describe('StateStore', () => {
       expect(store.currentScopePoiName()).toBeNull();
     });
 
+    it('#261: un POI senza nome (feature OSM anonima) nomina lo scope col ripiego sulla classe, non con una stringa vuota', async () => {
+      api.analyze.mockResolvedValue({
+        ...data,
+        narrativa: 'narrativa di zona',
+        poi: [
+          {
+            id: 'node/1',
+            name: '',
+            terminus_class: 'Bank',
+            lat: 0,
+            lon: 0,
+            confidence: 'da_confermare',
+            sparql_path: null,
+            terminus_label_it: 'Banca',
+            terminus_label_en: 'Bank',
+          },
+        ],
+      });
+      await store.startAnalysis('Roma', 'Colosseo', null);
+      api.poiNarrative.mockResolvedValue({
+        ...poiResp,
+        risk_models: [{ poi_id: 'node/1', poi: '', risks: poiResp.risk_models[0].risks }],
+      });
+      store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
+      await store.loadPoiNarrative('node/1');
+      expect(store.currentScopePoiName()).toBe('Banca (senza nome su OSM)');
+    });
+
     it('un POI fuori ontologia è segnalato come privo di ancoraggio', async () => {
       await analyzed();
       api.poiNarrative.mockResolvedValue({

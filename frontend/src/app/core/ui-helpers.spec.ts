@@ -6,6 +6,7 @@ import {
   cityColorFor,
   matchesFilter,
   orderGroupsByTag,
+  poiNameDisplayLabel,
   poiPopupHTML,
   validateInputPanel,
 } from '@core/ui-helpers';
@@ -535,6 +536,45 @@ describe('ui-helpers', () => {
     const html = poiPopupHTML(poi, 1);
     expect(html).not.toContain('cra-poi-popup-conf');
     expect(html).toContain('Vicolo Oscuro');
+  });
+
+  it('poiPopupHTML: #261 un POI senza nome (feature OSM anonima) mostra il ripiego sulla classe invece di una riga bianca', () => {
+    const poi: Poi = {
+      id: '1',
+      name: '',
+      terminus_class: 'Bank',
+      lat: 0,
+      lon: 0,
+      confidence: 'da_confermare',
+      sparql_path: null,
+      terminus_label_it: 'Banca',
+      terminus_label_en: 'Bank',
+    };
+    const html = poiPopupHTML(poi, 4);
+    expect(html).toContain('4. Banca (senza nome su OSM)');
+  });
+
+  it("poiNameDisplayLabel: nome presente → usato com'è; nome assente → ripiego sulla classe con dichiarazione esplicita (#261)", () => {
+    const conNome: Poi = {
+      id: '1',
+      name: 'Colosseo',
+      terminus_class: 'Archaeological_site',
+      lat: 0,
+      lon: 0,
+      confidence: 'verificato',
+      sparql_path: null,
+      terminus_label_it: 'Sito archeologico',
+      terminus_label_en: 'Archaeological site',
+    };
+    expect(poiNameDisplayLabel(conNome)).toBe('Colosseo');
+
+    const senzaNome: Poi = { ...conNome, name: '' };
+    expect(poiNameDisplayLabel(senzaNome)).toBe('Sito archeologico (senza nome su OSM)');
+
+    const senzaNomeNeEtichetta: Poi = { ...conNome, name: '', terminus_label_it: '' };
+    expect(poiNameDisplayLabel(senzaNomeNeEtichetta)).toBe(
+      'Archaeological_site (senza nome su OSM)',
+    );
   });
 });
 

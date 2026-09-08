@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import { confMeta, pinColor, poiConfidenceCounts } from '@core/confidence';
 import { Confidence, NumberedPoi, Poi } from '@core/models/models';
-import { matchesFilter, poiDisplayLabel } from '@core/ui-helpers';
+import { matchesFilter, poiDisplayLabel, poiNameDisplayLabel } from '@core/ui-helpers';
 import { ConfidenceFilterComponent } from '@features/panels/confidence-filter/confidence-filter.component';
 
 /**
@@ -34,6 +34,7 @@ export class PoiPanelComponent {
   protected readonly pinColor = pinColor;
   protected readonly confMeta = confMeta;
   protected readonly poiLabel = poiDisplayLabel;
+  protected readonly poiName = poiNameDisplayLabel;
 
   protected readonly numbered = computed<NumberedPoi[]>(() =>
     this.pois().map((poi, i) => ({ poi, number: i + 1 })),

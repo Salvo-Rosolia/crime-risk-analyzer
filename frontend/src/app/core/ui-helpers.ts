@@ -69,6 +69,18 @@ export function poiDisplayLabel(poi: Pick<Poi, 'terminus_class' | 'terminus_labe
   return poi.terminus_label_it || poi.terminus_class;
 }
 
+/**
+ * Etichetta di ripiego per un POI senza `name` (#261): i nomi OSM non sono sempre presenti (le
+ * feature anonime arrivano con `name` vuoto, stessa ragione per cui il POI è `da_confermare`,
+ * #220). Il ripiego è costruito sulla classe (`poiDisplayLabel`) e dichiara esplicitamente
+ * l'assenza, invece di lasciare una riga bianca in lista/popup/dettaglio.
+ */
+export function poiNameDisplayLabel(
+  poi: Pick<Poi, 'name' | 'terminus_class' | 'terminus_label_it'>,
+): string {
+  return poi.name || `${poiDisplayLabel(poi)} (senza nome su OSM)`;
+}
+
 export interface NarrativeSection {
   tag: string;
   hazards: string[];
@@ -258,7 +270,7 @@ export function poiPopupHTML(
     : '';
   return (
     `<div class="cra-poi-popup">` +
-    `<strong>${n}. ${escapeHtml(poi.name)}</strong>` +
+    `<strong>${n}. ${escapeHtml(poiNameDisplayLabel(poi))}</strong>` +
     `<div class="cra-poi-popup-class">${escapeHtml(poiDisplayLabel(poi))}</div>` +
     confLine +
     `</div>`

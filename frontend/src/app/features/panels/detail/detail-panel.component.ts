@@ -16,6 +16,7 @@ import {
   hazardDisplayLabel,
   ontologyDisplayLabel,
   orderGroupsByTag,
+  poiNameDisplayLabel,
 } from '@core/ui-helpers';
 
 /**
@@ -69,7 +70,9 @@ export class DetailPanelComponent {
   protected readonly detailModel = computed(() => buildDetailModel(this.poi(), this.riskModels()));
   protected readonly orderedGroups = computed(() => orderGroupsByTag(this.detailModel().groups));
   protected readonly srcMeta = srcTagMeta;
-  protected readonly panelAriaLabel = computed(() => `Dettaglio POI: ${this.poi().name}`);
+  /** Nome del POI con ripiego sulla classe se manca su OSM (#261). */
+  protected readonly poiName = computed(() => poiNameDisplayLabel(this.poi()));
+  protected readonly panelAriaLabel = computed(() => `Dettaglio POI: ${this.poiName()}`);
 
   protected readonly axisLabel = ontologyDisplayLabel;
 
