@@ -88,6 +88,7 @@ async def run_analysis_fast(
         latenza_ms=_elapsed_ms(start),
         fallback=False,
         contesto_hash=contesto_hash,
+        geo=retrieval_ctx["geo"],
         narrativa=None,
     )
 

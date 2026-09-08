@@ -108,6 +108,30 @@ async def test_fast_response_has_no_narrativa_yet() -> None:
     assert out.fallback is False
     assert len(out.poi) == 1
     assert out.poi[0].id == "node/1"
+    assert (out.zona_geo.lat, out.zona_geo.lon) == (41.89, 12.49)
+    assert out.messaggio is None
+
+
+async def test_fast_response_zero_poi_has_explicit_message() -> None:
+    """#260: zero POI in copertura ma zona geocodificata — la response porta
+    ``zona_geo`` (per ricentrare la mappa) e un ``messaggio`` esplicito che
+    distingue questo caso da una zona non trovata."""
+    zone_context_cache.clear()
+    from crime_risk_analyzer.analyze_narrative import run_analysis_fast
+
+    async def _no_poi(bbox: Bbox, citta: str) -> list[Poi]:
+        return []
+
+    out = await run_analysis_fast(
+        "Roma",
+        "Zona senza POI",
+        executor=_FakeProfiler(),
+        poi_source=_no_poi,
+        geo_source=_geo_source,
+    )
+    assert out.poi == []
+    assert (out.zona_geo.lat, out.zona_geo.lon) == (41.89, 12.49)
+    assert out.messaggio is not None
 
 
 async def test_fast_response_warms_the_zone_context_cache() -> None:

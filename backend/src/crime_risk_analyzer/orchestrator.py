@@ -22,6 +22,7 @@ from typing import Protocol
 from pydantic import BaseModel, Field, model_validator
 
 from crime_risk_analyzer.context_fingerprint import fingerprint
+from crime_risk_analyzer.geocoding import GeoResult
 from crime_risk_analyzer.i18n.terminus_labels import label_en, label_it
 from crime_risk_analyzer.llm.client import LLMError, LLMResponse
 from crime_risk_analyzer.models.risk import PoiRiskProfile
@@ -197,6 +198,54 @@ class PoiOut(BaseModel):
         return self
 
 
+class ZonaGeo(BaseModel):
+    """Centro e bbox della zona geocodificata (#260).
+
+    Prima non usciva dall'orchestrator: la mappa frontend poteva centrarsi solo
+    sui POI, quindi una zona con 0 risultati e una zona non trovata erano
+    indistinguibili a schermo (in entrambi i casi la mappa restava ferma).
+    """
+
+    lat: float
+    lon: float
+    bbox_min_lat: float
+    bbox_min_lon: float
+    bbox_max_lat: float
+    bbox_max_lon: float
+
+
+_MESSAGGIO_ZERO_POI = (
+    "La zona e' stata geocodificata correttamente, ma non e' stato trovato "
+    "nessun punto in questa copertura OSM/TERMINUS."
+)
+
+
+def _zona_geo(geo: GeoResult) -> ZonaGeo:
+    return ZonaGeo(
+        lat=geo["lat"],
+        lon=geo["lon"],
+        bbox_min_lat=geo["bbox"].min_lat,
+        bbox_min_lon=geo["bbox"].min_lon,
+        bbox_max_lat=geo["bbox"].max_lat,
+        bbox_max_lon=geo["bbox"].max_lon,
+    )
+
+
+def _messaggio_zero_poi(poi_out: list[PoiOut], narrativa: str | None) -> str | None:
+    """``None`` se c'e' un POI o se una narrativa reale copre gia' il caso.
+
+    Nei bracci di valutazione (``run_analysis``/``run_no_ontology_prompt``) l'LLM
+    puo' scrivere prosa anche su un contesto senza POI: se lo fa, quella prosa e'
+    gia' l'informazione per chi legge e un ``messaggio`` che lascia intendere
+    "nulla da vedere" affiancato a una narrativa non vuota sarebbe contraddittorio
+    (reperto review #260). ``narrativa`` falsy (``None``/``""``: fase 1 pendente,
+    baseline, o fallback LLM) non conta come copertura.
+    """
+    if poi_out or narrativa:
+        return None
+    return _MESSAGGIO_ZERO_POI
+
+
 class AnalyzeResponse(BaseModel):
     """Schema canonico di ``/analyze`` (backend/orchestrator.md)."""
 
@@ -245,6 +294,22 @@ class AnalyzeResponse(BaseModel):
             "/analyze/narrativa e /analyze/poi, che rifiutano con 409 se il "
             "contesto che userebbero non e' questo. Digest di identita', non "
             "una misura: nessuno scoring."
+        ),
+    )
+    zona_geo: ZonaGeo = Field(
+        description=(
+            "Centro e bbox della zona geocodificata (#260): permette al "
+            "frontend di ricentrare la mappa anche quando ``poi`` e' vuoto."
+        )
+    )
+    messaggio: str | None = Field(
+        default=None,
+        description=(
+            "Messaggio esplicito quando ``poi`` e' vuoto E nessuna narrativa "
+            "copre gia' il caso (#260): chiarisce che la zona e' stata "
+            "geocodificata ma la copertura OSM/TERMINUS non ha trovato punti, "
+            "invece di lasciar intendere una zona indicata male. None quando "
+            "``poi`` non e' vuoto o quando ``narrativa`` ha gia' del testo."
         ),
     )
 
@@ -327,6 +392,7 @@ def _structured_response(
     latenza_ms: int,
     fallback: bool,
     contesto_hash: str,
+    geo: GeoResult,
     narrativa: str | None = "",
 ) -> AnalyzeResponse:
     """Assembla la AnalyzeResponse SENZA LLM (baseline, fallback, o fase 1 di #259).
@@ -364,6 +430,8 @@ def _structured_response(
         cache_hit=False,
         fallback=fallback,
         contesto_hash=contesto_hash,
+        zona_geo=_zona_geo(geo),
+        messaggio=_messaggio_zero_poi(poi_out, narrativa),
     )
 
 
@@ -375,6 +443,7 @@ def _generated_response(
     *,
     latenza_ms: int,
     contesto_hash: str,
+    geo: GeoResult,
     measured_token: str,
 ) -> AnalyzeResponse:
     """Assembla la AnalyzeResponse CON narrativa dal contributo del generation layer.
@@ -417,6 +486,8 @@ def _generated_response(
         cache_hit=gen.cache_hit,
         fallback=False,
         contesto_hash=contesto_hash,
+        zona_geo=_zona_geo(geo),
+        messaggio=_messaggio_zero_poi(poi_out, gen.narrativa),
     )
 
 
@@ -523,6 +594,7 @@ async def run_analysis(
             latenza_ms=_elapsed_ms(start),
             fallback=True,
             contesto_hash=contesto_hash,
+            geo=retrieval_ctx["geo"],
         )
     return _generated_response(
         citta,
@@ -531,6 +603,7 @@ async def run_analysis(
         gen,
         latenza_ms=_elapsed_ms(start),
         contesto_hash=contesto_hash,
+        geo=retrieval_ctx["geo"],
         # Il prompt di questo braccio chiede l'etichetta ontologica (regola 3):
         # la prosa si taglia su quella. Dichiarato anche qui, dove sarebbe stato
         # il default, perche' l'etichetta e' una proprieta' del prompt usato.
@@ -595,6 +668,7 @@ async def run_no_ontology_prompt(
             latenza_ms=_elapsed_ms(start),
             fallback=True,
             contesto_hash=contesto_hash,
+            geo=retrieval_ctx["geo"],
         )
     return _generated_response(
         citta,
@@ -603,6 +677,7 @@ async def run_no_ontology_prompt(
         gen,
         latenza_ms=_elapsed_ms(start),
         contesto_hash=contesto_hash,
+        geo=retrieval_ctx["geo"],
         # La narrativa di questo braccio apre il blocco misurato con la propria
         # etichetta (#236): il taglio per fonte deve cercare quella, non
         # l'etichetta ontologica che il prompt ablato non chiede piu'.
@@ -670,4 +745,5 @@ async def run_baseline(
         latenza_ms=_elapsed_ms(start),
         fallback=False,
         contesto_hash=fingerprint(retrieval_ctx["pois"]),
+        geo=retrieval_ctx["geo"],
     )
