@@ -6,6 +6,7 @@ Fase 1: risposta strutturata veloce, narrativa non ancora generata. Fase 2:
 
 from __future__ import annotations
 
+import inspect
 from typing import cast
 
 import httpx
@@ -23,6 +24,10 @@ from crime_risk_analyzer.models.risk import PoiRiskProfile
 from crime_risk_analyzer.overpass_client import Poi
 from crime_risk_analyzer.poi_narrative import ContextMismatchError
 from crime_risk_analyzer.rag import retrieval
+from crime_risk_analyzer.rag.generation import (
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_REQUEST_TOKEN_BUDGET,
+)
 from crime_risk_analyzer.sparql_module.query_executor import get_executor
 
 _BANK = PoiRiskProfile(
@@ -594,6 +599,26 @@ def test_endpoint_rejects_overlong_zona(monkeypatch: pytest.MonkeyPatch) -> None
     assert resp.status_code == 422
 
 
+def test_endpoint_rejects_overlong_domanda(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``domanda`` oltre max_length=500 -> 422 sulla ROTTA, non solo nel modello.
+
+    Il bound di ``ZoneNarrativeRequest`` e' verificato altrove sul modello, ma la
+    garanzia che interessa (#119) e' che il tetto valga sul filo: la domanda e'
+    l'unico input NON fidato che raggiunge il prompt, quindi il rifiuto deve
+    arrivare in validazione — prima della ricostruzione del contesto a cache
+    fredda e prima di spendere token su una domanda smisurata.
+    """
+    _patch_io(monkeypatch)
+    llm = _RecordingLLMClient()
+    client = _client(llm=llm)
+    contesto_hash = _analizza(client)
+
+    resp = _narrativa(client, contesto_hash, domanda="x" * 501)
+
+    assert resp.status_code == 422
+    assert llm.calls == []
+
+
 def test_endpoint_rejects_overlong_contesto_hash(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -741,13 +766,112 @@ def test_endpoint_response_never_contains_a_danger_score(
 
 
 # --- #292: il prompt della valutazione e quello del prodotto non devono divergere ---
+# I due percorsi chiamano ``generate_analysis`` da moduli diversi e con tetti di
+# token che arrivano da posti diversi: ``eval/harness`` non li passa mai (default
+# di modulo), la rotta li propaga da ``Settings``. La parita' che i numeri della
+# tesi presuppongono non e' quindi un fatto sui default, ma la SIMMETRIA dei
+# parametri: a tetti uguali, prompt uguale. I test qui sotto la provano ai default
+# E fuori dai default, mostrano che i tetti fuori default il prompt li sente
+# davvero (altrimenti la prova sarebbe vacua) e che a tetti diversi la divergenza
+# si vede — cioe' che questa rete si strapperebbe, invece di restare verde.
+
+#: ``(request_token_budget, max_tokens)``: i due tetti che modellano il prompt.
+_Tetti = tuple[int, int]
+
+#: I tetti che entrambi i percorsi usano quando nessuno li passa: e' la coppia
+#: con cui gira ``eval/harness`` e, via ``Settings``, quella della rotta a config
+#: vuota (l'uguaglianza fra i due la fissa
+#: ``test_i_due_percorsi_partono_dagli_stessi_tetti``).
+_TETTI_DEFAULT: _Tetti = (DEFAULT_REQUEST_TOKEN_BUDGET, DEFAULT_MAX_TOKENS)
+
+#: Coppia FUORI default scelta perche' il prompt la sente: con un budget minuscolo
+#: l'allowance dello user_content si azzera e il contesto va troncato (cfr. i test
+#: sulla propagazione da ``Settings``). Il caso realistico e' un
+#: ``LLM_REQUEST_TOKEN_BUDGET`` abbassato in produzione per stare sotto il TPM.
+_TETTI_STRETTI: _Tetti = (1, 900)
 
 
-@pytest.mark.parametrize("domanda", [None, "Rischi di notte?"])
+async def _prompt_del_prodotto(domanda: str | None, tetti: _Tetti) -> tuple[str, str]:
+    """Prompt che il PRODOTTO fa arrivare al modello: fase 1 + ``/analyze/narrativa``.
+
+    Due POI (``_poi_source_divergente``) perche' e' il minimo in cui contano
+    ordine e troncamento del contesto.
+    """
+    from crime_risk_analyzer.analyze_narrative import (
+        run_analysis_fast,
+        run_zone_narrative,
+    )
+
+    budget, max_tokens = tetti
+    zone_context_cache.clear()
+    fase_1 = await run_analysis_fast(
+        "Roma",
+        "Colosseo",
+        executor=_FakeProfiler(),
+        poi_source=_poi_source_divergente,
+        geo_source=_geo_source,
+    )
+    spia = _RecordingLLMClient()
+    await run_zone_narrative(
+        "Roma",
+        "Colosseo",
+        contesto_hash=fase_1.contesto_hash,
+        executor=_FakeProfiler(),
+        llm_client=spia,
+        domanda=domanda,
+        request_token_budget=budget,
+        max_tokens=max_tokens,
+    )
+
+    assert len(spia.calls) == 1
+    return spia.calls[0]
+
+
+async def _prompt_della_valutazione(
+    domanda: str | None, tetti: _Tetti
+) -> tuple[str, str]:
+    """Prompt che la VALUTAZIONE misura: ``run_analysis``, l'entry point di
+    ``eval/harness``.
+
+    I tetti sono espliciti anche qui: il harness li lascia ai default, ma quello
+    che si vuole provare e' la simmetria del parametro, non il suo default (che
+    ha il suo test).
+    """
+    from crime_risk_analyzer.orchestrator import run_analysis
+
+    budget, max_tokens = tetti
+    spia = _RecordingLLMClient()
+    await run_analysis(
+        "Roma",
+        "Colosseo",
+        executor=_FakeProfiler(),
+        llm_client=spia,
+        poi_source=_poi_source_divergente,
+        geo_source=_geo_source,
+        domanda=domanda,
+        request_token_budget=budget,
+        max_tokens=max_tokens,
+    )
+
+    assert len(spia.calls) == 1
+    return spia.calls[0]
+
+
+@pytest.mark.parametrize(
+    "domanda", [None, "Rischi di notte?"], ids=["senza-domanda", "con-domanda"]
+)
+@pytest.mark.parametrize(
+    "tetti",
+    [
+        pytest.param(_TETTI_DEFAULT, id="tetti-default"),
+        pytest.param(_TETTI_STRETTI, id="tetti-non-default"),
+    ],
+)
 async def test_prompt_del_prodotto_identico_a_quello_della_valutazione(
-    domanda: str | None,
+    tetti: _Tetti, domanda: str | None
 ) -> None:
-    """A parità di contesto grounded i due percorsi mandano lo STESSO prompt.
+    """A parità di contesto grounded E DI TETTI i due percorsi mandano lo STESSO
+    prompt.
 
     Dopo lo split (#292) la narrativa del prodotto nasce in
     ``run_zone_narrative``, mentre le metriche di grounding/allucinazione
@@ -759,44 +883,76 @@ async def test_prompt_del_prodotto_identico_a_quello_della_valutazione(
     test è quella rete: non verifica il CONTENUTO del prompt (lo fanno i test del
     generation layer), solo che i due percorsi restino d'accordo.
 
-    Due POI (non uno) perché è il minimo in cui contano ordine e troncamento del
-    contesto; con e senza ``domanda`` perché l'input non fidato entra nello
-    user_content solo su un ramo.
+    I tetti sono ESPLICITI e uguali sui due lati, ai default e fuori dai default:
+    così la parità che si osserva è quella della simmetria dei parametri, non la
+    coincidenza fortunata fra i default di modulo e quelli di ``Settings`` (che è
+    un fatto a parte, e ha il suo test). Con e senza ``domanda`` perché l'input
+    non fidato entra nello user_content solo su un ramo.
     """
-    from crime_risk_analyzer.analyze_narrative import (
-        run_analysis_fast,
-        run_zone_narrative,
-    )
+    prodotto = await _prompt_del_prodotto(domanda, tetti)
+    valutazione = await _prompt_della_valutazione(domanda, tetti)
+
+    assert prodotto == valutazione
+
+
+async def test_i_tetti_stretti_cambiano_davvero_il_prompt() -> None:
+    """La parità a tetti non default non è una prova vacua: quei valori il prompt
+    li sente (contesto troncato), quindi passarli su un lato solo si vedrebbe."""
+    ai_default = await _prompt_del_prodotto(None, _TETTI_DEFAULT)
+    stretti = await _prompt_del_prodotto(None, _TETTI_STRETTI)
+
+    assert stretti != ai_default
+    assert "piu' rilevanti su 2" in stretti[1]
+
+
+async def test_prompt_diverge_se_i_due_percorsi_hanno_tetti_diversi() -> None:
+    """Controllo negativo: a tetti diversi i due prompt divergono e il confronto
+    di sopra andrebbe ROSSO.
+
+    È il caso che la parità ai soli default non intercetterebbe: la rotta propaga
+    ``Settings`` (un ``LLM_REQUEST_TOKEN_BUDGET`` configurato in produzione), il
+    harness resta ai default di modulo. Serve a dimostrare che il test di parità
+    misura la simmetria dei parametri e non l'uguaglianza di due prompt che
+    sarebbero identici comunque.
+    """
+    prodotto = await _prompt_del_prodotto(None, _TETTI_STRETTI)
+    valutazione = await _prompt_della_valutazione(None, _TETTI_DEFAULT)
+
+    assert prodotto != valutazione
+
+
+def test_i_due_percorsi_partono_dagli_stessi_tetti() -> None:
+    """L'altra metà della garanzia: i tetti di partenza dei due percorsi coincidono.
+
+    La simmetria dei parametri (test sopra) dà la parità solo se i valori che i
+    due lati ricevono sono gli stessi, e non lo sono per costruzione: il harness
+    non li passa (default di ``run_analysis``), la rotta propaga ``Settings``.
+    Qui si fissa la catena ``run_zone_narrative`` = ``run_analysis`` =
+    ``Settings`` = default di modulo, che un cambio di uno solo dei tre punti
+    romperebbe in silenzio (stesso presidio di
+    ``test_max_tokens_default_is_synced_across_modules``). Usa i DEFAULT dei
+    campi, non un'istanza ``Settings()``, per non dipendere da un ``.env`` locale.
+
+    Resta fuori dalla portata dei test il caso in cui ``LLM_REQUEST_TOKEN_BUDGET``/
+    ``LLM_MAX_TOKENS`` siano davvero configurati da env: lì i due prompt divergono
+    per davvero, ed è una proprietà del design (le run di valutazione sono pinnate
+    ai default di modulo, non alla config della macchina che le lancia).
+    """
+    from crime_risk_analyzer.analyze_narrative import run_zone_narrative
     from crime_risk_analyzer.orchestrator import run_analysis
 
-    zone_context_cache.clear()
-    fase_1 = await run_analysis_fast(
-        "Roma",
-        "Colosseo",
-        executor=_FakeProfiler(),
-        poi_source=_poi_source_divergente,
-        geo_source=_geo_source,
-    )
-    prodotto = _RecordingLLMClient()
-    await run_zone_narrative(
-        "Roma",
-        "Colosseo",
-        contesto_hash=fase_1.contesto_hash,
-        executor=_FakeProfiler(),
-        llm_client=prodotto,
-        domanda=domanda,
-    )
+    prodotto = inspect.signature(run_zone_narrative).parameters
+    valutazione = inspect.signature(run_analysis).parameters
 
-    valutazione = _RecordingLLMClient()
-    await run_analysis(
-        "Roma",
-        "Colosseo",
-        executor=_FakeProfiler(),
-        llm_client=valutazione,
-        poi_source=_poi_source_divergente,
-        geo_source=_geo_source,
-        domanda=domanda,
+    assert (
+        prodotto["request_token_budget"].default
+        == valutazione["request_token_budget"].default
+        == Settings.model_fields["llm_request_token_budget"].default
+        == DEFAULT_REQUEST_TOKEN_BUDGET
     )
-
-    assert len(prodotto.calls) == 1
-    assert prodotto.calls == valutazione.calls
+    assert (
+        prodotto["max_tokens"].default
+        == valutazione["max_tokens"].default
+        == Settings.model_fields["llm_max_tokens"].default
+        == DEFAULT_MAX_TOKENS
+    )

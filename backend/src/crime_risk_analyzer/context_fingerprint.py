@@ -9,16 +9,53 @@ schermo non c'e'.
 
 Non e' una misura di nulla: e' un digest opaco di identita' (nessuno scoring,
 _project.md §Vincoli). Funzione PURA: nessuna I/O, nessuno stato.
+
+Qui vive anche :data:`ContestoHash`, il tipo con cui le richieste ACCETTANO
+un'impronta: la sua forma e' una proprieta' del digest prodotto da
+:func:`fingerprint`, non delle rotte che lo ricevono.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+from typing import Annotated
+
+from pydantic import Field
 
 from crime_risk_analyzer.overpass_client import Poi
 
-__all__ = ["fingerprint"]
+__all__ = ["ContestoHash", "fingerprint"]
+
+#: Lunghezza esatta di un'impronta: l'hexdigest sha256 che :func:`fingerprint`
+#: restituisce (32 byte, due caratteri per byte). Ancorata al digest reale da
+#: ``test_la_richiesta_accetta_esattamente_la_lunghezza_del_digest``, cosi' un
+#: cambio di algoritmo non puo' lasciare indietro il bound delle richieste.
+_LUNGHEZZA_IMPRONTA = 64
+
+#: Tipo del campo ``contesto_hash`` nei body che riportano un'impronta al server
+#: (``POST /analyze/narrativa`` e ``POST /analyze/poi``). Alias condiviso e non
+#: due ``Field`` gemelli: il vincolo e la sua motivazione sono gli stessi per
+#: entrambe le rotte, e in duplice copia potevano divergere — una corretta e
+#: l'altra a respingere impronte valide (o, peggio, ad accettarne di malformate).
+ContestoHash = Annotated[
+    str,
+    Field(
+        min_length=_LUNGHEZZA_IMPRONTA,
+        max_length=_LUNGHEZZA_IMPRONTA,
+        description=(
+            "Impronta del contesto ricevuta dalla fase 1 di /analyze (#242), "
+            "rimandata verbatim. E' CONFRONTATA e mai usata per costruire il "
+            "prompt: un valore opaco che il server non consuma non puo' iniettare "
+            "nulla. Obbligatoria: senza, la garanzia sarebbe opt-in. Lunghezza "
+            "esatta di un digest sha256, cosi' un valore che non ha la forma di "
+            "un'impronta esce come 422 prima di ogni I/O invece di costare, a "
+            "cache fredda, una ricostruzione del contesto (geocoding + Overpass) "
+            "per un rifiuto annunciato; il 409 resta per l'impronta ben formata "
+            "che identifica un ALTRO contesto."
+        ),
+    ),
+]
 
 
 def fingerprint(pois: list[Poi]) -> str:

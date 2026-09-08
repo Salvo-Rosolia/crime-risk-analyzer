@@ -19,7 +19,7 @@ import time
 from pydantic import BaseModel, Field
 
 from crime_risk_analyzer import zone_context_cache
-from crime_risk_analyzer.context_fingerprint import fingerprint
+from crime_risk_analyzer.context_fingerprint import ContestoHash, fingerprint
 from crime_risk_analyzer.llm.client import LLMError
 from crime_risk_analyzer.orchestrator import (
     AnalyzeResponse,
@@ -113,18 +113,7 @@ class ZoneNarrativeRequest(BaseModel):
             "token/costo/latenza e riduce la superficie di prompt-injection."
         ),
     )
-    contesto_hash: str = Field(
-        min_length=64,
-        max_length=64,
-        description=(
-            "Impronta del contesto ricevuta dalla fase 1 di /analyze (#242), "
-            "rimandata verbatim. Confrontata, mai usata per costruire il prompt. "
-            "Lunghezza esatta di un digest sha256: cosi' un valore che non ha la "
-            "forma di un'impronta esce come 422 prima di ogni I/O, invece di "
-            "arrivare al confronto e costare, a cache fredda, una ricostruzione "
-            "del contesto (Overpass) per un 409 annunciato."
-        ),
-    )
+    contesto_hash: ContestoHash
 
 
 class ZoneNarrativeResponse(BaseModel):

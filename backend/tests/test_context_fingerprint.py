@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import pytest
+from pydantic import BaseModel, ValidationError
+
+from crime_risk_analyzer.analyze_narrative import ZoneNarrativeRequest
 from crime_risk_analyzer.context_fingerprint import fingerprint
 from crime_risk_analyzer.overpass_client import Poi
+from crime_risk_analyzer.poi_narrative import PoiNarrativeRequest
 
 
 def _poi(
@@ -79,3 +84,57 @@ def test_campi_fuori_impronta_non_cambiano_il_digest() -> None:
     base = _poi()
     variante: Poi = {**base, "osm_tags": "amenity=bank;atm=yes", "citta": "ROMA"}
     assert fingerprint([base]) == fingerprint([variante])
+
+
+# --- Il tipo dell'impronta nei body di richiesta (``contesto_hash``) ---
+# Il bound del campo e' una proprieta' del digest prodotto QUI, non delle due
+# rotte che lo ricevono: ``ZoneNarrativeRequest`` e ``PoiNarrativeRequest``
+# dichiaravano ognuna il proprio ``Field(min_length=64, max_length=64)`` con la
+# stessa motivazione ricopiata a mano, e un cambio di algoritmo avrebbe potuto
+# correggerne uno lasciando l'altro a respingere impronte valide.
+
+#: Le richieste che portano un ``contesto_hash``, con il resto del body minimo
+#: valido: la coppia (modello, campi) serve a provare lo STESSO bound su entrambe.
+_RICHIESTE_CON_IMPRONTA = [
+    pytest.param(
+        ZoneNarrativeRequest, {"citta": "Roma", "zona": "Colosseo"}, id="zona"
+    ),
+    pytest.param(
+        PoiNarrativeRequest,
+        {"citta": "Roma", "zona": "Colosseo", "poi_id": "node/1"},
+        id="poi",
+    ),
+]
+
+
+@pytest.mark.parametrize(("modello", "resto"), _RICHIESTE_CON_IMPRONTA)
+def test_la_richiesta_accetta_esattamente_la_lunghezza_del_digest(
+    modello: type[BaseModel], resto: dict[str, str]
+) -> None:
+    """Entrambe le rotte vincolano l'impronta alla lunghezza REALE del digest.
+
+    Un carattere in meno o in piu' non ha la forma di un'impronta: cade in
+    validazione (422 prima di ogni I/O) e non al confronto (409, che a cache
+    fredda costa una ricostruzione del contesto). Il valido e' calcolato con
+    :func:`fingerprint`, non scritto a mano: se il digest cambiasse lunghezza,
+    il bound dei due modelli deve seguirlo.
+    """
+    valida = fingerprint([_poi()])
+
+    modello.model_validate({**resto, "contesto_hash": valida})
+
+    for storta in (valida[:-1], valida + "0"):
+        with pytest.raises(ValidationError):
+            modello.model_validate({**resto, "contesto_hash": storta})
+
+
+def test_le_due_richieste_descrivono_l_impronta_allo_stesso_modo() -> None:
+    """Un campo, una prosa: bound e descrizione vengono dall'alias condiviso di
+    questo modulo, non ricopiati in due modelli. La descrizione finisce
+    nell'OpenAPI, quindi due copie divergono anche verso il client."""
+    zona = ZoneNarrativeRequest.model_fields["contesto_hash"]
+    poi = PoiNarrativeRequest.model_fields["contesto_hash"]
+
+    assert zona.description is not None
+    assert zona.description == poi.description
+    assert zona.metadata == poi.metadata
