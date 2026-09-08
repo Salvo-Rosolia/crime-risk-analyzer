@@ -472,6 +472,47 @@ async def test_capture_isolates_failure_on_one_case(
     assert "Duomo" in log_text
 
 
+async def test_capture_isolates_failure_of_any_kind(
+    tmp_path: Path, capture_env: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    """#252: l'isolamento per-case non è ristretto a GeocodingError/OverpassError —
+    un bug altrove nella pipeline (qui un ValueError generico) non deve far
+    perdere in silenzio i case precedenti né saltare il riepilogo finale."""
+
+    async def flaky_live(bbox: Bbox, citta: str) -> list[Poi]:
+        if citta == "Milano":
+            raise ValueError("POI malformato")
+        return _sample_pois()
+
+    cfg = ExperimentConfig(
+        name="ablation",
+        mode="baseline",
+        model="claude",
+        cases=[
+            RunCase(citta="Roma", zona="Centro"),
+            RunCase(citta="Milano", zona="Duomo"),
+            RunCase(citta="Napoli", zona="Vomero"),
+        ],
+    )
+    config_path = tmp_path / "multi.json"
+    config_path.write_text(cfg.model_dump_json(), encoding="utf-8")
+
+    with caplog.at_level(logging.INFO):
+        summary = await _capture(config_path, tmp_path, poi_source=flaky_live)
+
+    napoli_path = snapshot_path(tmp_path, make_snapshot_key("Napoli", "Vomero"))
+    assert load_snapshot(napoli_path) == _sample_pois()
+    assert [(c.citta, c.zona) for c in summary.succeeded] == [
+        ("Roma", "Centro"),
+        ("Napoli", "Vomero"),
+    ]
+    failure = summary.failed[0]
+    assert failure.error_type == "ValueError"
+    assert failure.error is not None
+    assert "POI malformato" in failure.error
+    assert any("riepilogo cattura" in r.getMessage() for r in caplog.records)
+
+
 async def test_capture_partial_skip_captures_only_missing(
     tmp_path: Path, capture_env: None
 ) -> None:

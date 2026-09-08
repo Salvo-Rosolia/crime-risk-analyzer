@@ -28,10 +28,8 @@ from crime_risk_analyzer.eval.snapshots import (
     offline_fetch_pois,
     snapshot_path,
 )
-from crime_risk_analyzer.geocoding import GeocodingError
 from crime_risk_analyzer.ontology import load_ontology
 from crime_risk_analyzer.orchestrator import run_baseline
-from crime_risk_analyzer.overpass_client import OverpassError
 from crime_risk_analyzer.rag.retrieval import PoiSource
 from crime_risk_analyzer.sparql_module.query_executor import get_executor
 
@@ -136,15 +134,19 @@ async def _capture(
         # chiave e' (citta, zona) (#110): la narrativa che ``run_analysis``
         # genererebbe qui e' output scartato a fronte di token reali — il 26/07 un
         # terzo della quota giornaliera Groq, con la run K=3 bloccata per un'ora.
-        # Isolamento per-case (#252): un fallimento di geocoding/Overpass su un
-        # case non deve inghiottire i case successivi, come già fa
-        # ``capture_roster`` — altrimenti, con OFFLINE_RETRY, un case che si
-        # arrende dopo minuti di backoff si porta via anche il lavoro rimasto.
+        # Isolamento per-case (#252): un fallimento su un case non deve
+        # inghiottire i case successivi, come già fa ``capture_roster`` —
+        # altrimenti, con OFFLINE_RETRY, un case che si arrende dopo minuti di
+        # backoff si porta via anche il lavoro rimasto. Volutamente ``Exception``
+        # e non solo ``(GeocodingError, OverpassError)``: un bug altrove nella
+        # pipeline (es. un POI malformato) non deve far perdere in silenzio i
+        # case già catturati né saltare il riepilogo finale — ``Exception``
+        # esclude comunque ``KeyboardInterrupt``/``CancelledError``.
         try:
             await run_baseline(
                 case.citta, case.zona, executor=executor, poi_source=source
             )
-        except (GeocodingError, OverpassError) as exc:
+        except Exception as exc:
             logger.error(
                 "cattura fallita per (%s, %s): %s: %s",
                 case.citta,
