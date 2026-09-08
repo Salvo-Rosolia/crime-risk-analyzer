@@ -5,14 +5,24 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from crime_risk_analyzer.rag.generation import (
     DEFAULT_CONTEXT_FORMAT,
     ContextFormat,
 )
 
-Mode = Literal["analyze", "baseline"]
+#: Bracci dell'esperimento. ``analyze`` = pipeline completa (LLM + grounding
+#: ontologico nel prompt); ``baseline`` = nessun LLM (soli dati strutturati);
+#: ``no_ontology_prompt`` = STESSO LLM del braccio completo, sullo STESSO snapshot
+#: POI, ma con un prompt che porta solo nome e classe dei punti (#236). Il terzo
+#: braccio esiste perche' ``analyze`` vs ``baseline`` isola la presenza dell'LLM,
+#: non quella dell'ontologia: uno dei due non produce prosa, quindi i proxy
+#: ``grounding``/``hallucination`` non si applicano a entrambi in modo
+#: interpretabile. Il nome dice cio' che e' ablato — il PROMPT, non il grounding:
+#: ``ground()`` gira comunque e i dati strutturati della response restano
+#: ontologici in tutti i bracci.
+Mode = Literal["analyze", "baseline", "no_ontology_prompt"]
 ModelChoice = Literal["claude", "groq"]
 
 
@@ -89,7 +99,12 @@ class ExperimentConfig(BaseModel):
     """Configurazione di un esperimento: una macchina, tante run."""
 
     name: str = Field(description="Nome dell'esperimento (prefisso di run_id e file).")
-    mode: Mode = Field(description="analyze (con LLM) o baseline (senza LLM).")
+    mode: Mode = Field(
+        description=(
+            "analyze (con LLM), baseline (senza LLM) o no_ontology_prompt "
+            "(con LLM, prompt senza il contributo ontologico)."
+        )
+    )
     model: ModelChoice = Field(description="Provider LLM (ignorato se mode=baseline).")
     cases: list[RunCase] = Field(description="Casi da eseguire.")
     # Terza dimensione dell'esperimento accanto a mode/model (#273), opt-in: un
@@ -102,6 +117,24 @@ class ExperimentConfig(BaseModel):
         default=DEFAULT_CONTEXT_FORMAT,
         description="Formato del blocco POI dello user_content (#273).",
     )
+
+    @model_validator(mode="after")
+    def _reject_grouping_without_ontology(self) -> ExperimentConfig:
+        """``per_classe`` non esiste nel braccio ablato (#236).
+
+        Raggruppare per classe TERMINUS serve a non ripetere l'insieme di hazard
+        per ogni punto: nel prompt senza ontologia quell'insieme non c'e', quindi
+        il formato non avrebbe alcun effetto. Accettarlo in silenzio scriverebbe
+        una ``Provenance`` che descrive un prompt mai costruito — l'esatto difetto
+        che il campo era stato aggiunto per chiudere.
+        """
+        if self.mode == "no_ontology_prompt" and self.context_format != "per_poi":
+            raise ValueError(
+                "mode='no_ontology_prompt' non ammette "
+                f"context_format={self.context_format!r}: il prompt ablato non "
+                "porta hazard, quindi non c'e' nulla da raggruppare per classe"
+            )
+        return self
 
 
 class RunRecord(BaseModel):

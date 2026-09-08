@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 
 import pytest
@@ -17,15 +18,21 @@ from crime_risk_analyzer.orchestrator import (
     BaselineRequest,
     PoiOut,
     _build_poi_list,  # pyright: ignore[reportPrivateUsage]
+    _generated_response,  # pyright: ignore[reportPrivateUsage]
     _risk_models_from_grounded,  # pyright: ignore[reportPrivateUsage]
     _structured_response,  # pyright: ignore[reportPrivateUsage]
     run_analysis,
     run_baseline,
+    run_no_ontology_prompt,
 )
 from crime_risk_analyzer.overpass_client import Poi
 from crime_risk_analyzer.rag.generation import (
     USER_INPUT_FENCE_OPEN,
     SourceProse,
+)
+from crime_risk_analyzer.rag.no_ontology_generation import (
+    LLM_SYNTHESIS_BLOCK_HEADER,
+    NO_ONTOLOGY_SYSTEM_PROMPT,
 )
 from tests.eval._doubles import FakeLLMClient as _FakeLLMClient
 from tests.eval._doubles import FakeProfiler as _FakeProfiler
@@ -794,6 +801,166 @@ async def test_run_baseline_tipo_poi_no_match_yields_empty(
     # nessun POI di quella classe -> lista vuota, nessun errore
     assert resp.poi == []
     assert resp.risk_models == []
+
+
+# --- #236: braccio di ablazione «LLM senza contributo ontologico nel prompt» ---
+
+
+async def test_run_no_ontology_prompt_hides_the_ontology_from_the_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Il modello vede i punti, non i rischi che l'ontologia associa alle classi.
+
+    E' l'unica variabile che il braccio manipola: se gli hazard finissero
+    comunque nel prompt, il confronto con ``analyze`` non isolerebbe nulla.
+    """
+    _patch_io(monkeypatch)
+    client = _RecordingLLMClient()
+
+    await run_no_ontology_prompt(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+        llm_client=client,
+    )
+
+    system, user = client.calls[0]
+    assert system == NO_ONTOLOGY_SYSTEM_PROMPT
+    assert "Bank_robbery" not in user
+    assert "Hazard verificati" not in user
+    assert "  POI: Banca A (Bank)" in user
+
+
+async def test_run_no_ontology_prompt_keeps_the_structured_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stessa response di ``run_analysis``: cambia il prompt, non il contratto.
+
+    ``risk_models``, ``sparql_path`` e ``confidence_summary`` restano ontologici
+    perche' sono il dato ancorato con cui ``eval/metrics.py`` costruisce gli
+    ancoraggi: se divergessero tra i bracci, il proxy misurerebbe denominatori
+    diversi e il confronto non sarebbe leggibile.
+    """
+    _patch_io(monkeypatch)
+    resp = await run_no_ontology_prompt(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+        llm_client=_FakeLLMClient(_llm_response()),
+    )
+    riferimento = await run_analysis(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+        llm_client=_FakeLLMClient(_llm_response()),
+    )
+
+    assert resp.fallback is False
+    assert resp.narrativa is not None
+    assert resp.narrativa.startswith("Analisi:")
+    assert resp.risk_models == riferimento.risk_models
+    assert resp.confidence_summary == riferimento.confidence_summary
+    assert [(p.id, p.confidence, p.sparql_path) for p in resp.poi] == [
+        (p.id, p.confidence, p.sparql_path) for p in riferimento.poi
+    ]
+    assert resp.contesto_hash == riferimento.contesto_hash
+
+
+async def test_run_no_ontology_prompt_splits_prose_on_its_own_block_label(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """La prosa per fonte si taglia sull'etichetta che il prompt ablato chiede.
+
+    Quel prompt fa scrivere ``[SINTESI-LLM]`` (#236: il braccio non ha
+    consultato alcuna ontologia e non lo dichiara). Tagliando la narrativa
+    sull'etichetta dell'ALTRO braccio, il blocco misurato non verrebbe
+    riconosciuto e finirebbe tutto in ``overview``: un campo che dice «nessuna
+    attribuzione» dove il modello ha invece attribuito, sullo stesso testo che
+    l'eval grada correttamente. Due letture divergenti dello stesso file.
+    """
+    _patch_io(monkeypatch)
+    narrativa = (
+        "Sintesi.\n\n"
+        f"{LLM_SYNTHESIS_BLOCK_HEADER}\nFurto.\n\n"
+        "Rischi dal contesto [CONTESTO]\nBorseggio."
+    )
+    response = LLMResponse(
+        text=narrativa,
+        llm_used="llama-3.3-70b-versatile",
+        tokens_input=10,
+        tokens_output=20,
+        cache_hit=False,
+        temperature=0.0,
+        seed=0,
+        prompt_hash="abc123",
+    )
+    resp = await run_no_ontology_prompt(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+        llm_client=_FakeLLMClient(response),
+    )
+    assert resp.narrativa == narrativa  # invariata, come nel braccio completo
+    assert resp.narrativa_fonti.overview == "Sintesi."
+    assert resp.narrativa_fonti.ontologia == "Furto."
+    assert resp.narrativa_fonti.contesto == "Borseggio."
+
+
+def test_generated_response_has_no_default_measured_token() -> None:
+    """Il token del blocco misurato lo dichiara il chiamante, sempre.
+
+    Con un default, un terzo braccio che se lo dimenticasse erediterebbe
+    ``[ONTOLOGIA]``: ``parse_source_prose`` non troverebbe la sua etichetta,
+    tutta la prosa finirebbe in ``overview`` e la sua narrativa verrebbe misurata
+    come NON-ATTRIBUZIONE (0.0/1.0) senza alcun errore — la classe di bug che
+    #236 esiste per prevenire. Il tipo lo impedisce (pyright), questo test tiene
+    il default fuori anche da una futura «comodita'».
+    """
+    param = inspect.signature(_generated_response).parameters["measured_token"]
+    assert param.kind is inspect.Parameter.KEYWORD_ONLY
+    assert param.default is inspect.Parameter.empty
+
+
+async def test_run_no_ontology_prompt_falls_back_on_llm_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stesso ramo di fallback strutturato del braccio completo."""
+    _patch_io(monkeypatch)
+    resp = await run_no_ontology_prompt(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+        llm_client=_RaisingLLMClient(),
+    )
+    assert resp.fallback is True
+    assert resp.narrativa == ""
+    assert resp.risk_models[0].risks[0].hazard == "Bank_robbery"
+
+
+async def test_run_no_ontology_prompt_does_not_touch_the_zone_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Il braccio sperimentale non deposita contesto per ``/analyze/poi``.
+
+    ``run_analysis`` popola la cache di zona perche' serve il prodotto (un clic
+    su un POI non deve rifare Overpass). Questo braccio non e' servito da alcuna
+    rotta: lasciare li' un contesto costruito per un'ablazione sarebbe stato di
+    processo che nessuno ha chiesto.
+    """
+    from crime_risk_analyzer import zone_context_cache
+
+    _patch_io(monkeypatch)
+    zone_context_cache.clear()
+    try:
+        await run_no_ontology_prompt(
+            "Roma",
+            "Centro",
+            executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+            llm_client=_FakeLLMClient(_llm_response()),
+        )
+        assert zone_context_cache.get("Roma", "Centro") is None
+    finally:
+        zone_context_cache.clear()
 
 
 # --- #119: max_length sulla domanda (bound su token/costo/superficie) ---

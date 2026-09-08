@@ -989,6 +989,58 @@ def test_parse_source_prose_vuoto() -> None:
     assert out.ontologia == out.contesto == out.speculativo == ""
 
 
+def test_parse_source_prose_anchors_on_the_header_line_not_on_a_poi_name() -> None:
+    """Un nome POI che contiene il tag non deve spostare il taglio dei blocchi.
+
+    I nomi OSM li scrive chiunque e il prompt chiede esplicitamente di nominare i
+    punti reali: con un POI chiamato «Bar [ONTOLOGIA] Fake» citato nella sintesi
+    iniziale, il parser si ancorava a QUELL'occorrenza dentro la frase. Il blocco
+    misurato — quello su cui l'eval calcola grounding e allucinazione — si
+    ritrovava dentro la prosa di overview e la riga-etichetta vera, e la vera
+    intestazione del modello non veniva mai riconosciuta.
+    """
+    text = (
+        "Nella zona spicca il Bar [ONTOLOGIA] Fake, molto frequentato.\n\n"
+        "Rischi da ontologia [ONTOLOGIA]\n"
+        "Il Bar [ONTOLOGIA] Fake porta rischi di rissa.\n\n"
+        "Rischi dal contesto [CONTESTO]\n"
+        "Zona di vita notturna."
+    )
+    out = parse_source_prose(text)
+    assert out.overview == (
+        "Nella zona spicca il Bar [ONTOLOGIA] Fake, molto frequentato."
+    )
+    assert out.ontologia == "Il Bar [ONTOLOGIA] Fake porta rischi di rissa."
+    assert out.contesto == "Zona di vita notturna."
+
+
+def test_parse_source_prose_accepts_a_header_line_the_model_decorated() -> None:
+    """Una riga-etichetta in grassetto resta una riga-etichetta.
+
+    I modelli decorano spesso le intestazioni (``**...**``, due punti finali).
+    Riconoscere la riga d'apertura non deve diventare un requisito di formato
+    piu' severo di quello che il prompt chiede.
+    """
+    text = "Intro.\n\n**Rischi da ontologia [ONTOLOGIA]**\nFurto.\n"
+    out = parse_source_prose(text)
+    assert out.overview == "Intro."
+    assert out.ontologia == "Furto."
+
+
+def test_parse_source_prose_still_splits_a_header_the_model_did_not_isolate() -> None:
+    """Nessuna riga-etichetta riconoscibile: resta l'ancoraggio storico.
+
+    Un modello che scrive etichetta e prosa sulla stessa riga non emette una riga
+    d'apertura: il taglio resta la prima occorrenza del token, come prima del
+    fix, cosi' le metriche gia' raccolte su run non conformi non cambiano
+    righello sotto i piedi.
+    """
+    text = "Intro.\n\n[ONTOLOGIA] Furto con destrezza.\nSeconda frase.\n"
+    out = parse_source_prose(text)
+    assert out.overview == "Intro."
+    assert out.ontologia == "Seconda frase."
+
+
 def test_per_poi_format_keeps_rendering_an_anonymous_poi_as_before() -> None:
     """#273: il segnaposto per l'anonimo vale SOLO nel formato raggruppato.
 

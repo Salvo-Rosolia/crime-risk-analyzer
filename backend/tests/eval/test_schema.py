@@ -93,6 +93,39 @@ def test_experiment_config_rejects_unknown_mode() -> None:
         )
 
 
+def test_experiment_config_accepts_the_no_ontology_arm() -> None:
+    """#236: terzo braccio del vocabolario — stesso LLM, prompt senza ontologia.
+
+    Senza il valore nel ``Mode`` non esisterebbe modo di CONFIGURARE la variante
+    che isola la contribuzione C3: `analyze` vs `baseline` confronta la presenza
+    dell'LLM, non quella dell'ontologia.
+    """
+    cfg = ExperimentConfig(
+        name="ablation-no-ontology-groq",
+        mode="no_ontology_prompt",
+        model="groq",
+        cases=[RunCase(citta="Roma", zona="Colosseo")],
+    )
+    assert cfg.mode == "no_ontology_prompt"
+
+
+def test_no_ontology_arm_rejects_the_grouped_context_format() -> None:
+    """Il formato per classe (#273) non esiste nel braccio ablato.
+
+    Raggruppare per classe serve a non ripetere l'insieme di hazard di ogni
+    punto: senza hazard non c'e' nulla da raggruppare. Accettarlo in silenzio
+    scriverebbe una ``Provenance`` che descrive un prompt mai costruito.
+    """
+    with pytest.raises(ValidationError):
+        ExperimentConfig(
+            name="ablation-no-ontology-groq",
+            mode="no_ontology_prompt",
+            model="groq",
+            cases=[RunCase(citta="Roma", zona="Colosseo")],
+            context_format="per_classe",
+        )
+
+
 def test_experiment_config_defaults_to_the_historical_context_format() -> None:
     """#273: la variante e' opt-in, cosi' nessun esperimento esistente si muove."""
     cfg = ExperimentConfig(

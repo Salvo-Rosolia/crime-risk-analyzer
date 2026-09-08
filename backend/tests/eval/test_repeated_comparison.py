@@ -8,7 +8,11 @@ from pathlib import Path
 import pytest
 from pytest import MonkeyPatch
 
-from crime_risk_analyzer.eval.compare import VACUOUS_CAVEAT_HEAD, compare_records
+from crime_risk_analyzer.eval.compare import (
+    ISOLATED_VARIABLE_HEAD,
+    VACUOUS_CAVEAT_HEAD,
+    compare_records,
+)
 from crime_risk_analyzer.eval.harness import make_run_id, write_record
 from crime_risk_analyzer.eval.repeat import fold_arm
 from crime_risk_analyzer.eval.repeated_comparison import (
@@ -18,6 +22,7 @@ from crime_risk_analyzer.eval.repeated_comparison import (
 )
 from crime_risk_analyzer.eval.schema import (
     Metrics,
+    Mode,
     Provenance,
     RunRecord,
     RunStatus,
@@ -38,13 +43,14 @@ def _rec(
     cost_usd: float,
     status: RunStatus = RunStatus.OK,
     narrativa: str = "x",
+    mode: Mode = "analyze",
 ) -> RunRecord:
     return RunRecord(
-        run_id=make_run_id(experiment, citta, zona, "analyze", "groq", rep),
+        run_id=make_run_id(experiment, citta, zona, mode, "groq", rep),
         experiment=experiment,
         citta=citta,
         zona=zona,
-        mode="analyze",
+        mode=mode,
         model_id=model_id,
         status=status,
         metrics=Metrics(
@@ -69,7 +75,11 @@ def _rec(
 
 
 def _arm(
-    experiment: str, model_id: str, base: tuple[float, float, int, float]
+    experiment: str,
+    model_id: str,
+    base: tuple[float, float, int, float],
+    *,
+    mode: Mode = "analyze",
 ) -> list[RunRecord]:
     """3 ripetizioni su una zona con leggera variazione → std > 0."""
     g, h, lat, cost = base
@@ -84,6 +94,7 @@ def _arm(
             hallucination=h - 0.01 * r,
             latency_ms=lat + 10 * r,
             cost_usd=cost,
+            mode=mode,
         )
         for r in range(3)
     ]
@@ -395,6 +406,115 @@ def test_build_repeated_report_writes_md_and_json(tmp_path: Path) -> None:
     assert data["variance"]["k"] == 3
     assert len(data["variance"]["arm_a"]) == 1  # una zona
     assert "comparison" in data
+
+
+def test_repeated_report_of_the_c3_pair_declares_the_variable_and_decides(
+    tmp_path: Path,
+) -> None:
+    """#236: il report che porta il verdetto dichiara cosa isola, e lo emette.
+
+    E' il difetto che il braccio nuovo chiude: contro la ``baseline`` il verdetto
+    veniva TRATTENUTO (#231), perche' un braccio muto rende vacui gli assi di
+    qualita'. Qui generano entrambi, quindi il criterio lessicografico ha
+    materiale su cui pronunciarsi — e il lettore trova in cima la variabile
+    manipolata, non solo un delta.
+    """
+    _write_arm(
+        tmp_path,
+        _arm("con-onto-exp", "llama-3.3-70b-versatile", (0.90, 0.10, 3000, 0.0006)),
+    )
+    _write_arm(
+        tmp_path,
+        _arm(
+            "senza-onto-exp",
+            "llama-3.3-70b-versatile",
+            (0.50, 0.50, 2800, 0.0005),
+            mode="no_ontology_prompt",
+        ),
+    )
+    md_path, json_path = build_repeated_report(
+        tmp_path,
+        "con-onto-exp",
+        "senza-onto-exp",
+        label_a="con-ontologia",
+        label_b="senza-ontologia",
+        stem="c3",
+    )
+    md = md_path.read_text(encoding="utf-8")
+    assert ISOLATED_VARIABLE_HEAD in md
+    assert VACUOUS_CAVEAT_HEAD not in md
+    data = json.loads(json_path.read_text(encoding="utf-8"))
+    assert data["quality_verdict"]["applicable"] is True
+    assert data["winner"] is not None
+    assert data["comparison"]["isolated_variable"]
+
+
+def test_the_c3_verdict_never_falls_back_on_speed_or_cost(tmp_path: Path) -> None:
+    """Qualita' pari sulla coppia con/senza ontologia: nessun vincitore.
+
+    Il braccio ablato riceve un prompt strutturalmente piu' corto, quindi e'
+    piu' rapido e piu' economico per costruzione: se lo spareggio scendesse su
+    latenza o costo, il report direbbe che togliere l'ontologia «vince» — un
+    verdetto sulla lunghezza del prompt travestito da verdetto sulla qualita'.
+    """
+    _write_arm(
+        tmp_path,
+        _arm("con-onto-exp", "llama-3.3-70b-versatile", (0.80, 0.10, 3000, 0.0009)),
+    )
+    _write_arm(
+        tmp_path,
+        _arm(
+            "senza-onto-exp",
+            "llama-3.3-70b-versatile",
+            (0.80, 0.10, 1000, 0.0002),
+            mode="no_ontology_prompt",
+        ),
+    )
+    md_path, json_path = build_repeated_report(
+        tmp_path,
+        "con-onto-exp",
+        "senza-onto-exp",
+        label_a="con-ontologia",
+        label_b="senza-ontologia",
+        stem="c3-pari",
+    )
+    data = json.loads(json_path.read_text(encoding="utf-8"))
+    assert data["winner"]["winner"] is None
+    assert data["winner"]["deciding_axis"] is None
+    assert [c["axis"] for c in data["winner"]["chain"]] == [
+        "hallucination",
+        "grounding",
+    ]
+    md = md_path.read_text(encoding="utf-8")
+    assert "non decidibile" in md
+    assert "ha scorato meglio" not in md
+
+
+def test_the_model_pair_still_breaks_ties_on_speed(tmp_path: Path) -> None:
+    """Non-regressione #157: fra due MODELLI latenza e costo restano spareggi.
+
+    Li' i due bracci ricevono lo STESSO prompt, quindi una differenza di latenza
+    e' una proprieta' del modello — un merito misurabile, non un artefatto della
+    lunghezza del testo inviato.
+    """
+    _write_arm(
+        tmp_path, _arm("claude-exp", "claude-sonnet-4-6", (0.80, 0.10, 3000, 0.012))
+    )
+    _write_arm(
+        tmp_path,
+        _arm("groq-exp", "llama-3.3-70b-versatile", (0.80, 0.10, 1000, 0.0006)),
+    )
+    _, json_path = build_repeated_report(
+        tmp_path,
+        "claude-exp",
+        "groq-exp",
+        label_a="claude",
+        label_b="groq",
+        stem="modelli",
+    )
+    data = json.loads(json_path.read_text(encoding="utf-8"))
+    assert data["winner"]["deciding_axis"] == "latency_ms"
+    assert data["winner"]["winner"] == "groq"
 
 
 def test_main_compare_repeated_dispatch_writes_report(

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from crime_risk_analyzer.eval.compare import MetricValues
-from crime_risk_analyzer.eval.winner import decide_winner
+from crime_risk_analyzer.eval.winner import (
+    NO_OPERATIONAL_TIEBREAK_REASON,
+    decide_winner,
+)
 
 
 def _mv(
@@ -135,6 +138,60 @@ def test_tie_tolerance_at_print_precision_for_latency_ms() -> None:
     )
     assert decided.deciding_axis == "latency_ms"
     assert decided.winner == "claude"  # 1000 < 1001
+
+
+# --- #236: su una coppia di bracci velocita' e costo non sono spareggi validi ---
+
+
+def test_operational_axes_are_not_a_tiebreak_when_excluded() -> None:
+    """Escluso lo spareggio operativo, pari sulla qualita' = nessun vincitore.
+
+    Sulla coppia con/senza ontologia il braccio ablato riceve un prompt
+    strutturalmente piu' corto (niente hazard, vulnerabilita' e citazioni):
+    e' piu' veloce ed economico PER COSTRUZIONE. Un verdetto deciso da latenza o
+    costo direbbe che togliere l'ontologia «vince», misurando la lunghezza del
+    prompt — percio' qui il pareggio resta un pareggio, dichiarato.
+    """
+    w = decide_winner(
+        _mv(0.80, 0.10, 3000, 0.010),
+        _mv(0.80, 0.10, 1000, 0.001),
+        label_a="con-ontologia",
+        label_b="senza-ontologia",
+        operational_tiebreak=False,
+    )
+    assert w.winner is None
+    assert w.deciding_axis is None
+    # La catena elenca gli assi VALUTATI: latenza e costo non hanno partecipato,
+    # quindi non compaiono come se fossero risultati pari.
+    assert [c.axis for c in w.chain] == ["hallucination", "grounding"]
+    assert w.no_winner_reason == NO_OPERATIONAL_TIEBREAK_REASON
+    assert "non decidibile" in w.no_winner_reason
+
+
+def test_quality_axes_still_decide_when_the_operational_tiebreak_is_excluded() -> None:
+    """L'esclusione tocca lo SPAREGGIO: sulla qualita' il verdetto resta pieno."""
+    w = decide_winner(
+        _mv(0.90, 0.10, 3000, 0.010),
+        _mv(0.50, 0.50, 1000, 0.001),
+        label_a="con-ontologia",
+        label_b="senza-ontologia",
+        operational_tiebreak=False,
+    )
+    assert w.winner == "con-ontologia"
+    assert w.deciding_axis == "hallucination"
+    assert w.no_winner_reason == ""
+
+
+def test_total_tie_between_models_reports_no_special_reason() -> None:
+    """Non-regressione: il pareggio a 4 assi di #157 non porta ragioni aggiunte."""
+    w = decide_winner(
+        _mv(0.80, 0.10, 1000, 0.001),
+        _mv(0.80, 0.10, 1000, 0.001),
+        label_a="claude",
+        label_b="groq",
+    )
+    assert w.winner is None
+    assert w.no_winner_reason == ""
 
 
 def test_module_docstring_declares_grounding_is_not_independent() -> None:

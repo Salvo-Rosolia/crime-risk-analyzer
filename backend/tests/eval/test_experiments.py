@@ -42,6 +42,28 @@ def test_ablation_arms_share_the_same_four_zones() -> None:
     assert zones_analyze == zones_baseline
 
 
+def test_no_ontology_arm_config_exists_with_the_llm() -> None:
+    """#236: il braccio che isola l'ontologia gira con l'LLM, non senza.
+
+    ``model`` e' groq perche' e' il provider delle run reali (Claude e' a
+    pagamento e resta differito): il braccio va confrontato con
+    ``ablation-analyze-groq``, cioe' lo STESSO modello.
+    """
+    cfg = load_config(EXPERIMENTS_DIR / "ablation-no-ontology-groq.json")
+    assert cfg.name == "ablation-no-ontology-groq"
+    assert cfg.mode == "no_ontology_prompt"
+    assert cfg.model == "groq"
+
+
+def test_no_ontology_arm_shares_the_zones_of_the_complete_arm() -> None:
+    """Confronto iso-input: le stesse 4 zone del braccio completo con Groq.
+
+    Zone diverse renderebbero il confronto C3 illeggibile prima ancora di
+    guardare i numeri: gli snapshot POI sono chiavati per (citta, zona).
+    """
+    assert _zones("ablation-no-ontology-groq") == _zones("ablation-analyze-groq")
+
+
 def test_ablation_zones_anchored_to_c1_roster() -> None:
     """Le 4 zone sono ancorate al roster #31 (i primi 4: 3 garantite + Torino)."""
     roster_pairs = [(city.citta, city.zona) for city in ROSTER]

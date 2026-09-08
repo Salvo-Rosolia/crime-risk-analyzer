@@ -132,6 +132,15 @@ class Comparison(BaseModel):
     #: vacua sposta la media che decide il verdetto. Sovrainsieme: se un braccio
     #: è in ``vacuous_arms``, tutte le sue zone sono anche qui.
     vacuous_zones: list[VacuousZone] = []
+    #: Dichiarazione di COSA il confronto manipola, quando i modi dei due bracci
+    #: la rendono derivabile (#236); vuota altrimenti — e allora il report resta
+    #: identico a prima. Non è una conclusione: dice quale variabile cambia tra i
+    #: bracci, mentre la lettura dei delta di qualità resta vincolata al
+    #: :data:`PROXY_CAVEAT`. Sulla coppia di modi giusta ma con impostazioni
+    #: divergenti (modello o temperatura) porta l'avviso OPPOSTO
+    #: (:data:`CONFOUNDED_VARIABLE_HEAD`): il campo non afferma mai che la
+    #: variabile è isolata senza averlo verificato sui record.
+    isolated_variable: str = ""
 
 
 @dataclass(frozen=True)
@@ -196,6 +205,227 @@ VACUOUS_REASON = (
 )
 
 
+#: Titolo della dichiarazione di variabile isolata (#236). Come l'avviso di
+#: vacuità apre il report: chi legge deve sapere COSA distingue i due bracci
+#: prima di incontrare i delta, non dopo.
+ISOLATED_VARIABLE_HEAD = "> **Variabile isolata.**"
+
+#: Titolo del caso opposto (#236): i modi ISOLEREBBERO l'ontologia, ma i bracci
+#: non girano con la stessa impostazione (modello o temperatura diversi), quindi
+#: tra loro cambia più di una variabile. Va dove andrebbe la dichiarazione, per
+#: la stessa ragione: dire il falso in cima al report è peggio che non dire
+#: nulla, e tacere lascerebbe il delta senza istruzioni di lettura.
+CONFOUNDED_VARIABLE_HEAD = "> ⚠️ **Variabile non isolata.**"
+
+#: Avviso che accompagna SEMPRE la coppia con/senza ontologia (#236), in qualunque
+#: dei due rami della nota: le differenze operative osservate tra questi bracci
+#: non sono un merito. Il prompt ablato non porta hazard, vulnerabilità e
+#: citazioni, quindi è più corto per costruzione e consuma meno token in meno
+#: tempo a prescindere da cosa scriva. Va detto accanto alla dichiarazione della
+#: variabile perché la tabella operativa (#33) affianca latenza e costo come
+#: fossero un esito del confronto — e su questa coppia sono un esito della
+#: lunghezza del testo inviato. Coerente con l'esclusione dello spareggio
+#: operativo dal verdetto (``winner.decide_winner``, ``operational_tiebreak``).
+PROMPT_LENGTH_SIDE_EFFECT = (
+    "Le eventuali differenze di `latency_ms`/`cost_usd` tra questi due bracci "
+    "NON sono un merito: il prompt senza ontologia è strutturalmente più corto "
+    "(non porta hazard, vulnerabilità e citazioni), quindi consuma meno token in "
+    "meno tempo a prescindere dalla qualità della prosa. Per questa coppia "
+    "velocità e costo non sono spareggi validi e il verdetto non li usa."
+)
+
+#: Cosa il delta di qualità significa quando la variabile È isolata (#236) e gli
+#: assi di qualità sono leggibili. Costante nominata perché è l'affermazione più
+#: impegnativa del report — quella che un lettore cita — e perché il ramo vacuo
+#: deve poterla SOSTITUIRE, non affiancare (vedi :data:`VACUOUS_DELTA_CLAIM`).
+ISOLATED_DELTA_CLAIM = (
+    "Il delta su `grounding`/`hallucination` misura quindi l'effetto "
+    "dell'ancoraggio ontologico su quanto la prosa nomina dati verificabili — "
+    "non la qualità complessiva dell'analisi, e non con la forza di un giudizio "
+    "umano (vedi la nota metodologica)."
+)
+
+#: Sostituisce :data:`ISOLATED_DELTA_CLAIM` quando il confronto ha assi di qualità
+#: vacui (#231): basta UNA zona muta in un braccio. I due blocchi che aprono il
+#: report parlano degli stessi assi, quindi affermare che il delta misura
+#: l'effetto dell'ontologia e poi che quegli assi non sono interpretabili in
+#: nessuna direzione è una contraddizione dentro lo stesso documento. L'isolamento
+#: resta vero come proprietà del DISEGNO (i due bracci condividono l'impostazione,
+#: è verificato sui record) e va detto: è il delta a non essere leggibile, non il
+#: disegno a essere sbagliato.
+VACUOUS_DELTA_CLAIM = (
+    "L'isolamento riguarda però il DISEGNO dei due bracci, non i numeri di "
+    "questo confronto: qui `grounding`/`hallucination` cadono nel ramo vacuo "
+    "(vedi l'avviso sugli assi di qualità), quindi il delta su quegli assi NON "
+    "va letto come effetto dell'ancoraggio ontologico, in nessuna direzione."
+)
+
+#: Coppia di ``mode`` che manipola il contributo ontologico nel prompt (#236):
+#: cambia cosa il prompt porta al modello. È l'unica coppia di bracci per cui il
+#: modulo dichiara la variabile — ``analyze`` vs ``baseline`` manipola la
+#: presenza dell'LLM, due modelli manipolano il modello. NECESSARIA ma non
+#: sufficiente: che il resto dell'impostazione sia condiviso lo verificano
+#: :data:`_SHARED_SETTINGS` (modello, temperatura, formato del contesto) e
+#: ``compare_records`` (lo snapshot POI), non questa coppia.
+_ONTOLOGY_ISOLATING_MODES = frozenset({"analyze", "no_ontology_prompt"})
+
+#: Impostazioni che i due bracci devono CONDIVIDERE perché la coppia di modi
+#: isoli davvero il solo contributo ontologico del prompt: coppie ``(nome
+#: leggibile, accesso al record)``. Il ``mode`` dice cosa cambia nel prompt, non
+#: con quale generatore la prosa è stata scritta, né con quale forma il blocco POI
+#: è stato reso, né con quale campionamento il testo è stato estratto: una run
+#: Claude contro una run Groq cambia prompt E modello insieme, un braccio
+#: ``per_classe`` contro uno ``per_poi`` cambia prompt E formato — che #273 tiene
+#: opzionale proprio perché non è ovvio quale dei due faccia nominare più punti —
+#: e due semi diversi fanno estrarre dallo stesso prompt due prose diverse. Sono
+#: tutte dimensioni che agiscono sull'asse che i proxy misurano. Lo
+#: ``snapshot_id`` non è qui perché ``compare_records`` lo impone già sollevando
+#: su divergenza.
+_SHARED_SETTINGS: tuple[tuple[str, Callable[[RunRecord], object]], ...] = (
+    ("modello", lambda rec: rec.model_id),
+    ("temperatura", lambda rec: rec.provenance.temperature),
+    ("formato del contesto", lambda rec: rec.provenance.context_format),
+    ("seed di campionamento", lambda rec: rec.provenance.seed),
+)
+
+
+def _single_mode(records: list[RunRecord]) -> str:
+    """``mode`` del braccio se è uno solo; ``""`` se il braccio è misto o vuoto."""
+    modes = {rec.mode for rec in records}
+    return next(iter(modes)) if len(modes) == 1 else ""
+
+
+def _observed(
+    records: list[RunRecord], get: Callable[[RunRecord], object]
+) -> list[str]:
+    """Valori distinti (citati, ordinati) di un'impostazione dentro un braccio."""
+    return sorted({f"`{get(rec)}`" for rec in records})
+
+
+def _configured_records(records: list[RunRecord]) -> list[RunRecord]:
+    """Record che descrivono l'impostazione REALE dell'esperimento (#163).
+
+    Esclude ERROR e FALLBACK, gli stessi status che ``compare_records`` tiene
+    fuori da medie e delta. Un record di fallback non riporta la temperatura
+    configurata ma il placeholder di ``_structured_response``
+    (``Repro(temperature=0.0)``, scritto per costruzione quando l'LLM cade):
+    leggerlo come impostazione farebbe apparire misto un braccio che gira con
+    un'unica temperatura, e dichiarare confusa una variabile che nessuno ha
+    confuso.
+    """
+    return [rec for rec in records if rec.status not in _EXCLUDED_STATUSES]
+
+
+def _setting_mismatch(
+    arm_a: list[RunRecord], arm_b: list[RunRecord], *, label_a: str, label_b: str
+) -> str:
+    """Prima impostazione di :data:`_SHARED_SETTINGS` che i bracci NON condividono.
+
+    Ritorna una descrizione con i valori osservati per braccio, o ``""`` se
+    l'impostazione è la stessa da entrambi i lati. Un braccio con valori MISTI
+    conta come mancata condivisione: non esiste un valore unico da dichiarare
+    condiviso, quindi il confronto non isola nulla nemmeno lì. Vale anche per un
+    braccio i cui record sono TUTTI falliti (nessun valore osservabile): non c'è
+    un'impostazione da dichiarare condivisa — ``compare_records`` solleva prima,
+    su quel caso, perché non resterebbe alcuna zona da confrontare.
+    """
+    for name, get in _SHARED_SETTINGS:
+        seen_a = _observed(_configured_records(arm_a), get)
+        seen_b = _observed(_configured_records(arm_b), get)
+        if seen_a != seen_b or len(seen_a) != 1:
+            return (
+                f"{name} (`{label_a}`: {', '.join(seen_a)}; "
+                f"`{label_b}`: {', '.join(seen_b)})"
+            )
+    return ""
+
+
+def is_ontology_isolating_pair(arm_a: list[RunRecord], arm_b: list[RunRecord]) -> bool:
+    """True se i modi dei due bracci sono la coppia che manipola l'ontologia (#236).
+
+    Derivato dai RECORD (il loro ``mode``), non dal nome degli esperimenti, come
+    :func:`isolated_variable_note` che lo riusa: su qualunque altra coppia
+    ritorna ``False`` e nulla cambia. Un braccio MISTO (più di un ``mode``) non
+    è riconoscibile e vale ``False``.
+
+    Lo consuma anche il verdetto a valle (``repeated_comparison``) per escludere
+    velocità e costo dallo spareggio: su questa coppia sono un effetto della
+    lunghezza del prompt (:data:`PROMPT_LENGTH_SIDE_EFFECT`), non un merito.
+    Predicato ESPORTATO invece di ricontrollato là: due riconoscimenti della
+    stessa coppia divergerebbero proprio sul caso che conta.
+    """
+    modes = frozenset({_single_mode(arm_a), _single_mode(arm_b)})
+    return modes == _ONTOLOGY_ISOLATING_MODES
+
+
+def isolated_variable_note(
+    arm_a: list[RunRecord],
+    arm_b: list[RunRecord],
+    *,
+    label_a: str,
+    label_b: str,
+    quality_axes_vacuous: bool,
+) -> str:
+    """Dichiara la variabile manipolata, se i modi dei due bracci la rendono nota.
+
+    Derivata dai RECORD (il loro ``mode``), non dal nome degli esperimenti: il
+    confronto resta la primitiva generica di #32, e su qualunque altra coppia
+    questa funzione ritorna ``""`` lasciando il report invariato.
+
+    Che i bracci condividano modello, temperatura, formato del contesto e seed è
+    VERIFICATO sui record (:func:`_setting_mismatch`, su :data:`_SHARED_SETTINGS`),
+    non dedotto dai modi: due run con generatori diversi cambiano prompt e modello
+    insieme, e su quella coppia la funzione dichiara che la variabile NON è
+    isolata invece di prometterlo. Il controllo guarda i soli record che
+    descrivono l'impostazione reale (:func:`_configured_records`).
+
+    Il testo dice cosa cambia e cosa NON cambia tra i bracci, e si ferma lì: la
+    lettura dei delta di qualità resta quella del :data:`PROXY_CAVEAT` (proxy
+    testuali, non giudizi umani). Dichiarare la variabile serve proprio a non
+    leggere un delta come una misura della bontà dell'analisi.
+
+    ``quality_axes_vacuous`` (dal predicato condiviso
+    :func:`has_vacuous_quality_axes`, l'unico che decide se stampare l'avviso di
+    vacuità) sostituisce l'affermazione sul significato del delta: i due blocchi
+    che aprono il report parlano degli STESSI assi, e con la vacuità in gioco uno
+    diceva che il delta misura l'effetto dell'ontologia mentre l'altro, due righe
+    sotto, che su quegli assi non c'è nulla da leggere in nessuna direzione. Il
+    disegno resta isolato — quello è verificato sui record — ma i suoi numeri no.
+
+    Tutti i rami chiudono con :data:`PROMPT_LENGTH_SIDE_EFFECT`: che il braccio
+    ablato sia più rapido ed economico è una proprietà dei due prompt, quindi va
+    detto sia quando la variabile è isolata sia quando non lo è, e la tabella
+    operativa è stampata anche quando gli assi di qualità sono vacui.
+    """
+    if not is_ontology_isolating_pair(arm_a, arm_b):
+        return ""
+    con, senza = (
+        (label_a, label_b) if _single_mode(arm_a) == "analyze" else (label_b, label_a)
+    )
+    mismatch = _setting_mismatch(arm_a, arm_b, label_a=label_a, label_b=label_b)
+    if mismatch:
+        return (
+            f"{CONFOUNDED_VARIABLE_HEAD} Tra i due bracci cambia il PROMPT "
+            f"(`{con}` riceve gli hazard che l'ontologia associa alle classi dei "
+            f"punti, `{senza}` solo nome e classe dei punti), ma non condividono "
+            f"la stessa impostazione: {mismatch}. Cambia quindi più di una "
+            "variabile e il delta su `grounding`/`hallucination` NON è "
+            "attribuibile all'ancoraggio ontologico: per isolarlo, rilanciare i "
+            f"due bracci con la stessa impostazione. {PROMPT_LENGTH_SIDE_EFFECT}"
+        )
+    what_changes = (
+        f"{ISOLATED_VARIABLE_HEAD} I due bracci condividono modello, "
+        "temperatura, formato del contesto, seed di campionamento, snapshot POI "
+        "e dati strutturati della risposta "
+        "(`poi[]`, `risk_models`, confidence, quindi gli stessi ancoraggi su cui "
+        f"i proxy si calcolano). L'unica differenza è il PROMPT: `{con}` riceve "
+        f"gli hazard che l'ontologia associa alle classi dei punti, `{senza}` "
+        "riceve solo nome e classe dei punti."
+    )
+    claim = VACUOUS_DELTA_CLAIM if quality_axes_vacuous else ISOLATED_DELTA_CLAIM
+    return f"{what_changes} {claim} {PROMPT_LENGTH_SIDE_EFFECT}"
+
+
 def _quote_arms(labels: list[str]) -> tuple[str, str]:
     """(label citate, verbo concordato) per i messaggi di vacuità."""
     quoted = " e ".join(f"`{label}`" for label in dict.fromkeys(labels))
@@ -217,6 +447,24 @@ def vacuity_subject(vacuous_arms: list[str], vacuous_zones: list[VacuousZone]) -
         for z in vacuous_zones
     )
     return f"Su alcune zone un braccio non ha prodotto narrativa — {zone_desc}"
+
+
+def has_vacuous_quality_axes(
+    vacuous_arms: list[str], vacuous_zones: list[VacuousZone]
+) -> bool:
+    """True se su questo confronto ``grounding``/``hallucination`` non si leggono.
+
+    UNICO punto in cui si decide che gli assi di qualità sono vacui (#231), e per
+    questo esportato: lo consumano l'avviso in cima al report
+    (:func:`to_markdown`), la dichiarazione di variabile isolata
+    (:func:`isolated_variable_note`) e il verdetto trattenuto del report ripetuto.
+    Tre condizioni scritte a mano potrebbero divergere, e divergerebbero facendo
+    dire al documento una cosa e la sua negazione sugli stessi assi.
+
+    Basta UNA zona muta in un braccio: entra nella media che il confronto stampa
+    e che il criterio lessicografico userebbe per decidere.
+    """
+    return bool(vacuous_arms or vacuous_zones)
 
 
 def _vacuous_caveat(vacuous_arms: list[str], vacuous_zones: list[VacuousZone]) -> str:
@@ -415,6 +663,16 @@ def compare_records(
         failed=failed,
         vacuous_arms=vacuous,
         vacuous_zones=vacuous_zones,
+        isolated_variable=isolated_variable_note(
+            arm_a,
+            arm_b,
+            label_a=label_a,
+            label_b=label_b,
+            # La nota è calcolata QUI, non nei renderer, perché la vacuità è nota
+            # solo dopo il join: così il campo (che finisce anche nel JSON) e
+            # l'avviso del Markdown non possono raccontare due storie diverse.
+            quality_axes_vacuous=has_vacuous_quality_axes(vacuous, vacuous_zones),
+        ),
     )
 
 
@@ -529,17 +787,23 @@ def operational_markdown(comparison: Comparison) -> str:
 def to_markdown(comparison: Comparison) -> str:
     """Report Markdown del confronto.
 
-    Compone: tabella principale (4 metriche affiancate A/B + delta, per-zona +
-    media), tabella costo/latenza separata (#33), l'avviso sui bracci vacui
-    quando presenti (#231), caveat metodologico sui proxy testuali, e — se
-    presenti — la sezione delle zone escluse (run in errore).
+    Compone: la dichiarazione della variabile isolata quando è derivabile (#236),
+    tabella principale (4 metriche affiancate A/B + delta, per-zona + media),
+    tabella costo/latenza separata (#33), l'avviso sui bracci vacui quando
+    presenti (#231), caveat metodologico sui proxy testuali, e — se presenti — la
+    sezione delle zone escluse (run in errore).
     """
     cols = _columns(comparison.label_a, comparison.label_b)
     lines: list[str] = []
+    # Variabile isolata (#236): apre il report per la stessa ragione dell'avviso
+    # di vacuità — dice come vanno letti i delta, quindi va letta prima di essi.
+    if comparison.isolated_variable:
+        lines.append(comparison.isolated_variable)
+        lines.append("")
     # Vacuità (#231): l'avviso apre il report, PRIMA della tabella. Al contrario
     # chi legge incontrerebbe un delta di qualità e solo dopo la nota che lo
     # dichiara non interpretabile — l'ordine in cui si sbaglia a leggere.
-    if comparison.vacuous_arms or comparison.vacuous_zones:
+    if has_vacuous_quality_axes(comparison.vacuous_arms, comparison.vacuous_zones):
         lines.append(_vacuous_caveat(comparison.vacuous_arms, comparison.vacuous_zones))
         lines.append("")
     lines.extend(_markdown_table(cols, _rows(comparison)))

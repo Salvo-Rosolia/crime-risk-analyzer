@@ -93,6 +93,43 @@ USER_INPUT_FENCE_OPEN = (
 )
 USER_INPUT_FENCE_CLOSE = "--- FINE DOMANDA UTENTE ---"
 
+#: Token di fonte: compaiono nelle righe-etichetta dei blocchi (regola 3) e
+#: :func:`parse_source_prose` li riusa come delimitatori per ricavare la prosa per
+#: fonte. :data:`ONTOLOGY_TOKEN` e' pubblico perche' il braccio di ablazione (#236)
+#: sostituisce proprio quello — il suo blocco misurato non viene dall'ontologia e
+#: non puo' dichiarare di venirne — e ``eval/metrics.py`` deve sapere quale token
+#: cercare per ciascun braccio.
+ONTOLOGY_TOKEN = "[ONTOLOGIA]"
+_CONTEXT_TOKEN = "[CONTESTO]"
+_SPECULATIVE_TOKEN = "[SPECULATIVO]"
+
+#: Righe-etichetta ESATTE dei due blocchi per fonte (regola 3): il modello le
+#: riporta verbatim e il parser le riconosce come delimitatori. Nominate come
+#: costanti perche' il braccio ablato ne sostituisce UNA e i test possono
+#: verificare che sia l'unica differenza tra i due prompt.
+ONTOLOGY_BLOCK_HEADER = f"Rischi da ontologia {ONTOLOGY_TOKEN}"
+CONTEXT_BLOCK_HEADER = f"Rischi dal contesto {_CONTEXT_TOKEN}"
+
+
+def block_structure_rule(measured_header: str) -> str:
+    """Regola 3 (struttura a blocchi) data la riga-etichetta del blocco MISURATO.
+
+    Generatore invece di una costante perche' i prompt del sistema condividono la
+    STRUTTURA della risposta ma non sempre la provenienza del primo blocco: nel
+    braccio di ablazione (#236) quel blocco non viene dall'ontologia e intitolarlo
+    a essa direbbe il falso. Cosi' l'unica differenza ammessa tra le due versioni
+    della regola e' l'etichetta, e un test lo verifica byte per byte; il blocco
+    ``[CONTESTO]`` e' identico in entrambe (stessa fonte, stessa regola 3b).
+    """
+    return (
+        "3. Struttura la risposta cosi': un breve paragrafo di sintesi iniziale "
+        "(senza intestazione), poi fino a DUE blocchi per fonte, ciascuno aperto "
+        f'da una riga-etichetta dedicata ed ESATTA: "{measured_header}", '
+        f'"{CONTEXT_BLOCK_HEADER}". Ometti un blocco se non hai '
+        "nulla da dire per quella fonte. Separa i blocchi con una riga vuota."
+    )
+
+
 #: Regole di STRUTTURA della narrativa (1/3/4), estratte come costanti nominate e
 #: COMPOSTE in :data:`SYSTEM_PROMPT` (stessa forma dei vincoli legali 7/8/9): le
 #: righe lunghe restano leggibili e sotto il limite di riga senza spezzare la
@@ -104,13 +141,22 @@ _RULE_SOURCE_BY_BLOCK = (
     "1. La fonte di ogni rischio e' indicata dal BLOCCO in cui lo collochi "
     "(regola 3): NON ripetere il tag accanto ai singoli rischi."
 )
-_RULE_BLOCK_STRUCTURE = (
-    "3. Struttura la risposta cosi': un breve paragrafo di sintesi iniziale "
-    "(senza intestazione), poi fino a DUE blocchi per fonte, ciascuno aperto "
-    'da una riga-etichetta dedicata ed ESATTA: "Rischi da ontologia '
-    '[ONTOLOGIA]", "Rischi dal contesto [CONTESTO]". Ometti un blocco se non hai '
-    "nulla da dire per quella fonte. Separa i blocchi con una riga vuota."
+_RULE_BLOCK_STRUCTURE = block_structure_rule(ONTOLOGY_BLOCK_HEADER)
+#: LIMITE DI CITAZIONE del blocco misurato: quanti punti la prosa puo' nominare e
+#: come. Estratto come costante propria (#236) perche' e' CONDIVISO con il braccio
+#: di ablazione (:mod:`~crime_risk_analyzer.rag.no_ontology_generation`), che ha una
+#: regola 3a diversa nella descrizione della fonte dei rischi ma deve avere lo
+#: STESSO limite: il proxy di ``eval/metrics.py`` conta come ancoraggio anche il
+#: solo nominare un POI, quindi un braccio libero di elencare tutti i punti mentre
+#: l'altro si limita a pochi esempi prenderebbe punteggi alti per il vincolo che
+#: NON ha, non per la veridicita' di cio' che dice. Una costante e non due testi
+#: simili scritti a mano: la seconda copia divergerebbe al primo che la tocca.
+CITATION_LIMIT_CLAUSE = (
+    "NON elencare ogni hazard di ogni POI: individua i temi di rischio dominanti "
+    "che emergono dal mix di POI, spiega perche' emergono e cita solo pochi POI "
+    "rappresentativi come esempio, dal piu' al meno critico."
 )
+
 #: Guida di SINTESI del blocco [ONTOLOGIA] (#229): il blocco NON enumera ogni hazard
 #: di ogni POI (l'elenco esaustivo e' gia' in mappa e nel pannello Dettaglio), ma
 #: individua i TEMI di rischio dominanti con pochi esempi rappresentativi. "NON
@@ -118,9 +164,7 @@ _RULE_BLOCK_STRUCTURE = (
 #: Referenziale di proposito (cita i POI/hazard reali): la metrica M1 (#229) grada la
 #: groundedness proprio su questo blocco, quindi la sintesi deve restare ancorata.
 _RULE_ONTOLOGY_SYNTHESIS = (
-    "3a. Nel blocco [ONTOLOGIA] NON elencare ogni hazard di ogni POI: individua i "
-    "temi di rischio dominanti che emergono dal mix di POI, spiega perche' emergono "
-    "e cita solo pochi POI rappresentativi come esempio, dal piu' al meno critico. "
+    f"3a. Nel blocco [ONTOLOGIA] {CITATION_LIMIT_CLAUSE} "
     "Prosa analitica e referenziale (cita i POI/hazard reali), non un elenco."
 )
 #: Guida di INTERPRETAZIONE del blocco [CONTESTO] (#229): vera interpretazione del
@@ -193,13 +237,66 @@ REGOLE OBBLIGATORIE:
 {_CONFIDENCE_LEVELS}"""
 
 
-#: Token di fonte usati sia come etichette-header nel prompt (regola 3) sia come
-#: delimitatori dai quali :func:`parse_source_prose` ricava la prosa per fonte.
-_SOURCE_TOKENS: tuple[tuple[str, str], ...] = (
-    ("ontologia", "[ONTOLOGIA]"),
-    ("contesto", "[CONTESTO]"),
-    ("speculativo", "[SPECULATIVO]"),
-)
+def _source_tokens(measured_token: str) -> tuple[tuple[str, str], ...]:
+    """Coppie ``(campo di SourceProse, token delimitatore)`` per il parser.
+
+    ``measured_token`` e' il token del PRIMO blocco, quello che il proxy di
+    valutazione grada: :data:`ONTOLOGY_TOKEN` nel braccio completo, un altro nel
+    braccio ablato (#236). Finisce nel campo ``ontologia`` in entrambi i casi: il
+    campo nomina lo SLOT della risposta, non la provenienza del testo, che e'
+    dichiarata dall'etichetta e dal ``mode`` della run.
+    """
+    return (
+        ("ontologia", measured_token),
+        ("contesto", _CONTEXT_TOKEN),
+        ("speculativo", _SPECULATIVE_TOKEN),
+    )
+
+
+#: Caratteri che possono seguire il token in una RIGA-ETICHETTA senza smettere di
+#: essere un'intestazione: whitespace piu' la decorazione che i modelli aggiungono
+#: spesso da soli (``**Rischi da ontologia [ONTOLOGIA]**``, ``[CONTESTO]:``).
+#: Delimitano quanto :func:`_block_header_index` e' permissivo nel riconoscere la
+#: riga d'apertura di un blocco: tutto cio' che segue il token DEVE stare qui,
+#: altrimenti quel token e' dentro una frase e non apre nulla.
+_HEADER_TRAILING_CHARS = " \t\r*_:#"
+
+
+def _block_header_index(text: str, token: str) -> int:
+    """Posizione del token nella RIGA-ETICHETTA che apre un blocco, o ``-1``.
+
+    Il prompt chiede l'etichetta su una riga dedicata (regola 3), quindi una riga
+    d'apertura e' una riga che dopo il token non dice altro. Cercare invece la
+    prima occorrenza QUALUNQUE e' fragile per un motivo concreto: la prosa nomina
+    POI reali e i nomi arrivano da OpenStreetMap, dove chiunque puo' chiamare un
+    locale ``Bar [ONTOLOGIA] Fake``. Bastava che il modello lo citasse nella
+    sintesi iniziale perche' il taglio si ancorasse dentro quella frase e il
+    blocco misurato — quello che alimenta grounding/allucinazione — contenesse
+    l'overview e l'intestazione vera.
+
+    Se nessuna riga apre un blocco (modello che scrive etichetta e prosa sulla
+    stessa riga) ritorna la PRIMA occorrenza, cioe' esattamente l'ancoraggio
+    storico: il riconoscimento diventa piu' preciso dove c'e' un'intestazione da
+    riconoscere, e non cambia il righello dove non c'e'.
+
+    Limite dichiarato: un nome POI che finisse col token e stesse a fine riga
+    resterebbe indistinguibile da un'intestazione. Non e' evitabile guardando il
+    solo testo generato, ed e' un caso remoto (i token sono maiuscoli tra
+    parentesi quadre); il caso reale — il tag in mezzo a una frase — e' chiuso.
+    """
+    pos = 0
+    fallback = -1
+    # split("\n"), non splitlines(): il resto del parser calcola i confini di riga
+    # solo su "\n", e due nozioni diverse di «riga» sposterebbero i tagli.
+    for line in text.split("\n"):
+        idx = line.find(token)
+        if idx != -1:
+            if fallback == -1:
+                fallback = pos + idx
+            if not line[idx + len(token) :].strip(_HEADER_TRAILING_CHARS):
+                return pos + idx
+        pos += len(line) + 1  # +1: il "\n" consumato dallo split
+    return fallback
 
 
 class SourceProse(BaseModel):
@@ -216,7 +313,9 @@ class SourceProse(BaseModel):
     speculativo: str = ""
 
 
-def parse_source_prose(narrativa: str) -> SourceProse:
+def parse_source_prose(
+    narrativa: str, *, measured_token: str = ONTOLOGY_TOKEN
+) -> SourceProse:
     """Ricava :class:`SourceProse` dalla ``narrativa`` a blocchi (regola 3 del prompt).
 
     Ogni blocco e' aperto da una riga-header contenente il token della fonte
@@ -224,11 +323,21 @@ def parse_source_prose(narrativa: str) -> SourceProse:
     prima del primo token e' l'``overview``; ogni blocco va da fine-header al token
     successivo (per posizione, indipendentemente dall'ordine) o a fine testo.
     Fallback: nessun token -> tutto in ``overview`` (nessuna perdita di contenuto).
+
+    L'header e' cercato tra le RIGHE che aprono un blocco
+    (:func:`_block_header_index`), non tra tutte le occorrenze del token: un nome
+    POI che contiene l'etichetta — i nomi arrivano da OSM e il prompt chiede di
+    citare i punti reali — non deve spostare il taglio dentro una frase.
+
+    ``measured_token`` sostituisce il token del primo blocco (#236): il braccio di
+    ablazione non ha consultato alcuna ontologia e etichetta quel blocco per cio'
+    che e', quindi chi lo misura deve cercare l'etichetta del suo braccio. Il
+    default e' il braccio storico, cosi' i chiamanti di prodotto non cambiano.
     """
     text = narrativa or ""
     found: list[tuple[str, int, int]] = []
-    for field, token in _SOURCE_TOKENS:
-        idx = text.find(token)
+    for field, token in _source_tokens(measured_token):
+        idx = _block_header_index(text, token)
         if idx == -1:
             continue
         line_start = text.rfind("\n", 0, idx) + 1

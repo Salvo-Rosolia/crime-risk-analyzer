@@ -1,0 +1,11 @@
+{
+  "name": "ablation-no-ontology-groq",
+  "mode": "no_ontology_prompt",
+  "model": "groq",
+  "cases": [
+    { "citta": "Roma", "zona": "Colosseo" },
+    { "citta": "Milano", "zona": "Duomo" },
+    { "citta": "Napoli", "zona": "Piazza Garibaldi" },
+    { "citta": "Torino", "zona": "Porta Nuova" }
+  ]
+}

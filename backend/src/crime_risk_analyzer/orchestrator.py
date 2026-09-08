@@ -25,7 +25,9 @@ from crime_risk_analyzer.rag.generation import (
     DEFAULT_CONTEXT_FORMAT,
     DEFAULT_MAX_TOKENS,
     DEFAULT_REQUEST_TOKEN_BUDGET,
+    ONTOLOGY_TOKEN,
     ContextFormat,
+    GenerationResult,
     Repro,
     RiskItem,
     RiskModel,
@@ -37,6 +39,10 @@ from crime_risk_analyzer.rag.grounding import (
     GroundedContext,
     confidence_from_poi_name,
     ground,
+)
+from crime_risk_analyzer.rag.no_ontology_generation import (
+    LLM_SYNTHESIS_TOKEN,
+    generate_no_ontology_analysis,
 )
 from crime_risk_analyzer.rag.retrieval import (
     GeoSource,
@@ -358,6 +364,59 @@ def _structured_response(
     )
 
 
+def _generated_response(
+    citta: str,
+    zona: str,
+    poi_out: list[PoiOut],
+    gen: GenerationResult,
+    *,
+    latenza_ms: int,
+    contesto_hash: str,
+    measured_token: str,
+) -> AnalyzeResponse:
+    """Assembla la AnalyzeResponse CON narrativa dal contributo del generation layer.
+
+    Gemello di :func:`_structured_response` per il ramo con LLM. Estratto quando i
+    chiamanti sono diventati due (#236: il braccio di ablazione senza contributo
+    ontologico usa un altro generation layer ma lo STESSO contratto di risposta):
+    un secondo assemblaggio copiato avrebbe potuto divergere proprio sui campi che
+    rendono confrontabili i due bracci.
+
+    ``measured_token`` e' il token della riga-etichetta del primo blocco, che
+    dipende dal prompt che ha generato la narrativa: il braccio ablato fa scrivere
+    ``[SINTESI-LLM]`` (non ha consultato alcuna ontologia e non lo dichiara),
+    quindi tagliare la sua prosa sull'etichetta dell'altro braccio metterebbe
+    tutto in ``overview`` — una seconda lettura dello stesso testo, in disaccordo
+    con quella dell'eval.
+
+    OBBLIGATORIO e senza default: con ``[ONTOLOGIA]`` come default un terzo
+    braccio che dimenticasse di dichiarare la propria etichetta non
+    sbaglierebbe in modo visibile — ``parse_source_prose`` non troverebbe nulla,
+    la prosa finirebbe tutta in ``overview`` e quella narrativa risulterebbe una
+    NON-ATTRIBUZIONE (0.0/1.0) senza che nessuno solleva. Farlo dichiarare a ogni
+    chiamante sposta quell'errore dal silenzio al type check.
+    """
+    return AnalyzeResponse(
+        citta=citta,
+        zona_normalizzata=zona,
+        poi=poi_out,
+        risk_models=gen.risk_models,
+        narrativa=gen.narrativa,
+        narrativa_fonti=parse_source_prose(
+            gen.narrativa, measured_token=measured_token
+        ),
+        confidence_summary=gen.confidence_summary,
+        llm_used=gen.llm_used,
+        latenza_ms=latenza_ms,
+        tokens_input=gen.tokens_input,
+        tokens_output=gen.tokens_output,
+        repro=gen.repro,
+        cache_hit=gen.cache_hit,
+        fallback=False,
+        contesto_hash=contesto_hash,
+    )
+
+
 class RiskProfiler(Protocol):
     """Superficie minima dell'executor SPARQL usata dalla pipeline (DI)."""
 
@@ -434,8 +493,6 @@ async def run_analysis(
             max_tokens=max_tokens,
             context_format=context_format,
         )
-        tokens_input = gen.tokens_input
-        tokens_output = gen.tokens_output
     except LLMError as exc:
         logger.warning(
             "Generazione LLM fallita per %s/%s: fallback strutturato (narrativa "
@@ -444,8 +501,6 @@ async def run_analysis(
             zona,
             exc,
         )
-        tokens_input = 0
-        tokens_output = 0
         return _structured_response(
             citta,
             zona,
@@ -455,22 +510,88 @@ async def run_analysis(
             fallback=True,
             contesto_hash=contesto_hash,
         )
-    return AnalyzeResponse(
-        citta=citta,
-        zona_normalizzata=zona,
-        poi=poi_out,
-        risk_models=gen.risk_models,
-        narrativa=gen.narrativa,
-        narrativa_fonti=parse_source_prose(gen.narrativa),
-        confidence_summary=gen.confidence_summary,
-        llm_used=gen.llm_used,
+    return _generated_response(
+        citta,
+        zona,
+        poi_out,
+        gen,
         latenza_ms=_elapsed_ms(start),
-        tokens_input=tokens_input,
-        tokens_output=tokens_output,
-        repro=gen.repro,
-        cache_hit=gen.cache_hit,
-        fallback=False,
         contesto_hash=contesto_hash,
+        # Il prompt di questo braccio chiede l'etichetta ontologica (regola 3):
+        # la prosa si taglia su quella. Dichiarato anche qui, dove sarebbe stato
+        # il default, perche' l'etichetta e' una proprieta' del prompt usato.
+        measured_token=ONTOLOGY_TOKEN,
+    )
+
+
+async def run_no_ontology_prompt(
+    citta: str,
+    zona: str,
+    *,
+    executor: RiskProfiler,
+    llm_client: _LLMClientLike,
+    poi_source: PoiSource | None = None,
+    geo_source: GeoSource | None = None,
+) -> AnalyzeResponse:
+    """Pipeline del braccio di ablazione: stesso LLM, prompt SENZA ontologia (#236).
+
+    ``retrieve`` e ``ground`` sono invariati — i dati strutturati della response
+    (``poi[]``, ``risk_models``, ``confidence_summary``, ``sparql_path``) restano
+    quelli ontologici — mentre la narrativa e' generata da
+    :func:`~crime_risk_analyzer.rag.no_ontology_generation.generate_no_ontology_analysis`,
+    che passa al modello i soli nome e classe dei punti. L'unica variabile
+    manipolata rispetto a :func:`run_analysis` e' quindi il contributo
+    dell'ontologia nel PROMPT, che e' cio' che la contribuzione C3 mette alla
+    prova; il contratto di risposta e i vincoli legali sono gli stessi.
+
+    Percorso di VALUTAZIONE, non di prodotto: non e' esposto da alcuna rotta
+    (l'API canonica resta ``/analyze`` e ``/analyze/baseline``) e, a differenza di
+    :func:`run_analysis`, non deposita nulla in
+    :mod:`~crime_risk_analyzer.zone_context_cache` — quella cache serve i clic
+    dell'utente su ``/analyze/poi``, e riempirla con il contesto di un'ablazione
+    sarebbe uno stato di processo che nessuno ha chiesto.
+
+    Su :class:`LLMError` ritorna i soli dati strutturati (``fallback=True``) con
+    lo stesso warning diagnosticabile del braccio completo (#210): un braccio muto
+    va visto, perche' a valle rende vacui i proxy di qualita' (#231).
+    """
+    start = time.perf_counter()
+    retrieval_ctx = await retrieve(
+        citta, zona, executor=executor, poi_source=poi_source, geo_source=geo_source
+    )
+    grounded = ground(retrieval_ctx)
+    contesto_hash = fingerprint(retrieval_ctx["pois"])
+    poi_out = _build_poi_list(retrieval_ctx, grounded)
+    try:
+        gen = await generate_no_ontology_analysis(dict(grounded), llm_client)
+    except LLMError as exc:
+        logger.warning(
+            "Generazione LLM (braccio senza ontologia) fallita per %s/%s: "
+            "fallback strutturato (narrativa vuota). Causa: %s",
+            citta,
+            zona,
+            exc,
+        )
+        return _structured_response(
+            citta,
+            zona,
+            poi_out,
+            grounded,
+            latenza_ms=_elapsed_ms(start),
+            fallback=True,
+            contesto_hash=contesto_hash,
+        )
+    return _generated_response(
+        citta,
+        zona,
+        poi_out,
+        gen,
+        latenza_ms=_elapsed_ms(start),
+        contesto_hash=contesto_hash,
+        # La narrativa di questo braccio apre il blocco misurato con la propria
+        # etichetta (#236): il taglio per fonte deve cercare quella, non
+        # l'etichetta ontologica che il prompt ablato non chiede piu'.
+        measured_token=LLM_SYNTHESIS_TOKEN,
     )
 
 

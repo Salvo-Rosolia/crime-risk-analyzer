@@ -21,6 +21,8 @@ from crime_risk_analyzer.eval.compare import (
     VacuousZone,
     compare_records,
     guard_no_overwrite,
+    has_vacuous_quality_axes,
+    is_ontology_isolating_pair,
     to_json,
     to_markdown,
     vacuity_subject,
@@ -167,12 +169,24 @@ def winner_markdown(
     Se ``folded_a``/``folded_b`` sono forniti, sotto il verdetto viene stampata
     la base campionaria (n_reps/range, F #164). ``k_hi`` (Task 3, #165.2): se
     valorizzato e diverso da ``k``, l'header mostra il range ``K={k}..{k_hi}``.
+
+    Senza vincitore ci sono due frasi diverse, perché sono due fatti diversi:
+    il pareggio su tutti gli assi (#157) e il verdetto non decidibile perché lo
+    spareggio su velocità/costo è escluso (#236, ``Winner.no_winner_reason``).
     """
     k_label = f"{k}" if k_hi is None or k_hi == k else f"{k}..{k_hi}"
     lines = [f"### Esito del criterio proxy (esplorativo, K={k_label})", ""]
     lines.append(_SCOPE_NOTE)
     lines.append("")
-    if winner.winner is None:
+    if winner.winner is None and winner.no_winner_reason:
+        # Spareggio operativo escluso (#236): il pareggio sulla qualità non è il
+        # pareggio a quattro assi, e dirlo con la stessa frase confonderebbe due
+        # fatti diversi. La ragione arriva dal verdetto, non è riscritta qui.
+        lines.append(
+            f"**Nessun braccio prevale sul proxy.** {winner.no_winner_reason} "
+            f"(`{winner.label_a}` vs `{winner.label_b}`)."
+        )
+    elif winner.winner is None:
         lines.append(
             f"**Nessun modello prevale sul proxy.** `{winner.label_a}` e "
             f"`{winner.label_b}` sono pari su tutti e 4 gli assi alla precisione "
@@ -270,11 +284,26 @@ def build_repeated_report(
     # (#231): premierebbe il silenzio. La vacuità arriva dai record-media, che
     # conservano la DISPONIBILITÀ di narrativa (repeat._representative_narrativa),
     # non una media di testi (che non esiste).
-    withheld = bool(comparison.vacuous_arms or comparison.vacuous_zones)
+    withheld = has_vacuous_quality_axes(
+        comparison.vacuous_arms, comparison.vacuous_zones
+    )
+    # Su questa coppia il braccio ablato ha un prompt strutturalmente piu' corto,
+    # quindi latenza e costo piu' bassi non sono un merito (#236): escludendoli
+    # dallo spareggio, se la qualita' pareggia il verdetto resta dichiaratamente
+    # non decidibile invece di premiare il prompt piu' breve. Il predicato e' lo
+    # stesso di compare.py, non un secondo riconoscimento della coppia.
     winner = (
         None
         if withheld
-        else decide_winner(comparison.mean_a, comparison.mean_b, label_a=la, label_b=lb)
+        else decide_winner(
+            comparison.mean_a,
+            comparison.mean_b,
+            label_a=la,
+            label_b=lb,
+            operational_tiebreak=not is_ontology_isolating_pair(
+                folded_a.mean_records, folded_b.mean_records
+            ),
+        )
     )
     k_lo, k_hi = _k_range(folded_a, folded_b)
     k = _k_of(folded_a, folded_b)  # max, per il payload JSON (contratto stabile)
