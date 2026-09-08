@@ -1,10 +1,16 @@
-"""Orchestratore dell'endpoint ``POST /analyze`` (#18).
+"""Orchestratore della pipeline di ``/analyze`` (#18).
 
 Cabla i tre layer RAG gia' pronti (retrieval #22 -> grounding #24 ->
 generation #23) e serializza lo schema canonico di ``/analyze``
-(backend/orchestrator.md). Contiene la funzione pura :func:`run_analysis`
-(testabile senza HTTP) e i modelli del contratto; la rotta FastAPI vive in
-``main.py``.
+(backend/orchestrator.md). Contiene i modelli del contratto e le funzioni pure
+(testabili senza HTTP) dei percorsi che restituiscono la response canonica:
+:func:`run_baseline` (rotta ``POST /analyze/baseline``), :func:`run_analysis`
+(percorso sincrono completo, ormai solo per la valutazione) e
+:func:`run_no_ontology_prompt` (braccio di ablazione, solo valutazione).
+
+Le due fasi della rotta ``POST /analyze`` + ``POST /analyze/narrativa`` (#292)
+vivono in :mod:`~crime_risk_analyzer.analyze_narrative` e riusano da qui
+contratto e assemblaggio; le rotte FastAPI vivono in ``main.py``.
 """
 
 from __future__ import annotations
@@ -15,7 +21,6 @@ from typing import Protocol
 
 from pydantic import BaseModel, Field, model_validator
 
-from crime_risk_analyzer import zone_context_cache
 from crime_risk_analyzer.context_fingerprint import fingerprint
 from crime_risk_analyzer.i18n.terminus_labels import label_en, label_it
 from crime_risk_analyzer.llm.client import LLMError, LLMResponse
@@ -51,13 +56,18 @@ from crime_risk_analyzer.rag.retrieval import (
     RetrievalStats,
     retrieve,
 )
-from crime_risk_analyzer.zone_context_cache import ZoneContext
 
 logger = logging.getLogger(__name__)
 
 
 class AnalyzeRequest(BaseModel):
-    """Body di ``POST /analyze`` (naming ASCII)."""
+    """Body della fase 1 di ``POST /analyze`` (naming ASCII).
+
+    Solo ``citta``/``zona``: la rotta non chiama il modello (#292), quindi non ha
+    un prompt in cui iniettare una ``domanda``. Quel campo vive in
+    ``ZoneNarrativeRequest`` (:mod:`~crime_risk_analyzer.analyze_narrative`), la
+    richiesta della fase 2 che porta davvero il testo dell'operatore al modello.
+    """
 
     citta: str = Field(
         max_length=100,
@@ -75,17 +85,6 @@ class AnalyzeRequest(BaseModel):
             "zona/quartiere ci sta ampiamente, mentre il tetto chiude la "
             "superficie del free-text che finisce nella query Nominatim e nella "
             "chiave di _CACHE (#170)."
-        ),
-    )
-    domanda: str | None = Field(
-        default=None,
-        max_length=500,
-        description=(
-            "Domanda libera (opzionale) iniettata come input NON fidato (fenced) "
-            "nello user_content del prompt LLM (#119); None/vuota = prompt "
-            "invariato. max_length=500: una domanda in linguaggio naturale di un "
-            "operatore ci sta ampiamente, mentre il tetto limita token/costo/"
-            "latenza e riduce la superficie di prompt-injection."
         ),
     )
 
@@ -209,7 +208,7 @@ class AnalyzeResponse(BaseModel):
         default=None,
         description=(
             "Testo dell'analisi. None se non ancora generato (fase 1 di #259: "
-            "in arrivo da POST /analyze/narrative); stringa vuota in baseline "
+            "in arrivo da POST /analyze/narrativa); stringa vuota in baseline "
             "o quando l'LLM e' caduto (fallback)."
         ),
     )
@@ -242,9 +241,10 @@ class AnalyzeResponse(BaseModel):
     contesto_hash: str = Field(
         description=(
             "Impronta del contesto di zona (#242): identifica la lista di POI "
-            "di questa risposta. Il client la rimanda OPACA in /analyze/poi, "
-            "che rifiuta con 409 se il contesto che userebbe non e' questo. "
-            "Digest di identita', non una misura: nessuno scoring."
+            "di questa risposta. Il client la rimanda OPACA in "
+            "/analyze/narrativa e /analyze/poi, che rifiutano con 409 se il "
+            "contesto che userebbero non e' questo. Digest di identita', non "
+            "una misura: nessuno scoring."
         ),
     )
 
@@ -333,17 +333,20 @@ def _structured_response(
 
     ``contesto_hash`` arriva dal chiamante, che ha il ``RetrievalContext``: il
     contratto della response e' unico, quindi l'impronta accompagna anche le
-    response senza narrativa. Sul fallback LLM di ``/analyze`` e' pienamente
-    utilizzabile (la cache di zona e' popolata e il contesto e' quello). Sulla
-    baseline no: ``run_baseline`` non popola ``zone_context_cache`` e
-    ``/analyze/poi`` non conosce ``tipo_poi``, quindi un'impronta di baseline
-    FILTRATA non potrebbe che divergere dal contesto ricostruito. Non e' un
-    percorso raggiungibile dalla UI — la narrativa per-POI vive solo nella
-    pipeline completo (review backend M2).
+    response senza narrativa. Sulla fase 1 di ``/analyze`` e' pienamente
+    utilizzabile (:func:`~crime_risk_analyzer.analyze_narrative.run_analysis_fast`
+    popola la cache di zona e il contesto e' quello). Sulla baseline no:
+    ``run_baseline`` non popola ``zone_context_cache`` e ``/analyze/poi`` non
+    conosce ``tipo_poi``, quindi un'impronta di baseline FILTRATA non potrebbe che
+    divergere dal contesto ricostruito. Non e' un percorso raggiungibile dalla UI
+    — la narrativa per-POI vive solo nella pipeline completa (review backend M2).
+    Nemmeno il fallback LLM dei percorsi di valutazione popola la cache (#292):
+    la sua impronta resta un'identita' verificabile della lista restituita, ma
+    nessun clic la rimandera' mai.
 
     ``narrativa``: ``""`` (default) per baseline/fallback — nessuna narrativa
     arrivera' mai. ``None`` per la fase 1 di ``/analyze`` (#259): la narrativa e'
-    in arrivo da una chiamata separata a ``POST /analyze/narrative``, non e' un
+    in arrivo da una chiamata separata a ``POST /analyze/narrativa``, non e' un
     fallback.
     """
     return AnalyzeResponse(
@@ -444,6 +447,17 @@ async def run_analysis(
 ) -> AnalyzeResponse:
     """Esegue la pipeline completa e assembla la response canonica.
 
+    **Non e' piu' cablata a ``POST /analyze``** (#292): la rotta risponde in due
+    fasi (:func:`~crime_risk_analyzer.analyze_narrative.run_analysis_fast` +
+    ``POST /analyze/narrativa``). Questa resta il percorso SINCRONO COMPLETO —
+    dati strutturati e narrativa nella stessa response — e serve
+    :mod:`~crime_risk_analyzer.eval.harness` (``mode="analyze"``): le metriche di
+    grounding/allucinazione confrontano la prosa con il contesto ontologico che
+    l'ha prodotta, quindi devono nascere dalla stessa invocazione. Non e' quindi
+    dead code, e le due fasi della rotta non possono sostituirla: il braccio di
+    ablazione (:func:`run_no_ontology_prompt`) e' confrontabile solo con un
+    braccio completo iso-input come questo.
+
     ``retrieve`` (async) -> ``ground`` (sync) -> ``generate_analysis`` (async).
     Su :class:`LLMError` ritorna i soli dati strutturati (``fallback=True``) e
     logga un warning col messaggio dell'eccezione, cosi' i fallback (narrativa
@@ -464,21 +478,21 @@ async def run_analysis(
     ``geo_source`` (opzionale, #169) e' propagato a :func:`retrieve` per il replay
     del geo nell'harness di eval; ``None`` = geocoding live (prodotto invariato).
 
-    Effetto collaterale (#197): il contesto (retrieval + grounding) e' depositato
-    in :mod:`~crime_risk_analyzer.zone_context_cache`, cosi' ``/analyze/poi`` puo'
-    generare la narrativa di un POI senza rifare geocoding e Overpass a ogni clic.
+    NESSUN effetto collaterale su :mod:`~crime_risk_analyzer.zone_context_cache`
+    (#292). Depositava il contesto per ``/analyze/poi`` (#197) quando era la
+    funzione della rotta; ora la cache la scalda la fase 1
+    (:func:`~crime_risk_analyzer.analyze_narrative.run_analysis_fast`) e qui
+    nessuno la rilegge, perche' nel percorso di valutazione non ci sono clic su
+    un POI. Stessa scelta — e stessa ragione — di
+    :func:`run_no_ontology_prompt`: riempirla col contesto di una run offline
+    sarebbe stato di processo che nessuno ha chiesto, e a cache piena sfratterebbe
+    la zona di un utente vero.
     """
     start = time.perf_counter()
     retrieval_ctx = await retrieve(
         citta, zona, executor=executor, poi_source=poi_source, geo_source=geo_source
     )
     grounded = ground(retrieval_ctx)
-    # Il contesto resta disponibile a /analyze/poi (#197): evita una chiamata
-    # Overpass per ogni clic su un POI. Cache limitata con TTL, non stato di
-    # sessione: a cache fredda l'endpoint POI ricostruisce da se'.
-    zone_context_cache.put(
-        citta, zona, ZoneContext(retrieval=retrieval_ctx, grounded=grounded)
-    )
     # Impronta della lista POI di QUESTA cattura (#242): /analyze/poi la
     # confronta con quella del contesto che userebbe e rifiuta (409) se
     # divergono, invece di generare prosa su un intorno che a schermo non c'e'.
@@ -545,11 +559,12 @@ async def run_no_ontology_prompt(
     prova; il contratto di risposta e i vincoli legali sono gli stessi.
 
     Percorso di VALUTAZIONE, non di prodotto: non e' esposto da alcuna rotta
-    (l'API canonica resta ``/analyze`` e ``/analyze/baseline``) e, a differenza di
-    :func:`run_analysis`, non deposita nulla in
-    :mod:`~crime_risk_analyzer.zone_context_cache` — quella cache serve i clic
-    dell'utente su ``/analyze/poi``, e riempirla con il contesto di un'ablazione
-    sarebbe uno stato di processo che nessuno ha chiesto.
+    (l'API canonica resta ``/analyze`` e ``/analyze/baseline``) e non deposita
+    nulla in :mod:`~crime_risk_analyzer.zone_context_cache` — quella cache serve i
+    clic dell'utente su ``/analyze/poi``, e riempirla con il contesto di
+    un'ablazione sarebbe uno stato di processo che nessuno ha chiesto. Dal #292
+    vale per entrambi i bracci di valutazione: anche :func:`run_analysis`, uscita
+    dalla rotta, ha smesso di scriverci.
 
     Su :class:`LLMError` ritorna i soli dati strutturati (``fallback=True``) con
     lo stesso warning diagnosticabile del braccio completo (#210): un braccio muto

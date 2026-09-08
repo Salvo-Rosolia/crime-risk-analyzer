@@ -942,10 +942,10 @@ async def test_run_no_ontology_prompt_does_not_touch_the_zone_cache(
 ) -> None:
     """Il braccio sperimentale non deposita contesto per ``/analyze/poi``.
 
-    ``run_analysis`` popola la cache di zona perche' serve il prodotto (un clic
-    su un POI non deve rifare Overpass). Questo braccio non e' servito da alcuna
-    rotta: lasciare li' un contesto costruito per un'ablazione sarebbe stato di
-    processo che nessuno ha chiesto.
+    La cache di zona serve i clic dell'utente (un clic su un POI non deve rifare
+    Overpass) e la riempie la fase 1 di ``/analyze``. Questo braccio non e'
+    servito da alcuna rotta: lasciare li' un contesto costruito per un'ablazione
+    sarebbe stato di processo che nessuno ha chiesto.
     """
     from crime_risk_analyzer import zone_context_cache
 
@@ -963,20 +963,32 @@ async def test_run_no_ontology_prompt_does_not_touch_the_zone_cache(
         zone_context_cache.clear()
 
 
-# --- #119: max_length sulla domanda (bound su token/costo/superficie) ---
+async def test_run_analysis_does_not_touch_the_zone_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Anche il braccio completo di valutazione lascia la cache di zona in pace.
 
+    Da #292 nessuna rotta chiama ``run_analysis``: e' il percorso di VALUTAZIONE
+    (``eval/harness``, ``mode='analyze'``), e nel percorso di valutazione nessuno
+    legge quella cache. Depositarci il contesto era un effetto collaterale morto,
+    identico a quello che il gemello di ablazione evita di proposito qui sopra:
+    stato di processo che nessuno ha chiesto, e che a cache piena sfratterebbe la
+    zona di un utente vero per far posto a una run offline.
+    """
+    from crime_risk_analyzer import zone_context_cache
 
-def test_analyze_request_rejects_overlong_domanda() -> None:
-    # oltre il tetto (500): la validazione Pydantic respinge la richiesta
-    with pytest.raises(ValidationError):
-        AnalyzeRequest(citta="Roma", zona="Centro", domanda="x" * 501)
-
-
-def test_analyze_request_accepts_domanda_at_max_length() -> None:
-    # esattamente al tetto: ammessa (il bound e' inclusivo)
-    req = AnalyzeRequest(citta="Roma", zona="Centro", domanda="x" * 500)
-    assert req.domanda is not None
-    assert len(req.domanda) == 500
+    _patch_io(monkeypatch)
+    zone_context_cache.clear()
+    try:
+        await run_analysis(
+            "Roma",
+            "Centro",
+            executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+            llm_client=_FakeLLMClient(_llm_response()),
+        )
+        assert zone_context_cache.get("Roma", "Centro") is None
+    finally:
+        zone_context_cache.clear()
 
 
 # --- #170: max_length sulla zona (free-text verso Nominatim + chiave _CACHE) ---
@@ -1002,6 +1014,19 @@ def test_baseline_request_rejects_overlong_zona() -> None:
 def test_baseline_request_accepts_zona_at_max_length() -> None:
     req = BaselineRequest(citta="Roma", zona="x" * 200)
     assert len(req.zona) == 200
+
+
+def test_analyze_request_surface_is_exactly_citta_and_zona() -> None:
+    """La fase 1 chiede DOVE, non cosa raccontare (#292).
+
+    ``domanda`` e' stata rimossa: senza chiamata LLM su questa rotta non c'e'
+    prompt in cui iniettarla, e tenerla nel contratto significava dichiarare un
+    input che il server accettava e ignorava — la specie di campo che un client
+    riempie credendo di ottenere qualcosa. Vive in ``ZoneNarrativeRequest``, la
+    richiesta che porta davvero il testo al modello. L'insieme esatto tiene fuori
+    anche il ritorno di un ``tipo_poi``/``score`` per la strada del «tanto e'
+    opzionale»."""
+    assert set(AnalyzeRequest.model_fields) == {"citta", "zona"}
 
 
 # --- #184: guardia anti-scoring estesa al contratto di risposta /analyze ---

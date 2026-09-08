@@ -151,16 +151,16 @@ async def _fake_poi_source(bbox: Bbox, citta: str) -> list[Poi]:
 
 @pytest.fixture(autouse=True)
 def _reset_global_state() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]
-    """Azzera lo stato di processo che questi test toccano, prima e dopo.
+    """Azzera lo stato di processo che questi test potrebbero toccare.
 
-    Due voci, non una: oltre alla cache di ``get_settings`` (che deve rileggere
-    la ``GROQ_API_KEY`` vera esportata dall'utente, non quella letta all'import
-    di ``conftest.py``), ``run_analysis`` popola ``zone_context_cache`` per
-    ``Roma/Trastevere`` — stato globale che sopravvive al test e che qui nessuno
-    invalida. Oggi e' inerte (nessun test legge quella chiave, e il TTL e' di 30
-    minuti), ma lasciare in giro un contesto di zona costruito su POI finti e'
-    esattamente il tipo di residuo che fa passare un test per la ragione
-    sbagliata: si pulisce per igiene, non per un bug osservato.
+    Due voci, non una. La prima e' la cache di ``get_settings``, che deve
+    rileggere la ``GROQ_API_KEY`` vera esportata dall'utente e non quella letta
+    all'import di ``conftest.py``: quella e' necessaria. La seconda e'
+    ``zone_context_cache``, che da #292 nessuno di questi percorsi popola piu'
+    (``run_analysis`` ha smesso di scriverci: la scalda solo la fase 1 della
+    rotta) e resta come igiene, perche' un contesto di zona costruito su POI
+    finti e sopravvissuto al test e' esattamente il tipo di residuo che fa
+    passare un test per la ragione sbagliata.
     """
     get_settings.cache_clear()
     zone_context_cache.clear()

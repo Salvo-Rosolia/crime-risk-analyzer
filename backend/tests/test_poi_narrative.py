@@ -9,12 +9,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from crime_risk_analyzer import zone_context_cache
+from crime_risk_analyzer.analyze_narrative import run_analysis_fast
 from crime_risk_analyzer.geocoding import GeoResult
 from crime_risk_analyzer.llm.client import LLMError, LLMResponse, get_llm_client
 from crime_risk_analyzer.main import create_app
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.models.risk import PoiRiskProfile
-from crime_risk_analyzer.orchestrator import run_analysis
 from crime_risk_analyzer.overpass_client import Poi
 from crime_risk_analyzer.poi_narrative import (
     ContextMismatchError,
@@ -103,13 +103,16 @@ async def _prime_cache() -> str:
     Restituisce l'impronta del contesto (#242): i test la rimandano come farebbe
     il client, invece di ricalcolarla e finire per testare la funzione contro se
     stessa.
+
+    La fase 1 della rotta (``run_analysis_fast``, #292) e' l'unica cosa che
+    deposita il contesto di zona: e' esattamente cio' che precede un clic
+    dell'utente su un POI, e non spende una chiamata al modello per arrivarci.
     """
     zone_context_cache.clear()
-    resp = await run_analysis(
+    resp = await run_analysis_fast(
         "Roma",
         "Colosseo",
         executor=_FakeProfiler(),
-        llm_client=_FakeLLMClient(),
         poi_source=_poi_source,
         geo_source=_geo_source,
     )
@@ -300,11 +303,10 @@ async def test_cache_calda_riscritta_da_una_seconda_analisi_rifiuta() -> None:
     """
     prima = await _prime_cache()
     # Seconda analisi della STESSA zona: cattura OSM diversa, cache riscritta.
-    seconda = await run_analysis(
+    seconda = await run_analysis_fast(
         "Roma",
         "Colosseo",
         executor=_FakeProfiler(),
-        llm_client=_FakeLLMClient(),
         poi_source=_poi_source_divergente,
         geo_source=_geo_source,
     )
@@ -483,6 +485,35 @@ def test_endpoint_requires_the_context_fingerprint(
         client.post(  # pyright: ignore[reportUnknownMemberType]
             "/analyze/poi",
             json={"citta": "Roma", "zona": "Colosseo", "poi_id": _POI_ID},
+        ),
+    )
+    assert resp.status_code == 422
+
+
+def test_endpoint_rejects_too_short_contesto_hash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``contesto_hash`` sotto min_length=64 -> 422, non 409.
+
+    Stesso bound di ``ZoneNarrativeRequest``: un'impronta piu' corta di un digest
+    sha256 non ha la forma di un'impronta e si respinge alla validazione, prima
+    che a cache fredda la rotta paghi una ricostruzione (geocoding + Overpass)
+    per rifiutarla comunque. Il 409 resta per l'impronta ben formata che
+    identifica un ALTRO contesto.
+    """
+    _patch_io(monkeypatch)
+    client = _client()
+    _analizza(client)
+    resp = cast(
+        httpx.Response,
+        client.post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze/poi",
+            json={
+                "citta": "Roma",
+                "zona": "Colosseo",
+                "poi_id": _POI_ID,
+                "contesto_hash": "0" * 8,
+            },
         ),
     )
     assert resp.status_code == 422

@@ -85,12 +85,16 @@ class PoiNarrativeRequest(BaseModel):
         ),
     )
     contesto_hash: str = Field(
+        min_length=64,
         max_length=64,
         description=(
             "Impronta del contesto ricevuta da /analyze (#242), rimandata "
             "verbatim. E' CONFRONTATA e mai usata per costruire il prompt: un "
             "valore opaco che il server non consuma non puo' iniettare nulla. "
-            "Obbligatoria: senza, la garanzia sarebbe opt-in."
+            "Obbligatoria: senza, la garanzia sarebbe opt-in. Lunghezza esatta "
+            "di un digest sha256, come in ``ZoneNarrativeRequest``: la forma si "
+            "respinge con un 422 prima di ogni I/O, mentre il 409 resta per "
+            "l'impronta ben formata che identifica un ALTRO contesto."
         ),
     )
 

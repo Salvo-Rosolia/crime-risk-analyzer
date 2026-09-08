@@ -19,10 +19,14 @@ respinta a monte, ma fallisce al geocoding come :class:`ZoneNotFoundError` (422)
 
 **``LLMError`` non e' mappato qui di proposito.** In caso di Anthropic 429/5xx la
 spec non prevede un codice HTTP uniforme ma una *decisione*: fuori demo si
-ritornano solo i dati strutturati senza narrativa. **Nessun failover automatico
-su Groq** (lo switch resta manuale via ``LLM_PROVIDER`` — _project.md §Stack,
-spec-root §C1). Quella logica vive nell'orchestrator ``/analyze`` (#18), non
-qui; finche' non esiste, un ``LLMError`` non gestito resta un 500.
+ritorna la response senza narrativa. **Nessun failover automatico su Groq** (lo
+switch resta manuale via ``LLM_PROVIDER`` — _project.md §Stack, spec-root §C1).
+Quella logica vive nelle funzioni che chiamano il modello — oggi
+:func:`~crime_risk_analyzer.analyze_narrative.run_zone_narrative` e
+:func:`~crime_risk_analyzer.poi_narrative.run_poi_narrative` per le rotte, piu' i
+percorsi di valutazione in :mod:`~crime_risk_analyzer.orchestrator` — che
+catturano l'errore e rispondono ``200`` con ``fallback=True``; un ``LLMError``
+che sfuggisse a quei rami resta un 500.
 """
 
 from __future__ import annotations
