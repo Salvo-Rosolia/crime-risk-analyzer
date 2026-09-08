@@ -93,7 +93,11 @@ test.describe('RESULTS→DETAIL: accoppiamento bidirezionale marker↔card', () 
   }) => {
     // POI 2 = Vicolo Oscuro: fuori ontologia (confidence null, #220), sparql_path null (nessuna
     // citazione), un solo gruppo SPECULATIVO che assorbe anche il rischio con tag null
-    // (`orderGroupsByTag`).
+    // (`orderGroupsByTag`). Copertura difensiva del fallback frontend `risk.tag || 'SPECULATIVO'`
+    // (`core/ui-helpers.ts`), non un payload che l'orchestrator produce oggi: dal blocco
+    // [SPECULATIVO] rimosso dal prompt (#229) la narrativa a tab realistica ha solo 2 fonti
+    // (ONTOLOGIA/CONTESTO, vedi `base-regenerate.spec.ts`); qui si verifica solo che, se un rischio
+    // arrivasse comunque senza tag riconosciuto, il dettaglio lo raggruppi correttamente.
     const poi = analyze.poi[2];
 
     await S.poiCards(page).nth(2).click();
