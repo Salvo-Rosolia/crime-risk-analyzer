@@ -1,0 +1,15 @@
+{
+  "narrativa": "L'area del Colosseo e dintorni presenta un mix di rischi noti e fattori ambientali osservati, generato in un secondo tempo rispetto ai dati strutturati già mostrati.",
+  "narrativa_fonti": {
+    "overview": "L'area del Colosseo mescola rischi ancorati all'ontologia e fattori di contesto ambientale osservati, arrivati dopo mappa e rischi.",
+    "ontologia": "Borseggio turistico segnalato presso il Colosseo, ancorato a una classe nota dell'ontologia.",
+    "contesto": "Piazza Venezia presenta scarsa illuminazione serale, fattore osservato dal contesto OSM.",
+    "speculativo": ""
+  },
+  "tokens_input": 812,
+  "tokens_output": 264,
+  "latenza_ms": 2340,
+  "repro": { "temperature": 0.2, "seed": 42, "prompt_hash": "abc123" },
+  "fallback": false,
+  "llm_used": "claude-sonnet-4-6"
+}

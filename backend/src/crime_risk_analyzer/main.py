@@ -2,7 +2,8 @@
 
 Espone la factory :func:`create_app` e un'istanza ``app`` pronta per Uvicorn
 (``uvicorn crime_risk_analyzer.main:app``). Registra gli endpoint di dominio —
-``GET /health``, ``GET /cities``, ``POST /analyze`` e ``POST /analyze/baseline`` —
+``GET /health``, ``GET /cities``, ``POST /analyze`` + ``POST /analyze/narrativa``
+(le due fasi dell'analisi di zona, #259/#292), ``POST /analyze/baseline`` e
 ``POST /analyze/poi`` (#197) — e configura il CORS (#106) e il warm-up delle
 risorse nel ``lifespan``.
 """
@@ -16,6 +17,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from rdflib import Graph
 
+from crime_risk_analyzer.analyze_narrative import (
+    ZoneNarrativeRequest,
+    ZoneNarrativeResponse,
+    run_analysis_fast,
+    run_zone_narrative,
+)
 from crime_risk_analyzer.config import Settings, get_settings
 from crime_risk_analyzer.errors import register_exception_handlers
 from crime_risk_analyzer.llm.client import LLMClient, get_llm_client
@@ -24,7 +31,6 @@ from crime_risk_analyzer.orchestrator import (
     AnalyzeRequest,
     AnalyzeResponse,
     BaselineRequest,
-    run_analysis,
     run_baseline,
 )
 from crime_risk_analyzer.poi_narrative import (
@@ -74,25 +80,71 @@ async def cities(settings: Annotated[Settings, Depends(get_settings)]) -> list[s
 async def analyze(
     request: AnalyzeRequest,
     executor: Annotated[RiskQueryExecutor, Depends(get_executor)],
-    llm_client: Annotated[LLMClient, Depends(get_llm_client)],
-    settings: Annotated[Settings, Depends(get_settings)],
 ) -> AnalyzeResponse:
-    """Pipeline completa: geocoding -> OSM -> SPARQL -> grounding -> LLM -> JSON.
+    """Fase 1 (#259/#292): geocoding -> OSM -> SPARQL -> grounding -> JSON.
+
+    **Nessuna chiamata LLM qui.** La rotta risponde con i dati strutturati e
+    ``narrativa=None`` — non un fallback (``fallback`` resta ``False``), ma
+    "testo in arrivo": il client rende subito mappa e lista, poi chiede la prosa a
+    ``POST /analyze/narrativa`` rimandando il ``contesto_hash`` di questa
+    risposta. Prima la mappa compariva solo dopo la generazione, cioe' dopo tutta
+    la latenza del provider.
 
     Nessuna allowlist di citta' (#191): qualsiasi citta' italiana raggiunge il
     geocoding (ristretto all'Italia via ``GEOCODING_COUNTRY_CODES``). Una citta'/
     zona inesistente fallisce pulita al geocoding con ``ZoneNotFoundError`` -> 422.
-    Gli altri errori di dominio propagano agli handler centrali (#21); ``LLMError``
-    e' gestito in :func:`run_analysis` come fallback strutturato (200).
-    ``request.domanda`` (opzionale, #119) e' propagata fino allo ``user_content``
-    del prompt LLM. Il tetto totale di token della richiesta e i ``max_tokens`` di
-    output (#210) arrivano da ``Settings`` (DI): il generation layer ne ricava
-    l'allowance per lo user_content e limita i POI passati all'LLM su zone dense,
-    cosi' l'intera richiesta non sfora il TPM del provider.
+    Gli altri errori di dominio propagano agli handler centrali (#21).
+
+    Il body porta solo ``citta``/``zona``: la ``domanda`` libera (#119) e' della
+    fase 2, che e' l'unica a costruire un prompt. Per la stessa ragione questa
+    rotta non dipende ne' dal client LLM ne' dai tetti di token di ``Settings``:
+    sono argomenti della fase 2.
     """
-    return await run_analysis(
+    return await run_analysis_fast(
         request.citta,
         request.zona,
+        executor=executor,
+    )
+
+
+@router.post("/analyze/narrativa")
+async def analyze_narrativa(
+    request: ZoneNarrativeRequest,
+    executor: Annotated[RiskQueryExecutor, Depends(get_executor)],
+    llm_client: Annotated[LLMClient, Depends(get_llm_client)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ZoneNarrativeResponse:
+    """Fase 2 (#259/#292): la narrativa di zona, generata a parte.
+
+    Riusa il contesto scaldato dalla fase 1 (cache con TTL); a cache fredda lo
+    ricostruisce, al costo di una chiamata Overpass. ``contesto_hash`` (#242) e'
+    l'impronta del contesto che il client sta mostrando: se non identifica il
+    contesto che l'endpoint userebbe -> ``ContextMismatchError`` -> 409
+    (handler centrale in :mod:`errors`, lo stesso registro di ``/analyze/poi``),
+    cosi' la prosa non puo' nascere su una lista di POI diversa da quella a
+    schermo — e il rifiuto arriva prima di qualunque chiamata LLM, quindi non
+    costa token. ``LLMError`` e' gestito in :func:`run_zone_narrative` come
+    fallback (200 con narrativa vuota e ``fallback=True``): i dati strutturati
+    sono gia' a schermo dalla fase 1.
+
+    ``request.domanda`` (opzionale, #119) e' propagata fino allo ``user_content``
+    del prompt. Il tetto totale di token della richiesta e i ``max_tokens`` di
+    output (#210) arrivano da ``Settings`` (DI): il generation layer ne ricava
+    l'allowance per lo user_content e limita i POI passati all'LLM su zone dense,
+    cosi' l'intera richiesta non sfora il TPM del provider. Questa e' ormai
+    l'unica chiamata a ``generate_analysis`` del prodotto, quindi e' qui che il
+    tetto va rispettato.
+
+    ``citta`` e ``zona`` restano stringhe del client che raggiungono il prompt
+    non sanificate quando la cache e' fredda (la ricostruzione le passa a
+    ``retrieve``, e la zona finisce nello ``user_content``), come nel percorso
+    per-POI: l'impronta non copre quel vettore — verifica l'identita' della lista
+    di POI, non la provenienza delle due stringhe.
+    """
+    return await run_zone_narrative(
+        request.citta,
+        request.zona,
+        contesto_hash=request.contesto_hash,
         executor=executor,
         llm_client=llm_client,
         domanda=request.domanda,

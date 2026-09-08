@@ -9,9 +9,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from crime_risk_analyzer import zone_context_cache
+from crime_risk_analyzer.analyze_narrative import run_analysis_fast
 from crime_risk_analyzer.context_fingerprint import fingerprint
 from crime_risk_analyzer.geocoding import GeoResult, ZoneNotFoundError
-from crime_risk_analyzer.llm.client import LLMError, LLMResponse, get_llm_client
+from crime_risk_analyzer.llm.client import LLMResponse, get_llm_client
 from crime_risk_analyzer.main import create_app
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.models.risk import PoiRiskProfile
@@ -47,11 +48,6 @@ class _FakeLLMClient:
             seed=42,
             prompt_hash="h",
         )
-
-
-class _RaisingLLMClient:
-    async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
-        raise LLMError("provider giu'")
 
 
 class _RecordingLLMClient:
@@ -124,6 +120,13 @@ def _client(llm: object = None) -> TestClient:
 
 
 def test_analyze_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#292: la rotta risponde in fase 1 — dati strutturati, ``narrativa`` assente.
+
+    ``narrativa is None`` non e' un fallback (``fallback`` resta ``False``): dice
+    al client che il testo e' in arrivo da ``POST /analyze/narrativa``. La
+    distinzione e' il contratto su cui il frontend decide se mostrare lo
+    scheletro della narrativa o il messaggio di LLM caduto.
+    """
     _patch_io(monkeypatch)
     resp = cast(
         httpx.Response,
@@ -134,7 +137,7 @@ def test_analyze_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     assert body["citta"] == "Roma"
     assert body["zona_normalizzata"] == "Centro"
     assert body["fallback"] is False
-    assert body["narrativa"].startswith("Analisi:")
+    assert body["narrativa"] is None
     assert [p["confidence"] for p in body["poi"]] == ["verificato", None]
 
 
@@ -245,81 +248,33 @@ def test_analyze_overpass_down(monkeypatch: pytest.MonkeyPatch) -> None:
     assert resp.json()["detail"]["errore"] == "overpass_non_disponibile"
 
 
-def test_analyze_llm_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_analyze_non_chiama_mai_l_llm(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#292: la fase 1 non spende una chiamata al modello — e' il suo scopo.
+
+    Prima la rotta bloccava sull'LLM e i dati strutturati arrivavano solo dopo la
+    narrativa. Se un refactor rimettesse ``run_analysis`` sulla rotta, la spia
+    registrerebbe una chiamata e questo test diventerebbe rosso: e' la guardia
+    della latenza percepita, non un dettaglio di implementazione.
+
+    I ``risk_models`` restano nella response di fase 1 (li derivano il grounding,
+    non l'LLM): il frontend aggancia i rischi al punto per ``poi_id``, quindi il
+    nome della chiave e' verificato sul filo.
+    """
     _patch_io(monkeypatch)
+    llm = _RecordingLLMClient()
     resp = cast(
         httpx.Response,
-        _client(llm=_RaisingLLMClient()).post(  # pyright: ignore[reportUnknownMemberType]
+        _client(llm=llm).post(  # pyright: ignore[reportUnknownMemberType]
             "/analyze", json={"citta": "Roma", "zona": "Centro"}
         ),
     )
     assert resp.status_code == 200
+    assert llm.calls == []
     body = resp.json()
-    assert body["fallback"] is True
-    assert body["narrativa"] == ""
+    assert body["narrativa"] is None
+    assert body["fallback"] is False
     assert body["risk_models"][0]["poi"] == "Banca A"
-    # Il NOME della chiave sul filo, non solo il valore: e' su ``poi_id`` che il
-    # frontend aggancia i rischi al punto, quindi un rename lato server lo romperebbe.
     assert body["risk_models"][0]["poi_id"] == "1"
-
-
-def test_analyze_accepts_domanda(monkeypatch: pytest.MonkeyPatch) -> None:
-    _patch_io(monkeypatch)
-    resp = cast(
-        httpx.Response,
-        _client().post(  # pyright: ignore[reportUnknownMemberType]
-            "/analyze",
-            json={"citta": "Roma", "zona": "Centro", "domanda": "Quali rischi?"},
-        ),
-    )
-    assert resp.status_code == 200
-
-
-def test_analyze_domanda_reaches_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
-    """End-to-end (#119): la domanda del body arriva nello user_content dell'LLM."""
-    _patch_io(monkeypatch)
-    llm = _RecordingLLMClient()
-    resp = cast(
-        httpx.Response,
-        _client(llm=llm).post(  # pyright: ignore[reportUnknownMemberType]
-            "/analyze",
-            json={"citta": "Roma", "zona": "Centro", "domanda": "Rischi di notte?"},
-        ),
-    )
-    assert resp.status_code == 200
-    assert len(llm.calls) == 1
-    _system, user = llm.calls[0]
-    assert "Rischi di notte?" in user
-
-
-def test_analyze_without_domanda_omits_section(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Senza ``domanda`` lo user_content non porta la sezione dedicata (invariato)."""
-    _patch_io(monkeypatch)
-    llm = _RecordingLLMClient()
-    resp = cast(
-        httpx.Response,
-        _client(llm=llm).post(  # pyright: ignore[reportUnknownMemberType]
-            "/analyze", json={"citta": "Roma", "zona": "Centro"}
-        ),
-    )
-    assert resp.status_code == 200
-    _system, user = llm.calls[0]
-    assert "DOMANDA UTENTE" not in user
-
-
-def test_analyze_rejects_overlong_domanda(monkeypatch: pytest.MonkeyPatch) -> None:
-    """#119: una domanda oltre max_length e' respinta con 422 prima di ogni I/O."""
-    _patch_io(monkeypatch)
-    resp = cast(
-        httpx.Response,
-        _client().post(  # pyright: ignore[reportUnknownMemberType]
-            "/analyze",
-            json={"citta": "Roma", "zona": "Centro", "domanda": "x" * 501},
-        ),
-    )
-    assert resp.status_code == 422
 
 
 async def test_run_analysis_threads_geo_source(
@@ -351,8 +306,15 @@ async def test_run_analysis_threads_geo_source(
     assert seen == [("Roma", "Colosseo")]
 
 
-async def test_run_analysis_populates_the_zone_context_cache() -> None:
-    """#197: il contesto calcolato da /analyze resta disponibile a /analyze/poi."""
+async def test_analyze_populates_the_zone_context_cache() -> None:
+    """#197: il contesto calcolato da /analyze resta disponibile a /analyze/poi.
+
+    L'invariante di prodotto e' la stessa di prima, cambia chi la realizza: dopo
+    lo split (#292) e' la fase 1 della rotta (``run_analysis_fast``) a depositare
+    il contesto, non ``run_analysis`` — che nessuna rotta chiama piu'. Verificato
+    sul contenuto, non solo sulla presenza: il clic su un POI legge da qui la
+    zona, i punti e i rischi validati, quindi e' quello che deve restare intero.
+    """
 
     async def _geo(citta: str, zona: str) -> GeoResult:
         return GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50))
@@ -361,11 +323,10 @@ async def test_run_analysis_populates_the_zone_context_cache() -> None:
         return _pois(citta)
 
     zone_context_cache.clear()
-    await run_analysis(
+    await run_analysis_fast(
         "Roma",
         "Colosseo",
         executor=_FakeProfiler(),
-        llm_client=_FakeLLMClient(),
         poi_source=_fetch,
         geo_source=_geo,
     )
@@ -384,7 +345,14 @@ async def test_run_analysis_populates_the_zone_context_cache() -> None:
 
 
 async def test_run_analysis_espone_l_impronta_del_contesto() -> None:
-    """#242: l'impronta identifica la lista POI che la response mostra."""
+    """#242: l'impronta identifica la lista POI della response che la contiene.
+
+    Non e' (piu') una guardia della rotta: da #292 ``run_analysis`` e' il solo
+    percorso di VALUTAZIONE, e la stessa proprieta' sulla rotta e' verificata da
+    ``test_analyze_narrative`` sulla fase 1. Resta qui perche' il contratto di
+    risposta e' unico, e i due percorsi devono continuare a emettere la stessa
+    impronta della stessa lista.
+    """
 
     async def _geo(citta: str, zona: str) -> GeoResult:
         return GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50))
@@ -392,7 +360,6 @@ async def test_run_analysis_espone_l_impronta_del_contesto() -> None:
     async def _fetch(bbox: Bbox, citta: str) -> list[Poi]:
         return _pois(citta)
 
-    zone_context_cache.clear()
     resp = await run_analysis(
         "Roma",
         "Colosseo",
@@ -417,7 +384,6 @@ async def test_impronta_diversa_se_il_set_di_poi_cambia() -> None:
     async def _fetch_ridotto(bbox: Bbox, citta: str) -> list[Poi]:
         return _pois(citta)[:1]
 
-    zone_context_cache.clear()
     pieno = await run_analysis(
         "Roma",
         "Colosseo",
@@ -426,7 +392,6 @@ async def test_impronta_diversa_se_il_set_di_poi_cambia() -> None:
         poi_source=_fetch_pieno,
         geo_source=_geo,
     )
-    zone_context_cache.clear()
     ridotto = await run_analysis(
         "Roma",
         "Colosseo",

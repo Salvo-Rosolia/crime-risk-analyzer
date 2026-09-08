@@ -28,6 +28,24 @@ test.describe('Guardia toggle mode durante LOADING', () => {
       await analyzeGate;
       await route.fulfill({ json: analyze });
     });
+    // `/analyze` qui è mockato a mano (non via `mockApi({ analyze })`), quindi l'auto-mock della
+    // fase 2 non scatta: senza questa rotta esplicita, la `POST /analyze/narrativa` fire-and-forget
+    // che parte non appena RESULTS arriva colpirebbe la rete reale (#292). Risposta minimale, il
+    // contenuto non è rilevante per questo test.
+    await page.route('**/analyze/narrativa', (route) =>
+      route.fulfill({
+        json: {
+          narrativa: '',
+          narrativa_fonti: { overview: '', ontologia: '', contesto: '', speculativo: '' },
+          tokens_input: 0,
+          tokens_output: 0,
+          latenza_ms: 0,
+          repro: { temperature: 0, seed: 0, prompt_hash: '' },
+          fallback: true,
+          llm_used: '',
+        },
+      }),
+    );
 
     await page.goto('/');
     await expect(S.inputPanel(page)).toBeVisible();

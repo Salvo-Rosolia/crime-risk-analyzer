@@ -102,6 +102,25 @@ test.describe('Rigenera (bottom-sheet narrativa): sostituisce i dati, non li som
     // conteggio finale sarebbe 5 (3+2) invece di 2.
     await page.unroute('**/analyze');
     await page.route('**/analyze', (route) => route.fulfill({ json: regenerate }));
+    // `/analyze/narrativa` (#259 fase 2, #292) va rimappato con lo stesso fixture: l'ECHO di
+    // default di `mockApi` è stato registrato una volta sola, sul fixture INIZIALE (`analyze`), e
+    // non segue questo swap manuale — senza la rotta aggiornata la fase 2 di Rigenera servirebbe
+    // ancora il testo della prima analisi.
+    await page.unroute('**/analyze/narrativa');
+    await page.route('**/analyze/narrativa', (route) =>
+      route.fulfill({
+        json: {
+          narrativa: regenerate.narrativa ?? '',
+          narrativa_fonti: regenerate.narrativa_fonti,
+          tokens_input: regenerate.tokens_input,
+          tokens_output: regenerate.tokens_output,
+          latenza_ms: regenerate.latenza_ms,
+          repro: regenerate.repro,
+          fallback: regenerate.fallback,
+          llm_used: regenerate.llm_used,
+        },
+      }),
+    );
 
     await S.narrativeRegenerateButton(page).click();
 

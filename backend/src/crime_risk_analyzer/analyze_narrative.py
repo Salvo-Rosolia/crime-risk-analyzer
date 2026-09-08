@@ -3,11 +3,12 @@
 Modulo fratello di :mod:`~crime_risk_analyzer.poi_narrative` (#197): stesso
 schema — chiama ``retrieve``/``ground`` direttamente, non tocca il corpo di
 ``orchestrator.run_analysis`` — applicato al livello di zona invece che al
-singolo POI. ``run_analysis_fast`` sostituisce ``run_analysis`` sulla rotta
-``POST /analyze``: stesso retrieve+ground+warm della cache, ma nessuna
-chiamata LLM — la risposta ha ``narrativa=None`` (#259 fase 1). La narrativa
-arriva con ``run_zone_narrative``, che legge il contesto (caldo o
-ricostruito, stesso schema di ``run_poi_narrative``) e genera.
+singolo POI. ``run_analysis_fast`` ha sostituito ``run_analysis`` sulla rotta
+``POST /analyze``: stesso retrieve+ground, nessuna chiamata LLM — la risposta ha
+``narrativa=None`` (#259 fase 1) — ed e' l'unico punto che scalda
+``zone_context_cache`` per i clic successivi. La narrativa arriva con
+``run_zone_narrative`` (``POST /analyze/narrativa``), che legge il contesto
+(caldo o ricostruito, stesso schema di ``run_poi_narrative``) e genera.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ import time
 from pydantic import BaseModel, Field
 
 from crime_risk_analyzer import zone_context_cache
-from crime_risk_analyzer.context_fingerprint import fingerprint
+from crime_risk_analyzer.context_fingerprint import ContestoHash, fingerprint
 from crime_risk_analyzer.llm.client import LLMError
 from crime_risk_analyzer.orchestrator import (
     AnalyzeResponse,
@@ -62,9 +63,12 @@ async def run_analysis_fast(
 ) -> AnalyzeResponse:
     """Fase 1 (#259): dati strutturati subito, ``narrativa=None``.
 
-    Stesso ``retrieve`` -> ``ground`` -> warm di ``zone_context_cache`` di
-    :func:`~crime_risk_analyzer.orchestrator.run_analysis`: la narrativa vera
-    arriva con :func:`run_zone_narrative`, che rilegge questa stessa cache.
+    ``retrieve`` -> ``ground`` -> warm di ``zone_context_cache``: la narrativa
+    vera arriva con :func:`run_zone_narrative`, che rilegge questa stessa cache,
+    e cosi' fa ``/analyze/poi`` a ogni clic. Il deposito in cache vive SOLO qui
+    (#292): i percorsi di valutazione
+    (:func:`~crime_risk_analyzer.orchestrator.run_analysis` e il braccio ablato)
+    non ci scrivono, perche' nessuno li' rilegge quel contesto.
     """
     start = time.perf_counter()
     retrieval_ctx = await retrieve(
@@ -89,7 +93,7 @@ async def run_analysis_fast(
 
 
 class ZoneNarrativeRequest(BaseModel):
-    """Body di ``POST /analyze/narrative`` (#259)."""
+    """Body di ``POST /analyze/narrativa`` (#259)."""
 
     citta: str = Field(
         max_length=100, description="Città dell'analisi in corso (stessa di /analyze)."
@@ -101,17 +105,15 @@ class ZoneNarrativeRequest(BaseModel):
         default=None,
         max_length=500,
         description=(
-            "Domanda libera (opzionale), stessa semantica di "
-            "AnalyzeRequest.domanda (#119)."
+            "Domanda libera (opzionale) iniettata come input NON fidato (fenced) "
+            "nello user_content del prompt LLM (#119); None/vuota = prompt "
+            "invariato. Unico posto in cui vive dopo lo split (#292): la fase 1 "
+            "non chiama il modello. max_length=500: una domanda in linguaggio "
+            "naturale di un operatore ci sta ampiamente, mentre il tetto limita "
+            "token/costo/latenza e riduce la superficie di prompt-injection."
         ),
     )
-    contesto_hash: str = Field(
-        max_length=64,
-        description=(
-            "Impronta del contesto ricevuta dalla fase 1 di /analyze (#242), "
-            "rimandata verbatim. Confrontata, mai usata per costruire il prompt."
-        ),
-    )
+    contesto_hash: ContestoHash
 
 
 class ZoneNarrativeResponse(BaseModel):
@@ -119,6 +121,17 @@ class ZoneNarrativeResponse(BaseModel):
 
     narrativa: str
     narrativa_fonti: SourceProse
+    llm_used: str = Field(
+        description=(
+            "Model id esatto che ha scritto la narrativa (stessa fonte del campo "
+            "omonimo di AnalyzeResponse: il generation layer). Osservabilita' "
+            "dello switch manuale Claude/Groq, che e' il perno del confronto fra "
+            "i due modelli: dopo lo split (#292) la fase 1 non chiama il modello "
+            "e senza questo campo nessuna delle due risposte direbbe chi ha "
+            "scritto il testo. Vuoto nel fallback: nessun modello ha prodotto "
+            "nulla. Identita' del modello, non una misura: nessuno scoring."
+        )
+    )
     tokens_input: int = Field(ge=0)
     tokens_output: int = Field(ge=0)
     latenza_ms: int = Field(ge=0)
@@ -192,6 +205,9 @@ async def run_zone_narrative(
         return ZoneNarrativeResponse(
             narrativa="",
             narrativa_fonti=SourceProse(),
+            # Nessun modello ha scritto nulla: stessa scelta di
+            # ``_structured_response`` sul ramo senza LLM, non un id inventato.
+            llm_used="",
             tokens_input=0,
             tokens_output=0,
             latenza_ms=_elapsed_ms(start),
@@ -202,6 +218,7 @@ async def run_zone_narrative(
     return ZoneNarrativeResponse(
         narrativa=gen.narrativa,
         narrativa_fonti=parse_source_prose(gen.narrativa),
+        llm_used=gen.llm_used,
         tokens_input=gen.tokens_input,
         tokens_output=gen.tokens_output,
         latenza_ms=_elapsed_ms(start),

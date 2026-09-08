@@ -24,7 +24,7 @@ import logging
 from pydantic import BaseModel, Field
 
 from crime_risk_analyzer import zone_context_cache
-from crime_risk_analyzer.context_fingerprint import fingerprint
+from crime_risk_analyzer.context_fingerprint import ContestoHash, fingerprint
 from crime_risk_analyzer.i18n.terminus_labels import label_it
 from crime_risk_analyzer.llm.client import LLMError
 from crime_risk_analyzer.orchestrator import (
@@ -84,15 +84,7 @@ class PoiNarrativeRequest(BaseModel):
             "server, cosi' nessun rischio puo' essere iniettato dall'esterno."
         ),
     )
-    contesto_hash: str = Field(
-        max_length=64,
-        description=(
-            "Impronta del contesto ricevuta da /analyze (#242), rimandata "
-            "verbatim. E' CONFRONTATA e mai usata per costruire il prompt: un "
-            "valore opaco che il server non consuma non puo' iniettare nulla. "
-            "Obbligatoria: senza, la garanzia sarebbe opt-in."
-        ),
-    )
+    contesto_hash: ContestoHash
 
 
 class PoiNarrativeResponse(BaseModel):

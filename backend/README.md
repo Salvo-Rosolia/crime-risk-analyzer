@@ -3,10 +3,14 @@
 API e logica di dominio del sistema: query geospaziali, ragionamento ontologico
 (SPARQL) e pipeline RAG con ragionamento LLM. L'app FastAPI carica l'ontologia RDF
 in memoria all'avvio ed espone gli endpoint `GET /health`, `GET /cities`,
-`POST /analyze` e `POST /analyze/baseline`. L'endpoint di dominio `POST /analyze`
-orchestra l'intera pipeline (geocoding → POI OSM via Overpass → mapping OSM→TERMINUS
-→ query SPARQL dei rischi → grounding → generazione LLM); `POST /analyze/baseline`
-è la variante senza LLM usata per l'ablation. I moduli di supporto — geocoding,
+`POST /analyze`, `POST /analyze/narrativa`, `POST /analyze/baseline` e
+`POST /analyze/poi`. L'analisi di zona è divisa in due fasi: `POST /analyze`
+esegue la pipeline dei dati (geocoding → POI OSM via Overpass → mapping
+OSM→TERMINUS → query SPARQL dei rischi → grounding) e risponde subito con
+`narrativa: null`, mentre `POST /analyze/narrativa` genera il testo con l'LLM sullo
+stesso contesto — così mappa e lista non aspettano la latenza del provider.
+`POST /analyze/poi` fa lo stesso per il singolo punto selezionato;
+`POST /analyze/baseline` è la variante senza LLM usata per l'ablation. I moduli di supporto — geocoding,
 client Overpass, mapping OSM→ontologia, executor SPARQL, client LLM
 provider-agnostico e pipeline RAG — sono cablati dall'orchestratore.
 
@@ -58,7 +62,9 @@ backend/
 ├── src/
 │   └── crime_risk_analyzer/        # package applicativo (src-layout)
 │       ├── __init__.py             # __version__
-│       ├── main.py                 # create_app() + app + endpoint (/health, /cities, POST /analyze, POST /analyze/baseline, POST /analyze/poi) + CORS + lifespan
+│       ├── main.py                 # create_app() + app + endpoint (/health, /cities, POST /analyze, POST /analyze/narrativa, POST /analyze/baseline, POST /analyze/poi) + CORS + lifespan
+│       ├── analyze_narrative.py    # le due fasi dell'analisi di zona: dati subito (run_analysis_fast) + narrativa a parte (run_zone_narrative)
+│       ├── poi_narrative.py        # narrativa del singolo POI selezionato (run_poi_narrative)
 │       ├── config.py               # Settings (env, pydantic-settings)
 │       ├── context_fingerprint.py  # impronta della lista POI di un contesto di zona (identità, non misura)
 │       ├── errors.py               # errori di dominio + mappatura errore → HTTP
@@ -67,7 +73,7 @@ backend/
 │       ├── ontology_namespaces.py  # IRI/namespace TERMINUS (single source of truth)
 │       ├── geocoding.py            # geocoding zone
 │       ├── overpass_client.py      # client Overpass per POI OSM
-│       ├── orchestrator.py         # cabla la pipeline di /analyze e /analyze/baseline (run_analysis/run_baseline) + il braccio di ablazione con prompt senza ontologia (run_no_ontology_prompt, solo valutazione)
+│       ├── orchestrator.py         # cabla la pipeline: layer RAG + contratto della response (/analyze/baseline via run_baseline; run_analysis = percorso sincrono completo, ormai solo per la valutazione) + il braccio di ablazione con prompt senza ontologia (run_no_ontology_prompt, solo valutazione)
 │       ├── sparql_module/          # mapping OSM → TERMINUS + executor SPARQL (rischi via OWL restriction)
 │       ├── llm/                    # client LLM provider-agnostico (Claude/Groq)
 │       ├── rag/                    # pipeline RAG: retrieval, grounding, generation

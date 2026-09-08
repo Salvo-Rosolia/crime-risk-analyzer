@@ -2,7 +2,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { ApiService } from '@core/api/api.service';
-import { AnalyzeResponse, PoiNarrativeResponse } from '@core/models/models';
+import { AnalyzeResponse, PoiNarrativeResponse, ZoneNarrativeResponse } from '@core/models/models';
 
 const resp: AnalyzeResponse = {
   citta: 'Roma',
@@ -31,6 +31,17 @@ const poiResp: PoiNarrativeResponse = {
   latenza_ms: 120,
   repro: { temperature: 0, seed: 0, prompt_hash: 'h' },
   fallback: false,
+};
+
+const zoneNarrativeResp: ZoneNarrativeResponse = {
+  narrativa: 'Sintesi di zona.',
+  narrativa_fonti: { overview: 'Sintesi di zona.', ontologia: '', contesto: '', speculativo: '' },
+  tokens_input: 30,
+  tokens_output: 60,
+  latenza_ms: 300,
+  repro: { temperature: 0, seed: 0, prompt_hash: 'z' },
+  fallback: false,
+  llm_used: 'test-model',
 };
 
 /**
@@ -94,10 +105,12 @@ describe('ApiService', () => {
     await expect(p).resolves.toEqual(resp);
   });
 
-  it('analyze: include domanda solo se non vuota', async () => {
-    const p = api.analyze('Roma', 'Colosseo', '  di sera?  ');
+  it('analyze: non manda più domanda (#292, tolta da AnalyzeRequest lato backend)', async () => {
+    // La firma non accetta più un terzo argomento: la domanda dell'operatore va solo a
+    // zoneNarrative() (fase 2), verificato più sotto.
+    const p = api.analyze('Roma', 'Colosseo');
     const req = http.expectOne('/analyze');
-    expect(req.request.body).toEqual({ citta: 'Roma', zona: 'Colosseo', domanda: 'di sera?' });
+    expect(req.request.body).toEqual({ citta: 'Roma', zona: 'Colosseo' });
     req.flush(resp);
     await p;
   });
@@ -128,6 +141,34 @@ describe('ApiService', () => {
     await expect(p).rejects.toBeTruthy();
   });
 
+  it('zoneNarrative: POST /analyze/narrativa con citta, zona e impronta del contesto (#259/#292)', async () => {
+    const p = api.zoneNarrative('Roma', 'Colosseo', 'h-ctx');
+    const req = http.expectOne('/analyze/narrativa');
+    expect(req.request.method).toBe('POST');
+    expect(req.request.body).toEqual({ citta: 'Roma', zona: 'Colosseo', contesto_hash: 'h-ctx' });
+    req.flush(zoneNarrativeResp);
+    await expect(p).resolves.toEqual(zoneNarrativeResp);
+  });
+
+  it('zoneNarrative: include domanda solo se non vuota (va alla fase 2, non alla fase 1)', async () => {
+    const p = api.zoneNarrative('Roma', 'Colosseo', 'h-ctx', '  di sera?  ');
+    const req = http.expectOne('/analyze/narrativa');
+    expect(req.request.body).toEqual({
+      citta: 'Roma',
+      zona: 'Colosseo',
+      contesto_hash: 'h-ctx',
+      domanda: 'di sera?',
+    });
+    req.flush(zoneNarrativeResp);
+    await p;
+  });
+
+  it('zoneNarrative: su errore /analyze/narrativa rigetta la Promise', async () => {
+    const p = api.zoneNarrative('Roma', 'Colosseo', 'h-ctx');
+    http.expectOne('/analyze/narrativa').flush('boom', { status: 409, statusText: 'Conflict' });
+    await expect(p).rejects.toBeTruthy();
+  });
+
   it('analyzeBaseline: POST /analyze/baseline con i parametri', async () => {
     const p = api.analyzeBaseline({ citta: 'Roma', zona: 'Colosseo' });
     const req = http.expectOne('/analyze/baseline');
@@ -139,7 +180,7 @@ describe('ApiService', () => {
 
   describe('contratto AnalyzeRequest/BaselineRequest (backend orchestrator.py)', () => {
     it('analyze(): il payload emesso è un sottoinsieme valido di AnalyzeRequest (citta+zona obbligatorie)', async () => {
-      const p = api.analyze('Roma', 'Colosseo', 'di sera?');
+      const p = api.analyze('Roma', 'Colosseo');
       const req = http.expectOne('/analyze');
       expect(isValidAnalyzeRequestPayload(req.request.body)).toBe(true);
       req.flush(resp);
