@@ -17,6 +17,7 @@ from pathlib import Path
 import pytest
 
 import crime_risk_analyzer.eval.__main__ as eval_main
+from crime_risk_analyzer.eval.__main__ import CaptureCase, CaptureSummary
 from crime_risk_analyzer.eval.schema import ExperimentConfig, Mode, RunCase
 
 
@@ -47,8 +48,9 @@ def test_main_capture_routes_to_capture_with_force(
 
     async def fake_capture(
         config_path: Path, results_dir: Path, *, force: bool = False
-    ) -> None:
+    ) -> CaptureSummary:
         calls.append((config_path, results_dir, force))
+        return CaptureSummary(succeeded=[], failed=[])
 
     monkeypatch.setattr(eval_main, "_capture", fake_capture)
     cfg = tmp_path / "cfg.json"
@@ -74,8 +76,9 @@ def test_main_capture_force_defaults_false(
 
     async def fake_capture(
         config_path: Path, results_dir: Path, *, force: bool = False
-    ) -> None:
+    ) -> CaptureSummary:
         seen_force.append(force)
+        return CaptureSummary(succeeded=[], failed=[])
 
     monkeypatch.setattr(eval_main, "_capture", fake_capture)
     _set_argv(
@@ -89,6 +92,36 @@ def test_main_capture_force_defaults_false(
 
     assert eval_main.main() == 0
     assert seen_force == [False]
+
+
+def test_main_capture_returns_nonzero_on_partial_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#252: se il riepilogo di ``_capture`` riporta case falliti, ``main()``
+    esce con codice diverso da zero — una cattura parziale non è un
+    esperimento completo."""
+
+    async def fake_capture(
+        config_path: Path, results_dir: Path, *, force: bool = False
+    ) -> CaptureSummary:
+        return CaptureSummary(
+            succeeded=[CaptureCase("Roma", "Centro")],
+            failed=[
+                CaptureCase("Milano", "Duomo", error_type="OverpassError", error="503")
+            ],
+        )
+
+    monkeypatch.setattr(eval_main, "_capture", fake_capture)
+    _set_argv(
+        monkeypatch,
+        "capture",
+        "--config",
+        str(tmp_path / "c.json"),
+        "--results",
+        str(tmp_path),
+    )
+
+    assert eval_main.main() != 0
 
 
 # --- run (esercita anche il corpo di _run: build client + run_experiment) -----

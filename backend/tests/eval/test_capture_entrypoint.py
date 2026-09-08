@@ -27,7 +27,7 @@ from crime_risk_analyzer.eval.snapshots import (
     snapshot_path,
 )
 from crime_risk_analyzer.models.geo import Bbox
-from crime_risk_analyzer.overpass_client import OFFLINE_RETRY, Poi
+from crime_risk_analyzer.overpass_client import OFFLINE_RETRY, OverpassError, Poi
 from tests.eval._doubles import scrivi_snapshot
 
 _capture = eval_main._capture  # pyright: ignore[reportPrivateUsage]
@@ -415,6 +415,61 @@ async def test_capture_usa_la_politica_di_ritentativo_offline(
     assert visti == [OFFLINE_RETRY]
     path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
     assert load_snapshot(path) == _sample_pois()
+
+
+async def test_capture_isolates_failure_on_one_case(
+    tmp_path: Path, capture_env: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    """#252: un errore sul secondo di tre case non deve impedire la cattura del
+    terzo, e il riepilogo finale deve dichiarare esplicitamente cosa è stato
+    catturato e cosa no."""
+    tentati: list[str] = []
+
+    async def flaky_live(bbox: Bbox, citta: str) -> list[Poi]:
+        tentati.append(citta)
+        if citta == "Milano":
+            raise OverpassError("Overpass ha risposto 503")
+        return _sample_pois()
+
+    cfg = ExperimentConfig(
+        name="ablation",
+        mode="baseline",
+        model="claude",
+        cases=[
+            RunCase(citta="Roma", zona="Centro"),
+            RunCase(citta="Milano", zona="Duomo"),
+            RunCase(citta="Napoli", zona="Vomero"),
+        ],
+    )
+    config_path = tmp_path / "multi.json"
+    config_path.write_text(cfg.model_dump_json(), encoding="utf-8")
+
+    with caplog.at_level(logging.INFO):
+        summary = await _capture(config_path, tmp_path, poi_source=flaky_live)
+
+    # Roma e Napoli catturati nonostante il fallimento di Milano nel mezzo.
+    assert tentati == ["Roma", "Milano", "Napoli"]
+    roma_path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
+    milano_path = snapshot_path(tmp_path, make_snapshot_key("Milano", "Duomo"))
+    napoli_path = snapshot_path(tmp_path, make_snapshot_key("Napoli", "Vomero"))
+    assert load_snapshot(roma_path) == _sample_pois()
+    assert not milano_path.exists()
+    assert load_snapshot(napoli_path) == _sample_pois()
+
+    # Il riepilogo dichiara esplicitamente catturati/non catturati.
+    assert [(c.citta, c.zona) for c in summary.succeeded] == [
+        ("Roma", "Centro"),
+        ("Napoli", "Vomero"),
+    ]
+    assert [(c.citta, c.zona) for c in summary.failed] == [("Milano", "Duomo")]
+    failure = summary.failed[0]
+    assert failure.error is not None
+    assert "Overpass ha risposto 503" in failure.error
+    assert failure.error_type == "OverpassError"
+
+    log_text = "\n".join(r.getMessage() for r in caplog.records)
+    assert "Milano" in log_text
+    assert "Duomo" in log_text
 
 
 async def test_capture_partial_skip_captures_only_missing(

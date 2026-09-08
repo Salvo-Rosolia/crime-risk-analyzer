@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 
 from crime_risk_analyzer.config import get_settings
@@ -27,12 +28,32 @@ from crime_risk_analyzer.eval.snapshots import (
     offline_fetch_pois,
     snapshot_path,
 )
+from crime_risk_analyzer.geocoding import GeocodingError
 from crime_risk_analyzer.ontology import load_ontology
 from crime_risk_analyzer.orchestrator import run_baseline
+from crime_risk_analyzer.overpass_client import OverpassError
 from crime_risk_analyzer.rag.retrieval import PoiSource
 from crime_risk_analyzer.sparql_module.query_executor import get_executor
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class CaptureCase:
+    """Un case (citta, zona), riuscito o fallito, per il riepilogo di _capture."""
+
+    citta: str
+    zona: str
+    error_type: str | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class CaptureSummary:
+    """Esito complessivo di ``_capture`` (#252): chi è stato catturato, chi no."""
+
+    succeeded: list[CaptureCase]
+    failed: list[CaptureCase]
 
 
 def _snapshot_reusable(path: Path) -> bool:
@@ -75,12 +96,14 @@ async def _capture(
     *,
     force: bool = False,
     poi_source: PoiSource | None = None,
-) -> None:
+) -> CaptureSummary:
     config = load_config(config_path)
     executor = get_executor()
     # Politica di ritentativo lunga per default (#232): la sorgente della cattura
     # vive in ``snapshots`` accanto a ``capturing_source``, non qui.
     inner = poi_source or offline_fetch_pois
+    succeeded: list[CaptureCase] = []
+    failed: list[CaptureCase] = []
     for case in config.cases:
         # Cattura chiavata per (citta, zona) (#110): i bracci comparativi
         # riusano la stessa fixture, senza query Overpass divergenti per braccio.
@@ -97,6 +120,7 @@ async def _capture(
                 case.zona,
                 path,
             )
+            succeeded.append(CaptureCase(case.citta, case.zona))
             continue
         if not force and path.exists():
             logger.warning(
@@ -112,7 +136,38 @@ async def _capture(
         # chiave e' (citta, zona) (#110): la narrativa che ``run_analysis``
         # genererebbe qui e' output scartato a fronte di token reali — il 26/07 un
         # terzo della quota giornaliera Groq, con la run K=3 bloccata per un'ora.
-        await run_baseline(case.citta, case.zona, executor=executor, poi_source=source)
+        # Isolamento per-case (#252): un fallimento di geocoding/Overpass su un
+        # case non deve inghiottire i case successivi, come già fa
+        # ``capture_roster`` — altrimenti, con OFFLINE_RETRY, un case che si
+        # arrende dopo minuti di backoff si porta via anche il lavoro rimasto.
+        try:
+            await run_baseline(
+                case.citta, case.zona, executor=executor, poi_source=source
+            )
+        except (GeocodingError, OverpassError) as exc:
+            logger.error(
+                "cattura fallita per (%s, %s): %s: %s",
+                case.citta,
+                case.zona,
+                type(exc).__name__,
+                exc,
+            )
+            failed.append(
+                CaptureCase(
+                    case.citta, case.zona, error_type=type(exc).__name__, error=str(exc)
+                )
+            )
+            continue
+        succeeded.append(CaptureCase(case.citta, case.zona))
+
+    logger.info(
+        "riepilogo cattura: %d/%d catturati (%s); falliti: %s",
+        len(succeeded),
+        len(config.cases),
+        ", ".join(f"{c.citta}/{c.zona}" for c in succeeded) or "nessuno",
+        ", ".join(f"{c.citta}/{c.zona}" for c in failed) or "nessuno",
+    )
+    return CaptureSummary(succeeded=succeeded, failed=failed)
 
 
 async def _run(
@@ -137,7 +192,11 @@ def main() -> int:
     ns = build_parser().parse_args()
     results_dir = Path(ns.results)
     if ns.command == "capture":
-        asyncio.run(_capture(Path(ns.config), results_dir, force=ns.force))
+        summary = asyncio.run(_capture(Path(ns.config), results_dir, force=ns.force))
+        # #252: una cattura parzialmente fallita non è un esperimento completo —
+        # un run successivo su snapshot mancanti sarebbe mutilato senza saperlo.
+        if summary.failed:
+            return 1
     elif ns.command == "run":
         asyncio.run(
             _run(
