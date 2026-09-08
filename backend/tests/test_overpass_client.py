@@ -688,6 +688,135 @@ async def test_fetch_pois_raises_on_network_error() -> None:
         await fetch_pois(_BBOX, "Roma")
 
 
+# --- #247: blip di trasporto (non-timeout) ritentabili SOLO in cattura offline ---
+
+
+@respx.mock
+async def test_politica_interattiva_resta_fail_fast_su_errore_di_trasporto() -> None:
+    """Il percorso /analyze non guadagna latenza per un blip di trasporto: resta
+    definitivo come prima di #247, nessun ritentativo aggiuntivo."""
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=httpx.ConnectError("refused")
+    )
+
+    with pytest.raises(OverpassError):
+        await fetch_pois(_BBOX, "Roma", sleep=_recording_sleep([]))
+
+    assert route.call_count == 1
+
+
+@respx.mock
+async def test_offline_policy_ritenta_su_errore_di_connessione_poi_riesce() -> None:
+    """Un ConnectError transitorio non e' piu' definitivo in cattura offline: #232
+    aveva chiuso timeout e status transitori, non i blip di trasporto (#247)."""
+    attese: list[float] = []
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=[
+            httpx.ConnectError("connection refused"),
+            httpx.Response(200, json=_sample()),
+        ]
+    )
+
+    pois = await fetch_pois(
+        _BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(attese)
+    )
+
+    assert route.call_count == 2
+    assert len(pois) > 0
+    assert attese == [OFFLINE_RETRY.pause_s[0]]
+
+
+@respx.mock
+async def test_offline_policy_ritenta_su_remote_protocol_error() -> None:
+    """Il server che chiude la connessione senza risposta e' transitorio quanto
+    un 504: Overpass sotto carico lo fa almeno quanto restituisce 504 (#247)."""
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=[
+            httpx.RemoteProtocolError(
+                "Server disconnected without sending a response."
+            ),
+            httpx.Response(200, json=_sample()),
+        ]
+    )
+
+    pois = await fetch_pois(
+        _BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep([])
+    )
+
+    assert route.call_count == 2
+    assert len(pois) > 0
+
+
+@respx.mock
+async def test_offline_policy_ritenta_su_read_error() -> None:
+    """Connessione interrotta a lettura in corso: stesso trattamento (#247)."""
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=[
+            httpx.ReadError("connection reset"),
+            httpx.Response(200, json=_sample()),
+        ]
+    )
+
+    pois = await fetch_pois(
+        _BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep([])
+    )
+
+    assert route.call_count == 2
+    assert len(pois) > 0
+
+
+@respx.mock
+async def test_offline_policy_esaurita_su_trasporto_solleva_overpass_error() -> None:
+    """Un blip di trasporto persistente si arrende come qualunque altro
+    ritentabile esaurito: non resta appeso (#247)."""
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=httpx.ConnectError("refused")
+    )
+
+    with pytest.raises(OverpassError):
+        await fetch_pois(_BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep([]))
+
+    assert route.call_count == 1 + len(OFFLINE_RETRY.pause_s)
+
+
+@respx.mock
+async def test_offline_policy_non_ritenta_errori_di_trasporto_non_elencati() -> None:
+    """Un errore di trasporto FUORI dall'elenco esplicito resta definitivo anche
+    in cattura offline: solo connessione/protocollo remoto/lettura sono blip
+    transitori, non qualunque ``httpx.HTTPError`` (#247)."""
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=httpx.LocalProtocolError("malformed request")
+    )
+
+    with pytest.raises(OverpassError):
+        await fetch_pois(_BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep([]))
+
+    assert route.call_count == 1
+
+
+@respx.mock
+async def test_ritentativo_su_errore_di_trasporto_lascia_traccia_nei_log(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Il log distingue un blip di trasporto da un vero timeout: altrimenti
+    l'operatore legge «timeout» dove c'era una connessione rifiutata (#247)."""
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=[
+            httpx.ConnectError("connection refused"),
+            httpx.Response(200, json=_sample()),
+        ]
+    )
+
+    with caplog.at_level("WARNING"):
+        await fetch_pois(_BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep([]))
+
+    messaggi = [r.getMessage() for r in caplog.records]
+    trovato = any(
+        "errore di trasporto" in m and "ritentativo 1/4" in m for m in messaggi
+    )
+    assert trovato, messaggi
+
+
 @respx.mock
 async def test_fetch_pois_raises_on_invalid_json() -> None:
     """Risposta 200 ma body non-JSON -> OverpassError."""
