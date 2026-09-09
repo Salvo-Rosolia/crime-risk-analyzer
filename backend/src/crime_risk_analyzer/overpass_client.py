@@ -7,8 +7,9 @@ restituisce i POI nel contratto di RETRIEVAL: ogni POI espone ``id``, ``name``,
 grounding/SPARQL a valle.
 
 Vincoli (orchestrator.md): massimo :data:`MAX_POIS` POI per richiesta; in caso di
-timeout **o** di status ritentabile (429/5xx) si ritenta secondo la
-:class:`RetryPolicy` ricevuta, poi :class:`OverpassError` (mappata a 503
+timeout, di status ritentabile (429/5xx) o, in cattura offline (#247), di un
+blip di trasporto (connessione rifiutata/chiusa/interrotta) si ritenta secondo
+la :class:`RetryPolicy` ricevuta, poi :class:`OverpassError` (mappata a 503
 dall'orchestrator). Le chiamate sono async (``httpx.AsyncClient``): nessun
 I/O bloccante.
 
@@ -108,6 +109,11 @@ class RetryPolicy:
     #: rinuncia subito invece di ritentare presto, che sarebbe hammering verso un
     #: servizio pubblico gratuito che ha appena detto «piu' tardi».
     retry_after_cap_s: float | None
+    #: Se un blip di trasporto non-timeout (connessione rifiutata, connessione
+    #: chiusa a meta' risposta, lettura interrotta) va ritentato come un 429/5xx
+    #: invece di essere definitivo (#247). ``False`` in interattivo: quel percorso
+    #: non deve guadagnare latenza per un errore che oggi fallisce subito.
+    retry_transport_errors: bool = False
 
 
 #: Percorso interattivo (``/analyze``): un utente sta aspettando, quindi fallire
@@ -132,6 +138,7 @@ OFFLINE_RETRY = RetryPolicy(
     timeout_s=30.0,
     retry_timeout_s=60.0,
     retry_after_cap_s=120.0,
+    retry_transport_errors=True,
 )
 
 #: User-agent esplicito richiesto dall'endpoint pubblico Overpass: senza di esso
@@ -340,20 +347,47 @@ def select_pois(
     return scelti
 
 
+#: Blip di trasporto non-timeout trattati come transitori quando la politica lo
+#: consente (#247): l'intera famiglia ``NetworkError`` (connessione rifiutata,
+#: lettura o scrittura interrotta, chiusura anomala) piu' ``RemoteProtocolError``
+#: (connessione chiusa a meta' risposta). Overpass sotto carico chiude
+#: connessioni almeno quanto restituisce 504 -> stesso trattamento, non piu' un
+#: fallimento definitivo.
+_RETRYABLE_TRANSPORT_ERRORS: tuple[type[httpx.HTTPError], ...] = (
+    httpx.ConnectError,
+    httpx.ReadError,
+    httpx.WriteError,
+    httpx.CloseError,
+    httpx.RemoteProtocolError,
+)
+
+
 async def _try_post(
-    client: httpx.AsyncClient, url: str, query: str, timeout: float
-) -> httpx.Response | None:
+    client: httpx.AsyncClient,
+    url: str,
+    query: str,
+    timeout: float,
+    *,
+    retry_transport_errors: bool,
+) -> tuple[httpx.Response | None, str | None]:
     """Esegue un tentativo di POST a Overpass col timeout indicato.
 
-    Ritorna la :class:`httpx.Response` (qualunque status), oppure ``None`` se il
-    tentativo scade in timeout (segnale ritentabile). Un errore di trasporto
-    non-timeout (``httpx.HTTPError``, es. connessione rifiutata) e' definitivo:
-    viene rilanciato subito come :class:`OverpassError`.
+    Ritorna ``(response, motivo)``: ``response`` e' ``None`` quando il tentativo
+    va ritentato e ``motivo`` descrive perche', per il log del chiamante. Un
+    errore di trasporto non-timeout (:data:`_RETRYABLE_TRANSPORT_ERRORS`) e'
+    ritentabile SOLO se ``retry_transport_errors`` (politica offline, #247):
+    altrimenti resta definitivo come prima, rilanciato subito come
+    :class:`OverpassError` — il percorso interattivo non deve guadagnare
+    latenza per un blip che oggi fallisce subito.
     """
     try:
-        return await client.post(url, content=query, timeout=timeout)
+        return await client.post(url, content=query, timeout=timeout), None
     except httpx.TimeoutException:
-        return None
+        return None, "timeout"
+    except _RETRYABLE_TRANSPORT_ERRORS as exc:
+        if retry_transport_errors:
+            return None, f"errore di trasporto ({exc})"
+        raise OverpassError(f"Errore di rete verso Overpass: {exc}") from exc
     except httpx.HTTPError as exc:
         raise OverpassError(f"Errore di rete verso Overpass: {exc}") from exc
 
@@ -423,19 +457,27 @@ async def fetch_pois(
     ``retry`` risolto a :data:`INTERACTIVE_RETRY` quando ``None``: la risoluzione
     avviene alla CHIAMATA e non come default di firma, cosi' un test puo'
     sostituire la politica di default senza riscrivere ogni chiamante. La cattura
-    offline passa :data:`OFFLINE_RETRY` (#232). ``sleep`` e' iniettabile: i test
-    verificano le pause senza attenderle.
+    offline passa :data:`OFFLINE_RETRY` (#232), che ritenta anche un blip di
+    trasporto (:data:`_RETRYABLE_TRANSPORT_ERRORS`) come un 504 (#247); il
+    percorso interattivo lo tratta invece come definitivo, fail-fast. ``sleep``
+    e' iniettabile: i test verificano le pause senza attenderle.
     """
     policy = retry or INTERACTIVE_RETRY
     selectors = list(osm_selectors)
     query = _build_query(bbox, selectors)
 
     async with httpx.AsyncClient(headers={"User-Agent": _USER_AGENT}) as client:
-        response = await _try_post(client, overpass_url, query, policy.timeout_s)
-        # Un ritentativo per ogni pausa dichiarata: scatta sia sul timeout
-        # (response None) sia su uno status transitorio (429/5xx). Uno status
-        # non-2xx NON ritentabile (400/403/404) esce subito dal ciclo e fallisce
-        # piu' sotto, senza attendere.
+        response, motivo = await _try_post(
+            client,
+            overpass_url,
+            query,
+            policy.timeout_s,
+            retry_transport_errors=policy.retry_transport_errors,
+        )
+        # Un ritentativo per ogni pausa dichiarata: scatta sia su nessuna risposta
+        # (timeout o, in offline, un blip di trasporto) sia su uno status
+        # transitorio (429/5xx). Uno status non-2xx NON ritentabile (400/403/404)
+        # esce subito dal ciclo e fallisce piu' sotto, senza attendere.
         for tentativo, prevista in enumerate(policy.pause_s, start=1):
             if response is not None and response.status_code not in _RETRYABLE_STATUS:
                 break
@@ -447,7 +489,7 @@ async def fetch_pois(
             # «backoff di cortesia in corso» sono indistinguibili — la condizione
             # che il 26/07 ha spinto a scrivere il backoff a mano in una shell.
             esito = (
-                "timeout" if response is None else f"ha risposto {response.status_code}"
+                motivo if response is None else f"ha risposto {response.status_code}"
             )
             logger.warning(
                 "Overpass %s: ritentativo %d/%d fra %.0fs",
@@ -457,12 +499,16 @@ async def fetch_pois(
                 attesa,
             )
             await sleep(attesa)
-            response = await _try_post(
-                client, overpass_url, query, policy.retry_timeout_s
+            response, motivo = await _try_post(
+                client,
+                overpass_url,
+                query,
+                policy.retry_timeout_s,
+                retry_transport_errors=policy.retry_transport_errors,
             )
 
     if response is None:
-        raise OverpassError("Overpass timeout dopo i ritentativi con timeout esteso")
+        raise OverpassError(f"Overpass irraggiungibile dopo i ritentativi: {motivo}")
     if not response.is_success:
         raise OverpassError(f"Overpass ha risposto {response.status_code}")
 
