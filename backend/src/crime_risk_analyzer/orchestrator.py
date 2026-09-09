@@ -231,17 +231,31 @@ def _zona_geo(geo: GeoResult) -> ZonaGeo:
     )
 
 
-def _messaggio_zero_poi(poi_out: list[PoiOut], narrativa: str | None) -> str | None:
+def _messaggio_zero_poi(n_poi: int, narrativa: str | None) -> str | None:
     """``None`` se c'e' un POI o se una narrativa reale copre gia' il caso.
+
+    ``n_poi`` e' una conta, non una ``list[PoiOut]``: la funzione serve sia
+    l'assemblaggio sincrono di ``AnalyzeResponse`` (che ha gia' costruito i
+    ``PoiOut``) sia la fase 2 di ``run_zone_narrative`` in
+    :mod:`~crime_risk_analyzer.analyze_narrative` (che ha solo i ``Poi`` grezzi
+    del ``RetrievalContext`` cacheato) — nessuna delle due deve costruire una
+    lista dell'altro tipo solo per il conteggio.
 
     Nei bracci di valutazione (``run_analysis``/``run_no_ontology_prompt``) l'LLM
     puo' scrivere prosa anche su un contesto senza POI: se lo fa, quella prosa e'
     gia' l'informazione per chi legge e un ``messaggio`` che lascia intendere
     "nulla da vedere" affiancato a una narrativa non vuota sarebbe contraddittorio
-    (reperto review #260). ``narrativa`` falsy (``None``/``""``: fase 1 pendente,
-    baseline, o fallback LLM) non conta come copertura.
+    (reperto review #260). Stesso principio nel percorso reale a due fasi: la
+    fase 1 (``run_analysis_fast``) non sa ancora se la fase 2 scrivera' una
+    narrativa reale, quindi e' la fase 2 (``run_zone_narrative``) a dover
+    ricalcolare ``messaggio`` da capo — mai ritrasmettere quello della fase 1.
+
+    ``narrativa`` viene STRIPPATA prima del controllo di verita': una stringa di
+    soli spazi non e' copertura reale (secondo reperto review #260), e senza lo
+    strip un tale valore avrebbe soppresso il messaggio esplicito lasciando
+    l'utente senza alcuna spiegazione.
     """
-    if poi_out or narrativa:
+    if n_poi or (narrativa or "").strip():
         return None
     return _MESSAGGIO_ZERO_POI
 
@@ -431,7 +445,7 @@ def _structured_response(
         fallback=fallback,
         contesto_hash=contesto_hash,
         zona_geo=_zona_geo(geo),
-        messaggio=_messaggio_zero_poi(poi_out, narrativa),
+        messaggio=_messaggio_zero_poi(len(poi_out), narrativa),
     )
 
 
@@ -487,7 +501,7 @@ def _generated_response(
         fallback=False,
         contesto_hash=contesto_hash,
         zona_geo=_zona_geo(geo),
-        messaggio=_messaggio_zero_poi(poi_out, gen.narrativa),
+        messaggio=_messaggio_zero_poi(len(poi_out), gen.narrativa),
     )
 
 

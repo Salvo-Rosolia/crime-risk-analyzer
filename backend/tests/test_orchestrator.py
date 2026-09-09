@@ -418,6 +418,32 @@ def test_structured_response_messaggio_esplicito_quando_zero_poi() -> None:
     assert "OSM" in resp.messaggio or "TERMINUS" in resp.messaggio
 
 
+def test_structured_response_messaggio_esplicito_con_narrativa_di_soli_spazi() -> None:
+    """#260 (reperto review): una narrativa di soli spazi bianchi non e' copertura
+    reale — senza lo strip prima del controllo di verita', un tale valore (falsy
+    solo se vuoto, ma ``"   "`` e' truthy) sopprimerebbe il messaggio esplicito
+    lasciando l'utente senza alcuna spiegazione su una zona vuota."""
+    from crime_risk_analyzer.rag.grounding import GroundedContext
+
+    grounded: GroundedContext = {
+        "zona": "Colosseo",
+        "validated_risks": [],
+        "confidence_summary": {},
+    }
+    resp = _structured_response(
+        "Roma",
+        "Colosseo",
+        [],
+        grounded,
+        latenza_ms=0,
+        fallback=False,
+        contesto_hash="h",
+        geo=GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50)),
+        narrativa="   ",
+    )
+    assert resp.messaggio is not None
+
+
 async def test_run_analysis_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_io(monkeypatch)
     resp = await run_analysis(

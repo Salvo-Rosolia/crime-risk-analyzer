@@ -134,6 +134,75 @@ async def test_fast_response_zero_poi_has_explicit_message() -> None:
     assert out.messaggio is not None
 
 
+async def test_phase1_then_phase2_zero_poi_narrativa_reale_annulla_messaggio() -> None:
+    """#260 (reperto review): la fase 2 ricalcola ``messaggio`` da zero, non
+    eredita quello della fase 1 — se l'LLM scrive comunque prosa reale su un
+    contesto senza POI, un ``messaggio`` che lascia intendere "nulla da vedere"
+    accanto a quella narrativa sarebbe un'informazione contraddittoria per chi
+    legge la response finale."""
+    zone_context_cache.clear()
+    from crime_risk_analyzer.analyze_narrative import (
+        run_analysis_fast,
+        run_zone_narrative,
+    )
+
+    async def _no_poi(bbox: Bbox, citta: str) -> list[Poi]:
+        return []
+
+    fase1 = await run_analysis_fast(
+        "Roma",
+        "Zona senza POI fase2",
+        executor=_FakeProfiler(),
+        poi_source=_no_poi,
+        geo_source=_geo_source,
+    )
+    assert fase1.poi == []
+    assert fase1.narrativa is None
+    assert fase1.messaggio is not None
+
+    fase2 = await run_zone_narrative(
+        "Roma",
+        "Zona senza POI fase2",
+        contesto_hash=fase1.contesto_hash,
+        executor=_FakeProfiler(),
+        llm_client=_FakeLLMClient(),
+    )
+    assert fase2.narrativa != ""
+    assert fase2.messaggio is None
+
+
+async def test_phase1_then_phase2_zero_poi_llm_fallback_keeps_message() -> None:
+    """Stessa sequenza fase1->fase2 su zona vuota, ma la fase 2 cade sull'LLM:
+    senza narrativa reale, il messaggio esplicito resta l'unica informazione
+    disponibile — non deve sparire solo perche' e' la seconda chiamata."""
+    zone_context_cache.clear()
+    from crime_risk_analyzer.analyze_narrative import (
+        run_analysis_fast,
+        run_zone_narrative,
+    )
+
+    async def _no_poi(bbox: Bbox, citta: str) -> list[Poi]:
+        return []
+
+    fase1 = await run_analysis_fast(
+        "Roma",
+        "Zona senza POI fase2 fallback",
+        executor=_FakeProfiler(),
+        poi_source=_no_poi,
+        geo_source=_geo_source,
+    )
+    fase2 = await run_zone_narrative(
+        "Roma",
+        "Zona senza POI fase2 fallback",
+        contesto_hash=fase1.contesto_hash,
+        executor=_FakeProfiler(),
+        llm_client=_RaisingLLMClient(),
+    )
+    assert fase2.narrativa == ""
+    assert fase2.fallback is True
+    assert fase2.messaggio is not None
+
+
 async def test_fast_response_warms_the_zone_context_cache() -> None:
     """Il contesto resta depositato: /analyze/narrativa e /analyze/poi non devono
     rifare Overpass (#232). E' la fase 1 l'unica a scaldare la cache — il
@@ -362,7 +431,11 @@ async def test_zone_narrative_fallback_non_attribuisce_il_testo_a_un_modello() -
 
 def test_zone_narrative_response_has_no_numeric_danger_scoring_field() -> None:
     """Stesso vincolo di `PoiNarrativeResponse` (_project.md §Vincoli): l'insieme
-    esatto impedisce di intrufolare un punteggio numerico di pericolosità."""
+    esatto impedisce di intrufolare un punteggio numerico di pericolosità.
+
+    ``messaggio`` (#260) è testo esplicativo condizionato su POI/narrativa
+    vuoti, non un punteggio: aggiunta legittima allo stesso titolo di
+    ``AnalyzeResponse.messaggio``."""
     from crime_risk_analyzer.analyze_narrative import ZoneNarrativeResponse
 
     assert set(ZoneNarrativeResponse.model_fields) == {
@@ -374,6 +447,7 @@ def test_zone_narrative_response_has_no_numeric_danger_scoring_field() -> None:
         "latenza_ms",
         "repro",
         "fallback",
+        "messaggio",
     }
 
 
