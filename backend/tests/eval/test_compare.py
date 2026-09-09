@@ -24,6 +24,7 @@ from crime_risk_analyzer.eval.compare import (
     Comparison,
     FailedZone,
     MetricValues,
+    NoUsableOutputError,
     ZoneComparison,
     compare_experiments,
     compare_records,
@@ -393,6 +394,44 @@ def test_raises_when_all_zones_fallback() -> None:
         compare_records(arm_a, arm_b, label_a="full", label_b="base")
 
 
+def test_no_usable_output_error_carries_label_and_failed_zones() -> None:
+    """#239: l'eccezione porta i dati per il report, non solo un messaggio."""
+    arm_a = [
+        _rec(
+            "full",
+            "Roma",
+            "Colosseo",
+            grounding=1.0,
+            hallucination=0.0,
+            latency_ms=0,
+            cost_usd=0.0,
+            status=RunStatus.FALLBACK,
+        )
+    ]
+    arm_b = [
+        _rec(
+            "base",
+            "Roma",
+            "Colosseo",
+            grounding=0.0,
+            hallucination=0.0,
+            latency_ms=0,
+            cost_usd=0.0,
+            mode="baseline",
+            status=RunStatus.ERROR,
+        )
+    ]
+    with pytest.raises(NoUsableOutputError) as excinfo:
+        compare_records(arm_a, arm_b, label_a="full", label_b="base")
+    exc = excinfo.value
+    assert exc.label_a == "full"
+    assert exc.label_b == "base"
+    assert len(exc.failed) == 1
+    assert exc.failed[0].citta == "Roma"
+    assert exc.failed[0].status_a == "fallback"
+    assert exc.failed[0].status_b == "error"
+
+
 def test_raises_when_all_zones_error() -> None:
     """Se non resta alcuna zona valida → errore esplicito (niente media su nulla)."""
     arm_a = [
@@ -623,6 +662,103 @@ def test_compare_experiments_custom_stem(tmp_path: Path) -> None:
     )
     assert csv_path == tmp_path / "mio-confronto.csv"
     assert md_path == tmp_path / "mio-confronto.md"
+
+
+def _all_fallback_arm(experiment: str, mode: Mode) -> list[RunRecord]:
+    return [
+        _rec(
+            experiment,
+            "Roma",
+            "Colosseo",
+            grounding=1.0,
+            hallucination=0.0,
+            latency_ms=0,
+            cost_usd=0.0,
+            mode=mode,
+            status=RunStatus.FALLBACK,
+        ),
+        _rec(
+            experiment,
+            "Milano",
+            "Duomo",
+            grounding=1.0,
+            hallucination=0.0,
+            latency_ms=0,
+            cost_usd=0.0,
+            mode=mode,
+            status=RunStatus.ERROR,
+        ),
+    ]
+
+
+def test_compare_experiments_writes_report_and_raises_when_all_zones_fail(
+    tmp_path: Path,
+) -> None:
+    """#239: nessun output utilizzabile → report su disco, non un traceback nudo.
+
+    Entrambe le zone sono escluse (una FALLBACK, una ERROR su A): niente MEDIA,
+    niente tabella di metriche, nessun verdetto — solo le zone escluse.
+    """
+    for rec in _all_fallback_arm("full", "analyze"):
+        write_record(tmp_path, rec)
+    for rec in _all_fallback_arm("base", "baseline"):
+        write_record(tmp_path, rec)
+
+    with pytest.raises(NoUsableOutputError):
+        compare_experiments(
+            tmp_path, "full", "base", label_a="analyze", label_b="baseline"
+        )
+
+    csv_path = tmp_path / "full_vs_base.csv"
+    md_path = tmp_path / "full_vs_base.md"
+    json_path = tmp_path / "full_vs_base.json"
+    assert csv_path.exists()
+    assert md_path.exists()
+    assert json_path.exists()
+
+    csv_text = csv_path.read_text(encoding="utf-8")
+    assert "Roma" in csv_text
+    assert "Milano" in csv_text
+    assert "MEDIA" not in csv_text  # nessuna media: non c'è nulla da mediare
+
+    md_text = md_path.read_text(encoding="utf-8")
+    assert "Nessun output utilizzabile" in md_text
+    assert "Nessun verdetto" in md_text
+    assert "grounding" not in md_text.lower()  # nessuna tabella di metriche
+
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert payload["winner"] is None
+    assert payload["quality_verdict_applicable"] is False
+    assert len(payload["failed"]) == 2
+
+
+def test_main_compare_returns_1_on_no_usable_output(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    """#239: il comando CLI `compare` segnala il fallimento con exit code 1."""
+    import sys
+
+    import crime_risk_analyzer.eval.__main__ as eval_main
+
+    for rec in _all_fallback_arm("full", "analyze"):
+        write_record(tmp_path, rec)
+    for rec in _all_fallback_arm("base", "baseline"):
+        write_record(tmp_path, rec)
+
+    argv = [
+        "crime_risk_analyzer.eval",
+        "compare",
+        "--experiment-a",
+        "full",
+        "--experiment-b",
+        "base",
+        "--results",
+        str(tmp_path),
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+    rc = eval_main.main()
+    assert rc == 1
+    assert (tmp_path / "full_vs_base.md").exists()
 
 
 def test_main_compare_dispatch_writes_tables(

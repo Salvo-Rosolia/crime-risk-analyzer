@@ -18,6 +18,7 @@ from crime_risk_analyzer.eval.compare import (
     VACUOUS_REASON,
     Comparison,
     MetricValues,
+    NoUsableOutputError,
     VacuousZone,
     compare_records,
     guard_no_overwrite,
@@ -26,6 +27,7 @@ from crime_risk_analyzer.eval.compare import (
     to_json,
     to_markdown,
     vacuity_subject,
+    write_no_usable_output_report,
 )
 from crime_risk_analyzer.eval.repeat import FoldedArm, ZoneVariance, fold_arm
 from crime_risk_analyzer.eval.schema import Metrics
@@ -272,14 +274,24 @@ def build_repeated_report(
     è TRATTENUTO: ``winner`` è ``None`` nel JSON, ``quality_verdict.applicable``
     è ``False`` e il Markdown motiva l'astensione al posto del vincitore. Le
     tabelle (incluse le operative) restano invariate.
+
+    Se dopo il ripiegamento delle ripetizioni non resta nessuna zona utilizzabile
+    (ogni braccio in ERROR/FALLBACK su ogni zona, #239) scrive comunque un
+    report — Markdown/JSON delle zone escluse, nessun verdetto — e rilancia
+    :class:`~crime_risk_analyzer.eval.compare.NoUsableOutputError`.
     """
     la = label_a or experiment_a
     lb = label_b or experiment_b
     folded_a = fold_arm(load_runs(results_dir, experiment=experiment_a))
     folded_b = fold_arm(load_runs(results_dir, experiment=experiment_b))
-    comparison = compare_records(
-        folded_a.mean_records, folded_b.mean_records, label_a=la, label_b=lb
-    )
+    resolved = stem or f"{experiment_a}_vs_{experiment_b}_repeated"
+    try:
+        comparison = compare_records(
+            folded_a.mean_records, folded_b.mean_records, label_a=la, label_b=lb
+        )
+    except NoUsableOutputError as exc:
+        write_no_usable_output_report(results_dir, exc, resolved, force=force)
+        raise
     # Nessun verdetto se manca il testo, a livello di braccio O di singola zona
     # (#231): premierebbe il silenzio. La vacuità arriva dai record-media, che
     # conservano la DISPONIBILITÀ di narrativa (repeat._representative_narrativa),
@@ -357,7 +369,6 @@ def build_repeated_report(
             "arm_b": [v.model_dump() for v in folded_b.variances],
         },
     }
-    resolved = stem or f"{experiment_a}_vs_{experiment_b}_repeated"
     md_path = results_dir / f"{resolved}.md"
     json_path = results_dir / f"{resolved}.json"
     guard_no_overwrite([md_path, json_path], force)
