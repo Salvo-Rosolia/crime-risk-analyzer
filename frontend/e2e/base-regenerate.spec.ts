@@ -145,7 +145,7 @@ test.describe('Narrativa a tab per fonte: apertura, elenco tab e cambio pannello
       ...analyze,
       risk_models: analyze.risk_models.map((model) => ({
         ...model,
-        risks: model.risks.filter((risk) => (risk.tag ?? 'SPECULATIVO') !== 'SPECULATIVO'),
+        risks: model.risks.filter((risk) => (risk.tag || 'SPECULATIVO') !== 'SPECULATIVO'),
       })),
     };
 
