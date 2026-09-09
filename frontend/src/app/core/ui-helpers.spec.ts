@@ -576,6 +576,10 @@ describe('buildSourceTabs', () => {
     expect(out.tabs[1]).toEqual({ tag: 'CONTESTO', prose: 'Prosa ctx.', hazards: ['Borseggio'] });
   });
 
+  // SPECULATIVO qui copre la gestione generica del tag da parte della funzione pura (compreso il
+  // caso limite "prosa vuota, solo hazard"), non un payload che il backend produce oggi: dal
+  // blocco [SPECULATIVO] rimosso dal prompt (#229) `narrativa_fonti.speculativo` è sempre vuoto e
+  // gli hazard SPECULATIVO/non taggati restano solo copertura difensiva (vedi `detail-filter.spec.ts`).
   it('include un tab con sola prosa e uno con soli hazard', () => {
     const rm: RiskModel[] = [
       {
