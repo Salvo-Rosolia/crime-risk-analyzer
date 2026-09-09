@@ -488,22 +488,35 @@ def has_narrativa(record: RunRecord) -> bool:
     return bool(record.narrativa.strip())
 
 
-def is_vacuous_arm(records: list[RunRecord]) -> bool:
-    """True se NESSUN record del braccio ha prodotto narrativa (#231).
+def _record_quality_vacuous(record: RunRecord) -> bool:
+    """True se le metriche di qualita' del record sono vacue (#240).
 
-    Un braccio è vacuo per costruzione (``mode='baseline'``: nessun LLM) o
-    perché non ha mai prodotto testo. In entrambi i casi non esiste materiale su
-    cui i proxy di qualità possano dire qualcosa. Un braccio che tace su ALCUNE
-    zone e parla su altre NON è vacuo: quelle zone sono raccolte in
-    ``Comparison.vacuous_zones`` e trattengono comunque il verdetto.
+    Legge ``metrics.quality_vacuous`` quando disponibile: e' un sovrainsieme di
+    :func:`has_narrativa`, perche' ``metrics.py::_grade`` cade nel ramo vacuo sia
+    a narrativa assente sia a narrativa piena ma senza alcun ancoraggio da citare
+    (zona senza POI) — il confine che ``has_narrativa`` da sola dichiarava di non
+    coprire. Sui record pre-#240 (``quality_vacuous is None``, dato non
+    disponibile) ricade su ``has_narrativa``: stesso comportamento di prima
+    dell'introduzione di questo campo.
+    """
+    if record.metrics.quality_vacuous is not None:
+        return record.metrics.quality_vacuous
+    return not has_narrativa(record)
+
+
+def is_vacuous_arm(records: list[RunRecord]) -> bool:
+    """True se NESSUN record del braccio ha metriche di qualita' gradabili (#231).
+
+    Un braccio è vacuo per costruzione (``mode='baseline'``: nessun LLM), perché
+    non ha mai prodotto testo, o perché le zone che copre non avevano alcun
+    ancoraggio da citare (#240: ``_record_quality_vacuous``). In tutti i casi non
+    esiste materiale su cui i proxy di qualità possano dire qualcosa. Un braccio
+    che tace su ALCUNE zone e parla su altre NON è vacuo: quelle zone sono
+    raccolte in ``Comparison.vacuous_zones`` e trattengono comunque il verdetto.
 
     Un braccio vuoto (nessun record) non è vacuo: non è un braccio.
-
-    Confine dichiarato: rileva l'assenza di TESTO, non ogni ramo vacuo di
-    ``metrics.py``. Una narrativa piena ma senza ancoraggi da citare (zona senza
-    POI) è anch'essa gradata 1.0/0.0 per vacuità e NON è intercettata qui.
     """
-    return bool(records) and not any(has_narrativa(rec) for rec in records)
+    return bool(records) and all(_record_quality_vacuous(rec) for rec in records)
 
 
 def _to_values(m: Metrics) -> MetricValues:
@@ -621,13 +634,15 @@ def compare_records(
                 )
             )
             continue
-        # Zona muta (#231): status OK ma nessun testo prodotto da un braccio. La
-        # zona resta comparata (le misure operative valgono), ma le sue metriche
-        # di qualità sono vacue e non possono sostenere un verdetto.
+        # Zona muta (#231): status OK ma metriche di qualita' non gradabili per un
+        # braccio — nessun testo prodotto, oppure narrativa piena su una zona
+        # senza POI/ancoraggi da citare (#240). La zona resta comparata (le
+        # misure operative valgono), ma le sue metriche di qualità sono vacue e
+        # non possono sostenere un verdetto.
         silent = [
             label
             for label, rec in ((label_a, rec_a), (label_b, rec_b))
-            if not has_narrativa(rec)
+            if _record_quality_vacuous(rec)
         ]
         if silent:
             vacuous_zones.append(

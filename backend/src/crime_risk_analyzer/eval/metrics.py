@@ -216,13 +216,25 @@ def compute_metrics(resp: AnalyzeResponse, *, mode: Mode = _DEFAULT_MODE) -> Met
     :func:`_grade` (narrativa vuota o nessun ancoraggio da citare): grounding/
     hallucination valgono comunque 1.0/0.0 su quel ramo, ma non misurano qualita'
     reale. Prima di #240 questa distinzione era visibile solo nel report di
-    confronto (#231); qui diventa un campo del record cosi' che aggregate.py possa
-    marcarla anche nella tabella per-run e nel CSV.
+    confronto (#231); qui diventa un campo del record cosi' che aggregate.py e
+    compare.py possano marcarla anche fuori da quel report (tabella per-run, CSV,
+    e i bracci/zone vacui del confronto stesso).
+
+    ``_grade`` e' chiamato una sola volta qui (non tre, una per metrica): e'
+    deterministico quindi non era un bug, ma le tre invocazioni indipendenti di
+    prima erano lavoro ripetuto senza motivo.
     """
+    graded = _grade(resp, mode)
+    if graded is None:
+        grounding_value, hallucination_value = 1.0, 0.0
+    else:
+        grounded, assertions = graded
+        grounding_value = grounded / assertions
+        hallucination_value = (assertions - grounded) / assertions
     return Metrics(
-        grounding=grounding(resp, mode=mode),
-        hallucination=hallucination(resp, mode=mode),
-        quality_vacuous=_grade(resp, mode) is None,
+        grounding=grounding_value,
+        hallucination=hallucination_value,
+        quality_vacuous=graded is None,
         latency_ms=latency_ms(resp),
         cost_usd=cost_usd_of(resp),
     )
