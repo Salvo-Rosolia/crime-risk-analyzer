@@ -23,6 +23,7 @@ from crime_risk_analyzer.eval.compare import (
     guard_no_overwrite,
     has_vacuous_quality_axes,
     is_ontology_isolating_pair,
+    quality_verdict_payload,
     to_json,
     to_markdown,
     vacuity_subject,
@@ -338,17 +339,10 @@ def build_repeated_report(
     payload = {
         "comparison": json.loads(to_json(comparison)),
         "winner": winner.model_dump() if winner is not None else None,
-        "quality_verdict": {
-            "applicable": not withheld,
-            "vacuous_arms": comparison.vacuous_arms,
-            "vacuous_zones": [z.model_dump() for z in comparison.vacuous_zones],
-            "reason": (
-                "manca la narrativa su cui i proxy di qualità si pronunciano: "
-                "metriche vacue (#231)"
-                if withheld
-                else ""
-            ),
-        },
+        # Stessa funzione condivisa di write_comparison (#238): garantisce che
+        # "applicable" risponda allo stesso modo nei due payload invece di due
+        # dizionari costruiti a mano che potrebbero divergere.
+        "quality_verdict": quality_verdict_payload(comparison),
         "variance": {
             "k": k,
             "label_a": la,

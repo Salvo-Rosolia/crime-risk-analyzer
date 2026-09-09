@@ -1321,3 +1321,22 @@ def test_compare_experiments_writes_the_vacuity_warning_to_disk(tmp_path: Path) 
     payload = json.loads((tmp_path / "cli.json").read_text(encoding="utf-8"))
     assert payload["vacuous_arms"] == ["baseline"]
     assert payload["vacuous_zones"][0]["zona"] == "Colosseo"
+    # #238: lo stesso campo esplicito del report ripetuto, anche qui — un
+    # lettore non deve ispezionare la forma di vacuous_arms/vacuous_zones per
+    # sapere se gli assi di qualita' sono leggibili.
+    assert payload["quality_verdict"]["applicable"] is False
+    assert payload["quality_verdict"]["vacuous_arms"] == ["baseline"]
+
+
+def test_write_comparison_json_reports_quality_verdict_applicable_when_not_vacuous(
+    tmp_path: Path,
+) -> None:
+    """#238: stesso campo del percorso ripetuto, qui a `applicable: True`."""
+    cmp = compare_records(_arm_a(), _arm_b(), label_a="full", label_b="base")
+    write_comparison(tmp_path, cmp, "ablation")
+    payload = json.loads((tmp_path / "ablation.json").read_text(encoding="utf-8"))
+    assert payload["quality_verdict"]["applicable"] is True
+    assert payload["quality_verdict"]["vacuous_arms"] == []
+    assert payload["quality_verdict"]["reason"] == ""
+    # Le chiavi gia' scritte da #33/#157 restano al livello piatto di sempre.
+    assert payload["label_a"] == "full"
