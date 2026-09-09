@@ -151,6 +151,12 @@ _USER_AGENT = (
 class Poi(TypedDict):
     """POI nel contratto di retrieval (pre-grounding)."""
 
+    #: ``"{type}/{id}"`` dell'elemento OSM (es. ``"node/123"``, ``"way/123"``):
+    #: node e way vivono in namespace separati, quindi il tipo e' necessario
+    #: per evitare che due oggetti diversi collassino sullo stesso id (#265).
+    #: E' la chiave con cui i rischi vengono attribuiti al POI (#255) ed entra
+    #: in ``context_fingerprint.fingerprint()`` — cambiarne il formato altera
+    #: ogni ``contesto_hash`` prodotto da quel momento in poi.
     id: str
     name: str
     lat: float
@@ -224,7 +230,7 @@ def _coords(element: Mapping[str, object]) -> tuple[float, float] | None:
 def _to_poi(element: Mapping[str, object], citta: str) -> Poi | None:
     """Converte un elemento Overpass in :class:`Poi`, o ``None`` se inutilizzabile.
 
-    Scarta gli elementi senza tag o senza coordinate.
+    Scarta gli elementi senza tag, senza coordinate o senza ``type``.
     """
     tags = element.get("tags")
     if not isinstance(tags, Mapping):
@@ -236,10 +242,16 @@ def _to_poi(element: Mapping[str, object], citta: str) -> Poi | None:
         return None
     lat, lon = coords
 
-    osm_tag = _extract_osm_tag(tags_map)
     # node e way vivono in namespace OSM separati: senza il tipo, un node e un
-    # way con lo stesso numero collasserebbero sullo stesso id (#265).
-    tipo = element.get("type", "")
+    # way con lo stesso numero collasserebbero sullo stesso id (#265). Overpass
+    # lo dichiara sempre; un elemento che ne fosse privo va scartato invece di
+    # ricadere su una stringa vuota, che riaprirebbe la stessa collisione fra
+    # piu' elementi ugualmente privi di ``type``.
+    tipo = element.get("type")
+    if not isinstance(tipo, str) or not tipo:
+        return None
+
+    osm_tag = _extract_osm_tag(tags_map)
     return Poi(
         id=f"{tipo}/{element.get('id', '')}",
         name=str(tags_map.get("name", "")),

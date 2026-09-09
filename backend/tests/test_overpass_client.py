@@ -950,6 +950,31 @@ async def test_fetch_pois_element_without_coords_or_center_is_skipped() -> None:
 
 
 @respx.mock
+async def test_fetch_pois_element_without_type_is_skipped() -> None:
+    """Elemento senza ``type`` viene scartato invece di produrre un id ``"/123"``.
+
+    Un fallback silenzioso a stringa vuota riaprirebbe la stessa collisione fra
+    ``id`` diversi che #265 chiude: due elementi ugualmente privi di ``type``
+    finirebbero entrambi su ``"/<numero>"``.
+    """
+    payload = {
+        "elements": [
+            {
+                "id": 55,
+                "lat": 41.0,
+                "lon": 12.0,
+                "tags": {"amenity": "bank", "name": "X"},
+            }
+        ]
+    }
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json=payload)
+    )
+
+    assert await fetch_pois(_BBOX, "Roma") == []
+
+
+@respx.mock
 async def test_fetch_pois_way_without_coords_is_skipped() -> None:
     """Way con center privo di coordinate numeriche viene scartato."""
     payload = {
