@@ -779,16 +779,17 @@ def _assemble_context(
     Il VOCABOLARIO CONTROLLATO e' calcolato SOLO sui POI passati (coerente con cio'
     che il modello vede quando il contesto e' troncato). ``note`` (opzionale) e' la
     riga di trasparenza sul troncamento; ``domanda_norm`` (gia' sanificata) chiude
-    lo user_content in un fence come input non fidato (#119).
+    lo user_content in un fence come input non fidato (#119). ``zona`` e' gia'
+    normalizzata dal chiamante (:func:`build_context_str`), come ``domanda_norm``:
+    non cambia fra le chiamate ripetute del loop di troncamento, quindi va
+    calcolata una sola volta li' e non qui.
     """
     all_hazards = [
         str(risk.get("hazard", "")) for poi in pois for risk in poi.get("risks", [])
     ]
     vocab = controlled_vocab_for(all_hazards)
 
-    # ``zona`` viene dalla richiesta dell'utente, non dall'ontologia: stessa
-    # superficie e stessa difesa dei nomi OSM (#119), estesa qui da #244.
-    lines: list[str] = [f"ZONA: {normalize_untrusted_line(zona)}", ""]
+    lines: list[str] = [f"ZONA: {zona}", ""]
     if vocab:
         lines.append(
             "VOCABOLARIO CONTROLLATO (usa ESATTAMENTE questi termini italiani "
@@ -855,8 +856,15 @@ def build_context_str(
     suo contenuto e' imposta da :data:`RULE_USER_INPUT_NOT_INSTRUCTIONS` nel
     system prompt. ``None`` (o stringa vuota/whitespace) lascia lo user_content
     invariato.
+
+    ``zona`` viene dalla richiesta dell'utente, non dall'ontologia: stessa
+    superficie e stessa difesa dei nomi OSM (#119), estesa qui da #244. E'
+    normalizzata una sola volta qui, come ``domanda_norm``, perche' non cambia
+    fra le chiamate ripetute di :func:`_assemble_context` nel loop di
+    troncamento sotto: ricalcolarla ad ogni iterazione sarebbe lavoro ripetuto
+    che scala col numero di POI per nessun beneficio (l'input e' lo stesso).
     """
-    zona = str(context_dict.get("zona", ""))
+    zona = normalize_untrusted_line(str(context_dict.get("zona", "")))
     validated: list[dict[str, Any]] = list(context_dict.get("validated_risks", []))
     domanda_norm = _normalize_user_question(domanda)
     m_total = len(validated)
