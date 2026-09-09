@@ -72,10 +72,11 @@ def _vr(
         "poi_id": poi_id,
         "terminus_class": terminus_class,
         "risks": risks,
-        # I tre assi non-hazard (#256): vuoti per default, i test che li verificano
-        # li popolano espressamente.
+        # I tre assi non-hazard oltre agli hazard (#256/#270): vuoti per default, i
+        # test che li verificano li popolano espressamente.
         "critical_events": [],
         "vulnerabilities": [],
+        "stakeholders": [],
         "sparql_path": risks[0]["source"] if risks else None,
     }
 
@@ -226,13 +227,12 @@ def test_build_poi_list_strict_zip_mismatch() -> None:
 
 
 def test_build_poi_list_espone_gli_assi_con_etichette_e_citazione() -> None:
-    """Eventi critici e vulnerabilita' arrivano al contratto (#256).
+    """I quattro assi TERMINUS arrivano tutti al contratto (#256/#270).
 
-    L'executor SPARQL li estrae a ogni richiesta da sempre, ma gli eventi critici non
-    li leggeva nessuno e le vulnerabilita' finivano solo nel prompt: l'ontologia da'
-    quattro assi e la UI ne mostrava uno. Ognuno porta la propria citazione e
-    l'etichetta IT del vocabolario controllato, come gli hazard. Lo stakeholder resta
-    fuori finche' il vocabolario non lo copre (72 filler senza etichetta italiana).
+    L'executor SPARQL li estrae a ogni richiesta da sempre, ma eventi critici e
+    vulnerabilita' erano scoperti (#256), e lo stakeholder e' rimasto fuori finche' il
+    vocabolario controllato non ha coperto anche quella categoria (#270). Ognuno porta
+    la propria citazione e l'etichetta IT del vocabolario controllato, come gli hazard.
     """
     retrieval_ctx = {"pois": [_poi("1", "Banca A", "Bank")]}
     vr = _vr("Banca A", "Bank", ["Bank_robbery"], poi_id="1")
@@ -248,6 +248,7 @@ def test_build_poi_list_espone_gli_assi_con_etichette_e_citazione() -> None:
             "source": "Bank → isVulnerableTo → Poor_surveillance",
         }
     ]
+    vr["stakeholders"] = [{"name": "Mayor", "source": "Bank → havingPerformer → Mayor"}]
     grounded = {"validated_risks": [vr]}
 
     out = _build_poi_list(retrieval_ctx, grounded)[0]  # type: ignore[arg-type]
@@ -256,6 +257,9 @@ def test_build_poi_list_espone_gli_assi_con_etichette_e_citazione() -> None:
     assert out.critical_events[0].source == "Bank → havingCriticalEvent → Hostages"
     assert out.critical_events[0].label_it == "Ostaggi"
     assert out.vulnerabilities[0].label_it == "Sorveglianza insufficiente"
+    assert out.stakeholders[0].name == "Mayor"
+    assert out.stakeholders[0].source == "Bank → havingPerformer → Mayor"
+    assert out.stakeholders[0].label_it == "Sindaco"
 
 
 def test_build_poi_list_rejects_id_misalignment() -> None:
@@ -1176,12 +1180,12 @@ def test_poi_out_has_no_numeric_danger_scoring_field() -> None:
         "sparql_path",
         "terminus_label_it",
         "terminus_label_en",
-        # #256: gli assi TERMINUS oltre agli hazard. Sono ELENCHI QUALITATIVI di
+        # #256/#270: gli assi TERMINUS oltre agli hazard. Sono ELENCHI QUALITATIVI di
         # entita' ancorate, nessun conteggio e nessuna gradazione: non aprono il
-        # vettore dello scoring che questo test difende. Lo stakeholder non c'e':
-        # il vocabolario controllato non lo copre (vedi rag/grounding.py).
+        # vettore dello scoring che questo test difende.
         "critical_events",
         "vulnerabilities",
+        "stakeholders",
     }
 
 
@@ -1192,7 +1196,7 @@ def test_poi_out_ontology_axes_reject_numeric_value() -> None:
     lista qualitativa con un conteggio — che sarebbe scoring travestito (#184 aveva
     riconosciuto lo stesso vettore per la ``confidence``). Pydantic lo rifiuta: qui
     lo si pinna, cosi' un refactor futuro non lo apre in silenzio."""
-    for asse in ("critical_events", "vulnerabilities"):
+    for asse in ("critical_events", "vulnerabilities", "stakeholders"):
         with pytest.raises(ValidationError):
             PoiOut(
                 id="1",

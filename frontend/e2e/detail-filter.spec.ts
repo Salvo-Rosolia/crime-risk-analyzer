@@ -67,16 +67,21 @@ test.describe('RESULTS→DETAIL: accoppiamento bidirezionale marker↔card', () 
       expectedFactorLabels(poi, analyze.risk_models),
     );
 
-    // #256: gli assi TERMINUS oltre agli hazard, ciascuno con la propria citazione. Il fixture ne
-    // popola uno per asse sul POI 0, quindi i gruppi renderizzati sono due (lo stakeholder non è
-    // esposto: il vocabolario controllato non lo copre).
-    await expect(page.locator('.cra-axis-group')).toHaveCount(2);
+    // #256/#270: gli assi TERMINUS oltre agli hazard, ciascuno con la propria citazione. Il
+    // fixture ne popola uno per asse sul POI 0 (eventi critici, vulnerabilità, stakeholder), quindi
+    // i gruppi renderizzati sono tre.
+    await expect(page.locator('.cra-axis-group')).toHaveCount(3);
     await expect(page.locator('.cra-axis-label')).toHaveText([
       poi.critical_events![0].label_it,
       poi.vulnerabilities![0].label_it,
+      poi.stakeholders![0].label_it,
     ]);
     await expect(page.locator('.cra-axis-source').first()).toHaveText(
       poi.critical_events![0].source,
+    );
+    // La nota anti-direttiva-operativa (#270) compare solo sul gruppo Stakeholder.
+    await expect(page.locator('.cra-axis-note')).toHaveText(
+      "Dato citato dall'ontologia: non è un'indicazione su chi contattare o allertare.",
     );
 
     // Accoppiamento bidirezionale: la card dello stesso POI è marcata come selezionata.

@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { DetailPanelComponent } from './detail-panel.component';
+import { DetailPanelComponent, STAKEHOLDER_AXIS_NOTE } from './detail-panel.component';
 import type { Poi, RiskModel } from '@core/models/models';
 
 function makePoi(overrides: Partial<Poi> = {}): Poi {
@@ -192,6 +192,45 @@ describe('DetailPanelComponent', () => {
     expect(fixture.nativeElement.querySelectorAll('.cra-axis-group').length).toBe(1);
     expect(fixture.nativeElement.textContent).toContain('Vulnerabilità');
     expect(fixture.nativeElement.textContent).not.toContain('Eventi critici');
+    expect(fixture.nativeElement.textContent).not.toContain('Stakeholder');
+  });
+
+  it("ACCEPTANCE (fail-if-removed): l'asse Stakeholder mostra la nota che lo distingue da un'indicazione operativa (#270)", () => {
+    setup(
+      makePoi({
+        stakeholders: [
+          {
+            name: 'Mayor',
+            source: 'Archaeological_site → havingPerformer → Mayor',
+            label_it: 'Sindaco',
+            label_en: 'Mayor',
+          },
+        ],
+      }),
+    );
+
+    const text = fixture.nativeElement.textContent;
+    expect(fixture.nativeElement.querySelectorAll('.cra-axis-group').length).toBe(1);
+    expect(text).toContain('Stakeholder');
+    expect(text).toContain('Sindaco');
+    expect(text).toContain(STAKEHOLDER_AXIS_NOTE);
+  });
+
+  it('non mostra la nota Stakeholder sugli altri assi', () => {
+    setup(
+      makePoi({
+        vulnerabilities: [
+          {
+            name: 'Poor_surveillance',
+            source: 'Bank → isVulnerableTo → Poor_surveillance',
+            label_it: 'Sorveglianza scarsa',
+            label_en: 'Poor surveillance',
+          },
+        ],
+      }),
+    );
+
+    expect(fixture.nativeElement.textContent).not.toContain(STAKEHOLDER_AXIS_NOTE);
   });
 
   it('un POI fuori ontologia con assi popolati li mostra, senza badge da cui ereditare un livello', () => {

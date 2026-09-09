@@ -5,7 +5,7 @@ from pathlib import Path
 
 import crime_risk_analyzer.i18n.terminus_labels as _tl_mod
 
-_ALLOWED = {"poi", "hazard", "critical_event", "vulnerability"}
+_ALLOWED = {"poi", "hazard", "critical_event", "vulnerability", "stakeholder"}
 _JSON_PATH = Path(_tl_mod.__file__).parent / "terminus_labels.json"
 
 
