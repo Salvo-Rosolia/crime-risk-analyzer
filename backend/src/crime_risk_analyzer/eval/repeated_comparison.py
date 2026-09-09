@@ -333,8 +333,16 @@ def build_repeated_report(
         )
         + "\n"
     )
+    comparison_json = json.loads(to_json(comparison))
+    # `quality_verdict` vive SOLO al livello superiore del payload (chiave
+    # sorella qui sotto): e' la stessa identica posizione in cui lo trova un
+    # lettore di `compare` (che non ha alcun wrapper "comparison"), non due
+    # copie byte-identiche a due profondita' diverse nello stesso file (#238 —
+    # reperto di review: prima di questo pop, model_dump/to_json includeva
+    # gia' il campo qui dentro, perche' e' un campo vero di Comparison).
+    comparison_json.pop("quality_verdict", None)
     payload = {
-        "comparison": json.loads(to_json(comparison)),
+        "comparison": comparison_json,
         "winner": winner.model_dump() if winner is not None else None,
         # Stesso campo di Comparison scritto da write_comparison (#238): niente
         # dizionario ricostruito a mano che potrebbe divergere.
