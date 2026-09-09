@@ -211,10 +211,18 @@ def compute_metrics(resp: AnalyzeResponse, *, mode: Mode = _DEFAULT_MODE) -> Met
     ``mode`` e' il braccio della run: decide su quale blocco i due proxy testuali
     si pronunciano (#236). L'harness lo passa dal ``ExperimentConfig``, unico
     posto che lo conosce.
+
+    ``quality_vacuous`` (#240) espone se questo record e' caduto nel ramo VACUO di
+    :func:`_grade` (narrativa vuota o nessun ancoraggio da citare): grounding/
+    hallucination valgono comunque 1.0/0.0 su quel ramo, ma non misurano qualita'
+    reale. Prima di #240 questa distinzione era visibile solo nel report di
+    confronto (#231); qui diventa un campo del record cosi' che aggregate.py possa
+    marcarla anche nella tabella per-run e nel CSV.
     """
     return Metrics(
         grounding=grounding(resp, mode=mode),
         hallucination=hallucination(resp, mode=mode),
+        quality_vacuous=_grade(resp, mode) is None,
         latency_ms=latency_ms(resp),
         cost_usd=cost_usd_of(resp),
     )
