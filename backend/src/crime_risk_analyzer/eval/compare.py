@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,6 +32,8 @@ from pydantic import BaseModel
 
 from crime_risk_analyzer.eval.aggregate import load_runs
 from crime_risk_analyzer.eval.schema import Metrics, RunRecord, RunStatus
+
+logger = logging.getLogger(__name__)
 
 #: Etichetta della riga aggregata nelle tabelle.
 _MEAN_LABEL = "MEDIA"
@@ -979,7 +982,13 @@ def compare_experiments(
     ogni zona, #239) scrive comunque un report — CSV/Markdown/JSON delle zone
     escluse, nessun verdetto — e rilancia :class:`NoUsableOutputError`, così il
     chiamante CLI può segnalare un exit code non-zero senza duplicare la
-    risoluzione di ``stem``.
+    risoluzione di ``stem``. La guardia anti-sovrascrittura (:class:`FileExistsError`)
+    propaga invariata anche in questo ramo (stesso comportamento del percorso di
+    successo). Se invece la scrittura del report fallisce per un altro motivo
+    (disco pieno, permessi: :class:`OSError`), l'errore di scrittura è solo
+    loggato — continua a essere rilanciata ``NoUsableOutputError``, mai
+    l'``OSError``, così il chiamante CLI esce comunque con un exit code pulito
+    invece di un secondo traceback imprevisto (#239).
     """
     arm_a = load_runs(results_dir, experiment=experiment_a)
     arm_b = load_runs(results_dir, experiment=experiment_b)
@@ -992,6 +1001,16 @@ def compare_experiments(
             label_b=label_b or experiment_b,
         )
     except NoUsableOutputError as exc:
-        write_no_usable_output_report(results_dir, exc, resolved_stem, force=force)
-        raise
+        try:
+            write_no_usable_output_report(results_dir, exc, resolved_stem, force=force)
+        except FileExistsError:
+            raise
+        except OSError:
+            logger.exception(
+                "impossibile scrivere il report di nessun-output-utilizzabile "
+                "per '%s' in %s",
+                resolved_stem,
+                results_dir,
+            )
+        raise exc
     return write_comparison(results_dir, comparison, resolved_stem, force=force)

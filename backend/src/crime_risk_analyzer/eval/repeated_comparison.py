@@ -10,6 +10,7 @@ AGGIUNGE varianza + vincitore.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from pathlib import Path
 
@@ -36,6 +37,8 @@ from crime_risk_analyzer.eval.winner import (
     Winner,
     decide_winner,
 )
+
+logger = logging.getLogger(__name__)
 
 #: Caveat di scope (#157): l'asse allucinazione del verdetto e' il proxy testuale.
 _SCOPE_NOTE = (
@@ -278,7 +281,11 @@ def build_repeated_report(
     Se dopo il ripiegamento delle ripetizioni non resta nessuna zona utilizzabile
     (ogni braccio in ERROR/FALLBACK su ogni zona, #239) scrive comunque un
     report — Markdown/JSON delle zone escluse, nessun verdetto — e rilancia
-    :class:`~crime_risk_analyzer.eval.compare.NoUsableOutputError`.
+    :class:`~crime_risk_analyzer.eval.compare.NoUsableOutputError`. La guardia
+    anti-sovrascrittura (``FileExistsError``) propaga invariata; un altro
+    fallimento di scrittura (``OSError``: disco pieno, permessi) è solo loggato,
+    e viene comunque rilanciata ``NoUsableOutputError`` — mai l'``OSError`` — così
+    il chiamante CLI esce con un exit code pulito invece di un traceback (#239).
     """
     la = label_a or experiment_a
     lb = label_b or experiment_b
@@ -290,8 +297,18 @@ def build_repeated_report(
             folded_a.mean_records, folded_b.mean_records, label_a=la, label_b=lb
         )
     except NoUsableOutputError as exc:
-        write_no_usable_output_report(results_dir, exc, resolved, force=force)
-        raise
+        try:
+            write_no_usable_output_report(results_dir, exc, resolved, force=force)
+        except FileExistsError:
+            raise
+        except OSError:
+            logger.exception(
+                "impossibile scrivere il report di nessun-output-utilizzabile "
+                "per '%s' in %s",
+                resolved,
+                results_dir,
+            )
+        raise exc
     # Nessun verdetto se manca il testo, a livello di braccio O di singola zona
     # (#231): premierebbe il silenzio. La vacuità arriva dai record-media, che
     # conservano la DISPONIBILITÀ di narrativa (repeat._representative_narrativa),

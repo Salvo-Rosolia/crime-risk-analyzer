@@ -818,6 +818,45 @@ def test_build_repeated_report_writes_report_and_raises_when_all_reps_degenerate
     assert len(payload["failed"]) == 2
 
 
+def test_build_repeated_report_still_raises_no_usable_output_if_report_write_fails(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    """#239 (follow-up review): un OSError nella scrittura non sostituisca
+    NoUsableOutputError, altrimenti il CLI perde l'exit code pulito.
+    """
+    import crime_risk_analyzer.eval.repeated_comparison as repeated_mod
+
+    _write_arm(tmp_path, _all_error_arm("claude-exp", "claude-sonnet-4-6"))
+    _write_arm(tmp_path, _all_error_arm("groq-exp", "llama-3.3-70b-versatile"))
+
+    def _boom(*args: object, **kwargs: object) -> None:
+        raise OSError("permessi negati (simulato)")
+
+    monkeypatch.setattr(repeated_mod, "write_no_usable_output_report", _boom)
+
+    with pytest.raises(NoUsableOutputError):
+        build_repeated_report(
+            tmp_path, "claude-exp", "groq-exp", label_a="claude", label_b="groq"
+        )
+    assert not (tmp_path / "claude-exp_vs_groq-exp_repeated.md").exists()
+
+
+def test_build_repeated_report_propagates_file_exists_error_from_report_write(
+    tmp_path: Path,
+) -> None:
+    """La guardia anti-sovrascrittura resta prioritaria anche su questo ramo."""
+    _write_arm(tmp_path, _all_error_arm("claude-exp", "claude-sonnet-4-6"))
+    _write_arm(tmp_path, _all_error_arm("groq-exp", "llama-3.3-70b-versatile"))
+    (tmp_path / "claude-exp_vs_groq-exp_repeated.md").write_text(
+        "gia' presente", encoding="utf-8"
+    )
+
+    with pytest.raises(FileExistsError):
+        build_repeated_report(
+            tmp_path, "claude-exp", "groq-exp", label_a="claude", label_b="groq"
+        )
+
+
 def test_main_compare_repeated_returns_1_on_no_usable_output(
     tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:

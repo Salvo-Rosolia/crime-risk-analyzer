@@ -732,6 +732,49 @@ def test_compare_experiments_writes_report_and_raises_when_all_zones_fail(
     assert len(payload["failed"]) == 2
 
 
+def test_compare_experiments_still_raises_no_usable_output_if_report_write_fails(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    """#239 (follow-up review): un OSError nella scrittura del report non deve
+    sostituire NoUsableOutputError — altrimenti il CLI perde l'exit code pulito
+    e torna a un traceback non gestito (esattamente ciò che #239 doveva evitare).
+    """
+    import crime_risk_analyzer.eval.compare as compare_mod
+
+    for rec in _all_fallback_arm("full", "analyze"):
+        write_record(tmp_path, rec)
+    for rec in _all_fallback_arm("base", "baseline"):
+        write_record(tmp_path, rec)
+
+    def _boom(*args: object, **kwargs: object) -> None:
+        raise OSError("disco pieno (simulato)")
+
+    monkeypatch.setattr(compare_mod, "write_no_usable_output_report", _boom)
+
+    with pytest.raises(NoUsableOutputError):
+        compare_experiments(
+            tmp_path, "full", "base", label_a="analyze", label_b="baseline"
+        )
+    # Nessun file scritto: _boom ha sostituito la scrittura reale.
+    assert not (tmp_path / "full_vs_base.md").exists()
+
+
+def test_compare_experiments_propagates_file_exists_error_from_report_write(
+    tmp_path: Path,
+) -> None:
+    """La guardia anti-sovrascrittura resta prioritaria anche su questo ramo."""
+    for rec in _all_fallback_arm("full", "analyze"):
+        write_record(tmp_path, rec)
+    for rec in _all_fallback_arm("base", "baseline"):
+        write_record(tmp_path, rec)
+    (tmp_path / "full_vs_base.csv").write_text("gia' presente", encoding="utf-8")
+
+    with pytest.raises(FileExistsError):
+        compare_experiments(
+            tmp_path, "full", "base", label_a="analyze", label_b="baseline"
+        )
+
+
 def test_main_compare_returns_1_on_no_usable_output(
     tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:
