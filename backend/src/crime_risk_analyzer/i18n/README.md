@@ -12,7 +12,7 @@ Ogni voce di `terminus_labels.json` ha:
   SPARQL vincola e la citazione referenzia: **non va mai corretto**.
 - `label_en` — EN leggibile, con i refusi noti corretti (solo display).
 - `label_it` — termine italiano controllato (UI, narrativa, matching eval).
-- `category` — `poi` | `hazard` | `critical_event` | `vulnerability`.
+- `category` — `poi` | `hazard` | `critical_event` | `vulnerability` | `stakeholder`.
 
 ## Provenienza
 Il set EN è estratto in modo deterministico da `i18n/extract.py`

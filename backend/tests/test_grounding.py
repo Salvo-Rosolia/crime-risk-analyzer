@@ -34,6 +34,7 @@ def _profile(
     hazards: list[str] | None = None,
     critical_events: list[str] | None = None,
     vulnerabilities: list[str] | None = None,
+    stakeholders: list[str] | None = None,
     sparql_paths: list[str] | None = None,
 ) -> PoiRiskProfile:
     """Profilo sintetico. Gli assi si passano da qui e non con ``model_copy(update=)``,
@@ -43,6 +44,7 @@ def _profile(
         hazards=hazards or [],
         critical_events=critical_events or [],
         vulnerabilities=vulnerabilities or [],
+        stakeholders=stakeholders or [],
         sparql_paths=sparql_paths or [],
     )
 
@@ -110,26 +112,27 @@ def test_ground_happy_path_multi_class() -> None:
     assert vr0["sparql_path"] == "Bank → havingHazard → Robbery"
 
 
-def test_ground_ancora_anche_eventi_critici_e_vulnerabilita_col_proprio_path() -> None:
-    """L'executor estrae quattro assi TERMINUS: il grounding ne ancora tre.
+def test_ground_ancora_tutti_e_quattro_gli_assi_col_proprio_path() -> None:
+    """L'executor estrae quattro assi TERMINUS: il grounding li ancora tutti (#270).
 
     Prima solo gli hazard diventavano rischi con citazione; gli eventi critici erano
     calcolati a ogni richiesta e non letti da nessuno, e le vulnerabilita' arrivavano
     al prompt come stringhe nude, senza il path che le ancora all'ontologia. Un asse
     senza citazione non e' verificabile, quindi non puo' essere mostrato accanto a
-    quelli che lo sono. Il quarto asse (stakeholder) resta deliberatamente fuori
-    finche' il vocabolario controllato non lo copre: 72 dei suoi filler non hanno
-    etichetta italiana e la sezione uscirebbe in inglese.
+    quelli che lo sono. Lo stakeholder e' rimasto fuori fino a #270, quando il
+    vocabolario controllato ha coperto i 72 filler senza etichetta italiana.
     """
     prof = _profile(
         "Bank",
         hazards=["Robbery"],
         critical_events=["Heist"],
         vulnerabilities=["Poor_surveillance"],
+        stakeholders=["Mayor"],
         sparql_paths=[
             "Bank → havingHazard → Robbery",
             "Bank → havingCriticalEvent → Heist",
             "Bank → isVulnerableTo → Poor_surveillance",
+            "Bank → havingPerformer → Mayor",
         ],
     )
 
@@ -145,6 +148,9 @@ def test_ground_ancora_anche_eventi_critici_e_vulnerabilita_col_proprio_path() -
             "name": "Poor_surveillance",
             "source": "Bank → isVulnerableTo → Poor_surveillance",
         }
+    ]
+    assert vr["stakeholders"] == [
+        {"name": "Mayor", "source": "Bank → havingPerformer → Mayor"}
     ]
 
 
@@ -223,6 +229,7 @@ def test_ground_includes_generic_poi_with_empty_risks() -> None:
     assert vr["poi_id"] == "1"
     assert vr["risks"] == []
     assert vr["vulnerabilities"] == []
+    assert vr["stakeholders"] == []
     assert vr["sparql_path"] is None
 
 

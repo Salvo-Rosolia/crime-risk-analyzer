@@ -8,7 +8,11 @@ tc:Bank a owl:Class ;
         owl:someValuesFrom tc:Brank_branch ] ;
     rdfs:subClassOf [ a owl:Restriction ;
         owl:onProperty tc:havingVulnerability ;
-        owl:someValuesFrom tc:Unmanned_access ] .
+        owl:someValuesFrom tc:Unmanned_access ] ;
+    rdfs:subClassOf [ a owl:Restriction ;
+        owl:onProperty tc:havingPerformer ;
+        owl:someValuesFrom tc:Branch_manager ] .
 
 tc:Brank_branch a owl:Class .
 tc:Unmanned_access a owl:Class .
+tc:Branch_manager a owl:Class .
