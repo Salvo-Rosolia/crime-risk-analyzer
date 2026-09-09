@@ -237,8 +237,11 @@ def _to_poi(element: Mapping[str, object], citta: str) -> Poi | None:
     lat, lon = coords
 
     osm_tag = _extract_osm_tag(tags_map)
+    # node e way vivono in namespace OSM separati: senza il tipo, un node e un
+    # way con lo stesso numero collasserebbero sullo stesso id (#265).
+    tipo = element.get("type", "")
     return Poi(
-        id=str(element.get("id", "")),
+        id=f"{tipo}/{element.get('id', '')}",
         name=str(tags_map.get("name", "")),
         lat=lat,
         lon=lon,
@@ -304,12 +307,13 @@ def select_pois(
     Ordinamento dichiarato: distanza crescente e, a parita' di distanza, ``id``
     crescente come STRINGA. Serve perche' il contesto entra nel prompt e
     ``repro.prompt_hash`` deve restare stabile a parita' di input. Non e' un
-    ordinamento totale in senso stretto: due oggetti OSM alle stesse coordinate e
-    con lo stesso id numerico pareggerebbero su entrambe le componenti e il
-    pareggio ricadrebbe sulla stabilita' di ``sorted``, cioe' sull'ordine di
-    emissione di Overpass. Oggi il caso non e' raggiungibile — ``_parse_elements``
-    deduplica per ``(type, id)`` — ma lo diventerebbe se l'``id`` del POI restasse
-    senza il tipo di elemento (#265).
+    ordinamento totale in senso stretto: due oggetti OSM alle stesse coordinate
+    pareggerebbero su entrambe le componenti e il pareggio ricadrebbe sulla
+    stabilita' di ``sorted``, cioe' sull'ordine di emissione di Overpass. Il
+    caso non e' raggiungibile per due motivi indipendenti: ``_parse_elements``
+    deduplica per ``(type, id)``, e l'``id`` del POI porta il tipo di elemento
+    (``"node/123"`` vs ``"way/123"``), quindi un node e un way con lo stesso
+    numero non condividono piu' la stessa stringa (#265).
 
     Due giri sulla stessa lista ordinata. Nel primo entra un POI solo se la sua
     classe TERMINUS non ha gia' ``per_class_cap`` posti: senza questo tetto, in
