@@ -2,6 +2,7 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { ApiService } from '@core/api/api.service';
 import { Action, AppState, BaselineParams } from '@core/models/models';
 import { initialState, transition } from '@core/state/transition';
+import { poiNameDisplayLabel } from '@core/ui-helpers';
 
 function errorMessage(err: unknown, fallback: string): string {
   // Angular HttpErrorResponse NON è instanceof Error a runtime (angular#22762):
@@ -90,10 +91,20 @@ export class StateStore {
    * stessa risposta della prosa (`riskModels[0].poi`, sempre presente lato BE), non dalla lista
    * POI: così l'intestazione non può nominare un punto mentre il corpo mostra ancora la zona —
    * è esattamente il caso della narrativa richiesta ma non ancora arrivata.
+   *
+   * Ripiego sulla classe (#261) se il POI è una feature OSM anonima (`riskModels[0].poi` vuoto):
+   * il nome grezzo non porta la classe, quindi si guarda `completoData.poi` (per `id`, mai per
+   * nome) solo per costruire l'etichetta di ripiego — non cambia la fonte del nome quando c'è.
    */
-  readonly currentScopePoiName = computed(
-    () => this.currentPoiNarrative()?.riskModels[0]?.poi ?? null,
-  );
+  readonly currentScopePoiName = computed(() => {
+    const narrative = this.currentPoiNarrative();
+    if (!narrative) return null;
+    const raw = narrative.riskModels[0]?.poi;
+    if (raw) return raw;
+    const id = this._state().selectedPoiId;
+    const poi = this._state().completoData?.poi.find((p) => p.id === id);
+    return poi ? poiNameDisplayLabel(poi) : null;
+  });
   /**
    * Generazione in corso PER LA SELEZIONE CORRENTE (#197). Deselezionando durante il volo la
    * richiesta prosegue (il risultato finirà comunque in cache), ma non è più lo scope mostrato:

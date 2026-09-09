@@ -154,4 +154,23 @@ describe('PoiPanelComponent', () => {
     );
     expect(names).not.toContain('Vicolo Y');
   });
+
+  it('#261: un POI senza nome (feature OSM anonima) mostra il ripiego sulla classe invece di una riga bianca', () => {
+    fixture.componentRef.setInput('pois', [
+      ...pois,
+      makePoi({
+        id: '4',
+        name: '',
+        confidence: 'da_confermare',
+        terminus_class: 'School',
+        terminus_label_it: 'Scuola',
+      }),
+    ]);
+    fixture.detectChanges();
+    const names = Array.from(fixture.nativeElement.querySelectorAll('.cra-poi-name')).map((el) =>
+      (el as HTMLElement).textContent?.trim(),
+    );
+    expect(names).toContain('Scuola (senza nome su OSM)');
+    expect(names.some((n) => n === '')).toBe(false);
+  });
 });

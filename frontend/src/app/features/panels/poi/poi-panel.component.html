@@ -26,7 +26,7 @@
           item.number
         }}</span>
         <span class="cra-poi-info">
-          <span class="cra-poi-name">{{ item.poi.name }}</span>
+          <span class="cra-poi-name">{{ poiName(item.poi) }}</span>
           <span class="cra-poi-class">{{ poiLabel(item.poi) }}</span>
         </span>
         @if (item.poi.confidence) {

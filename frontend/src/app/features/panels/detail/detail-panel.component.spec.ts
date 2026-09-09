@@ -345,6 +345,14 @@ describe('DetailPanelComponent', () => {
     expect(text).not.toContain('Esporta scheda');
   });
 
+  it("#261: un POI senza nome (feature OSM anonima) mostra il ripiego sulla classe nell'header e nell'aria-label, non una riga bianca", () => {
+    setup(makePoi({ name: '', terminus_class: 'Bank', terminus_label_it: 'Banca' }));
+    expect(fixture.nativeElement.querySelector('.cra-detail-name').textContent.trim()).toBe(
+      'Banca (senza nome su OSM)',
+    );
+    expect(fixture.nativeElement.getAttribute('aria-label')).toContain('Banca (senza nome su OSM)');
+  });
+
   it('rework UI: la Provenienza (citazione SPARQL) è mostrata DOPO i Fattori di rischio', () => {
     setup(makePoi());
     const eyebrows = Array.from(
