@@ -212,6 +212,78 @@ async def test_run_experiment_avvisa_su_snapshot_senza_provenienza(
     assert any("nessuna provenienza" in rec.message for rec in caplog.records)
 
 
+async def test_run_experiment_non_avvisa_su_snapshot_mancante(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Uno snapshot MAI catturato non e' un caso di provenienza da segnalare:
+    e' un fallimento diverso (isolamento #252), non va confuso con un avviso
+    di configurazione divergente prima ancora dell'errore vero e proprio."""
+    cfg = ExperimentConfig(
+        name="exp",
+        mode="analyze",
+        model="claude",
+        cases=[RunCase(citta="Roma", zona="Centro")],
+    )
+    # Nessuno snapshot scritto per (Roma, Centro).
+
+    from crime_risk_analyzer.rag import retrieval
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
+
+    from tests.eval._doubles import FakeLLMClient, FakeProfiler
+
+    with caplog.at_level("WARNING"):
+        records = await run_experiment(
+            cfg,
+            executor=FakeProfiler(),
+            llm_client=FakeLLMClient(),
+            results_dir=tmp_path,
+            code_commit="abc",
+            ontology_hash="def",
+        )
+
+    assert records[0].status == RunStatus.ERROR
+    assert not any("#267" in rec.message for rec in caplog.records)
+
+
+async def test_run_experiment_ignora_catturato_il_di_tipo_sbagliato(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Una provenienza con ``catturato_il`` non stringa (dato esterno malformato)
+    non deve far fallire la validazione di ``Provenance`` e con essa la run."""
+    import json
+
+    cfg = ExperimentConfig(
+        name="exp",
+        mode="analyze",
+        model="claude",
+        cases=[RunCase(citta="Roma", zona="Centro")],
+    )
+    path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
+    scrivi_snapshot(path, _sample_pois())
+    scritto = json.loads(path.read_text(encoding="utf-8"))
+    scritto["provenienza"]["catturato_il"] = 12345  # tipo sbagliato
+    path.write_text(json.dumps(scritto), encoding="utf-8")
+
+    from crime_risk_analyzer.rag import retrieval
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
+
+    from tests.eval._doubles import FakeLLMClient, FakeProfiler
+
+    records = await run_experiment(
+        cfg,
+        executor=FakeProfiler(),
+        llm_client=FakeLLMClient(),
+        results_dir=tmp_path,
+        code_commit="abc",
+        ontology_hash="def",
+    )
+
+    assert records[0].status == RunStatus.OK
+    assert records[0].provenance.snapshot_catturato_il is None
+
+
 async def test_run_experiment_rejects_non_positive_repeat(tmp_path: Path) -> None:
     """repeat < 1 → ValueError (niente esperimento vuoto in silenzio)."""
     from tests.eval._doubles import FakeProfiler

@@ -223,7 +223,7 @@ def describe_configurazione_mismatch(
     snapshot catturato con la configurazione corrente.
     """
     if provenienza is None:
-        return "nessuna provenienza registrata (formato pre-#241 o corrotto)"
+        return "nessuna provenienza leggibile (pre-#241, non apribile o corrotta)"
     dichiarata = provenienza.get("configurazione_canonica")
     # provenienza e' un TypedDict castato da JSON esterno (#241): a runtime la
     # chiave puo' mancare o avere una forma diversa nonostante il tipo dichiari

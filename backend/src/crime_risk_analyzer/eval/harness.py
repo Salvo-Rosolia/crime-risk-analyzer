@@ -250,20 +250,33 @@ async def run_case(
     # Snapshot chiavato per (citta, zona): condiviso dai bracci comparativi (#110).
     snapshot_key = make_snapshot_key(case.citta, case.zona)
     path = snapshot_path(results_dir, snapshot_key)
-    # #267: la provenienza si legge UNA volta e alimenta sia l'avviso sia il
-    # record — leggerla due volte (una per l'avviso, una per il record)
-    # duplicherebbe l'I/O senza motivo.
-    provenienza = snapshot_provenance(path)
-    mismatch = describe_configurazione_mismatch(provenienza)
-    if mismatch is not None:
-        logger.warning(
-            "snapshot (%s, %s): %s — la run potrebbe mescolare politiche di "
-            "selezione diverse senza saperlo (#267)",
-            case.citta,
-            case.zona,
-            mismatch,
-        )
-    snapshot_catturato_il = provenienza.get("catturato_il") if provenienza else None
+    # #267: la provenienza si legge al piu' una volta e alimenta sia l'avviso sia
+    # il record (evita di riparlare il file due volte per la sola provenienza —
+    # il payload POI resta comunque riparsato da ``load_snapshot`` dentro
+    # ``replay_source``, che serve a uno scopo diverso: leggere i punti, non
+    # ispezionare la provenienza). Uno snapshot MANCANTE non e' un caso di
+    # provenienza da segnalare: e' un fallimento diverso, gia' gestito piu'
+    # sotto quando ``replay_source`` lo consuma davvero (isolamento #252) — qui
+    # avviserebbe con un messaggio fuorviante ("configurazione non nota") subito
+    # prima del vero errore "file assente".
+    provenienza = snapshot_provenance(path) if path.exists() else None
+    if path.exists():
+        mismatch = describe_configurazione_mismatch(provenienza)
+        if mismatch is not None:
+            logger.warning(
+                "snapshot (%s, %s): %s — la run potrebbe mescolare politiche di "
+                "selezione diverse senza saperlo (#267)",
+                case.citta,
+                case.zona,
+                mismatch,
+            )
+    # Difensivo sul TIPO, non solo sulla presenza: ``provenienza`` viene da JSON
+    # esterno castato a TypedDict, quindi ``catturato_il`` puo' non essere una
+    # stringa nonostante il tipo dichiarato — un valore non valido qui non deve
+    # far esplodere ``Provenance(...)`` (pydantic non coercerebbe int->str) e
+    # con esso l'intero esperimento.
+    _catturato_il = provenienza.get("catturato_il") if provenienza else None
+    snapshot_catturato_il = _catturato_il if isinstance(_catturato_il, str) else None
     _conf = provenienza.get("configurazione_canonica") if provenienza else None
     snapshot_configurazione_canonica = dict(_conf) if isinstance(_conf, dict) else None
     source = replay_source(path)
