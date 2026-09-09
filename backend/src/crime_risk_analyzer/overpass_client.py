@@ -498,11 +498,12 @@ async def fetch_pois(
     percorso interattivo lo tratta invece come definitivo, fail-fast. ``sleep``
     e' iniettabile: i test verificano le pause senza attenderle.
 
-    Sottile involucro su :func:`fetch_pois_with_cut` (#251), che scarta il taglio
-    del DB OSM: il percorso interattivo non ha un uso per quel dato e non deve
-    portarlo in giro nel tipo di ritorno.
+    Nucleo condiviso con :func:`fetch_pois_with_cut` (#251) tramite
+    :func:`_fetch_payload`: qui NON si calcola il taglio del DB OSM, non solo non
+    lo si ritorna — il percorso interattivo non deve pagarne nemmeno l'estrazione
+    (isinstance + costruzione del TypedDict) per un dato che scarterebbe subito.
     """
-    pois, _taglio = await fetch_pois_with_cut(
+    payload = await _fetch_payload(
         bbox,
         citta,
         osm_selectors,
@@ -510,7 +511,7 @@ async def fetch_pois(
         retry=retry,
         sleep=sleep,
     )
-    return pois
+    return select_pois(_parse_elements(payload, citta), bbox.center())
 
 
 async def fetch_pois_with_cut(
@@ -528,6 +529,36 @@ async def fetch_pois_with_cut(
     falsificabile: "questi sono i POI di quella zona a quell'istante" e'
     verificabile contro uno history dump OSM solo se si registra anche il
     taglio dichiarato da Overpass, non solo l'orologio di chi ha chiesto.
+    """
+    payload = await _fetch_payload(
+        bbox,
+        citta,
+        osm_selectors,
+        overpass_url=overpass_url,
+        retry=retry,
+        sleep=sleep,
+    )
+    # Il bacino di candidati arriva completo; la scelta dei MAX_POIS che escono e'
+    # per prossimita' al centro dell'area interrogata, con tetto per classe (#254).
+    pois = select_pois(_parse_elements(payload, citta), bbox.center())
+    return pois, _taglio_osm(payload, overpass_url)
+
+
+async def _fetch_payload(
+    bbox: Bbox,
+    citta: str,
+    osm_selectors: Iterable[str],
+    *,
+    overpass_url: str,
+    retry: RetryPolicy | None,
+    sleep: Callable[[float], Awaitable[None]],
+) -> object:
+    """Interroga Overpass con ritentativi e ritorna il payload JSON grezzo (#251).
+
+    Nucleo condiviso da :func:`fetch_pois` e :func:`fetch_pois_with_cut`: nessuna
+    delle due duplica il loop di ritentativo, e nessuna delle due paga un costo
+    che non le serve (``fetch_pois`` non tocca mai il payload per il taglio OSM,
+    ``fetch_pois_with_cut`` non lo tocca due volte).
     """
     policy = retry or INTERACTIVE_RETRY
     selectors = list(osm_selectors)
@@ -580,11 +611,6 @@ async def fetch_pois_with_cut(
         raise OverpassError(f"Overpass ha risposto {response.status_code}")
 
     try:
-        payload: object = response.json()
+        return response.json()
     except ValueError as exc:
         raise OverpassError("Risposta Overpass non e' JSON valido") from exc
-
-    # Il bacino di candidati arriva completo; la scelta dei MAX_POIS che escono e'
-    # per prossimita' al centro dell'area interrogata, con tetto per classe (#254).
-    pois = select_pois(_parse_elements(payload, citta), bbox.center())
-    return pois, _taglio_osm(payload, overpass_url)

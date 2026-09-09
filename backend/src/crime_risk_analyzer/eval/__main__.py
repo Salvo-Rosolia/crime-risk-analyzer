@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,14 +23,16 @@ from crime_risk_analyzer.eval.gold import write_agreement_report
 from crime_risk_analyzer.eval.harness import make_snapshot_key, run_experiment
 from crime_risk_analyzer.eval.repeated_comparison import build_repeated_report
 from crime_risk_analyzer.eval.snapshots import (
+    PoiSourceConTaglio,
     capturing_source,
     load_snapshot,
-    offline_source_con_taglio,
+    offline_fetch_pois,
     snapshot_path,
 )
+from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.ontology import load_ontology
 from crime_risk_analyzer.orchestrator import run_baseline
-from crime_risk_analyzer.overpass_client import TaglioOsm
+from crime_risk_analyzer.overpass_client import Poi, TaglioOsm
 from crime_risk_analyzer.rag.retrieval import PoiSource
 from crime_risk_analyzer.sparql_module.query_executor import get_executor
 
@@ -81,6 +82,13 @@ def _snapshot_reusable(path: Path) -> bool:
     - Errori ambientali (``OSError``/``PermissionError`` su ``stat``/read) NON
       sono catturati di proposito: fail-loud voluto e, essendo la cattura
       idempotente, un re-run riprende comunque dai case già catturati.
+    - NON controlla la presenza del taglio OSM nella provenienza (#251): uno
+      snapshot in formato envelope scritto fra #241 e #251 resta riusabile anche
+      senza quel campo. Il criterio di accettazione di #251 chiede che gli
+      snapshot esistenti restino leggibili e rigiocabili, non che vengano
+      aggiornati — un operatore che lo vuole per zone già catturate ripete con
+      ``--force``, la stessa via già richiesta per ogni altro aggiornamento della
+      configurazione canonica.
     """
     if not path.exists() or path.stat().st_size == 0:
         return False
@@ -94,6 +102,21 @@ def _snapshot_reusable(path: Path) -> bool:
     return True
 
 
+def _senza_taglio(source: PoiSource) -> PoiSourceConTaglio:
+    """Adatta una ``PoiSource`` semplice al contratto con taglio OSM di
+    :func:`capturing_source` (#251).
+
+    Serve SOLO per i doppi di test di ``_capture`` (parametro ``poi_source``,
+    #252): quelli restano semplici ``(bbox, citta) -> list[Poi]`` senza dover
+    fabbricare un taglio che non conoscono, e ``None`` lo dichiara onestamente.
+    """
+
+    async def _wrapped(bbox: Bbox, citta: str) -> tuple[list[Poi], TaglioOsm | None]:
+        return await source(bbox, citta), None
+
+    return _wrapped
+
+
 async def _capture(
     config_path: Path,
     results_dir: Path,
@@ -105,15 +128,12 @@ async def _capture(
     executor = get_executor()
     # Politica di ritentativo lunga per default (#232): la sorgente della cattura
     # vive in ``snapshots`` accanto a ``capturing_source``, non qui. Il taglio OSM
-    # (#251) si registra SOLO sulla sorgente offline di default: un ``poi_source``
-    # iniettato dai test non lo conosce e non deve fabbricarne uno finto.
-    inner: PoiSource
-    ultimo_taglio_osm: Callable[[], TaglioOsm | None] | None
-    if poi_source is not None:
-        inner = poi_source
-        ultimo_taglio_osm = None
-    else:
-        inner, ultimo_taglio_osm = offline_source_con_taglio()
+    # (#251) arriva davvero solo dalla sorgente offline di default: un
+    # ``poi_source`` iniettato dai test non lo conosce, quindi viene adattato a
+    # dichiararlo assente invece di fabbricarne uno finto.
+    inner: PoiSourceConTaglio = (
+        _senza_taglio(poi_source) if poi_source is not None else offline_fetch_pois
+    )
     succeeded: list[CaptureCase] = []
     failed: list[CaptureCase] = []
     for case in config.cases:
@@ -159,9 +179,7 @@ async def _capture(
                     case.zona,
                     path,
                 )
-            source = capturing_source(
-                path, inner=inner, zona=case.zona, ultimo_taglio_osm=ultimo_taglio_osm
-            )
+            source = capturing_source(path, inner=inner, zona=case.zona)
             # Percorso SENZA LLM qualunque sia il ``mode`` del config (#233): la
             # cattura e' acquisizione di input, non un esperimento. Lo snapshot
             # lo scrive ``capturing_source`` quando il fetch Overpass ritorna, e
