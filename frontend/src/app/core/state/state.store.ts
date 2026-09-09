@@ -102,7 +102,7 @@ export class StateStore {
     const raw = narrative.riskModels[0]?.poi;
     if (raw) return raw;
     const id = this._state().selectedPoiId;
-    const poi = id ? this._state().completoData?.poi.find((p) => p.id === id) : undefined;
+    const poi = this._state().completoData?.poi.find((p) => p.id === id);
     return poi ? poiNameDisplayLabel(poi) : null;
   });
   /**

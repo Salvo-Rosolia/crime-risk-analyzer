@@ -73,12 +73,16 @@ export function poiDisplayLabel(poi: Pick<Poi, 'terminus_class' | 'terminus_labe
  * Etichetta di ripiego per un POI senza `name` (#261): i nomi OSM non sono sempre presenti (le
  * feature anonime arrivano con `name` vuoto, stessa ragione per cui il POI è `da_confermare`,
  * #220). Il ripiego è costruito sulla classe (`poiDisplayLabel`) e dichiara esplicitamente
- * l'assenza, invece di lasciare una riga bianca in lista/popup/dettaglio.
+ * l'assenza, invece di lasciare una riga bianca in lista/popup/dettaglio. `trim()` prima del
+ * controllo: un nome fatto di soli spazi è dato OSM reale, è truthy in JS, e senza trim
+ * riprodurrebbe la stessa riga vuota — `confidence_from_poi_name` (backend, rag/grounding.py)
+ * fa già lo stesso trim, quindi qui allinea la UI a un POI che il backend marca da_confermare.
  */
 export function poiNameDisplayLabel(
   poi: Pick<Poi, 'name' | 'terminus_class' | 'terminus_label_it'>,
 ): string {
-  return poi.name || `${poiDisplayLabel(poi)} (senza nome su OSM)`;
+  const name = poi.name?.trim();
+  return name || `${poiDisplayLabel(poi)} (senza nome su OSM)`;
 }
 
 export interface NarrativeSection {

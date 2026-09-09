@@ -576,6 +576,21 @@ describe('ui-helpers', () => {
       'Archaeological_site (senza nome su OSM)',
     );
   });
+
+  it('poiNameDisplayLabel: #302 un nome fatto di soli spazi (dato OSM reale, truthy in JS) è trattato come assente, non come presente', () => {
+    const poi: Poi = {
+      id: '1',
+      name: '   ',
+      terminus_class: 'Bank',
+      lat: 0,
+      lon: 0,
+      confidence: 'da_confermare',
+      sparql_path: null,
+      terminus_label_it: 'Banca',
+      terminus_label_en: 'Bank',
+    };
+    expect(poiNameDisplayLabel(poi)).toBe('Banca (senza nome su OSM)');
+  });
 });
 
 describe('buildSourceTabs', () => {
