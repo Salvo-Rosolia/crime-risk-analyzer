@@ -100,6 +100,7 @@ from crime_risk_analyzer.rag.generation import (
     _poi_display_name,  # pyright: ignore[reportPrivateUsage]
     _risk_models_from_context,  # pyright: ignore[reportPrivateUsage]
     block_structure_rule,
+    normalize_untrusted_line,
 )
 
 __all__ = [
@@ -208,7 +209,9 @@ def build_no_ontology_context_str(context_dict: dict[str, Any]) -> str:
     elencherebbero insiemi di punti diversi — da verificare prima di leggere un
     confronto, perche' sarebbe una seconda differenza tra i bracci.
     """
-    zona = str(context_dict.get("zona", ""))
+    # ``zona`` viene dalla richiesta dell'utente: stessa superficie e stessa
+    # difesa dei nomi OSM (#119), estesa qui da #244.
+    zona = normalize_untrusted_line(str(context_dict.get("zona", "")))
     validated: list[dict[str, Any]] = list(context_dict.get("validated_risks", []))
     lines: list[str] = [f"ZONA: {zona}", "", "POI RILEVANTI:"]
     for poi in validated:
