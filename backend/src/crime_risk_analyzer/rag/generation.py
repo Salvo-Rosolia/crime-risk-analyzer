@@ -786,7 +786,9 @@ def _assemble_context(
     ]
     vocab = controlled_vocab_for(all_hazards)
 
-    lines: list[str] = [f"ZONA: {zona}", ""]
+    # ``zona`` viene dalla richiesta dell'utente, non dall'ontologia: stessa
+    # superficie e stessa difesa dei nomi OSM (#119), estesa qui da #244.
+    lines: list[str] = [f"ZONA: {normalize_untrusted_line(zona)}", ""]
     if vocab:
         lines.append(
             "VOCABOLARIO CONTROLLATO (usa ESATTAMENTE questi termini italiani "
