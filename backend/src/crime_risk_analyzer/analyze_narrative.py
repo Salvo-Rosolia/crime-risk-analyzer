@@ -95,7 +95,13 @@ async def run_analysis_fast(
 
 
 class ZoneNarrativeRequest(BaseModel):
-    """Body di ``POST /analyze/narrativa`` (#259)."""
+    """Body di ``POST /analyze/narrativa`` (#259).
+
+    Porta ``domanda`` ma non ``tipo_poi``: l'asimmetria con ``BaselineRequest``
+    (che porta ``tipo_poi`` ma non ``domanda``) è tracciata da #263, non ancora
+    chiusa perché dipende dalla decisione sul contratto di ``tipo_poi`` FE-BE
+    (#143). Vedi ``BaselineRequest`` in :mod:`~crime_risk_analyzer.orchestrator`.
+    """
 
     citta: str = Field(
         max_length=100, description="Città dell'analisi in corso (stessa di /analyze)."
