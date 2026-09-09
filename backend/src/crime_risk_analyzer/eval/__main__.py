@@ -48,10 +48,14 @@ class CaptureCase:
 
 @dataclass(frozen=True)
 class CaptureSummary:
-    """Esito complessivo di ``_capture`` (#252): chi è stato catturato, chi no."""
+    """Esito complessivo di ``_capture`` (#252): chi è stato catturato, chi no.
 
-    succeeded: list[CaptureCase]
-    failed: list[CaptureCase]
+    Campi a tupla (non lista): l'immutabilità dichiarata da ``frozen=True``
+    sarebbe altrimenti solo di facciata (una lista resta mutabile in-place).
+    """
+
+    succeeded: tuple[CaptureCase, ...]
+    failed: tuple[CaptureCase, ...]
 
 
 def _snapshot_reusable(path: Path) -> bool:
@@ -107,33 +111,10 @@ async def _capture(
         # riusano la stessa fixture, senza query Overpass divergenti per braccio.
         key = make_snapshot_key(case.citta, case.zona)
         path = snapshot_path(results_dir, key)
-        # Idempotenza (skip-if-exists, #110 M2): non ri-catturare la stessa
-        # (citta, zona) per un secondo braccio — reintrodurrebbe il confondimento.
-        # Salta SOLO se lo snapshot è integro (#148): uno troncato/corrotto va
-        # ri-catturato, non rigiocato in silenzio. --force forza la ri-cattura.
-        if not force and _snapshot_reusable(path):
-            logger.info(
-                "snapshot (%s, %s) già presente, riuso: %s",
-                case.citta,
-                case.zona,
-                path,
-            )
-            succeeded.append(CaptureCase(case.citta, case.zona))
-            continue
-        if not force and path.exists():
-            logger.warning(
-                "snapshot (%s, %s) presente ma vuoto/corrotto, ri-cattura: %s",
-                case.citta,
-                case.zona,
-                path,
-            )
-        source = capturing_source(path, inner=inner, zona=case.zona)
-        # Percorso SENZA LLM qualunque sia il ``mode`` del config (#233): la
-        # cattura e' acquisizione di input, non un esperimento. Lo snapshot lo
-        # scrive ``capturing_source`` quando il fetch Overpass ritorna, e la
-        # chiave e' (citta, zona) (#110): la narrativa che ``run_analysis``
-        # genererebbe qui e' output scartato a fronte di token reali — il 26/07 un
-        # terzo della quota giornaliera Groq, con la run K=3 bloccata per un'ora.
+        # Serve PRIMA del try per sapere, in caso di fallimento, se lo snapshot
+        # sul disco è stato scritto da QUESTO tentativo (va ripulito, #252) o
+        # preesisteva (non va toccato).
+        existed_before = path.exists()
         # Isolamento per-case (#252): un fallimento su un case non deve
         # inghiottire i case successivi, come già fa ``capture_roster`` —
         # altrimenti, con OFFLINE_RETRY, un case che si arrende dopo minuti di
@@ -141,35 +122,79 @@ async def _capture(
         # e non solo ``(GeocodingError, OverpassError)``: un bug altrove nella
         # pipeline (es. un POI malformato) non deve far perdere in silenzio i
         # case già catturati né saltare il riepilogo finale — ``Exception``
-        # esclude comunque ``KeyboardInterrupt``/``CancelledError``.
+        # esclude comunque ``KeyboardInterrupt``/``CancelledError``. Il blocco
+        # avvolge anche lo skip-check: ``_snapshot_reusable`` non cattura di
+        # proposito gli errori ambientali (``OSError``/``PermissionError``, vedi
+        # il suo docstring) e senza questo try/except un hiccup lì abortirebbe
+        # l'intera cattura invece di isolare solo questo case.
         try:
+            # Idempotenza (skip-if-exists, #110 M2): non ri-catturare la stessa
+            # (citta, zona) per un secondo braccio — reintrodurrebbe il
+            # confondimento. Salta SOLO se lo snapshot è integro (#148): uno
+            # troncato/corrotto va ri-catturato, non rigiocato in silenzio.
+            # --force forza la ri-cattura.
+            if not force and _snapshot_reusable(path):
+                logger.info(
+                    "snapshot (%s, %s) già presente, riuso: %s",
+                    case.citta,
+                    case.zona,
+                    path,
+                )
+                succeeded.append(CaptureCase(case.citta, case.zona))
+                continue
+            if not force and existed_before:
+                logger.warning(
+                    "snapshot (%s, %s) presente ma vuoto/corrotto, ri-cattura: %s",
+                    case.citta,
+                    case.zona,
+                    path,
+                )
+            source = capturing_source(path, inner=inner, zona=case.zona)
+            # Percorso SENZA LLM qualunque sia il ``mode`` del config (#233): la
+            # cattura e' acquisizione di input, non un esperimento. Lo snapshot
+            # lo scrive ``capturing_source`` quando il fetch Overpass ritorna, e
+            # la chiave e' (citta, zona) (#110): la narrativa che
+            # ``run_analysis`` genererebbe qui e' output scartato a fronte di
+            # token reali — il 26/07 un terzo della quota giornaliera Groq, con
+            # la run K=3 bloccata per un'ora.
             await run_baseline(
                 case.citta, case.zona, executor=executor, poi_source=source
             )
         except Exception as exc:
-            logger.error(
-                "cattura fallita per (%s, %s): %s: %s",
-                case.citta,
-                case.zona,
-                type(exc).__name__,
-                exc,
+            # ``capturing_source`` scrive lo snapshot PRIMA che un errore a
+            # valle (es. nel grounding) faccia fallire il case: senza questa
+            # pulizia, un case fallito lascerebbe comunque sul disco un file
+            # valido che il prossimo run tratterebbe come "già catturato" — un
+            # falso successo silenzioso. Rimosso SOLO se non preesisteva: uno
+            # snapshot preesistente (integro o no) non va toccato qui.
+            if not existed_before and path.exists():
+                path.unlink()
+            logger.exception(
+                "cattura fallita per (%s, %s): %s", case.citta, case.zona, exc
             )
             failed.append(
                 CaptureCase(
-                    case.citta, case.zona, error_type=type(exc).__name__, error=str(exc)
+                    case.citta,
+                    case.zona,
+                    error_type=type(exc).__name__,
+                    error=str(exc) or None,
                 )
             )
             continue
         succeeded.append(CaptureCase(case.citta, case.zona))
 
-    logger.info(
-        "riepilogo cattura: %d/%d catturati (%s); falliti: %s",
-        len(succeeded),
-        len(config.cases),
-        ", ".join(f"{c.citta}/{c.zona}" for c in succeeded) or "nessuno",
-        ", ".join(f"{c.citta}/{c.zona}" for c in failed) or "nessuno",
+    riepilogo = (
+        f"riepilogo cattura: {len(succeeded)}/{len(config.cases)} catturati "
+        f"({', '.join(f'{c.citta}/{c.zona}' for c in succeeded) or 'nessuno'}); "
+        f"falliti: {', '.join(f'{c.citta}/{c.zona}' for c in failed) or 'nessuno'}"
     )
-    return CaptureSummary(succeeded=succeeded, failed=failed)
+    logger.info(riepilogo)
+    # Oltre al log: senza una configurazione esplicita di ``logging``, il root
+    # logger di default è WARNING e questo INFO non arriverebbe mai a schermo
+    # per chi lancia il comando da riga di comando — lo stesso pattern già in
+    # uso in ``i18n/extract.py`` per l'output finale di uno script CLI.
+    print(riepilogo)
+    return CaptureSummary(succeeded=tuple(succeeded), failed=tuple(failed))
 
 
 async def _run(

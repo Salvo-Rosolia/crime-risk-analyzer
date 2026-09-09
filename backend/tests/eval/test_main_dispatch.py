@@ -50,7 +50,7 @@ def test_main_capture_routes_to_capture_with_force(
         config_path: Path, results_dir: Path, *, force: bool = False
     ) -> CaptureSummary:
         calls.append((config_path, results_dir, force))
-        return CaptureSummary(succeeded=[], failed=[])
+        return CaptureSummary(succeeded=(), failed=())
 
     monkeypatch.setattr(eval_main, "_capture", fake_capture)
     cfg = tmp_path / "cfg.json"
@@ -78,7 +78,7 @@ def test_main_capture_force_defaults_false(
         config_path: Path, results_dir: Path, *, force: bool = False
     ) -> CaptureSummary:
         seen_force.append(force)
-        return CaptureSummary(succeeded=[], failed=[])
+        return CaptureSummary(succeeded=(), failed=())
 
     monkeypatch.setattr(eval_main, "_capture", fake_capture)
     _set_argv(
@@ -105,10 +105,10 @@ def test_main_capture_returns_nonzero_on_partial_failure(
         config_path: Path, results_dir: Path, *, force: bool = False
     ) -> CaptureSummary:
         return CaptureSummary(
-            succeeded=[CaptureCase("Roma", "Centro")],
-            failed=[
-                CaptureCase("Milano", "Duomo", error_type="OverpassError", error="503")
-            ],
+            succeeded=(CaptureCase("Roma", "Centro"),),
+            failed=(
+                CaptureCase("Milano", "Duomo", error_type="OverpassError", error="503"),
+            ),
         )
 
     monkeypatch.setattr(eval_main, "_capture", fake_capture)

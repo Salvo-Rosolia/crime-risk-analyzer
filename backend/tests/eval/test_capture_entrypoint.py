@@ -513,6 +513,107 @@ async def test_capture_isolates_failure_of_any_kind(
     assert any("riepilogo cattura" in r.getMessage() for r in caplog.records)
 
 
+async def test_capture_removes_freshly_written_snapshot_on_downstream_failure(
+    tmp_path: Path, capture_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#252: ``capturing_source`` scrive lo snapshot PRIMA che un errore a valle
+    (qui nel grounding) faccia fallire il case — senza pulizia, il prossimo run
+    troverebbe un file valido e lo tratterebbe come "già catturato" (falso
+    successo silenzioso). Il file appena scritto da un case fallito va rimosso."""
+    from crime_risk_analyzer import orchestrator
+
+    def _boom(*args: object, **kwargs: object) -> object:
+        raise ValueError("bug nel grounding")
+
+    monkeypatch.setattr(orchestrator, "ground", _boom)
+
+    async def live(bbox: Bbox, citta: str) -> list[Poi]:
+        return _sample_pois()
+
+    config_path = _write_config(tmp_path, "Roma", "Centro")
+    path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
+
+    summary = await _capture(config_path, tmp_path, poi_source=live)
+
+    assert not path.exists()  # nessun falso successo lasciato sul disco
+    assert summary.succeeded == ()
+    assert summary.failed[0].error_type == "ValueError"
+
+
+async def test_capture_keeps_preexisting_snapshot_on_failure(
+    tmp_path: Path, capture_env: None
+) -> None:
+    """#252: uno snapshot PREESISTENTE (anche se corrotto) non va cancellato dal
+    ramo di errore — solo un file scritto dal tentativo corrente va ripulito."""
+
+    async def failing_live(bbox: Bbox, citta: str) -> list[Poi]:
+        raise OverpassError("Overpass ha risposto 503")
+
+    config_path = _write_config(tmp_path, "Roma", "Centro")
+    path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("[{ troncato non json", encoding="utf-8")
+
+    summary = await _capture(config_path, tmp_path, poi_source=failing_live)
+
+    assert path.exists()  # il file preesistente (per quanto corrotto) resta
+    assert path.read_text(encoding="utf-8") == "[{ troncato non json"
+    assert summary.failed[0].error_type == "OverpassError"
+
+
+async def test_capture_isolates_environmental_error_on_skip_check(
+    tmp_path: Path, capture_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#252: un errore ambientale (``OSError``) sollevato dallo skip-check di
+    ``_snapshot_reusable`` isola solo quel case, non abortisce l'intera
+    cattura — il secondo caso deve comunque essere catturato."""
+
+    def _boom(path: Path) -> bool:
+        raise OSError("disco non raggiungibile")
+
+    monkeypatch.setattr(eval_main, "_snapshot_reusable", _boom)
+
+    async def live(bbox: Bbox, citta: str) -> list[Poi]:
+        return _sample_pois()
+
+    cfg = ExperimentConfig(
+        name="ablation",
+        mode="baseline",
+        model="claude",
+        cases=[
+            RunCase(citta="Roma", zona="Centro"),
+            RunCase(citta="Milano", zona="Duomo"),
+        ],
+    )
+    config_path = tmp_path / "multi.json"
+    config_path.write_text(cfg.model_dump_json(), encoding="utf-8")
+
+    summary = await _capture(config_path, tmp_path, poi_source=live)
+
+    assert [(c.citta, c.zona) for c in summary.failed] == [
+        ("Roma", "Centro"),
+        ("Milano", "Duomo"),
+    ]
+    assert all(c.error_type == "OSError" for c in summary.failed)
+
+
+async def test_capture_case_error_none_for_exception_without_message(
+    tmp_path: Path, capture_env: None
+) -> None:
+    """#252: un'eccezione senza messaggio (``ValueError()``) non deve produrre
+    una stringa vuota in ``CaptureCase.error`` — resta ``None``, coerente con
+    la convenzione "None = nessun errore" del campo."""
+
+    async def failing_live(bbox: Bbox, citta: str) -> list[Poi]:
+        raise ValueError()
+
+    config_path = _write_config(tmp_path, "Roma", "Centro")
+    summary = await _capture(config_path, tmp_path, poi_source=failing_live)
+
+    assert summary.failed[0].error_type == "ValueError"
+    assert summary.failed[0].error is None
+
+
 async def test_capture_partial_skip_captures_only_missing(
     tmp_path: Path, capture_env: None
 ) -> None:
