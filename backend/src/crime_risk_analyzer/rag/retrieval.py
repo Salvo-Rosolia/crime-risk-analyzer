@@ -95,8 +95,12 @@ async def retrieve(
     ``geo_source`` (#169) consente il replay del geo nell'harness: se None usa il
     geocoding live ``geocode_zone`` (Nominatim). Iniettando una source che ritorna
     un placeholder, la run di eval non chiama mai Nominatim (run ermetica): il geo
-    e' dead-downstream (grounding/generation/metriche lo ignorano; ``replay_source``
-    ignora il bbox), quindi il valore non altera alcun output.
+    resta ininfluente per grounding/generation/metriche (nessuno dei tre lo legge;
+    ``replay_source`` ignora il bbox). Dal #260 NON e' pero' piu' dead-downstream
+    in senso assoluto: esce verbatim in ``AnalyzeResponse.zona_geo``, quindi un
+    placeholder di replay comparirebbe, invariato, in quel campo della response —
+    innocuo per le metriche (che non lo guardano) ma non piu' un valore che "non
+    altera alcun output" in senso letterale.
     """
     if geo_source is not None:
         geo = await geo_source(citta, zona)

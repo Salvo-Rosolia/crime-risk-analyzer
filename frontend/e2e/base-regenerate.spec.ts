@@ -134,11 +134,26 @@ test.describe('Narrativa a tab per fonte: apertura, elenco tab e cambio pannello
   test('espande il bottom-sheet, mostra un tab per fonte del fixture e il secondo tab attiva il proprio pannello con la sua prosa', async ({
     page,
   }) => {
-    await mockApi(page, { analyze });
+    // Payload realmente raggiungibile dal backend post-#229: il blocco [SPECULATIVO] è stato
+    // rimosso dal prompt (sempre vuoto by-design, `grounding.py`/`rag/generation.py`), quindi
+    // `narrativa_fonti.speculativo` del fixture è vuoto e qui filtriamo anche gli hazard
+    // SPECULATIVO/non taggati di `analyze.happy.json` (bucket unico via `risk.tag || 'SPECULATIVO'`,
+    // `core/ui-helpers.ts`): quella combinazione resta nel fixture condiviso solo per il test di
+    // fallback difensivo del dettaglio POI in `detail-filter.spec.ts`, non riflette un output che
+    // l'orchestrator produce oggi. Restano solo ONTOLOGIA e CONTESTO → 2 tab.
+    const twoSourceAnalyze: AnalyzeResponse = {
+      ...analyze,
+      risk_models: analyze.risk_models.map((model) => ({
+        ...model,
+        risks: model.risks.filter((risk) => (risk.tag || 'SPECULATIVO') !== 'SPECULATIVO'),
+      })),
+    };
+
+    await mockApi(page, { analyze: twoSourceAnalyze });
     await page.goto('/');
 
-    await S.cittaField(page).fill(analyze.citta);
-    await S.zonaField(page).fill(analyze.zona_normalizzata);
+    await S.cittaField(page).fill(twoSourceAnalyze.citta);
+    await S.zonaField(page).fill(twoSourceAnalyze.zona_normalizzata);
     await S.submitButton(page).click();
     await expect(S.poiPanel(page)).toBeVisible();
 
@@ -149,13 +164,13 @@ test.describe('Narrativa a tab per fonte: apertura, elenco tab e cambio pannello
     await S.narrativeHeader(page).press('Enter');
     await expect(S.narrativeHeader(page)).toHaveAttribute('aria-expanded', 'true');
 
-    // Il fixture ha tutte e 3 le fonti popolate (ONTOLOGIA/CONTESTO/SPECULATIVO): 3 tab, il primo
+    // Solo ONTOLOGIA e CONTESTO hanno prosa/hazard in un payload post-#229: 2 tab, il primo
     // (ONTOLOGIA) attivo di default (`buildSourceTabs`, ordine canonico).
-    await expect(S.narrativeTabs(page)).toHaveCount(3);
+    await expect(S.narrativeTabs(page)).toHaveCount(2);
     await expect(S.narrativeTabs(page).nth(0)).toHaveAttribute('aria-selected', 'true');
     await expect(S.narrativeTabPanels(page).nth(0)).toBeVisible();
     await expect(S.narrativeTabPanels(page).nth(0)).toContainText(
-      analyze.narrativa_fonti.ontologia,
+      twoSourceAnalyze.narrativa_fonti.ontologia,
     );
 
     // Click sul secondo tab (CONTESTO): il proprio pannello diventa visibile con la sua prosa,
@@ -165,7 +180,9 @@ test.describe('Narrativa a tab per fonte: apertura, elenco tab e cambio pannello
     await expect(S.narrativeTabs(page).nth(1)).toHaveAttribute('aria-selected', 'true');
     await expect(S.narrativeTabs(page).nth(0)).toHaveAttribute('aria-selected', 'false');
     await expect(S.narrativeTabPanels(page).nth(1)).toBeVisible();
-    await expect(S.narrativeTabPanels(page).nth(1)).toContainText(analyze.narrativa_fonti.contesto);
+    await expect(S.narrativeTabPanels(page).nth(1)).toContainText(
+      twoSourceAnalyze.narrativa_fonti.contesto,
+    );
     await expect(S.narrativeTabPanels(page).nth(0)).toBeHidden();
   });
 });

@@ -13,7 +13,7 @@ from crime_risk_analyzer.eval.metrics import (
 )
 from crime_risk_analyzer.eval.schema import Mode
 from crime_risk_analyzer.models.vocab import ConfidenceSummary
-from crime_risk_analyzer.orchestrator import AnalyzeResponse, PoiOut
+from crime_risk_analyzer.orchestrator import AnalyzeResponse, PoiOut, ZonaGeo
 from crime_risk_analyzer.rag.generation import Repro, RiskItem, RiskModel
 from crime_risk_analyzer.rag.no_ontology_generation import LLM_SYNTHESIS_BLOCK_HEADER
 
@@ -63,6 +63,15 @@ def _resp(
         # Valore finto: qui si misurano le metriche sulla narrativa, l'impronta
         # del contesto (#242) e' irrilevante e un letterale lo dichiara.
         contesto_hash="h-ctx",
+        # Idem per la geo della zona (#260): irrilevante per le metriche testate qui.
+        zona_geo=ZonaGeo(
+            lat=41.0,
+            lon=12.0,
+            bbox_min_lat=40.9,
+            bbox_min_lon=11.9,
+            bbox_max_lat=41.1,
+            bbox_max_lon=12.1,
+        ),
         tokens_input=tokens[0],
         tokens_output=tokens[1],
     )

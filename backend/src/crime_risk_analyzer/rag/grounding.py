@@ -113,10 +113,11 @@ class ValidatedRisk(TypedDict):
     #: Gli assi TERMINUS oltre agli hazard (#256): l'executor li estraeva gia' a ogni
     #: richiesta, ma ``critical_events`` non lo leggeva nessuno e le vulnerabilita'
     #: arrivavano al prompt come stringhe nude, senza la citazione che le ancora. Ora
-    #: ognuno porta il proprio path. Lo stakeholder resta fuori: vedi
-    #: :data:`_PROPS_VULNERABILITY` e il commento sopra.
+    #: ognuno porta il proprio path, ``stakeholders`` incluso da quando il vocabolario
+    #: controllato copre anche quella categoria (#270).
     critical_events: list[OntologyEntity]
     vulnerabilities: list[OntologyEntity]
+    stakeholders: list[OntologyEntity]
     sparql_path: str | None
 
 
@@ -134,12 +135,7 @@ class GroundedContext(TypedDict):
 _PROPS_HAZARD = ("havingHazard",)
 _PROPS_CRITICAL_EVENT = ("havingCriticalEvent",)
 _PROPS_VULNERABILITY = ("isVulnerableTo", "havingVulnerability")
-#: ``havingPerformer`` (stakeholder) NON e' ancorato qui, di proposito: il vocabolario
-#: controllato (#77) non ha la categoria e 72 dei suoi filler non hanno etichetta
-#: italiana, quindi l'asse uscirebbe interamente in inglese in una UI italiana. Non
-#: e' calcolato-e-non-letto — sarebbe il difetto che #256 chiude — ma semplicemente
-#: non ancorato finche' il vocabolario non lo copre. Con ``_source_for``/``_entities``
-#: generalizzate, ri-aggiungerlo e' una riga per punto.
+_PROPS_STAKEHOLDER = ("havingPerformer",)
 
 
 def _source_for(profile: PoiRiskProfile, props: tuple[str, ...], filler: str) -> str:
@@ -208,6 +204,9 @@ def ground(context: RetrievalContext) -> GroundedContext:
                 ),
                 "vulnerabilities": _entities(
                     profile, _PROPS_VULNERABILITY, profile.vulnerabilities
+                ),
+                "stakeholders": _entities(
+                    profile, _PROPS_STAKEHOLDER, profile.stakeholders
                 ),
                 "sparql_path": risks[0]["source"] if risks else None,
             }

@@ -27,7 +27,7 @@ from crime_risk_analyzer.eval.snapshots import (
     snapshot_path,
 )
 from crime_risk_analyzer.models.geo import Bbox
-from crime_risk_analyzer.overpass_client import OFFLINE_RETRY, Poi
+from crime_risk_analyzer.overpass_client import OFFLINE_RETRY, OverpassError, Poi
 from tests.eval._doubles import scrivi_snapshot
 
 _capture = eval_main._capture  # pyright: ignore[reportPrivateUsage]
@@ -415,6 +415,203 @@ async def test_capture_usa_la_politica_di_ritentativo_offline(
     assert visti == [OFFLINE_RETRY]
     path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
     assert load_snapshot(path) == _sample_pois()
+
+
+async def test_capture_isolates_failure_on_one_case(
+    tmp_path: Path, capture_env: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    """#252: un errore sul secondo di tre case non deve impedire la cattura del
+    terzo, e il riepilogo finale deve dichiarare esplicitamente cosa è stato
+    catturato e cosa no."""
+    tentati: list[str] = []
+
+    async def flaky_live(bbox: Bbox, citta: str) -> list[Poi]:
+        tentati.append(citta)
+        if citta == "Milano":
+            raise OverpassError("Overpass ha risposto 503")
+        return _sample_pois()
+
+    cfg = ExperimentConfig(
+        name="ablation",
+        mode="baseline",
+        model="claude",
+        cases=[
+            RunCase(citta="Roma", zona="Centro"),
+            RunCase(citta="Milano", zona="Duomo"),
+            RunCase(citta="Napoli", zona="Vomero"),
+        ],
+    )
+    config_path = tmp_path / "multi.json"
+    config_path.write_text(cfg.model_dump_json(), encoding="utf-8")
+
+    with caplog.at_level(logging.INFO):
+        summary = await _capture(config_path, tmp_path, poi_source=flaky_live)
+
+    # Roma e Napoli catturati nonostante il fallimento di Milano nel mezzo.
+    assert tentati == ["Roma", "Milano", "Napoli"]
+    roma_path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
+    milano_path = snapshot_path(tmp_path, make_snapshot_key("Milano", "Duomo"))
+    napoli_path = snapshot_path(tmp_path, make_snapshot_key("Napoli", "Vomero"))
+    assert load_snapshot(roma_path) == _sample_pois()
+    assert not milano_path.exists()
+    assert load_snapshot(napoli_path) == _sample_pois()
+
+    # Il riepilogo dichiara esplicitamente catturati/non catturati.
+    assert [(c.citta, c.zona) for c in summary.succeeded] == [
+        ("Roma", "Centro"),
+        ("Napoli", "Vomero"),
+    ]
+    assert [(c.citta, c.zona) for c in summary.failed] == [("Milano", "Duomo")]
+    failure = summary.failed[0]
+    assert failure.error is not None
+    assert "Overpass ha risposto 503" in failure.error
+    assert failure.error_type == "OverpassError"
+
+    log_text = "\n".join(r.getMessage() for r in caplog.records)
+    assert "Milano" in log_text
+    assert "Duomo" in log_text
+
+
+async def test_capture_isolates_failure_of_any_kind(
+    tmp_path: Path, capture_env: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    """#252: l'isolamento per-case non è ristretto a GeocodingError/OverpassError —
+    un bug altrove nella pipeline (qui un ValueError generico) non deve far
+    perdere in silenzio i case precedenti né saltare il riepilogo finale."""
+
+    async def flaky_live(bbox: Bbox, citta: str) -> list[Poi]:
+        if citta == "Milano":
+            raise ValueError("POI malformato")
+        return _sample_pois()
+
+    cfg = ExperimentConfig(
+        name="ablation",
+        mode="baseline",
+        model="claude",
+        cases=[
+            RunCase(citta="Roma", zona="Centro"),
+            RunCase(citta="Milano", zona="Duomo"),
+            RunCase(citta="Napoli", zona="Vomero"),
+        ],
+    )
+    config_path = tmp_path / "multi.json"
+    config_path.write_text(cfg.model_dump_json(), encoding="utf-8")
+
+    with caplog.at_level(logging.INFO):
+        summary = await _capture(config_path, tmp_path, poi_source=flaky_live)
+
+    napoli_path = snapshot_path(tmp_path, make_snapshot_key("Napoli", "Vomero"))
+    assert load_snapshot(napoli_path) == _sample_pois()
+    assert [(c.citta, c.zona) for c in summary.succeeded] == [
+        ("Roma", "Centro"),
+        ("Napoli", "Vomero"),
+    ]
+    failure = summary.failed[0]
+    assert failure.error_type == "ValueError"
+    assert failure.error is not None
+    assert "POI malformato" in failure.error
+    assert any("riepilogo cattura" in r.getMessage() for r in caplog.records)
+
+
+async def test_capture_removes_freshly_written_snapshot_on_downstream_failure(
+    tmp_path: Path, capture_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#252: ``capturing_source`` scrive lo snapshot PRIMA che un errore a valle
+    (qui nel grounding) faccia fallire il case — senza pulizia, il prossimo run
+    troverebbe un file valido e lo tratterebbe come "già catturato" (falso
+    successo silenzioso). Il file appena scritto da un case fallito va rimosso."""
+    from crime_risk_analyzer import orchestrator
+
+    def _boom(*args: object, **kwargs: object) -> object:
+        raise ValueError("bug nel grounding")
+
+    monkeypatch.setattr(orchestrator, "ground", _boom)
+
+    async def live(bbox: Bbox, citta: str) -> list[Poi]:
+        return _sample_pois()
+
+    config_path = _write_config(tmp_path, "Roma", "Centro")
+    path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
+
+    summary = await _capture(config_path, tmp_path, poi_source=live)
+
+    assert not path.exists()  # nessun falso successo lasciato sul disco
+    assert summary.succeeded == ()
+    assert summary.failed[0].error_type == "ValueError"
+
+
+async def test_capture_keeps_preexisting_snapshot_on_failure(
+    tmp_path: Path, capture_env: None
+) -> None:
+    """#252: uno snapshot PREESISTENTE (anche se corrotto) non va cancellato dal
+    ramo di errore — solo un file scritto dal tentativo corrente va ripulito."""
+
+    async def failing_live(bbox: Bbox, citta: str) -> list[Poi]:
+        raise OverpassError("Overpass ha risposto 503")
+
+    config_path = _write_config(tmp_path, "Roma", "Centro")
+    path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("[{ troncato non json", encoding="utf-8")
+
+    summary = await _capture(config_path, tmp_path, poi_source=failing_live)
+
+    assert path.exists()  # il file preesistente (per quanto corrotto) resta
+    assert path.read_text(encoding="utf-8") == "[{ troncato non json"
+    assert summary.failed[0].error_type == "OverpassError"
+
+
+async def test_capture_isolates_environmental_error_on_skip_check(
+    tmp_path: Path, capture_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#252: un errore ambientale (``OSError``) sollevato dallo skip-check di
+    ``_snapshot_reusable`` isola solo quel case, non abortisce l'intera
+    cattura — il secondo caso deve comunque essere catturato."""
+
+    def _boom(path: Path) -> bool:
+        raise OSError("disco non raggiungibile")
+
+    monkeypatch.setattr(eval_main, "_snapshot_reusable", _boom)
+
+    async def live(bbox: Bbox, citta: str) -> list[Poi]:
+        return _sample_pois()
+
+    cfg = ExperimentConfig(
+        name="ablation",
+        mode="baseline",
+        model="claude",
+        cases=[
+            RunCase(citta="Roma", zona="Centro"),
+            RunCase(citta="Milano", zona="Duomo"),
+        ],
+    )
+    config_path = tmp_path / "multi.json"
+    config_path.write_text(cfg.model_dump_json(), encoding="utf-8")
+
+    summary = await _capture(config_path, tmp_path, poi_source=live)
+
+    assert [(c.citta, c.zona) for c in summary.failed] == [
+        ("Roma", "Centro"),
+        ("Milano", "Duomo"),
+    ]
+    assert all(c.error_type == "OSError" for c in summary.failed)
+
+
+async def test_capture_case_error_none_for_exception_without_message(
+    tmp_path: Path, capture_env: None
+) -> None:
+    """#252: un'eccezione senza messaggio (``ValueError()``) non deve produrre
+    una stringa vuota in ``CaptureCase.error`` — resta ``None``, coerente con
+    la convenzione "None = nessun errore" del campo."""
+
+    async def failing_live(bbox: Bbox, citta: str) -> list[Poi]:
+        raise ValueError()
+
+    config_path = _write_config(tmp_path, "Roma", "Centro")
+    summary = await _capture(config_path, tmp_path, poi_source=failing_live)
+
+    assert summary.failed[0].error_type == "ValueError"
+    assert summary.failed[0].error is None
 
 
 async def test_capture_partial_skip_captures_only_missing(

@@ -65,6 +65,9 @@
       @for (asse of ontologyAxes(); track asse.titolo) {
         <div class="cra-axis-group">
           <h4 class="cra-axis-title">{{ asse.titolo }}</h4>
+          @if (asse.nota) {
+            <p class="cra-axis-note">{{ asse.nota }}</p>
+          }
           <ul class="cra-axis-list">
             @for (voce of asse.voci; track voce.name) {
               <li class="cra-axis-row">

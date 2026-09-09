@@ -30,14 +30,17 @@ export interface Poi {
   /** Etichetta EN corretta della classe (display, #77). Sempre presente lato BE (default ""). */
   terminus_label_en: string;
   /**
-   * Gli assi TERMINUS oltre agli hazard (#256), ciascuno con la propria citazione. Obbligatori
-   * lato backend (sempre serializzati), opzionali qui perché sono additivi e di sola
+   * Gli assi TERMINUS oltre agli hazard (#256/#270), ciascuno con la propria citazione.
+   * Obbligatori lato backend (sempre serializzati), opzionali qui perché sono additivi e di sola
    * visualizzazione: se mancano la sezione non compare, non viene mostrato un dato sbagliato.
-   * Il quarto asse (stakeholder) non è esposto dal backend finché il vocabolario controllato non
-   * lo copre: 72 dei suoi filler non hanno etichetta italiana.
    */
   critical_events?: OntologyItem[];
   vulnerabilities?: OntologyItem[];
+  /**
+   * Stakeholder (havingPerformer, #270): dato ontologico citato, non un'indicazione operativa —
+   * vedi la nota mostrata insieme a questo asse in `detail-panel.component.ts`.
+   */
+  stakeholders?: OntologyItem[];
 }
 
 /** POI + il suo numero di visualizzazione (stesso ordine/numero del pin e della card accoppiati):
@@ -213,8 +216,11 @@ export interface AppState {
   lastQuery: LastQuery | null;
   poiPanelOpen: boolean;
   narrOpen: boolean;
-  /** Narrative POI già generate in questa sessione, per id (#197). Azzerate da ogni nuova ANALYZE:
-   * il contesto di zona è cambiato, quindi il vicinato su cui erano ancorate non vale più. */
+  /** Narrative POI già generate in questa sessione, per id (#197). Azzerate da ogni nuova ANALYZE
+   * della pipeline completo: il contesto di zona è cambiato, quindi il vicinato su cui erano
+   * ancorate non vale più. Una ANALYZE della pipeline base le preserva invece intatte: quella
+   * pipeline non le mostra mai e non sostituisce il contesto (completoData) a cui sono ancorate
+   * (#245). */
   poiNarratives: Record<string, PoiNarrative>;
   /** Id del POI la cui narrativa è in caricamento, `null` se nessuna. */
   poiNarrativeLoading: string | null;

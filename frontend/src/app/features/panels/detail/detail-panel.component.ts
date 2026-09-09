@@ -10,7 +10,7 @@ import {
   output,
 } from '@angular/core';
 import { confMeta, pinColor, srcTagMeta } from '@core/confidence';
-import { Poi, RiskModel } from '@core/models/models';
+import { OntologyItem, Poi, RiskModel } from '@core/models/models';
 import {
   buildDetailModel,
   hazardDisplayLabel,
@@ -18,6 +18,14 @@ import {
   orderGroupsByTag,
   poiNameDisplayLabel,
 } from '@core/ui-helpers';
+
+/**
+ * Nota dell'asse Stakeholder (#270): un elenco di attori accanto a hazard/vulnerabilità si presta
+ * a essere letto come «chi allertare» — le direttive operative sono vietate (_project.md
+ * §Vincoli). È un dato ontologico citato, non un'indicazione operativa: la nota lo dichiara.
+ */
+export const STAKEHOLDER_AXIS_NOTE =
+  "Dato citato dall'ontologia: non è un'indicazione su chi contattare o allertare.";
 
 /**
  * Scheda "Dettaglio POI" (Stato C, spec-frontend.md §Stato C): citazione SPARQL lineare
@@ -77,22 +85,32 @@ export class DetailPanelComponent {
   protected readonly axisLabel = ontologyDisplayLabel;
 
   /**
-   * Gli assi TERMINUS oltre agli hazard (#256), pronti per il template: solo quelli non vuoti,
-   * nell'ordine in cui l'executor SPARQL li interroga. Sono elenchi qualitativi con la propria
-   * citazione: nessun conteggio presentato come misura e nessuna gradazione per voce, perché la
-   * forza probatoria è un bit derivato dal nome del POI e vale identica per ogni sua asserzione
-   * ontologica — il badge in testa al pannello la dichiara una volta per tutte.
+   * Gli assi TERMINUS oltre agli hazard (#256/#270), pronti per il template: solo quelli non
+   * vuoti, nell'ordine in cui l'executor SPARQL li interroga. Sono elenchi qualitativi con la
+   * propria citazione: nessun conteggio presentato come misura e nessuna gradazione per voce,
+   * perché la forza probatoria è un bit derivato dal nome del POI e vale identica per ogni sua
+   * asserzione ontologica — il badge in testa al pannello la dichiara una volta per tutte.
    *
    * Caso limite dichiarato: un POI senza hazard ha `confidence: null` (#220 — «nessun rischio da
    * qualificare», non «ignoto») e quindi NESSUN badge, ma può avere gli altri tre assi popolati,
    * perché vengono da property OWL indipendenti. Lì le voci restano nude: sono fatti sulla classe
    * TERMINUS, veri quanto il mapping del POI, e non c'è un livello da ereditare.
+   *
+   * L'asse Stakeholder porta in più `nota` (#270): solo lui si presta alla lettura fuorviante
+   * «chi allertare», quindi solo lui mostra la precisazione nel template.
    */
-  protected readonly ontologyAxes = computed(() => {
+  protected readonly ontologyAxes = computed<
+    { titolo: string; voci: OntologyItem[]; nota?: string }[]
+  >(() => {
     const poi = this.poi();
     return [
       { titolo: 'Eventi critici', voci: poi.critical_events ?? [] },
       { titolo: 'Vulnerabilità', voci: poi.vulnerabilities ?? [] },
+      {
+        titolo: 'Stakeholder',
+        voci: poi.stakeholders ?? [],
+        nota: STAKEHOLDER_AXIS_NOTE,
+      },
     ].filter((asse) => asse.voci.length > 0);
   });
 

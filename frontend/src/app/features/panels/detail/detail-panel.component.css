@@ -240,6 +240,15 @@
   color: var(--ink-2);
 }
 
+/* #270: precisazione mostrata solo sull'asse Stakeholder — dato citato, non operativo. */
+.cra-axis-note {
+  margin: 0 0 0.35rem;
+  font-size: 0.72rem;
+  font-style: italic;
+  color: var(--ink-2);
+  opacity: 0.85;
+}
+
 .cra-axis-list {
   margin: 0;
   padding: 0;

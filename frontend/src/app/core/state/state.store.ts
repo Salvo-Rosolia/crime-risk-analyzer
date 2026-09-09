@@ -289,12 +289,15 @@ export class StateStore {
   /**
    * L'impronta mostrata è cambiata da quando la generazione è partita? (#242)
    *
-   * Succede quando una nuova analisi della zona arriva mentre la generazione di un punto è ancora
-   * in volo: `ANALYZE` svuota `poiNarratives` e `completoData` porta un'altra impronta. Il
-   * risultato tardivo riguarda un contesto che non è più a schermo, quindi non va depositato né
+   * Succede quando una nuova analisi COMPLETO della zona arriva mentre la generazione di un punto
+   * è ancora in volo: `ANALYZE` svuota `poiNarratives` e `completoData` porta un'altra impronta.
+   * Il risultato tardivo riguarda un contesto che non è più a schermo, quindi non va depositato né
    * dichiarato: la cache di sessione lo servirebbe poi SENZA richiesta, aggirando la verifica
-   * server-side. `poiNarrativeLoading` è già stato azzerato da `ANALYZE`, quindi non resta appeso
-   * nulla — l'impronta cambia solo passando da lì.
+   * server-side. `poiNarrativeLoading` è già stato azzerato da quella `ANALYZE`, quindi non resta
+   * appeso nulla — l'impronta cambia solo passando da lì. Una `ANALYZE` della pipeline base non fa
+   * scattare questo guardiano: non tocca `completoData` (l'impronta non cambia) né azzera
+   * `poiNarrativeLoading` (#245), quindi una generazione partita prima del giro in base si deposita
+   * comunque al ritorno — comportamento corretto, perché il contesto a schermo è ancora lo stesso.
    */
   private contestoCambiato(contestoHash: string): boolean {
     return this._state().completoData?.contesto_hash !== contestoHash;
