@@ -217,14 +217,17 @@ def offline_source_con_taglio() -> tuple[PoiSource, Callable[[], TaglioOsm | Non
     ``_capture``, un case alla volta): due chiamate concorrenti sulla stessa
     istanza si scambierebbero il taglio letto dal getter.
     """
-    ultimo: list[TaglioOsm | None] = [None]
+    ultimo: TaglioOsm | None = None
 
     async def _source(bbox: Bbox, citta: str) -> list[Poi]:
-        pois, taglio = await fetch_pois_with_cut(bbox, citta, retry=OFFLINE_RETRY)
-        ultimo[0] = taglio
+        nonlocal ultimo
+        pois, ultimo = await fetch_pois_with_cut(bbox, citta, retry=OFFLINE_RETRY)
         return pois
 
-    return _source, lambda: ultimo[0]
+    def _ultimo_taglio() -> TaglioOsm | None:
+        return ultimo
+
+    return _source, _ultimo_taglio
 
 
 def capturing_source(
