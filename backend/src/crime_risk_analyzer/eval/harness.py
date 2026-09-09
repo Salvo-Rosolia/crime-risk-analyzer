@@ -8,6 +8,7 @@ stesso esperimento sono rilevati e rifiutati da ``run`` (o rimossi con
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 
@@ -21,9 +22,11 @@ from crime_risk_analyzer.eval.schema import (
     RunStatus,
 )
 from crime_risk_analyzer.eval.snapshots import (
+    describe_configurazione_mismatch,
     offline_geo_source,
     replay_source,
     snapshot_path,
+    snapshot_provenance,
 )
 from crime_risk_analyzer.orchestrator import (
     AnalyzeResponse,
@@ -33,6 +36,8 @@ from crime_risk_analyzer.orchestrator import (
     run_no_ontology_prompt,
 )
 from crime_risk_analyzer.rag.retrieval import RiskProfiler
+
+logger = logging.getLogger(__name__)
 
 
 def _slug(text: str) -> str:
@@ -128,6 +133,8 @@ def _record_from_response(
     resp: AnalyzeResponse,
     code_commit: str,
     ontology_hash: str,
+    snapshot_catturato_il: str | None,
+    snapshot_configurazione_canonica: dict[str, object] | None,
 ) -> RunRecord:
     status = RunStatus.FALLBACK if resp.fallback else RunStatus.OK
     return RunRecord(
@@ -158,6 +165,8 @@ def _record_from_response(
             seed=resp.repro.seed,
             experiment=config.name,
             context_format=config.context_format,
+            snapshot_catturato_il=snapshot_catturato_il,
+            snapshot_configurazione_canonica=snapshot_configurazione_canonica,
         ),
     )
 
@@ -171,6 +180,8 @@ def _error_record(
     model_id: str,
     code_commit: str,
     ontology_hash: str,
+    snapshot_catturato_il: str | None,
+    snapshot_configurazione_canonica: dict[str, object] | None,
 ) -> RunRecord:
     return RunRecord(
         run_id=run_id,
@@ -193,6 +204,8 @@ def _error_record(
             seed=0,
             experiment=config.name,
             context_format=config.context_format,
+            snapshot_catturato_il=snapshot_catturato_il,
+            snapshot_configurazione_canonica=snapshot_configurazione_canonica,
         ),
     )
 
@@ -236,7 +249,24 @@ async def run_case(
     )
     # Snapshot chiavato per (citta, zona): condiviso dai bracci comparativi (#110).
     snapshot_key = make_snapshot_key(case.citta, case.zona)
-    source = replay_source(snapshot_path(results_dir, snapshot_key))
+    path = snapshot_path(results_dir, snapshot_key)
+    # #267: la provenienza si legge UNA volta e alimenta sia l'avviso sia il
+    # record — leggerla due volte (una per l'avviso, una per il record)
+    # duplicherebbe l'I/O senza motivo.
+    provenienza = snapshot_provenance(path)
+    mismatch = describe_configurazione_mismatch(provenienza)
+    if mismatch is not None:
+        logger.warning(
+            "snapshot (%s, %s): %s — la run potrebbe mescolare politiche di "
+            "selezione diverse senza saperlo (#267)",
+            case.citta,
+            case.zona,
+            mismatch,
+        )
+    snapshot_catturato_il = provenienza.get("catturato_il") if provenienza else None
+    _conf = provenienza.get("configurazione_canonica") if provenienza else None
+    snapshot_configurazione_canonica = dict(_conf) if isinstance(_conf, dict) else None
+    source = replay_source(path)
     # Geo placeholder deterministico (#169): la run replaya i POI e non deve mai
     # chiamare Nominatim. Il geo e' dead-downstream, quindi il valore non conta.
     geo_source = offline_geo_source()
@@ -283,6 +313,8 @@ async def run_case(
             model_id=model_id,
             code_commit=code_commit,
             ontology_hash=ontology_hash,
+            snapshot_catturato_il=snapshot_catturato_il,
+            snapshot_configurazione_canonica=snapshot_configurazione_canonica,
         )
     return _record_from_response(
         run_id=run_id,
@@ -293,6 +325,8 @@ async def run_case(
         resp=resp,
         code_commit=code_commit,
         ontology_hash=ontology_hash,
+        snapshot_catturato_il=snapshot_catturato_il,
+        snapshot_configurazione_canonica=snapshot_configurazione_canonica,
     )
 
 

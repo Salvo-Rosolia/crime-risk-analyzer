@@ -5,10 +5,12 @@ from pathlib import Path
 from crime_risk_analyzer.eval.snapshots import (
     FORMATO_SNAPSHOT,
     capturing_source,
+    describe_configurazione_mismatch,
     load_snapshot,
     offline_geo_source,
     replay_source,
     save_snapshot,
+    snapshot_provenance,
 )
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.overpass_client import (
@@ -154,6 +156,73 @@ def test_scrittura_senza_churn_di_line_ending(tmp_path: Path) -> None:
     save_snapshot(p, _POIS, bbox=_BBOX, citta="Roma")  # type: ignore[arg-type]
 
     assert b"\r\n" not in p.read_bytes()
+
+
+# --- #267: la provenienza non basta più a saperla, va anche VERIFICATA ---
+# Un file parsabile non è la stessa cosa di uno catturato con la politica di
+# selezione corrente: senza un confronto esplicito, due esperimenti sulla
+# stessa (citta, zona) possono mescolare in silenzio due configurazioni.
+
+
+def test_snapshot_provenance_legge_l_envelope(tmp_path: Path) -> None:
+    p = tmp_path / "snap.json"
+    save_snapshot(p, _POIS, bbox=_BBOX, citta="Roma", zona="Colosseo")  # type: ignore[arg-type]
+
+    prov = snapshot_provenance(p)
+    assert prov is not None
+    assert prov["citta"] == "Roma"
+    assert prov["configurazione_canonica"]["max_pois"] == MAX_POIS
+
+
+def test_snapshot_provenance_none_per_file_assente(tmp_path: Path) -> None:
+    """Un file mancante non deve far esplodere il check: lo intercetta il vero
+    consumatore (``load_snapshot`` dentro ``replay_source``), non questa sonda."""
+    assert snapshot_provenance(tmp_path / "non-esiste.json") is None
+
+
+def test_snapshot_provenance_none_per_lista_nuda_legacy(tmp_path: Path) -> None:
+    """I 4 snapshot pre-#241 sono liste nude: nessuna provenienza da leggere."""
+    p = tmp_path / "legacy.json"
+    p.write_text(json.dumps(_POIS), encoding="utf-8")
+
+    assert snapshot_provenance(p) is None
+
+
+def test_mismatch_none_quando_la_configurazione_e_quella_corrente(
+    tmp_path: Path,
+) -> None:
+    p = tmp_path / "snap.json"
+    save_snapshot(p, _POIS, bbox=_BBOX, citta="Roma")  # type: ignore[arg-type]
+
+    assert describe_configurazione_mismatch(snapshot_provenance(p)) is None
+
+
+def test_mismatch_segnala_provenienza_assente() -> None:
+    """#267: la lista nuda pre-#241 riceve un avviso esplicito, non il silenzio."""
+    msg = describe_configurazione_mismatch(None)
+    assert msg is not None
+    assert "nessuna provenienza" in msg
+
+
+def test_mismatch_segnala_configurazione_divergente(tmp_path: Path) -> None:
+    """Una fixture catturata con un ``per_class_cap`` diverso da quello corrente
+    (es. pre-#254) non deve essere indistinguibile da una coerente."""
+    p = tmp_path / "snap.json"
+    save_snapshot(p, _POIS, bbox=_BBOX, citta="Roma")  # type: ignore[arg-type]
+    prov = snapshot_provenance(p)
+    assert prov is not None
+    prov["configurazione_canonica"]["per_class_cap"] = PER_CLASS_CAP + 100
+
+    msg = describe_configurazione_mismatch(prov)
+    assert msg is not None
+    assert "per_class_cap" in msg
+    assert str(PER_CLASS_CAP + 100) in msg
+
+
+def test_mismatch_segnala_configurazione_canonica_assente_nella_provenienza() -> None:
+    msg = describe_configurazione_mismatch({"catturato_il": "x"})  # type: ignore[typeddict-item]
+    assert msg is not None
+    assert "senza configurazione_canonica" in msg
 
 
 async def test_capturing_source_registra_il_bbox_richiesto(tmp_path: Path) -> None:
