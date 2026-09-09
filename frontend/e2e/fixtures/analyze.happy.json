@@ -27,6 +27,14 @@
           "label_it": "Area affollata",
           "label_en": "Crowded area"
         }
+      ],
+      "stakeholders": [
+        {
+          "name": "soprintendenza",
+          "source": "ArchaeologicalSite → havingPerformer → soprintendenza",
+          "label_it": "Soprintendenza archeologica",
+          "label_en": "Archaeological superintendence"
+        }
       ]
     },
     {
