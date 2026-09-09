@@ -44,6 +44,46 @@ def test_extract_follows_stakeholder_restriction() -> None:
     assert by_id["Branch_manager"]["category"] == "stakeholder"
 
 
+def test_extract_categoria_collisione_non_dipende_dall_ordine_del_dict() -> None:
+    """Un filler raggiunto da due property con categorie diverse non prende quella
+    della prima property iterata in ``_PROP_CATEGORY`` (ordine incidentale del
+    dict): vince la categoria con priorita' piu' alta in ``_CATEGORY_ORDER``.
+
+    Riproduce empiricamente il difetto segnalato in review: prima della fix, un
+    filler gia' raggiungibile via una property mappata restava con quella
+    categoria e non diventava mai ``stakeholder`` anche quando raggiungibile
+    anche via ``havingPerformer`` — non perche' ``stakeholder`` fosse meno
+    prioritario per costruzione, ma solo perche' ``havingPerformer`` e' l'ultima
+    entry del dict ``_PROP_CATEGORY``. Qui la vulnerabilita' (priorita' 3) vince
+    sullo stakeholder (priorita' 4) perche' lo dichiara ``_CATEGORY_ORDER``, non
+    perche' e' elencata prima.
+    """
+    g = Graph()
+    g.parse(
+        data="""
+        @prefix tc:   <http://www.enea-terin-sen-apic.it/TERMINUS-crime-v01#> .
+        @prefix owl:  <http://www.w3.org/2002/07/owl#> .
+        @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+        tc:Museum a owl:Class ;
+            rdfs:subClassOf [ a owl:Restriction ;
+                owl:onProperty tc:isVulnerableTo ;
+                owl:someValuesFrom tc:Contested_role ] ;
+            rdfs:subClassOf [ a owl:Restriction ;
+                owl:onProperty tc:havingPerformer ;
+                owl:someValuesFrom tc:Contested_role ] .
+
+        tc:Contested_role a owl:Class .
+        """,
+        format="turtle",
+    )
+
+    records = extract.extract_records(g, ["Museum"])
+    by_id = {r["identifier"]: r for r in records}
+
+    assert by_id["Contested_role"]["category"] == "vulnerability"
+
+
 def test_extract_skips_seeds_absent_from_graph() -> None:
     records = extract.extract_records(_graph(), ["Bank", "Hospital"])
     ids = {r["identifier"] for r in records}

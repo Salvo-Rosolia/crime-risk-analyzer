@@ -188,7 +188,7 @@
   {
     "identifier": "Pyrotechnic_material_for_sale",
     "label_en": "Pyrotechnic material for sale",
-    "label_it": "Rivenditore di materiale pirotecnico",
+    "label_it": "Vendita di materiale pirotecnico",
     "category": "poi"
   },
   {
@@ -303,6 +303,12 @@
     "identifier": "Building_collapse",
     "label_en": "Building collapse",
     "label_it": "Crollo dell'edificio",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Building_damage",
+    "label_en": "Building damage",
+    "label_it": "Danno all'edificio",
     "category": "hazard"
   },
   {
@@ -429,6 +435,12 @@
     "identifier": "Damage_to_fuel_tanks",
     "label_en": "Damage to fuel tanks",
     "label_it": "Danneggiamento dei serbatoi di carburante",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Damage_to_furniture",
+    "label_en": "Damage to furniture",
+    "label_it": "Danno agli arredi",
     "category": "hazard"
   },
   {
@@ -690,6 +702,12 @@
     "category": "hazard"
   },
   {
+    "identifier": "Interruption_of_supply",
+    "label_en": "Interruption of supply",
+    "label_it": "Interruzione della fornitura",
+    "category": "hazard"
+  },
+  {
     "identifier": "Jewelry_theft",
     "label_en": "Jewelry theft",
     "label_it": "Furto in gioielleria",
@@ -897,6 +915,12 @@
     "identifier": "Store_robbery",
     "label_en": "Store robbery",
     "label_it": "Rapina al negozio",
+    "category": "hazard"
+  },
+  {
+    "identifier": "Structure_damage",
+    "label_en": "Structure damage",
+    "label_it": "Danno alla struttura",
     "category": "hazard"
   },
   {
@@ -1170,6 +1194,12 @@
     "category": "critical_event"
   },
   {
+    "identifier": "Area_with_a_high_crime_rate",
+    "label_en": "Area with a high crime rate",
+    "label_it": "Area ad alto tasso di criminalità",
+    "category": "critical_event"
+  },
+  {
     "identifier": "Blocking_of_vehicle_exits",
     "label_en": "Blocking of vehicle exits",
     "label_it": "Blocco delle uscite dei veicoli",
@@ -1191,12 +1221,6 @@
     "identifier": "Building_closure_to_the_public",
     "label_en": "Building closure to the public",
     "label_it": "Chiusura dell'edificio al pubblico",
-    "category": "critical_event"
-  },
-  {
-    "identifier": "Building_damage",
-    "label_en": "Building damage",
-    "label_it": "Danno all'edificio",
     "category": "critical_event"
   },
   {
@@ -1257,12 +1281,6 @@
     "identifier": "Closure_of_the_structure",
     "label_en": "Closure of the structure",
     "label_it": "Chiusura della struttura",
-    "category": "critical_event"
-  },
-  {
-    "identifier": "Damage_to_furniture",
-    "label_en": "Damage to furniture",
-    "label_it": "Danno agli arredi",
     "category": "critical_event"
   },
   {
@@ -1428,12 +1446,6 @@
     "category": "critical_event"
   },
   {
-    "identifier": "Interruption_of_supply",
-    "label_en": "Interruption of supply",
-    "label_it": "Interruzione della fornitura",
-    "category": "critical_event"
-  },
-  {
     "identifier": "Intoxication",
     "label_en": "Intoxication",
     "label_it": "Intossicazione",
@@ -1515,6 +1527,12 @@
     "identifier": "Pontoon_out_of_service",
     "label_en": "Pontoon out of service",
     "label_it": "Pontile fuori servizio",
+    "category": "critical_event"
+  },
+  {
+    "identifier": "Poor_police_control",
+    "label_en": "Poor police control",
+    "label_it": "Scarso controllo di polizia",
     "category": "critical_event"
   },
   {
@@ -1602,12 +1620,6 @@
     "category": "critical_event"
   },
   {
-    "identifier": "Structure_damage",
-    "label_en": "Structure damage",
-    "label_it": "Danno alla struttura",
-    "category": "critical_event"
-  },
-  {
     "identifier": "Suspension_of_essential_activities",
     "label_en": "Suspension of essential activities",
     "label_it": "Sospensione delle attività essenziali",
@@ -1659,12 +1671,6 @@
     "identifier": "Area_of_intervention_difficult_to_reach",
     "label_en": "Area of intervention difficult to reach",
     "label_it": "Area di intervento difficile da raggiungere",
-    "category": "vulnerability"
-  },
-  {
-    "identifier": "Area_with_a_high_crime_rate",
-    "label_en": "Area with a high crime rate",
-    "label_it": "Area ad alto tasso di criminalità",
     "category": "vulnerability"
   },
   {
@@ -2019,12 +2025,6 @@
     "identifier": "Poor_oversight_of_the_highway_section_operator",
     "label_en": "Poor oversight of the highway section operator",
     "label_it": "Scarsa supervisione del gestore del tratto autostradale",
-    "category": "vulnerability"
-  },
-  {
-    "identifier": "Poor_police_control",
-    "label_en": "Poor police control",
-    "label_it": "Scarso controllo di polizia",
     "category": "vulnerability"
   },
   {

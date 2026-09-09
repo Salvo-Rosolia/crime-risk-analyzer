@@ -92,13 +92,24 @@ def _record(identifier: str, category: str) -> LabelRecord:
 
 
 def extract_records(graph: Graph, seeds: Iterable[str]) -> list[LabelRecord]:
-    """Estrae i record del sottografo affiorante a partire dai POI seed."""
-    records: dict[str, LabelRecord] = {}
+    """Estrae i record del sottografo affiorante a partire dai POI seed.
+
+    Un filler puo' essere raggiunto da PIU' property con categorie diverse (sul
+    sottografo affiorante reale succede gia', non solo in teoria: es.
+    ``ATM_out_of_service`` e' insieme hazard e critical_event su POI diversi).
+    La categoria non e' quella della prima property incontrata iterando
+    ``_PROP_CATEGORY`` — dipenderebbe dall'ordine del dict, incidentale — ma
+    quella con priorita' piu' alta in ``_CATEGORY_ORDER`` (lo stesso ordine gia'
+    usato per l'output): un criterio esplicito e stabile, non un effetto
+    collaterale dell'ordine di definizione.
+    """
+    poi_records: dict[str, LabelRecord] = {}
+    filler_categories: dict[str, set[str]] = {}
     for poi in sorted(set(seeds)):
         poi_uri = TERMINUS[poi]
         if not any(graph.triples((poi_uri, None, None))):
             continue
-        records.setdefault(poi, _record(poi, "poi"))
+        poi_records.setdefault(poi, _record(poi, "poi"))
         for prop, category in _PROP_CATEGORY.items():
             rows = graph.query(
                 _FILLER_Q,
@@ -107,7 +118,13 @@ def extract_records(graph: Graph, seeds: Iterable[str]) -> list[LabelRecord]:
             )
             for row in rows:
                 filler = _local(row.filler)  # type: ignore[attr-defined]
-                records.setdefault(filler, _record(filler, category))
+                filler_categories.setdefault(filler, set()).add(category)
+
+    records: dict[str, LabelRecord] = {
+        filler: _record(filler, min(categories, key=lambda c: _CATEGORY_ORDER[c]))
+        for filler, categories in filler_categories.items()
+    }
+    records.update(poi_records)
     return sorted(
         records.values(),
         key=lambda r: (_CATEGORY_ORDER[r["category"]], r["identifier"]),
