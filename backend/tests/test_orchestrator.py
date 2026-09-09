@@ -314,6 +314,7 @@ def test_structured_response_no_llm() -> None:
         # letterale, perche' il test verifica l'assemblaggio della response
         # senza LLM, non il calcolo dell'impronta.
         contesto_hash="h-ctx",
+        geo=GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50)),
     )
     assert resp.narrativa == ""
     assert resp.contesto_hash == "h-ctx"
@@ -323,6 +324,11 @@ def test_structured_response_no_llm() -> None:
     assert resp.repro.prompt_hash == ""
     assert resp.risk_models[0].risks[0].hazard == "Bank_robbery"
     assert resp.confidence_summary.verificato == 1
+    assert (resp.zona_geo.lat, resp.zona_geo.lon) == (41.89, 12.49)
+    assert resp.zona_geo.bbox_min_lat == 41.88
+    assert resp.zona_geo.bbox_max_lon == 12.50
+    # Un POI c'e' (Banca A): nessun messaggio di copertura vuota.
+    assert resp.messaggio is None
 
 
 async def test_structured_response_narrativa_none_when_pending() -> None:
@@ -350,9 +356,13 @@ async def test_structured_response_narrativa_none_when_pending() -> None:
         fallback=False,
         contesto_hash="h",
         narrativa=None,
+        geo=ctx["geo"],
     )
     assert resp.narrativa is None
     assert resp.fallback is False
+    assert resp.zona_geo.lat == ctx["geo"]["lat"]
+    assert resp.zona_geo.lon == ctx["geo"]["lon"]
+    assert resp.messaggio is None
 
 
 def test_structured_response_default_narrativa_is_empty_string() -> None:
@@ -377,8 +387,61 @@ def test_structured_response_default_narrativa_is_empty_string() -> None:
         latenza_ms=0,
         fallback=False,
         contesto_hash="h",
+        geo=GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50)),
     )
     assert resp.narrativa == ""
+
+
+def test_structured_response_messaggio_esplicito_quando_zero_poi() -> None:
+    """#260: con ``poi`` vuoto la response dichiara esplicitamente che la zona e'
+    stata geocodificata ma la copertura OSM/TERMINUS non ha trovato punti — senza
+    questo, zona sbagliata e zona-senza-copertura sono indistinguibili a schermo
+    (in entrambi i casi la mappa non si sposta)."""
+    from crime_risk_analyzer.rag.grounding import GroundedContext
+
+    grounded: GroundedContext = {
+        "zona": "Colosseo",
+        "validated_risks": [],
+        "confidence_summary": {},
+    }
+    resp = _structured_response(
+        "Roma",
+        "Colosseo",
+        [],
+        grounded,
+        latenza_ms=0,
+        fallback=False,
+        contesto_hash="h",
+        geo=GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50)),
+    )
+    assert resp.messaggio is not None
+    assert "OSM" in resp.messaggio or "TERMINUS" in resp.messaggio
+
+
+def test_structured_response_messaggio_esplicito_con_narrativa_di_soli_spazi() -> None:
+    """#260 (reperto review): una narrativa di soli spazi bianchi non e' copertura
+    reale — senza lo strip prima del controllo di verita', un tale valore (falsy
+    solo se vuoto, ma ``"   "`` e' truthy) sopprimerebbe il messaggio esplicito
+    lasciando l'utente senza alcuna spiegazione su una zona vuota."""
+    from crime_risk_analyzer.rag.grounding import GroundedContext
+
+    grounded: GroundedContext = {
+        "zona": "Colosseo",
+        "validated_risks": [],
+        "confidence_summary": {},
+    }
+    resp = _structured_response(
+        "Roma",
+        "Colosseo",
+        [],
+        grounded,
+        latenza_ms=0,
+        fallback=False,
+        contesto_hash="h",
+        geo=GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50)),
+        narrativa="   ",
+    )
+    assert resp.messaggio is not None
 
 
 async def test_run_analysis_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -397,6 +460,8 @@ async def test_run_analysis_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     assert resp.llm_used == "claude-sonnet-4-6"
     assert [p.confidence for p in resp.poi] == ["verificato"]
     assert resp.latenza_ms >= 0
+    assert (resp.zona_geo.lat, resp.zona_geo.lon) == (41.89, 12.49)
+    assert resp.messaggio is None
 
 
 async def test_run_analysis_llm_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -555,6 +620,30 @@ async def test_run_analysis_zero_pois(monkeypatch: pytest.MonkeyPatch) -> None:
     assert resp.confidence_summary.verificato == 0
     assert resp.confidence_summary.da_confermare == 0
     assert resp.fallback is False
+    # #260: zero POI ma la zona e' stata geocodificata regolarmente — la mappa
+    # frontend puo' ricentrarsi su ``zona_geo`` invece di restare ferma.
+    assert (resp.zona_geo.lat, resp.zona_geo.lon) == (41.89, 12.49)
+    # Il FakeLLMClient scrive comunque prosa reale (non sa che il contesto e'
+    # vuoto): quella prosa e' gia' l'informazione per chi legge, quindi nessun
+    # messaggio ridondante (reperto review #260).
+    assert resp.narrativa
+    assert resp.messaggio is None
+
+
+async def test_run_analysis_zero_pois_llm_fallback_has_explicit_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#260: zero POI E LLM caduto (narrativa vuota) — qui il messaggio esplicito
+    e' l'unica informazione disponibile su perche' non c'e' nulla da vedere."""
+    _patch_io(monkeypatch, pois=[])
+    resp = await run_analysis(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({}),
+        llm_client=_RaisingLLMClient(),
+    )
+    assert resp.narrativa == ""
+    assert resp.messaggio is not None
 
 
 async def test_run_baseline_no_llm(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -569,6 +658,8 @@ async def test_run_baseline_no_llm(monkeypatch: pytest.MonkeyPatch) -> None:
     assert resp.risk_models[0].risks[0].hazard == "Bank_robbery"
     assert resp.confidence_summary.verificato == 1
     assert resp.latenza_ms >= 0
+    assert (resp.zona_geo.lat, resp.zona_geo.lon) == (41.89, 12.49)
+    assert resp.messaggio is None
 
 
 async def test_run_analysis_exposes_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1044,7 +1135,11 @@ def test_analyze_response_has_no_numeric_danger_scoring_field() -> None:
     campo di rating aggiunto qui romperebbe l'insieme esatto.
 
     ``contesto_hash`` (#242) e' un digest opaco di IDENTITA' del contesto, non
-    una misura: non gradua nulla e non e' confrontabile per ordine."""
+    una misura: non gradua nulla e non e' confrontabile per ordine.
+
+    ``zona_geo`` (#260) porta le coordinate della zona geocodificata (centro +
+    bbox), non un punteggio: serve solo a ricentrare la mappa. ``messaggio``
+    e' testo esplicativo, non un dato quantitativo."""
     assert set(AnalyzeResponse.model_fields) == {
         "citta",
         "zona_normalizzata",
@@ -1061,6 +1156,8 @@ def test_analyze_response_has_no_numeric_danger_scoring_field() -> None:
         "cache_hit",
         "fallback",
         "contesto_hash",
+        "zona_geo",
+        "messaggio",
     }
 
 

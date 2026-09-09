@@ -28,6 +28,7 @@ from crime_risk_analyzer.orchestrator import (
     _build_poi_list,  # pyright: ignore[reportPrivateUsage]
     _elapsed_ms,  # pyright: ignore[reportPrivateUsage]
     _LLMClientLike,  # pyright: ignore[reportPrivateUsage]
+    _messaggio_zero_poi,  # pyright: ignore[reportPrivateUsage]
     _structured_response,  # pyright: ignore[reportPrivateUsage]
 )
 from crime_risk_analyzer.poi_narrative import ContextMismatchError
@@ -88,6 +89,7 @@ async def run_analysis_fast(
         latenza_ms=_elapsed_ms(start),
         fallback=False,
         contesto_hash=contesto_hash,
+        geo=retrieval_ctx["geo"],
         narrativa=None,
     )
 
@@ -140,6 +142,16 @@ class ZoneNarrativeResponse(BaseModel):
         default=False,
         description="True se l'LLM è caduto: response con narrativa vuota.",
     )
+    messaggio: str | None = Field(
+        default=None,
+        description=(
+            "Messaggio esplicito quando la zona non ha POI E questa risposta "
+            "non porta narrativa reale (#260). Ricalcolato qui, non ereditato "
+            "dalla fase 1 (``AnalyzeResponse.messaggio``): solo questa risposta "
+            "sa se la narrativa appena generata copre gia' il caso, quindi e' "
+            "l'unico valore di cui un consumer si puo' fidare come piu' fresco."
+        ),
+    )
 
 
 async def run_zone_narrative(
@@ -186,6 +198,8 @@ async def run_zone_narrative(
     if ricostruito:
         zone_context_cache.put(citta, zona, cached)
 
+    n_poi = len(cached["retrieval"]["pois"])
+
     try:
         gen = await generate_analysis(
             dict(cached["grounded"]),
@@ -213,6 +227,7 @@ async def run_zone_narrative(
             latenza_ms=_elapsed_ms(start),
             repro=Repro(temperature=0.0, seed=0, prompt_hash=""),
             fallback=True,
+            messaggio=_messaggio_zero_poi(n_poi, ""),
         )
 
     return ZoneNarrativeResponse(
@@ -224,4 +239,5 @@ async def run_zone_narrative(
         latenza_ms=_elapsed_ms(start),
         repro=gen.repro,
         fallback=False,
+        messaggio=_messaggio_zero_poi(n_poi, gen.narrativa),
     )
