@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import csv
 import io
-import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -109,6 +108,24 @@ class VacuousZone(BaseModel):
     arms: list[str]
 
 
+class QualityVerdict(BaseModel):
+    """Risponde da sola: "il verdetto di qualità è applicabile?" (#238).
+
+    Prima di questo campo, pareggio (nessuna zona vacua, ma i 4 assi coincidono)
+    e astensione (metriche vacue, #231) erano indistinguibili senza ispezionare
+    la FORMA di ``winner`` nel report ripetuto — e il report non ripetuto non
+    aveva alcun modo di rispondere alla stessa domanda. Campo del modello
+    :class:`Comparison`, non bolted-on nei singoli writer: qualunque futuro
+    consumatore di ``to_json``/``model_dump`` lo riceve per costruzione, non per
+    disciplina di chi scrive il payload.
+    """
+
+    applicable: bool
+    vacuous_arms: list[str]
+    vacuous_zones: list[VacuousZone]
+    reason: str = ""
+
+
 class Comparison(BaseModel):
     """Confronto: zone comparate + aggregato + zone escluse (ERROR/FALLBACK)."""
 
@@ -142,6 +159,9 @@ class Comparison(BaseModel):
     #: (:data:`CONFOUNDED_VARIABLE_HEAD`): il campo non afferma mai che la
     #: variabile è isolata senza averlo verificato sui record.
     isolated_variable: str = ""
+    #: Derivato da ``vacuous_arms``/``vacuous_zones`` qui sopra, sempre in fase
+    #: di costruzione (#238): vedi :class:`QualityVerdict`.
+    quality_verdict: QualityVerdict
 
 
 @dataclass(frozen=True)
@@ -468,32 +488,29 @@ def has_vacuous_quality_axes(
     return bool(vacuous_arms or vacuous_zones)
 
 
-def quality_verdict_payload(comparison: Comparison) -> dict[str, object]:
-    """Campo unico "il verdetto di qualita' e' applicabile?" (#238).
+def _quality_verdict(
+    vacuous_arms: list[str], vacuous_zones: list[VacuousZone]
+) -> QualityVerdict:
+    """Costruisce il :class:`QualityVerdict` di un confronto (#238).
 
-    Uguale in forma e contenuto nel report NON ripetuto (:func:`write_comparison`)
-    e in quello ripetuto (``repeated_comparison.build_repeated_report``): prima
-    di questa funzione le due chiamanti costruivano lo stesso dizionario a mano,
-    e il report non ripetuto non lo scriveva affatto, costringendo chi legge il
-    JSON a sapere quale comando l'ha prodotto per capire se un ``vacuous_arms``
-    vuoto significhi "tutto leggibile" o "questo payload non lo dice".
-    ``applicable`` risponde da solo, senza ispezionare la forma di ``winner``
-    (assente qui, ``None`` o un oggetto a seconda del caso nel report ripetuto).
+    Chiamata una sola volta, dentro :func:`compare_records`, cosi' il campo
+    finisce sul modello :class:`Comparison` stesso: qualunque writer presente o
+    futuro lo eredita da ``to_json``/``model_dump`` senza ricostruirlo a mano
+    (la duplicazione che questa funzione elimina — vedi il modulo
+    ``repeated_comparison``, che prima aveva la sua propria copia).
     """
-    withheld = has_vacuous_quality_axes(
-        comparison.vacuous_arms, comparison.vacuous_zones
-    )
-    return {
-        "applicable": not withheld,
-        "vacuous_arms": comparison.vacuous_arms,
-        "vacuous_zones": [z.model_dump() for z in comparison.vacuous_zones],
-        "reason": (
+    withheld = has_vacuous_quality_axes(vacuous_arms, vacuous_zones)
+    return QualityVerdict(
+        applicable=not withheld,
+        vacuous_arms=list(vacuous_arms),
+        vacuous_zones=list(vacuous_zones),
+        reason=(
             "manca la narrativa su cui i proxy di qualità si pronunciano: "
             "metriche vacue (#231)"
             if withheld
             else ""
         ),
-    }
+    )
 
 
 def _vacuous_caveat(vacuous_arms: list[str], vacuous_zones: list[VacuousZone]) -> str:
@@ -702,6 +719,7 @@ def compare_records(
             # l'avviso del Markdown non possono raccontare due storie diverse.
             quality_axes_vacuous=has_vacuous_quality_axes(vacuous, vacuous_zones),
         ),
+        quality_verdict=_quality_verdict(vacuous, vacuous_zones),
     )
 
 
@@ -887,14 +905,9 @@ def write_comparison(
     # sul file nuovo, NON ri-applicato ad aggregate.py).
     csv_path.write_text(to_csv(comparison), encoding="utf-8", newline="")
     md_path.write_text(to_markdown(comparison), encoding="utf-8")
-    # `to_json` resta il dump piatto di Comparison (contratto #33, riusato anche
-    # da repeated_comparison.py dentro la propria chiave "comparison"); qui, sul
-    # file scritto su disco, si aggiunge `quality_verdict` come chiave SORELLA
-    # in piu' — additivo, le chiavi esistenti restano allo stesso livello (#238).
-    payload = json.loads(to_json(comparison))
-    payload["quality_verdict"] = quality_verdict_payload(comparison)
-    json_text = json.dumps(payload, indent=2, ensure_ascii=False)
-    json_path.write_text(json_text, encoding="utf-8")
+    # `quality_verdict` (#238) e' un campo di Comparison come `isolated_variable`:
+    # `to_json` lo scrive gia' senza bisogno di comporre il payload a mano qui.
+    json_path.write_text(to_json(comparison), encoding="utf-8")
     return csv_path, md_path
 
 

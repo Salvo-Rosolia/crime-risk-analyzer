@@ -1326,6 +1326,14 @@ def test_compare_experiments_writes_the_vacuity_warning_to_disk(tmp_path: Path) 
     # sapere se gli assi di qualita' sono leggibili.
     assert payload["quality_verdict"]["applicable"] is False
     assert payload["quality_verdict"]["vacuous_arms"] == ["baseline"]
+    assert payload["quality_verdict"]["reason"] == (
+        "manca la narrativa su cui i proxy di qualità si pronunciano: "
+        "metriche vacue (#231)"
+    )
+    # ensure_ascii=False: lo stesso identico testo non deve finire con un
+    # encoding diverso a seconda che l'abbia scritto `compare` o
+    # `compare-repeated` (#238).
+    assert "qualità" in (tmp_path / "cli.json").read_text(encoding="utf-8")
 
 
 def test_write_comparison_json_reports_quality_verdict_applicable_when_not_vacuous(
