@@ -493,5 +493,21 @@ describe('transition (FSM)', () => {
       expect(s.zoneNarrativeLoading).toBe(false);
       expect(s.zoneNarrativeError).toBeNull();
     });
+
+    it('ANALYZE pipeline base NON invalida la narrativa di zona in volo: la pipeline base non la mostra mai e non tocca completoData (#245)', () => {
+      const before: AppState = {
+        ...initialState,
+        zoneNarrativeLoading: true,
+        zoneNarrativeError: 'boom',
+      };
+      const s = transition(before, {
+        type: 'ANALYZE',
+        citta: 'Milano',
+        zona: 'Duomo',
+        pipeline: 'base',
+      });
+      expect(s.zoneNarrativeLoading).toBe(true);
+      expect(s.zoneNarrativeError).toBe('boom');
+    });
   });
 });

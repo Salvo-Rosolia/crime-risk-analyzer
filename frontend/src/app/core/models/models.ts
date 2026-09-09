@@ -213,8 +213,11 @@ export interface AppState {
   lastQuery: LastQuery | null;
   poiPanelOpen: boolean;
   narrOpen: boolean;
-  /** Narrative POI già generate in questa sessione, per id (#197). Azzerate da ogni nuova ANALYZE:
-   * il contesto di zona è cambiato, quindi il vicinato su cui erano ancorate non vale più. */
+  /** Narrative POI già generate in questa sessione, per id (#197). Azzerate da ogni nuova ANALYZE
+   * della pipeline completo: il contesto di zona è cambiato, quindi il vicinato su cui erano
+   * ancorate non vale più. Una ANALYZE della pipeline base le preserva invece intatte: quella
+   * pipeline non le mostra mai e non sostituisce il contesto (completoData) a cui sono ancorate
+   * (#245). */
   poiNarratives: Record<string, PoiNarrative>;
   /** Id del POI la cui narrativa è in caricamento, `null` se nessuna. */
   poiNarrativeLoading: string | null;
