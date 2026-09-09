@@ -18,6 +18,7 @@ from crime_risk_analyzer.eval.compare import (
     CONFOUNDED_VARIABLE_HEAD,
     ISOLATED_DELTA_CLAIM,
     ISOLATED_VARIABLE_HEAD,
+    OPERATIONAL_AXES_NOTE,
     PROMPT_LENGTH_SIDE_EFFECT,
     VACUOUS_CAVEAT_HEAD,
     VACUOUS_DELTA_CLAIM,
@@ -809,6 +810,20 @@ def test_markdown_marks_quality_axes_not_applicable_for_vacuous_arm() -> None:
     assert "`baseline`" in md
     # Il caveat deve precedere la nota metodologica generica: si legge prima.
     assert md.index(VACUOUS_CAVEAT_HEAD) < md.index("Nota metodologica")
+
+
+def test_markdown_does_not_claim_operational_axes_are_compared_when_vacuous() -> None:
+    """#237: il caveat di vacuità non deve promettere un confronto operativo che
+    non viene mai dichiarato — solo dati grezzi leggibili nelle tabelle."""
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo")],
+        [_silent_rec("Roma", "Colosseo")],
+        label_a="analyze",
+        label_b="baseline",
+    )
+    md = to_markdown(comparison)
+    assert OPERATIONAL_AXES_NOTE in md
+    assert "restano confrontabili" not in md.lower()
 
 
 def test_markdown_has_no_quality_caveat_when_both_arms_generate() -> None:
