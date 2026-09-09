@@ -33,7 +33,13 @@ export const initialState: AppState = {
 
 export function transition(state: AppState, action: Action): AppState {
   switch (action.type) {
-    case 'ANALYZE':
+    case 'ANALYZE': {
+      // Sia le narrative POI sia quella di zona sono ancorate al contesto della pipeline
+      // COMPLETO: la pipeline base non le mostra mai e non tocca completoData, quindi non deve
+      // invalidarle né interrompere un caricamento/errore che appartiene all'altra pipeline
+      // (#245). Un'unica isBase, come nel case LOAD_SUCCESS adiacente, evita che le due coppie
+      // di campi (POI e zona) divergano silenziosamente sulla stessa condizione.
+      const isBase = action.pipeline === 'base';
       return {
         ...state,
         screen: 'LOADING',
@@ -47,22 +53,22 @@ export function transition(state: AppState, action: Action): AppState {
         // sostituito: tenerle mostrerebbe, sul POI di una zona nuova, un testo scritto per
         // un'altra. Si invalidano qui, non alla SELECT_POI, così il costo LLM resta pagato
         // una volta sola per POI finché la zona non cambia.
-        poiNarratives: {},
-        poiNarrativeLoading: null,
-        poiNarrativeError: null,
+        poiNarratives: isBase ? state.poiNarratives : {},
+        poiNarrativeLoading: isBase ? state.poiNarrativeLoading : null,
+        poiNarrativeError: isBase ? state.poiNarrativeError : null,
         // Narrativa di ZONA (#292): stesso ragionamento, un nuovo contesto rende in volo (se
         // ancora pendente) o già mostrato (se un errore era rimasto) irrilevante.
-        zoneNarrativeLoading: false,
-        zoneNarrativeError: null,
+        zoneNarrativeLoading: isBase ? state.zoneNarrativeLoading : false,
+        zoneNarrativeError: isBase ? state.zoneNarrativeError : null,
         // lastQuery è la sorgente di "Rigenera", funzione SOLO del sistema completo (review
         // #67-bis, bloccante B): una ANALYZE della pipeline base non deve sovrascriverlo, altrimenti
         // Rigenera rilancerebbe l'ultima ricerca Base invece dell'ultima analisi completo. Il Base
         // non ha "Rigenera", quindi non gli serve un lastQuery proprio.
-        lastQuery:
-          action.pipeline === 'base'
-            ? state.lastQuery
-            : { citta: action.citta, zona: action.zona, domanda: action.domanda ?? null },
+        lastQuery: isBase
+          ? state.lastQuery
+          : { citta: action.citta, zona: action.zona, domanda: action.domanda ?? null },
       };
+    }
     case 'LOAD_SUCCESS': {
       // Due campi dati separati (review #67, bloccanti 1+2) instradati sulla pipeline DICHIARATA
       // DALL'AZIONE (action.pipeline, fissata da state.store.ts al momento in cui la richiesta è

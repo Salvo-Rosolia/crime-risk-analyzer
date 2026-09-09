@@ -389,6 +389,24 @@ describe('transition (FSM)', () => {
       expect(s.poiNarrativeError).toBeNull();
     });
 
+    it('ANALYZE pipeline base NON invalida le narrative POI: la pipeline base non le mostra mai e non tocca completoData (#245)', () => {
+      const before: AppState = {
+        ...initialState,
+        poiNarratives: { 'node/1': narrativa },
+        poiNarrativeLoading: 'node/1',
+        poiNarrativeError: 'boom',
+      };
+      const s = transition(before, {
+        type: 'ANALYZE',
+        citta: 'Milano',
+        zona: 'Duomo',
+        pipeline: 'base',
+      });
+      expect(s.poiNarratives).toEqual({ 'node/1': narrativa });
+      expect(s.poiNarrativeLoading).toBe('node/1');
+      expect(s.poiNarrativeError).toBe('boom');
+    });
+
     it('RESET riporta le narrative POI allo stato iniziale', () => {
       const before: AppState = { ...initialState, poiNarratives: { 'node/1': narrativa } };
       expect(transition(before, { type: 'RESET' }).poiNarratives).toEqual({});
@@ -474,6 +492,22 @@ describe('transition (FSM)', () => {
       });
       expect(s.zoneNarrativeLoading).toBe(false);
       expect(s.zoneNarrativeError).toBeNull();
+    });
+
+    it('ANALYZE pipeline base NON invalida la narrativa di zona in volo: la pipeline base non la mostra mai e non tocca completoData (#245)', () => {
+      const before: AppState = {
+        ...initialState,
+        zoneNarrativeLoading: true,
+        zoneNarrativeError: 'boom',
+      };
+      const s = transition(before, {
+        type: 'ANALYZE',
+        citta: 'Milano',
+        zona: 'Duomo',
+        pipeline: 'base',
+      });
+      expect(s.zoneNarrativeLoading).toBe(true);
+      expect(s.zoneNarrativeError).toBe('boom');
     });
   });
 });
