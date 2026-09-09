@@ -113,11 +113,11 @@ def build_poi_context_str(
     # editare: qui il nome e' il SOGGETTO del prompt, non una riga fra tante come
     # nell'analisi di zona, quindi un nome con a-capo potrebbe forgiare righe e
     # mimare le sezioni del contesto. Appiattiti su una riga (#119, stessa regola
-    # della domanda utente). Il resto del contesto viene dall'ontologia o da
-    # etichette del vocabolario controllato: non e' testo non fidato.
+    # della domanda utente). ``citta``/``zona`` vengono dalla richiesta
+    # dell'utente, non dall'ontologia: stessa superficie, stessa difesa (#244).
     lines = [
-        f"Citta': {citta}",
-        f"Zona: {zona}",
+        f"Citta': {normalize_untrusted_line(citta)}",
+        f"Zona: {normalize_untrusted_line(zona)}",
         "",
     ]
 
