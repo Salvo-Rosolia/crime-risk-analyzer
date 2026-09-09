@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -25,11 +26,12 @@ from crime_risk_analyzer.eval.repeated_comparison import build_repeated_report
 from crime_risk_analyzer.eval.snapshots import (
     capturing_source,
     load_snapshot,
-    offline_fetch_pois,
+    offline_source_con_taglio,
     snapshot_path,
 )
 from crime_risk_analyzer.ontology import load_ontology
 from crime_risk_analyzer.orchestrator import run_baseline
+from crime_risk_analyzer.overpass_client import TaglioOsm
 from crime_risk_analyzer.rag.retrieval import PoiSource
 from crime_risk_analyzer.sparql_module.query_executor import get_executor
 
@@ -102,8 +104,16 @@ async def _capture(
     config = load_config(config_path)
     executor = get_executor()
     # Politica di ritentativo lunga per default (#232): la sorgente della cattura
-    # vive in ``snapshots`` accanto a ``capturing_source``, non qui.
-    inner = poi_source or offline_fetch_pois
+    # vive in ``snapshots`` accanto a ``capturing_source``, non qui. Il taglio OSM
+    # (#251) si registra SOLO sulla sorgente offline di default: un ``poi_source``
+    # iniettato dai test non lo conosce e non deve fabbricarne uno finto.
+    inner: PoiSource
+    ultimo_taglio_osm: Callable[[], TaglioOsm | None] | None
+    if poi_source is not None:
+        inner = poi_source
+        ultimo_taglio_osm = None
+    else:
+        inner, ultimo_taglio_osm = offline_source_con_taglio()
     succeeded: list[CaptureCase] = []
     failed: list[CaptureCase] = []
     for case in config.cases:
@@ -149,7 +159,9 @@ async def _capture(
                     case.zona,
                     path,
                 )
-            source = capturing_source(path, inner=inner, zona=case.zona)
+            source = capturing_source(
+                path, inner=inner, zona=case.zona, ultimo_taglio_osm=ultimo_taglio_osm
+            )
             # Percorso SENZA LLM qualunque sia il ``mode`` del config (#233): la
             # cattura e' acquisizione di input, non un esperimento. Lo snapshot
             # lo scrive ``capturing_source`` quando il fetch Overpass ritorna, e

@@ -48,7 +48,9 @@ __all__ = [
     "OverpassError",
     "Poi",
     "RetryPolicy",
+    "TaglioOsm",
     "fetch_pois",
+    "fetch_pois_with_cut",
     "select_pois",
 ]
 
@@ -158,6 +160,21 @@ class Poi(TypedDict):
     osm_tags: str
     terminus_class: str
     citta: str
+
+
+class TaglioOsm(TypedDict):
+    """Taglio del DB OSM dichiarato da Overpass, ed endpoint interrogato (#251).
+
+    ``timestamp_osm_base`` rispecchia il nome del campo Overpass
+    (``osm3s.timestamp_osm_base``) per restare cross-referenziabile con la
+    documentazione dell'API: rende falsificabile "questi sono i POI di quella
+    zona a quell'istante" contro uno history dump OSM. ``None`` quando Overpass
+    non lo dichiara (payload malformato o campo assente) — un dato mancante, non
+    un errore che deve far fallire la cattura.
+    """
+
+    timestamp_osm_base: str | None
+    overpass_url: str
 
 
 class OverpassError(RuntimeError):
@@ -284,6 +301,25 @@ def _parse_elements(payload: object, citta: str) -> list[Poi]:
             visti.add(chiave)
             pois.append(poi)
     return pois
+
+
+def _taglio_osm(payload: object, overpass_url: str) -> TaglioOsm:
+    """Estrae il taglio del DB OSM dal payload Overpass, best-effort (#251).
+
+    ``payload`` non e' garantito avere ``osm3s``/``timestamp_osm_base`` nella
+    forma attesa: qui si legge in modo difensivo e si ritorna ``None`` per quel
+    campo invece di sollevare, perche' il taglio e' un arricchimento della
+    provenienza, non una condizione per considerare la risposta valida (quella
+    verifica e' gia' fatta da :func:`_parse_elements`).
+    """
+    timestamp: str | None = None
+    if isinstance(payload, Mapping):
+        osm3s = cast(Mapping[str, object], payload).get("osm3s")
+        if isinstance(osm3s, Mapping):
+            valore = cast(Mapping[str, object], osm3s).get("timestamp_osm_base")
+            if isinstance(valore, str):
+                timestamp = valore
+    return TaglioOsm(timestamp_osm_base=timestamp, overpass_url=overpass_url)
 
 
 def select_pois(
@@ -461,6 +497,37 @@ async def fetch_pois(
     trasporto (:data:`_RETRYABLE_TRANSPORT_ERRORS`) come un 504 (#247); il
     percorso interattivo lo tratta invece come definitivo, fail-fast. ``sleep``
     e' iniettabile: i test verificano le pause senza attenderle.
+
+    Sottile involucro su :func:`fetch_pois_with_cut` (#251), che scarta il taglio
+    del DB OSM: il percorso interattivo non ha un uso per quel dato e non deve
+    portarlo in giro nel tipo di ritorno.
+    """
+    pois, _taglio = await fetch_pois_with_cut(
+        bbox,
+        citta,
+        osm_selectors,
+        overpass_url=overpass_url,
+        retry=retry,
+        sleep=sleep,
+    )
+    return pois
+
+
+async def fetch_pois_with_cut(
+    bbox: Bbox,
+    citta: str,
+    osm_selectors: Iterable[str] = OSM_SELECTORS,
+    *,
+    overpass_url: str = DEFAULT_OVERPASS_URL,
+    retry: RetryPolicy | None = None,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> tuple[list[Poi], TaglioOsm]:
+    """Come :func:`fetch_pois`, ma ritorna anche il taglio del DB OSM (#251).
+
+    Usata dalla cattura offline per rendere la provenienza di uno snapshot
+    falsificabile: "questi sono i POI di quella zona a quell'istante" e'
+    verificabile contro uno history dump OSM solo se si registra anche il
+    taglio dichiarato da Overpass, non solo l'orologio di chi ha chiesto.
     """
     policy = retry or INTERACTIVE_RETRY
     selectors = list(osm_selectors)
@@ -519,4 +586,5 @@ async def fetch_pois(
 
     # Il bacino di candidati arriva completo; la scelta dei MAX_POIS che escono e'
     # per prossimita' al centro dell'area interrogata, con tetto per classe (#254).
-    return select_pois(_parse_elements(payload, citta), bbox.center())
+    pois = select_pois(_parse_elements(payload, citta), bbox.center())
+    return pois, _taglio_osm(payload, overpass_url)

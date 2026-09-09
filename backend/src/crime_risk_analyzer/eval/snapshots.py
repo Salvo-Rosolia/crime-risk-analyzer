@@ -36,7 +36,8 @@ from crime_risk_analyzer.overpass_client import (
     PER_CLASS_CAP,
     PER_SELECTOR_CAP,
     Poi,
-    fetch_pois,
+    TaglioOsm,
+    fetch_pois_with_cut,
 )
 from crime_risk_analyzer.rag.retrieval import GeoSource, PoiSource
 from crime_risk_analyzer.sparql_module.osm_mapping import OSM_SELECTORS
@@ -70,8 +71,7 @@ class SnapshotProvenance(TypedDict):
 
     #: Istante di cattura, ISO-8601 con offset esplicito (UTC). È l'orologio del
     #: processo che ha chiesto i dati: dice «quando ho chiesto», non «quale stato
-    #: di OSM ho ottenuto» (per quello servirebbe ``osm3s.timestamp_osm_base`` del
-    #: payload Overpass, che il contratto PoiSource oggi non trasporta).
+    #: di OSM ho ottenuto» — per quello vedi :attr:`taglio_osm` (#251).
     catturato_il: str
     #: Bbox interrogato, ``[min_lat, min_lon, max_lat, max_lon]``.
     bbox: list[float]
@@ -79,6 +79,11 @@ class SnapshotProvenance(TypedDict):
     #: ``None`` solo se il chiamante non l'ha dichiarata: lo slug del nome file è
     #: lossy, quindi senza questo campo il legame zona↔bbox non è verificabile.
     zona: str | None
+    #: Taglio del DB OSM dichiarato da Overpass e URL interrogato (#251). ``None``
+    #: quando l'``inner`` di :func:`capturing_source` non lo fornisce (un doppio
+    #: di test, o uno snapshot scritto prima di #251) — un dato mancante
+    #: dichiarato onestamente, non un placeholder fabbricato.
+    taglio_osm: TaglioOsm | None
     configurazione_canonica: ConfigurazioneCanonica
 
 
@@ -119,6 +124,7 @@ def save_snapshot(
     bbox: Bbox,
     citta: str,
     zona: str | None = None,
+    cut: TaglioOsm | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> None:
     """Serializza i POI e la loro provenienza su file (crea le cartelle).
@@ -127,7 +133,10 @@ def save_snapshot(
     interrogata non serve a nessuno, e renderli opzionali permetteva di scrivere
     un record con ``"bbox": null``. ``clock`` è iniettabile per i test — un
     callable e non una stringa, così l'istante non può essere fabbricato a mano:
-    è il campo su cui poggia l'onestà dell'artefatto.
+    è il campo su cui poggia l'onestà dell'artefatto. ``cut``, se noto, è il
+    taglio del DB OSM dichiarato da Overpass (#251); ``None`` quando il
+    chiamante non lo conosce (un doppio di test) resta un dato mancante
+    dichiarato, non un errore.
 
     Scrive con ``newline=""`` (nessuna traduzione): su Windows il default
     produceva CRLF nel working tree contro il blob LF in git, e con
@@ -141,6 +150,7 @@ def save_snapshot(
             "bbox": [bbox.min_lat, bbox.min_lon, bbox.max_lat, bbox.max_lon],
             "citta": citta,
             "zona": zona,
+            "taglio_osm": cut,
             "configurazione_canonica": {
                 "selettori_hash": _selettori_hash(),
                 "n_selettori": len(OSM_SELECTORS),
@@ -190,21 +200,39 @@ def replay_source(path: Path) -> PoiSource:
     return _source
 
 
-async def offline_fetch_pois(bbox: Bbox, citta: str) -> list[Poi]:
-    """Sorgente live della cattura: backoff lungo di cortesia (#232).
+def offline_source_con_taglio() -> tuple[PoiSource, Callable[[], TaglioOsm | None]]:
+    """Fabbrica una sorgente live della cattura, con backoff lungo di cortesia
+    (#232), che in più ricorda il taglio OSM dell'ultima chiamata (#251).
 
     Vive qui, accanto a :func:`capturing_source`, e non nel CLI: la politica di
-    ritentativo della cattura è una proprietà della cattura, e come default
-    dell'helper evita che un chiamante ottenga per distrazione quella
-    interattiva, che il 26/07 ha rinunciato al secondo tentativo (504 poi 429)
-    costringendo a un backoff scritto a mano fuori dal codice — cioè a una run
-    non riproducibile.
+    ritentativo della cattura è una proprietà della cattura. Ritorna una coppia
+    ``(sorgente, ultimo_taglio)`` invece di allargare il contratto ``PoiSource``:
+    quest'ultimo resta ``(bbox, citta) -> list[Poi]`` per non renderlo scomodo né
+    al percorso interattivo né ai doppi di test di :func:`capturing_source`, che
+    non hanno un taglio OSM da fornire e non devono fabbricarne uno finto. La
+    sorgente ritornata va passata a ``inner``, il getter a
+    ``ultimo_taglio_osm`` di :func:`capturing_source`.
+
+    Sicura solo per chiamate SEQUENZIALI sulla stessa coppia (il caso di
+    ``_capture``, un case alla volta): due chiamate concorrenti sulla stessa
+    istanza si scambierebbero il taglio letto dal getter.
     """
-    return await fetch_pois(bbox, citta, retry=OFFLINE_RETRY)
+    ultimo: list[TaglioOsm | None] = [None]
+
+    async def _source(bbox: Bbox, citta: str) -> list[Poi]:
+        pois, taglio = await fetch_pois_with_cut(bbox, citta, retry=OFFLINE_RETRY)
+        ultimo[0] = taglio
+        return pois
+
+    return _source, lambda: ultimo[0]
 
 
 def capturing_source(
-    path: Path, inner: PoiSource = offline_fetch_pois, *, zona: str | None = None
+    path: Path,
+    inner: PoiSource,
+    *,
+    zona: str | None = None,
+    ultimo_taglio_osm: Callable[[], TaglioOsm | None] | None = None,
 ) -> PoiSource:
     """PoiSource che chiama ``inner`` (Overpass reale) e salva lo snapshot.
 
@@ -212,11 +240,17 @@ def capturing_source(
     interrogata, non una ricostruita a posteriori. ``zona`` non è ricavabile né dal
     bbox né dai POI (lo slug del nome file è lossy), quindi va passata dal
     chiamante perché il legame zona↔bbox resti verificabile dal file.
+
+    ``ultimo_taglio_osm``, se fornito, è interrogato DOPO ``inner`` per leggere
+    il taglio del DB OSM dell'ultima chiamata (#251) e finisce nella provenienza
+    dello snapshot. Disaccoppiato apposta da ``inner``: i doppi di test esistenti
+    restano semplici ``PoiSource`` senza dover produrre un taglio che non usano.
     """
 
     async def _source(bbox: Bbox, citta: str) -> list[Poi]:
         pois = await inner(bbox, citta)
-        save_snapshot(path, pois, bbox=bbox, citta=citta, zona=zona)
+        taglio = ultimo_taglio_osm() if ultimo_taglio_osm is not None else None
+        save_snapshot(path, pois, bbox=bbox, citta=citta, zona=zona, cut=taglio)
         return pois
 
     return _source

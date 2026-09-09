@@ -395,19 +395,20 @@ async def test_capture_usa_la_politica_di_ritentativo_offline(
     politica OFFLINE.
 
     Non passa ``poi_source``: è l'unico modo di coprire la riga di cablaggio
-    (``inner = poi_source or offline_fetch_pois``). Un test che chiamasse
-    ``offline_fetch_pois`` direttamente lascerebbe verde un ritorno a
-    ``fetch_pois``, cioè il difetto di #232 intatto con del codice nuovo accanto.
+    (``offline_source_con_taglio()`` quando ``poi_source`` è ``None``). Un test
+    che chiamasse la sorgente offline direttamente lascerebbe verde un ritorno a
+    ``fetch_pois``/``fetch_pois_with_cut`` con la politica interattiva, cioè il
+    difetto di #232 intatto con del codice nuovo accanto.
     """
     visti: list[object] = []
 
     async def _spia(
         bbox: Bbox, citta: str, *args: object, **kwargs: object
-    ) -> list[Poi]:
+    ) -> tuple[list[Poi], object]:
         visti.append(kwargs.get("retry"))
-        return _sample_pois()
+        return _sample_pois(), {"timestamp_osm_base": None, "overpass_url": "x"}
 
-    monkeypatch.setattr(snapshots, "fetch_pois", _spia)
+    monkeypatch.setattr(snapshots, "fetch_pois_with_cut", _spia)
 
     config_path = _write_config(tmp_path, "Roma", "Centro")
     await _capture(config_path, tmp_path)
