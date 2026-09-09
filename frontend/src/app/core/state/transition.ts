@@ -46,10 +46,12 @@ export function transition(state: AppState, action: Action): AppState {
         // Le narrative POI (#197) sono ancorate al vicinato del contesto di zona appena
         // sostituito: tenerle mostrerebbe, sul POI di una zona nuova, un testo scritto per
         // un'altra. Si invalidano qui, non alla SELECT_POI, così il costo LLM resta pagato
-        // una volta sola per POI finché la zona non cambia.
-        poiNarratives: {},
-        poiNarrativeLoading: null,
-        poiNarrativeError: null,
+        // una volta sola per POI finché la zona non cambia. La pipeline base non mostra mai
+        // narrative POI e non sostituisce completoData: invalidarle anche lì butterebbe via
+        // testo già pagato in completo senza motivo (#245).
+        poiNarratives: action.pipeline === 'base' ? state.poiNarratives : {},
+        poiNarrativeLoading: action.pipeline === 'base' ? state.poiNarrativeLoading : null,
+        poiNarrativeError: action.pipeline === 'base' ? state.poiNarrativeError : null,
         // Narrativa di ZONA (#292): stesso ragionamento, un nuovo contesto rende in volo (se
         // ancora pendente) o già mostrato (se un errore era rimasto) irrilevante.
         zoneNarrativeLoading: false,
