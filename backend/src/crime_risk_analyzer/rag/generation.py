@@ -386,6 +386,15 @@ class RiskItem(BaseModel):
     hazard_label_en: str = Field(
         default="", description="Etichetta EN corretta dell'hazard (display)."
     )
+    source: str | None = Field(
+        default=None,
+        description=(
+            "Path SPARQL/citazione del rischio (#152): esiste già su "
+            "GroundedRisk ma veniva scartato qui — necessario per "
+            "l'annotazione gold per-rischio, che deve verificare la fonte "
+            "di CIASCUN rischio, non solo quella rappresentativa del POI."
+        ),
+    )
 
     @model_validator(mode="after")
     def _fill_labels(self) -> RiskItem:

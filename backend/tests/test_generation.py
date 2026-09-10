@@ -838,6 +838,15 @@ async def test_generation_result_json_shape() -> None:
         "prompt_hash": "abc123",
     }
 
+def test_risk_item_accepts_optional_source() -> None:
+    item = RiskItem(hazard="Robbery", confidence="verificato", tag="ONTOLOGIA", source="X → havingHazard → Robbery")
+    assert item.source == "X → havingHazard → Robbery"
+
+
+def test_risk_item_source_defaults_to_none() -> None:
+    item = RiskItem(hazard="Robbery", confidence="verificato", tag="ONTOLOGIA")
+    assert item.source is None
+
 
 # --- #184: guardia anti-scoring estesa ai modelli di rischio del generation ---
 # Stesso pattern exact-set di #118 (test_risk.py::PoiRiskProfile): un futuro campo
@@ -856,6 +865,7 @@ def test_risk_item_has_no_numeric_danger_scoring_field() -> None:
         "tag",
         "hazard_label_it",
         "hazard_label_en",
+        "source",
     }
 
 
