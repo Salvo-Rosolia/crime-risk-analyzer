@@ -15,6 +15,7 @@ from pathlib import Path
 
 from crime_risk_analyzer.eval.aggregate import load_runs
 from crime_risk_analyzer.eval.compare import (
+    OPERATIONAL_AXES_NOTE,
     VACUOUS_REASON,
     Comparison,
     MetricValues,
@@ -244,9 +245,10 @@ def verdict_na_markdown(
         f"{VACUOUS_REASON}. Quei valori entrano nella media che il criterio "
         "confronta, quindi dichiarare un vincitore premierebbe il silenzio: il "
         "verdetto è **trattenuto**. Il criterio lessicografico (#157) è definito "
-        "per il confronto tra modelli che generano ENTRAMBI. Restano confrontabili "
-        "le misure operative (latenza, costo) nelle tabelle sopra; la qualità "
-        "dell'interpretazione è materia di annotazione umana (#152).\n"
+        "per il confronto tra modelli che generano ENTRAMBI: questo report non "
+        "calcola né dichiara un esito, nemmeno sui soli assi operativi — "
+        f"{OPERATIONAL_AXES_NOTE}; la qualità dell'interpretazione è materia di "
+        "annotazione umana (#152).\n"
     )
 
 
