@@ -201,16 +201,19 @@ _OPERATIONAL_SPECS: tuple[_MetricSpec, ...] = (_LATENCY_SPEC, _COST_SPEC)
 #: Caveat metodologico stampato in coda al report Markdown (#33). ``grounding``
 #: e ``hallucination`` sono PROXY TESTUALI (stimati da pattern sui tag fonte e
 #: sui nomi POI/hazard in ``metrics.py``), non giudizi umani di qualità;
-#: ``latency_ms`` e ``cost_usd`` sono invece misure operative dirette. L'accordo
-#: proxy-vs-annotazione umana è validato a parte (``eval/gold.py``, #109).
+#: ``latency_ms`` e ``cost_usd`` sono invece misure operative dirette. Il
+#: confronto proxy-vs-annotazione umana PER-RUN su queste metriche aggregate
+#: e' stato rimosso (#152): ``eval/gold.py`` valida oggi a un'altra grana
+#: (per-rischio, non su grounding/hallucination aggregati per run).
 PROXY_CAVEAT = (
     "> **Nota metodologica.** `grounding` e `hallucination` sono *proxy "
     "testuali* (copertura delle citazioni e frazione di asserzioni non "
     "ancorate, stimate da pattern sui tag fonte e sui nomi POI/hazard), non "
     "giudizi umani di qualità: vanno letti come indicatori orientativi, non "
     "come verità. `latency_ms` e `cost_usd` sono invece misure operative "
-    "dirette. L'accordo proxy-vs-annotazione umana è validato separatamente "
-    "(`eval/gold.py`, #109)."
+    "dirette. Un accordo proxy-vs-annotazione umana su queste metriche "
+    "aggregate non è oggi validato: `eval/gold.py` (#152) annota a un'altra "
+    "grana, per-singolo-rischio citato in narrativa."
 )
 
 
