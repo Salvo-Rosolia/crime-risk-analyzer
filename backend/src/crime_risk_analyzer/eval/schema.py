@@ -167,7 +167,9 @@ class RunRecord(BaseModel):
             "per la stessa (citta, zona)). NON e' 'cosa l'LLM ha mantenuto': "
             "quella nozione (#152) si applica a valle, in eval/gold.py, "
             "incrociando questo campo con la narrativa via "
-            "metrics.hazards_cited_in. Lista vuota su status != OK."
+            "metrics.hazards_cited_in. Lista vuota su status=ERROR (nessuna "
+            "risposta strutturata da cui copiare); popolata anche su FALLBACK, "
+            "perche' il set grounded e' costruito prima della chiamata LLM."
         ),
     )
     provenance: Provenance

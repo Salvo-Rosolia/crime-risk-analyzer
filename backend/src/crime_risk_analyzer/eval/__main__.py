@@ -19,7 +19,6 @@ from crime_risk_analyzer.eval.cli import (
     ontology_hash,
 )
 from crime_risk_analyzer.eval.compare import NoUsableOutputError, compare_experiments
-from crime_risk_analyzer.eval.gold import write_agreement_report
 from crime_risk_analyzer.eval.harness import make_snapshot_key, run_experiment
 from crime_risk_analyzer.eval.repeated_comparison import build_repeated_report
 from crime_risk_analyzer.eval.snapshots import (
@@ -317,10 +316,6 @@ def main() -> int:
         else:
             graph = load_ontology(get_settings().ontology_path)
             build_report(results_dir, graph, ontology_hash())
-    elif ns.command == "gold":
-        write_agreement_report(
-            results_dir, experiment=ns.experiment, threshold=ns.threshold
-        )
     return 0
 
 
