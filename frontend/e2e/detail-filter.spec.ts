@@ -148,7 +148,7 @@ test.describe('RESULTS→FILTER: chip confidence', () => {
     await expect(S.poiCards(page)).toHaveCount(total);
     await expect(S.hiddenBar(page)).toHaveCount(0);
 
-    const chip = S.headerConfidenceChips(page).filter({ hasText: 'Verificato' });
+    const chip = S.headerConfidenceChips(page).filter({ hasText: 'Identificato' });
     await chip.click();
 
     // Card: le non corrispondenti sono escluse dal DOM (semantica "nascondi").

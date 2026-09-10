@@ -188,7 +188,7 @@ describe('BasePanelComponent', () => {
     fixture.componentRef.setInput('data', dataWithRows);
     fixture.detectChanges();
     const text = fixture.nativeElement.textContent;
-    expect(text).not.toContain('Verificato');
+    expect(text).not.toContain('Identificato');
     expect(text).not.toContain('Ipotesi');
     expect(text).not.toContain('Assegna pattuglia');
     expect(fixture.nativeElement.querySelectorAll('.cra-base-table [style*="color"]').length).toBe(

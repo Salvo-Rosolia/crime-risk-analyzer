@@ -64,6 +64,16 @@ class Metrics(BaseModel):
     hallucination: float = Field(
         ge=0.0, le=1.0, description="Tasso allucinazione [0,1]."
     )
+    quality_vacuous: bool | None = Field(
+        default=None,
+        description=(
+            "True se grounding/hallucination cadono nel ramo vacuo di "
+            "metrics.py::_grade (nessuna narrativa/ancoraggio da giudicare, non "
+            "qualita' reale, #240). None sui record pre-#240 (dato non "
+            "disponibile): NON equivale a False, che dichiara esplicitamente "
+            "che la run era gradabile."
+        ),
+    )
     latency_ms: int = Field(ge=0, description="Latenza end-to-end della pipeline.")
     cost_usd: float = Field(ge=0.0, description="Costo stimato in USD.")
 

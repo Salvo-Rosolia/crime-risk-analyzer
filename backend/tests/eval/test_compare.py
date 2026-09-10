@@ -18,12 +18,14 @@ from crime_risk_analyzer.eval.compare import (
     CONFOUNDED_VARIABLE_HEAD,
     ISOLATED_DELTA_CLAIM,
     ISOLATED_VARIABLE_HEAD,
+    OPERATIONAL_AXES_NOTE,
     PROMPT_LENGTH_SIDE_EFFECT,
     VACUOUS_CAVEAT_HEAD,
     VACUOUS_DELTA_CLAIM,
     Comparison,
     FailedZone,
     MetricValues,
+    NoUsableOutputError,
     ZoneComparison,
     compare_experiments,
     compare_records,
@@ -61,6 +63,7 @@ def _rec(
     snapshot_id: str | None = None,
     narrativa: str = "x",
     context_format: ContextFormat = "per_poi",
+    quality_vacuous: bool | None = None,
 ) -> RunRecord:
     """RunRecord minimale con metriche controllate per i test di confronto."""
     return RunRecord(
@@ -74,6 +77,7 @@ def _rec(
         metrics=Metrics(
             grounding=grounding,
             hallucination=hallucination,
+            quality_vacuous=quality_vacuous,
             latency_ms=latency_ms,
             cost_usd=cost_usd,
         ),
@@ -393,6 +397,44 @@ def test_raises_when_all_zones_fallback() -> None:
         compare_records(arm_a, arm_b, label_a="full", label_b="base")
 
 
+def test_no_usable_output_error_carries_label_and_failed_zones() -> None:
+    """#239: l'eccezione porta i dati per il report, non solo un messaggio."""
+    arm_a = [
+        _rec(
+            "full",
+            "Roma",
+            "Colosseo",
+            grounding=1.0,
+            hallucination=0.0,
+            latency_ms=0,
+            cost_usd=0.0,
+            status=RunStatus.FALLBACK,
+        )
+    ]
+    arm_b = [
+        _rec(
+            "base",
+            "Roma",
+            "Colosseo",
+            grounding=0.0,
+            hallucination=0.0,
+            latency_ms=0,
+            cost_usd=0.0,
+            mode="baseline",
+            status=RunStatus.ERROR,
+        )
+    ]
+    with pytest.raises(NoUsableOutputError) as excinfo:
+        compare_records(arm_a, arm_b, label_a="full", label_b="base")
+    exc = excinfo.value
+    assert exc.label_a == "full"
+    assert exc.label_b == "base"
+    assert len(exc.failed) == 1
+    assert exc.failed[0].citta == "Roma"
+    assert exc.failed[0].status_a == "fallback"
+    assert exc.failed[0].status_b == "error"
+
+
 def test_raises_when_all_zones_error() -> None:
     """Se non resta alcuna zona valida → errore esplicito (niente media su nulla)."""
     arm_a = [
@@ -625,6 +667,146 @@ def test_compare_experiments_custom_stem(tmp_path: Path) -> None:
     assert md_path == tmp_path / "mio-confronto.md"
 
 
+def _all_fallback_arm(experiment: str, mode: Mode) -> list[RunRecord]:
+    return [
+        _rec(
+            experiment,
+            "Roma",
+            "Colosseo",
+            grounding=1.0,
+            hallucination=0.0,
+            latency_ms=0,
+            cost_usd=0.0,
+            mode=mode,
+            status=RunStatus.FALLBACK,
+        ),
+        _rec(
+            experiment,
+            "Milano",
+            "Duomo",
+            grounding=1.0,
+            hallucination=0.0,
+            latency_ms=0,
+            cost_usd=0.0,
+            mode=mode,
+            status=RunStatus.ERROR,
+        ),
+    ]
+
+
+def test_compare_experiments_writes_report_and_raises_when_all_zones_fail(
+    tmp_path: Path,
+) -> None:
+    """#239: nessun output utilizzabile → report su disco, non un traceback nudo.
+
+    Entrambe le zone sono escluse (una FALLBACK, una ERROR su A): niente MEDIA,
+    niente tabella di metriche, nessun verdetto — solo le zone escluse.
+    """
+    for rec in _all_fallback_arm("full", "analyze"):
+        write_record(tmp_path, rec)
+    for rec in _all_fallback_arm("base", "baseline"):
+        write_record(tmp_path, rec)
+
+    with pytest.raises(NoUsableOutputError):
+        compare_experiments(
+            tmp_path, "full", "base", label_a="analyze", label_b="baseline"
+        )
+
+    csv_path = tmp_path / "full_vs_base.csv"
+    md_path = tmp_path / "full_vs_base.md"
+    json_path = tmp_path / "full_vs_base.json"
+    assert csv_path.exists()
+    assert md_path.exists()
+    assert json_path.exists()
+
+    csv_text = csv_path.read_text(encoding="utf-8")
+    assert "Roma" in csv_text
+    assert "Milano" in csv_text
+    assert "MEDIA" not in csv_text  # nessuna media: non c'è nulla da mediare
+
+    md_text = md_path.read_text(encoding="utf-8")
+    assert "Nessun output utilizzabile" in md_text
+    assert "Nessun verdetto" in md_text
+    assert "grounding" not in md_text.lower()  # nessuna tabella di metriche
+
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert payload["winner"] is None
+    assert payload["quality_verdict_applicable"] is False
+    assert len(payload["failed"]) == 2
+
+
+def test_compare_experiments_still_raises_no_usable_output_if_report_write_fails(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    """#239 (follow-up review): un OSError nella scrittura del report non deve
+    sostituire NoUsableOutputError — altrimenti il CLI perde l'exit code pulito
+    e torna a un traceback non gestito (esattamente ciò che #239 doveva evitare).
+    """
+    import crime_risk_analyzer.eval.compare as compare_mod
+
+    for rec in _all_fallback_arm("full", "analyze"):
+        write_record(tmp_path, rec)
+    for rec in _all_fallback_arm("base", "baseline"):
+        write_record(tmp_path, rec)
+
+    def _boom(*args: object, **kwargs: object) -> None:
+        raise OSError("disco pieno (simulato)")
+
+    monkeypatch.setattr(compare_mod, "write_no_usable_output_report", _boom)
+
+    with pytest.raises(NoUsableOutputError):
+        compare_experiments(
+            tmp_path, "full", "base", label_a="analyze", label_b="baseline"
+        )
+    # Nessun file scritto: _boom ha sostituito la scrittura reale.
+    assert not (tmp_path / "full_vs_base.md").exists()
+
+
+def test_compare_experiments_propagates_file_exists_error_from_report_write(
+    tmp_path: Path,
+) -> None:
+    """La guardia anti-sovrascrittura resta prioritaria anche su questo ramo."""
+    for rec in _all_fallback_arm("full", "analyze"):
+        write_record(tmp_path, rec)
+    for rec in _all_fallback_arm("base", "baseline"):
+        write_record(tmp_path, rec)
+    (tmp_path / "full_vs_base.csv").write_text("gia' presente", encoding="utf-8")
+
+    with pytest.raises(FileExistsError):
+        compare_experiments(
+            tmp_path, "full", "base", label_a="analyze", label_b="baseline"
+        )
+
+
+def test_main_compare_returns_1_on_no_usable_output(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    """#239: il comando CLI `compare` segnala il fallimento con exit code 1."""
+    import sys
+
+    import crime_risk_analyzer.eval.__main__ as eval_main
+
+    for rec in _all_fallback_arm("full", "analyze"):
+        write_record(tmp_path, rec)
+    for rec in _all_fallback_arm("base", "baseline"):
+        write_record(tmp_path, rec)
+
+    argv = [
+        "crime_risk_analyzer.eval",
+        "compare",
+        "--experiment-a",
+        "full",
+        "--experiment-b",
+        "base",
+        "--results",
+        str(tmp_path),
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+    rc = eval_main.main()
+    assert rc == 1
+    assert (tmp_path / "full_vs_base.md").exists()
+
+
 def test_main_compare_dispatch_writes_tables(
     tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:
@@ -811,6 +993,20 @@ def test_markdown_marks_quality_axes_not_applicable_for_vacuous_arm() -> None:
     assert md.index(VACUOUS_CAVEAT_HEAD) < md.index("Nota metodologica")
 
 
+def test_markdown_does_not_claim_operational_axes_are_compared_when_vacuous() -> None:
+    """#237: il caveat di vacuità non deve promettere un confronto operativo che
+    non viene mai dichiarato — solo dati grezzi leggibili nelle tabelle."""
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo")],
+        [_silent_rec("Roma", "Colosseo")],
+        label_a="analyze",
+        label_b="baseline",
+    )
+    md = to_markdown(comparison)
+    assert OPERATIONAL_AXES_NOTE in md
+    assert "restano confrontabili" not in md.lower()
+
+
 def test_markdown_has_no_quality_caveat_when_both_arms_generate() -> None:
     comparison = compare_records(
         [_analyze_rec("Roma", "Colosseo")],
@@ -844,6 +1040,38 @@ def test_compare_records_flags_the_single_zone_where_an_arm_stays_silent() -> No
     assert [(z.citta, z.zona, z.arms) for z in comparison.vacuous_zones] == [
         ("Roma", "Colosseo", ["baseline"])
     ]
+
+
+def test_compare_records_flags_zone_vacuous_for_no_anchors_not_just_silence() -> None:
+    """#240: ``has_narrativa`` da sola non copre "narrativa piena ma zona senza
+    POI/ancoraggi da citare" — lo dichiarava il suo stesso confine (docstring
+    pre-#240 di ``is_vacuous_arm``). Un record con narrativa NON vuota ma
+    ``metrics.quality_vacuous=True`` (il ramo vacuo di ``metrics.py::_grade`` per
+    assenza di ancoraggi) deve comunque finire in ``vacuous_zones``: prima del
+    fix qui sarebbe passato inosservato perche' il testo c'era.
+    """
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo")],
+        [
+            _rec(
+                "no-anchors-exp",
+                "Roma",
+                "Colosseo",
+                grounding=1.000,
+                hallucination=0.000,
+                latency_ms=5,
+                cost_usd=0.001,
+                narrativa="Qualcosa accade nella zona, ma non ci sono POI da citare.",
+                quality_vacuous=True,
+            )
+        ],
+        label_a="analyze",
+        label_b="no-anchors",
+    )
+    assert [(z.citta, z.zona, z.arms) for z in comparison.vacuous_zones] == [
+        ("Roma", "Colosseo", ["no-anchors"])
+    ]
+    assert comparison.vacuous_arms == ["no-anchors"]
 
 
 def test_compare_records_has_no_vacuous_zones_when_both_arms_speak_everywhere() -> None:

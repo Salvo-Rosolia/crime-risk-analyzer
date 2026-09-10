@@ -91,7 +91,15 @@ class AnalyzeRequest(BaseModel):
 
 
 class BaselineRequest(BaseModel):
-    """Body di ``POST /analyze/baseline`` (ablation, senza LLM)."""
+    """Body di ``POST /analyze/baseline`` (ablation, senza LLM).
+
+    Porta ``tipo_poi`` ma non ``domanda``: l'asimmetria con ``ZoneNarrativeRequest``
+    (che porta ``domanda`` ma non ``tipo_poi``) rende il confronto braccio-completo
+    vs baseline non iso-input su questi due parametri (#263). Chiuderla richiede
+    prima la decisione sul contratto di ``tipo_poi`` fra frontend e backend (#143):
+    finché resta aperta, l'asimmetria è documentata qui e nel test
+    ``test_baseline_request_surface_is_citta_zona_tipo_poi``, non colmata.
+    """
 
     citta: str = Field(
         max_length=100,
