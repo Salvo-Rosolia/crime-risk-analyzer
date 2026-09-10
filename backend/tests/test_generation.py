@@ -860,8 +860,14 @@ async def test_generation_result_json_shape() -> None:
         "prompt_hash": "abc123",
     }
 
+
 def test_risk_item_accepts_optional_source() -> None:
-    item = RiskItem(hazard="Robbery", confidence="verificato", tag="ONTOLOGIA", source="X → havingHazard → Robbery")
+    item = RiskItem(
+        hazard="Robbery",
+        confidence="verificato",
+        tag="ONTOLOGIA",
+        source="X → havingHazard → Robbery",
+    )
     assert item.source == "X → havingHazard → Robbery"
 
 
