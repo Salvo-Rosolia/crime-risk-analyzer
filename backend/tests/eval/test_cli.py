@@ -229,6 +229,22 @@ def test_parser_accepts_gold_sample() -> None:
     assert ns.mode == "analyze"
 
 
+def test_parser_gold_sample_force_defaults_false() -> None:
+    """Il foglio annotato a mano si sovrascrive solo con --force esplicito."""
+    parser = build_parser()
+    assert parser.parse_args(["gold-sample", "--results", "r"]).force is False
+    assert parser.parse_args(["gold-sample", "--results", "r", "--force"]).force is True
+
+
+def test_parser_gold_sample_rejects_unknown_mode() -> None:
+    """--mode e' vincolato ad ``analyze``: un typo (o un braccio diverso)
+    produrrebbe altrimenti in silenzio un foglio vuoto o privo di senso — il
+    meccanismo e' definito sul blocco [ONTOLOGIA] del braccio di prodotto."""
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["gold-sample", "--results", "r", "--mode", "baseline"])
+
+
 def test_parser_accepts_gold_report() -> None:
     """gold-report: calcola il report di precisione dal foglio annotato."""
     parser = build_parser()

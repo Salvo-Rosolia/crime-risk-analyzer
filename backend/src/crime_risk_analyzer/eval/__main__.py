@@ -19,7 +19,12 @@ from crime_risk_analyzer.eval.cli import (
     ontology_hash,
 )
 from crime_risk_analyzer.eval.compare import NoUsableOutputError, compare_experiments
-from crime_risk_analyzer.eval.gold import write_gold_worksheet, write_precision_report
+from crime_risk_analyzer.eval.gold import (
+    WORKSHEET_FILENAME,
+    collect_kept_risks,
+    write_gold_worksheet,
+    write_precision_report,
+)
 from crime_risk_analyzer.eval.harness import make_snapshot_key, run_experiment
 from crime_risk_analyzer.eval.repeated_comparison import build_repeated_report
 from crime_risk_analyzer.eval.snapshots import (
@@ -320,12 +325,20 @@ def main() -> int:
     elif ns.command == "gold-sample":
         records = load_runs(results_dir, experiment=ns.experiment)
         records = [r for r in records if r.mode == ns.mode]
-        write_gold_worksheet(results_dir, records)
+        path = write_gold_worksheet(results_dir, records, force=ns.force)
+        # Il conteggio a schermo (non solo nel log, che di default è WARNING —
+        # stesso motivo del riepilogo di ``_capture``): un foglio col solo
+        # header ed exit code 0 è altrimenti indistinguibile da un successo
+        # con dati, finché qualcuno non apre il file. ``collect_kept_risks`` è
+        # pura e già girata dentro ``write_gold_worksheet``: ricalcolarla qui
+        # non aggiunge I/O e tiene la firma della funzione a un solo valore.
+        n_rows = len(collect_kept_risks(records))
+        print(f"foglio scritto: {path} (rischi da annotare: {n_rows})")
     elif ns.command == "gold-report":
         worksheet = (
             Path(ns.worksheet)
             if ns.worksheet
-            else results_dir / "gold" / "rischi_da_annotare.csv"
+            else results_dir / "gold" / WORKSHEET_FILENAME
         )
         write_precision_report(results_dir, worksheet)
     return 0

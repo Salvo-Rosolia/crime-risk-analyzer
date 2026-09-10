@@ -90,6 +90,13 @@ def collect_kept_risks(records: list[RunRecord]) -> list[KeptRiskRow]:
     return rows
 
 
+#: Nome del foglio di annotazione sotto ``results/gold/``. Costante condivisa:
+#: il default di ``--worksheet`` in ``eval/__main__.py`` deve puntare allo
+#: STESSO file che ``write_gold_worksheet`` scrive — ripetere la stringa nei
+#: due punti lascerebbe ``gold-report`` a leggere un path che non esiste al
+#: primo rinomino.
+WORKSHEET_FILENAME = "rischi_da_annotare.csv"
+
 _WORKSHEET_COLUMNS = [
     "run_id",
     "citta",
@@ -122,17 +129,30 @@ def _worksheet_cells(row: KeptRiskRow) -> list[str]:
     ]
 
 
-def write_gold_worksheet(results_dir: Path, records: list[RunRecord]) -> Path:
+def write_gold_worksheet(
+    results_dir: Path, records: list[RunRecord], *, force: bool = False
+) -> Path:
     """Scrive ``results/gold/rischi_da_annotare.csv`` (colonne di giudizio vuote).
 
     Lavora su ``records`` gia' in memoria (il chiamante CLI li carica a monte
     con ``aggregate.load_runs``), come :func:`collect_kept_risks`, per restare
     testabile senza I/O.
+
+    Rifiuta di sovrascrivere un foglio esistente e non vuoto senza ``force``
+    (stessa guardia di ``capture``/``compare``): qui il contenuto perso e' il
+    lavoro di annotazione MANUALE dell'autore, che nessun re-run puo'
+    ricostruire. Un file di dimensione zero (scrittura interrotta) non contiene
+    giudizi da proteggere e viene rimpiazzato senza chiedere.
     """
     rows = collect_kept_risks(records)
     out_dir = results_dir / "gold"
+    path = out_dir / WORKSHEET_FILENAME
+    if not force and path.exists() and path.stat().st_size > 0:
+        raise FileExistsError(
+            f"il foglio {path} esiste già e potrebbe contenere annotazioni "
+            "manuali. Usa --force per sovrascriverlo."
+        )
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / "rischi_da_annotare.csv"
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(_WORKSHEET_COLUMNS)
@@ -144,16 +164,43 @@ def write_gold_worksheet(results_dir: Path, records: list[RunRecord]) -> Path:
     return path
 
 
+#: Token accettati nella colonna ``fonte_verificata``, compilata A MANO: chi
+#: annota scrive in italiano ("vero", "sì", "x") o in inglese, non solo il
+#: ``true``/``false`` che questo modulo serializza. Confronto su valore
+#: strippato e minuscolo.
+_TRUE_TOKENS = frozenset({"true", "vero", "v", "1", "si", "sì", "s", "x", "yes", "y"})
+_FALSE_TOKENS = frozenset({"false", "falso", "f", "0", "no", "n"})
+
+
+def _parse_fonte_verificata(raw: str, *, run_id: str) -> bool | None:
+    """Interpreta una cella ``fonte_verificata`` compilata a mano.
+
+    Fail-loud sui valori fuori vocabolario invece di collassarli a ``False``:
+    un "vero" letto come falso gonfierebbe in silenzio
+    ``allucinazioni_residue`` — il numero per cui l'intero meccanismo esiste.
+    Cella vuota = "nessuno ha ancora guardato" (``None``), non "la fonte non
+    regge".
+    """
+    value = raw.strip().lower()
+    if value == "":
+        return None
+    if value in _TRUE_TOKENS:
+        return True
+    if value in _FALSE_TOKENS:
+        return False
+    raise ValueError(
+        f"valore fonte_verificata non riconosciuto: {value!r} (run_id={run_id!r}); "
+        f"ammessi: {sorted(_TRUE_TOKENS)} / {sorted(_FALSE_TOKENS)} / vuoto"
+    )
+
+
 def load_worksheet(path: Path) -> list[KeptRiskRow]:
     """Rilegge un foglio (eventualmente compilato) da disco."""
     rows: list[KeptRiskRow] = []
     with path.open(encoding="utf-8", newline="") as fh:
         for record in csv.DictReader(fh):
-            verificata_raw = (record.get("fonte_verificata") or "").strip().lower()
-            fonte_verificata = (
-                None
-                if verificata_raw == ""
-                else verificata_raw in ("true", "1", "si", "sì")
+            fonte_verificata = _parse_fonte_verificata(
+                record.get("fonte_verificata") or "", run_id=record["run_id"]
             )
             rows.append(
                 KeptRiskRow(
@@ -191,7 +238,7 @@ def build_precision_report(rows: list[KeptRiskRow]) -> PrecisionReport:
     ``None`` (non ``0.0``) quando ``n_annotati == 0``: una percentuale a zero
     affermerebbe "nessuna fonte regge" quando in realta' nessuno ha ancora
     guardato — stesso principio gia' applicato a ``Metrics.quality_vacuous``
-    (#240) e a ``MetricAgreement.pearson`` nel modulo precedente.
+    (#240).
     """
     annotati = [r for r in rows if r.fonte_verificata is not None]
     n_annotati = len(annotati)

@@ -113,7 +113,15 @@ def build_parser() -> argparse.ArgumentParser:
     gold_sample = sub.add_parser("gold-sample")
     gold_sample.add_argument("--results", default="results")
     gold_sample.add_argument("--experiment", default=None)
-    gold_sample.add_argument("--mode", default="analyze")
+    # choices vincolato: il meccanismo è definito sul blocco [ONTOLOGIA] del
+    # braccio di prodotto, quindi un typo (o --mode baseline) produrrebbe in
+    # silenzio un foglio vuoto o privo di senso invece di un errore.
+    gold_sample.add_argument("--mode", default="analyze", choices=["analyze"])
+    gold_sample.add_argument(
+        "--force",
+        action="store_true",
+        help="sovrascrive il foglio esistente (perde le annotazioni manuali)",
+    )
     gold_report = sub.add_parser("gold-report")
     gold_report.add_argument("--results", default="results")
     gold_report.add_argument("--worksheet", default=None)
