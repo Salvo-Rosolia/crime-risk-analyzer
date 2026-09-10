@@ -1028,6 +1028,12 @@ def test_repeated_report_withholds_verdict_when_a_single_zone_is_vacuous(
     md = md_path.read_text(encoding="utf-8")
     assert "ha scorato meglio" not in md
     assert "NON APPLICABILE" in md
+    # #237: la prosa non deve promettere un esito operativo che non viene mai
+    # calcolato né stampato — "confrontabili" implicherebbe un confronto fatto.
+    # Case-insensitive: la stessa dicitura poteva sopravvivere altrove con
+    # capitalizzazione diversa (a inizio frase vs a metà frase).
+    assert "restano confrontabili" not in md.lower()
+    assert "non calcola né dichiara un esito" in md
     payload = json.loads(json_path.read_text(encoding="utf-8"))
     assert payload["winner"] is None
     assert payload["quality_verdict"]["applicable"] is False
@@ -1037,7 +1043,9 @@ def test_repeated_report_withholds_verdict_when_a_single_zone_is_vacuous(
 def test_repeated_report_keeps_operational_table_when_verdict_withheld(
     tmp_path: Path,
 ) -> None:
-    """Il report promette che latenza e costo restano confrontabili: verificalo."""
+    """La tabella dei valori operativi resta visibile col verdetto trattenuto:
+    nessun confronto è dichiarato su di essi (#237), ma i dati grezzi restano
+    leggibili."""
     _write_arm(
         tmp_path,
         _arm("analyze-exp", "llama-3.3-70b-versatile", (0.84, 0.16, 22697, 0.005)),

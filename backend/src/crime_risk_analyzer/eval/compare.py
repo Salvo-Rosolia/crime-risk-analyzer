@@ -207,6 +207,18 @@ VACUOUS_REASON = (
     "(1.0/0.0 perché non c'è testo da giudicare), che non è un merito"
 )
 
+#: Cosa dire delle misure operative (latenza, costo) quando gli assi di qualità
+#: sono vacui: sono numeri grezzi leggibili nelle tabelle, non un confronto
+#: dichiarato su di essi — dirlo con "restano confrontabili" prometterebbe un
+#: esito che il report non calcola né stampa (#237). Fonte unica del wording,
+#: condivisa fra il caveat delle tabelle qui sotto e la sezione «verdetto
+#: trattenuto» del report ripetuto: stesso motivo del pattern già usato per
+#: VACUOUS_REASON, per non lasciare che le due formulazioni divergano di nuovo.
+OPERATIONAL_AXES_NOTE = (
+    "i valori operativi (latenza, costo) restano leggibili nelle tabelle, letti "
+    "direttamente e non come un confronto dichiarato"
+)
+
 
 #: Titolo della dichiarazione di variabile isolata (#236). Come l'avviso di
 #: vacuità apre il report: chi legge deve sapere COSA distingue i due bracci
@@ -475,8 +487,7 @@ def _vacuous_caveat(vacuous_arms: list[str], vacuous_zones: list[VacuousZone]) -
     return (
         f"{VACUOUS_CAVEAT_HEAD} {vacuity_subject(vacuous_arms, vacuous_zones)}: "
         f"{VACUOUS_REASON}. Su questi assi il confronto NON è interpretabile in "
-        "nessuna direzione; restano confrontabili le misure operative (latenza, "
-        "costo)."
+        f"nessuna direzione; {OPERATIONAL_AXES_NOTE}."
     )
 
 
@@ -600,7 +611,8 @@ def compare_records(
     ``Comparison.vacuous_arms`` (#231): lì le metriche di qualità sono vacue, non
     un merito, e a valle nessun verdetto va emesso su quegli assi. Non è un
     errore e non esclude zone: le misure operative (latenza, costo) restano
-    valide e confrontabili.
+    valide, ma nessun confronto viene dichiarato su di esse (#237) — vanno
+    lette direttamente nelle tabelle.
 
     Solleva :class:`ValueError` se: un braccio ha record duplicati per una zona;
     i due bracci coprono zone diverse (iso-input violato); una zona appaiata ha

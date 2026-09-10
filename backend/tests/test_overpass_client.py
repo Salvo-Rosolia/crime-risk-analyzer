@@ -22,6 +22,7 @@ from crime_risk_analyzer.overpass_client import (
     OverpassError,
     Poi,
     fetch_pois,
+    fetch_pois_with_cut,
 )
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "overpass_sample.json"
@@ -199,7 +200,40 @@ async def test_fetch_pois_deduplica_elementi_emessi_da_piu_blocchi() -> None:
 
     pois = await fetch_pois(_BBOX, "Roma")
 
-    assert [p["id"] for p in pois] == ["23590989"]
+    assert [p["id"] for p in pois] == ["way/23590989"]
+
+
+@respx.mock
+async def test_fetch_pois_node_and_way_with_same_number_do_not_collide() -> None:
+    """Un node e un way con lo stesso numero OSM non condividono lo stesso id (#265).
+
+    node e way vivono in namespace OSM separati: senza il tipo di elemento
+    nell'id del POI, i rischi verrebbero attribuiti (da #255) al punto sbagliato
+    ogni volta che i due numeri combaciano.
+    """
+    lat, lon = _BBOX.center()
+    nodo: dict[str, object] = {
+        "type": "node",
+        "id": 123,
+        "lat": lat,
+        "lon": lon,
+        "tags": {"amenity": "bank", "name": "Banca (node)"},
+    }
+    via: dict[str, object] = {
+        "type": "way",
+        "id": 123,
+        "center": {"lat": lat, "lon": lon},
+        "tags": {"tourism": "museum", "name": "Museo (way)"},
+    }
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json={"elements": [nodo, via]})
+    )
+
+    pois = await fetch_pois(_BBOX, "Roma")
+
+    ids = {p["id"] for p in pois}
+    assert ids == {"node/123", "way/123"}
+    assert len(pois) == 2
 
 
 @respx.mock
@@ -213,6 +247,7 @@ async def test_fetch_pois_keeps_the_nearest_even_if_emitted_last() -> None:
     lat, lon = _BBOX.center()
     elements: list[dict[str, object]] = [
         {
+            "type": "node",
             "id": 1000 + i,
             "lat": lat + 0.01,
             "lon": lon,
@@ -222,6 +257,7 @@ async def test_fetch_pois_keeps_the_nearest_even_if_emitted_last() -> None:
     ]
     elements.append(
         {
+            "type": "node",
             "id": 9999,
             "lat": lat,
             "lon": lon,
@@ -235,7 +271,7 @@ async def test_fetch_pois_keeps_the_nearest_even_if_emitted_last() -> None:
     pois = await fetch_pois(_BBOX, "Roma")
 
     assert len(pois) == MAX_POIS
-    assert pois[0]["id"] == "9999"
+    assert pois[0]["id"] == "node/9999"
     assert "Museum" in {p["terminus_class"] for p in pois}
 
 
@@ -248,9 +284,9 @@ async def test_fetch_pois_maps_contract_fields() -> None:
 
     pois = await fetch_pois(_BBOX, "Roma")
 
-    bank = next(p for p in pois if p["id"] == "1001")
+    bank = next(p for p in pois if p["id"] == "node/1001")
     assert bank == {
-        "id": "1001",
+        "id": "node/1001",
         "name": "Banca Intesa Sanpaolo",
         "lat": pytest.approx(41.8902),
         "lon": pytest.approx(12.4922),
@@ -258,6 +294,51 @@ async def test_fetch_pois_maps_contract_fields() -> None:
         "terminus_class": "Bank",
         "citta": "Roma",
     }
+
+
+@respx.mock
+async def test_fetch_pois_with_cut_estrae_il_taglio_osm_dal_payload() -> None:
+    """#251: il taglio dichiarato da Overpass in ``osm3s`` diventa TaglioOsm."""
+    payload = {**_sample(), "osm3s": {"timestamp_osm_base": "2026-07-26T17:42:03Z"}}
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json=payload)
+    )
+
+    pois, taglio = await fetch_pois_with_cut(_BBOX, "Roma")
+
+    assert pois  # stesso bacino di fetch_pois, non è questo il punto del test
+    assert taglio == {
+        "timestamp_osm_base": "2026-07-26T17:42:03Z",
+        "overpass_url": DEFAULT_OVERPASS_URL,
+    }
+
+
+@respx.mock
+async def test_fetch_pois_with_cut_assente_quando_payload_non_lo_dichiara() -> None:
+    """Payload senza ``osm3s``/``timestamp_osm_base``: taglio assente, non un errore."""
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json=_sample())
+    )
+
+    pois, taglio = await fetch_pois_with_cut(_BBOX, "Roma")
+
+    assert pois
+    assert taglio["timestamp_osm_base"] is None
+    assert taglio["overpass_url"] == DEFAULT_OVERPASS_URL
+
+
+@respx.mock
+async def test_fetch_pois_scarta_il_taglio_e_si_comporta_come_prima() -> None:
+    """fetch_pois resta un involucro che ritorna solo la lista di POI (#251)."""
+    payload = {**_sample(), "osm3s": {"timestamp_osm_base": "2026-07-26T17:42:03Z"}}
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json=payload)
+    )
+
+    pois = await fetch_pois(_BBOX, "Roma")
+
+    assert isinstance(pois, list)
+    assert pois and "terminus_class" in pois[0]
 
 
 @respx.mock
@@ -270,9 +351,9 @@ async def test_fetch_pois_enriches_terminus_class() -> None:
     pois = await fetch_pois(_BBOX, "Roma")
     by_id = {p["id"]: p for p in pois}
 
-    assert by_id["1002"]["terminus_class"] == "Museum"
-    assert by_id["1003"]["terminus_class"] == "GenericUrbanPOI"
-    assert by_id["2001"]["terminus_class"] == "Railway_station"
+    assert by_id["node/1002"]["terminus_class"] == "Museum"
+    assert by_id["node/1003"]["terminus_class"] == "GenericUrbanPOI"
+    assert by_id["way/2001"]["terminus_class"] == "Railway_station"
 
 
 @respx.mock
@@ -285,9 +366,9 @@ async def test_fetch_pois_uses_way_center_and_skips_untagged() -> None:
     pois = await fetch_pois(_BBOX, "Roma")
     by_id = {p["id"]: p for p in pois}
 
-    assert "1004" not in by_id  # nodo senza tag scartato
-    assert by_id["2001"]["lat"] == pytest.approx(41.8920)
-    assert by_id["2001"]["lon"] == pytest.approx(12.4940)
+    assert "node/1004" not in by_id  # nodo senza tag scartato
+    assert by_id["way/2001"]["lat"] == pytest.approx(41.8920)
+    assert by_id["way/2001"]["lon"] == pytest.approx(12.4940)
 
 
 @respx.mock
@@ -915,6 +996,31 @@ async def test_fetch_pois_element_without_coords_or_center_is_skipped() -> None:
 
 
 @respx.mock
+async def test_fetch_pois_element_without_type_is_skipped() -> None:
+    """Elemento senza ``type`` viene scartato invece di produrre un id ``"/123"``.
+
+    Un fallback silenzioso a stringa vuota riaprirebbe la stessa collisione fra
+    ``id`` diversi che #265 chiude: due elementi ugualmente privi di ``type``
+    finirebbero entrambi su ``"/<numero>"``.
+    """
+    payload = {
+        "elements": [
+            {
+                "id": 55,
+                "lat": 41.0,
+                "lon": 12.0,
+                "tags": {"amenity": "bank", "name": "X"},
+            }
+        ]
+    }
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json=payload)
+    )
+
+    assert await fetch_pois(_BBOX, "Roma") == []
+
+
+@respx.mock
 async def test_fetch_pois_way_without_coords_is_skipped() -> None:
     """Way con center privo di coordinate numeriche viene scartato."""
     payload = {
@@ -975,7 +1081,7 @@ async def test_fetch_pois_skips_non_dict_elements() -> None:
 
     pois = await fetch_pois(_BBOX, "Roma")
     assert len(pois) == 1
-    assert pois[0]["id"] == "1"
+    assert pois[0]["id"] == "node/1"
 
 
 @pytest.mark.integration
