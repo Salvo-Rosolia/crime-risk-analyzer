@@ -392,7 +392,12 @@ class RiskItem(BaseModel):
             "Path SPARQL/citazione del rischio (#152): esiste già su "
             "GroundedRisk ma veniva scartato qui — necessario per "
             "l'annotazione gold per-rischio, che deve verificare la fonte "
-            "di CIASCUN rischio, non solo quella rappresentativa del POI."
+            "di CIASCUN rischio, non solo quella rappresentativa del POI. "
+            "Campo EVAL-ONLY: lo consuma solo eval/gold.py. Viaggia anche "
+            "nella risposta di /analyze (è lo stesso modello) ma la UI non "
+            "lo legge e non esiste un tipo TypeScript gemello lato "
+            "frontend: l'assenza è deliberata, non un disallineamento da "
+            "colmare."
         ),
     )
 

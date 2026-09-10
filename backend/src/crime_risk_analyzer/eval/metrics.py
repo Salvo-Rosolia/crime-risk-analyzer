@@ -13,13 +13,18 @@ dell'esperimento, misurare quanto quel blocco resti ancorato quando i dati ancor
 arrivano nel prompt. L'``overview`` di sintesi e il blocco
 ``[CONTESTO]`` sono INTERPRETAZIONE dell'LLM (conoscenza generale, non un dato
 ontologico): la loro qualita'/fabbricazione NON e' gradabile da un proxy deterministico
-di ancoraggio ed e' delegata al gold umano (#109/#152), oltre a essere frenata a monte
-dal prompt (regola 2 + ``[CONTESTO]`` "senza inventare"). L'attribuzione della fonte e'
-per BLOCCO (header #196), non per tag inline: il proxy v1 (pre-#229) cercava ``[TAG]``
-nella singola frase e, con i tag ora solo negli header, era mal-calibrato su output
-reale — motivo del cambio (non una regressione). La validazione dell'accordo
-proxy-vs-annotazione gold umana vive in ``eval/gold.py`` (#109), da rifare su questa
-definizione prima di un claim forte.
+di ancoraggio e oggi non ha nessuna misura dedicata (vedi sotto), oltre a essere frenata
+a monte dal prompt (regola 2 + ``[CONTESTO]`` "senza inventare"). L'attribuzione della
+fonte e' per BLOCCO (header #196), non per tag inline: il proxy v1 (pre-#229) cercava
+``[TAG]`` nella singola frase e, con i tag ora solo negli header, era mal-calibrato su
+output reale — motivo del cambio (non una regressione).
+
+**Cosa NON e' validato.** L'accordo fra questo proxy e un giudizio umano d'insieme non
+e' misurato da nessuna parte: la correlazione per-run (#109) e' stata RIMOSSA con #152 e
+non sostituita da un equivalente diretto. ``eval/gold.py`` valida a un'altra grana — la
+fonte del singolo rischio citato nel blocco misurato
+(:func:`~crime_risk_analyzer.eval.gold.collect_kept_risks`) — che e' una domanda
+diversa. Un claim forte su questi numeri resta quindi privo di un ancoraggio umano.
 
 **Come il braccio entra nel calcolo (#236).** Dal ``mode`` della run si ricava la sola
 riga-etichetta da cercare (:data:`_MEASURED_TOKEN_BY_MODE`); la formula non cambia, e
@@ -202,8 +207,10 @@ def hallucination(resp: AnalyzeResponse, *, mode: Mode = _DEFAULT_MODE) -> float
     (invariante #109 preservato DENTRO il layer con backing). Rami vacui → 0.0;
     narrativa piena senza asserzioni nel blocco → 1.0 (non-attribuzione).
     La fabbricazione nell'interpretazione ``[CONTESTO]`` NON e' rilevata dal proxy
-    (delegata al gold umano #109/#152): la validazione proxy-vs-gold resta in
-    :mod:`crime_risk_analyzer.eval.gold`, da rifare su questa definizione.
+    e non ha oggi nessuna validazione umana dedicata: l'annotazione gold di #152
+    (:mod:`crime_risk_analyzer.eval.gold`) verifica la fonte dei rischi CITATI nel
+    blocco misurato, che e' una domanda diversa da "il ``[CONTESTO]`` ha inventato
+    qualcosa?". Il buco e' dichiarato, non pianificato.
 
     ``mode`` come in :func:`grounding`.
     """
