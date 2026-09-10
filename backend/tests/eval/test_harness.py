@@ -136,6 +136,154 @@ async def test_run_experiment_writes_records(
     assert records[0].metrics.latency_ms >= 0
 
 
+# --- #267: la run che rigioca uno snapshot riporta la SUA provenienza, non
+# solo il commit di chi la esegue --- (evita che due politiche di selezione
+# diverse finiscano nello stesso esperimento senza alcun segnale)
+
+
+async def test_run_experiment_riporta_la_provenienza_dello_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg = ExperimentConfig(
+        name="exp",
+        mode="analyze",
+        model="claude",
+        cases=[RunCase(citta="Roma", zona="Centro")],
+    )
+    scrivi_snapshot(
+        snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
+    )
+
+    from crime_risk_analyzer.rag import retrieval
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
+
+    from tests.eval._doubles import FakeLLMClient, FakeProfiler
+
+    records = await run_experiment(
+        cfg,
+        executor=FakeProfiler(),
+        llm_client=FakeLLMClient(),
+        results_dir=tmp_path,
+        code_commit="abc",
+        ontology_hash="def",
+    )
+    prov = records[0].provenance
+    assert prov.snapshot_catturato_il is not None
+    assert prov.snapshot_configurazione_canonica is not None
+
+
+async def test_run_experiment_avvisa_su_snapshot_senza_provenienza(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Una fixture pre-#241 (lista nuda) resta rigiocabile ma non più in
+    silenzio: la run logga un avviso invece di trattarla come una qualunque."""
+    import json
+
+    cfg = ExperimentConfig(
+        name="exp",
+        mode="analyze",
+        model="claude",
+        cases=[RunCase(citta="Roma", zona="Centro")],
+    )
+    path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps([dict(p) for p in _sample_pois()]), encoding="utf-8")
+
+    from crime_risk_analyzer.rag import retrieval
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
+
+    from tests.eval._doubles import FakeLLMClient, FakeProfiler
+
+    with caplog.at_level("WARNING"):
+        records = await run_experiment(
+            cfg,
+            executor=FakeProfiler(),
+            llm_client=FakeLLMClient(),
+            results_dir=tmp_path,
+            code_commit="abc",
+            ontology_hash="def",
+        )
+
+    assert records[0].provenance.snapshot_catturato_il is None
+    assert records[0].provenance.snapshot_configurazione_canonica is None
+    assert any("#267" in rec.message for rec in caplog.records)
+    assert any("nessuna provenienza" in rec.message for rec in caplog.records)
+
+
+async def test_run_experiment_non_avvisa_su_snapshot_mancante(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Uno snapshot MAI catturato non e' un caso di provenienza da segnalare:
+    e' un fallimento diverso (isolamento #252), non va confuso con un avviso
+    di configurazione divergente prima ancora dell'errore vero e proprio."""
+    cfg = ExperimentConfig(
+        name="exp",
+        mode="analyze",
+        model="claude",
+        cases=[RunCase(citta="Roma", zona="Centro")],
+    )
+    # Nessuno snapshot scritto per (Roma, Centro).
+
+    from crime_risk_analyzer.rag import retrieval
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
+
+    from tests.eval._doubles import FakeLLMClient, FakeProfiler
+
+    with caplog.at_level("WARNING"):
+        records = await run_experiment(
+            cfg,
+            executor=FakeProfiler(),
+            llm_client=FakeLLMClient(),
+            results_dir=tmp_path,
+            code_commit="abc",
+            ontology_hash="def",
+        )
+
+    assert records[0].status == RunStatus.ERROR
+    assert not any("#267" in rec.message for rec in caplog.records)
+
+
+async def test_run_experiment_ignora_catturato_il_di_tipo_sbagliato(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Una provenienza con ``catturato_il`` non stringa (dato esterno malformato)
+    non deve far fallire la validazione di ``Provenance`` e con essa la run."""
+    import json
+
+    cfg = ExperimentConfig(
+        name="exp",
+        mode="analyze",
+        model="claude",
+        cases=[RunCase(citta="Roma", zona="Centro")],
+    )
+    path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
+    scrivi_snapshot(path, _sample_pois())
+    scritto = json.loads(path.read_text(encoding="utf-8"))
+    scritto["provenienza"]["catturato_il"] = 12345  # tipo sbagliato
+    path.write_text(json.dumps(scritto), encoding="utf-8")
+
+    from crime_risk_analyzer.rag import retrieval
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
+
+    from tests.eval._doubles import FakeLLMClient, FakeProfiler
+
+    records = await run_experiment(
+        cfg,
+        executor=FakeProfiler(),
+        llm_client=FakeLLMClient(),
+        results_dir=tmp_path,
+        code_commit="abc",
+        ontology_hash="def",
+    )
+
+    assert records[0].status == RunStatus.OK
+    assert records[0].provenance.snapshot_catturato_il is None
+
+
 async def test_run_experiment_rejects_non_positive_repeat(tmp_path: Path) -> None:
     """repeat < 1 → ValueError (niente esperimento vuoto in silenzio)."""
     from tests.eval._doubles import FakeProfiler

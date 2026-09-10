@@ -152,6 +152,33 @@ async def test_capture_skips_if_snapshot_exists(
     assert any("riuso" in r.getMessage().lower() for r in caplog.records)
 
 
+async def test_capture_avvisa_su_riuso_con_configurazione_divergente(
+    tmp_path: Path, capture_env: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    """#267: il riuso di uno snapshot con ``configurazione_canonica`` diversa da
+    quella corrente non deve essere indistinguibile da un riuso coerente."""
+    import json
+
+    path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
+    scrivi_snapshot(path, _sample_pois())
+    scritto = json.loads(path.read_text(encoding="utf-8"))
+    scritto["provenienza"]["configurazione_canonica"]["per_class_cap"] += 100
+    path.write_text(json.dumps(scritto), encoding="utf-8")
+
+    config_path = _write_config(tmp_path, "Roma", "Centro")
+
+    async def fake_live(bbox: Bbox, citta: str) -> list[Poi]:
+        raise AssertionError("non deve ricatturare: e' un riuso, non un force")
+
+    with caplog.at_level(logging.WARNING):
+        await _capture(config_path, tmp_path, poi_source=fake_live)
+
+    assert any(
+        "#267" in r.getMessage() and "riuso" in r.getMessage().lower()
+        for r in caplog.records
+    )
+
+
 def test_snapshot_reusable_true_for_valid(tmp_path: Path) -> None:
     """Fix 1 (#148): uno snapshot esistente, non vuoto e JSON valido è riusabile."""
     path = tmp_path / "snap.json"

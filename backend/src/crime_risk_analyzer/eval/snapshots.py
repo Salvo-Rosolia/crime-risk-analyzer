@@ -118,6 +118,22 @@ def _selettori_hash() -> str:
     return hashlib.sha256(canonico.encode("utf-8")).hexdigest()
 
 
+def _configurazione_canonica_corrente() -> ConfigurazioneCanonica:
+    """Configurazione canonica del codice CORRENTE (#267).
+
+    Unica fonte di verità condivisa da ``save_snapshot`` (cosa scrivere) e da
+    :func:`describe_configurazione_mismatch` (con cosa confrontare): tenerle
+    derivate dallo stesso punto evita che scrittura e verifica divergano.
+    """
+    return {
+        "selettori_hash": _selettori_hash(),
+        "n_selettori": len(OSM_SELECTORS),
+        "max_pois": MAX_POIS,
+        "per_selector_cap": PER_SELECTOR_CAP,
+        "per_class_cap": PER_CLASS_CAP,
+    }
+
+
 def snapshot_path(results_dir: Path, key: str) -> Path:
     """Percorso della fixture POI per una chiave snapshot (#110).
 
@@ -162,13 +178,7 @@ def save_snapshot(
             "citta": citta,
             "zona": zona,
             "taglio_osm": cut,
-            "configurazione_canonica": {
-                "selettori_hash": _selettori_hash(),
-                "n_selettori": len(OSM_SELECTORS),
-                "max_pois": MAX_POIS,
-                "per_selector_cap": PER_SELECTOR_CAP,
-                "per_class_cap": PER_CLASS_CAP,
-            },
+            "configurazione_canonica": _configurazione_canonica_corrente(),
         },
         "poi": list(pois),
     }
@@ -200,6 +210,57 @@ def load_snapshot(path: Path) -> list[Poi]:
         if isinstance(pois, list):
             return cast(list[Poi], pois)
     raise ValueError(f"snapshot in un formato non riconosciuto: {path}")
+
+
+def snapshot_provenance(path: Path) -> SnapshotProvenance | None:
+    """Provenienza dichiarata dallo snapshot, se presente (#241, #267).
+
+    ``None`` per la lista nuda pre-#241 (nessuna provenienza da leggere), per un
+    file assente/illeggibile, o se non è nel formato envelope atteso. Non
+    solleva MAI: un file mancante o corrotto verrà comunque intercettato da
+    ``load_snapshot`` quando la run lo consuma davvero (isolamento errori del
+    chiamante, #252) — qui interessa solo "provenienza nota o no", non
+    duplicare quella diagnosi.
+    """
+    try:
+        data: object = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if isinstance(data, dict):
+        prov = cast(dict[str, object], data).get("provenienza")
+        if isinstance(prov, dict):
+            return cast(SnapshotProvenance, prov)
+    return None
+
+
+def describe_configurazione_mismatch(
+    provenienza: SnapshotProvenance | None,
+) -> str | None:
+    """Messaggio d'avviso se la provenienza manca o diverge dalla config attuale.
+
+    ``None`` = coerente, nessun avviso da dare (#267). Non solleva: i 4
+    snapshot pre-#241 restano rigiocabili (#231), ma non più in silenzio — il
+    chiamante logga l'avviso invece di trattarli come indistinguibili da uno
+    snapshot catturato con la configurazione corrente.
+    """
+    if provenienza is None:
+        return "nessuna provenienza leggibile (pre-#241, non apribile o corrotta)"
+    dichiarata = provenienza.get("configurazione_canonica")
+    # provenienza e' un TypedDict castato da JSON esterno (#241): a runtime la
+    # chiave puo' mancare o avere una forma diversa nonostante il tipo dichiari
+    # sempre ConfigurazioneCanonica — il check e' per i dati reali, non per lo
+    # static checker.
+    if not isinstance(dichiarata, dict):  # pyright: ignore[reportUnnecessaryIsInstance]
+        return "provenienza senza configurazione_canonica"
+    corrente = _configurazione_canonica_corrente()
+    divergenti = sorted(k for k in corrente if dichiarata.get(k) != corrente[k])
+    if not divergenti:
+        return None
+    dettagli = ", ".join(
+        f"{k} registrato={dichiarata.get(k)!r} corrente={corrente[k]!r}"
+        for k in divergenti
+    )
+    return f"configurazione diversa da quella corrente ({dettagli})"
 
 
 def replay_source(path: Path) -> PoiSource:

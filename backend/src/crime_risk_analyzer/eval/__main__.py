@@ -25,9 +25,11 @@ from crime_risk_analyzer.eval.repeated_comparison import build_repeated_report
 from crime_risk_analyzer.eval.snapshots import (
     PoiSourceConTaglio,
     capturing_source,
+    describe_configurazione_mismatch,
     load_snapshot,
     offline_fetch_pois,
     snapshot_path,
+    snapshot_provenance,
 )
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.ontology import load_ontology
@@ -170,6 +172,20 @@ async def _capture(
                     case.zona,
                     path,
                 )
+                # #267: il riuso e' il punto dove una politica di selezione
+                # cambiata (es. i cap di #254) puo' restare invisibile piu' a
+                # lungo — un file vecchio non viene mai ri-toccato finche'
+                # qualcuno non lancia ``eval run`` sulla stessa (citta, zona) e
+                # legge i log. Avvisare qui, non solo a run-time, anticipa il
+                # segnale al momento in cui la cattura stessa lo sa già.
+                mismatch = describe_configurazione_mismatch(snapshot_provenance(path))
+                if mismatch is not None:
+                    logger.warning(
+                        "riuso snapshot (%s, %s) con %s (#267)",
+                        case.citta,
+                        case.zona,
+                        mismatch,
+                    )
                 succeeded.append(CaptureCase(case.citta, case.zona))
                 continue
             if not force and existed_before:

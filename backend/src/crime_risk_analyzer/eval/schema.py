@@ -55,6 +55,24 @@ class Provenance(BaseModel):
         default=DEFAULT_CONTEXT_FORMAT,
         description="Formato del blocco POI dello user_content (#273).",
     )
+    # #267: ``snapshot_id`` è solo la CHIAVE (citta, zona) dello snapshot, non la
+    # sua provenienza — non basta a distinguere due catture della stessa zona con
+    # politiche di selezione diverse. Entrambi ``None`` per gli snapshot pre-#241
+    # (liste nude, nessuna provenienza da riportare): un default falso sarebbe un
+    # dato fabbricato, peggio del silenzio che erano prima.
+    snapshot_catturato_il: str | None = Field(
+        default=None,
+        description="Istante di cattura dello snapshot POI consumato (#267).",
+    )
+    snapshot_configurazione_canonica: dict[str, object] | None = Field(
+        default=None,
+        description=(
+            "Configurazione canonica dichiarata dallo snapshot POI consumato "
+            "(#267): permette di riconoscere a posteriori una run che ha "
+            "rigiocato una fixture con una politica di selezione diversa da "
+            "quella corrente."
+        ),
+    )
 
 
 class Metrics(BaseModel):
