@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, model_validator
 from crime_risk_analyzer.rag.generation import (
     DEFAULT_CONTEXT_FORMAT,
     ContextFormat,
+    RiskModel,
 )
 
 #: Bracci dell'esperimento. ``analyze`` = pipeline completa (LLM + grounding
@@ -96,26 +97,6 @@ class Metrics(BaseModel):
     cost_usd: float = Field(ge=0.0, description="Costo stimato in USD.")
 
 
-class GoldAnnotation(BaseModel):
-    """Annotazione gold umana di una run (popolata ESTERNAMENTE, #109).
-
-    Non prodotta dal codice: ``RunRecord.annotazione_manuale`` resta ``None``
-    finche' un annotatore umano (il tesista) non valuta la narrativa. Rispecchia
-    le metriche proxy (:class:`Metrics`) cosi' che ``eval/gold.py`` possa misurare
-    l'accordo proxy-vs-umano. Sono giudizi sulla QUALITA' del citation layer
-    (copertura/fabbricazione), non punteggi di pericolosita' (vincolo legale).
-    """
-
-    grounding: float = Field(
-        ge=0.0, le=1.0, description="Copertura citazioni giudicata dall'umano [0,1]."
-    )
-    hallucination: float = Field(
-        ge=0.0, le=1.0, description="Tasso di fabbricazione giudicato dall'umano [0,1]."
-    )
-    annotator: str = Field(default="", description="Identificativo dell'annotatore.")
-    note: str = Field(default="", description="Note libere dell'annotatore.")
-
-
 class RunCase(BaseModel):
     """Un singolo caso (citta, zona)."""
 
@@ -178,11 +159,15 @@ class RunRecord(BaseModel):
     metrics: Metrics
     narrativa: str = Field(description="Narrativa grezza, per audit.")
     n_poi: int = Field(ge=0)
-    annotazione_manuale: GoldAnnotation | None = Field(
-        default=None,
+    risk_models: list[RiskModel] = Field(
+        default_factory=list,
         description=(
-            "Gold standard umano (popolato ESTERNAMENTE, fuori dalla pipeline): "
-            "consumato da eval/gold.py per l'accordo proxy-vs-umano (#109)."
+            "Set grounded COMPLETO (pre-filtro, costruito PRIMA della "
+            "generazione LLM — identico fra analyze/baseline/no_ontology_prompt "
+            "per la stessa (citta, zona)). NON e' 'cosa l'LLM ha mantenuto': "
+            "quella nozione (#152) si applica a valle, in eval/gold.py, "
+            "incrociando questo campo con la narrativa via "
+            "metrics.hazards_cited_in. Lista vuota su status != OK."
         ),
     )
     provenance: Provenance
