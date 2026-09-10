@@ -22,6 +22,7 @@ from crime_risk_analyzer.overpass_client import (
     OverpassError,
     Poi,
     fetch_pois,
+    fetch_pois_with_cut,
 )
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "overpass_sample.json"
@@ -293,6 +294,51 @@ async def test_fetch_pois_maps_contract_fields() -> None:
         "terminus_class": "Bank",
         "citta": "Roma",
     }
+
+
+@respx.mock
+async def test_fetch_pois_with_cut_estrae_il_taglio_osm_dal_payload() -> None:
+    """#251: il taglio dichiarato da Overpass in ``osm3s`` diventa TaglioOsm."""
+    payload = {**_sample(), "osm3s": {"timestamp_osm_base": "2026-07-26T17:42:03Z"}}
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json=payload)
+    )
+
+    pois, taglio = await fetch_pois_with_cut(_BBOX, "Roma")
+
+    assert pois  # stesso bacino di fetch_pois, non è questo il punto del test
+    assert taglio == {
+        "timestamp_osm_base": "2026-07-26T17:42:03Z",
+        "overpass_url": DEFAULT_OVERPASS_URL,
+    }
+
+
+@respx.mock
+async def test_fetch_pois_with_cut_assente_quando_payload_non_lo_dichiara() -> None:
+    """Payload senza ``osm3s``/``timestamp_osm_base``: taglio assente, non un errore."""
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json=_sample())
+    )
+
+    pois, taglio = await fetch_pois_with_cut(_BBOX, "Roma")
+
+    assert pois
+    assert taglio["timestamp_osm_base"] is None
+    assert taglio["overpass_url"] == DEFAULT_OVERPASS_URL
+
+
+@respx.mock
+async def test_fetch_pois_scarta_il_taglio_e_si_comporta_come_prima() -> None:
+    """fetch_pois resta un involucro che ritorna solo la lista di POI (#251)."""
+    payload = {**_sample(), "osm3s": {"timestamp_osm_base": "2026-07-26T17:42:03Z"}}
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json=payload)
+    )
+
+    pois = await fetch_pois(_BBOX, "Roma")
+
+    assert isinstance(pois, list)
+    assert pois and "terminus_class" in pois[0]
 
 
 @respx.mock
