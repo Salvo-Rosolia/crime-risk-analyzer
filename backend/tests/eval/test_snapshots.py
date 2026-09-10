@@ -2,10 +2,14 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
+
+from crime_risk_analyzer.eval import snapshots
 from crime_risk_analyzer.eval.snapshots import (
     FORMATO_SNAPSHOT,
     capturing_source,
     load_snapshot,
+    offline_fetch_pois,
     offline_geo_source,
     replay_source,
     save_snapshot,
@@ -13,8 +17,10 @@ from crime_risk_analyzer.eval.snapshots import (
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.overpass_client import (
     MAX_POIS,
+    OFFLINE_RETRY,
     PER_CLASS_CAP,
     PER_SELECTOR_CAP,
+    TaglioOsm,
 )
 
 _POIS = [
@@ -50,7 +56,7 @@ async def test_capturing_source_writes_and_passes_through(tmp_path: Path) -> Non
     p = tmp_path / "snap.json"
 
     async def inner(bbox: object, citta: str):
-        return _POIS
+        return _POIS, None
 
     source = capturing_source(p, inner=inner)  # type: ignore[arg-type]
     out = await source(Bbox(41.0, 12.0, 41.1, 12.1), "Roma")
@@ -162,10 +168,91 @@ async def test_capturing_source_registra_il_bbox_richiesto(tmp_path: Path) -> No
     p = tmp_path / "snap.json"
 
     async def inner(bbox: object, citta: str):
-        return _POIS
+        return _POIS, None
 
     source = capturing_source(p, inner=inner)  # type: ignore[arg-type]
     await source(_BBOX, "Roma")
 
     prov = json.loads(p.read_text(encoding="utf-8"))["provenienza"]
     assert prov["bbox"] == [41.0, 12.0, 41.1, 12.1]
+
+
+# --- #251: taglio del DB OSM nella provenienza dello snapshot ---
+# ``catturato_il`` dice «quando ho chiesto», non «quale stato di OSM ho
+# ottenuto»: senza il taglio dichiarato da Overpass, «questi sono i POI di
+# quella zona a quell'istante» non è falsificabile contro uno history dump OSM.
+
+_TAGLIO: TaglioOsm = {
+    "timestamp_osm_base": "2026-07-26T17:42:03Z",
+    "overpass_url": "https://overpass-api.de/api/interpreter",
+}
+
+
+def test_save_snapshot_registra_il_taglio_osm_quando_fornito(tmp_path: Path) -> None:
+    p = tmp_path / "snap.json"
+    save_snapshot(p, _POIS, bbox=_BBOX, citta="Roma", cut=_TAGLIO)  # type: ignore[arg-type]
+
+    prov = json.loads(p.read_text(encoding="utf-8"))["provenienza"]
+    assert prov["taglio_osm"] == _TAGLIO
+
+
+def test_save_snapshot_taglio_assente_di_default(tmp_path: Path) -> None:
+    """Un chiamante che non conosce il taglio (es. un doppio di test) dichiara
+    onestamente l'assenza, non fabbrica un valore."""
+    p = tmp_path / "snap.json"
+    save_snapshot(p, _POIS, bbox=_BBOX, citta="Roma")  # type: ignore[arg-type]
+
+    prov = json.loads(p.read_text(encoding="utf-8"))["provenienza"]
+    assert prov["taglio_osm"] is None
+
+
+async def test_capturing_source_registra_il_taglio_osm_ritornato_da_inner(
+    tmp_path: Path,
+) -> None:
+    p = tmp_path / "snap.json"
+
+    async def inner(bbox: object, citta: str):
+        return _POIS, _TAGLIO
+
+    source = capturing_source(p, inner=inner)  # type: ignore[arg-type]
+    await source(_BBOX, "Roma")
+
+    prov = json.loads(p.read_text(encoding="utf-8"))["provenienza"]
+    assert prov["taglio_osm"] == _TAGLIO
+
+
+async def test_capturing_source_senza_taglio_da_inner_non_registra_taglio(
+    tmp_path: Path,
+) -> None:
+    """Un doppio di test che ritorna ``None`` per il taglio (i doppi di test
+    esistenti, adattati da ``_senza_taglio``) lo dichiara onestamente assente."""
+    p = tmp_path / "snap.json"
+
+    async def inner(bbox: object, citta: str):
+        return _POIS, None
+
+    source = capturing_source(p, inner=inner)  # type: ignore[arg-type]
+    await source(_BBOX, "Roma")
+
+    prov = json.loads(p.read_text(encoding="utf-8"))["provenienza"]
+    assert prov["taglio_osm"] is None
+
+
+async def test_offline_fetch_pois_ritorna_pois_e_taglio_con_politica_offline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """La sorgente offline (#232) usa OFFLINE_RETRY e ritorna anche il taglio OSM
+    (#251) nella stessa chiamata, senza stato da ricordare fra una e l'altra."""
+    visti: list[object] = []
+
+    async def _fetch_pois_with_cut_fake(bbox: object, citta: str, **kwargs: object):
+        visti.append(kwargs.get("retry"))
+        return _POIS, _TAGLIO
+
+    monkeypatch.setattr(snapshots, "fetch_pois_with_cut", _fetch_pois_with_cut_fake)
+
+    pois, taglio = await offline_fetch_pois(_BBOX, "Roma")
+
+    assert pois == _POIS
+    assert taglio == _TAGLIO
+    assert visti == [OFFLINE_RETRY]

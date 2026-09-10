@@ -451,6 +451,25 @@ def test_zone_narrative_response_has_no_numeric_danger_scoring_field() -> None:
     }
 
 
+def test_zone_narrative_request_surface_is_citta_zona_domanda_contesto_hash() -> None:
+    """Guardia gemella di ``test_baseline_request_surface_is_citta_zona_tipo_poi``
+    (`test_orchestrator.py`, #263): fissa l'altro lato dell'asimmetria iso-input.
+
+    ``ZoneNarrativeRequest`` porta ``domanda`` ma non ``tipo_poi``; ``BaselineRequest``
+    porta ``tipo_poi`` ma non ``domanda``. La chiusura dipende dalla decisione sul
+    contratto di ``tipo_poi`` FE-BE (#143), non ancora presa. Se un domani
+    ``tipo_poi`` compare qui (o ``domanda`` sparisce), va aggiornato insieme al
+    docstring di ``ZoneNarrativeRequest`` e al test gemello su ``BaselineRequest``."""
+    from crime_risk_analyzer.analyze_narrative import ZoneNarrativeRequest
+
+    assert set(ZoneNarrativeRequest.model_fields) == {
+        "citta",
+        "zona",
+        "domanda",
+        "contesto_hash",
+    }
+
+
 # --- #119: il tetto sulla ``domanda`` vive dove vive il campo ---
 # Era ``AnalyzeRequest`` a portare la domanda; dopo lo split (#292) la fase 1 non
 # chiama il modello e il campo è rimasto solo qui, quindi qui va il bound su

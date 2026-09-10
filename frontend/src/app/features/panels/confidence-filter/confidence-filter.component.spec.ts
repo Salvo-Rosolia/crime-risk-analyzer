@@ -22,17 +22,17 @@ describe('ConfidenceFilterComponent', () => {
 
   it('rende i 2 livelli con nome, significato e conteggio', () => {
     const text = fixture.nativeElement.textContent;
-    expect(text).toContain('Verificato');
+    expect(text).toContain('Identificato');
     expect(text).toContain('entità identificata in mappa');
-    expect(text).toContain('Da confermare');
+    expect(text).toContain('Anonimo');
     expect(text).toContain('punto anonimo in mappa');
   });
 
-  it("mostra i 2 livelli nell'ordine Verificato → Da confermare", () => {
+  it("mostra i 2 livelli nell'ordine Identificato → Anonimo", () => {
     const names: string[] = Array.from(
       fixture.nativeElement.querySelectorAll('.cra-confidence-row-name'),
     ).map((el) => (el as HTMLElement).textContent?.trim());
-    expect(names).toEqual(['Verificato', 'Da confermare']);
+    expect(names).toEqual(['Identificato', 'Anonimo']);
   });
 
   it('mostra il conteggio di ciascun livello', () => {

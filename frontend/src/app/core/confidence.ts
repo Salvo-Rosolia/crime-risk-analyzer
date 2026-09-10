@@ -7,9 +7,17 @@ export interface ConfMeta {
   label: string;
 }
 
+/**
+ * Etichette dei 2 livelli di confidence (#258): dicono il SEGNALE reale — la sola presenza del
+ * tag `name` su OSM (#202) — non un processo di verifica più ampio. I nomi precedenti
+ * ("Verificato"/"Da confermare") lasciavano intendere un controllo che il sistema non fa; qui
+ * sono rinominati per onestà (coerenti con `MEANINGS` in `confidence-filter.component.ts`, già
+ * formulato in questi termini). I valori letterali del tipo `Confidence` (`verificato`/
+ * `da_confermare`, contratto API/eval) restano invariati: cambia solo il testo mostrato.
+ */
 export const CONF: Readonly<Record<Confidence, ConfMeta>> = Object.freeze({
-  verificato: { color: '#1a7a40', bg: '#eef7f1', dot: '●', label: 'Verificato' },
-  da_confermare: { color: '#b8870a', bg: '#fbf4e4', dot: '◐', label: 'Da confermare' },
+  verificato: { color: '#1a7a40', bg: '#eef7f1', dot: '●', label: 'Identificato' },
+  da_confermare: { color: '#b8870a', bg: '#fbf4e4', dot: '◐', label: 'Anonimo' },
 });
 
 export const DIM_COLOR = '#b6b3a9';

@@ -172,9 +172,9 @@ describe('HeaderControlsComponent', () => {
     );
     expect(chips.length).toBe(2);
     const text = fixture.nativeElement.textContent;
-    expect(text).toContain('Verificato');
+    expect(text).toContain('Identificato');
     expect(text).toContain('2');
-    expect(text).toContain('Da confermare');
+    expect(text).toContain('Anonimo');
   });
 
   it('click su un chip emette setFilter; riclic sul chip attivo emette clearFilter', () => {
