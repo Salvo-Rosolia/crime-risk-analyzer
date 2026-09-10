@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from crime_risk_analyzer.config import get_settings
-from crime_risk_analyzer.eval.aggregate import write_tables
+from crime_risk_analyzer.eval.aggregate import load_runs, write_tables
 from crime_risk_analyzer.eval.city_agnostic import ROSTER, capture_roster
 from crime_risk_analyzer.eval.city_agnostic_report import build_report
 from crime_risk_analyzer.eval.cli import (
@@ -19,6 +19,7 @@ from crime_risk_analyzer.eval.cli import (
     ontology_hash,
 )
 from crime_risk_analyzer.eval.compare import NoUsableOutputError, compare_experiments
+from crime_risk_analyzer.eval.gold import write_gold_worksheet, write_precision_report
 from crime_risk_analyzer.eval.harness import make_snapshot_key, run_experiment
 from crime_risk_analyzer.eval.repeated_comparison import build_repeated_report
 from crime_risk_analyzer.eval.snapshots import (
@@ -316,6 +317,17 @@ def main() -> int:
         else:
             graph = load_ontology(get_settings().ontology_path)
             build_report(results_dir, graph, ontology_hash())
+    elif ns.command == "gold-sample":
+        records = load_runs(results_dir, experiment=ns.experiment)
+        records = [r for r in records if r.mode == ns.mode]
+        write_gold_worksheet(results_dir, records)
+    elif ns.command == "gold-report":
+        worksheet = (
+            Path(ns.worksheet)
+            if ns.worksheet
+            else results_dir / "gold" / "rischi_da_annotare.csv"
+        )
+        write_precision_report(results_dir, worksheet)
     return 0
 
 

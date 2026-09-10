@@ -216,3 +216,28 @@ def test_run_parser_accepts_clean_stale_flag() -> None:
     assert ns.clean_stale is True
     ns = build_parser().parse_args(["run", "--config", "c.json"])
     assert ns.clean_stale is False
+
+
+def test_parser_accepts_gold_sample() -> None:
+    """gold-sample: estrae i rischi da annotare da un esperimento."""
+    parser = build_parser()
+    ns = parser.parse_args(
+        ["gold-sample", "--results", "r", "--experiment", "exp", "--mode", "analyze"]
+    )
+    assert ns.command == "gold-sample"
+    assert ns.experiment == "exp"
+    assert ns.mode == "analyze"
+
+
+def test_parser_accepts_gold_report() -> None:
+    """gold-report: calcola il report di precisione dal foglio annotato."""
+    parser = build_parser()
+    ns = parser.parse_args(["gold-report", "--results", "r"])
+    assert ns.command == "gold-report"
+
+
+def test_parser_rejects_old_gold_verb() -> None:
+    """Il vecchio verbo 'gold' non esiste più (#152)."""
+    parser = build_parser()
+    with pytest.raises(SystemExit):
+        parser.parse_args(["gold", "--results", "r"])

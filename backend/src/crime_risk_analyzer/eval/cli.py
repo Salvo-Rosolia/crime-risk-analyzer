@@ -1,6 +1,6 @@
 """CLI della fondazione di valutazione (#34).
 
-Sottocomandi: capture/run/aggregate/compare/city-agnostic.
+Sottocomandi: capture/run/aggregate/compare/city-agnostic/gold-sample/gold-report.
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ def build_llm_eval_client(config: ExperimentConfig) -> LLMClient:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Parser con i sottocomandi capture/run/aggregate/compare/city-agnostic."""
+    """Parser per tutti i sottocomandi di valutazione."""
     parser = argparse.ArgumentParser(prog="crime_risk_analyzer.eval")
     sub = parser.add_subparsers(dest="command", required=True)
     for name in ("capture", "run"):
@@ -109,4 +109,12 @@ def build_parser() -> argparse.ArgumentParser:
     ca_parser = sub.add_parser("city-agnostic")
     ca_parser.add_argument("phase", choices=["capture", "report"])
     ca_parser.add_argument("--results", default="results")
+    # Annotazione gold per-rischio (#152): due fasi, due verbi.
+    gold_sample = sub.add_parser("gold-sample")
+    gold_sample.add_argument("--results", default="results")
+    gold_sample.add_argument("--experiment", default=None)
+    gold_sample.add_argument("--mode", default="analyze")
+    gold_report = sub.add_parser("gold-report")
+    gold_report.add_argument("--results", default="results")
+    gold_report.add_argument("--worksheet", default=None)
     return parser
