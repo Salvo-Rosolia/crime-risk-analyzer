@@ -21,6 +21,7 @@ from crime_risk_analyzer.poi_narrative import (
     PoiNarrativeRequest,
     PoiNarrativeResponse,
     PoiNotFoundError,
+    _risk_model_of,  # pyright: ignore[reportPrivateUsage]
     run_poi_narrative,
 )
 from crime_risk_analyzer.rag import retrieval
@@ -139,6 +140,28 @@ def _client(llm: object = None) -> TestClient:
     app.dependency_overrides[get_executor] = lambda: _FakeProfiler()
     app.dependency_overrides[get_llm_client] = lambda: llm or _FakeLLMClient()
     return TestClient(app, raise_server_exceptions=False)
+
+
+def test_risk_model_of_propagates_source() -> None:
+    vr = {
+        "poi_id": "node/1",
+        "poi": "Banca A",
+        "risks": [
+            {
+                "hazard": "Bank_robbery",
+                "confidence": "verificato",
+                "tag": "ONTOLOGIA",
+                "source": "Bank → havingHazard → Bank_robbery",
+            }
+        ],
+        "terminus_class": "Bank",
+        "critical_events": [],
+        "vulnerabilities": [],
+        "stakeholders": [],
+        "sparql_path": "Bank → havingHazard → Bank_robbery",
+    }
+    model = _risk_model_of(vr)  # type: ignore[arg-type]
+    assert model.risks[0].source == "Bank → havingHazard → Bank_robbery"
 
 
 async def test_returns_narrative_for_a_poi_in_the_cached_zone() -> None:
