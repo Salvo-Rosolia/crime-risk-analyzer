@@ -19,16 +19,16 @@ from crime_risk_analyzer.eval.schema import (
     RunCase,
     RunStatus,
 )
-from crime_risk_analyzer.orchestrator import AnalyzeResponse, ZonaGeo
-from crime_risk_analyzer.rag.generation import RiskModel
-from crime_risk_analyzer.models.vocab import ConfidenceSummary, Tag
 from crime_risk_analyzer.eval.snapshots import (
     capturing_source,
     load_snapshot,
     snapshot_path,
 )
 from crime_risk_analyzer.models.geo import Bbox
+from crime_risk_analyzer.models.vocab import ConfidenceSummary
+from crime_risk_analyzer.orchestrator import AnalyzeResponse, ZonaGeo
 from crime_risk_analyzer.overpass_client import Poi
+from crime_risk_analyzer.rag.generation import RiskModel
 from tests.eval._doubles import scrivi_snapshot
 
 
@@ -1073,7 +1073,6 @@ async def test_run_experiment_default_keeps_the_historical_prompt(
 def test_record_from_response_copies_risk_models() -> None:
     """_record_from_response copia risk_models dalla response nel RunRecord."""
     from crime_risk_analyzer.rag.generation import Repro
-    from crime_risk_analyzer.orchestrator import ZonaGeo
 
     # Costruisci una AnalyzeResponse fittizia con risk_models non vuoti.
     risk_model = RiskModel(poi_id="node/1", poi="Banca A", risks=[])
@@ -1104,9 +1103,7 @@ def test_record_from_response_copies_risk_models() -> None:
     record = _record_from_response(
         run_id="r",
         snapshot_id="s",
-        config=ExperimentConfig(
-            name="exp", mode="analyze", model="claude", cases=[]
-        ),
+        config=ExperimentConfig(name="exp", mode="analyze", model="claude", cases=[]),
         case=RunCase(citta="Roma", zona="Centro"),
         model_id="claude-sonnet-4-6",
         resp=resp,

@@ -160,7 +160,7 @@ class RunRecord(BaseModel):
     narrativa: str = Field(description="Narrativa grezza, per audit.")
     n_poi: int = Field(ge=0)
     risk_models: list[RiskModel] = Field(
-        default_factory=list,
+        default_factory=list[RiskModel],
         description=(
             "Set grounded COMPLETO (pre-filtro, costruito PRIMA della "
             "generazione LLM — identico fra analyze/baseline/no_ontology_prompt "
