@@ -155,6 +155,7 @@ def _record_from_response(
         # difensiva sul tipo, non un cambio di comportamento.
         narrativa=resp.narrativa or "",
         n_poi=len(resp.poi),
+        risk_models=resp.risk_models,
         provenance=Provenance(
             code_commit=code_commit,
             ontology_hash=ontology_hash,
