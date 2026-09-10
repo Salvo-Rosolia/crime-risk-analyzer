@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,6 +32,8 @@ from pydantic import BaseModel
 
 from crime_risk_analyzer.eval.aggregate import load_runs
 from crime_risk_analyzer.eval.schema import Metrics, RunRecord, RunStatus
+
+logger = logging.getLogger(__name__)
 
 #: Etichetta della riga aggregata nelle tabelle.
 _MEAN_LABEL = "MEDIA"
@@ -562,6 +565,34 @@ def _index_by_zone(records: list[RunRecord]) -> dict[tuple[str, str], RunRecord]
     return index
 
 
+class NoUsableOutputError(ValueError):
+    """Nessuna zona valida da confrontare: tutti i record sono ERROR/FALLBACK (#239).
+
+    Sottoclasse di :class:`ValueError` (chi già intercettava ``ValueError``
+    intorno a :func:`compare_records` continua a funzionare) ma distinta dagli
+    altri ``ValueError`` che la funzione solleva: quelli segnalano un INPUT
+    malformato (zone che non coincidono, record duplicati, ``snapshot_id``
+    divergente) e devono continuare a propagare come traceback — qui invece
+    l'input è valido, semplicemente nessun braccio ha prodotto output
+    utilizzabile su nessuna zona (scenario reale: quota LLM esaurita durante una
+    run offline, #232). I chiamanti CLI (:func:`compare_experiments`,
+    :func:`~crime_risk_analyzer.eval.repeated_comparison.build_repeated_report`)
+    la intercettano per scrivere un report che spiega COSA è fallito, per zona e
+    per braccio, invece di lasciar propagare un traceback nudo — mai un verdetto
+    (vedi :func:`write_no_usable_output_report`).
+    """
+
+    def __init__(self, label_a: str, label_b: str, failed: list[FailedZone]) -> None:
+        self.label_a = label_a
+        self.label_b = label_b
+        self.failed = failed
+        super().__init__(
+            "nessuna zona valida da confrontare (tutte in ERROR/FALLBACK, "
+            "nessun braccio ha prodotto output utilizzabile): "
+            f"{[(f.citta, f.zona) for f in failed]}"
+        )
+
+
 def compare_records(
     arm_a: list[RunRecord],
     arm_b: list[RunRecord],
@@ -585,8 +616,10 @@ def compare_records(
 
     Solleva :class:`ValueError` se: un braccio ha record duplicati per una zona;
     i due bracci coprono zone diverse (iso-input violato); una zona appaiata ha
-    ``snapshot_id`` divergente tra i bracci (iso-input a livello di record); non
-    resta alcuna zona valida da confrontare.
+    ``snapshot_id`` divergente tra i bracci (iso-input a livello di record).
+    Solleva :class:`NoUsableOutputError` (sottoclasse di ``ValueError``, #239) se
+    non resta alcuna zona valida da confrontare — l'input è valido, è l'esito ad
+    essere degenere.
     """
     index_a = _index_by_zone(arm_a)
     index_b = _index_by_zone(arm_b)
@@ -655,11 +688,7 @@ def compare_records(
             )
         )
     if not zones:
-        raise ValueError(
-            "nessuna zona valida da confrontare (tutte in ERROR/FALLBACK, "
-            "nessun braccio ha prodotto output utilizzabile): "
-            f"{[(f.citta, f.zona) for f in failed]}"
-        )
+        raise NoUsableOutputError(label_a, label_b, failed)
     vacuous = [
         label
         for label, arm in ((label_a, arm_a), (label_b, arm_b))
@@ -782,6 +811,77 @@ def _markdown_table(cols: list[str], rows: list[list[str]]) -> list[str]:
     return lines
 
 
+class NoUsableOutputReport(BaseModel):
+    """Forma JSON di ``NoUsableOutputError``: ``failed``, mai un verdetto (#239)."""
+
+    label_a: str
+    label_b: str
+    failed: list[FailedZone]
+    winner: None = None
+    quality_verdict_applicable: bool = False
+
+
+def no_usable_output_markdown(exc: NoUsableOutputError) -> str:
+    """Report Markdown per un confronto senza nessuna zona utilizzabile (#239).
+
+    Nessuna tabella di metriche, nessun verdetto: solo la sezione delle zone
+    escluse (stesso formato della sezione omonima di :func:`to_markdown`), così
+    chi legge vede subito quale zona e quale braccio hanno fallito e con quale
+    status, invece di un traceback.
+    """
+    fcols = _failed_columns(exc.label_a, exc.label_b)
+    lines = [
+        "# Nessun output utilizzabile",
+        "",
+        "> ⚠️ **Nessun verdetto.** Ogni zona è esclusa (ogni braccio è in "
+        "`ERROR` o `FALLBACK` su ogni zona): non resta nulla da mediare o "
+        "confrontare. Tabelle di metriche e verdetto non sono emessi.",
+        "",
+        "### Zone escluse dal confronto (run in errore)",
+    ]
+    lines.extend(_markdown_table(fcols, [_failed_row(fz) for fz in exc.failed]))
+    return "\n".join(lines) + "\n"
+
+
+def no_usable_output_csv(exc: NoUsableOutputError) -> str:
+    """CSV delle zone escluse: stesso schema della sezione di :func:`to_csv`."""
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(_failed_columns(exc.label_a, exc.label_b))
+    for fz in exc.failed:
+        writer.writerow(_failed_row(fz))
+    return buf.getvalue()
+
+
+def no_usable_output_json(exc: NoUsableOutputError) -> str:
+    """JSON strutturato del fallimento: ``failed``, ``winner`` sempre ``None``."""
+    return NoUsableOutputReport(
+        label_a=exc.label_a, label_b=exc.label_b, failed=exc.failed
+    ).model_dump_json(indent=2)
+
+
+def write_no_usable_output_report(
+    results_dir: Path, exc: NoUsableOutputError, stem: str, *, force: bool = False
+) -> tuple[Path, Path, Path]:
+    """Scrive ``results/<stem>.{csv,md,json}`` per un confronto senza esito (#239).
+
+    Stessa convenzione di nomi di :func:`write_comparison`: i chiamanti CLI
+    (:func:`compare_experiments`,
+    :func:`~crime_risk_analyzer.eval.repeated_comparison.build_repeated_report`)
+    restituiscono al proprio chiamante solo i due path del proprio contratto
+    esistente, ignorando il terzo — nessuno dei due rompe la propria firma di
+    ritorno per questo caso degenere.
+    """
+    csv_path = results_dir / f"{stem}.csv"
+    md_path = results_dir / f"{stem}.md"
+    json_path = results_dir / f"{stem}.json"
+    guard_no_overwrite([csv_path, md_path, json_path], force)
+    csv_path.write_text(no_usable_output_csv(exc), encoding="utf-8", newline="")
+    md_path.write_text(no_usable_output_markdown(exc), encoding="utf-8")
+    json_path.write_text(no_usable_output_json(exc), encoding="utf-8")
+    return csv_path, md_path, json_path
+
+
 def operational_markdown(comparison: Comparison) -> str:
     """Tabella costo/latenza (metriche operative), SEPARATA dalla qualità (#33).
 
@@ -889,14 +989,40 @@ def compare_experiments(
     ``label_a``/``label_b`` default al nome dell'esperimento; ``stem`` default a
     ``<experiment_a>_vs_<experiment_b>``. ``force`` bypassa la guardia
     anti-sovrascrittura sui file di output (#165).
+
+    Se nessuna zona resta utilizzabile (entrambi i bracci in ERROR/FALLBACK su
+    ogni zona, #239) scrive comunque un report — CSV/Markdown/JSON delle zone
+    escluse, nessun verdetto — e rilancia :class:`NoUsableOutputError`, così il
+    chiamante CLI può segnalare un exit code non-zero senza duplicare la
+    risoluzione di ``stem``. La guardia anti-sovrascrittura (:class:`FileExistsError`)
+    propaga invariata anche in questo ramo (stesso comportamento del percorso di
+    successo). Se invece la scrittura del report fallisce per un altro motivo
+    (disco pieno, permessi: :class:`OSError`), l'errore di scrittura è solo
+    loggato — continua a essere rilanciata ``NoUsableOutputError``, mai
+    l'``OSError``, così il chiamante CLI esce comunque con un exit code pulito
+    invece di un secondo traceback imprevisto (#239).
     """
     arm_a = load_runs(results_dir, experiment=experiment_a)
     arm_b = load_runs(results_dir, experiment=experiment_b)
-    comparison = compare_records(
-        arm_a,
-        arm_b,
-        label_a=label_a or experiment_a,
-        label_b=label_b or experiment_b,
-    )
     resolved_stem = stem or f"{experiment_a}_vs_{experiment_b}"
+    try:
+        comparison = compare_records(
+            arm_a,
+            arm_b,
+            label_a=label_a or experiment_a,
+            label_b=label_b or experiment_b,
+        )
+    except NoUsableOutputError as exc:
+        try:
+            write_no_usable_output_report(results_dir, exc, resolved_stem, force=force)
+        except FileExistsError:
+            raise
+        except OSError:
+            logger.exception(
+                "impossibile scrivere il report di nessun-output-utilizzabile "
+                "per '%s' in %s",
+                resolved_stem,
+                results_dir,
+            )
+        raise exc
     return write_comparison(results_dir, comparison, resolved_stem, force=force)

@@ -18,7 +18,7 @@ from crime_risk_analyzer.eval.cli import (
     load_config,
     ontology_hash,
 )
-from crime_risk_analyzer.eval.compare import compare_experiments
+from crime_risk_analyzer.eval.compare import NoUsableOutputError, compare_experiments
 from crime_risk_analyzer.eval.gold import write_agreement_report
 from crime_risk_analyzer.eval.harness import make_snapshot_key, run_experiment
 from crime_risk_analyzer.eval.repeated_comparison import build_repeated_report
@@ -266,25 +266,35 @@ def main() -> int:
     elif ns.command == "aggregate":
         write_tables(results_dir, ns.experiment)
     elif ns.command == "compare":
-        compare_experiments(
-            results_dir,
-            ns.experiment_a,
-            ns.experiment_b,
-            label_a=ns.label_a,
-            label_b=ns.label_b,
-            stem=ns.out,
-            force=ns.force,
-        )
+        try:
+            compare_experiments(
+                results_dir,
+                ns.experiment_a,
+                ns.experiment_b,
+                label_a=ns.label_a,
+                label_b=ns.label_b,
+                stem=ns.out,
+                force=ns.force,
+            )
+        except NoUsableOutputError:
+            # #239: nessuna zona utilizzabile (tutte ERROR/FALLBACK). Il report
+            # che spiega cosa è fallito è già su disco (scritto da
+            # compare_experiments prima di rilanciare): qui solo l'exit code,
+            # per chi vuole intercettarlo da script.
+            return 1
     elif ns.command == "compare-repeated":
-        build_repeated_report(
-            results_dir,
-            ns.experiment_a,
-            ns.experiment_b,
-            label_a=ns.label_a,
-            label_b=ns.label_b,
-            stem=ns.out,
-            force=ns.force,
-        )
+        try:
+            build_repeated_report(
+                results_dir,
+                ns.experiment_a,
+                ns.experiment_b,
+                label_a=ns.label_a,
+                label_b=ns.label_b,
+                stem=ns.out,
+                force=ns.force,
+            )
+        except NoUsableOutputError:
+            return 1
     elif ns.command == "city-agnostic":
         if ns.phase == "capture":
             asyncio.run(capture_roster(ROSTER, results_dir))

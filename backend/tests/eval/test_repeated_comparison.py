@@ -11,6 +11,7 @@ from pytest import MonkeyPatch
 from crime_risk_analyzer.eval.compare import (
     ISOLATED_VARIABLE_HEAD,
     VACUOUS_CAVEAT_HEAD,
+    NoUsableOutputError,
     compare_records,
 )
 from crime_risk_analyzer.eval.harness import make_run_id, write_record
@@ -771,6 +772,116 @@ def test_build_repeated_report_refuses_overwrite_without_force(tmp_path: Path) -
         stem="dup",
         force=True,
     )
+
+
+def _all_error_arm(experiment: str, model_id: str) -> list[RunRecord]:
+    """3 ripetizioni, entrambe le zone in ERROR: nessuna ripiega a un output usabile."""
+    return [
+        _rec(
+            experiment,
+            citta,
+            zona,
+            rep=r,
+            model_id=model_id,
+            grounding=0.0,
+            hallucination=0.0,
+            latency_ms=0,
+            cost_usd=0.0,
+            status=RunStatus.ERROR,
+        )
+        for citta, zona in (("Roma", "Colosseo"), ("Milano", "Duomo"))
+        for r in range(3)
+    ]
+
+
+def test_build_repeated_report_writes_report_and_raises_when_all_reps_degenerate(
+    tmp_path: Path,
+) -> None:
+    """#239: dopo il ripiegamento nessuna zona resta valida → report, non traceback."""
+    _write_arm(tmp_path, _all_error_arm("claude-exp", "claude-sonnet-4-6"))
+    _write_arm(tmp_path, _all_error_arm("groq-exp", "llama-3.3-70b-versatile"))
+
+    with pytest.raises(NoUsableOutputError):
+        build_repeated_report(
+            tmp_path, "claude-exp", "groq-exp", label_a="claude", label_b="groq"
+        )
+
+    md_path = tmp_path / "claude-exp_vs_groq-exp_repeated.md"
+    json_path = tmp_path / "claude-exp_vs_groq-exp_repeated.json"
+    assert md_path.exists()
+    assert json_path.exists()
+    md_text = md_path.read_text(encoding="utf-8")
+    assert "Nessun output utilizzabile" in md_text
+    assert "Nessun verdetto" in md_text
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert payload["winner"] is None
+    assert len(payload["failed"]) == 2
+
+
+def test_build_repeated_report_still_raises_no_usable_output_if_report_write_fails(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    """#239 (follow-up review): un OSError nella scrittura non sostituisca
+    NoUsableOutputError, altrimenti il CLI perde l'exit code pulito.
+    """
+    import crime_risk_analyzer.eval.repeated_comparison as repeated_mod
+
+    _write_arm(tmp_path, _all_error_arm("claude-exp", "claude-sonnet-4-6"))
+    _write_arm(tmp_path, _all_error_arm("groq-exp", "llama-3.3-70b-versatile"))
+
+    def _boom(*args: object, **kwargs: object) -> None:
+        raise OSError("permessi negati (simulato)")
+
+    monkeypatch.setattr(repeated_mod, "write_no_usable_output_report", _boom)
+
+    with pytest.raises(NoUsableOutputError):
+        build_repeated_report(
+            tmp_path, "claude-exp", "groq-exp", label_a="claude", label_b="groq"
+        )
+    assert not (tmp_path / "claude-exp_vs_groq-exp_repeated.md").exists()
+
+
+def test_build_repeated_report_propagates_file_exists_error_from_report_write(
+    tmp_path: Path,
+) -> None:
+    """La guardia anti-sovrascrittura resta prioritaria anche su questo ramo."""
+    _write_arm(tmp_path, _all_error_arm("claude-exp", "claude-sonnet-4-6"))
+    _write_arm(tmp_path, _all_error_arm("groq-exp", "llama-3.3-70b-versatile"))
+    (tmp_path / "claude-exp_vs_groq-exp_repeated.md").write_text(
+        "gia' presente", encoding="utf-8"
+    )
+
+    with pytest.raises(FileExistsError):
+        build_repeated_report(
+            tmp_path, "claude-exp", "groq-exp", label_a="claude", label_b="groq"
+        )
+
+
+def test_main_compare_repeated_returns_1_on_no_usable_output(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    """#239: il comando CLI `compare-repeated` segnala il fallimento con exit 1."""
+    import sys
+
+    import crime_risk_analyzer.eval.__main__ as eval_main
+
+    _write_arm(tmp_path, _all_error_arm("claude-exp", "claude-sonnet-4-6"))
+    _write_arm(tmp_path, _all_error_arm("groq-exp", "llama-3.3-70b-versatile"))
+
+    argv = [
+        "crime_risk_analyzer.eval",
+        "compare-repeated",
+        "--experiment-a",
+        "claude-exp",
+        "--experiment-b",
+        "groq-exp",
+        "--results",
+        str(tmp_path),
+    ]
+    monkeypatch.setattr(sys, "argv", argv)
+    rc = eval_main.main()
+    assert rc == 1
+    assert (tmp_path / "claude-exp_vs_groq-exp_repeated.md").exists()
 
 
 # --- Verdetto trattenuto sul braccio muto (#231) ---------------------------
