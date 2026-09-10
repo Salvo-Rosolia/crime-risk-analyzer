@@ -402,7 +402,12 @@ def _risk_models_from_grounded(grounded: GroundedContext) -> list[RiskModel]:
     models: list[RiskModel] = []
     for vr in grounded["validated_risks"]:
         items = [
-            RiskItem(hazard=r["hazard"], confidence=r["confidence"], tag=r["tag"])
+            RiskItem(
+                hazard=r["hazard"],
+                confidence=r["confidence"],
+                tag=r["tag"],
+                source=r["source"],
+            )
             for r in vr["risks"]
         ]
         models.append(RiskModel(poi_id=vr["poi_id"], poi=vr["poi"], risks=items))

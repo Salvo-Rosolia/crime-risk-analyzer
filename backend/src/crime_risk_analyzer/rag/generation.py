@@ -932,6 +932,7 @@ def _risk_models_from_context(context_dict: dict[str, Any]) -> list[RiskModel]:
                     "hazard": str(risk.get("hazard", "")),
                     "confidence": risk.get("confidence"),
                     "tag": risk.get("tag"),
+                    "source": risk.get("source"),
                 }
             )
             for risk in poi.get("risks", [])

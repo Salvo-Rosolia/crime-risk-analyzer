@@ -297,6 +297,16 @@ def test_risk_models_from_grounded() -> None:
     assert models[1].risks == []
 
 
+def test_risk_models_from_grounded_propagates_source() -> None:
+    grounded = {
+        "validated_risks": [
+            _vr("Banca A", "Bank", ["Bank_robbery"], poi_id="1"),
+        ]
+    }
+    models = _risk_models_from_grounded(grounded)  # type: ignore[arg-type]
+    assert models[0].risks[0].source == "Bank → havingHazard → Bank_robbery"
+
+
 def test_structured_response_no_llm() -> None:
     grounded = {
         "zona": "Centro",

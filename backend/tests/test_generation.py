@@ -33,6 +33,7 @@ from crime_risk_analyzer.rag.generation import (
     RiskModel,
     SourceProse,
     _estimate_tokens,  # pyright: ignore[reportPrivateUsage]
+    _risk_models_from_context,  # pyright: ignore[reportPrivateUsage]
     build_context_str,
     generate_analysis,
     parse_source_prose,
@@ -717,6 +718,27 @@ async def test_generate_analysis_builds_risk_models_from_context() -> None:
     assert first.hazard == "MassTouristTargeting"
     assert first.confidence == "verificato"
     assert first.tag == "ONTOLOGIA"
+
+
+def test_risk_models_from_context_propagates_source() -> None:
+    context_dict = {
+        "validated_risks": [
+            {
+                "poi_id": "node/1",
+                "poi": "Banca A",
+                "risks": [
+                    {
+                        "hazard": "Robbery",
+                        "confidence": "verificato",
+                        "tag": "ONTOLOGIA",
+                        "source": "Bank → havingHazard → Robbery",
+                    }
+                ],
+            }
+        ]
+    }
+    models = _risk_models_from_context(context_dict)
+    assert models[0].risks[0].source == "Bank → havingHazard → Robbery"
 
 
 async def test_generate_analysis_exposes_repro_block() -> None:
