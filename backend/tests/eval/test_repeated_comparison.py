@@ -936,6 +936,13 @@ def test_repeated_report_withholds_verdict_when_an_arm_never_generates(
     assert payload["winner"] is None
     assert payload["quality_verdict"]["applicable"] is False
     assert payload["quality_verdict"]["vacuous_arms"] == ["baseline"]
+    # #238: stesso encoding di write_comparison (ensure_ascii=False) — lo
+    # stesso testo non deve finire \u-escaped solo perche' scritto da qui.
+    assert "qualità" in json_path.read_text(encoding="utf-8")
+    # Reperto di review: quality_verdict vive SOLO al livello superiore, non
+    # duplicato anche dentro "comparison" (Comparison.quality_verdict lo
+    # includerebbe li' per costruzione se non fosse rimosso esplicitamente).
+    assert "quality_verdict" not in payload["comparison"]
 
 
 def test_repeated_report_still_declares_verdict_when_both_arms_generate(
