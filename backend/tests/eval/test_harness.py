@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from crime_risk_analyzer.eval.harness import (
-    _record_from_response,
+    _record_from_response,  # pyright: ignore[reportPrivateUsage]
     make_run_id,
     make_snapshot_key,
     run_case,
