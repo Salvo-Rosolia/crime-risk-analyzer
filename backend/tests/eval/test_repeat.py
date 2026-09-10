@@ -126,6 +126,26 @@ def test_fold_k1_has_zero_std() -> None:
     assert zv.n_reps == 1
 
 
+def test_fold_leaves_quality_vacuous_unset_on_mean_record() -> None:
+    """#240: nessuna regola di aggregazione dichiarata per un booleano su K
+    ripetizioni (documentato in ``_mean_metrics``) — il record-media resta
+    ``None``, anche quando la singola ripetizione valida era vacua."""
+    folded = fold_arm(
+        [
+            _rec(
+                "Milano",
+                "Duomo",
+                rep=0,
+                grounding=1.0,
+                hallucination=0.0,
+                latency_ms=900,
+                cost_usd=0.0,
+            )
+        ]
+    )
+    assert folded.mean_records[0].metrics.quality_vacuous is None
+
+
 def test_fold_excludes_error_reps_and_counts_dropped() -> None:
     """Le ripetizioni ERROR non entrano in media/std; n_dropped le conta."""
     recs = [

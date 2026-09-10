@@ -17,9 +17,22 @@ _COLUMNS = [
     "status",
     "grounding",
     "hallucination",
+    "quality_vacuous",
     "latency_ms",
     "cost_usd",
 ]
+
+
+def _vacuous_cell(quality_vacuous: bool | None) -> str:
+    """Cella del marcatore di vacuita' (#240): stringa vuota se non disponibile.
+
+    Un record pre-#240 non ha ``quality_vacuous`` (``None``): lasciare la cella
+    vuota, invece di stampare "false", evita di far leggere "non vacuo" un dato
+    che semplicemente non e' stato registrato.
+    """
+    if quality_vacuous is None:
+        return ""
+    return "true" if quality_vacuous else "false"
 
 
 def load_runs(results_dir: Path, experiment: str | None = None) -> list[RunRecord]:
@@ -45,6 +58,7 @@ def _row(rec: RunRecord) -> list[str]:
         rec.status.value,
         f"{rec.metrics.grounding:.3f}",
         f"{rec.metrics.hallucination:.3f}",
+        _vacuous_cell(rec.metrics.quality_vacuous),
         str(rec.metrics.latency_ms),
         f"{rec.metrics.cost_usd:.6f}",
     ]

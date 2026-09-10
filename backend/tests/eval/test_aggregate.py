@@ -12,7 +12,12 @@ from crime_risk_analyzer.eval.harness import write_record
 from crime_risk_analyzer.eval.schema import Metrics, Provenance, RunRecord, RunStatus
 
 
-def _rec(run_id: str, experiment: str, status: RunStatus = RunStatus.OK) -> RunRecord:
+def _rec(
+    run_id: str,
+    experiment: str,
+    status: RunStatus = RunStatus.OK,
+    quality_vacuous: bool | None = False,
+) -> RunRecord:
     return RunRecord(
         run_id=run_id,
         experiment=experiment,
@@ -22,7 +27,11 @@ def _rec(run_id: str, experiment: str, status: RunStatus = RunStatus.OK) -> RunR
         model_id="claude-sonnet-4-6",
         status=status,
         metrics=Metrics(
-            grounding=1.0, hallucination=0.0, latency_ms=120, cost_usd=0.003
+            grounding=1.0,
+            hallucination=0.0,
+            latency_ms=120,
+            cost_usd=0.003,
+            quality_vacuous=quality_vacuous,
         ),
         narrativa="x",
         n_poi=2,
@@ -52,10 +61,38 @@ def test_to_csv_has_header_and_row() -> None:
     lines = csv.strip().splitlines()
     expected_header = (
         "run_id,citta,zona,mode,model_id,status,"
-        "grounding,hallucination,latency_ms,cost_usd"
+        "grounding,hallucination,quality_vacuous,latency_ms,cost_usd"
     )
     assert lines[0] == expected_header
     assert "r1" in lines[1]
+
+
+def test_to_csv_marks_vacuous_quality_metrics() -> None:
+    """#240: grounding/hallucination vacui (nessuna narrativa da giudicare) sono
+    riconoscibili anche fuori dal report di confronto (#231), qui nella tabella
+    per-run e nel CSV — stesso meccanismo di marcatura per entrambi gli artefatti.
+    """
+    csv = to_csv([_rec("r1", "exp", quality_vacuous=True)])
+    row = csv.strip().splitlines()[1]
+    assert row.split(",")[8] == "true"
+
+    csv = to_csv([_rec("r2", "exp", quality_vacuous=False)])
+    row = csv.strip().splitlines()[1]
+    assert row.split(",")[8] == "false"
+
+
+def test_to_csv_leaves_vacuous_column_blank_for_legacy_records() -> None:
+    """Un record pre-#240 (``quality_vacuous`` assente, default ``None``) non deve
+    leggersi come "non vacuo": la colonna resta vuota, non "false"."""
+    csv = to_csv([_rec("r1", "exp", quality_vacuous=None)])
+    row = csv.strip().splitlines()[1]
+    assert row.split(",")[8] == ""
+
+
+def test_to_markdown_marks_vacuous_quality_metrics() -> None:
+    md = to_markdown([_rec("r1", "exp", quality_vacuous=True)])
+    assert "quality_vacuous" in md
+    assert "| true |" in md
 
 
 def test_markdown_flags_error(tmp_path: Path) -> None:

@@ -63,6 +63,7 @@ def _rec(
     snapshot_id: str | None = None,
     narrativa: str = "x",
     context_format: ContextFormat = "per_poi",
+    quality_vacuous: bool | None = None,
 ) -> RunRecord:
     """RunRecord minimale con metriche controllate per i test di confronto."""
     return RunRecord(
@@ -76,6 +77,7 @@ def _rec(
         metrics=Metrics(
             grounding=grounding,
             hallucination=hallucination,
+            quality_vacuous=quality_vacuous,
             latency_ms=latency_ms,
             cost_usd=cost_usd,
         ),
@@ -1038,6 +1040,38 @@ def test_compare_records_flags_the_single_zone_where_an_arm_stays_silent() -> No
     assert [(z.citta, z.zona, z.arms) for z in comparison.vacuous_zones] == [
         ("Roma", "Colosseo", ["baseline"])
     ]
+
+
+def test_compare_records_flags_zone_vacuous_for_no_anchors_not_just_silence() -> None:
+    """#240: ``has_narrativa`` da sola non copre "narrativa piena ma zona senza
+    POI/ancoraggi da citare" — lo dichiarava il suo stesso confine (docstring
+    pre-#240 di ``is_vacuous_arm``). Un record con narrativa NON vuota ma
+    ``metrics.quality_vacuous=True`` (il ramo vacuo di ``metrics.py::_grade`` per
+    assenza di ancoraggi) deve comunque finire in ``vacuous_zones``: prima del
+    fix qui sarebbe passato inosservato perche' il testo c'era.
+    """
+    comparison = compare_records(
+        [_analyze_rec("Roma", "Colosseo")],
+        [
+            _rec(
+                "no-anchors-exp",
+                "Roma",
+                "Colosseo",
+                grounding=1.000,
+                hallucination=0.000,
+                latency_ms=5,
+                cost_usd=0.001,
+                narrativa="Qualcosa accade nella zona, ma non ci sono POI da citare.",
+                quality_vacuous=True,
+            )
+        ],
+        label_a="analyze",
+        label_b="no-anchors",
+    )
+    assert [(z.citta, z.zona, z.arms) for z in comparison.vacuous_zones] == [
+        ("Roma", "Colosseo", ["no-anchors"])
+    ]
+    assert comparison.vacuous_arms == ["no-anchors"]
 
 
 def test_compare_records_has_no_vacuous_zones_when_both_arms_speak_everywhere() -> None:
