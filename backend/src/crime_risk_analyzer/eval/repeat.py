@@ -66,6 +66,15 @@ def _group_by_zone(
 
 
 def _mean_metrics(valid: list[RunRecord]) -> Metrics:
+    # quality_vacuous (#240) NON viene propagato/mediato qui: resta il default
+    # None di Metrics, anche se una o piu' ripetizioni valide erano vacue. Non
+    # esiste una regola di aggregazione dichiarata per un booleano su K
+    # ripetizioni (tutte vacue? almeno una? maggioranza?) e deciderne una senza
+    # una decisione esplicita sarebbe arbitrario. compare.py::_record_quality_vacuous
+    # tratta None come "dato non disponibile" e ricade su has_narrativa per
+    # questi record-media, quindi compare-repeated non regredisce: il segnale
+    # e' semplicemente meno preciso qui che sul percorso a singola run, per
+    # costruzione, non per un bug.
     n = len(valid)
     return Metrics(
         grounding=sum(r.metrics.grounding for r in valid) / n,

@@ -8,6 +8,7 @@ Guida DIRETTAMENTE ``_capture`` (non solo l'helper ``capturing_source``) per:
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -419,22 +420,27 @@ async def test_capture_usa_la_politica_di_ritentativo_offline(
     tmp_path: Path, capture_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """#232: la cattura, SENZA sorgente iniettata, arriva a Overpass con la
-    politica OFFLINE.
+    politica OFFLINE. Copre anche il cablaggio del taglio OSM (#251) fino allo
+    snapshot scritto: nessun test isolato su ``capturing_source``/
+    ``offline_fetch_pois`` si accorgerebbe di uno spacchettamento rotto in
+    ``_capture`` stesso.
 
     Non passa ``poi_source``: è l'unico modo di coprire la riga di cablaggio
-    (``inner = poi_source or offline_fetch_pois``). Un test che chiamasse
-    ``offline_fetch_pois`` direttamente lascerebbe verde un ritorno a
-    ``fetch_pois``, cioè il difetto di #232 intatto con del codice nuovo accanto.
+    (``offline_fetch_pois`` quando ``poi_source`` è ``None``). Un test che
+    chiamasse la sorgente offline direttamente lascerebbe verde un ritorno a
+    ``fetch_pois``/``fetch_pois_with_cut`` con la politica interattiva, cioè il
+    difetto di #232 intatto con del codice nuovo accanto.
     """
     visti: list[object] = []
+    taglio = {"timestamp_osm_base": "2026-07-26T17:42:03Z", "overpass_url": "x"}
 
     async def _spia(
         bbox: Bbox, citta: str, *args: object, **kwargs: object
-    ) -> list[Poi]:
+    ) -> tuple[list[Poi], object]:
         visti.append(kwargs.get("retry"))
-        return _sample_pois()
+        return _sample_pois(), taglio
 
-    monkeypatch.setattr(snapshots, "fetch_pois", _spia)
+    monkeypatch.setattr(snapshots, "fetch_pois_with_cut", _spia)
 
     config_path = _write_config(tmp_path, "Roma", "Centro")
     await _capture(config_path, tmp_path)
@@ -442,6 +448,8 @@ async def test_capture_usa_la_politica_di_ritentativo_offline(
     assert visti == [OFFLINE_RETRY]
     path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
     assert load_snapshot(path) == _sample_pois()
+    scritto = json.loads(path.read_text(encoding="utf-8"))
+    assert scritto["provenienza"]["taglio_osm"] == taglio
 
 
 async def test_capture_isolates_failure_on_one_case(

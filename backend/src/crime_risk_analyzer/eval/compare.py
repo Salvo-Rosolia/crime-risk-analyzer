@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,6 +32,8 @@ from pydantic import BaseModel
 
 from crime_risk_analyzer.eval.aggregate import load_runs
 from crime_risk_analyzer.eval.schema import Metrics, RunRecord, RunStatus
+
+logger = logging.getLogger(__name__)
 
 #: Etichetta della riga aggregata nelle tabelle.
 _MEAN_LABEL = "MEDIA"
@@ -108,6 +111,24 @@ class VacuousZone(BaseModel):
     arms: list[str]
 
 
+class QualityVerdict(BaseModel):
+    """Risponde da sola: "il verdetto di qualità è applicabile?" (#238).
+
+    Prima di questo campo, pareggio (nessuna zona vacua, ma i 4 assi coincidono)
+    e astensione (metriche vacue, #231) erano indistinguibili senza ispezionare
+    la FORMA di ``winner`` nel report ripetuto — e il report non ripetuto non
+    aveva alcun modo di rispondere alla stessa domanda. Campo del modello
+    :class:`Comparison`, non bolted-on nei singoli writer: qualunque futuro
+    consumatore di ``to_json``/``model_dump`` lo riceve per costruzione, non per
+    disciplina di chi scrive il payload.
+    """
+
+    applicable: bool
+    vacuous_arms: list[str]
+    vacuous_zones: list[VacuousZone]
+    reason: str = ""
+
+
 class Comparison(BaseModel):
     """Confronto: zone comparate + aggregato + zone escluse (ERROR/FALLBACK)."""
 
@@ -141,6 +162,9 @@ class Comparison(BaseModel):
     #: (:data:`CONFOUNDED_VARIABLE_HEAD`): il campo non afferma mai che la
     #: variabile è isolata senza averlo verificato sui record.
     isolated_variable: str = ""
+    #: Derivato da ``vacuous_arms``/``vacuous_zones`` qui sopra, sempre in fase
+    #: di costruzione (#238): vedi :class:`QualityVerdict`.
+    quality_verdict: QualityVerdict
 
 
 @dataclass(frozen=True)
@@ -202,6 +226,18 @@ VACUOUS_CAVEAT_HEAD = "> ⚠️ **Assi di qualità non applicabili.**"
 VACUOUS_REASON = (
     "`grounding`/`hallucination` cadono nel ramo vacuo di `metrics.py` "
     "(1.0/0.0 perché non c'è testo da giudicare), che non è un merito"
+)
+
+#: Cosa dire delle misure operative (latenza, costo) quando gli assi di qualità
+#: sono vacui: sono numeri grezzi leggibili nelle tabelle, non un confronto
+#: dichiarato su di essi — dirlo con "restano confrontabili" prometterebbe un
+#: esito che il report non calcola né stampa (#237). Fonte unica del wording,
+#: condivisa fra il caveat delle tabelle qui sotto e la sezione «verdetto
+#: trattenuto» del report ripetuto: stesso motivo del pattern già usato per
+#: VACUOUS_REASON, per non lasciare che le due formulazioni divergano di nuovo.
+OPERATIONAL_AXES_NOTE = (
+    "i valori operativi (latenza, costo) restano leggibili nelle tabelle, letti "
+    "direttamente e non come un confronto dichiarato"
 )
 
 
@@ -467,13 +503,37 @@ def has_vacuous_quality_axes(
     return bool(vacuous_arms or vacuous_zones)
 
 
+def _quality_verdict(
+    vacuous_arms: list[str], vacuous_zones: list[VacuousZone]
+) -> QualityVerdict:
+    """Costruisce il :class:`QualityVerdict` di un confronto (#238).
+
+    Chiamata una sola volta, dentro :func:`compare_records`, cosi' il campo
+    finisce sul modello :class:`Comparison` stesso: qualunque writer presente o
+    futuro lo eredita da ``to_json``/``model_dump`` senza ricostruirlo a mano
+    (la duplicazione che questa funzione elimina — vedi il modulo
+    ``repeated_comparison``, che prima aveva la sua propria copia).
+    """
+    withheld = has_vacuous_quality_axes(vacuous_arms, vacuous_zones)
+    return QualityVerdict(
+        applicable=not withheld,
+        vacuous_arms=list(vacuous_arms),
+        vacuous_zones=list(vacuous_zones),
+        reason=(
+            "manca la narrativa su cui i proxy di qualità si pronunciano: "
+            "metriche vacue (#231)"
+            if withheld
+            else ""
+        ),
+    )
+
+
 def _vacuous_caveat(vacuous_arms: list[str], vacuous_zones: list[VacuousZone]) -> str:
     """Avviso per le tabelle: perché gli assi di qualità non si leggono."""
     return (
         f"{VACUOUS_CAVEAT_HEAD} {vacuity_subject(vacuous_arms, vacuous_zones)}: "
         f"{VACUOUS_REASON}. Su questi assi il confronto NON è interpretabile in "
-        "nessuna direzione; restano confrontabili le misure operative (latenza, "
-        "costo)."
+        f"nessuna direzione; {OPERATIONAL_AXES_NOTE}."
     )
 
 
@@ -488,22 +548,35 @@ def has_narrativa(record: RunRecord) -> bool:
     return bool(record.narrativa.strip())
 
 
-def is_vacuous_arm(records: list[RunRecord]) -> bool:
-    """True se NESSUN record del braccio ha prodotto narrativa (#231).
+def _record_quality_vacuous(record: RunRecord) -> bool:
+    """True se le metriche di qualita' del record sono vacue (#240).
 
-    Un braccio è vacuo per costruzione (``mode='baseline'``: nessun LLM) o
-    perché non ha mai prodotto testo. In entrambi i casi non esiste materiale su
-    cui i proxy di qualità possano dire qualcosa. Un braccio che tace su ALCUNE
-    zone e parla su altre NON è vacuo: quelle zone sono raccolte in
-    ``Comparison.vacuous_zones`` e trattengono comunque il verdetto.
+    Legge ``metrics.quality_vacuous`` quando disponibile: e' un sovrainsieme di
+    :func:`has_narrativa`, perche' ``metrics.py::_grade`` cade nel ramo vacuo sia
+    a narrativa assente sia a narrativa piena ma senza alcun ancoraggio da citare
+    (zona senza POI) — il confine che ``has_narrativa`` da sola dichiarava di non
+    coprire. Sui record pre-#240 (``quality_vacuous is None``, dato non
+    disponibile) ricade su ``has_narrativa``: stesso comportamento di prima
+    dell'introduzione di questo campo.
+    """
+    if record.metrics.quality_vacuous is not None:
+        return record.metrics.quality_vacuous
+    return not has_narrativa(record)
+
+
+def is_vacuous_arm(records: list[RunRecord]) -> bool:
+    """True se NESSUN record del braccio ha metriche di qualita' gradabili (#231).
+
+    Un braccio è vacuo per costruzione (``mode='baseline'``: nessun LLM), perché
+    non ha mai prodotto testo, o perché le zone che copre non avevano alcun
+    ancoraggio da citare (#240: ``_record_quality_vacuous``). In tutti i casi non
+    esiste materiale su cui i proxy di qualità possano dire qualcosa. Un braccio
+    che tace su ALCUNE zone e parla su altre NON è vacuo: quelle zone sono
+    raccolte in ``Comparison.vacuous_zones`` e trattengono comunque il verdetto.
 
     Un braccio vuoto (nessun record) non è vacuo: non è un braccio.
-
-    Confine dichiarato: rileva l'assenza di TESTO, non ogni ramo vacuo di
-    ``metrics.py``. Una narrativa piena ma senza ancoraggi da citare (zona senza
-    POI) è anch'essa gradata 1.0/0.0 per vacuità e NON è intercettata qui.
     """
-    return bool(records) and not any(has_narrativa(rec) for rec in records)
+    return bool(records) and all(_record_quality_vacuous(rec) for rec in records)
 
 
 def _to_values(m: Metrics) -> MetricValues:
@@ -551,6 +624,34 @@ def _index_by_zone(records: list[RunRecord]) -> dict[tuple[str, str], RunRecord]
     return index
 
 
+class NoUsableOutputError(ValueError):
+    """Nessuna zona valida da confrontare: tutti i record sono ERROR/FALLBACK (#239).
+
+    Sottoclasse di :class:`ValueError` (chi già intercettava ``ValueError``
+    intorno a :func:`compare_records` continua a funzionare) ma distinta dagli
+    altri ``ValueError`` che la funzione solleva: quelli segnalano un INPUT
+    malformato (zone che non coincidono, record duplicati, ``snapshot_id``
+    divergente) e devono continuare a propagare come traceback — qui invece
+    l'input è valido, semplicemente nessun braccio ha prodotto output
+    utilizzabile su nessuna zona (scenario reale: quota LLM esaurita durante una
+    run offline, #232). I chiamanti CLI (:func:`compare_experiments`,
+    :func:`~crime_risk_analyzer.eval.repeated_comparison.build_repeated_report`)
+    la intercettano per scrivere un report che spiega COSA è fallito, per zona e
+    per braccio, invece di lasciar propagare un traceback nudo — mai un verdetto
+    (vedi :func:`write_no_usable_output_report`).
+    """
+
+    def __init__(self, label_a: str, label_b: str, failed: list[FailedZone]) -> None:
+        self.label_a = label_a
+        self.label_b = label_b
+        self.failed = failed
+        super().__init__(
+            "nessuna zona valida da confrontare (tutte in ERROR/FALLBACK, "
+            "nessun braccio ha prodotto output utilizzabile): "
+            f"{[(f.citta, f.zona) for f in failed]}"
+        )
+
+
 def compare_records(
     arm_a: list[RunRecord],
     arm_b: list[RunRecord],
@@ -569,12 +670,15 @@ def compare_records(
     ``Comparison.vacuous_arms`` (#231): lì le metriche di qualità sono vacue, non
     un merito, e a valle nessun verdetto va emesso su quegli assi. Non è un
     errore e non esclude zone: le misure operative (latenza, costo) restano
-    valide e confrontabili.
+    valide, ma nessun confronto viene dichiarato su di esse (#237) — vanno
+    lette direttamente nelle tabelle.
 
     Solleva :class:`ValueError` se: un braccio ha record duplicati per una zona;
     i due bracci coprono zone diverse (iso-input violato); una zona appaiata ha
-    ``snapshot_id`` divergente tra i bracci (iso-input a livello di record); non
-    resta alcuna zona valida da confrontare.
+    ``snapshot_id`` divergente tra i bracci (iso-input a livello di record).
+    Solleva :class:`NoUsableOutputError` (sottoclasse di ``ValueError``, #239) se
+    non resta alcuna zona valida da confrontare — l'input è valido, è l'esito ad
+    essere degenere.
     """
     index_a = _index_by_zone(arm_a)
     index_b = _index_by_zone(arm_b)
@@ -621,13 +725,15 @@ def compare_records(
                 )
             )
             continue
-        # Zona muta (#231): status OK ma nessun testo prodotto da un braccio. La
-        # zona resta comparata (le misure operative valgono), ma le sue metriche
-        # di qualità sono vacue e non possono sostenere un verdetto.
+        # Zona muta (#231): status OK ma metriche di qualita' non gradabili per un
+        # braccio — nessun testo prodotto, oppure narrativa piena su una zona
+        # senza POI/ancoraggi da citare (#240). La zona resta comparata (le
+        # misure operative valgono), ma le sue metriche di qualità sono vacue e
+        # non possono sostenere un verdetto.
         silent = [
             label
             for label, rec in ((label_a, rec_a), (label_b, rec_b))
-            if not has_narrativa(rec)
+            if _record_quality_vacuous(rec)
         ]
         if silent:
             vacuous_zones.append(
@@ -643,11 +749,7 @@ def compare_records(
             )
         )
     if not zones:
-        raise ValueError(
-            "nessuna zona valida da confrontare (tutte in ERROR/FALLBACK, "
-            "nessun braccio ha prodotto output utilizzabile): "
-            f"{[(f.citta, f.zona) for f in failed]}"
-        )
+        raise NoUsableOutputError(label_a, label_b, failed)
     vacuous = [
         label
         for label, arm in ((label_a, arm_a), (label_b, arm_b))
@@ -673,6 +775,7 @@ def compare_records(
             # l'avviso del Markdown non possono raccontare due storie diverse.
             quality_axes_vacuous=has_vacuous_quality_axes(vacuous, vacuous_zones),
         ),
+        quality_verdict=_quality_verdict(vacuous, vacuous_zones),
     )
 
 
@@ -770,6 +873,77 @@ def _markdown_table(cols: list[str], rows: list[list[str]]) -> list[str]:
     return lines
 
 
+class NoUsableOutputReport(BaseModel):
+    """Forma JSON di ``NoUsableOutputError``: ``failed``, mai un verdetto (#239)."""
+
+    label_a: str
+    label_b: str
+    failed: list[FailedZone]
+    winner: None = None
+    quality_verdict_applicable: bool = False
+
+
+def no_usable_output_markdown(exc: NoUsableOutputError) -> str:
+    """Report Markdown per un confronto senza nessuna zona utilizzabile (#239).
+
+    Nessuna tabella di metriche, nessun verdetto: solo la sezione delle zone
+    escluse (stesso formato della sezione omonima di :func:`to_markdown`), così
+    chi legge vede subito quale zona e quale braccio hanno fallito e con quale
+    status, invece di un traceback.
+    """
+    fcols = _failed_columns(exc.label_a, exc.label_b)
+    lines = [
+        "# Nessun output utilizzabile",
+        "",
+        "> ⚠️ **Nessun verdetto.** Ogni zona è esclusa (ogni braccio è in "
+        "`ERROR` o `FALLBACK` su ogni zona): non resta nulla da mediare o "
+        "confrontare. Tabelle di metriche e verdetto non sono emessi.",
+        "",
+        "### Zone escluse dal confronto (run in errore)",
+    ]
+    lines.extend(_markdown_table(fcols, [_failed_row(fz) for fz in exc.failed]))
+    return "\n".join(lines) + "\n"
+
+
+def no_usable_output_csv(exc: NoUsableOutputError) -> str:
+    """CSV delle zone escluse: stesso schema della sezione di :func:`to_csv`."""
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(_failed_columns(exc.label_a, exc.label_b))
+    for fz in exc.failed:
+        writer.writerow(_failed_row(fz))
+    return buf.getvalue()
+
+
+def no_usable_output_json(exc: NoUsableOutputError) -> str:
+    """JSON strutturato del fallimento: ``failed``, ``winner`` sempre ``None``."""
+    return NoUsableOutputReport(
+        label_a=exc.label_a, label_b=exc.label_b, failed=exc.failed
+    ).model_dump_json(indent=2)
+
+
+def write_no_usable_output_report(
+    results_dir: Path, exc: NoUsableOutputError, stem: str, *, force: bool = False
+) -> tuple[Path, Path, Path]:
+    """Scrive ``results/<stem>.{csv,md,json}`` per un confronto senza esito (#239).
+
+    Stessa convenzione di nomi di :func:`write_comparison`: i chiamanti CLI
+    (:func:`compare_experiments`,
+    :func:`~crime_risk_analyzer.eval.repeated_comparison.build_repeated_report`)
+    restituiscono al proprio chiamante solo i due path del proprio contratto
+    esistente, ignorando il terzo — nessuno dei due rompe la propria firma di
+    ritorno per questo caso degenere.
+    """
+    csv_path = results_dir / f"{stem}.csv"
+    md_path = results_dir / f"{stem}.md"
+    json_path = results_dir / f"{stem}.json"
+    guard_no_overwrite([csv_path, md_path, json_path], force)
+    csv_path.write_text(no_usable_output_csv(exc), encoding="utf-8", newline="")
+    md_path.write_text(no_usable_output_markdown(exc), encoding="utf-8")
+    json_path.write_text(no_usable_output_json(exc), encoding="utf-8")
+    return csv_path, md_path, json_path
+
+
 def operational_markdown(comparison: Comparison) -> str:
     """Tabella costo/latenza (metriche operative), SEPARATA dalla qualità (#33).
 
@@ -858,6 +1032,8 @@ def write_comparison(
     # sul file nuovo, NON ri-applicato ad aggregate.py).
     csv_path.write_text(to_csv(comparison), encoding="utf-8", newline="")
     md_path.write_text(to_markdown(comparison), encoding="utf-8")
+    # `quality_verdict` (#238) e' un campo di Comparison come `isolated_variable`:
+    # `to_json` lo scrive gia' senza bisogno di comporre il payload a mano qui.
     json_path.write_text(to_json(comparison), encoding="utf-8")
     return csv_path, md_path
 
@@ -877,14 +1053,40 @@ def compare_experiments(
     ``label_a``/``label_b`` default al nome dell'esperimento; ``stem`` default a
     ``<experiment_a>_vs_<experiment_b>``. ``force`` bypassa la guardia
     anti-sovrascrittura sui file di output (#165).
+
+    Se nessuna zona resta utilizzabile (entrambi i bracci in ERROR/FALLBACK su
+    ogni zona, #239) scrive comunque un report — CSV/Markdown/JSON delle zone
+    escluse, nessun verdetto — e rilancia :class:`NoUsableOutputError`, così il
+    chiamante CLI può segnalare un exit code non-zero senza duplicare la
+    risoluzione di ``stem``. La guardia anti-sovrascrittura (:class:`FileExistsError`)
+    propaga invariata anche in questo ramo (stesso comportamento del percorso di
+    successo). Se invece la scrittura del report fallisce per un altro motivo
+    (disco pieno, permessi: :class:`OSError`), l'errore di scrittura è solo
+    loggato — continua a essere rilanciata ``NoUsableOutputError``, mai
+    l'``OSError``, così il chiamante CLI esce comunque con un exit code pulito
+    invece di un secondo traceback imprevisto (#239).
     """
     arm_a = load_runs(results_dir, experiment=experiment_a)
     arm_b = load_runs(results_dir, experiment=experiment_b)
-    comparison = compare_records(
-        arm_a,
-        arm_b,
-        label_a=label_a or experiment_a,
-        label_b=label_b or experiment_b,
-    )
     resolved_stem = stem or f"{experiment_a}_vs_{experiment_b}"
+    try:
+        comparison = compare_records(
+            arm_a,
+            arm_b,
+            label_a=label_a or experiment_a,
+            label_b=label_b or experiment_b,
+        )
+    except NoUsableOutputError as exc:
+        try:
+            write_no_usable_output_report(results_dir, exc, resolved_stem, force=force)
+        except FileExistsError:
+            raise
+        except OSError:
+            logger.exception(
+                "impossibile scrivere il report di nessun-output-utilizzabile "
+                "per '%s' in %s",
+                resolved_stem,
+                results_dir,
+            )
+        raise exc
     return write_comparison(results_dir, comparison, resolved_stem, force=force)

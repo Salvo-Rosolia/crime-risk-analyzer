@@ -10,22 +10,25 @@ AGGIUNGE varianza + vincitore.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from pathlib import Path
 
 from crime_risk_analyzer.eval.aggregate import load_runs
 from crime_risk_analyzer.eval.compare import (
+    OPERATIONAL_AXES_NOTE,
     VACUOUS_REASON,
     Comparison,
     MetricValues,
+    NoUsableOutputError,
     VacuousZone,
     compare_records,
     guard_no_overwrite,
-    has_vacuous_quality_axes,
     is_ontology_isolating_pair,
     to_json,
     to_markdown,
     vacuity_subject,
+    write_no_usable_output_report,
 )
 from crime_risk_analyzer.eval.repeat import FoldedArm, ZoneVariance, fold_arm
 from crime_risk_analyzer.eval.schema import Metrics
@@ -34,6 +37,8 @@ from crime_risk_analyzer.eval.winner import (
     Winner,
     decide_winner,
 )
+
+logger = logging.getLogger(__name__)
 
 #: Caveat di scope (#157): l'asse allucinazione del verdetto e' il proxy testuale.
 _SCOPE_NOTE = (
@@ -244,9 +249,10 @@ def verdict_na_markdown(
         f"{VACUOUS_REASON}. Quei valori entrano nella media che il criterio "
         "confronta, quindi dichiarare un vincitore premierebbe il silenzio: il "
         "verdetto è **trattenuto**. Il criterio lessicografico (#157) è definito "
-        "per il confronto tra modelli che generano ENTRAMBI. Restano confrontabili "
-        "le misure operative (latenza, costo) nelle tabelle sopra; la qualità "
-        "dell'interpretazione è materia di annotazione umana (#152).\n"
+        "per il confronto tra modelli che generano ENTRAMBI: questo report non "
+        "calcola né dichiara un esito, nemmeno sui soli assi operativi — "
+        f"{OPERATIONAL_AXES_NOTE}; la qualità dell'interpretazione è materia di "
+        "annotazione umana (#152).\n"
     )
 
 
@@ -272,21 +278,44 @@ def build_repeated_report(
     è TRATTENUTO: ``winner`` è ``None`` nel JSON, ``quality_verdict.applicable``
     è ``False`` e il Markdown motiva l'astensione al posto del vincitore. Le
     tabelle (incluse le operative) restano invariate.
+
+    Se dopo il ripiegamento delle ripetizioni non resta nessuna zona utilizzabile
+    (ogni braccio in ERROR/FALLBACK su ogni zona, #239) scrive comunque un
+    report — Markdown/JSON delle zone escluse, nessun verdetto — e rilancia
+    :class:`~crime_risk_analyzer.eval.compare.NoUsableOutputError`. La guardia
+    anti-sovrascrittura (``FileExistsError``) propaga invariata; un altro
+    fallimento di scrittura (``OSError``: disco pieno, permessi) è solo loggato,
+    e viene comunque rilanciata ``NoUsableOutputError`` — mai l'``OSError`` — così
+    il chiamante CLI esce con un exit code pulito invece di un traceback (#239).
     """
     la = label_a or experiment_a
     lb = label_b or experiment_b
     folded_a = fold_arm(load_runs(results_dir, experiment=experiment_a))
     folded_b = fold_arm(load_runs(results_dir, experiment=experiment_b))
-    comparison = compare_records(
-        folded_a.mean_records, folded_b.mean_records, label_a=la, label_b=lb
-    )
+    resolved = stem or f"{experiment_a}_vs_{experiment_b}_repeated"
+    try:
+        comparison = compare_records(
+            folded_a.mean_records, folded_b.mean_records, label_a=la, label_b=lb
+        )
+    except NoUsableOutputError as exc:
+        try:
+            write_no_usable_output_report(results_dir, exc, resolved, force=force)
+        except FileExistsError:
+            raise
+        except OSError:
+            logger.exception(
+                "impossibile scrivere il report di nessun-output-utilizzabile "
+                "per '%s' in %s",
+                resolved,
+                results_dir,
+            )
+        raise exc
     # Nessun verdetto se manca il testo, a livello di braccio O di singola zona
     # (#231): premierebbe il silenzio. La vacuità arriva dai record-media, che
     # conservano la DISPONIBILITÀ di narrativa (repeat._representative_narrativa),
-    # non una media di testi (che non esiste).
-    withheld = has_vacuous_quality_axes(
-        comparison.vacuous_arms, comparison.vacuous_zones
-    )
+    # non una media di testi (che non esiste). `quality_verdict` e' gia' stato
+    # calcolato una volta dentro compare_records (#238): non lo si ricalcola qui.
+    withheld = not comparison.quality_verdict.applicable
     # Su questa coppia il braccio ablato ha un prompt strutturalmente piu' corto,
     # quindi latenza e costo piu' bassi non sono un merito (#236): escludendoli
     # dallo spareggio, se la qualita' pareggia il verdetto resta dichiaratamente
@@ -335,20 +364,20 @@ def build_repeated_report(
         )
         + "\n"
     )
+    comparison_json = json.loads(to_json(comparison))
+    # `quality_verdict` vive SOLO al livello superiore del payload (chiave
+    # sorella qui sotto): e' la stessa identica posizione in cui lo trova un
+    # lettore di `compare` (che non ha alcun wrapper "comparison"), non due
+    # copie byte-identiche a due profondita' diverse nello stesso file (#238 —
+    # reperto di review: prima di questo pop, model_dump/to_json includeva
+    # gia' il campo qui dentro, perche' e' un campo vero di Comparison).
+    comparison_json.pop("quality_verdict", None)
     payload = {
-        "comparison": json.loads(to_json(comparison)),
+        "comparison": comparison_json,
         "winner": winner.model_dump() if winner is not None else None,
-        "quality_verdict": {
-            "applicable": not withheld,
-            "vacuous_arms": comparison.vacuous_arms,
-            "vacuous_zones": [z.model_dump() for z in comparison.vacuous_zones],
-            "reason": (
-                "manca la narrativa su cui i proxy di qualità si pronunciano: "
-                "metriche vacue (#231)"
-                if withheld
-                else ""
-            ),
-        },
+        # Stesso campo di Comparison scritto da write_comparison (#238): niente
+        # dizionario ricostruito a mano che potrebbe divergere.
+        "quality_verdict": comparison.quality_verdict.model_dump(),
         "variance": {
             "k": k,
             "label_a": la,
@@ -357,10 +386,16 @@ def build_repeated_report(
             "arm_b": [v.model_dump() for v in folded_b.variances],
         },
     }
-    resolved = stem or f"{experiment_a}_vs_{experiment_b}_repeated"
     md_path = results_dir / f"{resolved}.md"
     json_path = results_dir / f"{resolved}.json"
     guard_no_overwrite([md_path, json_path], force)
     md_path.write_text(md, encoding="utf-8")
-    json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    # ensure_ascii=False: coerente con to_json/model_dump_json (usato per
+    # "comparison" qui sotto), che non fa mai l'escape dei caratteri non-ASCII —
+    # senza, lo stesso identico testo (es. "quality_verdict.reason", #238)
+    # finirebbe con un encoding diverso a seconda di quale dei due comandi
+    # (compare vs compare-repeated) ha scritto il file.
+    json_path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     return md_path, json_path

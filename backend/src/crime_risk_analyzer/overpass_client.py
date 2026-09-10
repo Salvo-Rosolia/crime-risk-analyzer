@@ -48,7 +48,9 @@ __all__ = [
     "OverpassError",
     "Poi",
     "RetryPolicy",
+    "TaglioOsm",
     "fetch_pois",
+    "fetch_pois_with_cut",
     "select_pois",
 ]
 
@@ -151,6 +153,12 @@ _USER_AGENT = (
 class Poi(TypedDict):
     """POI nel contratto di retrieval (pre-grounding)."""
 
+    #: ``"{type}/{id}"`` dell'elemento OSM (es. ``"node/123"``, ``"way/123"``):
+    #: node e way vivono in namespace separati, quindi il tipo e' necessario
+    #: per evitare che due oggetti diversi collassino sullo stesso id (#265).
+    #: E' la chiave con cui i rischi vengono attribuiti al POI (#255) ed entra
+    #: in ``context_fingerprint.fingerprint()`` — cambiarne il formato altera
+    #: ogni ``contesto_hash`` prodotto da quel momento in poi.
     id: str
     name: str
     lat: float
@@ -158,6 +166,21 @@ class Poi(TypedDict):
     osm_tags: str
     terminus_class: str
     citta: str
+
+
+class TaglioOsm(TypedDict):
+    """Taglio del DB OSM dichiarato da Overpass, ed endpoint interrogato (#251).
+
+    ``timestamp_osm_base`` rispecchia il nome del campo Overpass
+    (``osm3s.timestamp_osm_base``) per restare cross-referenziabile con la
+    documentazione dell'API: rende falsificabile "questi sono i POI di quella
+    zona a quell'istante" contro uno history dump OSM. ``None`` quando Overpass
+    non lo dichiara (payload malformato o campo assente) — un dato mancante, non
+    un errore che deve far fallire la cattura.
+    """
+
+    timestamp_osm_base: str | None
+    overpass_url: str
 
 
 class OverpassError(RuntimeError):
@@ -224,7 +247,7 @@ def _coords(element: Mapping[str, object]) -> tuple[float, float] | None:
 def _to_poi(element: Mapping[str, object], citta: str) -> Poi | None:
     """Converte un elemento Overpass in :class:`Poi`, o ``None`` se inutilizzabile.
 
-    Scarta gli elementi senza tag o senza coordinate.
+    Scarta gli elementi senza tag, senza coordinate o senza ``type``.
     """
     tags = element.get("tags")
     if not isinstance(tags, Mapping):
@@ -236,9 +259,18 @@ def _to_poi(element: Mapping[str, object], citta: str) -> Poi | None:
         return None
     lat, lon = coords
 
+    # node e way vivono in namespace OSM separati: senza il tipo, un node e un
+    # way con lo stesso numero collasserebbero sullo stesso id (#265). Overpass
+    # lo dichiara sempre; un elemento che ne fosse privo va scartato invece di
+    # ricadere su una stringa vuota, che riaprirebbe la stessa collisione fra
+    # piu' elementi ugualmente privi di ``type``.
+    tipo = element.get("type")
+    if not isinstance(tipo, str) or not tipo:
+        return None
+
     osm_tag = _extract_osm_tag(tags_map)
     return Poi(
-        id=str(element.get("id", "")),
+        id=f"{tipo}/{element.get('id', '')}",
         name=str(tags_map.get("name", "")),
         lat=lat,
         lon=lon,
@@ -286,6 +318,25 @@ def _parse_elements(payload: object, citta: str) -> list[Poi]:
     return pois
 
 
+def _taglio_osm(payload: object, overpass_url: str) -> TaglioOsm:
+    """Estrae il taglio del DB OSM dal payload Overpass, best-effort (#251).
+
+    ``payload`` non e' garantito avere ``osm3s``/``timestamp_osm_base`` nella
+    forma attesa: qui si legge in modo difensivo e si ritorna ``None`` per quel
+    campo invece di sollevare, perche' il taglio e' un arricchimento della
+    provenienza, non una condizione per considerare la risposta valida (quella
+    verifica e' gia' fatta da :func:`_parse_elements`).
+    """
+    timestamp: str | None = None
+    if isinstance(payload, Mapping):
+        osm3s = cast(Mapping[str, object], payload).get("osm3s")
+        if isinstance(osm3s, Mapping):
+            valore = cast(Mapping[str, object], osm3s).get("timestamp_osm_base")
+            if isinstance(valore, str):
+                timestamp = valore
+    return TaglioOsm(timestamp_osm_base=timestamp, overpass_url=overpass_url)
+
+
 def select_pois(
     pois: list[Poi],
     center: tuple[float, float],
@@ -304,12 +355,13 @@ def select_pois(
     Ordinamento dichiarato: distanza crescente e, a parita' di distanza, ``id``
     crescente come STRINGA. Serve perche' il contesto entra nel prompt e
     ``repro.prompt_hash`` deve restare stabile a parita' di input. Non e' un
-    ordinamento totale in senso stretto: due oggetti OSM alle stesse coordinate e
-    con lo stesso id numerico pareggerebbero su entrambe le componenti e il
-    pareggio ricadrebbe sulla stabilita' di ``sorted``, cioe' sull'ordine di
-    emissione di Overpass. Oggi il caso non e' raggiungibile — ``_parse_elements``
-    deduplica per ``(type, id)`` — ma lo diventerebbe se l'``id`` del POI restasse
-    senza il tipo di elemento (#265).
+    ordinamento totale in senso stretto: due oggetti OSM alle stesse coordinate
+    pareggerebbero su entrambe le componenti e il pareggio ricadrebbe sulla
+    stabilita' di ``sorted``, cioe' sull'ordine di emissione di Overpass. Il
+    caso non e' raggiungibile per due motivi indipendenti: ``_parse_elements``
+    deduplica per ``(type, id)``, e l'``id`` del POI porta il tipo di elemento
+    (``"node/123"`` vs ``"way/123"``), quindi un node e un way con lo stesso
+    numero non condividono piu' la stessa stringa (#265).
 
     Due giri sulla stessa lista ordinata. Nel primo entra un POI solo se la sua
     classe TERMINUS non ha gia' ``per_class_cap`` posti: senza questo tetto, in
@@ -461,6 +513,68 @@ async def fetch_pois(
     trasporto (:data:`_RETRYABLE_TRANSPORT_ERRORS`) come un 504 (#247); il
     percorso interattivo lo tratta invece come definitivo, fail-fast. ``sleep``
     e' iniettabile: i test verificano le pause senza attenderle.
+
+    Nucleo condiviso con :func:`fetch_pois_with_cut` (#251) tramite
+    :func:`_fetch_payload`: qui NON si calcola il taglio del DB OSM, non solo non
+    lo si ritorna — il percorso interattivo non deve pagarne nemmeno l'estrazione
+    (isinstance + costruzione del TypedDict) per un dato che scarterebbe subito.
+    """
+    payload = await _fetch_payload(
+        bbox,
+        citta,
+        osm_selectors,
+        overpass_url=overpass_url,
+        retry=retry,
+        sleep=sleep,
+    )
+    return select_pois(_parse_elements(payload, citta), bbox.center())
+
+
+async def fetch_pois_with_cut(
+    bbox: Bbox,
+    citta: str,
+    osm_selectors: Iterable[str] = OSM_SELECTORS,
+    *,
+    overpass_url: str = DEFAULT_OVERPASS_URL,
+    retry: RetryPolicy | None = None,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+) -> tuple[list[Poi], TaglioOsm]:
+    """Come :func:`fetch_pois`, ma ritorna anche il taglio del DB OSM (#251).
+
+    Usata dalla cattura offline per rendere la provenienza di uno snapshot
+    falsificabile: "questi sono i POI di quella zona a quell'istante" e'
+    verificabile contro uno history dump OSM solo se si registra anche il
+    taglio dichiarato da Overpass, non solo l'orologio di chi ha chiesto.
+    """
+    payload = await _fetch_payload(
+        bbox,
+        citta,
+        osm_selectors,
+        overpass_url=overpass_url,
+        retry=retry,
+        sleep=sleep,
+    )
+    # Il bacino di candidati arriva completo; la scelta dei MAX_POIS che escono e'
+    # per prossimita' al centro dell'area interrogata, con tetto per classe (#254).
+    pois = select_pois(_parse_elements(payload, citta), bbox.center())
+    return pois, _taglio_osm(payload, overpass_url)
+
+
+async def _fetch_payload(
+    bbox: Bbox,
+    citta: str,
+    osm_selectors: Iterable[str],
+    *,
+    overpass_url: str,
+    retry: RetryPolicy | None,
+    sleep: Callable[[float], Awaitable[None]],
+) -> object:
+    """Interroga Overpass con ritentativi e ritorna il payload JSON grezzo (#251).
+
+    Nucleo condiviso da :func:`fetch_pois` e :func:`fetch_pois_with_cut`: nessuna
+    delle due duplica il loop di ritentativo, e nessuna delle due paga un costo
+    che non le serve (``fetch_pois`` non tocca mai il payload per il taglio OSM,
+    ``fetch_pois_with_cut`` non lo tocca due volte).
     """
     policy = retry or INTERACTIVE_RETRY
     selectors = list(osm_selectors)
@@ -513,10 +627,6 @@ async def fetch_pois(
         raise OverpassError(f"Overpass ha risposto {response.status_code}")
 
     try:
-        payload: object = response.json()
+        return response.json()
     except ValueError as exc:
         raise OverpassError("Risposta Overpass non e' JSON valido") from exc
-
-    # Il bacino di candidati arriva completo; la scelta dei MAX_POIS che escono e'
-    # per prossimita' al centro dell'area interrogata, con tetto per classe (#254).
-    return select_pois(_parse_elements(payload, citta), bbox.center())

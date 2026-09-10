@@ -23,10 +23,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TypedDict, cast
+from typing import NotRequired, TypedDict, cast
 
 from crime_risk_analyzer.geocoding import GeoResult
 from crime_risk_analyzer.models.geo import Bbox
@@ -36,7 +36,8 @@ from crime_risk_analyzer.overpass_client import (
     PER_CLASS_CAP,
     PER_SELECTOR_CAP,
     Poi,
-    fetch_pois,
+    TaglioOsm,
+    fetch_pois_with_cut,
 )
 from crime_risk_analyzer.rag.retrieval import GeoSource, PoiSource
 from crime_risk_analyzer.sparql_module.osm_mapping import OSM_SELECTORS
@@ -70,8 +71,7 @@ class SnapshotProvenance(TypedDict):
 
     #: Istante di cattura, ISO-8601 con offset esplicito (UTC). È l'orologio del
     #: processo che ha chiesto i dati: dice «quando ho chiesto», non «quale stato
-    #: di OSM ho ottenuto» (per quello servirebbe ``osm3s.timestamp_osm_base`` del
-    #: payload Overpass, che il contratto PoiSource oggi non trasporta).
+    #: di OSM ho ottenuto» — per quello vedi :attr:`taglio_osm` (#251).
     catturato_il: str
     #: Bbox interrogato, ``[min_lat, min_lon, max_lat, max_lon]``.
     bbox: list[float]
@@ -79,6 +79,22 @@ class SnapshotProvenance(TypedDict):
     #: ``None`` solo se il chiamante non l'ha dichiarata: lo slug del nome file è
     #: lossy, quindi senza questo campo il legame zona↔bbox non è verificabile.
     zona: str | None
+    #: Taglio del DB OSM dichiarato da Overpass e URL interrogato (#251).
+    #: ``NotRequired`` perché uno snapshot in formato envelope scritto fra #241 e
+    #: #251 su disco non ha proprio questa chiave (non ``None``: ASSENTE) — leggerla
+    #: per subscript su un file così vecchio solleverebbe ``KeyError``, va letta con
+    #: ``.get("taglio_osm")``. ``None`` quando la chiave c'è ma il chiamante di
+    #: :func:`capturing_source` non conosceva il taglio (un doppio di test) — un
+    #: dato mancante dichiarato onestamente, non un placeholder fabbricato.
+    #:
+    #: Riuso di uno snapshot esistente (``_snapshot_reusable``, #148) NON forza
+    #: mai una ri-cattura solo per popolare questo campo, nemmeno quando manca del
+    #: tutto: il criterio di accettazione di #251 chiede che gli snapshot esistenti
+    #: restino "leggibili e rigiocabili", non che vengano aggiornati. Un operatore
+    #: che vuole il taglio anche per zone già catturate deve ri-catturare con
+    #: ``--force``, la stessa via già richiesta per qualunque altro aggiornamento
+    #: della configurazione canonica.
+    taglio_osm: NotRequired[TaglioOsm | None]
     configurazione_canonica: ConfigurazioneCanonica
 
 
@@ -135,6 +151,7 @@ def save_snapshot(
     bbox: Bbox,
     citta: str,
     zona: str | None = None,
+    cut: TaglioOsm | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> None:
     """Serializza i POI e la loro provenienza su file (crea le cartelle).
@@ -143,7 +160,10 @@ def save_snapshot(
     interrogata non serve a nessuno, e renderli opzionali permetteva di scrivere
     un record con ``"bbox": null``. ``clock`` è iniettabile per i test — un
     callable e non una stringa, così l'istante non può essere fabbricato a mano:
-    è il campo su cui poggia l'onestà dell'artefatto.
+    è il campo su cui poggia l'onestà dell'artefatto. ``cut``, se noto, è il
+    taglio del DB OSM dichiarato da Overpass (#251); ``None`` quando il
+    chiamante non lo conosce (un doppio di test) resta un dato mancante
+    dichiarato, non un errore.
 
     Scrive con ``newline=""`` (nessuna traduzione): su Windows il default
     produceva CRLF nel working tree contro il blob LF in git, e con
@@ -157,6 +177,7 @@ def save_snapshot(
             "bbox": [bbox.min_lat, bbox.min_lon, bbox.max_lat, bbox.max_lon],
             "citta": citta,
             "zona": zona,
+            "taglio_osm": cut,
             "configurazione_canonica": _configurazione_canonica_corrente(),
         },
         "poi": list(pois),
@@ -251,8 +272,20 @@ def replay_source(path: Path) -> PoiSource:
     return _source
 
 
-async def offline_fetch_pois(bbox: Bbox, citta: str) -> list[Poi]:
-    """Sorgente live della cattura: backoff lungo di cortesia (#232).
+#: Sorgente per :func:`capturing_source`: ritorna anche il taglio del DB OSM
+#: dell'invocazione (#251), letto e scritto nella STESSA chiamata — a differenza
+#: di ``PoiSource``, non c'è nulla da ricordare fra una chiamata e l'altra, quindi
+#: nessun vincolo di sequenzialità: sicuro anche se ``_capture`` diventasse
+#: concorrente per case in futuro. ``None`` per chi non conosce il taglio (un
+#: doppio di test, adattato da ``eval.__main__._senza_taglio``).
+PoiSourceConTaglio = Callable[
+    [Bbox, str], Awaitable[tuple[list[Poi], TaglioOsm | None]]
+]
+
+
+async def offline_fetch_pois(bbox: Bbox, citta: str) -> tuple[list[Poi], TaglioOsm]:
+    """Sorgente live della cattura: backoff lungo di cortesia (#232) e taglio del
+    DB OSM dell'invocazione (#251).
 
     Vive qui, accanto a :func:`capturing_source`, e non nel CLI: la politica di
     ritentativo della cattura è una proprietà della cattura, e come default
@@ -261,11 +294,14 @@ async def offline_fetch_pois(bbox: Bbox, citta: str) -> list[Poi]:
     costringendo a un backoff scritto a mano fuori dal codice — cioè a una run
     non riproducibile.
     """
-    return await fetch_pois(bbox, citta, retry=OFFLINE_RETRY)
+    return await fetch_pois_with_cut(bbox, citta, retry=OFFLINE_RETRY)
 
 
 def capturing_source(
-    path: Path, inner: PoiSource = offline_fetch_pois, *, zona: str | None = None
+    path: Path,
+    inner: PoiSourceConTaglio = offline_fetch_pois,
+    *,
+    zona: str | None = None,
 ) -> PoiSource:
     """PoiSource che chiama ``inner`` (Overpass reale) e salva lo snapshot.
 
@@ -273,11 +309,15 @@ def capturing_source(
     interrogata, non una ricostruita a posteriori. ``zona`` non è ricavabile né dal
     bbox né dai POI (lo slug del nome file è lossy), quindi va passata dal
     chiamante perché il legame zona↔bbox resti verificabile dal file.
+
+    ``inner`` ritorna anche il taglio del DB OSM (#251), che finisce nella
+    provenienza dello snapshot nella STESSA chiamata in cui è stato osservato:
+    nessuno stato intermedio da tenere sincronizzato fra chiamate.
     """
 
     async def _source(bbox: Bbox, citta: str) -> list[Poi]:
-        pois = await inner(bbox, citta)
-        save_snapshot(path, pois, bbox=bbox, citta=citta, zona=zona)
+        pois, taglio = await inner(bbox, citta)
+        save_snapshot(path, pois, bbox=bbox, citta=citta, zona=zona, cut=taglio)
         return pois
 
     return _source

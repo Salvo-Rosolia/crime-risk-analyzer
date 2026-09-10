@@ -64,6 +64,14 @@ def confidence_from_poi_name(name: str) -> Confidence:
     Helper CONDIVISO (unica sorgente della regola nome->verificabilita', M1): il
     grounding lo applica per-rischio, l'orchestrator per la ``confidence``
     per-POI, cosi' il badge del POI non diverge dai livelli dei suoi rischi.
+
+    Segnale UNICO e deterministico (#258): la sola presenza del tag ``name``
+    OSM, nessun'altra fonte (``wikidata``/``operator``/``brand``, tipo di
+    elemento, fedelta' del mapping) concorre al livello. I valori letterali
+    (``verificato``/``da_confermare``) restano il contratto stabile fra
+    backend/frontend/eval; il frontend mostra invece le etichette oneste
+    "Identificato"/"Anonimo" (:mod:`core/confidence.ts`) per non lasciare
+    intendere un processo di verifica piu' ampio di questo singolo bit.
     """
     return _CONFIDENCE_NAMED if name.strip() else _CONFIDENCE_ANONYMOUS
 

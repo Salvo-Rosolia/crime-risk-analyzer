@@ -322,6 +322,22 @@ def test_compute_metrics_grades_the_block_of_the_given_arm() -> None:
     assert compute_metrics(r).grounding == 0.0
 
 
+def test_compute_metrics_quality_vacuous_true_on_empty_narrativa() -> None:
+    """#240: il marcatore di vacuita' distingue il ramo vacuo (nulla da giudicare)."""
+    r = _resp("", tokens=(0, 0))
+    assert compute_metrics(r).quality_vacuous is True
+
+
+def test_compute_metrics_quality_vacuous_false_on_graded_narrativa() -> None:
+    """Una narrativa gradabile (con o senza attribuzione) non e' vacua."""
+    grounded = _resp(_narrativa("Banca A presenta rischio rapina."))
+    assert compute_metrics(grounded).quality_vacuous is False
+    non_attribuita = _resp(
+        "La zona presenta alcuni rischi generici e gravi pericoli inventati."
+    )
+    assert compute_metrics(non_attribuita).quality_vacuous is False
+
+
 def test_every_mode_declares_the_block_the_proxy_grades() -> None:
     """Un braccio nuovo non puo' entrare senza dire su cosa viene misurato.
 

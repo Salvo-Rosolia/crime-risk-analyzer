@@ -570,10 +570,10 @@ async def test_capture_once_replayed_by_other_arm(
 
     calls = 0
 
-    async def counting_inner(bbox: Bbox, citta: str) -> list[Poi]:
+    async def counting_inner(bbox: Bbox, citta: str) -> tuple[list[Poi], None]:
         nonlocal calls
         calls += 1
-        return _sample_pois()
+        return _sample_pois(), None
 
     # Braccio A (analyze/claude) cattura live → scrive lo snapshot alla chiave.
     key = make_snapshot_key("Roma", "Centro")

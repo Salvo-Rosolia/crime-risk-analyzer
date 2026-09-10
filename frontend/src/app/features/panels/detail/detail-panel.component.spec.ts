@@ -80,7 +80,7 @@ describe('DetailPanelComponent', () => {
   it("mostra il badge di confidence del POI nell'header", () => {
     setup(makePoi({ confidence: 'da_confermare' }));
     const text = fixture.nativeElement.textContent;
-    expect(text).toContain('Da confermare');
+    expect(text).toContain('Anonimo');
   });
 
   it("#220: un POI fuori ontologia (confidence null) non mostra il badge di confidence nell'header, ma il pin resta neutro", () => {
