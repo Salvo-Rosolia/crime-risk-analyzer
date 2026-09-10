@@ -10,7 +10,10 @@ OSM→TERMINUS → query SPARQL dei rischi → grounding) e risponde subito con
 `narrativa: null`, mentre `POST /analyze/narrativa` genera il testo con l'LLM sullo
 stesso contesto — così mappa e lista non aspettano la latenza del provider.
 `POST /analyze/poi` fa lo stesso per il singolo punto selezionato;
-`POST /analyze/baseline` è la variante senza LLM usata per l'ablation. I moduli di supporto — geocoding,
+`POST /analyze/baseline` è la variante senza LLM usata per l'ablation (accetta `tipo_poi`
+ma non `domanda`, mentre `POST /analyze/narrativa` accetta `domanda` ma non `tipo_poi`:
+asimmetria nota fra i due bracci del confronto, tracciata da #263 e non ancora chiusa
+perché dipende dalla decisione sul contratto di `tipo_poi` FE-BE, #143). I moduli di supporto — geocoding,
 client Overpass, mapping OSM→ontologia, executor SPARQL, client LLM
 provider-agnostico e pipeline RAG — sono cablati dall'orchestratore.
 
