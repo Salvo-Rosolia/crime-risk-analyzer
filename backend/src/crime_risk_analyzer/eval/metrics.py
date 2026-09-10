@@ -93,6 +93,27 @@ def _anchors(resp: AnalyzeResponse) -> set[str]:
     return {a for a in anchors if a.strip()}
 
 
+def hazards_cited_in(narrativa: str, mode: Mode) -> str:
+    """Testo lowercase del blocco misurato: verifica un hazard/etichetta con `in`.
+
+    Riusata da ``eval/gold.py`` (#152, vedi Task 3 ``collect_kept_risks``): il
+    campionatore dell'annotazione per-rischio deve escludere un hazard
+    presente nel set grounded (``RunRecord.risk_models``, costruito PRIMA
+    della generazione LLM, identico fra ``analyze``/``baseline``) ma mai
+    citato in narrativa — altrimenti misurerebbe il set candidato invece di
+    "cosa l'LLM ha mantenuto", esattamente cio' che la spec chiede.
+
+    Ritorna il testo intero (non un insieme di token pre-estratti) perche' il
+    chiamante ha già in mano gli hazard candidati da testare (dal
+    ``risk_models`` del record) — stessa idea di :func:`_grounded`, ma
+    sull'intero blocco invece che per-frase. Stesso ``parse_source_prose`` e
+    la stessa sottostringa per-braccio di :func:`_ontology_assertions`.
+    """
+    return parse_source_prose(
+        narrativa or "", measured_token=_MEASURED_TOKEN_BY_MODE[mode]
+    ).ontologia.lower()
+
+
 def _ontology_assertions(resp: AnalyzeResponse, mode: Mode) -> list[str]:
     """Asserzioni gradabili dal proxy (M1, #229): le frasi del blocco misurato.
 
