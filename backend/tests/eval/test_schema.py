@@ -9,6 +9,7 @@ from crime_risk_analyzer.eval.schema import (
     RunRecord,
     RunStatus,
 )
+from crime_risk_analyzer.llm.client import GROQ_MODEL
 from crime_risk_analyzer.rag.generation import RiskModel
 
 
@@ -141,6 +142,10 @@ def test_provenance_labels_a_legacy_record_as_per_poi() -> None:
     Il default non e' una comodita': quelle run SONO state prodotte col formato
     per-POI, quindi etichettarle cosi' e' l'unica lettura veritiera. Senza default
     il campo obbligatorio renderebbe illeggibile il corpus esistente.
+
+    Il ``model_id`` resta il letterale Llama, non ``GROQ_MODEL``: e' il modello
+    che quelle run legacy hanno davvero usato, prima che Groq lo rimuovesse dal
+    catalogo (#316). Sostituirlo renderebbe il fixture un record d'epoca falso.
     """
     legacy = {
         "code_commit": "abc",
@@ -166,7 +171,7 @@ def test_provenance_records_the_grouped_format() -> None:
         code_commit="abc",
         ontology_hash="def",
         snapshot_id="roma__centro",
-        model_id="llama-3.3-70b-versatile",
+        model_id=GROQ_MODEL,
         prompt_hash="h",
         temperature=0.0,
         seed=0,

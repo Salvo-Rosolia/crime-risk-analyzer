@@ -9,7 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from crime_risk_analyzer.geocoding import GeoResult
-from crime_risk_analyzer.llm.client import LLMError, LLMResponse
+from crime_risk_analyzer.llm.client import GROQ_MODEL, LLMError, LLMResponse
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.models.risk import PoiRiskProfile
 from crime_risk_analyzer.orchestrator import (
@@ -991,7 +991,7 @@ async def test_run_no_ontology_prompt_splits_prose_on_its_own_block_label(
     )
     response = LLMResponse(
         text=narrativa,
-        llm_used="llama-3.3-70b-versatile",
+        llm_used=GROQ_MODEL,
         tokens_input=10,
         tokens_output=20,
         cache_hit=False,

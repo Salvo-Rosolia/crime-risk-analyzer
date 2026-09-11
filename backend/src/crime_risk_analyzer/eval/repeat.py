@@ -37,7 +37,7 @@ class ZoneVariance(BaseModel):
     zona: str
     std: MetricValues
     n_reps: int  # ripetizioni valide (OK) usate per media/std
-    n_dropped: int  # ripetizioni escluse (ERROR + FALLBACK)
+    n_dropped: int  # ripetizioni escluse (tutto ciò che non è OK)
     n_fallback: int  # di cui FALLBACK (sottoinsieme di n_dropped), reliability
 
 
@@ -150,9 +150,12 @@ def fold_arm(records: list[RunRecord]) -> FoldedArm:
     variances: list[ZoneVariance] = []
     for citta, zona in sorted(groups):
         group = groups[(citta, zona)]
-        valid = [
-            r for r in group if r.status not in (RunStatus.ERROR, RunStatus.FALLBACK)
-        ]
+        # Solo OK entra in media/std, espresso in positivo e non come elenco di
+        # status da escludere: un valore nuovo dell'enum (``HARNESS_ERROR``)
+        # nasce con metriche azzerate, e una lista di esclusioni dimenticata lo
+        # farebbe mediare come se fosse una misura. Il criterio e' verificato
+        # sull'enum intero in ``test_repeat.py``.
+        valid = [r for r in group if r.status is RunStatus.OK]
         n_fallback = sum(1 for r in group if r.status == RunStatus.FALLBACK)
         n_dropped = len(group) - len(valid)
         if not valid:
