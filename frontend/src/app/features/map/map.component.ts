@@ -235,6 +235,23 @@ export class MapComponent implements OnDestroy {
     this.map?.flyTo([lat, lon], 14);
   }
 
+  /**
+   * Azzera il cerchio disegnato (#318, reperto review I5): chiamato da `App.onResetConfirmed()`
+   * dopo "+ Nuova richiesta". Senza questo metodo `MapComponent` non aveva modo di sapere che lo
+   * shell ha azzerato il proprio segnale `circle` — il cerchio restava disegnato sulla mappa
+   * (`circleLayer` non toccato) mentre il resto della UI (bottone disabilitato, istruzione
+   * "disegna un cerchio") lasciava intendere che non ce n'era uno. Riporta lo stato a `idle` (non
+   * `ready` con un `null` emesso): il prossimo clic deve ripartire da un centro nuovo, non
+   * riconfermare/scartare quello appena rimosso.
+   */
+  clearCircle(): void {
+    this.circleLayer?.remove();
+    this.circleLayer = null;
+    this.centerLatLng = null;
+    this.drawState.set('idle');
+    this.radiusM.set(DEFAULT_RADIUS_M);
+  }
+
   ngOnDestroy(): void {
     this.markers?.clearLayers();
     this.circleLayer?.remove();

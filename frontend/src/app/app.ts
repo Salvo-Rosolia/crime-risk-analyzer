@@ -148,6 +148,11 @@ export class App {
     // implicitamente per la prossima analisi (MapComponent stesso non si smonta, quindi senza
     // questo azzeramento esplicito il vecchio cerchio resterebbe silenziosamente valido).
     this.circle.set(null);
+    // Azzerare il segnale locale non basta (reperto review I5): MapComponent tiene il proprio
+    // circleLayer disegnato sulla mappa indipendentemente da questo segnale, quindi senza
+    // clearCircle() il cerchio vecchio resterebbe visibile e cliccabile mentre il resto della UI
+    // (bottone disabilitato, istruzione "disegna un cerchio") dice il contrario.
+    this.mapRef().clearCircle();
   }
 
   /**

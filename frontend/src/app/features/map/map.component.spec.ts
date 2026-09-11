@@ -432,4 +432,51 @@ describe('MapComponent', () => {
       expect(input.value).toBe('3000');
     });
   });
+
+  describe('clearCircle() (#318, reperto review I5: RESET deve pulire anche il disegno sulla mappa)', () => {
+    it('rimuove il cerchio disegnato dalla mappa e non emette alcun circleChange', () => {
+      const spy = jest.fn();
+      fixture.componentInstance.circleChange.subscribe(spy);
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fireMap('mousemove', { latlng: { lat: 41.905, lng: 12.5 } });
+      fireMap('click', { latlng: { lat: 41.905, lng: 12.5 } });
+      spy.mockClear();
+
+      fixture.componentInstance.clearCircle();
+
+      expect(mockCircle.remove).toHaveBeenCalled();
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('nasconde di nuovo l\'input numerico del raggio', () => {
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('#cra-radius-input')).toBeTruthy();
+
+      fixture.componentInstance.clearCircle();
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.querySelector('#cra-radius-input')).toBeNull();
+    });
+
+    it('riporta lo stato a IDLE genuino: un clic successivo apre un nuovo disegno senza il reset "ready" (nessun null emesso prima)', () => {
+      const spy = jest.fn();
+      fixture.componentInstance.circleChange.subscribe(spy);
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fireMap('mousemove', { latlng: { lat: 41.905, lng: 12.5 } });
+      fireMap('click', { latlng: { lat: 41.905, lng: 12.5 } }); // -> ready
+      spy.mockClear();
+
+      fixture.componentInstance.clearCircle();
+      (L.circle as jest.Mock).mockClear();
+
+      // Se lo stato fosse rimasto "ready" invece di "idle", questo clic emetterebbe prima un
+      // circleChange(null) di reset (comportamento della transizione ready->nuovo centro, vedi
+      // "un click in ready riparte da un nuovo centro" sopra) — qui NON deve accadere.
+      fireMap('click', { latlng: { lat: 42.0, lng: 12.6 } });
+
+      expect(spy).not.toHaveBeenCalledWith(null);
+      expect(L.circle).toHaveBeenCalledWith([42.0, 12.6], expect.objectContaining({ radius: 300 }));
+    });
+  });
 });
