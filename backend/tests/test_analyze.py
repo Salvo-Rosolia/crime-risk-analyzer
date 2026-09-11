@@ -223,6 +223,62 @@ def test_analyze_rejects_out_of_range_radius(monkeypatch: pytest.MonkeyPatch) ->
     assert resp.status_code == 422
 
 
+def _pois_per_raggio(citta: str) -> list[Poi]:
+    """Un POI al centro esatto della richiesta + uno a oltre un km (#318)."""
+    return [
+        {
+            "id": "vicino",
+            "name": "Banca A",
+            "lat": 41.89,
+            "lon": 12.49,
+            "osm_tags": "amenity=bank",
+            "terminus_class": "Bank",
+            "citta": citta,
+        },
+        {
+            "id": "lontano",
+            "name": "Bar Roma",
+            "lat": 41.90,
+            "lon": 12.50,
+            "osm_tags": "amenity=bar",
+            "terminus_class": "GenericUrbanPOI",
+            "citta": citta,
+        },
+    ]
+
+
+def test_analyze_radius_m_raggiunge_davvero_il_filtro_geospaziale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#318: prova al confine HTTP che ``radius_m`` filtra i POI, non solo che
+    e' validato dal ``field_validator``.
+
+    Senza ``radius_m=request.radius_m`` cablato da ``main.py`` a
+    ``run_analysis_fast``, l'intera suite passerebbe comunque (nulla, a livello
+    di rotta, prova che il raggio raggiunge davvero la pipeline). Il centro
+    della richiesta coincide con ``Banca A`` (distanza ~0 m) mentre ``Bar Roma``
+    e' a oltre un km: un raggio di 150 m (il minimo consentito) deve escludere
+    la seconda dalla response.
+    """
+    monkeypatch.setattr(circle_search, "reverse_geocode_label", _fake_reverse_geocode)
+
+    async def _fake_fetch(
+        bbox: object, citta: str, *args: object, **kwargs: object
+    ) -> list[Poi]:
+        return _pois_per_raggio(citta)
+
+    monkeypatch.setattr(retrieval, "fetch_pois", _fake_fetch)
+    resp = cast(
+        httpx.Response,
+        _client().post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze",
+            json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 150.0},
+        ),
+    )
+    assert resp.status_code == 200
+    assert [p["id"] for p in resp.json()["poi"]] == ["vicino"]
+
+
 def test_analyze_overpass_down(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(circle_search, "reverse_geocode_label", _fake_reverse_geocode)
 
