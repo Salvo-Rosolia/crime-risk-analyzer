@@ -12,22 +12,29 @@ import {
 export class ApiService {
   private readonly http = inject(HttpClient);
 
-  /** Elenco delle città suggerite per l'autocomplete (`GET /cities`). */
-  cities(): Promise<string[]> {
-    return firstValueFrom(this.http.get<string[]>('/cities'));
-  }
-
   /**
-   * Fase 1 (`POST /analyze`, #259/#292): niente `domanda` nel body — il backend l'ha tolta da
-   * `AnalyzeRequest`, questa chiamata non genera più narrativa (arriva in fase 2, `zoneNarrative()`
-   * sotto) e la ignorerebbe. La domanda dell'operatore va SOLO lì.
+   * Fase 1 (`POST /analyze`): accetta il centro del cerchio di ricerca e il raggio in metri.
+   * Il backend emette i rischi geospaziali per i POI entro il cerchio.
    */
-  analyze(citta: string, zona: string): Promise<AnalyzeResponse> {
-    return firstValueFrom(this.http.post<AnalyzeResponse>('/analyze', { citta, zona }));
+  analyze(center: { lat: number; lon: number }, radiusM: number): Promise<AnalyzeResponse> {
+    return firstValueFrom(
+      this.http.post<AnalyzeResponse>('/analyze', { center, radius_m: radiusM }),
+    );
   }
 
   analyzeBaseline(params: BaselineParams): Promise<AnalyzeResponse> {
-    return firstValueFrom(this.http.post<AnalyzeResponse>('/analyze/baseline', params));
+    const body: { center: { lat: number; lon: number }; radius_m: number; tipo_poi?: string } = {
+      center: params.center,
+      radius_m: params.radiusM,
+    };
+    if (params.tipo_poi) body.tipo_poi = params.tipo_poi;
+    return firstValueFrom(this.http.post<AnalyzeResponse>('/analyze/baseline', body));
+  }
+
+  geocodePlace(query: string): Promise<{ lat: number; lon: number }> {
+    return firstValueFrom(
+      this.http.get<{ lat: number; lon: number }>('/geocode', { params: { query } }),
+    );
   }
 
   /**

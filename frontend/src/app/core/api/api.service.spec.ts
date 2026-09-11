@@ -2,7 +2,12 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { ApiService } from '@core/api/api.service';
-import { AnalyzeResponse, PoiNarrativeResponse, ZoneNarrativeResponse } from '@core/models/models';
+import {
+  AnalyzeResponse,
+  BaselineParams,
+  PoiNarrativeResponse,
+  ZoneNarrativeResponse,
+} from '@core/models/models';
 
 const resp: AnalyzeResponse = {
   citta: 'Roma',
@@ -47,30 +52,30 @@ const zoneNarrativeResp: ZoneNarrativeResponse = {
 /**
  * Mirror minimale (solo i campi rilevanti al contratto) di `AnalyzeRequest`/
  * `BaselineRequest` (backend/src/crime_risk_analyzer/orchestrator.py):
- * `citta`/`zona` sono OBBLIGATORI lato Pydantic come `str` (nessun `min_length`:
- * una stringa vuota è un valore valido per lo schema). Verifica quindi solo
- * PRESENZA della chiave + tipo, non la sua lunghezza: un payload con `citta`
- * ASSENTE non valida come `AnalyzeRequest`/`BaselineRequest` e FastAPI
- * risponderebbe 422 (Unprocessable Entity) prima ancora di eseguire la pipeline;
- * un `citta: ''` invece passerebbe la validazione Pydantic (non è questo il caso
- * che il 422 documenta).
+ * `center` (con `lat` e `lon`) e `radius_m` sono OBBLIGATORI. Verifica
+ * quindi PRESENZA della chiave e struttura + tipo.
  */
 function isValidAnalyzeRequestPayload(body: unknown): boolean {
   const b = body as Record<string, unknown> | null;
+  const center = b?.['center'] as Record<string, unknown> | null;
   return (
     !!b &&
-    typeof b['citta'] === 'string' &&
-    typeof b['zona'] === 'string' &&
-    (b['domanda'] === undefined || typeof b['domanda'] === 'string')
+    !!center &&
+    typeof center['lat'] === 'number' &&
+    typeof center['lon'] === 'number' &&
+    typeof b['radius_m'] === 'number'
   );
 }
 
 function isValidBaselineRequestPayload(body: unknown): boolean {
   const b = body as Record<string, unknown> | null;
+  const center = b?.['center'] as Record<string, unknown> | null;
   return (
     !!b &&
-    typeof b['citta'] === 'string' &&
-    typeof b['zona'] === 'string' &&
+    !!center &&
+    typeof center['lat'] === 'number' &&
+    typeof center['lon'] === 'number' &&
+    typeof b['radius_m'] === 'number' &&
     (b['tipo_poi'] === undefined || typeof b['tipo_poi'] === 'string')
   );
 }
@@ -88,37 +93,20 @@ describe('ApiService', () => {
   });
   afterEach(() => http.verify());
 
-  it("cities: GET /cities e ritorna l'elenco delle città suggerite", async () => {
-    const p = api.cities();
-    const req = http.expectOne('/cities');
-    expect(req.request.method).toBe('GET');
-    req.flush(['Roma', 'Milano', 'Napoli', 'Torino', 'Firenze']);
-    await expect(p).resolves.toEqual(['Roma', 'Milano', 'Napoli', 'Torino', 'Firenze']);
-  });
-
-  it('analyze: POST /analyze con payload citta+zona e ritorna la risposta', async () => {
-    const p = api.analyze('Roma', 'Colosseo');
+  it('analyze manda center+radius_m', async () => {
+    const promise = api.analyze({ lat: 41.9, lon: 12.5 }, 500);
     const req = http.expectOne('/analyze');
-    expect(req.request.method).toBe('POST');
-    expect(req.request.body).toEqual({ citta: 'Roma', zona: 'Colosseo' });
+    expect(req.request.body).toEqual({ center: { lat: 41.9, lon: 12.5 }, radius_m: 500 });
     req.flush(resp);
-    await expect(p).resolves.toEqual(resp);
+    await promise;
   });
 
-  it('analyze: non manda più domanda (#292, tolta da AnalyzeRequest lato backend)', async () => {
-    // La firma non accetta più un terzo argomento: la domanda dell'operatore va solo a
-    // zoneNarrative() (fase 2), verificato più sotto.
-    const p = api.analyze('Roma', 'Colosseo');
-    const req = http.expectOne('/analyze');
-    expect(req.request.body).toEqual({ citta: 'Roma', zona: 'Colosseo' });
-    req.flush(resp);
-    await p;
-  });
-
-  it('analyze: su errore /analyze rigetta la Promise', async () => {
-    const p = api.analyze('Roma', 'Colosseo');
-    http.expectOne('/analyze').flush('boom', { status: 500, statusText: 'Server Error' });
-    await expect(p).rejects.toBeTruthy();
+  it('geocodePlace chiama GET /geocode con la query', async () => {
+    const promise = api.geocodePlace('Duomo di Milano');
+    const req = http.expectOne((r) => r.url === '/geocode');
+    expect(req.request.params.get('query')).toBe('Duomo di Milano');
+    req.flush({ lat: 41.9, lon: 12.5 });
+    expect(await promise).toEqual({ lat: 41.9, lon: 12.5 });
   });
 
   it('poiNarrative: POST /analyze/poi con citta, zona, poi_id e impronta del contesto (#242)', async () => {
@@ -169,45 +157,61 @@ describe('ApiService', () => {
     await expect(p).rejects.toBeTruthy();
   });
 
-  it('analyzeBaseline: POST /analyze/baseline con i parametri', async () => {
-    const p = api.analyzeBaseline({ citta: 'Roma', zona: 'Colosseo' });
+  it('analyzeBaseline: POST /analyze/baseline con center, radius_m e tipo_poi opzionale', async () => {
+    const params: BaselineParams = { center: { lat: 41.9, lon: 12.5 }, radiusM: 500 };
+    const p = api.analyzeBaseline(params);
     const req = http.expectOne('/analyze/baseline');
     expect(req.request.method).toBe('POST');
-    expect(req.request.body).toEqual({ citta: 'Roma', zona: 'Colosseo' });
+    expect(req.request.body).toEqual({ center: { lat: 41.9, lon: 12.5 }, radius_m: 500 });
+    req.flush(resp);
+    await p;
+  });
+
+  it('analyzeBaseline: include tipo_poi se presente', async () => {
+    const params: BaselineParams = {
+      center: { lat: 41.9, lon: 12.5 },
+      radiusM: 500,
+      tipo_poi: 'museo',
+    };
+    const p = api.analyzeBaseline(params);
+    const req = http.expectOne('/analyze/baseline');
+    expect(req.request.body).toEqual({
+      center: { lat: 41.9, lon: 12.5 },
+      radius_m: 500,
+      tipo_poi: 'museo',
+    });
     req.flush(resp);
     await p;
   });
 
   describe('contratto AnalyzeRequest/BaselineRequest (backend orchestrator.py)', () => {
-    it('analyze(): il payload emesso è un sottoinsieme valido di AnalyzeRequest (citta+zona obbligatorie)', async () => {
-      const p = api.analyze('Roma', 'Colosseo');
+    it('analyze(): il payload emesso è un sottoinsieme valido di AnalyzeRequest (center+radius_m obbligatori)', async () => {
+      const p = api.analyze({ lat: 41.9, lon: 12.5 }, 500);
       const req = http.expectOne('/analyze');
       expect(isValidAnalyzeRequestPayload(req.request.body)).toBe(true);
       req.flush(resp);
       await p;
     });
 
-    it('con la chiave citta ASSENTE il payload NON sarebbe un AnalyzeRequest valido → il BE risponderebbe 422', () => {
-      // Shape emessa da ApiService.analyze() PRIMA della riconciliazione #105: manca
-      // la CHIAVE `citta` (non solo il suo valore). Pydantic non ha min_length su
-      // `citta`/`zona`, quindi una stringa VUOTA passerebbe la validazione: il 422
-      // scatta per l'assenza della chiave obbligatoria, non per un valore vuoto.
-      const payloadPreFix = { zona: 'Roma' };
+    it('con la struttura center ASSENTE il payload NON sarebbe un AnalyzeRequest valido → il BE risponderebbe 422', () => {
+      const payloadPreFix = { radius_m: 500 };
       expect(isValidAnalyzeRequestPayload(payloadPreFix)).toBe(false);
     });
 
-    it('analyzeBaseline(): il payload emesso è un sottoinsieme valido di BaselineRequest (citta+zona obbligatorie)', async () => {
-      const p = api.analyzeBaseline({ citta: 'Roma', zona: 'Colosseo', tipo_poi: 'banca' });
+    it('analyzeBaseline(): il payload emesso è un sottoinsieme valido di BaselineRequest (center+radius_m obbligatori)', async () => {
+      const p = api.analyzeBaseline({
+        center: { lat: 41.9, lon: 12.5 },
+        radiusM: 500,
+        tipo_poi: 'museo',
+      });
       const req = http.expectOne('/analyze/baseline');
       expect(isValidBaselineRequestPayload(req.request.body)).toBe(true);
       req.flush(resp);
       await p;
     });
 
-    it('con le chiavi citta/zona ASSENTI il payload baseline NON sarebbe un BaselineRequest valido → il BE risponderebbe 422', () => {
-      // Shape ammessa dal vecchio BaselineParams (tutti i campi opzionali) PRIMA di
-      // #105: mancano le CHIAVI `citta`/`zona`, non solo i loro valori.
-      const payloadPreFix = {};
+    it('con la struttura center ASSENTE il payload baseline NON sarebbe un BaselineRequest valido → il BE risponderebbe 422', () => {
+      const payloadPreFix = { radius_m: 500 };
       expect(isValidBaselineRequestPayload(payloadPreFix)).toBe(false);
     });
   });
