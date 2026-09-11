@@ -24,6 +24,7 @@ from crime_risk_analyzer.eval.snapshots import (
     load_snapshot,
     snapshot_path,
 )
+from crime_risk_analyzer.llm.client import GROQ_MODEL
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.models.vocab import ConfidenceSummary
 from crime_risk_analyzer.orchestrator import AnalyzeResponse, ZonaGeo
@@ -765,7 +766,7 @@ async def test_no_ontology_arm_is_measured_on_the_block_its_prompt_asks_for(
             f"Sintesi della zona.\n\n{LLM_SYNTHESIS_BLOCK_HEADER}\n"
             "Banca A presenta rischio rapina."
         ),
-        llm_used="llama-3.3-70b-versatile",
+        llm_used=GROQ_MODEL,
         tokens_input=10,
         tokens_output=20,
         cache_hit=False,

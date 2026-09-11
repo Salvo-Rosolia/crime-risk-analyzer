@@ -1,4 +1,4 @@
-"""Client LLM provider-agnostico: Claude (Anthropic) + Llama (Groq) (#20).
+"""Client LLM provider-agnostico: Claude (Anthropic) + modello via Groq (#20).
 
 Wrapper sottile e *async* sopra i due SDK ufficiali, con un'unica superficie
 pubblica :meth:`LLMClient.generate`. Lo switch tra provider avviene via
@@ -28,10 +28,24 @@ from crime_risk_analyzer.config import Settings, get_settings
 #: Versione esatta del modello Claude (non un alias) — generation.md §Riproducibilita'.
 CLAUDE_MODEL = "claude-sonnet-4-6"
 
-#: Modello Llama su Groq per il confronto sperimentale — generation.md.
-#: ``llama-3.1-70b-versatile`` e' stato dismesso da Groq; il sostituto attuale
-#: e' ``llama-3.3-70b-versatile`` (Groq production models, console.groq.com).
-GROQ_MODEL = "llama-3.3-70b-versatile"
+#: Modello su Groq per il confronto sperimentale — generation.md.
+#: ``llama-3.1-70b-versatile`` e' stato dismesso da Groq; il sostituto
+#: ``llama-3.3-70b-versatile`` e' stato a sua volta rimosso dal catalogo
+#: (2026-09-10): Groq non ospita piu' alcun modello Llama generalista, solo
+#: due modelli prompt-guard (classificatori, non chat). Sostituito con
+#: ``openai/gpt-oss-120b`` (stesso ordine di grandezza, 120B open-weight),
+#: verificato disponibile via ``GET /openai/v1/models`` con la chiave attuale.
+GROQ_MODEL = "openai/gpt-oss-120b"
+
+#: Tag stabile della FAMIGLIA del modello Groq corrente (non la release esatta):
+#: i test di integrazione lo usano per pinnare il ramo (Groq, non Claude, non
+#: fallback) in ``response.llm_used`` tollerando un alias versionato diverso da
+#: ``GROQ_MODEL`` che Groq puo' riportare. Va aggiornato a mano insieme a
+#: ``GROQ_MODEL`` — derivarlo con un parsing euristico della stringa (es. lo
+#: split precedente su ``"-"``) si rompe silenziosamente a ogni cambio di
+#: modello con una forma diversa (vedi ``openai/gpt-oss-120b`` vs
+#: ``llama-3.3-70b-versatile``).
+GROQ_MODEL_FAMILY = "gpt-oss"
 
 #: Parametri fissi condivisi (generation.md §Riproducibilita').
 #: #229: default alzato 1024 -> 1536 (margine anti-troncamento sul caso denso). DEVE
@@ -47,6 +61,18 @@ _DEFAULT_SEED = 42
 _DEFAULT_TIMEOUT_SECONDS = 30.0
 
 Provider = Literal["claude", "groq"]
+
+
+def model_id_for_provider(provider: Provider) -> str:
+    """Model id esatto per un provider, senza istanziare un client.
+
+    Unica fonte di verita' condivisa da :attr:`LLMClient.model` e dal fallback
+    di ``eval.harness._model_id_of`` (nessun doppio ternario claude/groq da
+    tenere sincronizzato a mano): legge ``CLAUDE_MODEL``/``GROQ_MODEL`` come
+    globals di questo modulo a ogni chiamata, cosi' un test che monkeypatcha
+    ``client.GROQ_MODEL`` resta coerente ovunque questa funzione sia invocata.
+    """
+    return CLAUDE_MODEL if provider == "claude" else GROQ_MODEL
 
 
 class LLMError(RuntimeError):
@@ -172,7 +198,7 @@ class LLMClient:
         timeout: float = _DEFAULT_TIMEOUT_SECONDS,
         max_tokens: int = _MAX_TOKENS,
     ) -> LLMClient:
-        """Costruisce un client che usa Llama via l'SDK Groq iniettato."""
+        """Costruisce un client che usa ``GROQ_MODEL`` via l'SDK Groq iniettato."""
         return cls(
             provider="groq",
             groq_client=groq_client,
@@ -207,7 +233,7 @@ class LLMClient:
     @property
     def model(self) -> str:
         """Model id esatto del provider attivo."""
-        return CLAUDE_MODEL if self._provider == "claude" else GROQ_MODEL
+        return model_id_for_provider(self._provider)
 
     async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
         """Genera la narrativa per il ``system_prompt``/``user_content`` dati.
@@ -296,6 +322,14 @@ class LLMClient:
                     max_tokens=self._max_tokens,
                     temperature=self._temperature,
                     seed=self._seed,
+                    # GROQ_MODEL e' un modello reasoning (#20): senza questi due
+                    # parametri Groq ragiona a effort "medium" di default e puo'
+                    # far trapelare il chain-of-thought dentro il content del
+                    # messaggio (bug documentato sul forum Groq). "low" riduce
+                    # anche la competizione col budget di ``max_tokens`` condiviso
+                    # con la narrativa vera e propria.
+                    reasoning_effort="low",
+                    include_reasoning=False,
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_content},

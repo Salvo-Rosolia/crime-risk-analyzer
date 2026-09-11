@@ -1,6 +1,7 @@
 import pytest
 
 from crime_risk_analyzer.eval.pricing import cost_usd
+from crime_risk_analyzer.llm.client import GROQ_MODEL
 
 
 def test_cost_claude() -> None:
@@ -9,7 +10,12 @@ def test_cost_claude() -> None:
 
 
 def test_cost_zero_tokens() -> None:
-    assert cost_usd("llama-3.3-70b-versatile", 0, 0) == 0.0
+    assert cost_usd(GROQ_MODEL, 0, 0) == 0.0
+
+
+def test_cost_groq() -> None:
+    # 1M input @0.15 + 1M output @0.60 = 0.75
+    assert cost_usd(GROQ_MODEL, 1_000_000, 1_000_000) == pytest.approx(0.75)
 
 
 def test_cost_unknown_model_raises() -> None:

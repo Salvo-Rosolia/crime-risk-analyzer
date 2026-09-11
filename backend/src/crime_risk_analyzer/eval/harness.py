@@ -28,6 +28,7 @@ from crime_risk_analyzer.eval.snapshots import (
     snapshot_path,
     snapshot_provenance,
 )
+from crime_risk_analyzer.llm.client import model_id_for_provider
 from crime_risk_analyzer.orchestrator import (
     AnalyzeResponse,
     _LLMClientLike,  # pyright: ignore[reportPrivateUsage]
@@ -216,9 +217,7 @@ def _model_id_of(llm_client: _LLMClientLike, config: ExperimentConfig) -> str:
     model = getattr(llm_client, "model", None)
     if isinstance(model, str):
         return model
-    return (
-        "claude-sonnet-4-6" if config.model == "claude" else "llama-3.3-70b-versatile"
-    )
+    return model_id_for_provider(config.model)
 
 
 async def run_case(
@@ -318,6 +317,23 @@ async def run_case(
                 geo_source=geo_source,
                 context_format=config.context_format,
             )
+        # Dentro lo stesso try: anche il calcolo delle metriche (``cost_usd`` sul
+        # listino prezzi, #34) puo' sollevare (es. ``KeyError`` su un model_id
+        # non ancora prezzato) e non deve far esplodere l'intero
+        # ``run_experiment`` per un solo caso rotto, contraddicendo la promessa
+        # di questa funzione (status=error su eccezione).
+        return _record_from_response(
+            run_id=run_id,
+            snapshot_id=snapshot_key,
+            config=config,
+            case=case,
+            model_id=model_id,
+            resp=resp,
+            code_commit=code_commit,
+            ontology_hash=ontology_hash,
+            snapshot_catturato_il=snapshot_catturato_il,
+            snapshot_configurazione_canonica=snapshot_configurazione_canonica,
+        )
     except Exception:  # noqa: BLE001 — un caso rotto non blocca l'esperimento
         return _error_record(
             run_id=run_id,
@@ -330,18 +346,6 @@ async def run_case(
             snapshot_catturato_il=snapshot_catturato_il,
             snapshot_configurazione_canonica=snapshot_configurazione_canonica,
         )
-    return _record_from_response(
-        run_id=run_id,
-        snapshot_id=snapshot_key,
-        config=config,
-        case=case,
-        model_id=model_id,
-        resp=resp,
-        code_commit=code_commit,
-        ontology_hash=ontology_hash,
-        snapshot_catturato_il=snapshot_catturato_il,
-        snapshot_configurazione_canonica=snapshot_configurazione_canonica,
-    )
 
 
 async def run_experiment(

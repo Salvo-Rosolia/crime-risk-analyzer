@@ -251,7 +251,7 @@ async def test_groq_uses_chat_messages_and_params() -> None:
     await client.generate(_SYSTEM, _USER)
 
     call = fake.calls[0]
-    assert call["model"] == "llama-3.3-70b-versatile"
+    assert call["model"] == GROQ_MODEL
     assert call["max_tokens"] == 1536  # #229: default alzato 1024 -> 1536
     assert call["temperature"] == 0.2
     assert call["seed"] == 42

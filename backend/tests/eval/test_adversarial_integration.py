@@ -94,7 +94,11 @@ import pytest
 from crime_risk_analyzer import zone_context_cache
 from crime_risk_analyzer.config import get_settings
 from crime_risk_analyzer.geocoding import GeoResult
-from crime_risk_analyzer.llm.client import GROQ_MODEL, build_llm_client
+from crime_risk_analyzer.llm.client import (
+    GROQ_MODEL,
+    GROQ_MODEL_FAMILY,
+    build_llm_client,
+)
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.models.risk import PoiRiskProfile
 from crime_risk_analyzer.orchestrator import run_analysis
@@ -239,12 +243,15 @@ async def _run_adversarial_analysis(domanda: str) -> str:
     # Famiglia del modello, non uguaglianza stretta con ``GROQ_MODEL``: Groq
     # riporta in ``completion.model`` l'id che ha davvero servito, che puo'
     # essere un alias versionato di quello richiesto. Qui serve pinnare il RAMO
-    # (Groq, non Claude, non fallback), non la release esatta.
-    famiglia_groq = GROQ_MODEL.split("-")[0]
-    assert famiglia_groq in response.llm_used.lower(), (
+    # (Groq, non Claude, non fallback), non la release esatta — per questo il
+    # tag di famiglia e' una costante mantenuta a mano (``GROQ_MODEL_FAMILY``)
+    # e non un parsing euristico di ``GROQ_MODEL`` (uno split su ``"-"`` che
+    # per ``llama-3.3-70b-versatile`` dava "llama" si rompe silenziosamente su
+    # ``openai/gpt-oss-120b``).
+    assert GROQ_MODEL_FAMILY in response.llm_used.lower(), (
         "la narrativa non arriva dal ramo Groq che questo test dice di "
-        f"interrogare: llm_used={response.llm_used!r}, atteso un modello della "
-        f"famiglia {famiglia_groq!r} ({GROQ_MODEL!r})."
+        f"interrogare: llm_used={response.llm_used!r}, atteso la famiglia "
+        f"{GROQ_MODEL_FAMILY!r} ({GROQ_MODEL!r})."
     )
 
     narrative_text = response.narrativa
