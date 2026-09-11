@@ -38,6 +38,25 @@ def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * _EARTH_RADIUS_M * math.asin(math.sqrt(a))
 
 
+def bbox_from_circle(lat: float, lon: float, radius_m: float) -> Bbox:
+    """Bbox rettangolare che circoscrive il cerchio (centro, raggio in metri, #318).
+
+    Conversione approssimata gradi/metri (111_320 m per grado di latitudine);
+    la semi-ampiezza in longitudine si restringe con ``cos(lat)`` perche' i
+    meridiani convergono verso i poli. Pura: nessuna chiamata di rete, a
+    differenza del bbox da geocoding (:mod:`crime_risk_analyzer.geocoding`).
+    """
+    half_lat_deg = radius_m / 111_320
+    coslat = math.cos(math.radians(lat))
+    half_lon_deg = radius_m / (111_320 * coslat) if coslat > 1e-9 else half_lat_deg
+    return Bbox(
+        min_lat=lat - half_lat_deg,
+        min_lon=lon - half_lon_deg,
+        max_lat=lat + half_lat_deg,
+        max_lon=lon + half_lon_deg,
+    )
+
+
 class Bbox(NamedTuple):
     """Bounding box geografico nell'ordine ``(min_lat, min_lon, max_lat, max_lon)``.
 
