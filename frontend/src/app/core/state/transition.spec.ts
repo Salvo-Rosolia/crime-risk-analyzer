@@ -43,37 +43,71 @@ const data: AnalyzeResponse = {
 };
 
 describe('transition (FSM)', () => {
-  it('ANALYZE → LOADING e azzera selezione/filtro, salva citta/zona/domanda pending e lastQuery', () => {
+  it('ANALYZE → LOADING, azzera selezione/filtro, salva la domanda pending; NON popola più lastQuery (lo fa LOAD_SUCCESS, #318)', () => {
     const s = transition(initialState, {
       type: 'ANALYZE',
-      citta: 'Roma',
-      zona: 'Centro',
+      center: { lat: 41.9, lon: 12.5 },
+      radiusM: 500,
       domanda: 'di sera?',
       pipeline: 'completo',
     });
     expect(s.screen).toBe('LOADING');
-    expect(s.pendingCitta).toBe('Roma');
-    expect(s.pendingZona).toBe('Centro');
     expect(s.pendingDomanda).toBe('di sera?');
-    expect(s.lastQuery).toEqual({ citta: 'Roma', zona: 'Centro', domanda: 'di sera?' });
+    expect(s.lastQuery).toBeNull();
     expect(s.selectedPoiId).toBeNull();
   });
 
-  it('ANALYZE pipeline base NON scrive lastQuery (bloccante B review #67-bis: "Rigenera" è solo del sistema completo)', () => {
+  it('ANALYZE pipeline base NON tocca lastQuery preesistente (nessuna pipeline lo scrive da ANALYZE, lo fa solo LOAD_SUCCESS non-base — bloccante B review #67-bis)', () => {
     const withPreviousQuery: AppState = {
       ...initialState,
-      lastQuery: { citta: 'Roma', zona: 'Colosseo', domanda: null },
+      lastQuery: {
+        center: { lat: 41.9, lon: 12.5 },
+        radiusM: 500,
+        citta: 'Roma',
+        zona: 'Colosseo',
+        domanda: null,
+      },
     };
     const s = transition(withPreviousQuery, {
       type: 'ANALYZE',
-      citta: 'Milano',
-      zona: 'Duomo',
+      center: { lat: 45.4, lon: 9.2 },
+      radiusM: 300,
       pipeline: 'base',
     });
     expect(s.screen).toBe('LOADING');
-    expect(s.pendingCitta).toBe('Milano');
-    expect(s.pendingZona).toBe('Duomo');
-    expect(s.lastQuery).toEqual({ citta: 'Roma', zona: 'Colosseo', domanda: null });
+    expect(s.lastQuery).toEqual(withPreviousQuery.lastQuery);
+  });
+
+  it('LOAD_SUCCESS (completo) popola lastQuery da center/radiusM/domanda dell\'azione + citta/zona_normalizzata della risposta (#318)', () => {
+    const dataConEtichetteRisolte: AnalyzeResponse = {
+      ...data,
+      citta: 'Roma',
+      zona_normalizzata: 'Trastevere',
+    };
+    const s = transition(initialState, {
+      type: 'LOAD_SUCCESS',
+      data: dataConEtichetteRisolte,
+      pipeline: 'completo',
+      center: { lat: 41.9, lon: 12.5 },
+      radiusM: 500,
+      domanda: 'di sera?',
+    });
+    expect(s.lastQuery).toEqual({
+      center: { lat: 41.9, lon: 12.5 },
+      radiusM: 500,
+      citta: 'Roma',
+      zona: 'Trastevere',
+      domanda: 'di sera?',
+    });
+  });
+
+  it('LOAD_SUCCESS (base) non tocca lastQuery', () => {
+    const prev: AppState = {
+      ...initialState,
+      lastQuery: { center: { lat: 1, lon: 1 }, radiusM: 1, citta: 'X', zona: 'Y', domanda: null },
+    };
+    const s = transition(prev, { type: 'LOAD_SUCCESS', data, pipeline: 'base' });
+    expect(s.lastQuery).toBe(prev.lastQuery);
   });
 
   it('LOAD_SUCCESS in modalità completo → RESULTS, scrive completoData, NON tocca baselineData, NON azzera pendingDomanda', () => {
@@ -126,29 +160,23 @@ describe('transition (FSM)', () => {
     expect(s.mode).toBe('base');
   });
 
-  it('LOAD_ERROR in modalità completo → ERROR, setta messaggio e PRESERVA pendingCitta/pendingZona/pendingDomanda (retry con i valori digitati)', () => {
+  it('LOAD_ERROR in modalità completo → ERROR, setta messaggio e PRESERVA pendingDomanda (retry con la domanda digitata)', () => {
     const loading: AppState = {
       ...initialState,
       screen: 'LOADING',
-      pendingCitta: 'Roma',
-      pendingZona: 'Atlantide',
       pendingDomanda: 'q',
     };
     const s = transition(loading, { type: 'LOAD_ERROR', message: 'boom', pipeline: 'completo' });
     expect(s.screen).toBe('ERROR');
     expect(s.error).toBe('boom');
-    expect(s.pendingCitta).toBe('Roma');
-    expect(s.pendingZona).toBe('Atlantide');
     expect(s.pendingDomanda).toBe('q');
   });
 
-  it('LOAD_ERROR pipeline base → resta su BASE (non ERROR), preserva i pending per il retry via startBaselineAnalysis (bloccante 2 review #67)', () => {
+  it('LOAD_ERROR pipeline base → resta su BASE (non ERROR): il cerchio disegnato non ha bisogno di reseeding, il MapComponent sopravvive da solo al remount (#318)', () => {
     const loadingBase: AppState = {
       ...initialState,
       screen: 'LOADING',
       mode: 'base',
-      pendingCitta: 'Roma',
-      pendingZona: 'Atlantide',
     };
     const s = transition(loadingBase, {
       type: 'LOAD_ERROR',
@@ -157,26 +185,22 @@ describe('transition (FSM)', () => {
     });
     expect(s.screen).toBe('BASE');
     expect(s.error).toBe('"Atlantide" non trovata.');
-    expect(s.pendingCitta).toBe('Roma');
-    expect(s.pendingZona).toBe('Atlantide');
   });
 
-  it('percorso reale: submit con città+zona → ANALYZE → LOAD_ERROR conserva i valori digitati per il retry', () => {
+  it('percorso reale: submit del cerchio → ANALYZE → LOAD_ERROR conserva la domanda digitata per il retry', () => {
     const afterAnalyze = transition(initialState, {
       type: 'ANALYZE',
-      citta: 'Roma',
-      zona: 'Atlantide',
+      center: { lat: 41.9, lon: 12.5 },
+      radiusM: 500,
       domanda: 'di sera?',
       pipeline: 'completo',
     });
     const afterError = transition(afterAnalyze, {
       type: 'LOAD_ERROR',
-      message: '"Atlantide" non corrisponde ad alcuna area nell\'ontologia.',
+      message: 'Il cerchio non contiene alcuna area riconosciuta.',
       pipeline: 'completo',
     });
     expect(afterError.screen).toBe('ERROR');
-    expect(afterError.pendingCitta).toBe('Roma');
-    expect(afterError.pendingZona).toBe('Atlantide');
     expect(afterError.pendingDomanda).toBe('di sera?');
   });
 
@@ -289,7 +313,7 @@ describe('transition (FSM)', () => {
     expect(s.filter).toBe('verificato');
   });
 
-  it('ANALYZE da RESULTS: va in LOADING, azzera selectedPoiId e filter, imposta pendingCitta/pendingZona/lastQuery; completoData NON viene toccato', () => {
+  it('ANALYZE da RESULTS: va in LOADING, azzera selectedPoiId e filter; completoData NON viene toccato, lastQuery resta quello preesistente (nullo)', () => {
     const results: AppState = {
       ...initialState,
       screen: 'RESULTS',
@@ -299,38 +323,42 @@ describe('transition (FSM)', () => {
     };
     const s = transition(results, {
       type: 'ANALYZE',
-      citta: 'Roma',
-      zona: 'Trastevere',
+      center: { lat: 41.9, lon: 12.5 },
+      radiusM: 800,
       pipeline: 'completo',
     });
     expect(s.screen).toBe('LOADING');
     expect(s.selectedPoiId).toBeNull();
     expect(s.filter).toBeNull();
-    expect(s.pendingCitta).toBe('Roma');
-    expect(s.pendingZona).toBe('Trastevere');
-    expect(s.lastQuery).toEqual({ citta: 'Roma', zona: 'Trastevere', domanda: null });
     expect(s.completoData).toBe(data);
+    expect(s.lastQuery).toBeNull();
   });
 
-  it('ANALYZE da ERROR: va in LOADING, azzera error e sovrascrive i pending con i nuovi valori (retry)', () => {
+  it('ANALYZE da ERROR: va in LOADING, azzera error e sovrascrive pendingDomanda col nuovo valore (retry); NON tocca lastQuery preesistente', () => {
     const error: AppState = {
       ...initialState,
       screen: 'ERROR',
       error: 'zona non trovata',
-      pendingCitta: 'Roma',
-      lastQuery: { citta: 'Roma', zona: 'Colosseo', domanda: null },
+      pendingDomanda: 'vecchia domanda',
+      lastQuery: {
+        center: { lat: 41.9, lon: 12.5 },
+        radiusM: 500,
+        citta: 'Roma',
+        zona: 'Colosseo',
+        domanda: null,
+      },
     };
     const s = transition(error, {
       type: 'ANALYZE',
-      citta: 'Milano',
-      zona: 'Prati',
+      center: { lat: 45.4, lon: 9.2 },
+      radiusM: 700,
+      domanda: 'nuova domanda',
       pipeline: 'completo',
     });
     expect(s.screen).toBe('LOADING');
     expect(s.error).toBeNull();
-    expect(s.pendingCitta).toBe('Milano');
-    expect(s.pendingZona).toBe('Prati');
-    expect(s.lastQuery).toEqual({ citta: 'Milano', zona: 'Prati', domanda: null });
+    expect(s.pendingDomanda).toBe('nuova domanda');
+    expect(s.lastQuery).toEqual(error.lastQuery);
   });
 
   describe('narrativa POI (#197)', () => {
@@ -380,8 +408,8 @@ describe('transition (FSM)', () => {
       };
       const s = transition(before, {
         type: 'ANALYZE',
-        citta: 'Roma',
-        zona: 'Trastevere',
+        center: { lat: 41.9, lon: 12.5 },
+        radiusM: 500,
         pipeline: 'completo',
       });
       expect(s.poiNarratives).toEqual({});
@@ -398,8 +426,8 @@ describe('transition (FSM)', () => {
       };
       const s = transition(before, {
         type: 'ANALYZE',
-        citta: 'Milano',
-        zona: 'Duomo',
+        center: { lat: 45.4, lon: 9.2 },
+        radiusM: 300,
         pipeline: 'base',
       });
       expect(s.poiNarratives).toEqual({ 'node/1': narrativa });
@@ -486,8 +514,8 @@ describe('transition (FSM)', () => {
       };
       const s = transition(before, {
         type: 'ANALYZE',
-        citta: 'Roma',
-        zona: 'Trastevere',
+        center: { lat: 41.9, lon: 12.5 },
+        radiusM: 500,
         pipeline: 'completo',
       });
       expect(s.zoneNarrativeLoading).toBe(false);
@@ -502,8 +530,8 @@ describe('transition (FSM)', () => {
       };
       const s = transition(before, {
         type: 'ANALYZE',
-        citta: 'Milano',
-        zona: 'Duomo',
+        center: { lat: 45.4, lon: 9.2 },
+        radiusM: 300,
         pipeline: 'base',
       });
       expect(s.zoneNarrativeLoading).toBe(true);

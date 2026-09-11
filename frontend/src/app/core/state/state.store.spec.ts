@@ -53,6 +53,9 @@ const poiResp: PoiNarrativeResponse = {
   fallback: false,
 };
 
+const CENTRO: { lat: number; lon: number } = { lat: 41.9, lon: 12.5 };
+const RAGGIO = 500;
+
 describe('StateStore', () => {
   let store: StateStore;
   let api: {
@@ -79,34 +82,26 @@ describe('StateStore', () => {
   });
 
   it('dispatch aggiorna i selettori tramite transition', () => {
-    store.dispatch({ type: 'ANALYZE', citta: 'Roma', zona: 'Roma', pipeline: 'completo' });
+    store.dispatch({ type: 'ANALYZE', center: CENTRO, radiusM: RAGGIO, pipeline: 'completo' });
     expect(store.screen()).toBe('LOADING');
   });
 
-  it('pendingZona riflette la zona in corso di analisi (per il LoadingOverlay)', () => {
-    expect(store.pendingZona()).toBeNull();
-    store.dispatch({ type: 'ANALYZE', citta: 'Roma', zona: 'Trastevere', pipeline: 'completo' });
-    expect(store.pendingZona()).toBe('Trastevere');
-  });
-
-  it('pendingCitta e pendingDomanda riflettono gli ultimi valori inviati (per il retry dopo un errore)', () => {
-    expect(store.pendingCitta()).toBeNull();
+  it('pendingDomanda riflette l\'ultimo valore inviato (per il retry dopo un errore)', () => {
     expect(store.pendingDomanda()).toBeNull();
     store.dispatch({
       type: 'ANALYZE',
-      citta: 'Milano',
-      zona: 'Duomo',
+      center: CENTRO,
+      radiusM: RAGGIO,
       domanda: 'di sera?',
       pipeline: 'completo',
     });
-    expect(store.pendingCitta()).toBe('Milano');
     expect(store.pendingDomanda()).toBe('di sera?');
   });
 
   it('startAnalysis success → LOAD_SUCCESS con i dati in completoData (mai in baselineData)', async () => {
     api.analyze.mockResolvedValue(data);
-    await store.startAnalysis('Roma', 'Colosseo', null);
-    expect(api.analyze).toHaveBeenCalledWith('Roma', 'Colosseo');
+    await store.startAnalysis(CENTRO, RAGGIO, null);
+    expect(api.analyze).toHaveBeenCalledWith(CENTRO, RAGGIO);
     expect(store.screen()).toBe('RESULTS');
     expect(store.completoData()).toBe(data);
     expect(store.baselineData()).toBeNull();
@@ -114,14 +109,14 @@ describe('StateStore', () => {
 
   it('startAnalysis con domanda: non la manda alla fase 1 (api.analyze), solo alla fase 2 in background (#292)', async () => {
     api.analyze.mockResolvedValue(data);
-    await store.startAnalysis('Roma', 'Roma', 'di sera?');
-    expect(api.analyze).toHaveBeenCalledWith('Roma', 'Roma');
-    expect(api.zoneNarrative).toHaveBeenCalledWith('Roma', 'Roma', 'h-ctx', 'di sera?');
+    await store.startAnalysis(CENTRO, RAGGIO, 'di sera?');
+    expect(api.analyze).toHaveBeenCalledWith(CENTRO, RAGGIO);
+    expect(api.zoneNarrative).toHaveBeenCalledWith('Roma', 'Colosseo', 'h-ctx', 'di sera?');
   });
 
   it('startAnalysis failure → LOAD_ERROR con messaggio', async () => {
     api.analyze.mockRejectedValue(new Error('offline'));
-    await store.startAnalysis('Roma', 'Roma');
+    await store.startAnalysis(CENTRO, RAGGIO);
     expect(store.screen()).toBe('ERROR');
     expect(store.error()).toBe('offline');
   });
@@ -134,7 +129,7 @@ describe('StateStore', () => {
       },
     });
     api.analyze.mockRejectedValue(err);
-    await store.startAnalysis('Roma', 'Roma');
+    await store.startAnalysis(CENTRO, RAGGIO);
     expect(store.screen()).toBe('ERROR');
     expect(store.error()).toBe("Zona X non trovata nell'ontologia.");
   });
@@ -142,8 +137,9 @@ describe('StateStore', () => {
   it('startBaselineAnalysis success → LOAD_SUCCESS con i dati in baselineData (mai in completoData)', async () => {
     store.dispatch({ type: 'TOGGLE_MODE', mode: 'base' });
     api.analyzeBaseline.mockResolvedValue(data);
-    await store.startBaselineAnalysis({ citta: 'Roma', zona: 'Colosseo' });
-    expect(api.analyzeBaseline).toHaveBeenCalledWith({ citta: 'Roma', zona: 'Colosseo' });
+    const params = { center: CENTRO, radiusM: RAGGIO };
+    await store.startBaselineAnalysis(params);
+    expect(api.analyzeBaseline).toHaveBeenCalledWith(params);
     expect(store.baselineData()).toBe(data);
     expect(store.completoData()).toBeNull();
   });
@@ -151,7 +147,7 @@ describe('StateStore', () => {
   it('startBaselineAnalysis failure in modalità base → resta su BASE (non ERROR), il retry può richiamare ancora startBaselineAnalysis', async () => {
     store.dispatch({ type: 'TOGGLE_MODE', mode: 'base' });
     api.analyzeBaseline.mockRejectedValue(new Error('404'));
-    await store.startBaselineAnalysis({ citta: 'Roma', zona: 'Colosseo' });
+    await store.startBaselineAnalysis({ center: CENTRO, radiusM: RAGGIO });
     expect(store.screen()).toBe('BASE');
     expect(store.error()).toBe('404');
   });
@@ -164,55 +160,80 @@ describe('StateStore', () => {
     it('diventa true con data.cache_hit === true', async () => {
       const cached: AnalyzeResponse = { ...data, cache_hit: true };
       api.analyze.mockResolvedValue(cached);
-      await store.startAnalysis('Roma', 'Colosseo');
+      await store.startAnalysis(CENTRO, RAGGIO);
       expect(store.fromCache()).toBe(true);
     });
 
     it('resta false con una risposta normale (senza cache_hit)', async () => {
       api.analyze.mockResolvedValue(data);
-      await store.startAnalysis('Roma', 'Colosseo');
+      await store.startAnalysis(CENTRO, RAGGIO);
       expect(store.fromCache()).toBe(false);
     });
   });
 
   describe('startBaselineAnalysis', () => {
-    it("dispatcha ANALYZE con pendingZona uguale alla zona richiesta (stato LOADING prima dell'await); instrada su BASE anche senza un TOGGLE_MODE preventivo (il pipeline tag non dipende da state.mode, review #67-bis bloccante A)", async () => {
-      let pendingZonaAtDispatch: string | null = null;
+    it("dispatcha ANALYZE e resta in LOADING prima dell'await; instrada su BASE anche senza un TOGGLE_MODE preventivo (il pipeline tag non dipende da state.mode, review #67-bis bloccante A)", async () => {
+      let screenAtDispatch: string | null = null;
       api.analyzeBaseline.mockImplementation(() => {
-        pendingZonaAtDispatch = store.state().pendingZona;
+        screenAtDispatch = store.screen();
         return Promise.resolve(data);
       });
-      await store.startBaselineAnalysis({ citta: 'Roma', zona: 'Centro' });
-      expect(pendingZonaAtDispatch).toBe('Centro');
+      await store.startBaselineAnalysis({ center: CENTRO, radiusM: RAGGIO });
+      expect(screenAtDispatch).toBe('LOADING');
       expect(store.screen()).toBe('BASE');
     });
 
     it('in modalità base resta su BASE dopo il successo (non salta su RESULTS del sistema completo)', async () => {
       store.dispatch({ type: 'TOGGLE_MODE', mode: 'base' });
       api.analyzeBaseline.mockResolvedValue(data);
-      await store.startBaselineAnalysis({ citta: 'Roma', zona: 'Centro' });
+      await store.startBaselineAnalysis({ center: CENTRO, radiusM: RAGGIO });
       expect(store.screen()).toBe('BASE');
       expect(store.baselineData()).toBe(data);
     });
   });
 
   describe('lastQuery computed', () => {
-    it('riflette citta/zona/domanda dell\'ultima ANALYZE (sorgente di "Rigenera")', () => {
+    it('è null prima di ogni analisi e NON viene popolato da ANALYZE (lo fa LOAD_SUCCESS, #318)', () => {
       expect(store.lastQuery()).toBeNull();
       store.dispatch({
         type: 'ANALYZE',
-        citta: 'Roma',
-        zona: 'Centro',
+        center: CENTRO,
+        radiusM: RAGGIO,
         domanda: 'di sera?',
         pipeline: 'completo',
       });
-      expect(store.lastQuery()).toEqual({ citta: 'Roma', zona: 'Centro', domanda: 'di sera?' });
+      expect(store.lastQuery()).toBeNull();
     });
 
-    it('sopravvive a LOAD_SUCCESS (torna utile per rigenerare mentre si è in RESULTS)', async () => {
+    it('riflette center/radiusM/domanda inviati + citta/zona RISOLTE dalla risposta, popolato da LOAD_SUCCESS (sorgente di "Rigenera", #318)', async () => {
       api.analyze.mockResolvedValue(data);
-      await store.startAnalysis('Roma', 'Colosseo', null);
-      expect(store.lastQuery()).toEqual({ citta: 'Roma', zona: 'Colosseo', domanda: null });
+      await store.startAnalysis(CENTRO, RAGGIO, 'di sera?');
+      expect(store.lastQuery()).toEqual({
+        center: CENTRO,
+        radiusM: RAGGIO,
+        citta: 'Roma',
+        zona: 'Colosseo',
+        domanda: 'di sera?',
+      });
+    });
+
+    it('sopravvive a SELECT_POI/SET_FILTER (resta la sorgente di "Rigenera" anche in Vista Dettaglio/Filtro)', async () => {
+      api.analyze.mockResolvedValue(data);
+      await store.startAnalysis(CENTRO, RAGGIO, null);
+      const expected = {
+        center: CENTRO,
+        radiusM: RAGGIO,
+        citta: 'Roma',
+        zona: 'Colosseo',
+        domanda: null,
+      };
+      expect(store.lastQuery()).toEqual(expected);
+
+      store.dispatch({ type: 'SELECT_POI', id: '1' });
+      expect(store.lastQuery()).toEqual(expected);
+      store.dispatch({ type: 'DESELECT_POI' });
+      store.dispatch({ type: 'SET_FILTER', level: 'verificato' });
+      expect(store.lastQuery()).toEqual(expected);
     });
   });
 
@@ -241,7 +262,7 @@ describe('StateStore', () => {
         }),
       );
 
-      const pending = store.startAnalysis('Roma', 'Colosseo', null);
+      const pending = store.startAnalysis(CENTRO, RAGGIO, null);
       expect(store.screen()).toBe('LOADING');
 
       // l'utente cambia modalità MENTRE la richiesta Completo è ancora in volo (nessuna guardia
@@ -265,7 +286,7 @@ describe('StateStore', () => {
         }),
       );
 
-      const pending = store.startBaselineAnalysis({ citta: 'Roma', zona: 'Colosseo' });
+      const pending = store.startBaselineAnalysis({ center: CENTRO, radiusM: RAGGIO });
       expect(store.screen()).toBe('LOADING');
 
       store.dispatch({ type: 'TOGGLE_MODE', mode: 'completo' });
@@ -282,8 +303,14 @@ describe('StateStore', () => {
   describe('BLOCCANTE B (review #67-bis): lastQuery isolato per pipeline', () => {
     it('una ricerca Base non sovrascrive lastQuery (sorgente di "Rigenera", solo sistema completo)', async () => {
       api.analyze.mockResolvedValue(data);
-      await store.startAnalysis('Roma', 'Colosseo', null);
-      expect(store.lastQuery()).toEqual({ citta: 'Roma', zona: 'Colosseo', domanda: null });
+      await store.startAnalysis(CENTRO, RAGGIO, null);
+      expect(store.lastQuery()).toEqual({
+        center: CENTRO,
+        radiusM: RAGGIO,
+        citta: 'Roma',
+        zona: 'Colosseo',
+        domanda: null,
+      });
 
       store.dispatch({ type: 'TOGGLE_MODE', mode: 'base' });
       const baselineResp: AnalyzeResponse = {
@@ -292,9 +319,16 @@ describe('StateStore', () => {
         zona_normalizzata: 'Duomo',
       };
       api.analyzeBaseline.mockResolvedValue(baselineResp);
-      await store.startBaselineAnalysis({ citta: 'Milano', zona: 'Duomo' });
+      const centroBase = { lat: 45.4, lon: 9.2 };
+      await store.startBaselineAnalysis({ center: centroBase, radiusM: 300 });
 
-      expect(store.lastQuery()).toEqual({ citta: 'Roma', zona: 'Colosseo', domanda: null });
+      expect(store.lastQuery()).toEqual({
+        center: CENTRO,
+        radiusM: RAGGIO,
+        citta: 'Roma',
+        zona: 'Colosseo',
+        domanda: null,
+      });
     });
   });
 
@@ -302,7 +336,7 @@ describe('StateStore', () => {
     /** Porta lo store in RESULTS con lastQuery valorizzato: `loadPoiNarrative` ne ha bisogno. */
     async function analyzed(): Promise<void> {
       api.analyze.mockResolvedValue({ ...data, narrativa: 'narrativa di zona' });
-      await store.startAnalysis('Roma', 'Colosseo', null);
+      await store.startAnalysis(CENTRO, RAGGIO, null);
     }
 
     beforeEach(() => {
@@ -320,7 +354,7 @@ describe('StateStore', () => {
       // Senza impronta non esiste una richiesta che il backend possa verificare: meglio non
       // chiamare che spedire una richiesta destinata al 409.
       api.analyze.mockResolvedValue({ ...data, contesto_hash: '' });
-      await store.startAnalysis('Roma', 'Colosseo', null);
+      await store.startAnalysis(CENTRO, RAGGIO, null);
       await store.loadPoiNarrative('node/1');
       expect(api.poiNarrative).not.toHaveBeenCalled();
     });
@@ -328,7 +362,7 @@ describe('StateStore', () => {
     it('dopo una nuova analisi della zona il click su un POI manda la NUOVA impronta (#242)', async () => {
       await analyzed();
       api.analyze.mockResolvedValue({ ...data, contesto_hash: 'h-ctx-2' });
-      await store.startAnalysis('Roma', 'Colosseo', null);
+      await store.startAnalysis(CENTRO, RAGGIO, null);
       await store.loadPoiNarrative('node/1');
       expect(api.poiNarrative).toHaveBeenLastCalledWith('Roma', 'Colosseo', 'node/1', 'h-ctx-2');
     });
@@ -347,7 +381,7 @@ describe('StateStore', () => {
       const inVolo = store.loadPoiNarrative('node/1');
 
       api.analyze.mockResolvedValue({ ...data, contesto_hash: 'h-ctx-2' });
-      await store.startAnalysis('Roma', 'Colosseo', null);
+      await store.startAnalysis(CENTRO, RAGGIO, null);
 
       risolvi(poiResp);
       await inVolo;
@@ -369,7 +403,7 @@ describe('StateStore', () => {
       const inVolo = store.loadPoiNarrative('node/1');
 
       api.analyze.mockResolvedValue({ ...data, contesto_hash: 'h-ctx-2' });
-      await store.startAnalysis('Roma', 'Colosseo', null);
+      await store.startAnalysis(CENTRO, RAGGIO, null);
 
       rifiuta(new Error('boom'));
       await inVolo;
@@ -517,7 +551,7 @@ describe('StateStore', () => {
           },
         ],
       });
-      await store.startAnalysis('Roma', 'Colosseo', null);
+      await store.startAnalysis(CENTRO, RAGGIO, null);
       api.poiNarrative.mockResolvedValue({
         ...poiResp,
         risk_models: [{ poi_id: 'node/1', poi: '', risks: poiResp.risk_models[0].risks }],
@@ -583,7 +617,7 @@ describe('StateStore', () => {
 
     it('startAnalysis: la risposta veloce porta narrativa null e RESULTS subito, prima ancora che la fase 2 risolva', async () => {
       api.analyze.mockResolvedValue(fastResp);
-      const pending = store.startAnalysis('Roma', 'Colosseo', null);
+      const pending = store.startAnalysis(CENTRO, RAGGIO, null);
       // La fase 2 non è attesa da startAnalysis: appena la Promise si risolve la FSM è già in
       // RESULTS con narrativa null e zoneNarrativeLoading già a true (dispatchato in sincrono,
       // prima del primo await dentro loadZoneNarrative).
@@ -593,10 +627,10 @@ describe('StateStore', () => {
       expect(store.zoneNarrativeLoading()).toBe(true);
     });
 
-    it('startAnalysis: chiama zoneNarrative con citta/zona/impronta/domanda e popola la narrativa quando risolve', async () => {
+    it('startAnalysis: chiama zoneNarrative con citta/zona RISOLTE/impronta/domanda e popola la narrativa quando risolve', async () => {
       api.analyze.mockResolvedValue(fastResp);
       api.zoneNarrative.mockResolvedValue(zoneResp);
-      await store.startAnalysis('Roma', 'Colosseo', 'di sera?');
+      await store.startAnalysis(CENTRO, RAGGIO, 'di sera?');
       // Un microtask in più: la Promise di zoneNarrative (già risolta) deve ancora "arrivare" al
       // dispatch di ZONE_NARRATIVE_SUCCESS dentro loadZoneNarrative.
       await Promise.resolve();
@@ -612,7 +646,7 @@ describe('StateStore', () => {
 
     it('non chiama zoneNarrative se la risposta veloce non porta un’impronta (#242)', async () => {
       api.analyze.mockResolvedValue({ ...fastResp, contesto_hash: '' });
-      await store.startAnalysis('Roma', 'Colosseo', null);
+      await store.startAnalysis(CENTRO, RAGGIO, null);
       await Promise.resolve();
       expect(api.zoneNarrative).not.toHaveBeenCalled();
     });
@@ -625,14 +659,14 @@ describe('StateStore', () => {
           risolvi = r;
         }),
       );
-      const inVolo = store.startAnalysis('Roma', 'Colosseo', null);
+      const inVolo = store.startAnalysis(CENTRO, RAGGIO, null);
       await inVolo;
       expect(store.zoneNarrativeLoading()).toBe(true);
 
       // Una nuova analisi arriva mentre la fase 2 precedente è ancora in volo.
       api.analyze.mockResolvedValue({ ...fastResp, contesto_hash: 'h-ctx-2' });
       api.zoneNarrative.mockReturnValue(new Promise<ZoneNarrativeResponse>(() => undefined));
-      await store.startAnalysis('Roma', 'Trastevere', null);
+      await store.startAnalysis({ lat: 41.85, lon: 12.48 }, 600, null);
 
       risolvi(zoneResp);
       await Promise.resolve();
@@ -650,11 +684,11 @@ describe('StateStore', () => {
           rifiuta = rej;
         }),
       );
-      await store.startAnalysis('Roma', 'Colosseo', null);
+      await store.startAnalysis(CENTRO, RAGGIO, null);
 
       api.analyze.mockResolvedValue({ ...fastResp, contesto_hash: 'h-ctx-2' });
       api.zoneNarrative.mockReturnValue(new Promise<ZoneNarrativeResponse>(() => undefined));
-      await store.startAnalysis('Roma', 'Trastevere', null);
+      await store.startAnalysis({ lat: 41.85, lon: 12.48 }, 600, null);
 
       rifiuta(new Error('boom'));
       await Promise.resolve();
@@ -666,7 +700,7 @@ describe('StateStore', () => {
     it('su errore popola zoneNarrativeError e sblocca il caricamento', async () => {
       api.analyze.mockResolvedValue(fastResp);
       api.zoneNarrative.mockRejectedValue(new Error('boom'));
-      await store.startAnalysis('Roma', 'Colosseo', null);
+      await store.startAnalysis(CENTRO, RAGGIO, null);
       await Promise.resolve();
       await Promise.resolve();
 
@@ -682,7 +716,7 @@ describe('StateStore', () => {
           risolvi = r;
         }),
       );
-      await store.startAnalysis('Roma', 'Colosseo', null);
+      await store.startAnalysis(CENTRO, RAGGIO, null);
 
       expect(store.currentNarrativeLoading()).toBe(true);
       expect(store.currentNarrativeError()).toBeNull();
@@ -698,7 +732,7 @@ describe('StateStore', () => {
     it('in Vista Dettaglio currentNarrativeError/Loading seguono lo scope del POI, non quello di zona', async () => {
       api.analyze.mockResolvedValue(fastResp);
       api.zoneNarrative.mockReturnValue(new Promise<ZoneNarrativeResponse>(() => undefined));
-      await store.startAnalysis('Roma', 'Colosseo', null);
+      await store.startAnalysis(CENTRO, RAGGIO, null);
       expect(store.currentNarrativeLoading()).toBe(true); // scope zona: la fase 2 è in volo
 
       store.dispatch({ type: 'SELECT_POI', id: '1' });
