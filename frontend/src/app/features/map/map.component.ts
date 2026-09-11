@@ -37,6 +37,7 @@ type DrawState = 'idle' | 'drawing-radius' | 'ready';
           [max]="MAX_RADIUS_M"
           [value]="radiusM()"
           (input)="onRadiusInput($event)"
+          (change)="onRadiusChange($event)"
         />
       </div>
     }
@@ -52,15 +53,39 @@ type DrawState = 'idle' | 'drawing-radius' | 'ready';
 
       /*
        * Input numerico del raggio (#318, D2/§5.1 design doc): l'unica via KEYBOARD/screen-reader
-       * per impostare il raggio, il drag da solo la esclude. Fluttua sopra la mappa (in alto a
-       * sinistra, lontano dal controllo zoom in basso a destra) invece di stare in un pannello
-       * laterale perché deve restare visibile in drawing-radius/ready indipendentemente da quale
-       * pannello di ricerca (completo/base) è montato accanto alla mappa.
+       * per impostare il raggio, il drag da solo la esclude. Fluttua sopra la mappa invece di
+       * stare in un pannello laterale perché deve restare visibile in drawing-radius/ready
+       * indipendentemente da quale pannello di ricerca (completo/base) è montato accanto alla
+       * mappa.
+       *
+       * Posizione (fix reperto review: non più in alto a sinistra, era invisibile/incliccabile
+       * ovunque). .cra-panels (app.css) è z-index:500 nello stacking context ROOT, quindi sta
+       * sempre sopra cra-map (z-index:0): qualunque pannello dentro .cra-panels copre questo
+       * controllo, indipendentemente da z-index/posizione LOCALI qui dentro. Angolo per angolo:
+       *  - alto-sinistra: SEMPRE occupato - .cra-panel in INPUT/ERROR (app.css, margin:16px) e
+       *    il dock POI in RESULTS/FILTER/DETAIL (panel-dock.component.css, top/left:
+       *    var(--space-4), width fissa var(--panel-max-width)) partono entrambi da lì.
+       *  - basso-destra: SEMPRE occupato dal controllo zoom di Leaflet - zoomControl:false in
+       *    L.map(...) (questo file) disattiva solo quello di default, ma poco dopo viene
+       *    riaggiunto a mano con L.control.zoom({ position: 'bottomright' }), quindi un
+       *    controllo zoom esiste per davvero a quell'angolo; in più, a layout largo, ci finisce
+       *    sopra anche il pannello narrativa (narrative-sheet.component.css, top/right/bottom:
+       *    var(--space-4), quindi a tutta altezza).
+       *  - basso-sinistra: NON sicuro nonostante sembri libero - il dock POI ha solo un
+       *    max-height (non un'altezza fissa) e con una lista piena arriva quasi in fondo; sotto
+       *    i 1100px la narrativa diventa un bottom-sheet a piena larghezza (stessa
+       *    narrative-sheet.component.css) e occupa anche quell'angolo quando aperta.
+       *  - alto, subito a destra del dock/pannello: libero in ogni schermata. Il dock/.cra-panel
+       *    hanno larghezza FISSA (var(--panel-max-width), mai di più anche a lista piena - solo
+       *    l'altezza cresce col contenuto), e la narrativa (quando presente, a layout largo) parte
+       *    da destra con la sua stessa larghezza fissa: resta quindi un corridoio verticale libero
+       *    fra i due, dove l'ancoraggio orizzontale sotto riusa var(--panel-max-width) invece di un
+       *    valore fisso in px per restare corretto se quella costante cambia.
        */
       .cra-radius-control {
         position: absolute;
-        top: 12px;
-        left: 12px;
+        top: var(--space-4, 16px);
+        left: calc(var(--panel-max-width, 340px) + var(--space-4, 16px) * 2);
         z-index: 500;
         display: flex;
         align-items: center;
@@ -109,8 +134,10 @@ export class MapComponent implements OnDestroy {
   private centerLatLng: { lat: number; lon: number } | null = null;
 
   /** Raggio corrente del cerchio in disegno/confermato, per la sincronizzazione bidirezionale con
-   * l'input numerico (#318 D2): il drag lo aggiorna, digitare un valore aggiorna a sua volta il
-   * cerchio disegnato (vedi {@link onRadiusInput}). */
+   * l'input numerico (#318 D2): il drag lo aggiorna (e lo riflette nel campo), la digitazione lo
+   * aggiorna solo alla conferma (evento `change`: blur/invio, vedi {@link onRadiusChange}) — non ad
+   * ogni tasto (vedi {@link onRadiusInput}), altrimenti il `[value]` legato a questo segnale
+   * riscriverebbe il campo mentre l'utente sta ancora componendo un numero. */
   protected readonly radiusM = signal<number>(DEFAULT_RADIUS_M);
   /** L'input numerico è utile solo mentre un cerchio esiste (`drawing-radius`/`ready`): in `idle`
    * non c'è ancora un centro su cui applicare un raggio. */
@@ -202,23 +229,49 @@ export class MapComponent implements OnDestroy {
       [this.centerLatLng.lat, this.centerLatLng.lon],
       [e.latlng.lat, e.latlng.lng],
     );
-    const clamped = Math.min(Math.max(radius, MIN_RADIUS_M), MAX_RADIUS_M);
+    const clamped = this.clampRadius(radius);
     this.circleLayer.setRadius(clamped);
     this.radiusM.set(clamped);
   }
 
   /**
-   * Sincronizzazione bidirezionale lato tastiera (#318 D2): un valore digitato aggiorna subito il
-   * cerchio disegnato (stesso clamp del drag, stesse costanti `MIN_RADIUS_M`/`MAX_RADIUS_M`) e, se
-   * il cerchio è già `ready` (confermato), ri-emette `circleChange` — altrimenti un aggiustamento
-   * manuale del raggio dopo la conferma non raggiungerebbe mai il segnale `circle` dello shell.
-   * In `drawing-radius` (non ancora confermato) basta aggiornare il layer: la conferma successiva
-   * (secondo clic) leggerà il nuovo raggio da `circleLayer.getRadius()`.
+   * Sincronizzazione da tastiera, fase DIGITAZIONE (#318 D2, fix reperto review "clampa e riscrive
+   * ad ogni tasto"): con `[value]="radiusM()"` nel template, chiamare `radiusM.set(...)` qui
+   * riscriverebbe il campo ad ogni carattere — "8" verrebbe clampato a "150" prima ancora che
+   * l'utente possa scrivere "800", che quindi non sarebbe MAI raggiungibile. Per questo qui non si
+   * tocca mai `radiusM` (né si riscrive il campo): si aggiorna solo l'ANTEPRIMA lato
+   * mappa/cerchio (stesso clamp del drag, tramite {@link clampRadius}) quando il testo digitato è
+   * già un numero — un valore fuori range aggiorna comunque subito mappa/`circleChange` (se
+   * `ready`), ma con quello VISUALIZZATO invariato. Il campo vuoto (utente a metà di una
+   * riscrittura) non tocca nemmeno l'anteprima. Il clamp autoritativo, che riscrive anche il
+   * campo, avviene solo alla conferma: vedi {@link onRadiusChange}.
    */
   protected onRadiusInput(event: Event): void {
+    const value = (event.target as HTMLInputElement).value;
+    if (value.trim() === '') return;
+    const raw = Number(value);
+    if (!Number.isFinite(raw)) return;
+    const clamped = this.clampRadius(raw);
+    this.circleLayer?.setRadius(clamped);
+    if (this.drawState() === 'ready' && this.centerLatLng) {
+      this.circleChange.emit({
+        lat: this.centerLatLng.lat,
+        lon: this.centerLatLng.lon,
+        radiusM: clamped,
+      });
+    }
+  }
+
+  /**
+   * Sincronizzazione da tastiera, fase CONFERMA (evento `change`: blur o invio, #318 D2 fix): qui,
+   * e solo qui, il valore viene clampato E riscritto nel campo (`radiusM.set(...)`, che tramite
+   * `[value]` sovrascrive il testo digitato) — l'utente ha finito di comporre il numero, quindi
+   * allineare la vista al valore effettivo non gli impedisce più di raggiungere un valore
+   * intermedio come durante la digitazione (vedi {@link onRadiusInput}).
+   */
+  protected onRadiusChange(event: Event): void {
     const raw = Number((event.target as HTMLInputElement).value);
-    if (Number.isNaN(raw)) return;
-    const clamped = Math.min(Math.max(raw, MIN_RADIUS_M), MAX_RADIUS_M);
+    const clamped = this.clampRadius(Number.isFinite(raw) ? raw : this.radiusM());
     this.radiusM.set(clamped);
     this.circleLayer?.setRadius(clamped);
     if (this.drawState() === 'ready' && this.centerLatLng) {
@@ -228,6 +281,10 @@ export class MapComponent implements OnDestroy {
         radiusM: clamped,
       });
     }
+  }
+
+  private clampRadius(value: number): number {
+    return Math.min(Math.max(value, MIN_RADIUS_M), MAX_RADIUS_M);
   }
 
   /** Chiamato dalla casella "vai a un luogo" (#318): sposta la mappa, non tocca il cerchio disegnato. */

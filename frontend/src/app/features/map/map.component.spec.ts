@@ -408,7 +408,29 @@ describe('MapComponent', () => {
       expect(spy).not.toHaveBeenCalled();
     });
 
-    it('un valore digitato sotto il minimo (150m) è clampato, sia sulla mappa sia nell\'input', () => {
+    it('digitare "800" carattere per carattere lo raggiunge davvero: il campo mostra "800" e il cerchio è al raggio 800 (niente clamp-e-riscrittura ad ogni tasto)', () => {
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fixture.detectChanges();
+      const input = radiusInput()!;
+
+      input.value = '8';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      expect(input.value).toBe('8');
+
+      input.value = '80';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      expect(input.value).toBe('80');
+
+      input.value = '800';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      expect(input.value).toBe('800');
+      expect(mockCircle.setRadius).toHaveBeenLastCalledWith(800);
+    });
+
+    it('un valore digitato sotto il minimo resta visibile as-is mentre si digita (input): solo la mappa vede già il clamp come anteprima', () => {
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
       fixture.detectChanges();
       const input = radiusInput()!;
@@ -417,10 +439,25 @@ describe('MapComponent', () => {
       fixture.detectChanges();
 
       expect(mockCircle.setRadius).toHaveBeenCalledWith(150);
+      expect(input.value).toBe('10');
+    });
+
+    it('un valore digitato sotto il minimo (150m) è clampato E riscritto nel campo solo alla conferma (evento change: blur/invio)', () => {
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fixture.detectChanges();
+      const input = radiusInput()!;
+      input.value = '10';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+
+      input.dispatchEvent(new Event('change'));
+      fixture.detectChanges();
+
+      expect(mockCircle.setRadius).toHaveBeenLastCalledWith(150);
       expect(input.value).toBe('150');
     });
 
-    it('un valore digitato sopra il massimo (3000m) è clampato, sia sulla mappa sia nell\'input', () => {
+    it('un valore digitato sopra il massimo resta visibile as-is mentre si digita (input): solo la mappa vede già il clamp come anteprima', () => {
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
       fixture.detectChanges();
       const input = radiusInput()!;
@@ -429,7 +466,53 @@ describe('MapComponent', () => {
       fixture.detectChanges();
 
       expect(mockCircle.setRadius).toHaveBeenCalledWith(3000);
+      expect(input.value).toBe('9999');
+    });
+
+    it('un valore digitato sopra il massimo (3000m) è clampato E riscritto nel campo solo alla conferma (evento change: blur/invio)', () => {
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fixture.detectChanges();
+      const input = radiusInput()!;
+      input.value = '9999';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+
+      input.dispatchEvent(new Event('change'));
+      fixture.detectChanges();
+
+      expect(mockCircle.setRadius).toHaveBeenLastCalledWith(3000);
       expect(input.value).toBe('3000');
+    });
+
+    it('svuotare il campo per riscriverlo da capo non lo fa scattare a 150 mid-edit (niente clamp finché non si conferma)', () => {
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fireMap('mousemove', { latlng: { lat: 41.905, lng: 12.5 } });
+      fixture.detectChanges();
+      const input = radiusInput()!;
+
+      input.value = '';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+
+      expect(input.value).toBe('');
+    });
+
+    it('il change (conferma) ri-emette circleChange col valore clampato quando il cerchio è "ready"', () => {
+      const spy = jest.fn();
+      fixture.componentInstance.circleChange.subscribe(spy);
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fireMap('mousemove', { latlng: { lat: 41.905, lng: 12.5 } });
+      fireMap('click', { latlng: { lat: 41.905, lng: 12.5 } });
+      fixture.detectChanges();
+      spy.mockClear();
+
+      const input = radiusInput()!;
+      input.value = '9999';
+      input.dispatchEvent(new Event('input'));
+      spy.mockClear();
+      input.dispatchEvent(new Event('change'));
+
+      expect(spy).toHaveBeenCalledWith({ lat: 41.9, lon: 12.5, radiusM: 3000 });
     });
   });
 
