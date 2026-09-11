@@ -147,6 +147,44 @@ def test_fold_leaves_quality_vacuous_unset_on_mean_record() -> None:
     assert folded.mean_records[0].metrics.quality_vacuous is None
 
 
+@pytest.mark.parametrize(
+    "status", [s for s in RunStatus if s is not RunStatus.OK], ids=lambda s: s.value
+)
+def test_ogni_ripetizione_non_ok_e_scartata_dalla_media(status: RunStatus) -> None:
+    """Il fold scarta OGNI status di fallimento, non solo i due di oggi.
+
+    Parametrizzato sull'enum: un valore nuovo (``HARNESS_ERROR``) porta metriche
+    azzerate per costruzione, e includerlo nella media di K ripetizioni
+    dimezzerebbe il grounding di una zona per un bug della strumentazione, senza
+    che nulla lo segnali.
+    """
+    recs = [
+        _rec(
+            "Napoli",
+            "Piazza Garibaldi",
+            rep=0,
+            grounding=1.0,
+            hallucination=0.0,
+            latency_ms=1000,
+            cost_usd=0.0004,
+        ),
+        _rec(
+            "Napoli",
+            "Piazza Garibaldi",
+            rep=1,
+            grounding=0.0,
+            hallucination=0.0,
+            latency_ms=0,
+            cost_usd=0.0,
+            status=status,
+        ),
+    ]
+    folded = fold_arm(recs)
+    assert folded.mean_records[0].metrics.grounding == pytest.approx(1.0)
+    assert folded.variances[0].n_reps == 1
+    assert folded.variances[0].n_dropped == 1
+
+
 def test_fold_excludes_error_reps_and_counts_dropped() -> None:
     """Le ripetizioni ERROR non entrano in media/std; n_dropped le conta."""
     recs = [

@@ -91,7 +91,7 @@ class _FakeAnthropicMessages:
                 input_tokens=830, output_tokens=42, cache_creation_input_tokens=820
             )
         return _AnthropicMessage(
-            text="Analisi del rischio per la zona.",
+            text=self._owner.text,
             model=str(kwargs["model"]),
             usage=usage,
             stop_reason=self._owner.stop_reason,
@@ -105,6 +105,9 @@ class _FakeAnthropic:
         # ``end_turn`` = completamento normale; i test di troncamento lo
         # impostano a ``max_tokens`` per far scattare l'LLMError.
         self.stop_reason = "end_turn"
+        # Testo del blocco di risposta: i test sul contenuto vuoto lo svuotano
+        # senza toccare ``stop_reason`` (la risposta resta "riuscita").
+        self.text = "Analisi del rischio per la zona."
         self.messages = _FakeAnthropicMessages(self)
 
 
@@ -146,7 +149,7 @@ class _FakeGroqCompletions:
     async def create(self, **kwargs: Any) -> _GroqCompletion:
         self._owner.calls.append(kwargs)
         return _GroqCompletion(
-            content="Analisi del rischio per la zona.",
+            content=self._owner.content,
             model=str(kwargs["model"]),
             usage=_GroqUsage(prompt_tokens=512, completion_tokens=88),
             finish_reason=self._owner.finish_reason,
@@ -164,6 +167,9 @@ class _FakeGroq:
         # ``stop`` = completamento normale; ``length`` = troncato su max_tokens
         # (equivalente Groq/OpenAI di stop_reason=max_tokens).
         self.finish_reason = "stop"
+        # Contenuto del messaggio: i test sul contenuto vuoto lo svuotano
+        # lasciando ``finish_reason="stop"`` (la risposta si dichiara riuscita).
+        self.content = "Analisi del rischio per la zona."
         self.chat = _FakeGroqChat(self)
 
 
@@ -501,6 +507,46 @@ async def test_truncation_guard_fires_regardless_of_max_tokens_value() -> None:
     groq.finish_reason = "length"
     with pytest.raises(LLMError):
         await LLMClient.for_groq(groq, max_tokens=4096).generate(_SYSTEM, _USER)
+
+
+# --- (#316) contenuto vuoto con esito "riuscito" -> LLMError (-> fallback) ---
+
+
+@pytest.mark.parametrize("vuoto", ["", "   \n\t  "])
+async def test_groq_empty_content_is_mapped_to_llm_error(vuoto: str) -> None:
+    """Contenuto vuoto e ``finish_reason`` normale: e' un fallimento, non un testo.
+
+    ``GROQ_MODEL`` e' un modello reasoning: puo' spendere l'intero budget di
+    ``max_tokens`` ragionando e chiudere con ``finish_reason="stop"`` senza aver
+    emesso una riga visibile. La guardia sul troncamento non lo intercetta (non
+    e' "length"), e senza questo controllo la pipeline riceveva una narrativa
+    vuota marcata come SUCCESSO — peggio dell'errore, perche' non attiva il
+    fallback strutturato e serve un'analisi muta come se fosse un'analisi.
+    """
+    fake = _FakeGroq()
+    fake.content = vuoto  # finish_reason resta "stop"
+    client = LLMClient.for_groq(fake, temperature=0.2, seed=42)
+
+    with pytest.raises(LLMError):
+        await client.generate(_SYSTEM, _USER)
+
+
+@pytest.mark.parametrize("vuoto", ["", "   \n\t  "])
+async def test_claude_empty_text_is_mapped_to_llm_error(vuoto: str) -> None:
+    """Stessa guardia sul ramo Claude: la causa cambia, l'esito da servire no.
+
+    Qui il budget di reasoning non c'entra (il thinking esteso non e' attivo), ma
+    una risposta senza blocchi di testo utili resta possibile — e una narrativa
+    vuota non e' mai un successo per il citation layer, che su niente non ha
+    nulla da ancorare. Tenere la guardia su un solo provider lascerebbe il buco
+    aperto proprio sul modello primario.
+    """
+    fake = _FakeAnthropic()
+    fake.text = vuoto  # stop_reason resta "end_turn"
+    client = LLMClient.for_claude(fake, temperature=0.2, seed=42)
+
+    with pytest.raises(LLMError):
+        await client.generate(_SYSTEM, _USER)
 
 
 async def test_claude_normal_stop_reason_does_not_raise() -> None:

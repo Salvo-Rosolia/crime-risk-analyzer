@@ -57,6 +57,17 @@ _MAX_TOKENS = 1536
 _DEFAULT_TEMPERATURE = 0.2
 _DEFAULT_SEED = 42
 
+#: Parametri del solo ramo Groq, perche' ``GROQ_MODEL`` e' un modello reasoning
+#: (#20/#316). Senza di loro Groq ragiona a effort "medium" di default e puo' far
+#: trapelare il chain-of-thought dentro il content del messaggio (bug documentato
+#: sul forum Groq). L'effort basso riduce anche la competizione col budget di
+#: ``_MAX_TOKENS``, condiviso fra ragionamento e narrativa: speso li', il modello
+#: chiude con ``finish_reason="stop"`` e contenuto vuoto (guardia in
+#: ``_generate_groq``). Nominati e non inline: sono scelte di configurazione del
+#: modello, come temperature/seed, e vanno lette accanto a quelle.
+_GROQ_REASONING_EFFORT = "low"
+_GROQ_INCLUDE_REASONING = False
+
 #: Timeout di default (secondi) del layer LLM (#114). Bilancia una generazione
 #: legittima (qualche secondo) con un tetto che impedisce hang indefiniti;
 #: sovrascrivibile via ``Settings.llm_timeout_seconds``.
@@ -300,10 +311,23 @@ class LLMClient:
                 f"max_tokens={self._max_tokens}): narrativa incompleta scartata"
             )
 
+        # Contenuto vuoto con esito dichiarato "riuscito": la risposta non e'
+        # troncata (nessun ``max_tokens``) ma non porta testo utilizzabile. Una
+        # narrativa vuota non e' mai un successo — il citation layer non ha nulla
+        # da ancorare e l'interfaccia mostrerebbe un'analisi muta al posto del
+        # fallback strutturato. Stessa guardia, stessa uscita del troncamento.
+        text = _extract_anthropic_text(message)
+        if not text.strip():
+            raise LLMError(
+                f"Risposta Claude senza testo utilizzabile "
+                f"(stop_reason={getattr(message, 'stop_reason', None)!r}): "
+                "narrativa vuota scartata"
+            )
+
         usage = message.usage
         cache_read = int(getattr(usage, "cache_read_input_tokens", 0) or 0)
         return LLMResponse(
-            text=_extract_anthropic_text(message),
+            text=text,
             llm_used=str(message.model),
             tokens_input=int(usage.input_tokens),
             tokens_output=int(usage.output_tokens),
@@ -324,14 +348,9 @@ class LLMClient:
                     max_tokens=self._max_tokens,
                     temperature=self._temperature,
                     seed=self._seed,
-                    # GROQ_MODEL e' un modello reasoning (#20): senza questi due
-                    # parametri Groq ragiona a effort "medium" di default e puo'
-                    # far trapelare il chain-of-thought dentro il content del
-                    # messaggio (bug documentato sul forum Groq). "low" riduce
-                    # anche la competizione col budget di ``max_tokens`` condiviso
-                    # con la narrativa vera e propria.
-                    reasoning_effort="low",
-                    include_reasoning=False,
+                    # Modello reasoning: vedi _GROQ_REASONING_EFFORT.
+                    reasoning_effort=_GROQ_REASONING_EFFORT,
+                    include_reasoning=_GROQ_INCLUDE_REASONING,
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_content},
@@ -356,9 +375,26 @@ class LLMClient:
                 f"max_tokens={self._max_tokens}): narrativa incompleta scartata"
             )
 
+        # Contenuto vuoto NONOSTANTE un ``finish_reason`` normale: la guardia
+        # sopra non lo vede (non e' "length"), ma il caso e' concreto proprio su
+        # ``GROQ_MODEL``, che e' un modello reasoning — puo' consumare l'intero
+        # budget di ``max_tokens`` a ragionare e chiudere con ``stop`` senza aver
+        # scritto una riga di narrativa. Senza questo controllo diventava un
+        # ``LLMResponse(text="")`` di SUCCESSO: nessun fallback strutturato,
+        # nessun errore, un'analisi muta servita come se fosse un'analisi.
+        text = str(completion.choices[0].message.content or "")
+        if not text.strip():
+            raise LLMError(
+                f"Risposta Groq senza testo utilizzabile "
+                f"(finish_reason="
+                f"{getattr(completion.choices[0], 'finish_reason', None)!r}, "
+                f"max_tokens={self._max_tokens}): narrativa vuota scartata — "
+                "possibile budget di reasoning esaurito"
+            )
+
         usage = completion.usage
         return LLMResponse(
-            text=str(completion.choices[0].message.content or ""),
+            text=text,
             llm_used=str(completion.model),
             tokens_input=int(usage.prompt_tokens),
             tokens_output=int(usage.completion_tokens),
