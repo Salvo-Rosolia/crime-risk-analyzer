@@ -33,6 +33,7 @@ from crime_risk_analyzer.rag.generation import (
     RiskModel,
     SourceProse,
     _estimate_tokens,  # pyright: ignore[reportPrivateUsage]
+    _risk_models_from_context,  # pyright: ignore[reportPrivateUsage]
     build_context_str,
     generate_analysis,
     parse_source_prose,
@@ -719,6 +720,27 @@ async def test_generate_analysis_builds_risk_models_from_context() -> None:
     assert first.tag == "ONTOLOGIA"
 
 
+def test_risk_models_from_context_propagates_source() -> None:
+    context_dict = {
+        "validated_risks": [
+            {
+                "poi_id": "node/1",
+                "poi": "Banca A",
+                "risks": [
+                    {
+                        "hazard": "Robbery",
+                        "confidence": "verificato",
+                        "tag": "ONTOLOGIA",
+                        "source": "Bank → havingHazard → Robbery",
+                    }
+                ],
+            }
+        ]
+    }
+    models = _risk_models_from_context(context_dict)
+    assert models[0].risks[0].source == "Bank → havingHazard → Robbery"
+
+
 async def test_generate_analysis_exposes_repro_block() -> None:
     client = _FakeLLMClient(
         _llm_response(temperature=0.2, seed=42, prompt_hash="deadbeef")
@@ -839,6 +861,21 @@ async def test_generation_result_json_shape() -> None:
     }
 
 
+def test_risk_item_accepts_optional_source() -> None:
+    item = RiskItem(
+        hazard="Robbery",
+        confidence="verificato",
+        tag="ONTOLOGIA",
+        source="X → havingHazard → Robbery",
+    )
+    assert item.source == "X → havingHazard → Robbery"
+
+
+def test_risk_item_source_defaults_to_none() -> None:
+    item = RiskItem(hazard="Robbery", confidence="verificato", tag="ONTOLOGIA")
+    assert item.source is None
+
+
 # --- #184: guardia anti-scoring estesa ai modelli di rischio del generation ---
 # Stesso pattern exact-set di #118 (test_risk.py::PoiRiskProfile): un futuro campo
 # di scoring numerico di pericolosita' (es. ``score``/``risk_level``) romperebbe
@@ -856,6 +893,7 @@ def test_risk_item_has_no_numeric_danger_scoring_field() -> None:
         "tag",
         "hazard_label_it",
         "hazard_label_en",
+        "source",
     }
 
 

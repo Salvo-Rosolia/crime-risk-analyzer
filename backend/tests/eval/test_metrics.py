@@ -9,6 +9,7 @@ from crime_risk_analyzer.eval.metrics import (
     cost_usd_of,
     grounding,
     hallucination,
+    hazards_cited_in,
     latency_ms,
 )
 from crime_risk_analyzer.eval.schema import Mode
@@ -241,6 +242,16 @@ def test_no_anchors_is_vacuous_nothing_to_cite() -> None:
     )
     assert grounding(r) == 1.0
     assert hallucination(r) == 0.0
+
+
+def test_hazards_cited_in_returns_the_lowercased_measured_block() -> None:
+    narrativa = (
+        "Overview.\n\n[ONTOLOGIA]\nLa zona presenta Rapina al viaggiatore "
+        "vicino alla stazione."
+    )
+    block = hazards_cited_in(narrativa, "analyze")
+    assert "rapina al viaggiatore" in block
+    assert "attacco informatico" not in block
 
 
 def test_empty_poi_name_does_not_anchor_everything() -> None:

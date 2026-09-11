@@ -116,7 +116,12 @@ def _risk_model_of(vr: ValidatedRisk) -> RiskModel:
         poi_id=vr["poi_id"],
         poi=vr["poi"],
         risks=[
-            RiskItem(hazard=r["hazard"], confidence=r["confidence"], tag=r["tag"])
+            RiskItem(
+                hazard=r["hazard"],
+                confidence=r["confidence"],
+                tag=r["tag"],
+                source=r["source"],
+            )
             for r in vr["risks"]
         ],
     )

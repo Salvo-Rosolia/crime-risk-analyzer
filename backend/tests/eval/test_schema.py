@@ -9,6 +9,7 @@ from crime_risk_analyzer.eval.schema import (
     RunRecord,
     RunStatus,
 )
+from crime_risk_analyzer.rag.generation import RiskModel
 
 
 def test_run_record_roundtrip() -> None:
@@ -40,7 +41,7 @@ def test_run_record_roundtrip() -> None:
     deserialized = RunRecord.model_validate_json(dumped)
     assert deserialized.run_id == rec.run_id
     assert deserialized.status is RunStatus.OK
-    assert deserialized.annotazione_manuale is None
+    assert deserialized.risk_models == []
 
 
 def test_metrics_bounds_validation() -> None:
@@ -174,3 +175,56 @@ def test_provenance_records_the_grouped_format() -> None:
     )
     assert prov.context_format == "per_classe"
     assert "per_classe" in prov.model_dump_json()
+
+
+def test_run_record_carries_risk_models() -> None:
+    rec = RunRecord(
+        run_id="r",
+        experiment="exp",
+        citta="Roma",
+        zona="Centro",
+        mode="analyze",
+        model_id="claude-sonnet-4-6",
+        status=RunStatus.OK,
+        metrics=Metrics(grounding=1.0, hallucination=0.0, latency_ms=1, cost_usd=0.0),
+        narrativa="x",
+        n_poi=1,
+        risk_models=[RiskModel(poi_id="node/1", poi="Banca A", risks=[])],
+        provenance=Provenance(
+            code_commit="a",
+            ontology_hash="b",
+            snapshot_id="s",
+            model_id="m",
+            prompt_hash="p",
+            temperature=0.0,
+            seed=0,
+            experiment="exp",
+        ),
+    )
+    assert rec.risk_models[0].poi_id == "node/1"
+
+
+def test_run_record_risk_models_defaults_to_empty_list() -> None:
+    rec = RunRecord(
+        run_id="r",
+        experiment="exp",
+        citta="Roma",
+        zona="Centro",
+        mode="analyze",
+        model_id="m",
+        status=RunStatus.ERROR,
+        metrics=Metrics(grounding=0.0, hallucination=0.0, latency_ms=0, cost_usd=0.0),
+        narrativa="",
+        n_poi=0,
+        provenance=Provenance(
+            code_commit="a",
+            ontology_hash="b",
+            snapshot_id="s",
+            model_id="m",
+            prompt_hash="",
+            temperature=0.0,
+            seed=0,
+            experiment="exp",
+        ),
+    )
+    assert rec.risk_models == []

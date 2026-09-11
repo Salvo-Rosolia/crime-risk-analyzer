@@ -4,9 +4,11 @@ Copre il ROUTING degli argomenti: ``main()`` con l'``argv`` di un sottocomando
 deve instradare alla funzione giusta con gli argomenti giusti. Le funzioni
 interne sono mockate (nessuna rete, nessun LLM, nessun grafo reale): qui si
 verifica il dispatch, non il comportamento delle funzioni instradate (testate
-altrove). I branch ``compare``/``compare-repeated``/``gold`` hanno gia' test di
-dispatch nei rispettivi file (test_compare/test_repeated_comparison/test_gold);
-qui copro i branch residui: capture, run, aggregate, city-agnostic.
+altrove). I branch ``compare``/``compare-repeated``/``gold-sample``/``gold-report``
+hanno i loro test di dispatch nei rispettivi file
+(test_compare/test_repeated_comparison/test_gold, quelli dei due verbi gold
+aggiunti col fix wave di #152); qui copro i branch residui: capture, run,
+aggregate, city-agnostic.
 """
 
 from __future__ import annotations

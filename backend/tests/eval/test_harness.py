@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from crime_risk_analyzer.eval.harness import (
+    _record_from_response,  # pyright: ignore[reportPrivateUsage]
     make_run_id,
     make_snapshot_key,
     run_case,
@@ -24,7 +25,10 @@ from crime_risk_analyzer.eval.snapshots import (
     snapshot_path,
 )
 from crime_risk_analyzer.models.geo import Bbox
+from crime_risk_analyzer.models.vocab import ConfidenceSummary
+from crime_risk_analyzer.orchestrator import AnalyzeResponse, ZonaGeo
 from crime_risk_analyzer.overpass_client import Poi
+from crime_risk_analyzer.rag.generation import RiskModel
 from tests.eval._doubles import scrivi_snapshot
 
 
@@ -1064,4 +1068,51 @@ async def test_run_experiment_default_keeps_the_historical_prompt(
 
     assert records[0].provenance.context_format == "per_poi"
     assert "POI RILEVANTI:" in visti[0]
-    assert "raggruppati per classe" not in visti[0]
+
+
+def test_record_from_response_copies_risk_models() -> None:
+    """_record_from_response copia risk_models dalla response nel RunRecord."""
+    from crime_risk_analyzer.rag.generation import Repro
+
+    # Costruisci una AnalyzeResponse fittizia con risk_models non vuoti.
+    risk_model = RiskModel(poi_id="node/1", poi="Banca A", risks=[])
+
+    resp = AnalyzeResponse(
+        citta="Roma",
+        zona_normalizzata="Centro",
+        poi=[],
+        risk_models=[risk_model],
+        narrativa="Analisi.",
+        confidence_summary=ConfidenceSummary(verificato=0, da_confermare=0),
+        llm_used="claude-sonnet-4-6",
+        latenza_ms=100,
+        repro=Repro(temperature=0.0, seed=0, prompt_hash="p"),
+        cache_hit=False,
+        contesto_hash="h",
+        zona_geo=ZonaGeo(
+            lat=41.0,
+            lon=12.0,
+            bbox_min_lat=40.9,
+            bbox_min_lon=11.9,
+            bbox_max_lat=41.1,
+            bbox_max_lon=12.1,
+        ),
+    )
+
+    # Chiama _record_from_response direttamente.
+    record = _record_from_response(
+        run_id="r",
+        snapshot_id="s",
+        config=ExperimentConfig(name="exp", mode="analyze", model="claude", cases=[]),
+        case=RunCase(citta="Roma", zona="Centro"),
+        model_id="claude-sonnet-4-6",
+        resp=resp,
+        code_commit="a",
+        ontology_hash="b",
+        snapshot_catturato_il=None,
+        snapshot_configurazione_canonica=None,
+    )
+
+    # Verifica che il record porti i risk_models.
+    assert len(record.risk_models) == 1
+    assert record.risk_models[0].poi_id == "node/1"

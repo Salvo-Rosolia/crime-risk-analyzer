@@ -1,29 +1,18 @@
-"""Validazione delle metriche proxy contro l'annotazione gold umana (#109).
+"""Annotazione gold umana per-rischio (#152).
 
-Le metriche testuali di ``eval/metrics.py`` (grounding, hallucination) sono
-PROXY deterministici e vanno validati contro il giudizio di un annotatore umano.
-Questo modulo costruisce la tabella-accordo proxy-vs-gold da un insieme di
-:class:`~crime_risk_analyzer.eval.schema.RunRecord`.
+Sostituisce l'accordo proxy-vs-gold PER-RUN (Pearson su un giudizio umano
+d'insieme, deprecato: vedi
+docs/superpowers/specs/2026-09-10-gold-per-risk-annotation-design.md)
+con l'annotazione PER-SINGOLO-RISCHIO descritta da spec-valutazione.md:
+su un campione di rischi *mantenuti* nell'output finale, l'autore verifica
+manualmente se la fonte citata regge, ricavando due proporzioni — precisione
+del filtro e allucinazioni residue (N≈30-40) — invece di una correlazione.
 
-Il gold NON e' prodotto qui: ``RunRecord.annotazione_manuale`` e' popolato
-ESTERNAMENTE (dal tesista) con una
-:class:`~crime_risk_analyzer.eval.schema.GoldAnnotation`. Il builder consuma
-QUALUNQUE gold sia presente e ignora i record non annotati, cosi' la macchina
-gira gia' oggi (accordo vuoto ben formato) e si popola man mano che arrivano le
-annotazioni umane.
-
-Accordo misurato per ciascuna metrica:
-- correlazione di Pearson (il proxy segue il giudizio umano?),
-- scarto assoluto medio (bias sistematico anche a correlazione perfetta),
-- matrice di confusione su "allucinazione presente" (> soglia): i falsi negativi
-  sono i casi in cui il proxy TACE ma l'umano segnala, cioe' il sotto-conteggio
-  dell'allucinazione che #109 vuole rendere misurabile.
-
-Esposto come FUNZIONE BUILDER (:func:`build_agreement_report`) + serializzatori
-(:func:`to_markdown`/:func:`to_csv`) + scrittura su disco
-(:func:`write_agreement_report`), sullo stesso pattern di
-``aggregate.write_tables`` e ``city_agnostic_report.build_report`` (nessun
-sottocomando CLI).
+Il gold NON e' prodotto qui: l'autore compila a mano le colonne
+``fonte_verificata``/``note`` del foglio scritto da :func:`write_gold_worksheet`.
+Questo modulo isola i rischi da annotare (:func:`collect_kept_risks`), scrive
+il foglio (:func:`write_gold_worksheet`) e, a compilazione avvenuta, calcola
+il report finale (:func:`build_precision_report`/:func:`write_precision_report`).
 """
 
 from __future__ import annotations
@@ -34,256 +23,280 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from crime_risk_analyzer.eval.aggregate import load_runs
-from crime_risk_analyzer.eval.schema import RunRecord
-
-#: Soglia di default per binarizzare "allucinazione presente" nella matrice di
-#: confusione: un valore > 0 conta come presente (qualunque frazione non nulla).
-_DEFAULT_THRESHOLD = 0.0
+from crime_risk_analyzer.eval.metrics import hazards_cited_in
+from crime_risk_analyzer.eval.schema import RunRecord, RunStatus
+from crime_risk_analyzer.models.vocab import Confidence, Tag
 
 
-class ConfusionMatrix(BaseModel):
-    """Matrice 2x2 proxy-vs-gold su "allucinazione presente" (valore > soglia).
+class KeptRiskRow(BaseModel):
+    """Un rischio mantenuto (citato in narrativa), da verificare manualmente.
 
-    Classe positiva = allucinazione presente. ``false_negative`` (proxy assente,
-    gold presente) e' il sotto-conteggio dell'allucinazione: il fallimento che
-    #109 vuole rendere visibile.
+    ``fonte_verificata``/``note`` sono compilate ESTERNAMENTE dall'autore:
+    restano ``None``/vuote finche' il foglio scritto da
+    :func:`write_gold_worksheet` non viene riletto dopo la compilazione.
     """
-
-    true_positive: int = Field(ge=0, description="Proxy presente, gold presente.")
-    false_positive: int = Field(ge=0, description="Proxy presente, gold assente.")
-    false_negative: int = Field(
-        ge=0, description="Proxy assente, gold presente (sotto-conteggio)."
-    )
-    true_negative: int = Field(ge=0, description="Proxy assente, gold assente.")
-
-
-class MetricAgreement(BaseModel):
-    """Accordo proxy-vs-gold per una singola metrica sui record annotati."""
-
-    metric: str = Field(description="Nome della metrica (grounding/hallucination).")
-    pearson: float | None = Field(
-        description="Correlazione di Pearson; None se <2 punti o varianza nulla."
-    )
-    mean_proxy: float = Field(description="Media dei valori proxy sui record annotati.")
-    mean_gold: float = Field(description="Media dei valori gold sui record annotati.")
-    mean_abs_error: float = Field(
-        ge=0.0, description="Scarto assoluto medio |proxy - gold|."
-    )
-
-
-class AgreementRow(BaseModel):
-    """Riga di dettaglio per una run annotata (proxy accanto al gold)."""
 
     run_id: str
-    proxy_grounding: float
-    gold_grounding: float
-    proxy_hallucination: float
-    gold_hallucination: float
-
-
-class AgreementReport(BaseModel):
-    """Tabella-accordo proxy-vs-gold (output di :func:`build_agreement_report`)."""
-
-    n_runs_total: int = Field(ge=0, description="Record totali esaminati.")
-    n_annotated: int = Field(ge=0, description="Record con annotazione gold.")
-    threshold: float = Field(description="Soglia usata per la matrice di confusione.")
-    grounding: MetricAgreement
-    hallucination: MetricAgreement
-    hallucination_confusion: ConfusionMatrix
-    rows: list[AgreementRow] = Field(description="Dettaglio per run annotata.")
-
-
-def _pearson(xs: list[float], ys: list[float]) -> float | None:
-    """Correlazione di Pearson dependency-free; ``None`` se indefinita.
-
-    Indefinita quando i punti sono <2 o quando una delle due serie ha varianza
-    nulla (denominatore 0): ritorna ``None`` invece di dividere per zero (es.
-    proxy costante su tutti i record annotati).
-    """
-    n = len(xs)
-    if n < 2:
-        return None
-    mean_x = sum(xs) / n
-    mean_y = sum(ys) / n
-    dx = [x - mean_x for x in xs]
-    dy = [y - mean_y for y in ys]
-    cov = sum(a * b for a, b in zip(dx, dy, strict=True))
-    var_x = sum(a * a for a in dx)
-    var_y = sum(b * b for b in dy)
-    if var_x == 0.0 or var_y == 0.0:
-        return None
-    return cov / (var_x**0.5 * var_y**0.5)
-
-
-def _mean(values: list[float]) -> float:
-    return sum(values) / len(values) if values else 0.0
-
-
-def _metric_agreement(
-    metric: str, proxy: list[float], gold: list[float]
-) -> MetricAgreement:
-    mae = _mean([abs(p - g) for p, g in zip(proxy, gold, strict=True)])
-    return MetricAgreement(
-        metric=metric,
-        pearson=_pearson(proxy, gold),
-        mean_proxy=_mean(proxy),
-        mean_gold=_mean(gold),
-        mean_abs_error=mae,
+    citta: str
+    zona: str
+    poi: str
+    hazard: str
+    tag: Tag | None
+    confidence: Confidence
+    source: str | None
+    fonte_verificata: bool | None = Field(
+        default=None, description="Compilato a mano: la fonte regge alla verifica?"
     )
+    note: str = Field(default="", description="Note libere dell'annotatore.")
 
 
-def _confusion(
-    proxy: list[float], gold: list[float], threshold: float
-) -> ConfusionMatrix:
-    tp = fp = fn = tn = 0
-    for p, g in zip(proxy, gold, strict=True):
-        p_pos = p > threshold
-        g_pos = g > threshold
-        if p_pos and g_pos:
-            tp += 1
-        elif p_pos and not g_pos:
-            fp += 1
-        elif not p_pos and g_pos:
-            fn += 1
-        else:
-            tn += 1
-    return ConfusionMatrix(
-        true_positive=tp, false_positive=fp, false_negative=fn, true_negative=tn
-    )
+def collect_kept_risks(records: list[RunRecord]) -> list[KeptRiskRow]:
+    """Appiattisce in righe annotabili i rischi EFFETTIVAMENTE citati in narrativa.
 
-
-def build_agreement_report(
-    records: list[RunRecord], *, threshold: float = _DEFAULT_THRESHOLD
-) -> AgreementReport:
-    """Confronta le metriche proxy con l'annotazione gold sui record annotati.
-
-    Consuma solo i record il cui ``annotazione_manuale`` e' popolato (una
-    :class:`~crime_risk_analyzer.eval.schema.GoldAnnotation`); i non annotati
-    contribuiscono a ``n_runs_total`` ma non all'accordo. Con zero record
-    annotati ritorna un report vuoto ben formato (Pearson ``None``, matrice a
-    zero): la macchina e' utilizzabile prima che arrivino le annotazioni umane.
+    ``RunRecord.risk_models`` e' il set grounded COMPLETO, costruito PRIMA
+    della generazione LLM (identico fra analyze/baseline/no_ontology_prompt):
+    non riflette alcun filtro. "Mantenuto" per la spec significa "citato nel
+    blocco [ONTOLOGIA]", non "presente nel set grounded". Filtra quindi su
+    ``status == OK`` E hazard presente nel testo di
+    :func:`~crime_risk_analyzer.eval.metrics.hazards_cited_in` — controllando
+    l'identificatore hazard OPPURE ``hazard_label_it`` OPPURE
+    ``hazard_label_en`` (stesso confronto multi-forma di
+    ``metrics._anchors``, chiude lo stesso caveat EN/IT di #77): un rischio
+    citato in narrativa con l'etichetta italiana non va perso solo perche' il
+    testo non contiene l'identificatore inglese bare.
     """
-    rows: list[AgreementRow] = []
-    for rec in records:
-        gold = rec.annotazione_manuale
-        if gold is None:
+    rows: list[KeptRiskRow] = []
+    for record in records:
+        if record.status != RunStatus.OK:
             continue
-        rows.append(
-            AgreementRow(
-                run_id=rec.run_id,
-                proxy_grounding=rec.metrics.grounding,
-                gold_grounding=gold.grounding,
-                proxy_hallucination=rec.metrics.hallucination,
-                gold_hallucination=gold.hallucination,
-            )
-        )
-
-    proxy_g = [row.proxy_grounding for row in rows]
-    gold_g = [row.gold_grounding for row in rows]
-    proxy_h = [row.proxy_hallucination for row in rows]
-    gold_h = [row.gold_hallucination for row in rows]
-
-    return AgreementReport(
-        n_runs_total=len(records),
-        n_annotated=len(rows),
-        threshold=threshold,
-        grounding=_metric_agreement("grounding", proxy_g, gold_g),
-        hallucination=_metric_agreement("hallucination", proxy_h, gold_h),
-        hallucination_confusion=_confusion(proxy_h, gold_h, threshold),
-        rows=rows,
-    )
+        block = hazards_cited_in(record.narrativa, record.mode)
+        for model in record.risk_models:
+            for risk in model.risks:
+                candidates = [risk.hazard, risk.hazard_label_it, risk.hazard_label_en]
+                if not any(c and c.lower() in block for c in candidates):
+                    continue
+                rows.append(
+                    KeptRiskRow(
+                        run_id=record.run_id,
+                        citta=record.citta,
+                        zona=record.zona,
+                        poi=model.poi,
+                        hazard=risk.hazard,
+                        tag=risk.tag,
+                        confidence=risk.confidence,
+                        source=risk.source,
+                    )
+                )
+    return rows
 
 
-_COLUMNS = [
+#: Nome del foglio di annotazione sotto ``results/gold/``. Costante condivisa:
+#: il default di ``--worksheet`` in ``eval/__main__.py`` deve puntare allo
+#: STESSO file che ``write_gold_worksheet`` scrive — ripetere la stringa nei
+#: due punti lascerebbe ``gold-report`` a leggere un path che non esiste al
+#: primo rinomino.
+WORKSHEET_FILENAME = "rischi_da_annotare.csv"
+
+_WORKSHEET_COLUMNS = [
     "run_id",
-    "proxy_grounding",
-    "gold_grounding",
-    "proxy_hallucination",
-    "gold_hallucination",
+    "citta",
+    "zona",
+    "poi",
+    "hazard",
+    "tag",
+    "confidence",
+    "source",
+    "fonte_verificata",
+    "note",
 ]
 
 
-def _row_cells(row: AgreementRow) -> list[str]:
+def _worksheet_cells(row: KeptRiskRow) -> list[str]:
+    verificata = (
+        "" if row.fonte_verificata is None else str(row.fonte_verificata).lower()
+    )
     return [
         row.run_id,
-        f"{row.proxy_grounding:.3f}",
-        f"{row.gold_grounding:.3f}",
-        f"{row.proxy_hallucination:.3f}",
-        f"{row.gold_hallucination:.3f}",
+        row.citta,
+        row.zona,
+        row.poi,
+        row.hazard,
+        row.tag or "",
+        row.confidence,
+        row.source or "",
+        verificata,
+        row.note,
     ]
 
 
-def to_csv(report: AgreementReport) -> str:
-    """Serializza le righe per-run in CSV (header + una riga per run annotata)."""
+def write_gold_worksheet(
+    results_dir: Path, records: list[RunRecord], *, force: bool = False
+) -> Path:
+    """Scrive ``results/gold/rischi_da_annotare.csv`` (colonne di giudizio vuote).
+
+    Lavora su ``records`` gia' in memoria (il chiamante CLI li carica a monte
+    con ``aggregate.load_runs``), come :func:`collect_kept_risks`, per restare
+    testabile senza I/O.
+
+    Rifiuta di sovrascrivere un foglio esistente e non vuoto senza ``force``
+    (stessa guardia di ``capture``/``compare``): qui il contenuto perso e' il
+    lavoro di annotazione MANUALE dell'autore, che nessun re-run puo'
+    ricostruire. Un file di dimensione zero (scrittura interrotta) non contiene
+    giudizi da proteggere e viene rimpiazzato senza chiedere.
+    """
+    rows = collect_kept_risks(records)
+    out_dir = results_dir / "gold"
+    path = out_dir / WORKSHEET_FILENAME
+    if not force and path.exists() and path.stat().st_size > 0:
+        raise FileExistsError(
+            f"il foglio {path} esiste già e potrebbe contenere annotazioni "
+            "manuali. Usa --force per sovrascriverlo."
+        )
+    out_dir.mkdir(parents=True, exist_ok=True)
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(_COLUMNS)
-    for row in report.rows:
-        writer.writerow(_row_cells(row))
+    writer.writerow(_WORKSHEET_COLUMNS)
+    for row in rows:
+        writer.writerow(_worksheet_cells(row))
+    # newline="": csv.writer emette gia' \r\n; senza questo il text-mode di
+    # write_text ritradurrebbe \n->\r\n su Windows (righe spurie, #103/#241).
+    path.write_text(buf.getvalue(), encoding="utf-8", newline="")
+    return path
+
+
+#: Token accettati nella colonna ``fonte_verificata``, compilata A MANO: chi
+#: annota scrive in italiano ("vero", "sì", "x") o in inglese, non solo il
+#: ``true``/``false`` che questo modulo serializza. Confronto su valore
+#: strippato e minuscolo.
+_TRUE_TOKENS = frozenset({"true", "vero", "v", "1", "si", "sì", "s", "x", "yes", "y"})
+_FALSE_TOKENS = frozenset({"false", "falso", "f", "0", "no", "n"})
+
+
+def _parse_fonte_verificata(raw: str, *, run_id: str) -> bool | None:
+    """Interpreta una cella ``fonte_verificata`` compilata a mano.
+
+    Fail-loud sui valori fuori vocabolario invece di collassarli a ``False``:
+    un "vero" letto come falso gonfierebbe in silenzio
+    ``allucinazioni_residue`` — il numero per cui l'intero meccanismo esiste.
+    Cella vuota = "nessuno ha ancora guardato" (``None``), non "la fonte non
+    regge".
+    """
+    value = raw.strip().lower()
+    if value == "":
+        return None
+    if value in _TRUE_TOKENS:
+        return True
+    if value in _FALSE_TOKENS:
+        return False
+    raise ValueError(
+        f"valore fonte_verificata non riconosciuto: {value!r} (run_id={run_id!r}); "
+        f"ammessi: {sorted(_TRUE_TOKENS)} / {sorted(_FALSE_TOKENS)} / vuoto"
+    )
+
+
+def load_worksheet(path: Path) -> list[KeptRiskRow]:
+    """Rilegge un foglio (eventualmente compilato) da disco."""
+    rows: list[KeptRiskRow] = []
+    with path.open(encoding="utf-8", newline="") as fh:
+        for record in csv.DictReader(fh):
+            fonte_verificata = _parse_fonte_verificata(
+                record.get("fonte_verificata") or "", run_id=record["run_id"]
+            )
+            rows.append(
+                KeptRiskRow(
+                    run_id=record["run_id"],
+                    citta=record["citta"],
+                    zona=record["zona"],
+                    poi=record["poi"],
+                    hazard=record["hazard"],
+                    tag=record["tag"] or None,  # type: ignore[arg-type]
+                    confidence=record["confidence"],  # type: ignore[arg-type]
+                    source=record["source"] or None,
+                    fonte_verificata=fonte_verificata,
+                    note=record.get("note", ""),
+                )
+            )
+    return rows
+
+
+class PrecisionReport(BaseModel):
+    """Precisione del filtro + allucinazioni residue su un campione annotato."""
+
+    n_totale: int = Field(ge=0, description="Righe totali nel foglio.")
+    n_annotati: int = Field(ge=0, description="Righe con fonte_verificata compilata.")
+    precisione_filtro: float | None = Field(
+        default=None, description="% fonte_verificata=True sugli annotati."
+    )
+    allucinazioni_residue: float | None = Field(
+        default=None, description="% fonte_verificata=False sugli annotati."
+    )
+
+
+def build_precision_report(rows: list[KeptRiskRow]) -> PrecisionReport:
+    """Percentuali sui SOLI rischi annotati; ``None`` con zero annotazioni.
+
+    ``None`` (non ``0.0``) quando ``n_annotati == 0``: una percentuale a zero
+    affermerebbe "nessuna fonte regge" quando in realta' nessuno ha ancora
+    guardato — stesso principio gia' applicato a ``Metrics.quality_vacuous``
+    (#240).
+    """
+    annotati = [r for r in rows if r.fonte_verificata is not None]
+    n_annotati = len(annotati)
+    if n_annotati == 0:
+        return PrecisionReport(n_totale=len(rows), n_annotati=0)
+    n_verificati = sum(1 for r in annotati if r.fonte_verificata)
+    return PrecisionReport(
+        n_totale=len(rows),
+        n_annotati=n_annotati,
+        precisione_filtro=n_verificati / n_annotati,
+        allucinazioni_residue=(n_annotati - n_verificati) / n_annotati,
+    )
+
+
+def _report_markdown(report: PrecisionReport) -> str:
+    def pct(value: float | None) -> str:
+        return "n/d" if value is None else f"{value:.1%}"
+
+    return (
+        f"rischi totali: {report.n_totale} · annotati: {report.n_annotati}\n"
+        f"- precisione del filtro: {pct(report.precisione_filtro)}\n"
+        f"- allucinazioni residue: {pct(report.allucinazioni_residue)}\n"
+    )
+
+
+def _report_csv(report: PrecisionReport) -> str:
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(
+        ["n_totale", "n_annotati", "precisione_filtro", "allucinazioni_residue"]
+    )
+    writer.writerow(
+        [
+            report.n_totale,
+            report.n_annotati,
+            ""
+            if report.precisione_filtro is None
+            else f"{report.precisione_filtro:.4f}",
+            ""
+            if report.allucinazioni_residue is None
+            else f"{report.allucinazioni_residue:.4f}",
+        ]
+    )
     return buf.getvalue()
 
 
-def _fmt_pearson(value: float | None) -> str:
-    return "n/d" if value is None else f"{value:.3f}"
-
-
-def _metric_line(agreement: MetricAgreement) -> str:
-    return (
-        f"- {agreement.metric}: pearson {_fmt_pearson(agreement.pearson)} · "
-        f"MAE {agreement.mean_abs_error:.3f} · "
-        f"media proxy {agreement.mean_proxy:.3f} / gold {agreement.mean_gold:.3f}"
-    )
-
-
-def to_markdown(report: AgreementReport) -> str:
-    """Tabella-accordo in markdown: righe per-run + riepilogo dell'accordo."""
-    lines = [
-        "| " + " | ".join(_COLUMNS) + " |",
-        "| " + " | ".join("---" for _ in _COLUMNS) + " |",
-    ]
-    for row in report.rows:
-        lines.append("| " + " | ".join(_row_cells(row)) + " |")
-    cm = report.hallucination_confusion
-    lines.extend(
-        [
-            "",
-            f"record: {report.n_runs_total} · annotati: {report.n_annotated} · "
-            f"soglia: {report.threshold:.3f}",
-            _metric_line(report.grounding),
-            _metric_line(report.hallucination),
-            (
-                "- hallucination confusion (presente = > soglia): "
-                f"TP {cm.true_positive} · FP {cm.false_positive} · "
-                f"FN {cm.false_negative} (sotto-conteggio) · TN {cm.true_negative}"
-            ),
-        ]
-    )
-    return "\n".join(lines) + "\n"
-
-
-def write_agreement_report(
-    results_dir: Path,
-    *,
-    experiment: str | None = None,
-    threshold: float = _DEFAULT_THRESHOLD,
+def write_precision_report(
+    results_dir: Path, worksheet_path: Path
 ) -> tuple[Path, Path]:
-    """Carica i RunRecord, costruisce l'accordo e scrive ``.csv`` + ``.md``.
-
-    Riusa ``aggregate.load_runs`` (stessa sorgente ``results/runs/``), opz.
-    filtrata per ``experiment``. Scrive ``results/gold/agreement.{csv,md}`` e
-    ritorna i due path ``(csv, md)``. Nessun sottocomando CLI: e' una funzione
-    builder testata direttamente (come ``aggregate.write_tables``).
+    """Legge il foglio (compilato o no) e scrive
+    ``results/gold/gold_report.{csv,md}``.
     """
-    records = load_runs(results_dir, experiment=experiment)
-    report = build_agreement_report(records, threshold=threshold)
+    rows = load_worksheet(worksheet_path)
+    report = build_precision_report(rows)
     out_dir = results_dir / "gold"
     out_dir.mkdir(parents=True, exist_ok=True)
-    csv_path = out_dir / "agreement.csv"
-    md_path = out_dir / "agreement.md"
-    # newline="": to_csv() emette gia' \r\n via csv.writer; senza questo il
-    # text-mode di write_text ritradurrebbe \n->\r\n su Windows (righe spurie).
-    # Stesso fix di aggregate.write_tables / city_agnostic_report (#103).
-    csv_path.write_text(to_csv(report), encoding="utf-8", newline="")
-    md_path.write_text(to_markdown(report), encoding="utf-8")
+    csv_path = out_dir / "gold_report.csv"
+    md_path = out_dir / "gold_report.md"
+    csv_path.write_text(_report_csv(report), encoding="utf-8", newline="")
+    md_path.write_text(_report_markdown(report), encoding="utf-8")
     return csv_path, md_path
