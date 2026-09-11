@@ -10,7 +10,7 @@ layer LLM, dove servono davvero. I valori segreti usano
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -90,6 +90,11 @@ class Settings(BaseSettings):
     # (era 0.01 = ~1.1 km). Vincolo ``gt=0``: un misconfig da env (0/negativo) e'
     # respinto al load, non lasciato degenerare in un bbox nullo a runtime.
     geocoding_min_bbox_half_span_deg: float = Field(default=0.0045, gt=0)
+    # Limiti del raggio di ricerca disegnato sulla mappa (#318): tengono sotto
+    # controllo il costo di Overpass/LLM su cerchi enormi. Vincolo ``gt=0``: un
+    # misconfig da env (0/negativo) e' respinto al load.
+    search_radius_min_m: float = Field(default=150.0, gt=0)
+    search_radius_max_m: float = Field(default=3000.0, gt=0)
     default_city: str = "Roma"
     # Citta SUGGERITE, esposte come autocomplete da ``GET /cities`` — NON un
     # vincolo di validazione (#191): ``POST /analyze``/``/analyze/baseline``
@@ -165,6 +170,21 @@ class Settings(BaseSettings):
                 "nazione di Nominatim (risultati nella nazione sbagliata)."
             )
         return value.strip()
+
+    @model_validator(mode="after")
+    def _reject_radius_bounds_inverted(self) -> "Settings":
+        """Rifiuta la configurazione con raggio minimo >= massimo (#318).
+
+        L'invariante ``search_radius_min_m < search_radius_max_m`` deve valere
+        al caricamento per evitare che un misconfig da env (es. una inversione
+        accidentale dei valori) sia usato silenziosamente a runtime,
+        introducendo logica di validazione incoerente nel layer di orchestration.
+        """
+        if self.search_radius_min_m >= self.search_radius_max_m:
+            raise ValueError(
+                "search_radius_min_m deve essere minore di search_radius_max_m"
+            )
+        return self
 
 
 @lru_cache
