@@ -27,6 +27,7 @@ from crime_risk_analyzer.orchestrator import (
     RiskProfiler,
     _build_poi_list,  # pyright: ignore[reportPrivateUsage]
     _elapsed_ms,  # pyright: ignore[reportPrivateUsage]
+    _filter_pois_by_radius,  # pyright: ignore[reportPrivateUsage]
     _LLMClientLike,  # pyright: ignore[reportPrivateUsage]
     _messaggio_zero_poi,  # pyright: ignore[reportPrivateUsage]
     _structured_response,  # pyright: ignore[reportPrivateUsage]
@@ -61,6 +62,7 @@ async def run_analysis_fast(
     executor: RiskProfiler,
     poi_source: PoiSource | None = None,
     geo_source: GeoSource | None = None,
+    radius_m: float | None = None,
 ) -> AnalyzeResponse:
     """Fase 1 (#259): dati strutturati subito, ``narrativa=None``.
 
@@ -70,11 +72,20 @@ async def run_analysis_fast(
     (#292): i percorsi di valutazione
     (:func:`~crime_risk_analyzer.orchestrator.run_analysis` e il braccio ablato)
     non ci scrivono, perche' nessuno li' rilegge quel contesto.
+
+    ``radius_m`` (opzionale, #318) filtra i POI server-side entro il raggio dal
+    centro geocodificato (``_filter_pois_by_radius``), stesso pattern di
+    ``run_baseline``: applicato PRIMA del grounding, cosi' la cache di zona
+    scalda col contesto GIA' filtrato. ``None`` = nessun filtro per raggio
+    (comportamento invariato).
     """
     start = time.perf_counter()
     retrieval_ctx = await retrieve(
         citta, zona, executor=executor, poi_source=poi_source, geo_source=geo_source
     )
+    if radius_m is not None:
+        lat, lon = retrieval_ctx["geo"]["lat"], retrieval_ctx["geo"]["lon"]
+        retrieval_ctx = _filter_pois_by_radius(retrieval_ctx, lat, lon, radius_m)
     grounded = ground(retrieval_ctx)
     zone_context_cache.put(
         citta, zona, ZoneContext(retrieval=retrieval_ctx, grounded=grounded)

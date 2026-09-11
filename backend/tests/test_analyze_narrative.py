@@ -239,6 +239,74 @@ async def test_fast_response_contesto_hash_matches_the_cached_context() -> None:
     assert out.contesto_hash == fingerprint(cached["retrieval"]["pois"])
 
 
+# --- #318: radius_m filtra i POI server-side in run_analysis_fast ---
+# Stesso pattern di ``run_baseline`` (Task 5, test_orchestrator.py): il filtro
+# vive fra ``retrieve`` e ``ground``, quindi la cache di zona deve scaldarsi con
+# il contesto GIA' filtrato, non quello grezzo.
+
+
+def _pois_per_raggio(citta: str) -> list[Poi]:
+    return [
+        *_pois(citta),
+        {
+            "id": "node/2",
+            "name": "Banca Lontana",
+            "lat": 42.100,
+            "lon": 12.700,
+            "osm_tags": "amenity=bank",
+            "terminus_class": "Bank",
+            "citta": citta,
+        },
+    ]
+
+
+async def _poi_source_per_raggio(bbox: Bbox, citta: str) -> list[Poi]:
+    return _pois_per_raggio(citta)
+
+
+async def test_run_analysis_fast_filtra_per_raggio() -> None:
+    """``radius_m`` filtra i POI server-side dal centro geocodificato (#318).
+
+    Il centro di ``_geo_source`` (41.89, 12.49) e' a ~166m da ``Banca A`` (entro
+    i 300m richiesti) ma a decine di km da ``Banca Lontana``: solo la prima
+    resta nella risposta.
+    """
+    zone_context_cache.clear()
+    from crime_risk_analyzer.analyze_narrative import run_analysis_fast
+
+    out = await run_analysis_fast(
+        "Roma",
+        "Raggio",
+        executor=_FakeProfiler(),
+        poi_source=_poi_source_per_raggio,
+        geo_source=_geo_source,
+        radius_m=300.0,
+    )
+    assert [p.id for p in out.poi] == ["node/1"]
+
+
+async def test_run_analysis_fast_senza_radius_m_e_identico_a_oggi() -> None:
+    """``radius_m=None`` (il default) non cambia il comportamento pre-#318:
+    stessa chiamata di ``test_fast_response_has_no_narrativa_yet``, nessun
+    filtro applicato (regressione esplicita)."""
+    zone_context_cache.clear()
+    from crime_risk_analyzer.analyze_narrative import run_analysis_fast
+
+    out = await run_analysis_fast(
+        "Roma",
+        "Colosseo",
+        executor=_FakeProfiler(),
+        poi_source=_poi_source,
+        geo_source=_geo_source,
+    )
+    assert out.narrativa is None
+    assert out.fallback is False
+    assert len(out.poi) == 1
+    assert out.poi[0].id == "node/1"
+    assert (out.zona_geo.lat, out.zona_geo.lon) == (41.89, 12.49)
+    assert out.messaggio is None
+
+
 class _FakeLLMClient:
     async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
         return LLMResponse(
