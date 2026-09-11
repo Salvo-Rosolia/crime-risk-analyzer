@@ -39,8 +39,9 @@ def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def bbox_from_circle(lat: float, lon: float, radius_m: float) -> Bbox:
-    """Bbox rettangolare che circoscrive il cerchio (centro, raggio in metri, #318).
+    """Bbox rettangolare che circoscrive il cerchio.
 
+    (centro ``lat``/``lon``, raggio in metri, #318)
     Conversione approssimata gradi/metri (111_320 m per grado di latitudine);
     la semi-ampiezza in longitudine si restringe con ``cos(lat)`` perche' i
     meridiani convergono verso i poli. Pura: nessuna chiamata di rete, a
