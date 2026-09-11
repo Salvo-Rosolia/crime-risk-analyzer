@@ -1,5 +1,6 @@
 <aside class="cra-base-form-panel">
   <h2 class="cra-base-heading">Parametri ricerca</h2>
+  <p class="cra-hint">Disegna un cerchio sulla mappa (clic per il centro, poi ancora un clic per confermare il raggio).</p>
   <form (submit)="onSubmit($event)">
     <div class="cra-field">
       <label for="cra-base-tipo-poi">Tipo POI <span class="cra-optional">(opzionale)</span></label>
@@ -13,48 +14,11 @@
       />
     </div>
 
-    <div class="cra-field">
-      <label for="cra-base-citta"
-        >Città <span class="cra-required" aria-hidden="true">*</span></label
-      >
-      <input
-        id="cra-base-citta"
-        type="text"
-        autocomplete="off"
-        list="cra-base-citta-options"
-        aria-required="true"
-        placeholder="es. Roma"
-        [class.cra-field-error]="validationField() === 'citta'"
-        [value]="citta()"
-        (input)="onCittaInput($event)"
-      />
-      <datalist id="cra-base-citta-options">
-        @for (c of cities(); track c) {
-          <option [value]="c"></option>
-        }
-      </datalist>
-    </div>
-
-    <div class="cra-field">
-      <label for="cra-base-zona">Zona <span class="cra-required" aria-hidden="true">*</span></label>
-      <input
-        id="cra-base-zona"
-        type="text"
-        autocomplete="off"
-        aria-required="true"
-        maxlength="200"
-        placeholder="es. Colosseo"
-        [class.cra-field-error]="zonaHasError()"
-        [value]="zona()"
-        (input)="onZonaInput($event)"
-      />
-    </div>
-
-    @if (displayError(); as msg) {
+    @if (serverError(); as msg) {
       <p class="cra-input-error" role="alert">{{ msg }}</p>
     }
 
-    <button type="submit" class="cra-btn-solid">Cerca</button>
+    <button type="submit" class="cra-btn-solid" [disabled]="!circle()">Cerca</button>
   </form>
 
   <div class="cra-base-absent">
