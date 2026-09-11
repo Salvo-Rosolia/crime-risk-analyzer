@@ -9,12 +9,31 @@ const mockMarker = {
   on: jest.fn(),
 };
 
+const mockCircle = {
+  addTo: jest.fn().mockReturnThis(),
+  setRadius: jest.fn(),
+  setLatLng: jest.fn(),
+  getRadius: jest.fn(() => 300),
+  getLatLng: jest.fn(() => ({ lat: 41.9, lng: 12.5 })),
+  remove: jest.fn(),
+  on: jest.fn(),
+};
+
+const mapHandlers: Record<string, ((e: unknown) => void)[]> = {};
 const mockMap = {
   setView: jest.fn().mockReturnThis(),
   flyToBounds: jest.fn(),
+  flyTo: jest.fn(),
   remove: jest.fn(),
   addLayer: jest.fn(),
+  distance: jest.fn(() => 500),
+  on: jest.fn((event: string, handler: (e: unknown) => void) => {
+    (mapHandlers[event] ??= []).push(handler);
+  }),
 };
+function fireMap(event: string, payload: unknown): void {
+  for (const h of mapHandlers[event] ?? []) h(payload);
+}
 
 jest.mock('leaflet', () => ({
   map: jest.fn(() => mockMap),
@@ -23,6 +42,7 @@ jest.mock('leaflet', () => ({
   latLngBounds: jest.fn((c: unknown) => ({ c })),
   layerGroup: jest.fn(() => mockLayerGroup),
   marker: jest.fn(() => mockMarker),
+  circle: jest.fn(() => mockCircle),
   divIcon: jest.fn((opts: unknown) => ({ opts })),
 }));
 
@@ -72,6 +92,7 @@ describe('MapComponent', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    for (const key of Object.keys(mapHandlers)) delete mapHandlers[key];
     await TestBed.configureTestingModule({ imports: [MapComponent] }).compileComponents();
     fixture = TestBed.createComponent(MapComponent);
     fixture.detectChanges();
@@ -245,5 +266,36 @@ describe('MapComponent', () => {
     fixture.destroy();
     expect(mockLayerGroup.clearLayers).toHaveBeenCalled();
     expect(mockMap.remove).toHaveBeenCalled();
+  });
+
+  describe('disegno del cerchio', () => {
+    it('un click in idle posiziona il centro ed entra in drawing-radius', () => {
+      const spy = jest.fn();
+      fixture.componentInstance.circleChange.subscribe(spy);
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      expect(L.circle).toHaveBeenCalledWith([41.9, 12.5], expect.objectContaining({ radius: 300 }));
+    });
+
+    it('un drag successivo al click aggiorna il raggio del cerchio live', () => {
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fireMap('mousemove', { latlng: { lat: 41.905, lng: 12.5 } });
+      expect(mockCircle.setRadius).toHaveBeenCalled();
+    });
+
+    it('un secondo click conferma e emette circleChange con center+radiusM', () => {
+      const spy = jest.fn();
+      fixture.componentInstance.circleChange.subscribe(spy);
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fireMap('mousemove', { latlng: { lat: 41.905, lng: 12.5 } });
+      fireMap('click', { latlng: { lat: 41.905, lng: 12.5 } });
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({ lat: 41.9, lon: 12.5, radiusM: expect.any(Number) }),
+      );
+    });
+
+    it('flyTo(lat, lon) chiama map.flyTo', () => {
+      fixture.componentInstance.flyTo(41.8, 12.4);
+      expect(mockMap.flyTo).toHaveBeenCalledWith([41.8, 12.4], expect.any(Number));
+    });
   });
 });

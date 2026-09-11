@@ -14,6 +14,12 @@ import type { AnalyzeResponse, Confidence } from '@core/models/models';
 import { pinHTML } from '@core/confidence';
 import { matchesFilter, poiPopupHTML } from '@core/ui-helpers';
 
+const DEFAULT_RADIUS_M = 300;
+const MIN_RADIUS_M = 150;
+const MAX_RADIUS_M = 3000;
+
+type DrawState = 'idle' | 'drawing-radius' | 'ready';
+
 @Component({
   selector: 'cra-map',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -34,10 +40,15 @@ export class MapComponent implements OnDestroy {
   readonly filter = input<Confidence | null>(null);
   readonly selectedId = input<string | null>(null);
   readonly poiClick = output<string>();
+  readonly circleChange = output<{ lat: number; lon: number; radiusM: number } | null>();
 
   private readonly mapEl = viewChild.required<ElementRef<HTMLElement>>('mapEl');
   private map: L.Map | null = null;
   private markers: L.LayerGroup | null = null;
+
+  private drawState: DrawState = 'idle';
+  private circleLayer: L.Circle | null = null;
+  private centerLatLng: { lat: number; lon: number } | null = null;
 
   constructor() {
     afterNextRender(() => {
@@ -55,6 +66,8 @@ export class MapComponent implements OnDestroy {
       }).addTo(map);
       L.control.zoom({ position: 'bottomright' }).addTo(map);
       this.markers = L.layerGroup().addTo(map);
+      map.on('click', (e: L.LeafletMouseEvent) => this.onMapClick(e));
+      map.on('mousemove', (e: L.LeafletMouseEvent) => this.onMapMouseMove(e));
       this.map = map;
     });
 
@@ -94,10 +107,47 @@ export class MapComponent implements OnDestroy {
     });
   }
 
+  private onMapClick(e: L.LeafletMouseEvent): void {
+    const { lat, lng } = e.latlng;
+    if (this.drawState === 'idle') {
+      this.centerLatLng = { lat, lon: lng };
+      this.circleLayer?.remove();
+      this.circleLayer = L.circle([lat, lng], { radius: DEFAULT_RADIUS_M }).addTo(this.map!);
+      this.drawState = 'drawing-radius';
+      return;
+    }
+    // drawing-radius -> ready: conferma il raggio corrente.
+    if (this.centerLatLng && this.circleLayer) {
+      this.drawState = 'ready';
+      this.circleChange.emit({
+        lat: this.centerLatLng.lat,
+        lon: this.centerLatLng.lon,
+        radiusM: this.circleLayer.getRadius(),
+      });
+    }
+  }
+
+  private onMapMouseMove(e: L.LeafletMouseEvent): void {
+    if (this.drawState !== 'drawing-radius' || !this.centerLatLng || !this.circleLayer) return;
+    const radius = this.map!.distance(
+      [this.centerLatLng.lat, this.centerLatLng.lon],
+      [e.latlng.lat, e.latlng.lng],
+    );
+    const clamped = Math.min(Math.max(radius, MIN_RADIUS_M), MAX_RADIUS_M);
+    this.circleLayer.setRadius(clamped);
+  }
+
+  /** Chiamato dalla casella "vai a un luogo" (#318): sposta la mappa, non tocca il cerchio disegnato. */
+  flyTo(lat: number, lon: number): void {
+    this.map?.flyTo([lat, lon], 14);
+  }
+
   ngOnDestroy(): void {
     this.markers?.clearLayers();
+    this.circleLayer?.remove();
     this.map?.remove();
     this.map = null;
     this.markers = null;
+    this.circleLayer = null;
   }
 }
