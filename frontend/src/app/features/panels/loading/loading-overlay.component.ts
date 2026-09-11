@@ -23,8 +23,6 @@ const STEP_INTERVAL_MS = 1400;
   styleUrl: './loading-overlay.component.css',
 })
 export class LoadingOverlayComponent implements OnDestroy {
-  readonly zona = input<string | null>(null);
-
   protected readonly steps = LOADING_STEPS;
   protected readonly currentStep = signal(0);
 
