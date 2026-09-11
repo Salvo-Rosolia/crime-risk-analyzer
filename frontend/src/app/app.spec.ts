@@ -1251,4 +1251,30 @@ describe('App shell', () => {
       expect(api.geocodePlace).not.toHaveBeenCalled();
     });
   });
+
+  describe('#318 (reperto review C1): via d\'uscita dal Sistema base senza cerchio disegnato', () => {
+    it('toggle a Base PRIMA di aver mai disegnato un cerchio: "Torna a Completo" nel pannello riporta a INPUT (dove la mappa torna visibile/cliccabile)', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      const modeButtons: HTMLButtonElement[] = Array.from(
+        f.nativeElement.querySelectorAll('.cra-mode-btn'),
+      );
+      modeButtons.find((b) => b.textContent?.trim() === 'Base')!.click();
+      f.detectChanges();
+
+      expect(store.screen()).toBe('BASE');
+      const basePanel: HTMLElement = f.nativeElement.querySelector('cra-base-panel');
+      const backBtn = Array.from(basePanel.querySelectorAll('button')).find(
+        (b) => b.textContent?.trim() === 'Torna a Completo',
+      ) as HTMLButtonElement | undefined;
+      expect(backBtn).toBeTruthy();
+
+      backBtn!.click();
+      f.detectChanges();
+
+      expect(store.screen()).toBe('INPUT');
+    });
+  });
 });

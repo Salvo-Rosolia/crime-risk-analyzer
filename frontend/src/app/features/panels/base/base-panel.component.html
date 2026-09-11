@@ -1,6 +1,14 @@
 <aside class="cra-base-form-panel">
   <h2 class="cra-base-heading">Parametri ricerca</h2>
-  <p class="cra-hint">Disegna un cerchio sulla mappa (clic per il centro, poi ancora un clic per confermare il raggio).</p>
+  @if (circle()) {
+    <p class="cra-hint">Disegna un cerchio sulla mappa (clic per il centro, poi ancora un clic per confermare il raggio).</p>
+  } @else {
+    <p class="cra-hint">
+      La mappa per disegnare il cerchio è nascosta dietro questo pannello. Torna a Completo per
+      disegnare l'area di ricerca, poi rientra qui.
+    </p>
+    <button type="button" class="cra-btn-solid" (click)="backToCompleto.emit()">Torna a Completo</button>
+  }
   <form (submit)="onSubmit($event)">
     <div class="cra-field">
       <label for="cra-base-tipo-poi">Tipo POI <span class="cra-optional">(opzionale)</span></label>

@@ -12,6 +12,15 @@ import { buildBaseRows } from '@core/ui-helpers';
  * su `MapComponent` (clic per il centro, poi ancora un clic per confermare il raggio) — stesso
  * schema di `InputPanelComponent`. Il form si riduce al solo Tipo POI opzionale; il bottone resta
  * disabilitato finché `circle` non è valorizzato.
+ *
+ * Punto morto altrimenti (reperto review finale C1): `:host` (base-panel.component.css) è un
+ * overlay opaco che coincide, sopra, con l'intera mappa — se l'utente passa a "Sistema base" PRIMA
+ * di aver mai disegnato un cerchio in modalità completo, l'istruzione "disegna un cerchio sulla
+ * mappa" diventa impossibile da seguire da qui dentro (la mappa è sotto, invisibile e non
+ * cliccabile). `!circle()` mostra quindi un messaggio diverso più un bottone che emette
+ * `backToCompleto`, cablato in `app.html` sulla stessa `onToggleMode('completo')` che già esiste
+ * per l'header: nessuna nuova via di navigazione, solo la stessa resa raggiungibile da dentro il
+ * pannello invece di richiedere che l'utente trovi da sé il toggle nell'header.
  */
 @Component({
   selector: 'cra-base-panel',
@@ -23,6 +32,10 @@ export class BasePanelComponent {
   readonly data = input<AnalyzeResponse | null>(null);
   /** Cerchio disegnato su `MapComponent` (centro + raggio); `null` finché non è stato confermato. */
   readonly circle = input<Circle | null>(null);
+  /** Emesso dal bottone "Torna a Completo" (visibile solo senza cerchio, #318 C1): lo shell lo
+   * cabla su `onToggleMode('completo')`, la stessa transizione già raggiungibile dal toggle
+   * dell'header. */
+  readonly backToCompleto = output<void>();
   /**
    * Messaggio d'errore dal server (`store.error()` quando `LOAD_ERROR` arriva in modalità base —
    * transition.ts instrada qui invece che sullo Stato Errore condiviso col form del sistema

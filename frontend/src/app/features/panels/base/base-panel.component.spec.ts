@@ -176,6 +176,40 @@ describe('BasePanelComponent', () => {
     );
   });
 
+  describe('#318 (reperto review C1): punto morto senza cerchio disegnato', () => {
+    it('senza cerchio mostra l\'invito a tornare a Completo (non la frase "disegna sulla mappa", impossibile da qui) e un bottone dedicato', () => {
+      fixture.componentRef.setInput('circle', null);
+      fixture.detectChanges();
+
+      const text = fixture.nativeElement.textContent;
+      expect(text).toContain('Torna a Completo');
+      expect(text).not.toContain('Disegna un cerchio sulla mappa');
+    });
+
+    it('il bottone "Torna a Completo" emette backToCompleto', () => {
+      fixture.componentRef.setInput('circle', null);
+      fixture.detectChanges();
+
+      const spy = jest.fn();
+      fixture.componentInstance.backToCompleto.subscribe(spy);
+      const buttons: HTMLButtonElement[] = Array.from(
+        fixture.nativeElement.querySelectorAll('button'),
+      );
+      buttons.find((b) => b.textContent?.trim() === 'Torna a Completo')!.click();
+
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it('con un cerchio disegnato torna al messaggio originale, niente bottone "Torna a Completo"', () => {
+      fixture.componentRef.setInput('circle', { lat: 41.9, lon: 12.5, radiusM: 500 });
+      fixture.detectChanges();
+
+      const text = fixture.nativeElement.textContent;
+      expect(text).toContain('Disegna un cerchio sulla mappa');
+      expect(text).not.toContain('Torna a Completo');
+    });
+  });
+
   describe('gestione errore/retry (bloccante 2 review #67: il retry resta dentro questo pannello)', () => {
     it("mostra il messaggio d'errore server (serverError) quando presente", () => {
       fixture.componentRef.setInput('serverError', '"Atlantide" non corrisponde ad alcuna area.');

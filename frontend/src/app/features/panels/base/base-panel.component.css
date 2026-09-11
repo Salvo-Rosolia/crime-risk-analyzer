@@ -97,6 +97,14 @@ form {
   background: var(--paper);
 }
 
+/* #318 (reperto review C1): senza questa regola il bottone "Cerca" disabilitato (niente cerchio
+   disegnato) è visivamente identico a quello attivo — nessun segnale che spieghi perché il submit
+   non risponde. */
+.cra-btn-solid:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .cra-base-absent {
   border-top: 1px solid var(--hair);
   padding-top: var(--space-3);
