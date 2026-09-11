@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { mockApi } from './support/mocking';
 import { S } from './support/selectors';
+import { drawSearchCircle } from './support/map';
 import analyzeFixture from './fixtures/analyze.happy.json';
 import poiFixture from './fixtures/analyze.poi.json';
 import type { AnalyzeResponse, PoiNarrativeResponse } from '../src/app/core/models/models';
@@ -19,8 +20,7 @@ async function gotoResults(page: Page, opts: Parameters<typeof mockApi>[1] = {})
   await mockApi(page, { analyze, ...opts });
   await page.goto('/');
   await expect(S.inputPanel(page)).toBeVisible();
-  await S.cittaField(page).fill(analyze.citta);
-  await S.zonaField(page).fill(analyze.zona_normalizzata);
+  await drawSearchCircle(page);
   await S.submitButton(page).click();
   await expect(S.poiPanel(page)).toBeVisible();
 }

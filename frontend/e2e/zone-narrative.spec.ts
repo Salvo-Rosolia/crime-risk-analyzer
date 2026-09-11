@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { mockApi } from './support/mocking';
 import { S } from './support/selectors';
+import { drawSearchCircle } from './support/map';
 import analyzeFixture from './fixtures/analyze.happy.json';
 import zoneNarrativeFixture from './fixtures/analyze.narrative.json';
 import type { AnalyzeResponse, ZoneNarrativeResponse } from '../src/app/core/models/models';
@@ -34,8 +35,7 @@ test.describe('narrativa di ZONA in due fasi (#259, #292)', () => {
     });
 
     await page.goto('/');
-    await S.cittaField(page).fill(fastAnalyze.citta);
-    await S.zonaField(page).fill(fastAnalyze.zona_normalizzata);
+    await drawSearchCircle(page);
     await S.submitButton(page).click();
 
     // Fase 1: mappa/POI/rischi già completi, prima ancora che la fase 2 risolva.
@@ -62,8 +62,7 @@ test.describe('narrativa di ZONA in due fasi (#259, #292)', () => {
       page.waitForRequest((r) => r.url().endsWith('/analyze/narrativa') && r.method() === 'POST'),
       (async () => {
         await page.goto('/');
-        await S.cittaField(page).fill(fastAnalyze.citta);
-        await S.zonaField(page).fill(fastAnalyze.zona_normalizzata);
+        await drawSearchCircle(page);
         await S.submitButton(page).click();
       })(),
     ]);
