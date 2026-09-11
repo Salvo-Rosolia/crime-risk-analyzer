@@ -2,11 +2,13 @@ import {
   afterNextRender,
   ChangeDetectionStrategy,
   Component,
+  computed,
   effect,
   ElementRef,
   input,
   OnDestroy,
   output,
+  signal,
   viewChild,
 } from '@angular/core';
 import * as L from 'leaflet';
@@ -23,7 +25,22 @@ type DrawState = 'idle' | 'drawing-radius' | 'ready';
 @Component({
   selector: 'cra-map',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `<div #mapEl class="cra-map"></div>`,
+  template: `
+    <div #mapEl class="cra-map"></div>
+    @if (showRadiusInput()) {
+      <div class="cra-radius-control">
+        <label for="cra-radius-input">Raggio (m)</label>
+        <input
+          id="cra-radius-input"
+          type="number"
+          [min]="MIN_RADIUS_M"
+          [max]="MAX_RADIUS_M"
+          [value]="radiusM()"
+          (input)="onRadiusInput($event)"
+        />
+      </div>
+    }
+  `,
   styles: [
     `
       .cra-map {
@@ -31,6 +48,38 @@ type DrawState = 'idle' | 'drawing-radius' | 'ready';
         inset: 0;
         height: 100%;
         width: 100%;
+      }
+
+      /*
+       * Input numerico del raggio (#318, D2/§5.1 design doc): l'unica via KEYBOARD/screen-reader
+       * per impostare il raggio, il drag da solo la esclude. Fluttua sopra la mappa (in alto a
+       * sinistra, lontano dal controllo zoom in basso a destra) invece di stare in un pannello
+       * laterale perché deve restare visibile in drawing-radius/ready indipendentemente da quale
+       * pannello di ricerca (completo/base) è montato accanto alla mappa.
+       */
+      .cra-radius-control {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        z-index: 500;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        background: var(--paper, #fff);
+        border: 1px solid var(--ink, #1a1a1a);
+        border-radius: 3px;
+        font-family: var(--font-sans, sans-serif);
+        font-size: 0.78rem;
+      }
+
+      .cra-radius-control input {
+        width: 5.5em;
+        font-family: var(--font-mono, monospace);
+        font-size: 0.8rem;
+        padding: 2px 4px;
+        border: 1px solid var(--ink-2, #555);
+        border-radius: 3px;
       }
     `,
   ],
@@ -42,13 +91,30 @@ export class MapComponent implements OnDestroy {
   readonly poiClick = output<string>();
   readonly circleChange = output<{ lat: number; lon: number; radiusM: number } | null>();
 
+  protected readonly MIN_RADIUS_M = MIN_RADIUS_M;
+  protected readonly MAX_RADIUS_M = MAX_RADIUS_M;
+
   private readonly mapEl = viewChild.required<ElementRef<HTMLElement>>('mapEl');
   private map: L.Map | null = null;
   private markers: L.LayerGroup | null = null;
 
-  private drawState: DrawState = 'idle';
+  /**
+   * Segnali (non semplici campi) apposta: `drawState`/`radiusM` sono letti dal template
+   * (`showRadiusInput`/`[value]` dell'input, #318) e gli aggiornamenti arrivano da handler Leaflet
+   * nativi (`map.on(...)`), non da binding `(evento)` del template — solo un segnale, non un campo
+   * privato, ridisegna la vista OnPush in quel caso.
+   */
+  private readonly drawState = signal<DrawState>('idle');
   private circleLayer: L.Circle | null = null;
   private centerLatLng: { lat: number; lon: number } | null = null;
+
+  /** Raggio corrente del cerchio in disegno/confermato, per la sincronizzazione bidirezionale con
+   * l'input numerico (#318 D2): il drag lo aggiorna, digitare un valore aggiorna a sua volta il
+   * cerchio disegnato (vedi {@link onRadiusInput}). */
+  protected readonly radiusM = signal<number>(DEFAULT_RADIUS_M);
+  /** L'input numerico è utile solo mentre un cerchio esiste (`drawing-radius`/`ready`): in `idle`
+   * non c'è ancora un centro su cui applicare un raggio. */
+  protected readonly showRadiusInput = computed(() => this.drawState() !== 'idle');
 
   constructor() {
     afterNextRender(() => {
@@ -109,18 +175,19 @@ export class MapComponent implements OnDestroy {
 
   private onMapClick(e: L.LeafletMouseEvent): void {
     const { lat, lng } = e.latlng;
-    if (this.drawState === 'idle' || this.drawState === 'ready') {
+    if (this.drawState() === 'idle' || this.drawState() === 'ready') {
       // ready -> nuovo centro: il cerchio confermato in precedenza non è più valido.
-      if (this.drawState === 'ready') this.circleChange.emit(null);
+      if (this.drawState() === 'ready') this.circleChange.emit(null);
       this.centerLatLng = { lat, lon: lng };
       this.circleLayer?.remove();
       this.circleLayer = L.circle([lat, lng], { radius: DEFAULT_RADIUS_M }).addTo(this.map!);
-      this.drawState = 'drawing-radius';
+      this.radiusM.set(DEFAULT_RADIUS_M);
+      this.drawState.set('drawing-radius');
       return;
     }
     // drawing-radius -> ready: conferma il raggio corrente.
     if (this.centerLatLng && this.circleLayer) {
-      this.drawState = 'ready';
+      this.drawState.set('ready');
       this.circleChange.emit({
         lat: this.centerLatLng.lat,
         lon: this.centerLatLng.lon,
@@ -130,13 +197,37 @@ export class MapComponent implements OnDestroy {
   }
 
   private onMapMouseMove(e: L.LeafletMouseEvent): void {
-    if (this.drawState !== 'drawing-radius' || !this.centerLatLng || !this.circleLayer) return;
+    if (this.drawState() !== 'drawing-radius' || !this.centerLatLng || !this.circleLayer) return;
     const radius = this.map!.distance(
       [this.centerLatLng.lat, this.centerLatLng.lon],
       [e.latlng.lat, e.latlng.lng],
     );
     const clamped = Math.min(Math.max(radius, MIN_RADIUS_M), MAX_RADIUS_M);
     this.circleLayer.setRadius(clamped);
+    this.radiusM.set(clamped);
+  }
+
+  /**
+   * Sincronizzazione bidirezionale lato tastiera (#318 D2): un valore digitato aggiorna subito il
+   * cerchio disegnato (stesso clamp del drag, stesse costanti `MIN_RADIUS_M`/`MAX_RADIUS_M`) e, se
+   * il cerchio è già `ready` (confermato), ri-emette `circleChange` — altrimenti un aggiustamento
+   * manuale del raggio dopo la conferma non raggiungerebbe mai il segnale `circle` dello shell.
+   * In `drawing-radius` (non ancora confermato) basta aggiornare il layer: la conferma successiva
+   * (secondo clic) leggerà il nuovo raggio da `circleLayer.getRadius()`.
+   */
+  protected onRadiusInput(event: Event): void {
+    const raw = Number((event.target as HTMLInputElement).value);
+    if (Number.isNaN(raw)) return;
+    const clamped = Math.min(Math.max(raw, MIN_RADIUS_M), MAX_RADIUS_M);
+    this.radiusM.set(clamped);
+    this.circleLayer?.setRadius(clamped);
+    if (this.drawState() === 'ready' && this.centerLatLng) {
+      this.circleChange.emit({
+        lat: this.centerLatLng.lat,
+        lon: this.centerLatLng.lon,
+        radiusM: clamped,
+      });
+    }
   }
 
   /** Chiamato dalla casella "vai a un luogo" (#318): sposta la mappa, non tocca il cerchio disegnato. */
