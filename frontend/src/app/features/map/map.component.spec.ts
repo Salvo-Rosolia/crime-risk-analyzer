@@ -297,5 +297,42 @@ describe('MapComponent', () => {
       fixture.componentInstance.flyTo(41.8, 12.4);
       expect(mockMap.flyTo).toHaveBeenCalledWith([41.8, 12.4], expect.any(Number));
     });
+
+    it('un click in ready riparte da un nuovo centro invece di riconfermare il vecchio', () => {
+      const spy = jest.fn();
+      fixture.componentInstance.circleChange.subscribe(spy);
+
+      // idle -> drawing-radius -> ready: conferma il primo cerchio (centro A).
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fireMap('mousemove', { latlng: { lat: 41.905, lng: 12.5 } });
+      fireMap('click', { latlng: { lat: 41.905, lng: 12.5 } });
+      expect(spy).toHaveBeenCalledWith(expect.objectContaining({ lat: 41.9, lon: 12.5 }));
+      spy.mockClear();
+
+      // ready -> un ulteriore click NON riconferma il vecchio cerchio: resetta e invalida.
+      fireMap('click', { latlng: { lat: 42.0, lng: 12.6 } });
+      expect(spy).toHaveBeenCalledWith(null);
+      spy.mockClear();
+
+      // drawing-radius -> ready sul NUOVO centro (B), non il vecchio (A).
+      fireMap('mousemove', { latlng: { lat: 42.005, lng: 12.6 } });
+      fireMap('click', { latlng: { lat: 42.005, lng: 12.6 } });
+      expect(spy).toHaveBeenCalledWith(expect.objectContaining({ lat: 42.0, lon: 12.6 }));
+      expect(spy).not.toHaveBeenCalledWith(expect.objectContaining({ lat: 41.9, lon: 12.5 }));
+    });
+
+    it('il raggio è clampato al minimo (150m) quando il drag è più corto', () => {
+      (mockMap.distance as jest.Mock).mockReturnValueOnce(50);
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fireMap('mousemove', { latlng: { lat: 41.9005, lng: 12.5 } });
+      expect(mockCircle.setRadius).toHaveBeenCalledWith(150);
+    });
+
+    it('il raggio è clampato al massimo (3000m) quando il drag è più lungo', () => {
+      (mockMap.distance as jest.Mock).mockReturnValueOnce(5000);
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fireMap('mousemove', { latlng: { lat: 41.95, lng: 12.5 } });
+      expect(mockCircle.setRadius).toHaveBeenCalledWith(3000);
+    });
   });
 });

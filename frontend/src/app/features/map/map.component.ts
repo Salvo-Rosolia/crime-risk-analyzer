@@ -109,7 +109,9 @@ export class MapComponent implements OnDestroy {
 
   private onMapClick(e: L.LeafletMouseEvent): void {
     const { lat, lng } = e.latlng;
-    if (this.drawState === 'idle') {
+    if (this.drawState === 'idle' || this.drawState === 'ready') {
+      // ready -> nuovo centro: il cerchio confermato in precedenza non è più valido.
+      if (this.drawState === 'ready') this.circleChange.emit(null);
       this.centerLatLng = { lat, lon: lng };
       this.circleLayer?.remove();
       this.circleLayer = L.circle([lat, lng], { radius: DEFAULT_RADIUS_M }).addTo(this.map!);
