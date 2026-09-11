@@ -2,10 +2,12 @@
 runs/
 *.csv
 *.md
-# Report di confronto in JSON (es. claude_vs_groq.json, #33): SOLO a livello di
-# results/. Ancorato con "/" iniziale per NON toccare gli snapshot .json
-# nidificati (results/snapshots/ e results/city_agnostic/snapshots/), che sono
-# fixture versionate: un "*.json" cieco li ignorerebbe.
-/*.json
-# Le fixture di input (snapshots/) SONO versionate per la riproducibilità.
-!snapshots/
+# Report di confronto in JSON (es. claude_vs_groq.json, #33; records.json di
+# city_agnostic, #31/#268): rigenerabili dagli snapshot via `eval city-agnostic
+# report`, quindi NON versionati. "**/" copre anche le sottocartelle
+# (results/city_agnostic/records.json) — il vecchio "/*.json" era ancorato alla
+# sola radice di results/ e non lo escludeva (bug scoperto in #268).
+**/*.json
+# Le fixture di input (snapshots/*.json) SONO versionate per la riproducibilità:
+# sono i dati grezzi da cui i report si rigenerano, non output derivati.
+!**/snapshots/*.json
