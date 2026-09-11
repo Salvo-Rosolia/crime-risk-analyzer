@@ -58,6 +58,43 @@ cra-map {
 }
 
 /*
+ * Casella "vai a un luogo" (#318): vive DENTRO l'header (fra cra-header-spacer e
+ * cra-header-controls), non fluttuante sopra la mappa — così non contende lo spazio col dock POI
+ * (in alto a sinistra) né con la narrativa bottom-sheet (a tutta altezza a destra).
+ */
+.cra-place-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.cra-place-search input {
+  width: 200px;
+  padding: 5px var(--space-3);
+  border: 1px solid var(--paper);
+  border-radius: var(--radius);
+  background: var(--paper-2);
+  color: var(--ink);
+  font: inherit;
+}
+
+.cra-place-error {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: var(--space-1);
+  white-space: nowrap;
+  background: var(--panel-bg);
+  border: var(--panel-border) solid var(--ink);
+  border-radius: var(--radius);
+  padding: var(--space-1) var(--space-2);
+  font-size: 0.8rem;
+  color: var(--ink);
+  z-index: 1001;
+}
+
+/*
  * Il dock unico Lista/Dettaglio POI (#199, `cra-panel-dock`) e la narrativa bottom-sheet
  * (`cra-narrative-sheet`) gestiscono da sé posizione/dimensione nel proprio `:host` CSS
  * (`panel-dock.component.css`/`narrative-sheet.component.css`), perché entrambi hanno un'altezza
