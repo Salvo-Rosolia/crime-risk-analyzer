@@ -41,10 +41,12 @@ GROQ_MODEL = "openai/gpt-oss-120b"
 #: i test di integrazione lo usano per pinnare il ramo (Groq, non Claude, non
 #: fallback) in ``response.llm_used`` tollerando un alias versionato diverso da
 #: ``GROQ_MODEL`` che Groq puo' riportare. Va aggiornato a mano insieme a
-#: ``GROQ_MODEL`` — derivarlo con un parsing euristico della stringa (es. lo
-#: split precedente su ``"-"``) si rompe silenziosamente a ogni cambio di
-#: modello con una forma diversa (vedi ``openai/gpt-oss-120b`` vs
-#: ``llama-3.3-70b-versatile``).
+#: ``GROQ_MODEL`` — derivarlo con un parsing euristico della stringa non regge
+#: al cambio di forma del model id: lo split su ``"-"`` che su
+#: ``llama-3.3-70b-versatile`` dava "llama" su ``openai/gpt-oss-120b`` da'
+#: "openai/gpt", cioe' il prefisso del VENDOR, che pinnerebbe qualunque
+#: ``openai/gpt-*`` invece della sola famiglia gpt-oss. Il legame
+#: famiglia/model id e' verificato offline in ``tests/test_llm_client.py``.
 GROQ_MODEL_FAMILY = "gpt-oss"
 
 #: Parametri fissi condivisi (generation.md §Riproducibilita').

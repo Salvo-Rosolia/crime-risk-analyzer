@@ -317,23 +317,6 @@ async def run_case(
                 geo_source=geo_source,
                 context_format=config.context_format,
             )
-        # Dentro lo stesso try: anche il calcolo delle metriche (``cost_usd`` sul
-        # listino prezzi, #34) puo' sollevare (es. ``KeyError`` su un model_id
-        # non ancora prezzato) e non deve far esplodere l'intero
-        # ``run_experiment`` per un solo caso rotto, contraddicendo la promessa
-        # di questa funzione (status=error su eccezione).
-        return _record_from_response(
-            run_id=run_id,
-            snapshot_id=snapshot_key,
-            config=config,
-            case=case,
-            model_id=model_id,
-            resp=resp,
-            code_commit=code_commit,
-            ontology_hash=ontology_hash,
-            snapshot_catturato_il=snapshot_catturato_il,
-            snapshot_configurazione_canonica=snapshot_configurazione_canonica,
-        )
     except Exception:  # noqa: BLE001 — un caso rotto non blocca l'esperimento
         return _error_record(
             run_id=run_id,
@@ -346,6 +329,25 @@ async def run_case(
             snapshot_catturato_il=snapshot_catturato_il,
             snapshot_configurazione_canonica=snapshot_configurazione_canonica,
         )
+    # Fuori dal try di proposito: il calcolo delle metriche non e' un evento da
+    # assorbire come "il modello ha fallito". Un ``KeyError`` dal listino prezzi
+    # (#34) su un model_id non prezzato e' un bug di codice/configurazione, e
+    # dentro il try diventerebbe un record status=ERROR con metriche a zero,
+    # indistinguibile da una chiamata LLM andata male: in una run live
+    # brucerebbe la quota della giornata producendo il 100% di record ERROR
+    # senza un solo traceback da leggere.
+    return _record_from_response(
+        run_id=run_id,
+        snapshot_id=snapshot_key,
+        config=config,
+        case=case,
+        model_id=model_id,
+        resp=resp,
+        code_commit=code_commit,
+        ontology_hash=ontology_hash,
+        snapshot_catturato_il=snapshot_catturato_il,
+        snapshot_configurazione_canonica=snapshot_configurazione_canonica,
+    )
 
 
 async def run_experiment(

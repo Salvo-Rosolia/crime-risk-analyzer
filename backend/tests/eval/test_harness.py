@@ -391,6 +391,55 @@ async def test_run_experiment_error_isolation(
     assert (tmp_path / "runs" / f"{rid_err}.json").exists()
 
 
+async def test_run_case_non_maschera_un_errore_di_calcolo_delle_metriche(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Il ``try`` copre la chiamata al modello, non le metriche a valle.
+
+    Un ``model_id`` non a listino (qui: ``KeyError`` da ``pricing.cost_usd``) e'
+    un bug di codice/configurazione, non un fallimento del provider: deve
+    propagare con il suo traceback invece di diventare un record
+    ``status=ERROR`` con metriche a zero, indistinguibile da "il modello ha
+    fallito". In una run live la differenza e' tutta: assorbirlo brucerebbe la
+    quota Groq della giornata producendo il 100% di record ERROR senza un solo
+    traceback da leggere.
+    """
+    from crime_risk_analyzer.llm.client import LLMResponse
+    from crime_risk_analyzer.rag import retrieval
+    from tests.eval._doubles import FakeLLMClient, FakeProfiler
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
+    scrivi_snapshot(
+        snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
+    )
+    risposta_di_modello_non_prezzato = LLMResponse(
+        text="Analisi: Banca A presenta rischio rapina.",
+        llm_used="provider/modello-mai-prezzato",
+        tokens_input=10,
+        tokens_output=20,
+        cache_hit=False,
+        temperature=0.0,
+        seed=0,
+        prompt_hash="abc",
+    )
+
+    with pytest.raises(KeyError, match="modello-mai-prezzato"):
+        await run_case(
+            RunCase(citta="Roma", zona="Centro"),
+            ExperimentConfig(
+                name="exp",
+                mode="analyze",
+                model="groq",
+                cases=[RunCase(citta="Roma", zona="Centro")],
+            ),
+            executor=FakeProfiler(),
+            llm_client=FakeLLMClient(risposta_di_modello_non_prezzato),
+            results_dir=tmp_path,
+            code_commit="abc",
+            ontology_hash="def",
+        )
+
+
 @pytest.mark.parametrize("mode", ["baseline", "analyze"])
 async def test_run_does_not_geocode_when_replaying(
     mode: Mode, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

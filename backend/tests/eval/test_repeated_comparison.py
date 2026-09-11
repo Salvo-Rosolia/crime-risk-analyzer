@@ -29,6 +29,7 @@ from crime_risk_analyzer.eval.schema import (
     RunStatus,
 )
 from crime_risk_analyzer.eval.winner import decide_winner
+from crime_risk_analyzer.llm.client import GROQ_MODEL
 
 
 def _rec(
@@ -110,9 +111,7 @@ def test_winner_markdown_reports_winner_and_deciding_axis() -> None:
     claude = fold_arm(
         _arm("claude-exp", "claude-sonnet-4-6", (0.90, 0.10, 3000, 0.012))
     )
-    groq = fold_arm(
-        _arm("groq-exp", "llama-3.3-70b-versatile", (0.70, 0.20, 1000, 0.0006))
-    )
+    groq = fold_arm(_arm("groq-exp", GROQ_MODEL, (0.70, 0.20, 1000, 0.0006)))
     cmp = compare_records(
         claude.mean_records, groq.mean_records, label_a="claude", label_b="groq"
     )
@@ -152,9 +151,7 @@ def test_variance_markdown_shows_mean_and_std() -> None:
     claude = fold_arm(
         _arm("claude-exp", "claude-sonnet-4-6", (0.90, 0.10, 3000, 0.012))
     )
-    groq = fold_arm(
-        _arm("groq-exp", "llama-3.3-70b-versatile", (0.70, 0.20, 1000, 0.0006))
-    )
+    groq = fold_arm(_arm("groq-exp", GROQ_MODEL, (0.70, 0.20, 1000, 0.0006)))
     cmp = compare_records(
         claude.mean_records, groq.mean_records, label_a="claude", label_b="groq"
     )
@@ -207,7 +204,7 @@ def test_variance_markdown_shows_reps_count_when_dropped() -> None:
             cost_usd=0.012,
         ),
     ]
-    groq_recs = _arm("groq-exp", "llama-3.3-70b-versatile", (0.70, 0.20, 1000, 0.0006))
+    groq_recs = _arm("groq-exp", GROQ_MODEL, (0.70, 0.20, 1000, 0.0006))
     claude = fold_arm(claude_recs)
     groq = fold_arm(groq_recs)
     assert claude.variances[0].n_reps == 2
@@ -259,7 +256,7 @@ def test_variance_markdown_shows_nd_when_only_one_valid_repetition() -> None:
             status=RunStatus.FALLBACK,
         ),
     ]
-    groq_recs = _arm("groq-exp", "llama-3.3-70b-versatile", (0.70, 0.20, 1000, 0.0006))
+    groq_recs = _arm("groq-exp", GROQ_MODEL, (0.70, 0.20, 1000, 0.0006))
     claude = fold_arm(claude_recs)
     groq = fold_arm(groq_recs)
     assert claude.variances[0].n_reps == 1
@@ -314,7 +311,7 @@ def test_variance_markdown_cell_values_match_getter_mapping() -> None:
             ]
         )
     ]
-    groq_recs = _arm("groq-exp", "llama-3.3-70b-versatile", (0.70, 0.20, 1000, 0.0006))
+    groq_recs = _arm("groq-exp", GROQ_MODEL, (0.70, 0.20, 1000, 0.0006))
     claude = fold_arm(recs)
     groq = fold_arm(groq_recs)
     cmp = compare_records(
@@ -370,7 +367,7 @@ def test_variance_markdown_shows_fallback_count() -> None:
             status=RunStatus.FALLBACK,
         ),
     ]
-    groq = _arm("groq-exp", "llama-3.3-70b-versatile", (0.70, 0.20, 1000, 0.0006))
+    groq = _arm("groq-exp", GROQ_MODEL, (0.70, 0.20, 1000, 0.0006))
     fclaude = fold_arm(claude_recs)
     fgroq = fold_arm(groq)
     cmp = compare_records(
@@ -390,7 +387,7 @@ def test_build_repeated_report_writes_md_and_json(tmp_path: Path) -> None:
     )
     _write_arm(
         tmp_path,
-        _arm("groq-exp", "llama-3.3-70b-versatile", (0.70, 0.20, 1000, 0.0006)),
+        _arm("groq-exp", GROQ_MODEL, (0.70, 0.20, 1000, 0.0006)),
     )
     md_path, json_path = build_repeated_report(
         tmp_path, "claude-exp", "groq-exp", label_a="claude", label_b="groq", stem="cmp"
@@ -422,13 +419,13 @@ def test_repeated_report_of_the_c3_pair_declares_the_variable_and_decides(
     """
     _write_arm(
         tmp_path,
-        _arm("con-onto-exp", "llama-3.3-70b-versatile", (0.90, 0.10, 3000, 0.0006)),
+        _arm("con-onto-exp", GROQ_MODEL, (0.90, 0.10, 3000, 0.0006)),
     )
     _write_arm(
         tmp_path,
         _arm(
             "senza-onto-exp",
-            "llama-3.3-70b-versatile",
+            GROQ_MODEL,
             (0.50, 0.50, 2800, 0.0005),
             mode="no_ontology_prompt",
         ),
@@ -460,13 +457,13 @@ def test_the_c3_verdict_never_falls_back_on_speed_or_cost(tmp_path: Path) -> Non
     """
     _write_arm(
         tmp_path,
-        _arm("con-onto-exp", "llama-3.3-70b-versatile", (0.80, 0.10, 3000, 0.0009)),
+        _arm("con-onto-exp", GROQ_MODEL, (0.80, 0.10, 3000, 0.0009)),
     )
     _write_arm(
         tmp_path,
         _arm(
             "senza-onto-exp",
-            "llama-3.3-70b-versatile",
+            GROQ_MODEL,
             (0.80, 0.10, 1000, 0.0002),
             mode="no_ontology_prompt",
         ),
@@ -503,7 +500,7 @@ def test_the_model_pair_still_breaks_ties_on_speed(tmp_path: Path) -> None:
     )
     _write_arm(
         tmp_path,
-        _arm("groq-exp", "llama-3.3-70b-versatile", (0.80, 0.10, 1000, 0.0006)),
+        _arm("groq-exp", GROQ_MODEL, (0.80, 0.10, 1000, 0.0006)),
     )
     _, json_path = build_repeated_report(
         tmp_path,
@@ -536,7 +533,7 @@ def test_main_compare_repeated_dispatch_writes_report(
     )
     _write_arm(
         tmp_path,
-        _arm("groq-exp", "llama-3.3-70b-versatile", (0.70, 0.20, 1000, 0.0006)),
+        _arm("groq-exp", GROQ_MODEL, (0.70, 0.20, 1000, 0.0006)),
     )
 
     argv = [
@@ -575,7 +572,7 @@ def test_end_to_end_fold_compare_winner(tmp_path: Path) -> None:
     )
     _write_arm(
         tmp_path,
-        _arm("groq-exp", "llama-3.3-70b-versatile", (0.70, 0.20, 1000, 0.0006)),
+        _arm("groq-exp", GROQ_MODEL, (0.70, 0.20, 1000, 0.0006)),
     )
     md_path, json_path = build_repeated_report(
         tmp_path, "claude-exp", "groq-exp", label_a="claude", label_b="groq"
@@ -594,7 +591,7 @@ def test_build_repeated_report_default_stem_filename(tmp_path: Path) -> None:
     )
     _write_arm(
         tmp_path,
-        _arm("groq-exp", "llama-3.3-70b-versatile", (0.70, 0.20, 1000, 0.0006)),
+        _arm("groq-exp", GROQ_MODEL, (0.70, 0.20, 1000, 0.0006)),
     )
     md_path, json_path = build_repeated_report(tmp_path, "claude-exp", "groq-exp")
     assert md_path == tmp_path / "claude-exp_vs_groq-exp_repeated.md"
@@ -608,7 +605,7 @@ def test_build_repeated_report_all_error_zone_excluded_from_variance_table(
     """Zona tutta-ERROR in un braccio: niente crash, esclusa dalla tabella
     varianza MD ma presente nel JSON con n_reps=0 e tra le zone escluse (#33)."""
     ok_a = _arm("claude-exp", "claude-sonnet-4-6", (0.90, 0.10, 3000, 0.012))
-    ok_b = _arm("groq-exp", "llama-3.3-70b-versatile", (0.70, 0.20, 1000, 0.0006))
+    ok_b = _arm("groq-exp", GROQ_MODEL, (0.70, 0.20, 1000, 0.0006))
     all_error_a = [
         _rec(
             "claude-exp",
@@ -630,7 +627,7 @@ def test_build_repeated_report_all_error_zone_excluded_from_variance_table(
             "Milano",
             "Duomo",
             rep=r,
-            model_id="llama-3.3-70b-versatile",
+            model_id=GROQ_MODEL,
             grounding=0.5,
             hallucination=0.3,
             latency_ms=1200,
@@ -672,7 +669,7 @@ def test_report_flags_heterogeneous_k(tmp_path: Path) -> None:
             "Roma",
             "Colosseo",
             rep=r,
-            model_id="llama-3.3-70b-versatile",
+            model_id=GROQ_MODEL,
             grounding=0.70 + 0.01 * r,
             hallucination=0.20 - 0.01 * r,
             latency_ms=1000 + 10 * r,
@@ -723,7 +720,7 @@ def test_build_repeated_report_deep_tie_break_on_latency(tmp_path: Path) -> None
             "Roma",
             "Colosseo",
             rep=r,
-            model_id="llama-3.3-70b-versatile",
+            model_id=GROQ_MODEL,
             grounding=0.800,
             hallucination=0.100,
             latency_ms=1005,
@@ -748,7 +745,7 @@ def test_build_repeated_report_refuses_overwrite_without_force(tmp_path: Path) -
     )
     _write_arm(
         tmp_path,
-        _arm("groq-exp", "llama-3.3-70b-versatile", (0.70, 0.20, 1000, 0.0006)),
+        _arm("groq-exp", GROQ_MODEL, (0.70, 0.20, 1000, 0.0006)),
     )
     build_repeated_report(
         tmp_path, "claude-exp", "groq-exp", label_a="claude", label_b="groq", stem="dup"
@@ -799,7 +796,7 @@ def test_build_repeated_report_writes_report_and_raises_when_all_reps_degenerate
 ) -> None:
     """#239: dopo il ripiegamento nessuna zona resta valida → report, non traceback."""
     _write_arm(tmp_path, _all_error_arm("claude-exp", "claude-sonnet-4-6"))
-    _write_arm(tmp_path, _all_error_arm("groq-exp", "llama-3.3-70b-versatile"))
+    _write_arm(tmp_path, _all_error_arm("groq-exp", GROQ_MODEL))
 
     with pytest.raises(NoUsableOutputError):
         build_repeated_report(
@@ -827,7 +824,7 @@ def test_build_repeated_report_still_raises_no_usable_output_if_report_write_fai
     import crime_risk_analyzer.eval.repeated_comparison as repeated_mod
 
     _write_arm(tmp_path, _all_error_arm("claude-exp", "claude-sonnet-4-6"))
-    _write_arm(tmp_path, _all_error_arm("groq-exp", "llama-3.3-70b-versatile"))
+    _write_arm(tmp_path, _all_error_arm("groq-exp", GROQ_MODEL))
 
     def _boom(*args: object, **kwargs: object) -> None:
         raise OSError("permessi negati (simulato)")
@@ -846,7 +843,7 @@ def test_build_repeated_report_propagates_file_exists_error_from_report_write(
 ) -> None:
     """La guardia anti-sovrascrittura resta prioritaria anche su questo ramo."""
     _write_arm(tmp_path, _all_error_arm("claude-exp", "claude-sonnet-4-6"))
-    _write_arm(tmp_path, _all_error_arm("groq-exp", "llama-3.3-70b-versatile"))
+    _write_arm(tmp_path, _all_error_arm("groq-exp", GROQ_MODEL))
     (tmp_path / "claude-exp_vs_groq-exp_repeated.md").write_text(
         "gia' presente", encoding="utf-8"
     )
@@ -866,7 +863,7 @@ def test_main_compare_repeated_returns_1_on_no_usable_output(
     import crime_risk_analyzer.eval.__main__ as eval_main
 
     _write_arm(tmp_path, _all_error_arm("claude-exp", "claude-sonnet-4-6"))
-    _write_arm(tmp_path, _all_error_arm("groq-exp", "llama-3.3-70b-versatile"))
+    _write_arm(tmp_path, _all_error_arm("groq-exp", GROQ_MODEL))
 
     argv = [
         "crime_risk_analyzer.eval",
@@ -917,7 +914,7 @@ def test_repeated_report_withholds_verdict_when_an_arm_never_generates(
 ) -> None:
     _write_arm(
         tmp_path,
-        _arm("analyze-exp", "llama-3.3-70b-versatile", (0.84, 0.16, 22697, 0.005)),
+        _arm("analyze-exp", GROQ_MODEL, (0.84, 0.16, 22697, 0.005)),
     )
     _write_arm(tmp_path, _silent_arm("baseline-exp"))
     md_path, json_path = build_repeated_report(
@@ -954,7 +951,7 @@ def test_repeated_report_still_declares_verdict_when_both_arms_generate(
     )
     _write_arm(
         tmp_path,
-        _arm("groq-exp", "llama-3.3-70b-versatile", (0.70, 0.20, 1000, 0.0006)),
+        _arm("groq-exp", GROQ_MODEL, (0.70, 0.20, 1000, 0.0006)),
     )
     md_path, json_path = build_repeated_report(
         tmp_path, "claude-exp", "groq-exp", label_a="claude", label_b="groq", stem="due"
@@ -1055,7 +1052,7 @@ def test_repeated_report_keeps_operational_table_when_verdict_withheld(
     leggibili."""
     _write_arm(
         tmp_path,
-        _arm("analyze-exp", "llama-3.3-70b-versatile", (0.84, 0.16, 22697, 0.005)),
+        _arm("analyze-exp", GROQ_MODEL, (0.84, 0.16, 22697, 0.005)),
     )
     _write_arm(tmp_path, _silent_arm("baseline-exp"))
     md_path, _ = build_repeated_report(
@@ -1083,7 +1080,7 @@ def test_repeated_report_marks_verdict_applicable_in_the_happy_path(
     )
     _write_arm(
         tmp_path,
-        _arm("groq-exp", "llama-3.3-70b-versatile", (0.70, 0.20, 1000, 0.0006)),
+        _arm("groq-exp", GROQ_MODEL, (0.70, 0.20, 1000, 0.0006)),
     )
     _, json_path = build_repeated_report(
         tmp_path, "claude-exp", "groq-exp", label_a="claude", label_b="groq", stem="ok"

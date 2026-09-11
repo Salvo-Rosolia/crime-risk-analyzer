@@ -1,4 +1,4 @@
-"""Confronto Claude vs Llama (#33), interamente offline.
+"""Confronto Claude vs Groq (#33), interamente offline.
 
 Il comparatore a due bracci vive gia' in :mod:`crime_risk_analyzer.eval.compare`
 (#32, GENERICO su label libere): #33 lo RIUSA per ``claude`` vs ``groq`` senza
@@ -11,7 +11,7 @@ ricostruirlo. Qui si blindano due contratti del deliverable #33:
 
 Nessuna run live: i ``RunRecord`` dei due bracci sono costruiti a mano con
 metriche sintetiche (come i test di #32). Nessuna chiamata LLM (Claude e' a
-pagamento e non si esegue; Llama non viene interrogato in test).
+pagamento e non si esegue; il modello Groq non viene interrogato in test).
 """
 
 from __future__ import annotations
@@ -41,6 +41,7 @@ from crime_risk_analyzer.eval.schema import (
     RunStatus,
 )
 from crime_risk_analyzer.eval.winner import decide_winner
+from crime_risk_analyzer.llm.client import GROQ_MODEL
 from crime_risk_analyzer.models.vocab import ConfidenceSummary
 from crime_risk_analyzer.orchestrator import AnalyzeResponse, PoiOut, ZonaGeo
 from crime_risk_analyzer.rag.generation import Repro, RiskItem, RiskModel
@@ -96,9 +97,9 @@ def test_model_arms_zones_anchored_to_c1_roster() -> None:
 
 #: Metriche sintetiche per zona (grounding, hallucination, latency_ms, cost_usd),
 #: allineate posizionalmente a ROSTER[:4]. Scenario verosimile ma INVENTATO
-#: (nessuna run reale): Claude piu' accurato ma piu' caro e lento; Groq/Llama
-#: piu' economico e veloce con qualita' proxy piu' bassa. Servono solo a rendere
-#: delta e separazione costo/latenza verificabili offline.
+#: (nessuna run reale): Claude piu' accurato ma piu' caro e lento; il braccio
+#: Groq piu' economico e veloce con qualita' proxy piu' bassa. Servono solo a
+#: rendere delta e separazione costo/latenza verificabili offline.
 _CLAUDE_METRICS: tuple[tuple[float, float, int, float], ...] = (
     (0.90, 0.10, 3200, 0.0120),
     (0.85, 0.15, 3000, 0.0110),
@@ -184,7 +185,7 @@ def _claude_arm() -> list[RunRecord]:
 
 
 def _groq_arm() -> list[RunRecord]:
-    return _arm(GROQ_ARM, "llama-3.3-70b-versatile", _GROQ_METRICS)
+    return _arm(GROQ_ARM, GROQ_MODEL, _GROQ_METRICS)
 
 
 def test_two_model_comparison_computes_per_zone_delta() -> None:

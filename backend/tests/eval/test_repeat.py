@@ -11,6 +11,7 @@ from crime_risk_analyzer.eval.schema import (
     RunRecord,
     RunStatus,
 )
+from crime_risk_analyzer.llm.client import GROQ_MODEL
 
 
 def _rec(
@@ -30,7 +31,7 @@ def _rec(
         citta=citta,
         zona=zona,
         mode="analyze",
-        model_id="llama-3.3-70b-versatile",
+        model_id=GROQ_MODEL,
         status=status,
         metrics=Metrics(
             grounding=grounding,
@@ -44,7 +45,7 @@ def _rec(
             code_commit="c",
             ontology_hash="o",
             snapshot_id=f"{citta}__{zona}".lower(),
-            model_id="llama-3.3-70b-versatile",
+            model_id=GROQ_MODEL,
             prompt_hash="p",
             temperature=0.0,
             seed=rep,

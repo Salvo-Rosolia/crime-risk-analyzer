@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from crime_risk_analyzer.llm.client import LLMResponse
+from crime_risk_analyzer.llm.client import GROQ_MODEL, LLMResponse
 from crime_risk_analyzer.rag.generation import (
     _RULE_BLOCK_STRUCTURE,  # pyright: ignore[reportPrivateUsage]
     _RULE_CONTEXT_INTERPRETATION,  # pyright: ignore[reportPrivateUsage]
@@ -59,7 +59,7 @@ class _FakeLLMClient:
 def _llm_response(**overrides: Any) -> LLMResponse:
     base: dict[str, Any] = {
         "text": (f"Sintesi.\n\n{LLM_SYNTHESIS_BLOCK_HEADER}\nColosseo: borseggio."),
-        "llm_used": "llama-3.3-70b-versatile",
+        "llm_used": GROQ_MODEL,
         "tokens_input": 300,
         "tokens_output": 200,
         "cache_hit": False,
@@ -394,7 +394,7 @@ async def test_generate_no_ontology_propagates_model_metadata() -> None:
     result = await generate_no_ontology_analysis(_context_dict(), client)
 
     assert result.narrativa.startswith("Sintesi.")
-    assert result.llm_used == "llama-3.3-70b-versatile"
+    assert result.llm_used == GROQ_MODEL
     assert result.tokens_input == 300
     assert result.tokens_output == 200
     assert result.cache_hit is True

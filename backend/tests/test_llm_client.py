@@ -18,13 +18,18 @@ import pytest
 from pydantic import SecretStr
 
 from crime_risk_analyzer.config import Settings
-from crime_risk_analyzer.llm.client import (
+
+# Import dal package (non dal modulo ``.client``) di proposito: e' la superficie
+# pubblica del layer LLM, e questo import la verifica insieme al resto.
+from crime_risk_analyzer.llm import (
     CLAUDE_MODEL,
     GROQ_MODEL,
+    GROQ_MODEL_FAMILY,
     LLMClient,
     LLMError,
     LLMResponse,
     build_llm_client,
+    model_id_for_provider,
 )
 
 _SYSTEM = "Sei un analista di sicurezza urbana. Regole: ..."
@@ -255,10 +260,34 @@ async def test_groq_uses_chat_messages_and_params() -> None:
     assert call["max_tokens"] == 1536  # #229: default alzato 1024 -> 1536
     assert call["temperature"] == 0.2
     assert call["seed"] == 42
+    # Modello reasoning (#316): senza questi due parametri Groq ragiona a effort
+    # "medium" e puo' far trapelare il chain-of-thought nel content. Cancellarli
+    # deve far fallire qui, non passare inosservato in una run live.
+    assert call["reasoning_effort"] == "low"
+    assert call["include_reasoning"] is False
     assert call["messages"] == [
         {"role": "system", "content": _SYSTEM},
         {"role": "user", "content": _USER},
     ]
+
+
+# --- costanti di modello: famiglia e risoluzione per provider ---
+
+
+def test_groq_model_family_is_a_tag_of_the_current_model_id() -> None:
+    """``GROQ_MODEL_FAMILY`` va tenuto a mano in sync con ``GROQ_MODEL``.
+
+    Il legame era verificato solo dentro un test ``@pytest.mark.integration``
+    (skippato di default): un disallineamento sarebbe passato in CI e si sarebbe
+    visto solo dal vivo, dove il tag serve a pinnare il ramo Groq. Questo test e'
+    offline e gira sempre.
+    """
+    assert GROQ_MODEL_FAMILY in GROQ_MODEL
+
+
+def test_model_id_for_provider_resolves_both_providers() -> None:
+    assert model_id_for_provider("claude") == CLAUDE_MODEL
+    assert model_id_for_provider("groq") == GROQ_MODEL
 
 
 # --- prompt_hash deterministico e dipendente dal system prompt ---
