@@ -8,7 +8,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from crime_risk_analyzer import zone_context_cache
+from crime_risk_analyzer import circle_search, zone_context_cache
 from crime_risk_analyzer.analyze_narrative import run_analysis_fast
 from crime_risk_analyzer.geocoding import GeoResult
 from crime_risk_analyzer.llm.client import LLMError, LLMResponse, get_llm_client
@@ -120,18 +120,25 @@ async def _prime_cache() -> str:
     return resp.contesto_hash
 
 
-def _patch_io(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Sostituisce geocoding e Overpass per i test dell'endpoint HTTP."""
+def _fake_reverse_geocode(lat: float, lon: float) -> tuple[str, str]:
+    return ("Roma", "Colosseo")
 
-    def _fake_geocode(zona: str, citta: str) -> GeoResult:
-        return GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50))
+
+def _patch_io(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sostituisce reverse geocode e Overpass per i test dell'endpoint HTTP (#318).
+
+    ``retrieval.geocode_zone`` non e' piu' chiamato da ``/analyze`` (il body
+    della rotta e' un cerchio, ``resolve_circle`` passa sempre un proprio
+    ``geo_source``): la sola I/O da patchare qui e' la label reverse-geocoded
+    (``circle_search.reverse_geocode_label``) e Overpass.
+    """
+    monkeypatch.setattr(circle_search, "reverse_geocode_label", _fake_reverse_geocode)
 
     async def _fake_fetch(
         bbox: object, citta: str, *args: object, **kwargs: object
     ) -> list[Poi]:
         return _pois(citta)
 
-    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode)
     monkeypatch.setattr(retrieval, "fetch_pois", _fake_fetch)
 
 
@@ -422,7 +429,10 @@ def _analizza(client: TestClient) -> str:
     """Esegue l'analisi di zona e restituisce l'impronta, come farebbe il client."""
     zona = cast(
         httpx.Response,
-        client.post("/analyze", json={"citta": "Roma", "zona": "Colosseo"}),  # pyright: ignore[reportUnknownMemberType]
+        client.post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze",
+            json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0},
+        ),
     )
     return str(zona.json()["contesto_hash"])
 

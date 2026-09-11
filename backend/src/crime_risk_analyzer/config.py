@@ -96,22 +96,14 @@ class Settings(BaseSettings):
     search_radius_min_m: float = Field(default=150.0, gt=0)
     search_radius_max_m: float = Field(default=3000.0, gt=0)
     default_city: str = "Roma"
-    # Citta SUGGERITE, esposte come autocomplete da ``GET /cities`` — NON un
-    # vincolo di validazione (#191): ``POST /analyze``/``/analyze/baseline``
-    # accettano qualsiasi citta' italiana e la passano al geocoding (ristretto
-    # all'Italia via ``geocoding_country_codes``); una citta'/zona inesistente
-    # fallisce pulita al geocoding (422). Roma/Milano/Napoli sono garantite e
-    # testate end-to-end (orchestrator.md); le altre sono best-effort.
-    supported_cities: list[str] = ["Roma", "Milano", "Napoli", "Torino", "Firenze"]
     # Allowlist CORS (#106): origini del frontend autorizzate a leggere le
     # risposte dell'API. Allowlist ESPLICITA, mai wildcard ``*`` (una policy
     # ``*`` esporrebbe l'API a qualunque sito) — invariante blindata dal
     # validator ``_reject_cors_wildcard``, non solo dal default. Default in dev:
     # il dev-server di Angular. In prod si sovrascrive con l'origine reale.
-    # Parsing da env: come ``supported_cities``, pydantic-settings legge i tipi
-    # complessi (``list``) come JSON, quindi
-    # ``CORS_ALLOW_ORIGINS='["https://app.example"]'`` (una CSV verrebbe
-    # respinta con ``SettingsError``).
+    # Parsing da env: pydantic-settings legge i tipi complessi (``list``) come
+    # JSON, quindi ``CORS_ALLOW_ORIGINS='["https://app.example"]'`` (una CSV
+    # verrebbe respinta con ``SettingsError``).
     cors_allow_origins: list[str] = ["http://localhost:4200"]
 
     @field_validator("cors_allow_origins")

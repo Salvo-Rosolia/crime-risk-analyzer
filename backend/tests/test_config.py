@@ -161,9 +161,9 @@ def test_cors_allow_origins_default(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_cors_allow_origins_from_env_json(monkeypatch: pytest.MonkeyPatch) -> None:
     """L'allowlist e' configurabile da env come lista JSON.
 
-    Come per ``supported_cities`` (stessa convenzione pydantic-settings), i tipi
-    complessi (``list``) sono letti dalla variabile d'ambiente come JSON: una CSV
-    verrebbe respinta con ``SettingsError``.
+    Convenzione pydantic-settings: i tipi complessi (``list``) sono letti dalla
+    variabile d'ambiente come JSON: una CSV verrebbe respinta con
+    ``SettingsError``.
     """
     monkeypatch.setenv(
         "CORS_ALLOW_ORIGINS",

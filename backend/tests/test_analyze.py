@@ -8,7 +8,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from crime_risk_analyzer import zone_context_cache
+from crime_risk_analyzer import circle_search, zone_context_cache
 from crime_risk_analyzer.analyze_narrative import run_analysis_fast
 from crime_risk_analyzer.context_fingerprint import fingerprint
 from crime_risk_analyzer.geocoding import GeoResult, ZoneNotFoundError
@@ -93,22 +93,26 @@ def _pois(citta: str) -> list[Poi]:
     ]
 
 
-def _patch_io(monkeypatch: pytest.MonkeyPatch) -> None:
-    geo: dict[str, object] = {
-        "lat": 41.89,
-        "lon": 12.49,
-        "bbox": Bbox(41.88, 12.48, 41.90, 12.50),
-    }
+def _fake_reverse_geocode(lat: float, lon: float) -> tuple[str, str]:
+    return ("Roma", "Trastevere")
 
-    def _fake_geocode(zona: str, citta: str) -> dict[str, object]:
-        return geo
+
+def _patch_io(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Patcha la sola I/O che il nuovo path a cerchio (#318) attraversa davvero.
+
+    ``geocode_zone`` non e' piu' chiamato da ``/analyze``/``/analyze/baseline``:
+    ``resolve_circle`` passa sempre un ``geo_source`` proprio. La label
+    citta'/zona arriva da ``circle_search.reverse_geocode_label`` (reverse
+    geocode del centro); il bbox da ``bbox_from_circle`` (puro, nessun I/O) —
+    solo la label va quindi simulata qui.
+    """
+    monkeypatch.setattr(circle_search, "reverse_geocode_label", _fake_reverse_geocode)
 
     async def _fake_fetch(
         bbox: object, citta: str, *args: object, **kwargs: object
     ) -> list[Poi]:
         return _pois(citta)
 
-    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode)
     monkeypatch.setattr(retrieval, "fetch_pois", _fake_fetch)
 
 
@@ -130,111 +134,97 @@ def test_analyze_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_io(monkeypatch)
     resp = cast(
         httpx.Response,
-        _client().post("/analyze", json={"citta": "Roma", "zona": "Centro"}),  # pyright: ignore[reportUnknownMemberType]
+        _client().post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze",
+            json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0},
+        ),
     )
     assert resp.status_code == 200
     body = resp.json()
     assert body["citta"] == "Roma"
-    assert body["zona_normalizzata"] == "Centro"
+    assert body["zona_normalizzata"] == "Trastevere"
     assert body["fallback"] is False
     assert body["narrativa"] is None
     assert [p["confidence"] for p in body["poi"]] == ["verificato", None]
 
 
 def test_analyze_zone_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
-    def _raise(zona: str, citta: str) -> dict[str, object]:
+    """Un errore alla risoluzione dell'etichetta (reverse geocode) propaga a 422.
+
+    ``reverse_geocode_label`` reale non solleva mai (fallback cosmetico, #318):
+    questo verifica solo che l'handler centrale di ``ZoneNotFoundError`` resti
+    cablato anche dietro il nuovo ``resolve_circle``.
+    """
+
+    def _raise(lat: float, lon: float) -> tuple[str, str]:
         raise ZoneNotFoundError("zona ignota")
 
-    monkeypatch.setattr(retrieval, "geocode_zone", _raise)
+    monkeypatch.setattr(circle_search, "reverse_geocode_label", _raise)
     resp = cast(
         httpx.Response,
-        _client().post("/analyze", json={"citta": "Roma", "zona": "Nessundove"}),  # pyright: ignore[reportUnknownMemberType]
+        _client().post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze",
+            json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0},
+        ),
     )
     assert resp.status_code == 422
     assert resp.json()["detail"]["errore"] == "zona_non_geocodificabile"
 
 
-def test_analyze_accepts_non_allowlisted_city(
+def test_analyze_reports_reverse_geocoded_city(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#191: una citta' fuori dall'allowlist NON e' piu' 400; arriva al geocoding.
+    """#318: la ``citta'`` in risposta e' quella del reverse geocode del centro.
 
-    Rimossa l'allowlist di ``settings.supported_cities``, qualsiasi citta' italiana
-    deve raggiungere il geocoding. Verifica che ``geocode_zone`` sia invocato con
-    ``citta="Acireale"`` e che la pipeline serializzi una response 200.
+    Non c'e' piu' un'allowlist (gia' rimossa da #191) ne' un campo ``citta`` in
+    richiesta: verifica che ``center.lat``/``center.lon`` raggiungano
+    ``reverse_geocode_label`` e che l'etichetta restituita finisca in risposta.
     """
-    seen: list[tuple[str, str]] = []
+    seen: list[tuple[float, float]] = []
 
-    def _recording_geocode(zona: str, citta: str) -> dict[str, object]:
-        seen.append((zona, citta))
-        return {
-            "lat": 37.61,
-            "lon": 15.16,
-            "bbox": Bbox(37.60, 15.15, 37.62, 15.17),
-        }
+    def _recording_reverse(lat: float, lon: float) -> tuple[str, str]:
+        seen.append((lat, lon))
+        return ("Acireale", "Centro")
 
     async def _fake_fetch(
         bbox: object, citta: str, *args: object, **kwargs: object
     ) -> list[Poi]:
         return _pois(citta)
 
-    monkeypatch.setattr(retrieval, "geocode_zone", _recording_geocode)
+    monkeypatch.setattr(circle_search, "reverse_geocode_label", _recording_reverse)
     monkeypatch.setattr(retrieval, "fetch_pois", _fake_fetch)
     resp = cast(
         httpx.Response,
-        _client().post("/analyze", json={"citta": "Acireale", "zona": "Centro"}),  # pyright: ignore[reportUnknownMemberType]
+        _client().post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze",
+            json={"center": {"lat": 37.61, "lon": 15.16}, "radius_m": 2000.0},
+        ),
     )
     assert resp.status_code == 200
     assert resp.json()["citta"] == "Acireale"
-    assert seen == [("Centro", "Acireale")]
+    assert seen == [(37.61, 15.16)]
 
 
-def test_analyze_non_allowlisted_city_zone_not_found(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """#191: citta' fuori allowlist + zona non geocodificabile -> 422 pulito.
+def test_analyze_rejects_out_of_range_radius(monkeypatch: pytest.MonkeyPatch) -> None:
+    """radius_m fuori da [search_radius_min_m, search_radius_max_m] -> 422 (#318).
 
-    Una citta'/zona inesistente non e' piu' respinta a monte (400): fallisce al
-    geocoding con ``ZoneNotFoundError`` -> 422 ``zona_non_geocodificabile``.
+    Validazione Pydantic pre-I/O, come il vecchio limite ``max_length=100`` su
+    ``citta'`` (rimosso insieme al campo): il body malformato non deve
+    raggiungere ne' il reverse geocode ne' Overpass.
     """
-
-    def _raise(zona: str, citta: str) -> dict[str, object]:
-        raise ZoneNotFoundError("zona ignota")
-
-    monkeypatch.setattr(retrieval, "geocode_zone", _raise)
-    resp = cast(
-        httpx.Response,
-        _client().post(  # pyright: ignore[reportUnknownMemberType]
-            "/analyze", json={"citta": "Acireale", "zona": "Nessundove"}
-        ),
-    )
-    assert resp.status_code == 422
-    assert resp.json()["detail"]["errore"] == "zona_non_geocodificabile"
-
-
-def test_analyze_rejects_overlong_citta(monkeypatch: pytest.MonkeyPatch) -> None:
-    """#191: citta' oltre max_length=100 -> 422 (validazione Pydantic, pre-I/O)."""
     _patch_io(monkeypatch)
     resp = cast(
         httpx.Response,
         _client().post(  # pyright: ignore[reportUnknownMemberType]
-            "/analyze", json={"citta": "A" * 101, "zona": "Centro"}
+            "/analyze",
+            json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 50_000.0},
         ),
     )
     assert resp.status_code == 422
 
 
 def test_analyze_overpass_down(monkeypatch: pytest.MonkeyPatch) -> None:
-    geo: dict[str, object] = {
-        "lat": 41.89,
-        "lon": 12.49,
-        "bbox": Bbox(41.88, 12.48, 41.90, 12.50),
-    }
-
-    def _fake_geocode(zona: str, citta: str) -> dict[str, object]:
-        return geo
-
-    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode)
+    monkeypatch.setattr(circle_search, "reverse_geocode_label", _fake_reverse_geocode)
 
     async def _raise_fetch(*args: object, **kwargs: object) -> list[Poi]:
         raise OverpassError("overpass giu'")
@@ -242,7 +232,10 @@ def test_analyze_overpass_down(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(retrieval, "fetch_pois", _raise_fetch)
     resp = cast(
         httpx.Response,
-        _client().post("/analyze", json={"citta": "Roma", "zona": "Centro"}),  # pyright: ignore[reportUnknownMemberType]
+        _client().post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze",
+            json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0},
+        ),
     )
     assert resp.status_code == 503
     assert resp.json()["detail"]["errore"] == "overpass_non_disponibile"
@@ -265,7 +258,8 @@ def test_analyze_non_chiama_mai_l_llm(monkeypatch: pytest.MonkeyPatch) -> None:
     resp = cast(
         httpx.Response,
         _client(llm=llm).post(  # pyright: ignore[reportUnknownMemberType]
-            "/analyze", json={"citta": "Roma", "zona": "Centro"}
+            "/analyze",
+            json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0},
         ),
     )
     assert resp.status_code == 200

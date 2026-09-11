@@ -14,7 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from crime_risk_analyzer import zone_context_cache
+from crime_risk_analyzer import circle_search, zone_context_cache
 from crime_risk_analyzer.config import Settings, get_settings
 from crime_risk_analyzer.geocoding import GeoResult
 from crime_risk_analyzer.llm.client import LLMError, LLMResponse, get_llm_client
@@ -588,18 +588,25 @@ class _RecordingLLMClient:
         )
 
 
-def _patch_io(monkeypatch: pytest.MonkeyPatch, *, densa: bool = False) -> None:
-    """Sostituisce geocoding e Overpass per i test delle rotte HTTP."""
+def _fake_reverse_geocode(lat: float, lon: float) -> tuple[str, str]:
+    return ("Roma", "Colosseo")
 
-    def _fake_geocode(zona: str, citta: str) -> GeoResult:
-        return GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50))
+
+def _patch_io(monkeypatch: pytest.MonkeyPatch, *, densa: bool = False) -> None:
+    """Sostituisce reverse geocode e Overpass per i test delle rotte HTTP (#318).
+
+    ``retrieval.geocode_zone`` non e' piu' chiamato da ``/analyze`` (il body
+    della rotta e' un cerchio, ``resolve_circle`` passa sempre un proprio
+    ``geo_source``): la sola I/O da patchare qui e' la label reverse-geocoded
+    (``circle_search.reverse_geocode_label``) e Overpass.
+    """
+    monkeypatch.setattr(circle_search, "reverse_geocode_label", _fake_reverse_geocode)
 
     async def _fake_fetch(
         bbox: object, citta: str, *args: object, **kwargs: object
     ) -> list[Poi]:
         return _pois_densi(citta) if densa else _pois(citta)
 
-    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode)
     monkeypatch.setattr(retrieval, "fetch_pois", _fake_fetch)
 
 
@@ -617,7 +624,10 @@ def _analizza(client: TestClient) -> str:
     zone_context_cache.clear()
     zona = cast(
         httpx.Response,
-        client.post("/analyze", json={"citta": "Roma", "zona": "Colosseo"}),  # pyright: ignore[reportUnknownMemberType]
+        client.post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze",
+            json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0},
+        ),
     )
     assert zona.status_code == 200
     return str(zona.json()["contesto_hash"])
@@ -653,7 +663,10 @@ def test_endpoint_completa_la_narrativa_lasciata_aperta_dalla_fase_1(
     client = _client()
     zona = cast(
         httpx.Response,
-        client.post("/analyze", json={"citta": "Roma", "zona": "Colosseo"}),  # pyright: ignore[reportUnknownMemberType]
+        client.post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze",
+            json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0},
+        ),
     )
     assert zona.status_code == 200
     assert zona.json()["narrativa"] is None
