@@ -16,7 +16,7 @@ from pydantic import ValidationError
 
 from crime_risk_analyzer import circle_search, zone_context_cache
 from crime_risk_analyzer.config import Settings, get_settings
-from crime_risk_analyzer.geocoding import GeoResult
+from crime_risk_analyzer.geocoding import GeoResult, ZoneNotFoundError
 from crime_risk_analyzer.llm.client import LLMError, LLMResponse, get_llm_client
 from crime_risk_analyzer.main import create_app
 from crime_risk_analyzer.models.geo import Bbox
@@ -426,6 +426,37 @@ async def test_zone_narrative_cold_cache_divergent_rebuild_refuses() -> None:
             geo_source=_geo_source,
         )
     assert zone_context_cache.get("Roma", "Colosseo") is None
+
+
+async def test_zone_narrative_cold_cache_geocode_failure_becomes_context_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#318 (reperto review I2): a cache fredda SENZA ``geo_source`` (il caso
+    reale della rotta) la ricostruzione fa un geocode FORWARD di ``citta``/
+    ``zona`` — che pero' nascono da un reverse geocode del cerchio, quasi mai
+    una stringa che Nominatim ritrova cercandola in avanti. Il fallimento non
+    deve propagare come 422 "zona non geocodificabile" (l'operatore non ha
+    digitato nulla di sbagliato): diventa lo stesso ``ContextMismatchError`` ->
+    409 del ramo ``contesto_hash``, con lo stesso invito a rilanciare l'analisi.
+    """
+    contesto_hash = await _prime_cache()
+    zone_context_cache.clear()
+
+    def _boom(zona: str, citta: str) -> GeoResult:
+        raise ZoneNotFoundError("zona ignota")
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _boom)
+
+    from crime_risk_analyzer.analyze_narrative import run_zone_narrative
+
+    with pytest.raises(ContextMismatchError):
+        await run_zone_narrative(
+            "Roma",
+            "Colosseo",
+            contesto_hash=contesto_hash,
+            executor=_FakeProfiler(),
+            llm_client=_FakeLLMClient(),
+        )
 
 
 async def test_zone_narrative_context_mismatch_raises() -> None:
