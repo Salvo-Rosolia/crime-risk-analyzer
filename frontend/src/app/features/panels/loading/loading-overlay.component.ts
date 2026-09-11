@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnDestroy, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnDestroy, signal } from '@angular/core';
 
 /**
  * Fasi cosmetiche allineate alla pipeline reale della fase 1 di `POST /analyze`
