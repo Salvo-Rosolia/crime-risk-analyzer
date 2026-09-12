@@ -90,6 +90,17 @@ describe('InputPanelComponent', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
+  it('il bottone disabilitato è collegato via aria-describedby al testo che spiega perché (fix reperto review accessibilità)', () => {
+    fixture.componentRef.setInput('circle', null);
+    fixture.detectChanges();
+    const btn: HTMLButtonElement = fixture.nativeElement.querySelector('button[type="submit"]');
+    const describedById = btn.getAttribute('aria-describedby');
+    expect(describedById).toBeTruthy();
+    const hint = fixture.nativeElement.querySelector(`#${describedById}`);
+    expect(hint).toBeTruthy();
+    expect(hint.classList).toContain('cra-hint');
+  });
+
   it('mostra il messaggio di errore server (Stato Errore) via input serverError', () => {
     fixture.componentRef.setInput(
       'serverError',

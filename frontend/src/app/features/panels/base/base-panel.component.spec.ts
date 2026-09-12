@@ -130,6 +130,17 @@ describe('BasePanelComponent', () => {
     });
   });
 
+  it('il bottone disabilitato è collegato via aria-describedby al testo che spiega perché (fix reperto review accessibilità)', () => {
+    fixture.componentRef.setInput('circle', null);
+    fixture.detectChanges();
+    const btn: HTMLButtonElement = fixture.nativeElement.querySelector('button[type="submit"]');
+    const describedById = btn.getAttribute('aria-describedby');
+    expect(describedById).toBeTruthy();
+    const hint = fixture.nativeElement.querySelector(`#${describedById}`);
+    expect(hint).toBeTruthy();
+    expect(hint.classList).toContain('cra-hint');
+  });
+
   it('senza cerchio il submit non emette analyzeBaseline (guardia difensiva anche a bottone disabilitato)', () => {
     const spy = jest.fn();
     fixture.componentInstance.analyzeBaseline.subscribe(spy);

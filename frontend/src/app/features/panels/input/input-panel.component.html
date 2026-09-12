@@ -1,5 +1,5 @@
 <h2 class="cra-eyebrow">Analisi zona</h2>
-<p class="cra-hint">Disegna un cerchio sulla mappa (clic per il centro, poi ancora un clic per confermare il raggio).</p>
+<p class="cra-hint" id="cra-circle-hint">Disegna un cerchio sulla mappa (clic per il centro, poi ancora un clic per confermare il raggio).</p>
 
 <form (submit)="onSubmit($event)">
   <div class="cra-field">
@@ -18,5 +18,12 @@
     <p class="cra-input-error" role="alert">{{ msg }}</p>
   }
 
-  <button type="submit" class="cra-btn-solid" [disabled]="!circle()">Analizza zona →</button>
+  <button
+    type="submit"
+    class="cra-btn-solid"
+    [disabled]="!circle()"
+    aria-describedby="cra-circle-hint"
+  >
+    Analizza zona →
+  </button>
 </form>
