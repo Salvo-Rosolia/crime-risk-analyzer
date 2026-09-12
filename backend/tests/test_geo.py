@@ -69,6 +69,12 @@ def test_bbox_from_circle_raggio_maggiore_bbox_piu_grande() -> None:
 
 
 def test_bbox_from_circle_semi_ampiezza_lat_coerente_con_metri() -> None:
-    # 500m / 111_320 m-per-grado ~= 0.004492 gradi di semi-ampiezza lat.
+    # Pinna la FORMULA di bbox_from_circle (metri per grado di latitudine derivati dal
+    # raggio terrestre IUGG, lo stesso di haversine_m: _EARTH_RADIUS_M in models/geo.py,
+    # non importato qui per non toccare un simbolo privato del modulo), non un magic
+    # number indipendente: prima dell'unificazione qui viveva il letterale 111_320,
+    # corrispondente a un raggio leggermente diverso (~6378.1 km equatoriale).
+    earth_radius_m = 6_371_008.8  # == crime_risk_analyzer.models.geo._EARTH_RADIUS_M
+    meters_per_degree_lat = earth_radius_m * math.pi / 180
     bbox = bbox_from_circle(0.0, 0.0, 500.0)
-    assert math.isclose(bbox.max_lat - 0.0, 500.0 / 111_320, rel_tol=1e-6)
+    assert math.isclose(bbox.max_lat - 0.0, 500.0 / meters_per_degree_lat, rel_tol=1e-9)

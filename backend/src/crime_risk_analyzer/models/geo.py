@@ -42,14 +42,22 @@ def bbox_from_circle(lat: float, lon: float, radius_m: float) -> Bbox:
     """Bbox rettangolare che circoscrive il cerchio.
 
     (centro ``lat``/``lon``, raggio in metri, #318)
-    Conversione approssimata gradi/metri (111_320 m per grado di latitudine);
-    la semi-ampiezza in longitudine si restringe con ``cos(lat)`` perche' i
-    meridiani convergono verso i poli. Pura: nessuna chiamata di rete, a
-    differenza del bbox da geocoding (:mod:`crime_risk_analyzer.geocoding`).
+    Conversione approssimata gradi/metri: i metri per grado di latitudine sono
+    derivati da ``_EARTH_RADIUS_M`` (circonferenza meridiana ``2*pi*R`` su 360
+    gradi) invece di un letterale indipendente (prima ``111_320``, che
+    corrisponde a un raggio leggermente diverso, ~6378.1 km equatoriale) — cosi'
+    questa funzione e :func:`haversine_m`, nello stesso modulo, non usano due
+    raggi terrestri diversi (~0.11% di scarto fra i due). La semi-ampiezza in
+    longitudine si restringe con ``cos(lat)`` perche' i meridiani convergono
+    verso i poli. Pura: nessuna chiamata di rete, a differenza del bbox da
+    geocoding (:mod:`crime_risk_analyzer.geocoding`).
     """
-    half_lat_deg = radius_m / 111_320
+    meters_per_degree_lat = _EARTH_RADIUS_M * math.pi / 180
+    half_lat_deg = radius_m / meters_per_degree_lat
     coslat = math.cos(math.radians(lat))
-    half_lon_deg = radius_m / (111_320 * coslat) if coslat > 1e-9 else half_lat_deg
+    half_lon_deg = (
+        radius_m / (meters_per_degree_lat * coslat) if coslat > 1e-9 else half_lat_deg
+    )
     return Bbox(
         min_lat=lat - half_lat_deg,
         min_lon=lon - half_lon_deg,
