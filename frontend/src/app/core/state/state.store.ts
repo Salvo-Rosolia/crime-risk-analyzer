@@ -4,7 +4,9 @@ import { Action, AppState, BaselineParams } from '@core/models/models';
 import { initialState, transition } from '@core/state/transition';
 import { poiNameDisplayLabel } from '@core/ui-helpers';
 
-function errorMessage(err: unknown, fallback: string): string {
+/** Esportata (fix reperto review): riusata da `App.onGoToPlace` per lo stesso spacchettamento
+ * dell'errore backend, invece di duplicare qui la stessa logica in due file. */
+export function errorMessage(err: unknown, fallback: string): string {
   // Angular HttpErrorResponse NON è instanceof Error a runtime (angular#22762):
   // il messaggio del backend vive in err.error.detail.messaggio ({"detail":{...}}).
   if (err && typeof err === 'object') {

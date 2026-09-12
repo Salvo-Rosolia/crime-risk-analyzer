@@ -18,6 +18,7 @@ jest.mock('leaflet', () => ({
 
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
+import { HttpErrorResponse } from '@angular/common/http';
 import { App } from './app';
 import { ApiService } from '@core/api/api.service';
 import { StateStore } from '@core/state/state.store';
@@ -1216,14 +1217,19 @@ describe('App shell', () => {
       expect(f.nativeElement.querySelector('.cra-place-error')).toBeNull();
     });
 
-    it('"vai a un luogo": luogo non trovato → messaggio d\'errore inline, niente flyTo', async () => {
+    it('"vai a un luogo": luogo non trovato (404, detail stringa come da backend reale) → messaggio generico inline, niente flyTo', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
 
       const mapDebugEl = f.debugElement.query(By.directive(MapComponent));
       const flyToSpy = jest.spyOn(mapDebugEl.componentInstance, 'flyTo');
-      api.geocodePlace.mockRejectedValue(new Error('404'));
+      // Stessa forma della risposta reale del backend per "nessun risultato" (main.py:geocode,
+      // HTTPException(404, detail="luogo non trovato") — `detail` STRINGA, non `{messaggio}`):
+      // errorMessage() non la spacchetta e cade sul fallback generico passato da onGoToPlace.
+      api.geocodePlace.mockRejectedValue(
+        new HttpErrorResponse({ status: 404, error: { detail: 'luogo non trovato' } }),
+      );
 
       const input: HTMLInputElement = f.nativeElement.querySelector('.cra-place-search input');
       input.value = 'Atlantide';
@@ -1240,6 +1246,41 @@ describe('App shell', () => {
       expect(err.textContent).toContain('Luogo non trovato');
     });
 
+    it('"vai a un luogo": guasto del backend (503, fix reperto review) → mostra il messaggio REALE del backend, non "Luogo non trovato" (che implicherebbe un luogo inesistente, non un servizio giù)', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      const mapDebugEl = f.debugElement.query(By.directive(MapComponent));
+      const flyToSpy = jest.spyOn(mapDebugEl.componentInstance, 'flyTo');
+      // Stessa forma di errors.py:_handle_geocoding_error (GeocodingError -> 503).
+      api.geocodePlace.mockRejectedValue(
+        new HttpErrorResponse({
+          status: 503,
+          error: {
+            detail: {
+              errore: 'geocoding_non_disponibile',
+              messaggio: 'Servizio di geocoding non raggiungibile.',
+            },
+          },
+        }),
+      );
+
+      const input: HTMLInputElement = f.nativeElement.querySelector('.cra-place-search input');
+      input.value = 'Duomo di Milano';
+      input.dispatchEvent(new Event('input'));
+      f.detectChanges();
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+      await f.whenStable();
+      f.detectChanges();
+
+      expect(flyToSpy).not.toHaveBeenCalled();
+      const err = f.nativeElement.querySelector('.cra-place-error');
+      expect(err.textContent).toContain('Servizio di geocoding non raggiungibile.');
+      expect(err.textContent).not.toContain('Luogo non trovato');
+    });
+
     it('"vai a un luogo": testo vuoto non chiama geocodePlace', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
@@ -1249,6 +1290,87 @@ describe('App shell', () => {
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
 
       expect(api.geocodePlace).not.toHaveBeenCalled();
+    });
+
+    it('"vai a un luogo": race condition (fix reperto review) — submit rapido A poi B con A che risolve DOPO B → lo stato finale riflette SOLO B', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      const mapDebugEl = f.debugElement.query(By.directive(MapComponent));
+      const flyToSpy = jest.spyOn(mapDebugEl.componentInstance, 'flyTo');
+
+      let resolveA!: (v: { lat: number; lon: number }) => void;
+      let resolveB!: (v: { lat: number; lon: number }) => void;
+      api.geocodePlace
+        .mockImplementationOnce(() => new Promise((res) => (resolveA = res)))
+        .mockImplementationOnce(() => new Promise((res) => (resolveB = res)));
+
+      const input: HTMLInputElement = f.nativeElement.querySelector('.cra-place-search input');
+
+      input.value = 'Luogo A';
+      input.dispatchEvent(new Event('input'));
+      f.detectChanges();
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+      input.value = 'Luogo B';
+      input.dispatchEvent(new Event('input'));
+      f.detectChanges();
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+      expect(api.geocodePlace).toHaveBeenCalledTimes(2);
+
+      // B (l'ultima richiesta) risolve PRIMA, poi A (superata) arriva in ritardo — l'ordine
+      // realistico di una race persa dalla richiesta più vecchia.
+      resolveB({ lat: 45.4642, lon: 9.19 });
+      await f.whenStable();
+      f.detectChanges();
+      resolveA({ lat: 41.9, lon: 12.5 });
+      await f.whenStable();
+      f.detectChanges();
+
+      // Solo l'effetto di B deve essere applicato: un solo flyTo, con le coordinate di B.
+      expect(flyToSpy).toHaveBeenCalledTimes(1);
+      expect(flyToSpy).toHaveBeenCalledWith(45.4642, 9.19);
+      expect(f.nativeElement.querySelector('.cra-place-error')).toBeNull();
+    });
+
+    it('"vai a un luogo": race condition sull\'errore — A (superata) fallisce DOPO che B è già riuscita, l\'errore tardivo di A non deve invadere lo stato', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      const mapDebugEl = f.debugElement.query(By.directive(MapComponent));
+      const flyToSpy = jest.spyOn(mapDebugEl.componentInstance, 'flyTo');
+
+      let rejectA!: (e: unknown) => void;
+      let resolveB!: (v: { lat: number; lon: number }) => void;
+      api.geocodePlace
+        .mockImplementationOnce(() => new Promise((_res, rej) => (rejectA = rej)))
+        .mockImplementationOnce(() => new Promise((res) => (resolveB = res)));
+
+      const input: HTMLInputElement = f.nativeElement.querySelector('.cra-place-search input');
+
+      input.value = 'Luogo A';
+      input.dispatchEvent(new Event('input'));
+      f.detectChanges();
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+      input.value = 'Luogo B';
+      input.dispatchEvent(new Event('input'));
+      f.detectChanges();
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+      resolveB({ lat: 45.4642, lon: 9.19 });
+      await f.whenStable();
+      f.detectChanges();
+      rejectA(new Error('boom'));
+      await f.whenStable();
+      f.detectChanges();
+
+      expect(flyToSpy).toHaveBeenCalledTimes(1);
+      expect(flyToSpy).toHaveBeenCalledWith(45.4642, 9.19);
+      expect(f.nativeElement.querySelector('.cra-place-error')).toBeNull();
     });
   });
 

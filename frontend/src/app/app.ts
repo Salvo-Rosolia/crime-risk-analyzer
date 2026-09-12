@@ -14,7 +14,7 @@ import { NarrativeSheetComponent } from '@features/panels/narrative/narrative-sh
 import { BasePanelComponent } from '@features/panels/base/base-panel.component';
 import { HeaderControlsComponent } from '@features/panels/header-controls/header-controls.component';
 import { ApiService } from '@core/api/api.service';
-import { StateStore } from '@core/state/state.store';
+import { errorMessage, StateStore } from '@core/state/state.store';
 import {
   AnalyzeRequestPayload,
   BaselineParams,
@@ -59,6 +59,13 @@ export class App {
    * indipendente dal cerchio di ricerca — non tocca la FSM né `circle`. */
   protected readonly placeQuery = signal('');
   protected readonly placeError = signal<string | null>(null);
+  /** Token di sequenza per `onGoToPlace` (fix reperto review, stesso idioma di
+   * `StateStore.contestoCambiato`, qui con un contatore invece di un'impronta perché non esiste un
+   * hash di richiesta da confrontare): incrementato a ogni submit, catturato localmente prima
+   * dell'`await`. Una richiesta A lanciata e poi superata da una richiesta B più recente non deve
+   * applicare i propri effetti (`flyTo`/`placeError`) se arriva dopo — altrimenti una risposta A
+   * arrivata in ritardo sovrascriverebbe silenziosamente la mappa/l'errore che B ha già impostato. */
+  private placeRequestSeq = 0;
 
   /**
    * POI selezionato + il suo numero (stesso ordine/numero del pin e della card accoppiati), per
@@ -91,18 +98,34 @@ export class App {
   /**
    * "vai a un luogo" (#318): geocodifica il testo libero (`ApiService.geocodePlace`, Nominatim) e
    * sposta la mappa (`MapComponent.flyTo`) — non tocca `circle`: è pura navigazione, non selezione
-   * dell'area da analizzare. Un luogo non trovato (404) o un errore di rete finiscono nello stesso
-   * messaggio inline: l'utente non ha bisogno di distinguerli, solo di riprovare.
+   * dell'area da analizzare.
+   *
+   * Guardia di sequenza (fix reperto review, race condition): senza `seq`, un submit rapido di
+   * A poi B con la risposta di A arrivata DOPO quella di B applicherebbe per ultima gli effetti di
+   * A — la mappa/l'errore mostrati non corrisponderebbero più all'ultima richiesta dell'utente,
+   * silenziosamente. Solo la risposta della richiesta ANCORA la più recente (`seq === this.
+   * placeRequestSeq` quando arriva) applica `flyTo`/`placeError`; le altre vengono scartate.
+   *
+   * Messaggio d'errore (fix reperto review): `errorMessage` (esportata da `state.store.ts`, stessa
+   * funzione già usata per ogni altro errore backend in questa app) spacchetta
+   * `error.error.detail.messaggio` quando il backend lo fornisce (es. 503 "geocoding non
+   * disponibile") invece del letterale fisso "Luogo non trovato." —
+   * quel fallback resta corretto SOLO per il 404 reale (`/geocode` risponde con `detail` STRINGA,
+   * non `{messaggio}`, per il caso "nessun risultato": vedi `main.py:geocode`), che quindi non viene
+   * spacchettato e cade comunque sul fallback.
    */
   protected async onGoToPlace(): Promise<void> {
     const q = this.placeQuery().trim();
     if (!q) return;
+    const seq = ++this.placeRequestSeq;
     try {
       const { lat, lon } = await this.api.geocodePlace(q);
+      if (seq !== this.placeRequestSeq) return;
       this.placeError.set(null);
       this.mapRef().flyTo(lat, lon);
-    } catch {
-      this.placeError.set('Luogo non trovato.');
+    } catch (err) {
+      if (seq !== this.placeRequestSeq) return;
+      this.placeError.set(errorMessage(err, 'Luogo non trovato.'));
     }
   }
 
