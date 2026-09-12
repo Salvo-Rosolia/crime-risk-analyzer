@@ -145,10 +145,18 @@ export class MapComponent implements OnDestroy {
 
   constructor() {
     afterNextRender(() => {
-      const map = L.map(this.mapEl().nativeElement, { zoomControl: false }).setView(
-        [41.9028, 12.4964],
-        12,
-      );
+      // doubleClickZoom:false (fix reperto review): Leaflet emette DUE eventi `click` nativi
+      // prima del `dblclick` su ogni doppio clic. Il draw FSM di questo componente (vedi
+      // {@link onMapClick}) legge ogni `click` come un passo idle->drawing-radius->ready (o
+      // ready->nuovo centro): senza disattivare qui lo zoom-su-doppio-clic di default, un
+      // doppio clic fatto per zoomare (nessuna intenzione di ridisegnare) veniva silenziosamente
+      // interpretato come due clic della FSM, scartando un cerchio già confermato
+      // (`circleChange(null)`) e sostituendolo con uno nuovo a raggio di default nel punto dove
+      // l'utente voleva solo zoomare.
+      const map = L.map(this.mapEl().nativeElement, {
+        zoomControl: false,
+        doubleClickZoom: false,
+      }).setView([41.9028, 12.4964], 12);
       L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
         subdomains: 'abcd',
         maxZoom: 19,
@@ -268,11 +276,30 @@ export class MapComponent implements OnDestroy {
    * `[value]` sovrascrive il testo digitato) — l'utente ha finito di comporre il numero, quindi
    * allineare la vista al valore effettivo non gli impedisce più di raggiungere un valore
    * intermedio come durante la digitazione (vedi {@link onRadiusInput}).
+   *
+   * Campo svuotato del tutto alla conferma (fix reperto review): `Number('') === 0`, che è
+   * finito (non `NaN`), quindi senza questo guardiano `clampRadius(0)` scatterebbe silenziosamente
+   * al minimo (150m) — scartando un raggio valido già confermato (es. 800m) invece di ripristinarlo.
+   * Stessa guardia già presente in {@link onRadiusInput} per il caso identico durante la digitazione
+   * (`value.trim() === ''`): qui si riparte da `this.radiusM()`, l'ultimo valore noto-buono, invece
+   * di far cadere `raw` (0) nel clamp.
+   *
+   * `target.value` è riscritto qui esplicitamente, non solo via `radiusM.set(...)` + `[value]`:
+   * i segnali Angular saltano la notifica se il nuovo valore è uguale al precedente (`Object.is`),
+   * quindi quando il ripristino sopra riporta `clamped` allo stesso valore già in `radiusM()` (caso
+   * comune: si svuota un campo già a 800 e si conferma) il solo `[value]` non ridisegnerebbe il
+   * campo, che resterebbe visivamente vuoto pur avendo lo stato logico corretto.
    */
   protected onRadiusChange(event: Event): void {
-    const raw = Number((event.target as HTMLInputElement).value);
-    const clamped = this.clampRadius(Number.isFinite(raw) ? raw : this.radiusM());
+    const target = event.target as HTMLInputElement;
+    const value = target.value;
+    const raw = Number(value);
+    const clamped =
+      value.trim() === ''
+        ? this.radiusM()
+        : this.clampRadius(Number.isFinite(raw) ? raw : this.radiusM());
     this.radiusM.set(clamped);
+    target.value = String(clamped);
     this.circleLayer?.setRadius(clamped);
     if (this.drawState() === 'ready' && this.centerLatLng) {
       this.circleChange.emit({

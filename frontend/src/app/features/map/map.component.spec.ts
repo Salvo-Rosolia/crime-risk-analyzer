@@ -497,6 +497,30 @@ describe('MapComponent', () => {
       expect(input.value).toBe('');
     });
 
+    it('svuotare il campo del tutto e confermare (change) ripristina l\'ultimo raggio valido, non scatta al minimo 150 (fix reperto review: Number(\'\')===0 è finito, non NaN)', () => {
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fixture.detectChanges();
+      const input = radiusInput()!;
+
+      // Conferma prima un raggio valido e diverso sia dal default (300) sia dal minimo (150),
+      // così un ripristino accidentale a uno di quei due valori farebbe fallire l'assert sotto.
+      input.value = '800';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      input.dispatchEvent(new Event('change'));
+      fixture.detectChanges();
+      expect(input.value).toBe('800');
+
+      input.value = '';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      input.dispatchEvent(new Event('change'));
+      fixture.detectChanges();
+
+      expect(mockCircle.setRadius).toHaveBeenLastCalledWith(800);
+      expect(input.value).toBe('800');
+    });
+
     it('il change (conferma) ri-emette circleChange col valore clampato quando il cerchio è "ready"', () => {
       const spy = jest.fn();
       fixture.componentInstance.circleChange.subscribe(spy);
