@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { mockApi } from './support/mocking';
 import { S } from './support/selectors';
+import { drawSearchCircle } from './support/map';
 import analyzeFixture from './fixtures/analyze.happy.json';
 import error422 from './fixtures/error-422.json';
 import type { AnalyzeResponse } from '../src/app/core/models/models';
@@ -52,8 +53,7 @@ test.describe('Guardia toggle mode durante LOADING', () => {
     // Sanity check: prima di qualunque analisi il toggle è abilitato (Stato INPUT).
     await expect(S.modeToggleButton(page, 'base')).toBeEnabled();
 
-    await S.cittaField(page).fill(analyze.citta);
-    await S.zonaField(page).fill(analyze.zona_normalizzata);
+    await drawSearchCircle(page);
     await S.submitButton(page).click();
 
     // Stato LOADING: la richiesta è trattenuta dal gate, nessuna risposta è ancora arrivata.
@@ -69,25 +69,47 @@ test.describe('Guardia toggle mode durante LOADING', () => {
   });
 });
 
-test.describe('Retry: il form si ripopola dopo ERROR con gli ultimi valori inviati', () => {
-  test('citta/zona/domanda restano nel form dopo un errore 422 (nessun azzeramento)', async ({
+test.describe('Retry: il cerchio e la domanda restano validi dopo ERROR (nessun azzeramento)', () => {
+  test('un errore 422 non obbliga a ridisegnare il cerchio: la domanda resta nel form e il retry ha successo', async ({
     page,
   }) => {
     await mockApi(page, { analyze: error422, analyzeStatus: 422 });
     await page.goto('/');
     await expect(S.inputPanel(page)).toBeVisible();
 
-    await S.cittaField(page).fill('Roma');
-    await S.zonaField(page).fill('Vicolo Sconosciuto');
+    await drawSearchCircle(page);
     await S.domandaField(page).fill('Quali rischi di sera?');
     await S.submitButton(page).click();
 
-    // Stato ERROR: stesso cra-input-panel rimontato (@case distinto in app.html), ripopolato dai
-    // `pendingCitta/pendingZona/pendingDomanda` sopravvissuti a LOAD_ERROR (transition.ts).
+    // Stato ERROR: stesso cra-input-panel rimontato (@case distinto in app.html). La domanda
+    // ripopola il form da `pendingDomanda` sopravvissuto a LOAD_ERROR (transition.ts); il cerchio
+    // (#318) vive FUORI dalla FSM (segnale `circle` in app.ts, azzerato solo da RESET), quindi il
+    // bottone resta abilitato senza dover ridisegnare nulla.
     await expect(S.inputError(page)).toHaveText(error422.detail.messaggio);
-    await expect(S.cittaField(page)).toHaveValue('Roma');
-    await expect(S.zonaField(page)).toHaveValue('Vicolo Sconosciuto');
     await expect(S.domandaField(page)).toHaveValue('Quali rischi di sera?');
+    await expect(S.submitButton(page)).toBeEnabled();
+
+    // Riprova senza ridisegnare il cerchio: stesso submit, questa volta la rotta risponde 200.
+    await page.unroute('**/analyze');
+    await page.route('**/analyze', (route) => route.fulfill({ json: analyze }));
+    await page.unroute('**/analyze/narrativa');
+    await page.route('**/analyze/narrativa', (route) =>
+      route.fulfill({
+        json: {
+          narrativa: analyze.narrativa ?? '',
+          narrativa_fonti: analyze.narrativa_fonti,
+          tokens_input: analyze.tokens_input,
+          tokens_output: analyze.tokens_output,
+          latenza_ms: analyze.latenza_ms,
+          repro: analyze.repro,
+          fallback: analyze.fallback,
+          llm_used: analyze.llm_used,
+        },
+      }),
+    );
+    await S.submitButton(page).click();
+
+    await expect(S.poiPanel(page)).toBeVisible();
   });
 });
 
@@ -101,13 +123,14 @@ test.describe('Errore in BASE resta su BASE (non lo Stato ERROR condiviso)', () 
     );
 
     await page.goto('/');
+    // Il cerchio si disegna PRIMA del toggle, mentre la mappa è visibile in Stato INPUT: passare a
+    // BASE la sostituisce con un form opaco a tutto schermo (`base-panel.component.css`), che
+    // coprirebbe la mappa reale e intercetterebbe i clic al posto suo. `circle` (app.ts) è
+    // condiviso tra i due pannelli e il toggle modalità non lo azzera mai.
+    await drawSearchCircle(page);
     await S.modeToggleButton(page, 'base').click();
     await expect(S.basePanel(page)).toBeVisible();
 
-    // <input list>+<datalist>: testo libero, nessuna attesa di popolamento opzioni necessaria
-    // (stesso pattern di cittaField).
-    await S.baseCittaField(page).fill('Roma');
-    await S.baseZonaField(page).fill('Colosseo');
     await S.baseSubmitButton(page).click();
 
     // Resta su BASE: niente Stato ERROR condiviso col form del sistema completo (che
@@ -116,9 +139,9 @@ test.describe('Errore in BASE resta su BASE (non lo Stato ERROR condiviso)', () 
     await expect(S.inputPanel(page)).toHaveCount(0);
     await expect(S.baseServerError(page)).toHaveText(error422.detail.messaggio);
 
-    // Il form Base resta popolato per il retry (stessa garanzia di ripopolamento del sistema completo).
-    await expect(S.baseCittaField(page)).toHaveValue('Roma');
-    await expect(S.baseZonaField(page)).toHaveValue('Colosseo');
+    // Il cerchio (#318, fuori dalla FSM) resta valido per il retry: il bottone resta abilitato
+    // senza dover ridisegnare nulla (stessa garanzia di ripopolamento del sistema completo sopra).
+    await expect(S.baseSubmitButton(page)).toBeEnabled();
   });
 });
 
@@ -126,8 +149,7 @@ test.describe('Banner anti-hallucination sopravvive al collapse/espandi della na
   test('resta nel DOM sia collassata che espansa', async ({ page }) => {
     await mockApi(page, { analyze });
     await page.goto('/');
-    await S.cittaField(page).fill(analyze.citta);
-    await S.zonaField(page).fill(analyze.zona_normalizzata);
+    await drawSearchCircle(page);
     await S.submitButton(page).click();
     await expect(S.poiPanel(page)).toBeVisible();
 

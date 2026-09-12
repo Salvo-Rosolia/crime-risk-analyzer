@@ -14,12 +14,6 @@ export const S = {
   header: (p: Page): Locator => p.locator('.cra-header'),
   /** Stato INPUT/ERROR: `cra-input-panel` (stesso componente per entrambi gli stati). */
   inputPanel: (p: Page): Locator => p.locator('cra-input-panel'),
-  /** Campo città del form input-panel: `<input list="cra-citta-options">` + `<datalist>`,
-   * NON un `<select>` nativo — va compilato digitando, non con `selectOption`
-   * (`input-panel.component.html`, campo `#cra-citta`). */
-  cittaField: (p: Page): Locator => p.locator('#cra-citta'),
-  /** Campo zona del form input-panel (`#cra-zona`, testo libero). */
-  zonaField: (p: Page): Locator => p.locator('#cra-zona'),
   /** Campo domanda opzionale del form input-panel (`#cra-domanda`, textarea). */
   domandaField: (p: Page): Locator => p.locator('#cra-domanda'),
   /** Bottone di invio del form input-panel ("Analizza zona →"). */
@@ -99,6 +93,11 @@ export const S = {
   hiddenBar: (p: Page): Locator => p.locator('cra-poi-panel .cra-hidden-bar'),
   /** Badge di confidence su ciascuna card POI (`.cra-badge-confidence`: dot + etichetta). */
   poiCardConfidenceBadges: (p: Page): Locator => p.locator('cra-poi-panel .cra-badge-confidence'),
+  /** Host `<cra-map>` reale (Leaflet, #318): mai smontato (fuori dallo `@switch` di schermo in
+   * `app.html`), usato per calcolare le coordinate pixel su cui `support/map.ts` disegna il
+   * cerchio di ricerca via `page.mouse` — non un locator su un elemento semantico del cerchio in
+   * sé, che non esiste (il cerchio è uno stato interno di `MapComponent`, non markup ispezionabile). */
+  mapEl: (p: Page): Locator => p.locator('cra-map'),
   /** Marker Leaflet (pin numerati): `divIcon` con `className: 'cra-poi-pin'`, che Leaflet
    * concatena al proprio `leaflet-marker-icon` di base (`map.component.ts`). */
   mapMarkers: (p: Page): Locator => p.locator('.leaflet-marker-icon'),
@@ -122,12 +121,6 @@ export const S = {
     p
       .locator('cra-header-controls')
       .getByRole('button', { name: mode === 'base' ? 'Base' : 'Completo', exact: true }),
-  /** Stato BASE: campo città `<input id="cra-base-citta" list="cra-base-citta-options">` +
-   * `<datalist>` (stesso pattern di `cittaField`/INPUT-ERROR, non più un `<select>` nativo —
-   * confermato in `base-panel.component.html:20`), va compilato con `fill`, non `selectOption`. */
-  baseCittaField: (p: Page): Locator => p.locator('#cra-base-citta'),
-  /** Stato BASE: campo zona testo libero (`#cra-base-zona`, `base-panel.component.html:34`). */
-  baseZonaField: (p: Page): Locator => p.locator('#cra-base-zona'),
   /** Stato BASE: campo opzionale "Tipo POI" (`#cra-base-tipo-poi`). */
   baseTipoPoiField: (p: Page): Locator => p.locator('#cra-base-tipo-poi'),
   /** Stato BASE: bottone di invio del form parametri ("Cerca", `base-panel.component.html:50`). */

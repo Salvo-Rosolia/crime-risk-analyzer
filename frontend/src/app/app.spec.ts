@@ -17,14 +17,28 @@ jest.mock('leaflet', () => ({
 }));
 
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
+import { HttpErrorResponse } from '@angular/common/http';
 import { App } from './app';
 import { ApiService } from '@core/api/api.service';
 import { StateStore } from '@core/state/state.store';
+import { MapComponent } from '@features/map/map.component';
 import type {
   AnalyzeResponse,
+  Circle,
   PoiNarrativeResponse,
   ZoneNarrativeResponse,
 } from '@core/models/models';
+
+/**
+ * Simula MapComponent che emette `circleChange` (#318): il cerchio disegnato vive fuori dalla FSM,
+ * alimentato dall'output reale del componente mappa — niente mock di `circle` sullo shell, si passa
+ * dallo stesso percorso che userebbe l'utente (due clic sulla mappa).
+ */
+function emitCircle(f: ComponentFixture<App>, circle: Circle | null): void {
+  const mapDebugEl = f.debugElement.query(By.directive(MapComponent));
+  mapDebugEl.componentInstance.circleChange.emit(circle);
+}
 
 const emptyResp: AnalyzeResponse = {
   citta: 'Roma',
@@ -47,18 +61,18 @@ const emptyResp: AnalyzeResponse = {
 describe('App shell', () => {
   let store: StateStore;
   let api: {
-    cities: jest.Mock;
     analyze: jest.Mock;
     analyzeBaseline: jest.Mock;
+    geocodePlace: jest.Mock;
     poiNarrative: jest.Mock;
     zoneNarrative: jest.Mock;
   };
 
   beforeEach(async () => {
     api = {
-      cities: jest.fn().mockResolvedValue([]),
       analyze: jest.fn(),
       analyzeBaseline: jest.fn(),
+      geocodePlace: jest.fn(),
       poiNarrative: jest.fn(),
       // Default: mai risolve, così i test estranei alla narrativa di zona in background (#292)
       // non devono preoccuparsene; i test dedicati sovrascrivono esplicitamente.
@@ -79,16 +93,23 @@ describe('App shell', () => {
     expect(f.nativeElement.querySelector('cra-map')).toBeTruthy();
   });
 
-  it('Stato LOADING: overlay presente con la zona in corso (cosmetico)', async () => {
+  it('Stato LOADING: overlay presente durante il caricamento (cosmetico)', async () => {
     const f = TestBed.createComponent(App);
     f.detectChanges();
     await f.whenStable();
 
-    store.dispatch({ type: 'ANALYZE', citta: 'Roma', zona: 'Trastevere', pipeline: 'completo' });
+    store.dispatch({
+      type: 'ANALYZE',
+      center: { lat: 41.9, lon: 12.5 },
+      radiusM: 300,
+      pipeline: 'completo',
+    });
     f.detectChanges();
 
+    // #318: l'overlay non nomina più una zona digitata (non ne esiste una finché il backend non
+    // la risolve dal cerchio); resta puramente cosmetico, cablato sulle fasi fisse della pipeline.
     expect(f.nativeElement.querySelector('cra-loading-overlay')).toBeTruthy();
-    expect(f.nativeElement.textContent).toContain('Trastevere');
+    expect(f.nativeElement.textContent).toContain("Analizzando l'area selezionata");
   });
 
   it('Stato RESULTS dopo LOAD_SUCCESS: pannello POI presente', async () => {
@@ -212,16 +233,18 @@ describe('App shell', () => {
     expect(store.screen()).toBe('DETAIL');
   });
 
-  it('percorso reale: submit da InputPanel (Stato A) → LOAD_ERROR → i campi conservano i valori digitati (MAJOR fix)', async () => {
+  it('percorso reale: submit da InputPanel (Stato A) → LOAD_ERROR → domanda e cerchio sopravvivono al remount (MAJOR fix)', async () => {
     const f = TestBed.createComponent(App);
     f.detectChanges();
 
-    const cittaInput: HTMLInputElement = f.nativeElement.querySelector('#cra-citta');
-    cittaInput.value = 'Roma';
-    cittaInput.dispatchEvent(new Event('input'));
-    const zonaInput: HTMLInputElement = f.nativeElement.querySelector('#cra-zona');
-    zonaInput.value = 'Atlantide';
-    zonaInput.dispatchEvent(new Event('input'));
+    // #318: il centro/raggio non si digitano più, arrivano dal cerchio disegnato sulla mappa.
+    const circle: Circle = { lat: 41.9, lon: 12.5, radiusM: 300 };
+    emitCircle(f, circle);
+    f.detectChanges();
+
+    const domandaInput: HTMLTextAreaElement = f.nativeElement.querySelector('#cra-domanda');
+    domandaInput.value = 'di sera?';
+    domandaInput.dispatchEvent(new Event('input'));
     f.detectChanges();
 
     api.analyze.mockRejectedValue(new Error('"Atlantide" non corrisponde ad alcuna area.'));
@@ -233,6 +256,11 @@ describe('App shell', () => {
     const form: HTMLFormElement = f.nativeElement.querySelector('form');
     form.dispatchEvent(new Event('submit', { cancelable: true }));
     expect(store.screen()).toBe('LOADING');
+    expect(startAnalysisSpy).toHaveBeenCalledWith(
+      { lat: circle.lat, lon: circle.lon },
+      circle.radiusM,
+      'di sera?',
+    );
 
     await startAnalysisSpy.mock.results[0].value;
     f.detectChanges();
@@ -240,12 +268,15 @@ describe('App shell', () => {
     expect(store.screen()).toBe('ERROR');
     expect(f.nativeElement.textContent).toContain('non corrisponde ad alcuna area');
 
-    // cra-input-panel è stato smontato (Stato A) e RIMONTATO (Stato Errore, @case distinto):
-    // i valori devono arrivare dai selettori pending dello store, non da segnali locali sopravvissuti.
-    const cittaAfterError: HTMLInputElement = f.nativeElement.querySelector('#cra-citta');
-    const zonaAfterError: HTMLInputElement = f.nativeElement.querySelector('#cra-zona');
-    expect(cittaAfterError.value).toBe('Roma');
-    expect(zonaAfterError.value).toBe('Atlantide');
+    // cra-input-panel è stato smontato (Stato A) e RIMONTATO (Stato Errore, @case distinto): la
+    // domanda arriva dai selettori pending dello store (comportamento invariato), il cerchio dal
+    // segnale `circle` dello shell — MapComponent stesso non si smonta mai, quindi non serve
+    // reseeding esterno per farlo sopravvivere al remount.
+    const domandaAfterError: HTMLTextAreaElement = f.nativeElement.querySelector('#cra-domanda');
+    expect(domandaAfterError.value).toBe('di sera?');
+    const submitAfterError: HTMLButtonElement =
+      f.nativeElement.querySelector('button[type=submit]');
+    expect(submitAfterError.disabled).toBe(false);
   });
 
   it('toggle RESULTS↔FILTER non rimonta cra-poi-panel (stesso nodo DOM, niente reset scroll)', async () => {
@@ -356,11 +387,12 @@ describe('App shell', () => {
     expect(listWrapper.hidden).toBe(false);
   });
 
-  it('ACCEPTANCE: Rigenera re-invoca startAnalysis con lastQuery e SOSTITUISCE i risultati (non li duplica)', async () => {
+  it('ACCEPTANCE: Rigenera re-invoca startAnalysis con lastQuery (center+radiusM+domanda) e SOSTITUISCE i risultati (non li duplica)', async () => {
     const f = TestBed.createComponent(App);
     f.detectChanges();
     await f.whenStable();
 
+    const center = { lat: 41.9, lon: 12.5 };
     api.analyze.mockResolvedValueOnce({
       ...emptyResp,
       poi: [
@@ -377,10 +409,19 @@ describe('App shell', () => {
         },
       ],
     });
-    await store.startAnalysis('Roma', 'Colosseo', 'di sera?');
+    await store.startAnalysis(center, 300, 'di sera?');
     f.detectChanges();
     expect(store.completoData()?.poi).toHaveLength(1);
-    expect(store.lastQuery()).toEqual({ citta: 'Roma', zona: 'Colosseo', domanda: 'di sera?' });
+    // #318: citta/zona in lastQuery sono le etichette RISOLTE dalla risposta (emptyResp.citta/
+    // zona_normalizzata), non un testo digitato — center/radiusM/domanda sono invece quelli
+    // dell'azione originale, la coppia che "Rigenera" deve rilanciare identica.
+    expect(store.lastQuery()).toEqual({
+      center,
+      radiusM: 300,
+      citta: 'Roma',
+      zona: 'Centro',
+      domanda: 'di sera?',
+    });
 
     const startAnalysisSpy = jest.spyOn(store, 'startAnalysis');
     api.analyze.mockResolvedValueOnce({
@@ -411,8 +452,12 @@ describe('App shell', () => {
       ],
     });
 
+    // Copre il fix del bug segnalato dal Task 11 (onRegenerate chiamava startAnalysis con
+    // query.citta/query.zona, stringhe, invece di query.center/query.radiusM): senza il fix
+    // questa asserzione fallisce, perché lastQuery non ha più campi citta/zona come primi due
+    // argomenti posizionali.
     (f.nativeElement.querySelector('.cra-btn-regen') as HTMLElement).click();
-    expect(startAnalysisSpy).toHaveBeenCalledWith('Roma', 'Colosseo', 'di sera?');
+    expect(startAnalysisSpy).toHaveBeenCalledWith(center, 300, 'di sera?');
 
     await startAnalysisSpy.mock.results[0].value;
     f.detectChanges();
@@ -421,7 +466,6 @@ describe('App shell', () => {
   });
 
   it("ACCEPTANCE: toggle Base nell'header porta a Stato BASE; la ricerca chiama /analyze/baseline e resta su BASE con la tabella popolata", async () => {
-    api.cities.mockResolvedValue(['Roma']);
     const f = TestBed.createComponent(App);
     f.detectChanges();
     await f.whenStable();
@@ -438,12 +482,8 @@ describe('App shell', () => {
     expect(store.screen()).toBe('BASE');
     expect(f.nativeElement.querySelector('cra-base-panel')).toBeTruthy();
 
-    const cittaInput: HTMLInputElement = f.nativeElement.querySelector('#cra-base-citta');
-    cittaInput.value = 'Roma';
-    cittaInput.dispatchEvent(new Event('input'));
-    const zonaInput: HTMLInputElement = f.nativeElement.querySelector('#cra-base-zona');
-    zonaInput.value = 'Centro';
-    zonaInput.dispatchEvent(new Event('input'));
+    // #318: il centro/raggio non si digitano più, arrivano dal cerchio disegnato sulla mappa.
+    emitCircle(f, { lat: 41.9, lon: 12.5, radiusM: 300 });
     f.detectChanges();
 
     api.analyzeBaseline.mockResolvedValue({
@@ -481,7 +521,10 @@ describe('App shell', () => {
 
     const form: HTMLFormElement = f.nativeElement.querySelector('.cra-base-form-panel form');
     form.dispatchEvent(new Event('submit', { cancelable: true }));
-    expect(startBaselineSpy).toHaveBeenCalledWith({ citta: 'Roma', zona: 'Centro' });
+    expect(startBaselineSpy).toHaveBeenCalledWith({
+      center: { lat: 41.9, lon: 12.5 },
+      radiusM: 300,
+    });
 
     await startBaselineSpy.mock.results[0].value;
     f.detectChanges();
@@ -591,7 +634,7 @@ describe('App shell', () => {
         ],
       };
       api.analyzeBaseline.mockResolvedValue(baselineResp);
-      await store.startBaselineAnalysis({ citta: 'Roma', zona: 'Duomo' });
+      await store.startBaselineAnalysis({ center: { lat: 41.9, lon: 12.5 }, radiusM: 300 });
       f.detectChanges();
       expect(store.screen()).toBe('BASE');
 
@@ -649,7 +692,6 @@ describe('App shell', () => {
     });
 
     it('(c) errore in modalità Base → resta in Stato BASE (niente cra-input-panel del sistema completo) e il retry invoca /analyze/baseline, non /analyze', async () => {
-      api.cities.mockResolvedValue(['Roma']);
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
@@ -660,12 +702,8 @@ describe('App shell', () => {
       await f.whenStable();
       f.detectChanges();
 
-      const cittaInput: HTMLInputElement = f.nativeElement.querySelector('#cra-base-citta');
-      cittaInput.value = 'Roma';
-      cittaInput.dispatchEvent(new Event('input'));
-      const zonaInput: HTMLInputElement = f.nativeElement.querySelector('#cra-base-zona');
-      zonaInput.value = 'Atlantide';
-      zonaInput.dispatchEvent(new Event('input'));
+      // #318: il centro/raggio non si digitano più, arrivano dal cerchio disegnato sulla mappa.
+      emitCircle(f, { lat: 41.9, lon: 12.5, radiusM: 300 });
       f.detectChanges();
 
       api.analyzeBaseline.mockRejectedValueOnce(
@@ -702,7 +740,12 @@ describe('App shell', () => {
       f.detectChanges();
       await f.whenStable();
 
-      store.dispatch({ type: 'ANALYZE', citta: 'Roma', zona: 'Trastevere', pipeline: 'completo' });
+      store.dispatch({
+        type: 'ANALYZE',
+        center: { lat: 41.9, lon: 12.5 },
+        radiusM: 300,
+        pipeline: 'completo',
+      });
       f.detectChanges();
 
       const modeButtons: HTMLButtonElement[] = Array.from(
@@ -717,7 +760,12 @@ describe('App shell', () => {
       f.detectChanges();
       await f.whenStable();
 
-      store.dispatch({ type: 'ANALYZE', citta: 'Roma', zona: 'Trastevere', pipeline: 'completo' });
+      store.dispatch({
+        type: 'ANALYZE',
+        center: { lat: 41.9, lon: 12.5 },
+        radiusM: 300,
+        pipeline: 'completo',
+      });
       f.detectChanges();
       expect(store.mode()).toBe('completo');
 
@@ -735,12 +783,13 @@ describe('App shell', () => {
       await f.whenStable();
 
       // 1) analisi Completo Roma/Colosseo
+      const romaCenter = { lat: 41.89, lon: 12.49 };
       api.analyze.mockResolvedValueOnce({
         ...emptyResp,
         citta: 'Roma',
         zona_normalizzata: 'Colosseo',
       });
-      await store.startAnalysis('Roma', 'Colosseo', null);
+      await store.startAnalysis(romaCenter, 300, null);
       f.detectChanges();
       expect(store.screen()).toBe('RESULTS');
 
@@ -750,12 +799,13 @@ describe('App shell', () => {
       );
       modeButtons.find((b) => b.textContent?.trim() === 'Base')!.click();
       f.detectChanges();
+      const milanoCenter = { lat: 45.46, lon: 9.19 };
       api.analyzeBaseline.mockResolvedValueOnce({
         ...emptyResp,
         citta: 'Milano',
         zona_normalizzata: 'Duomo',
       });
-      await store.startBaselineAnalysis({ citta: 'Milano', zona: 'Duomo' });
+      await store.startBaselineAnalysis({ center: milanoCenter, radiusM: 500 });
       f.detectChanges();
       expect(store.screen()).toBe('BASE');
 
@@ -768,7 +818,7 @@ describe('App shell', () => {
       expect(store.screen()).toBe('RESULTS');
       expect(store.completoData()?.citta).toBe('Roma');
 
-      // 4) Rigenera deve rilanciare /analyze per Roma/Colosseo, MAI per Milano/Duomo
+      // 4) Rigenera deve rilanciare /analyze per il centro di Roma, MAI per quello di Milano
       const startAnalysisSpy = jest.spyOn(store, 'startAnalysis');
       api.analyze.mockResolvedValueOnce({
         ...emptyResp,
@@ -777,7 +827,7 @@ describe('App shell', () => {
       });
       (f.nativeElement.querySelector('.cra-btn-regen') as HTMLElement).click();
 
-      expect(startAnalysisSpy).toHaveBeenCalledWith('Roma', 'Colosseo', null);
+      expect(startAnalysisSpy).toHaveBeenCalledWith(romaCenter, 300, null);
     });
   });
 
@@ -826,10 +876,13 @@ describe('App shell', () => {
       expect(dock.classList.contains('cra-dock-narr-open')).toBe(false);
     });
 
-    it('"+ Nuova richiesta": conferma leggera IN-APP → "Sì" dispatcha RESET → torna a Stato INPUT col form vuoto', async () => {
+    it('"+ Nuova richiesta": conferma leggera IN-APP → "Sì" dispatcha RESET, torna a Stato INPUT col form vuoto E azzera il cerchio (#318: bisogna ridisegnare)', async () => {
       const f = TestBed.createComponent(App);
       await setupResults(f);
       expect(store.screen()).toBe('RESULTS');
+
+      // un cerchio era già stato disegnato per la ricerca precedente.
+      emitCircle(f, { lat: 41.9, lon: 12.5, radiusM: 300 });
 
       (f.nativeElement.querySelector('.cra-btn-new-request') as HTMLElement).click();
       f.detectChanges();
@@ -843,10 +896,13 @@ describe('App shell', () => {
 
       expect(store.screen()).toBe('INPUT');
       expect(store.completoData()).toBeNull();
-      expect(store.pendingCitta()).toBeNull();
-      expect(store.pendingZona()).toBeNull();
       expect(f.nativeElement.querySelector('cra-input-panel')).toBeTruthy();
       expect(f.nativeElement.querySelector('cra-panel-dock')).toBeNull();
+
+      // #318: il cerchio locale dello shell si azzera al RESET — il bottone resta disabilitato
+      // finché l'utente non ridisegna, non riusa implicitamente il cerchio della ricerca precedente.
+      const submitBtn: HTMLButtonElement = f.nativeElement.querySelector('button[type=submit]');
+      expect(submitBtn.disabled).toBe(true);
     });
 
     it('"+ Nuova richiesta" → "Annulla": resta in RESULTS, nessun RESET dispatchato', async () => {
@@ -867,6 +923,9 @@ describe('App shell', () => {
   describe('narrativa del POI selezionato (#197)', () => {
     const zoneResp: AnalyzeResponse = {
       ...emptyResp,
+      // #318: zona_normalizzata è risolta dal BACKEND dal cerchio, non digitata — qui è un
+      // letterale della fixture di risposta, non un argomento di startAnalysis.
+      zona_normalizzata: 'Colosseo',
       narrativa: 'panoramica di zona',
       narrativa_fonti: {
         overview: 'panoramica di zona',
@@ -949,7 +1008,7 @@ describe('App shell', () => {
       f.detectChanges();
       await f.whenStable();
       api.analyze.mockResolvedValue(zoneResp);
-      await store.startAnalysis('Roma', 'Colosseo', null);
+      await store.startAnalysis({ lat: 41.9, lon: 12.5 }, 300, null);
       f.detectChanges();
       return f;
     }
@@ -1010,7 +1069,7 @@ describe('App shell', () => {
 
       (f.nativeElement.querySelector('.cra-btn-regen') as HTMLElement).click();
 
-      expect(zoneSpy).toHaveBeenCalledWith('Roma', 'Colosseo', null);
+      expect(zoneSpy).toHaveBeenCalledWith({ lat: 41.9, lon: 12.5 }, 300, null);
     });
 
     it('durante la generazione il pannello dichiara il caricamento', async () => {
@@ -1090,6 +1149,254 @@ describe('App shell', () => {
       store.dispatch({ type: 'POI_NARRATIVE_ERROR', message: 'boom' });
       f.detectChanges();
       expect(f.nativeElement.querySelector('.cra-narr-error')).toBeFalsy();
+    });
+  });
+
+  describe('#318: cerchio disegnato condiviso fra i pannelli + "vai a un luogo"', () => {
+    it('circleChange di MapComponent alimenta il segnale locale, passato sia a InputPanel sia a BasePanel', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      // Stato INPUT: senza cerchio il bottone di InputPanel resta disabilitato.
+      const submitBtn = (): HTMLButtonElement =>
+        f.nativeElement.querySelector('button[type=submit]');
+      expect(submitBtn().disabled).toBe(true);
+
+      emitCircle(f, { lat: 41.9, lon: 12.5, radiusM: 300 });
+      f.detectChanges();
+      expect(submitBtn().disabled).toBe(false);
+
+      // Stesso segnale raggiunge anche BasePanel dopo il toggle di modalità.
+      const modeButtons: HTMLButtonElement[] = Array.from(
+        f.nativeElement.querySelectorAll('.cra-mode-btn'),
+      );
+      modeButtons.find((b) => b.textContent?.trim() === 'Base')!.click();
+      f.detectChanges();
+      await f.whenStable();
+      f.detectChanges();
+
+      expect(store.screen()).toBe('BASE');
+      expect(submitBtn().disabled).toBe(false);
+    });
+
+    it('un secondo cerchio disegnato (nuovo centro) sostituisce quello corrente', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      emitCircle(f, { lat: 41.9, lon: 12.5, radiusM: 300 });
+      emitCircle(f, null); // MapComponent lo emette lui stesso al nuovo clic di centro (vedi onMapClick).
+      f.detectChanges();
+
+      expect(
+        (f.nativeElement.querySelector('button[type=submit]') as HTMLButtonElement).disabled,
+      ).toBe(true);
+    });
+
+    it('"vai a un luogo": submit → geocodePlace → MapComponent.flyTo col risultato', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      const mapDebugEl = f.debugElement.query(By.directive(MapComponent));
+      const flyToSpy = jest.spyOn(mapDebugEl.componentInstance, 'flyTo');
+      api.geocodePlace.mockResolvedValue({ lat: 45.4642, lon: 9.19 });
+
+      const input: HTMLInputElement = f.nativeElement.querySelector('.cra-place-search input');
+      input.value = 'Duomo di Milano';
+      input.dispatchEvent(new Event('input'));
+      f.detectChanges();
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+      expect(api.geocodePlace).toHaveBeenCalledWith('Duomo di Milano');
+      await f.whenStable();
+      f.detectChanges();
+
+      expect(flyToSpy).toHaveBeenCalledWith(45.4642, 9.19);
+      expect(f.nativeElement.querySelector('.cra-place-error')).toBeNull();
+    });
+
+    it('"vai a un luogo": luogo non trovato (404, detail stringa come da backend reale) → messaggio generico inline, niente flyTo', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      const mapDebugEl = f.debugElement.query(By.directive(MapComponent));
+      const flyToSpy = jest.spyOn(mapDebugEl.componentInstance, 'flyTo');
+      // Stessa forma della risposta reale del backend per "nessun risultato" (main.py:geocode,
+      // HTTPException(404, detail="luogo non trovato") — `detail` STRINGA, non `{messaggio}`):
+      // errorMessage() non la spacchetta e cade sul fallback generico passato da onGoToPlace.
+      api.geocodePlace.mockRejectedValue(
+        new HttpErrorResponse({ status: 404, error: { detail: 'luogo non trovato' } }),
+      );
+
+      const input: HTMLInputElement = f.nativeElement.querySelector('.cra-place-search input');
+      input.value = 'Atlantide';
+      input.dispatchEvent(new Event('input'));
+      f.detectChanges();
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+      await f.whenStable();
+      f.detectChanges();
+
+      expect(flyToSpy).not.toHaveBeenCalled();
+      const err = f.nativeElement.querySelector('.cra-place-error');
+      expect(err).toBeTruthy();
+      expect(err.textContent).toContain('Luogo non trovato');
+    });
+
+    it('"vai a un luogo": guasto del backend (503, fix reperto review) → mostra il messaggio REALE del backend, non "Luogo non trovato" (che implicherebbe un luogo inesistente, non un servizio giù)', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      const mapDebugEl = f.debugElement.query(By.directive(MapComponent));
+      const flyToSpy = jest.spyOn(mapDebugEl.componentInstance, 'flyTo');
+      // Stessa forma di errors.py:_handle_geocoding_error (GeocodingError -> 503).
+      api.geocodePlace.mockRejectedValue(
+        new HttpErrorResponse({
+          status: 503,
+          error: {
+            detail: {
+              errore: 'geocoding_non_disponibile',
+              messaggio: 'Servizio di geocoding non raggiungibile.',
+            },
+          },
+        }),
+      );
+
+      const input: HTMLInputElement = f.nativeElement.querySelector('.cra-place-search input');
+      input.value = 'Duomo di Milano';
+      input.dispatchEvent(new Event('input'));
+      f.detectChanges();
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+      await f.whenStable();
+      f.detectChanges();
+
+      expect(flyToSpy).not.toHaveBeenCalled();
+      const err = f.nativeElement.querySelector('.cra-place-error');
+      expect(err.textContent).toContain('Servizio di geocoding non raggiungibile.');
+      expect(err.textContent).not.toContain('Luogo non trovato');
+    });
+
+    it('"vai a un luogo": testo vuoto non chiama geocodePlace', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      const input: HTMLInputElement = f.nativeElement.querySelector('.cra-place-search input');
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+      expect(api.geocodePlace).not.toHaveBeenCalled();
+    });
+
+    it('"vai a un luogo": race condition (fix reperto review) — submit rapido A poi B con A che risolve DOPO B → lo stato finale riflette SOLO B', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      const mapDebugEl = f.debugElement.query(By.directive(MapComponent));
+      const flyToSpy = jest.spyOn(mapDebugEl.componentInstance, 'flyTo');
+
+      let resolveA!: (v: { lat: number; lon: number }) => void;
+      let resolveB!: (v: { lat: number; lon: number }) => void;
+      api.geocodePlace
+        .mockImplementationOnce(() => new Promise((res) => (resolveA = res)))
+        .mockImplementationOnce(() => new Promise((res) => (resolveB = res)));
+
+      const input: HTMLInputElement = f.nativeElement.querySelector('.cra-place-search input');
+
+      input.value = 'Luogo A';
+      input.dispatchEvent(new Event('input'));
+      f.detectChanges();
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+      input.value = 'Luogo B';
+      input.dispatchEvent(new Event('input'));
+      f.detectChanges();
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+      expect(api.geocodePlace).toHaveBeenCalledTimes(2);
+
+      // B (l'ultima richiesta) risolve PRIMA, poi A (superata) arriva in ritardo — l'ordine
+      // realistico di una race persa dalla richiesta più vecchia.
+      resolveB({ lat: 45.4642, lon: 9.19 });
+      await f.whenStable();
+      f.detectChanges();
+      resolveA({ lat: 41.9, lon: 12.5 });
+      await f.whenStable();
+      f.detectChanges();
+
+      // Solo l'effetto di B deve essere applicato: un solo flyTo, con le coordinate di B.
+      expect(flyToSpy).toHaveBeenCalledTimes(1);
+      expect(flyToSpy).toHaveBeenCalledWith(45.4642, 9.19);
+      expect(f.nativeElement.querySelector('.cra-place-error')).toBeNull();
+    });
+
+    it('"vai a un luogo": race condition sull\'errore — A (superata) fallisce DOPO che B è già riuscita, l\'errore tardivo di A non deve invadere lo stato', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      const mapDebugEl = f.debugElement.query(By.directive(MapComponent));
+      const flyToSpy = jest.spyOn(mapDebugEl.componentInstance, 'flyTo');
+
+      let rejectA!: (e: unknown) => void;
+      let resolveB!: (v: { lat: number; lon: number }) => void;
+      api.geocodePlace
+        .mockImplementationOnce(() => new Promise((_res, rej) => (rejectA = rej)))
+        .mockImplementationOnce(() => new Promise((res) => (resolveB = res)));
+
+      const input: HTMLInputElement = f.nativeElement.querySelector('.cra-place-search input');
+
+      input.value = 'Luogo A';
+      input.dispatchEvent(new Event('input'));
+      f.detectChanges();
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+      input.value = 'Luogo B';
+      input.dispatchEvent(new Event('input'));
+      f.detectChanges();
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+      resolveB({ lat: 45.4642, lon: 9.19 });
+      await f.whenStable();
+      f.detectChanges();
+      rejectA(new Error('boom'));
+      await f.whenStable();
+      f.detectChanges();
+
+      expect(flyToSpy).toHaveBeenCalledTimes(1);
+      expect(flyToSpy).toHaveBeenCalledWith(45.4642, 9.19);
+      expect(f.nativeElement.querySelector('.cra-place-error')).toBeNull();
+    });
+  });
+
+  describe('#318 (reperto review C1): via d\'uscita dal Sistema base senza cerchio disegnato', () => {
+    it('toggle a Base PRIMA di aver mai disegnato un cerchio: "Torna a Completo" nel pannello riporta a INPUT (dove la mappa torna visibile/cliccabile)', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      const modeButtons: HTMLButtonElement[] = Array.from(
+        f.nativeElement.querySelectorAll('.cra-mode-btn'),
+      );
+      modeButtons.find((b) => b.textContent?.trim() === 'Base')!.click();
+      f.detectChanges();
+
+      expect(store.screen()).toBe('BASE');
+      const basePanel: HTMLElement = f.nativeElement.querySelector('cra-base-panel');
+      const backBtn = Array.from(basePanel.querySelectorAll('button')).find(
+        (b) => b.textContent?.trim() === 'Torna a Completo',
+      ) as HTMLButtonElement | undefined;
+      expect(backBtn).toBeTruthy();
+
+      backBtn!.click();
+      f.detectChanges();
+
+      expect(store.screen()).toBe('INPUT');
     });
   });
 });

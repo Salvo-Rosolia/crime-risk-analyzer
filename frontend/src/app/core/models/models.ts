@@ -166,16 +166,22 @@ export interface PoiNarrative {
   fallback: boolean;
 }
 
+export interface Circle {
+  lat: number;
+  lon: number;
+  radiusM: number;
+}
+
 export interface BaselineParams {
-  citta: string;
-  zona: string;
+  center: { lat: number; lon: number };
+  radiusM: number;
   tipo_poi?: string;
 }
 
-/** Payload emesso da `InputPanelComponent` (Stato A + Errore) verso lo shell. */
+/** Payload emesso dal pannello "completo" verso lo shell (#318: sostituisce citta/zona col cerchio). */
 export interface AnalyzeRequestPayload {
-  citta: string;
-  zona: string;
+  center: { lat: number; lon: number };
+  radiusM: number;
   domanda: string | null;
 }
 
@@ -183,12 +189,15 @@ export type Screen = 'INPUT' | 'LOADING' | 'RESULTS' | 'DETAIL' | 'ERROR' | 'FIL
 export type Mode = 'completo' | 'base';
 
 /**
- * Ultima query completa (citta+zona+domanda) inviata a `/analyze`: a differenza di
- * `pendingZona` (azzerata da `LOAD_SUCCESS`), sopravvive in RESULTS/DETAIL/FILTER e si azzera
+ * Ultima query completa (center+radiusM+domanda) inviata a `/analyze`: a differenza di
+ * `pendingDomanda` (azzerata da `LOAD_SUCCESS`), sopravvive in RESULTS/DETAIL/FILTER e si azzera
  * solo su RESET — è la fonte per "Rigenera" (re-POST `/analyze`, spec-frontend.md §Stato B),
  * che ripete l'ultima analisi senza introdurre un nuovo endpoint né una nuova azione FSM.
  */
 export interface LastQuery {
+  center: { lat: number; lon: number };
+  radiusM: number;
+  /** Etichetta risolta dal backend (reverse geocode, #318): usata per /analyze/poi e /analyze/narrativa. */
   citta: string;
   zona: string;
   domanda: string | null;
@@ -209,9 +218,7 @@ export interface AppState {
   filter: Confidence | null;
   error: string | null;
   mode: Mode;
-  /** Ultima città/zona/domanda inviate: sopravvivono a LOADING ed ERROR (per il retry con i valori digitati), si azzerano solo su RESET. */
-  pendingCitta: string | null;
-  pendingZona: string | null;
+  /** Ultima domanda inviata: sopravvive a LOADING ed ERROR (per il retry con i valori digitati), si azzera solo su RESET. */
   pendingDomanda: string | null;
   lastQuery: LastQuery | null;
   poiPanelOpen: boolean;
@@ -245,8 +252,8 @@ export type Action =
    * #67-bis, bloccante A — race condition). Campo obbligatorio apposta: un'omissione futura deve
    * essere un errore di compilazione, non un default silenzioso su 'completo'.
    */
-  | { type: 'ANALYZE'; citta: string; zona: string; domanda?: string | null; pipeline: Mode }
-  | { type: 'LOAD_SUCCESS'; data: AnalyzeResponse; pipeline: Mode }
+  | { type: 'ANALYZE'; center: { lat: number; lon: number }; radiusM: number; domanda?: string | null; pipeline: Mode }
+  | { type: 'LOAD_SUCCESS'; data: AnalyzeResponse; pipeline: Mode; center?: { lat: number; lon: number }; radiusM?: number; domanda?: string | null }
   | { type: 'LOAD_ERROR'; message: string; pipeline: Mode }
   | { type: 'SELECT_POI'; id: string }
   | { type: 'DESELECT_POI' }

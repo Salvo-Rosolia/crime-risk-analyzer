@@ -17,16 +17,20 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from typing import Protocol
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
+from crime_risk_analyzer.config import get_settings
 from crime_risk_analyzer.context_fingerprint import fingerprint
 from crime_risk_analyzer.geocoding import GeoResult
 from crime_risk_analyzer.i18n.terminus_labels import label_en, label_it
 from crime_risk_analyzer.llm.client import LLMError, LLMResponse
+from crime_risk_analyzer.models.geo import haversine_m
 from crime_risk_analyzer.models.risk import PoiRiskProfile
 from crime_risk_analyzer.models.vocab import Confidence, ConfidenceSummary
+from crime_risk_analyzer.overpass_client import Poi
 from crime_risk_analyzer.rag.generation import (
     DEFAULT_CONTEXT_FORMAT,
     DEFAULT_MAX_TOKENS,
@@ -61,36 +65,47 @@ from crime_risk_analyzer.rag.retrieval import (
 logger = logging.getLogger(__name__)
 
 
-class AnalyzeRequest(BaseModel):
-    """Body della fase 1 di ``POST /analyze`` (naming ASCII).
+class Center(BaseModel):
+    """Centro del cerchio disegnato sulla mappa (#318)."""
 
-    Solo ``citta``/``zona``: la rotta non chiama il modello (#292), quindi non ha
-    un prompt in cui iniettare una ``domanda``. Quel campo vive in
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+
+
+class _CircleRequest(BaseModel):
+    """Base condivisa per i body che portano centro+raggio (#318)."""
+
+    center: Center
+    radius_m: float = Field(
+        description=(
+            "Raggio in metri del cerchio disegnato sulla mappa. Validato contro "
+            "Settings.search_radius_min_m/search_radius_max_m (422 se fuori range)."
+        )
+    )
+
+    @field_validator("radius_m")
+    @classmethod
+    def _radius_in_range(cls, v: float) -> float:
+        settings = get_settings()
+        if not (settings.search_radius_min_m <= v <= settings.search_radius_max_m):
+            raise ValueError(
+                f"radius_m deve essere tra {settings.search_radius_min_m} e "
+                f"{settings.search_radius_max_m} metri"
+            )
+        return v
+
+
+class AnalyzeRequest(_CircleRequest):
+    """Body della fase 1 di ``POST /analyze``: centro+raggio del cerchio (#318).
+
+    Solo ``center``/``radius_m``: la rotta non chiama il modello (#292), quindi
+    non ha un prompt in cui iniettare una ``domanda``. Quel campo vive in
     ``ZoneNarrativeRequest`` (:mod:`~crime_risk_analyzer.analyze_narrative`), la
     richiesta della fase 2 che porta davvero il testo dell'operatore al modello.
     """
 
-    citta: str = Field(
-        max_length=100,
-        description=(
-            "Citta' da analizzare. Autocomplete via GET /cities (suggerimenti, "
-            "non un vincolo). max_length=100: un nome di comune ci sta ampiamente "
-            "e chiude la superficie free-text verso Nominatim e la chiave di "
-            "_CACHE (#170)."
-        ),
-    )
-    zona: str = Field(
-        max_length=200,
-        description=(
-            "Zona/quartiere da analizzare. max_length=200: un nome di "
-            "zona/quartiere ci sta ampiamente, mentre il tetto chiude la "
-            "superficie del free-text che finisce nella query Nominatim e nella "
-            "chiave di _CACHE (#170)."
-        ),
-    )
 
-
-class BaselineRequest(BaseModel):
+class BaselineRequest(_CircleRequest):
     """Body di ``POST /analyze/baseline`` (ablation, senza LLM).
 
     Porta ``tipo_poi`` ma non ``domanda``: l'asimmetria con ``ZoneNarrativeRequest``
@@ -98,26 +113,9 @@ class BaselineRequest(BaseModel):
     vs baseline non iso-input su questi due parametri (#263). Chiuderla richiede
     prima la decisione sul contratto di ``tipo_poi`` fra frontend e backend (#143):
     finché resta aperta, l'asimmetria è documentata qui e nel test
-    ``test_baseline_request_surface_is_citta_zona_tipo_poi``, non colmata.
+    ``test_baseline_request_surface_is_center_radius_tipo_poi``, non colmata.
     """
 
-    citta: str = Field(
-        max_length=100,
-        description=(
-            "Citta' da analizzare. Autocomplete via GET /cities (suggerimenti, "
-            "non un vincolo). max_length=100: un nome di comune ci sta ampiamente "
-            "e chiude la superficie free-text verso Nominatim e la chiave di "
-            "_CACHE (#170)."
-        ),
-    )
-    zona: str = Field(
-        max_length=200,
-        description=(
-            "Zona/quartiere da analizzare. max_length=200: come in "
-            "``AnalyzeRequest``, chiude la superficie del free-text verso "
-            "Nominatim e la chiave di _CACHE (#170)."
-        ),
-    )
     tipo_poi: str | None = Field(
         default=None,
         description=(
@@ -720,17 +718,17 @@ async def run_no_ontology_prompt(
     )
 
 
-def _filter_pois_by_type(
-    ctx: RetrievalContext, terminus_class: str
+def _filter_pois(
+    ctx: RetrievalContext, keep: Callable[[Poi], bool]
 ) -> RetrievalContext:
-    """Restringe il ``RetrievalContext`` ai soli POI di classe TERMINUS data.
+    """Filtra ``ctx["pois"]`` per ``keep`` e ricalcola classi/profili/stats (#318).
 
-    Filtra ``pois`` per ``terminus_class`` PRIMA del grounding, cosi' la lista di
-    POI e i rischi validati restano in lockstep (l'invariante di zip in
-    :func:`_build_poi_list`). Pota ``profiles`` alle sole classi superstiti e
-    ricalcola ``stats``; ``geo``/``zona``/``citta`` restano invariati.
+    Generalizzazione dell'unico filtro esistente (per ``tipo_poi``): entrambi i
+    filtri (tipo, raggio) condividono la stessa ricostruzione di
+    ``profiles``/``stats``, che deve restare in lockstep con la lista POI
+    superstite (stesso invariante di :func:`_build_poi_list`).
     """
-    pois = [poi for poi in ctx["pois"] if poi["terminus_class"] == terminus_class]
+    pois = [poi for poi in ctx["pois"] if keep(poi)]
     classes = {poi["terminus_class"] for poi in pois}
     profiles = {cls: ctx["profiles"][cls] for cls in classes}
     return RetrievalContext(
@@ -743,6 +741,29 @@ def _filter_pois_by_type(
     )
 
 
+def _filter_pois_by_type(
+    ctx: RetrievalContext, terminus_class: str
+) -> RetrievalContext:
+    """Restringe il ``RetrievalContext`` ai soli POI di classe TERMINUS data."""
+    return _filter_pois(ctx, lambda poi: poi["terminus_class"] == terminus_class)
+
+
+def _filter_pois_by_radius(
+    ctx: RetrievalContext, lat: float, lon: float, radius_m: float
+) -> RetrievalContext:
+    """Restringe il ``RetrievalContext`` ai soli POI entro ``radius_m`` da
+    ``(lat, lon)`` (#318).
+
+    Applicato DOPO ``retrieve()`` (che ha gia' scelto i ``MAX_POIS`` piu' vicini
+    al bbox circoscritto), quindi puo' restituire meno POI del cap se il bacino
+    conteneva punti d'angolo fuori dal cerchio vero ma dentro il bbox — accettato
+    per design (mai un POI fuori dal cerchio disegnato, vedi design doc §2).
+    """
+    return _filter_pois(
+        ctx, lambda poi: haversine_m(lat, lon, poi["lat"], poi["lon"]) <= radius_m
+    )
+
+
 async def run_baseline(
     citta: str,
     zona: str,
@@ -751,8 +772,14 @@ async def run_baseline(
     poi_source: PoiSource | None = None,
     geo_source: GeoSource | None = None,
     tipo_poi: str | None = None,
+    radius_m: float | None = None,
 ) -> AnalyzeResponse:
     """Pipeline baseline: retrieve -> ground -> serializza (NESSUN LLM).
+
+    ``radius_m`` (opzionale, #318) filtra i POI server-side entro il raggio dal
+    centro geocodificato (:func:`_filter_pois_by_radius`), applicato PRIMA del
+    filtro per ``tipo_poi`` (entrambi, prima del grounding). ``None`` = nessun
+    filtro per raggio (comportamento invariato).
 
     ``tipo_poi`` (opzionale, #119) filtra i POI server-side per classe TERMINUS
     (:func:`_filter_pois_by_type`), applicato prima del grounding. ``None`` o
@@ -765,6 +792,9 @@ async def run_baseline(
     retrieval_ctx = await retrieve(
         citta, zona, executor=executor, poi_source=poi_source, geo_source=geo_source
     )
+    if radius_m is not None:
+        lat, lon = retrieval_ctx["geo"]["lat"], retrieval_ctx["geo"]["lon"]
+        retrieval_ctx = _filter_pois_by_radius(retrieval_ctx, lat, lon, radius_m)
     tipo = (tipo_poi or "").strip()
     if tipo:
         retrieval_ctx = _filter_pois_by_type(retrieval_ctx, tipo)

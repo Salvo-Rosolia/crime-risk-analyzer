@@ -96,24 +96,27 @@ describe('models (contratto /analyze)', () => {
       filter: null,
       error: null,
       mode: 'completo',
-      pendingCitta: null,
-      pendingZona: null,
       pendingDomanda: null,
       lastQuery: null,
       poiPanelOpen: true,
       narrOpen: true,
+      poiNarratives: {},
+      poiNarrativeLoading: null,
+      poiNarrativeError: null,
+      zoneNarrativeLoading: false,
+      zoneNarrativeError: null,
     };
     expect(s.screen).toBe('INPUT');
   });
 
-  it('Action ANALYZE richiede citta oltre a zona (contratto startAnalysis)', () => {
-    const a: Action = { type: 'ANALYZE', citta: 'Roma', zona: 'Colosseo', pipeline: 'completo' };
-    expect(a.type === 'ANALYZE' ? a.citta : null).toBe('Roma');
+  it('Action ANALYZE richiede center e radiusM (contratto startAnalysis)', () => {
+    const a: Action = { type: 'ANALYZE', center: { lat: 41.8908, lon: 12.4918 }, radiusM: 1000, pipeline: 'completo' };
+    expect(a.type === 'ANALYZE' ? a.center.lat : null).toBe(41.8908);
   });
 
   it('parametri baseline sono assegnabili a BaselineParams', () => {
-    const params: BaselineParams = { citta: 'Roma', zona: 'Colosseo' };
-    expect(params.citta).toBe('Roma');
+    const params: BaselineParams = { center: { lat: 41.8908, lon: 12.4918 }, radiusM: 1000 };
+    expect(params.center.lat).toBe(41.8908);
   });
 
   it('ANALYZE/LOAD_SUCCESS/LOAD_ERROR richiedono pipeline (review #67-bis, bloccante A: obbligatorio apposta, nessun default silenzioso)', () => {
@@ -134,7 +137,7 @@ describe('models (contratto /analyze)', () => {
       fallback: false,
       contesto_hash: 'h-ctx',
     };
-    const analyze: Action = { type: 'ANALYZE', citta: 'Roma', zona: 'Colosseo', pipeline: 'base' };
+    const analyze: Action = { type: 'ANALYZE', center: { lat: 41.8908, lon: 12.4918 }, radiusM: 1000, pipeline: 'base' };
     const success: Action = { type: 'LOAD_SUCCESS', data: minimalResponse, pipeline: 'base' };
     const error: Action = { type: 'LOAD_ERROR', message: 'x', pipeline: 'completo' };
     expect(analyze.type === 'ANALYZE' ? analyze.pipeline : null).toBe('base');

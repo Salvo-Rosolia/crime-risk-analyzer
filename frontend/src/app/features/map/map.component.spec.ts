@@ -9,12 +9,31 @@ const mockMarker = {
   on: jest.fn(),
 };
 
+const mockCircle = {
+  addTo: jest.fn().mockReturnThis(),
+  setRadius: jest.fn(),
+  setLatLng: jest.fn(),
+  getRadius: jest.fn(() => 300),
+  getLatLng: jest.fn(() => ({ lat: 41.9, lng: 12.5 })),
+  remove: jest.fn(),
+  on: jest.fn(),
+};
+
+const mapHandlers: Record<string, ((e: unknown) => void)[]> = {};
 const mockMap = {
   setView: jest.fn().mockReturnThis(),
   flyToBounds: jest.fn(),
+  flyTo: jest.fn(),
   remove: jest.fn(),
   addLayer: jest.fn(),
+  distance: jest.fn(() => 500),
+  on: jest.fn((event: string, handler: (e: unknown) => void) => {
+    (mapHandlers[event] ??= []).push(handler);
+  }),
 };
+function fireMap(event: string, payload: unknown): void {
+  for (const h of mapHandlers[event] ?? []) h(payload);
+}
 
 jest.mock('leaflet', () => ({
   map: jest.fn(() => mockMap),
@@ -23,6 +42,7 @@ jest.mock('leaflet', () => ({
   latLngBounds: jest.fn((c: unknown) => ({ c })),
   layerGroup: jest.fn(() => mockLayerGroup),
   marker: jest.fn(() => mockMarker),
+  circle: jest.fn(() => mockCircle),
   divIcon: jest.fn((opts: unknown) => ({ opts })),
 }));
 
@@ -72,6 +92,7 @@ describe('MapComponent', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    for (const key of Object.keys(mapHandlers)) delete mapHandlers[key];
     await TestBed.configureTestingModule({ imports: [MapComponent] }).compileComponents();
     fixture = TestBed.createComponent(MapComponent);
     fixture.detectChanges();
@@ -245,5 +266,324 @@ describe('MapComponent', () => {
     fixture.destroy();
     expect(mockLayerGroup.clearLayers).toHaveBeenCalled();
     expect(mockMap.remove).toHaveBeenCalled();
+  });
+
+  describe('disegno del cerchio', () => {
+    it('un click in idle posiziona il centro ed entra in drawing-radius', () => {
+      const spy = jest.fn();
+      fixture.componentInstance.circleChange.subscribe(spy);
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      expect(L.circle).toHaveBeenCalledWith([41.9, 12.5], expect.objectContaining({ radius: 300 }));
+    });
+
+    it('un drag successivo al click aggiorna il raggio del cerchio live', () => {
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fireMap('mousemove', { latlng: { lat: 41.905, lng: 12.5 } });
+      expect(mockCircle.setRadius).toHaveBeenCalled();
+    });
+
+    it('un secondo click conferma e emette circleChange con center+radiusM', () => {
+      const spy = jest.fn();
+      fixture.componentInstance.circleChange.subscribe(spy);
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fireMap('mousemove', { latlng: { lat: 41.905, lng: 12.5 } });
+      fireMap('click', { latlng: { lat: 41.905, lng: 12.5 } });
+      expect(spy).toHaveBeenCalledWith(
+        expect.objectContaining({ lat: 41.9, lon: 12.5, radiusM: expect.any(Number) }),
+      );
+    });
+
+    it('flyTo(lat, lon) chiama map.flyTo', () => {
+      fixture.componentInstance.flyTo(41.8, 12.4);
+      expect(mockMap.flyTo).toHaveBeenCalledWith([41.8, 12.4], expect.any(Number));
+    });
+
+    it('un click in ready riparte da un nuovo centro invece di riconfermare il vecchio', () => {
+      const spy = jest.fn();
+      fixture.componentInstance.circleChange.subscribe(spy);
+
+      // idle -> drawing-radius -> ready: conferma il primo cerchio (centro A).
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fireMap('mousemove', { latlng: { lat: 41.905, lng: 12.5 } });
+      fireMap('click', { latlng: { lat: 41.905, lng: 12.5 } });
+      expect(spy).toHaveBeenCalledWith(expect.objectContaining({ lat: 41.9, lon: 12.5 }));
+      spy.mockClear();
+
+      // ready -> un ulteriore click NON riconferma il vecchio cerchio: resetta e invalida.
+      fireMap('click', { latlng: { lat: 42.0, lng: 12.6 } });
+      expect(spy).toHaveBeenCalledWith(null);
+      spy.mockClear();
+
+      // drawing-radius -> ready sul NUOVO centro (B), non il vecchio (A).
+      fireMap('mousemove', { latlng: { lat: 42.005, lng: 12.6 } });
+      fireMap('click', { latlng: { lat: 42.005, lng: 12.6 } });
+      expect(spy).toHaveBeenCalledWith(expect.objectContaining({ lat: 42.0, lon: 12.6 }));
+      expect(spy).not.toHaveBeenCalledWith(expect.objectContaining({ lat: 41.9, lon: 12.5 }));
+    });
+
+    it('il raggio è clampato al minimo (150m) quando il drag è più corto', () => {
+      (mockMap.distance as jest.Mock).mockReturnValueOnce(50);
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fireMap('mousemove', { latlng: { lat: 41.9005, lng: 12.5 } });
+      expect(mockCircle.setRadius).toHaveBeenCalledWith(150);
+    });
+
+    it('il raggio è clampato al massimo (3000m) quando il drag è più lungo', () => {
+      (mockMap.distance as jest.Mock).mockReturnValueOnce(5000);
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fireMap('mousemove', { latlng: { lat: 41.95, lng: 12.5 } });
+      expect(mockCircle.setRadius).toHaveBeenCalledWith(3000);
+    });
+  });
+
+  describe('input numerico del raggio (#318 D2: via keyboard/screen reader, non solo il drag)', () => {
+    function radiusInput(): HTMLInputElement | null {
+      return fixture.nativeElement.querySelector('#cra-radius-input');
+    }
+
+    it('assente in idle (nessun cerchio ancora disegnato)', () => {
+      expect(radiusInput()).toBeNull();
+    });
+
+    it('appare in drawing-radius (dopo il primo clic) con il raggio di default', () => {
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fixture.detectChanges();
+      const input = radiusInput();
+      expect(input).toBeTruthy();
+      expect(input!.value).toBe('300');
+    });
+
+    it('resta visibile in ready (dopo la conferma)', () => {
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fireMap('mousemove', { latlng: { lat: 41.905, lng: 12.5 } });
+      fireMap('click', { latlng: { lat: 41.905, lng: 12.5 } });
+      fixture.detectChanges();
+      expect(radiusInput()).toBeTruthy();
+    });
+
+    it('un drag aggiorna il valore mostrato dall\'input (sincronizzazione mappa -> input)', () => {
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fixture.detectChanges();
+      (mockMap.distance as jest.Mock).mockReturnValueOnce(900);
+      fireMap('mousemove', { latlng: { lat: 41.905, lng: 12.5 } });
+      fixture.detectChanges();
+      expect(radiusInput()!.value).toBe('900');
+    });
+
+    it('digitare un valore aggiorna subito il raggio del cerchio disegnato (sincronizzazione input -> mappa)', () => {
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fixture.detectChanges();
+      const input = radiusInput()!;
+      input.value = '900';
+      input.dispatchEvent(new Event('input'));
+      expect(mockCircle.setRadius).toHaveBeenCalledWith(900);
+    });
+
+    it('digitare un valore mentre il cerchio è "ready" ri-emette circleChange col nuovo raggio (lo shell resta sincronizzato)', () => {
+      const spy = jest.fn();
+      fixture.componentInstance.circleChange.subscribe(spy);
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fireMap('mousemove', { latlng: { lat: 41.905, lng: 12.5 } });
+      fireMap('click', { latlng: { lat: 41.905, lng: 12.5 } });
+      fixture.detectChanges();
+      spy.mockClear();
+
+      const input = radiusInput()!;
+      input.value = '900';
+      input.dispatchEvent(new Event('input'));
+
+      expect(spy).toHaveBeenCalledWith({ lat: 41.9, lon: 12.5, radiusM: 900 });
+    });
+
+    it('digitare un valore mentre il cerchio è ancora "drawing-radius" (non confermato) NON emette circleChange', () => {
+      const spy = jest.fn();
+      fixture.componentInstance.circleChange.subscribe(spy);
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fixture.detectChanges();
+
+      const input = radiusInput()!;
+      input.value = '900';
+      input.dispatchEvent(new Event('input'));
+
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('digitare "800" carattere per carattere lo raggiunge davvero: il campo mostra "800" e il cerchio è al raggio 800 (niente clamp-e-riscrittura ad ogni tasto)', () => {
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fixture.detectChanges();
+      const input = radiusInput()!;
+
+      input.value = '8';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      expect(input.value).toBe('8');
+
+      input.value = '80';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      expect(input.value).toBe('80');
+
+      input.value = '800';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      expect(input.value).toBe('800');
+      expect(mockCircle.setRadius).toHaveBeenLastCalledWith(800);
+    });
+
+    it('un valore digitato sotto il minimo resta visibile as-is mentre si digita (input): solo la mappa vede già il clamp come anteprima', () => {
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fixture.detectChanges();
+      const input = radiusInput()!;
+      input.value = '10';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+
+      expect(mockCircle.setRadius).toHaveBeenCalledWith(150);
+      expect(input.value).toBe('10');
+    });
+
+    it('un valore digitato sotto il minimo (150m) è clampato E riscritto nel campo solo alla conferma (evento change: blur/invio)', () => {
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fixture.detectChanges();
+      const input = radiusInput()!;
+      input.value = '10';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+
+      input.dispatchEvent(new Event('change'));
+      fixture.detectChanges();
+
+      expect(mockCircle.setRadius).toHaveBeenLastCalledWith(150);
+      expect(input.value).toBe('150');
+    });
+
+    it('un valore digitato sopra il massimo resta visibile as-is mentre si digita (input): solo la mappa vede già il clamp come anteprima', () => {
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fixture.detectChanges();
+      const input = radiusInput()!;
+      input.value = '9999';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+
+      expect(mockCircle.setRadius).toHaveBeenCalledWith(3000);
+      expect(input.value).toBe('9999');
+    });
+
+    it('un valore digitato sopra il massimo (3000m) è clampato E riscritto nel campo solo alla conferma (evento change: blur/invio)', () => {
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fixture.detectChanges();
+      const input = radiusInput()!;
+      input.value = '9999';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+
+      input.dispatchEvent(new Event('change'));
+      fixture.detectChanges();
+
+      expect(mockCircle.setRadius).toHaveBeenLastCalledWith(3000);
+      expect(input.value).toBe('3000');
+    });
+
+    it('svuotare il campo per riscriverlo da capo non lo fa scattare a 150 mid-edit (niente clamp finché non si conferma)', () => {
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fireMap('mousemove', { latlng: { lat: 41.905, lng: 12.5 } });
+      fixture.detectChanges();
+      const input = radiusInput()!;
+
+      input.value = '';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+
+      expect(input.value).toBe('');
+    });
+
+    it('svuotare il campo del tutto e confermare (change) ripristina l\'ultimo raggio valido, non scatta al minimo 150 (fix reperto review: Number(\'\')===0 è finito, non NaN)', () => {
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fixture.detectChanges();
+      const input = radiusInput()!;
+
+      // Conferma prima un raggio valido e diverso sia dal default (300) sia dal minimo (150),
+      // così un ripristino accidentale a uno di quei due valori farebbe fallire l'assert sotto.
+      input.value = '800';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      input.dispatchEvent(new Event('change'));
+      fixture.detectChanges();
+      expect(input.value).toBe('800');
+
+      input.value = '';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      input.dispatchEvent(new Event('change'));
+      fixture.detectChanges();
+
+      expect(mockCircle.setRadius).toHaveBeenLastCalledWith(800);
+      expect(input.value).toBe('800');
+    });
+
+    it('il change (conferma) ri-emette circleChange col valore clampato quando il cerchio è "ready"', () => {
+      const spy = jest.fn();
+      fixture.componentInstance.circleChange.subscribe(spy);
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fireMap('mousemove', { latlng: { lat: 41.905, lng: 12.5 } });
+      fireMap('click', { latlng: { lat: 41.905, lng: 12.5 } });
+      fixture.detectChanges();
+      spy.mockClear();
+
+      const input = radiusInput()!;
+      input.value = '9999';
+      input.dispatchEvent(new Event('input'));
+      spy.mockClear();
+      input.dispatchEvent(new Event('change'));
+
+      expect(spy).toHaveBeenCalledWith({ lat: 41.9, lon: 12.5, radiusM: 3000 });
+    });
+  });
+
+  describe('clearCircle() (#318, reperto review I5: RESET deve pulire anche il disegno sulla mappa)', () => {
+    it('rimuove il cerchio disegnato dalla mappa e non emette alcun circleChange', () => {
+      const spy = jest.fn();
+      fixture.componentInstance.circleChange.subscribe(spy);
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fireMap('mousemove', { latlng: { lat: 41.905, lng: 12.5 } });
+      fireMap('click', { latlng: { lat: 41.905, lng: 12.5 } });
+      spy.mockClear();
+
+      fixture.componentInstance.clearCircle();
+
+      expect(mockCircle.remove).toHaveBeenCalled();
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('nasconde di nuovo l\'input numerico del raggio', () => {
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('#cra-radius-input')).toBeTruthy();
+
+      fixture.componentInstance.clearCircle();
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.querySelector('#cra-radius-input')).toBeNull();
+    });
+
+    it('riporta lo stato a IDLE genuino: un clic successivo apre un nuovo disegno senza il reset "ready" (nessun null emesso prima)', () => {
+      const spy = jest.fn();
+      fixture.componentInstance.circleChange.subscribe(spy);
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fireMap('mousemove', { latlng: { lat: 41.905, lng: 12.5 } });
+      fireMap('click', { latlng: { lat: 41.905, lng: 12.5 } }); // -> ready
+      spy.mockClear();
+
+      fixture.componentInstance.clearCircle();
+      (L.circle as jest.Mock).mockClear();
+
+      // Se lo stato fosse rimasto "ready" invece di "idle", questo clic emetterebbe prima un
+      // circleChange(null) di reset (comportamento della transizione ready->nuovo centro, vedi
+      // "un click in ready riparte da un nuovo centro" sopra) — qui NON deve accadere.
+      fireMap('click', { latlng: { lat: 42.0, lng: 12.6 } });
+
+      expect(spy).not.toHaveBeenCalledWith(null);
+      expect(L.circle).toHaveBeenCalledWith([42.0, 12.6], expect.objectContaining({ radius: 300 }));
+    });
   });
 });

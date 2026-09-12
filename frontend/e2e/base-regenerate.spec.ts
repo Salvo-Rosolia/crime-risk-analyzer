@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { mockApi } from './support/mocking';
 import { S } from './support/selectors';
-import citiesFixture from './fixtures/cities.json';
+import { drawSearchCircle } from './support/map';
 import analyzeFixture from './fixtures/analyze.happy.json';
 import regenerateFixture from './fixtures/analyze.regenerate.json';
 import baselineFixture from './fixtures/baseline.happy.json';
@@ -17,7 +17,7 @@ const baseline = baselineFixture as AnalyzeResponse;
 const analyze = analyzeFixture as AnalyzeResponse;
 const regenerate = regenerateFixture as AnalyzeResponse;
 
-test.describe('Toggle→BASE: tabella POI·Hazard·Categoria, città da /cities via datalist, nessuna narrativa/confidence', () => {
+test.describe('Toggle→BASE: tabella POI·Hazard·Categoria dal cerchio disegnato, nessuna narrativa/confidence', () => {
   test('mostra la tabella del fixture baseline e nessun elemento del sistema completo', async ({
     page,
   }) => {
@@ -25,16 +25,15 @@ test.describe('Toggle→BASE: tabella POI·Hazard·Categoria, città da /cities 
     await page.goto('/');
     await expect(S.inputPanel(page)).toBeVisible();
 
+    // Il cerchio si disegna sulla mappa reale mentre è visibile, in Stato INPUT (#318): passare a
+    // BASE la sostituisce con un form a tutto schermo opaco (`base-panel.component.css`, Stato
+    // Sistema base "sostituisce mappa/pannelli/narrativa" by design — niente mappa cliccabile lì
+    // sotto), quindi il cerchio va disegnato PRIMA del toggle. Resta valido dopo: `circle` (app.ts)
+    // è condiviso tra i due pannelli di ricerca e il toggle modalità non lo azzera mai.
+    await drawSearchCircle(page);
+
     await S.modeToggleButton(page, 'base').click();
     await expect(S.basePanel(page)).toBeVisible();
-
-    // <datalist> città popolata da /cities (fixture condiviso cities.json), stesso pattern
-    // <input list>+<datalist> di INPUT/ERROR (non più un <select> nativo — #193).
-    const options = page.locator('#cra-base-citta-options option');
-    await expect(options).toHaveCount(citiesFixture.length);
-    for (let i = 0; i < citiesFixture.length; i++) {
-      await expect(options.nth(i)).toHaveAttribute('value', citiesFixture[i]);
-    }
 
     // Nessuna narrativa/confidence/mappa arricchita prima della ricerca (placeholder, niente
     // narrative-sheet/badge Copertura/chip confidence in Stato Base).
@@ -43,8 +42,6 @@ test.describe('Toggle→BASE: tabella POI·Hazard·Categoria, città da /cities 
     await expect(S.coverageBadge(page)).toHaveCount(0);
     await expect(S.headerConfidenceChips(page)).toHaveCount(0);
 
-    await S.baseCittaField(page).fill(baseline.citta);
-    await S.baseZonaField(page).fill(baseline.zona_normalizzata);
     await S.baseSubmitButton(page).click();
 
     const expectedRows = buildBaseRows(baseline.poi, baseline.risk_models);
@@ -72,8 +69,7 @@ test.describe('Rigenera (bottom-sheet narrativa): sostituisce i dati, non li som
     await mockApi(page, { analyze });
     await page.goto('/');
 
-    await S.cittaField(page).fill(analyze.citta);
-    await S.zonaField(page).fill(analyze.zona_normalizzata);
+    await drawSearchCircle(page);
     await S.submitButton(page).click();
     await expect(S.poiPanel(page)).toBeVisible();
 
@@ -152,8 +148,7 @@ test.describe('Narrativa a tab per fonte: apertura, elenco tab e cambio pannello
     await mockApi(page, { analyze: twoSourceAnalyze });
     await page.goto('/');
 
-    await S.cittaField(page).fill(twoSourceAnalyze.citta);
-    await S.zonaField(page).fill(twoSourceAnalyze.zona_normalizzata);
+    await drawSearchCircle(page);
     await S.submitButton(page).click();
     await expect(S.poiPanel(page)).toBeVisible();
 

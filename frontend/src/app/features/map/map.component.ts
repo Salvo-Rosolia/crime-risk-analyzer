@@ -2,11 +2,13 @@ import {
   afterNextRender,
   ChangeDetectionStrategy,
   Component,
+  computed,
   effect,
   ElementRef,
   input,
   OnDestroy,
   output,
+  signal,
   viewChild,
 } from '@angular/core';
 import * as L from 'leaflet';
@@ -14,10 +16,32 @@ import type { AnalyzeResponse, Confidence } from '@core/models/models';
 import { pinHTML } from '@core/confidence';
 import { matchesFilter, poiPopupHTML } from '@core/ui-helpers';
 
+const DEFAULT_RADIUS_M = 300;
+const MIN_RADIUS_M = 150;
+const MAX_RADIUS_M = 3000;
+
+type DrawState = 'idle' | 'drawing-radius' | 'ready';
+
 @Component({
   selector: 'cra-map',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  template: `<div #mapEl class="cra-map"></div>`,
+  template: `
+    <div #mapEl class="cra-map"></div>
+    @if (showRadiusInput()) {
+      <div class="cra-radius-control">
+        <label for="cra-radius-input">Raggio (m)</label>
+        <input
+          id="cra-radius-input"
+          type="number"
+          [min]="MIN_RADIUS_M"
+          [max]="MAX_RADIUS_M"
+          [value]="radiusM()"
+          (input)="onRadiusInput($event)"
+          (change)="onRadiusChange($event)"
+        />
+      </div>
+    }
+  `,
   styles: [
     `
       .cra-map {
@@ -25,6 +49,62 @@ import { matchesFilter, poiPopupHTML } from '@core/ui-helpers';
         inset: 0;
         height: 100%;
         width: 100%;
+      }
+
+      /*
+       * Input numerico del raggio (#318, D2/§5.1 design doc): l'unica via KEYBOARD/screen-reader
+       * per impostare il raggio, il drag da solo la esclude. Fluttua sopra la mappa invece di
+       * stare in un pannello laterale perché deve restare visibile in drawing-radius/ready
+       * indipendentemente da quale pannello di ricerca (completo/base) è montato accanto alla
+       * mappa.
+       *
+       * Posizione (fix reperto review: non più in alto a sinistra, era invisibile/incliccabile
+       * ovunque). .cra-panels (app.css) è z-index:500 nello stacking context ROOT, quindi sta
+       * sempre sopra cra-map (z-index:0): qualunque pannello dentro .cra-panels copre questo
+       * controllo, indipendentemente da z-index/posizione LOCALI qui dentro. Angolo per angolo:
+       *  - alto-sinistra: SEMPRE occupato - .cra-panel in INPUT/ERROR (app.css, margin:16px) e
+       *    il dock POI in RESULTS/FILTER/DETAIL (panel-dock.component.css, top/left:
+       *    var(--space-4), width fissa var(--panel-max-width)) partono entrambi da lì.
+       *  - basso-destra: SEMPRE occupato dal controllo zoom di Leaflet - zoomControl:false in
+       *    L.map(...) (questo file) disattiva solo quello di default, ma poco dopo viene
+       *    riaggiunto a mano con L.control.zoom({ position: 'bottomright' }), quindi un
+       *    controllo zoom esiste per davvero a quell'angolo; in più, a layout largo, ci finisce
+       *    sopra anche il pannello narrativa (narrative-sheet.component.css, top/right/bottom:
+       *    var(--space-4), quindi a tutta altezza).
+       *  - basso-sinistra: NON sicuro nonostante sembri libero - il dock POI ha solo un
+       *    max-height (non un'altezza fissa) e con una lista piena arriva quasi in fondo; sotto
+       *    i 1100px la narrativa diventa un bottom-sheet a piena larghezza (stessa
+       *    narrative-sheet.component.css) e occupa anche quell'angolo quando aperta.
+       *  - alto, subito a destra del dock/pannello: libero in ogni schermata. Il dock/.cra-panel
+       *    hanno larghezza FISSA (var(--panel-max-width), mai di più anche a lista piena - solo
+       *    l'altezza cresce col contenuto), e la narrativa (quando presente, a layout largo) parte
+       *    da destra con la sua stessa larghezza fissa: resta quindi un corridoio verticale libero
+       *    fra i due, dove l'ancoraggio orizzontale sotto riusa var(--panel-max-width) invece di un
+       *    valore fisso in px per restare corretto se quella costante cambia.
+       */
+      .cra-radius-control {
+        position: absolute;
+        top: var(--space-4, 16px);
+        left: calc(var(--panel-max-width, 340px) + var(--space-4, 16px) * 2);
+        z-index: 500;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 10px;
+        background: var(--paper, #fff);
+        border: 1px solid var(--ink, #1a1a1a);
+        border-radius: 3px;
+        font-family: var(--font-sans, sans-serif);
+        font-size: 0.78rem;
+      }
+
+      .cra-radius-control input {
+        width: 5.5em;
+        font-family: var(--font-mono, monospace);
+        font-size: 0.8rem;
+        padding: 2px 4px;
+        border: 1px solid var(--ink-2, #555);
+        border-radius: 3px;
       }
     `,
   ],
@@ -34,17 +114,49 @@ export class MapComponent implements OnDestroy {
   readonly filter = input<Confidence | null>(null);
   readonly selectedId = input<string | null>(null);
   readonly poiClick = output<string>();
+  readonly circleChange = output<{ lat: number; lon: number; radiusM: number } | null>();
+
+  protected readonly MIN_RADIUS_M = MIN_RADIUS_M;
+  protected readonly MAX_RADIUS_M = MAX_RADIUS_M;
 
   private readonly mapEl = viewChild.required<ElementRef<HTMLElement>>('mapEl');
   private map: L.Map | null = null;
   private markers: L.LayerGroup | null = null;
 
+  /**
+   * Segnali (non semplici campi) apposta: `drawState`/`radiusM` sono letti dal template
+   * (`showRadiusInput`/`[value]` dell'input, #318) e gli aggiornamenti arrivano da handler Leaflet
+   * nativi (`map.on(...)`), non da binding `(evento)` del template — solo un segnale, non un campo
+   * privato, ridisegna la vista OnPush in quel caso.
+   */
+  private readonly drawState = signal<DrawState>('idle');
+  private circleLayer: L.Circle | null = null;
+  private centerLatLng: { lat: number; lon: number } | null = null;
+
+  /** Raggio corrente del cerchio in disegno/confermato, per la sincronizzazione bidirezionale con
+   * l'input numerico (#318 D2): il drag lo aggiorna (e lo riflette nel campo), la digitazione lo
+   * aggiorna solo alla conferma (evento `change`: blur/invio, vedi {@link onRadiusChange}) — non ad
+   * ogni tasto (vedi {@link onRadiusInput}), altrimenti il `[value]` legato a questo segnale
+   * riscriverebbe il campo mentre l'utente sta ancora componendo un numero. */
+  protected readonly radiusM = signal<number>(DEFAULT_RADIUS_M);
+  /** L'input numerico è utile solo mentre un cerchio esiste (`drawing-radius`/`ready`): in `idle`
+   * non c'è ancora un centro su cui applicare un raggio. */
+  protected readonly showRadiusInput = computed(() => this.drawState() !== 'idle');
+
   constructor() {
     afterNextRender(() => {
-      const map = L.map(this.mapEl().nativeElement, { zoomControl: false }).setView(
-        [41.9028, 12.4964],
-        12,
-      );
+      // doubleClickZoom:false (fix reperto review): Leaflet emette DUE eventi `click` nativi
+      // prima del `dblclick` su ogni doppio clic. Il draw FSM di questo componente (vedi
+      // {@link onMapClick}) legge ogni `click` come un passo idle->drawing-radius->ready (o
+      // ready->nuovo centro): senza disattivare qui lo zoom-su-doppio-clic di default, un
+      // doppio clic fatto per zoomare (nessuna intenzione di ridisegnare) veniva silenziosamente
+      // interpretato come due clic della FSM, scartando un cerchio già confermato
+      // (`circleChange(null)`) e sostituendolo con uno nuovo a raggio di default nel punto dove
+      // l'utente voleva solo zoomare.
+      const map = L.map(this.mapEl().nativeElement, {
+        zoomControl: false,
+        doubleClickZoom: false,
+      }).setView([41.9028, 12.4964], 12);
       L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
         subdomains: 'abcd',
         maxZoom: 19,
@@ -55,6 +167,8 @@ export class MapComponent implements OnDestroy {
       }).addTo(map);
       L.control.zoom({ position: 'bottomright' }).addTo(map);
       this.markers = L.layerGroup().addTo(map);
+      map.on('click', (e: L.LeafletMouseEvent) => this.onMapClick(e));
+      map.on('mousemove', (e: L.LeafletMouseEvent) => this.onMapMouseMove(e));
       this.map = map;
     });
 
@@ -94,10 +208,140 @@ export class MapComponent implements OnDestroy {
     });
   }
 
+  private onMapClick(e: L.LeafletMouseEvent): void {
+    const { lat, lng } = e.latlng;
+    if (this.drawState() === 'idle' || this.drawState() === 'ready') {
+      // ready -> nuovo centro: il cerchio confermato in precedenza non è più valido.
+      if (this.drawState() === 'ready') this.circleChange.emit(null);
+      this.centerLatLng = { lat, lon: lng };
+      this.circleLayer?.remove();
+      this.circleLayer = L.circle([lat, lng], { radius: DEFAULT_RADIUS_M }).addTo(this.map!);
+      this.radiusM.set(DEFAULT_RADIUS_M);
+      this.drawState.set('drawing-radius');
+      return;
+    }
+    // drawing-radius -> ready: conferma il raggio corrente.
+    if (this.centerLatLng && this.circleLayer) {
+      this.drawState.set('ready');
+      this.circleChange.emit({
+        lat: this.centerLatLng.lat,
+        lon: this.centerLatLng.lon,
+        radiusM: this.circleLayer.getRadius(),
+      });
+    }
+  }
+
+  private onMapMouseMove(e: L.LeafletMouseEvent): void {
+    if (this.drawState() !== 'drawing-radius' || !this.centerLatLng || !this.circleLayer) return;
+    const radius = this.map!.distance(
+      [this.centerLatLng.lat, this.centerLatLng.lon],
+      [e.latlng.lat, e.latlng.lng],
+    );
+    const clamped = this.clampRadius(radius);
+    this.circleLayer.setRadius(clamped);
+    this.radiusM.set(clamped);
+  }
+
+  /**
+   * Sincronizzazione da tastiera, fase DIGITAZIONE (#318 D2, fix reperto review "clampa e riscrive
+   * ad ogni tasto"): con `[value]="radiusM()"` nel template, chiamare `radiusM.set(...)` qui
+   * riscriverebbe il campo ad ogni carattere — "8" verrebbe clampato a "150" prima ancora che
+   * l'utente possa scrivere "800", che quindi non sarebbe MAI raggiungibile. Per questo qui non si
+   * tocca mai `radiusM` (né si riscrive il campo): si aggiorna solo l'ANTEPRIMA lato
+   * mappa/cerchio (stesso clamp del drag, tramite {@link clampRadius}) quando il testo digitato è
+   * già un numero — un valore fuori range aggiorna comunque subito mappa/`circleChange` (se
+   * `ready`), ma con quello VISUALIZZATO invariato. Il campo vuoto (utente a metà di una
+   * riscrittura) non tocca nemmeno l'anteprima. Il clamp autoritativo, che riscrive anche il
+   * campo, avviene solo alla conferma: vedi {@link onRadiusChange}.
+   */
+  protected onRadiusInput(event: Event): void {
+    const value = (event.target as HTMLInputElement).value;
+    if (value.trim() === '') return;
+    const raw = Number(value);
+    if (!Number.isFinite(raw)) return;
+    const clamped = this.clampRadius(raw);
+    this.circleLayer?.setRadius(clamped);
+    if (this.drawState() === 'ready' && this.centerLatLng) {
+      this.circleChange.emit({
+        lat: this.centerLatLng.lat,
+        lon: this.centerLatLng.lon,
+        radiusM: clamped,
+      });
+    }
+  }
+
+  /**
+   * Sincronizzazione da tastiera, fase CONFERMA (evento `change`: blur o invio, #318 D2 fix): qui,
+   * e solo qui, il valore viene clampato E riscritto nel campo (`radiusM.set(...)`, che tramite
+   * `[value]` sovrascrive il testo digitato) — l'utente ha finito di comporre il numero, quindi
+   * allineare la vista al valore effettivo non gli impedisce più di raggiungere un valore
+   * intermedio come durante la digitazione (vedi {@link onRadiusInput}).
+   *
+   * Campo svuotato del tutto alla conferma (fix reperto review): `Number('') === 0`, che è
+   * finito (non `NaN`), quindi senza questo guardiano `clampRadius(0)` scatterebbe silenziosamente
+   * al minimo (150m) — scartando un raggio valido già confermato (es. 800m) invece di ripristinarlo.
+   * Stessa guardia già presente in {@link onRadiusInput} per il caso identico durante la digitazione
+   * (`value.trim() === ''`): qui si riparte da `this.radiusM()`, l'ultimo valore noto-buono, invece
+   * di far cadere `raw` (0) nel clamp.
+   *
+   * `target.value` è riscritto qui esplicitamente, non solo via `radiusM.set(...)` + `[value]`:
+   * i segnali Angular saltano la notifica se il nuovo valore è uguale al precedente (`Object.is`),
+   * quindi quando il ripristino sopra riporta `clamped` allo stesso valore già in `radiusM()` (caso
+   * comune: si svuota un campo già a 800 e si conferma) il solo `[value]` non ridisegnerebbe il
+   * campo, che resterebbe visivamente vuoto pur avendo lo stato logico corretto.
+   */
+  protected onRadiusChange(event: Event): void {
+    const target = event.target as HTMLInputElement;
+    const value = target.value;
+    const raw = Number(value);
+    const clamped =
+      value.trim() === ''
+        ? this.radiusM()
+        : this.clampRadius(Number.isFinite(raw) ? raw : this.radiusM());
+    this.radiusM.set(clamped);
+    target.value = String(clamped);
+    this.circleLayer?.setRadius(clamped);
+    if (this.drawState() === 'ready' && this.centerLatLng) {
+      this.circleChange.emit({
+        lat: this.centerLatLng.lat,
+        lon: this.centerLatLng.lon,
+        radiusM: clamped,
+      });
+    }
+  }
+
+  private clampRadius(value: number): number {
+    return Math.min(Math.max(value, MIN_RADIUS_M), MAX_RADIUS_M);
+  }
+
+  /** Chiamato dalla casella "vai a un luogo" (#318): sposta la mappa, non tocca il cerchio disegnato. */
+  flyTo(lat: number, lon: number): void {
+    this.map?.flyTo([lat, lon], 14);
+  }
+
+  /**
+   * Azzera il cerchio disegnato (#318, reperto review I5): chiamato da `App.onResetConfirmed()`
+   * dopo "+ Nuova richiesta". Senza questo metodo `MapComponent` non aveva modo di sapere che lo
+   * shell ha azzerato il proprio segnale `circle` — il cerchio restava disegnato sulla mappa
+   * (`circleLayer` non toccato) mentre il resto della UI (bottone disabilitato, istruzione
+   * "disegna un cerchio") lasciava intendere che non ce n'era uno. Riporta lo stato a `idle` (non
+   * `ready` con un `null` emesso): il prossimo clic deve ripartire da un centro nuovo, non
+   * riconfermare/scartare quello appena rimosso.
+   */
+  clearCircle(): void {
+    this.circleLayer?.remove();
+    this.circleLayer = null;
+    this.centerLatLng = null;
+    this.drawState.set('idle');
+    this.radiusM.set(DEFAULT_RADIUS_M);
+  }
+
   ngOnDestroy(): void {
     this.markers?.clearLayers();
+    this.circleLayer?.remove();
     this.map?.remove();
     this.map = null;
     this.markers = null;
+    this.circleLayer = null;
   }
 }

@@ -4,7 +4,9 @@ import { Action, AppState, BaselineParams } from '@core/models/models';
 import { initialState, transition } from '@core/state/transition';
 import { poiNameDisplayLabel } from '@core/ui-helpers';
 
-function errorMessage(err: unknown, fallback: string): string {
+/** Esportata (fix reperto review): riusata da `App.onGoToPlace` per lo stesso spacchettamento
+ * dell'errore backend, invece di duplicare qui la stessa logica in due file. */
+export function errorMessage(err: unknown, fallback: string): string {
   // Angular HttpErrorResponse NON è instanceof Error a runtime (angular#22762):
   // il messaggio del backend vive in err.error.detail.messaggio ({"detail":{...}}).
   if (err && typeof err === 'object') {
@@ -35,15 +37,16 @@ export class StateStore {
   readonly selectedPoiId = computed(() => this._state().selectedPoiId);
   readonly filter = computed(() => this._state().filter);
   readonly error = computed(() => this._state().error);
-  /** Ultima città inviata: sopravvive a LOADING/ERROR per ripopolare l'InputPanel dopo un errore. */
-  readonly pendingCitta = computed(() => this._state().pendingCitta);
-  /** Zona in corso/ultima inviata (LoadingOverlay in LOADING, ripopolamento dell'InputPanel in ERROR). */
-  readonly pendingZona = computed(() => this._state().pendingZona);
   /** Ultima domanda NL inviata: sopravvive a LOADING/ERROR per ripopolare l'InputPanel dopo un errore. */
   readonly pendingDomanda = computed(() => this._state().pendingDomanda);
+  // pendingCitta/pendingZona rimossi (#318, nessun consumatore dopo la rimozione dei campi
+  // testuali dai pannelli): il cerchio disegnato vive in MapComponent, che sopravvive da solo al
+  // remount tra schermi e non richiede reseeding esterno.
   readonly mode = computed(() => this._state().mode);
   readonly fromCache = computed(() => this._state().completoData?.cache_hit ?? false);
-  /** Ultima query completa (citta+zona+domanda): sopravvive in RESULTS/DETAIL/FILTER, sorgente di "Rigenera". */
+  /** Ultima query completa (center+radiusM+domanda dell'azione, citta+zona RISOLTE dalla risposta,
+   * #318): sopravvive in RESULTS/DETAIL/FILTER, sorgente di "Rigenera" e del contesto per
+   * /analyze/poi e /analyze/narrativa. */
   readonly lastQuery = computed(() => this._state().lastQuery);
   /** Stato aperto/chiuso del bottom-sheet della narrativa (Stato B, collassabile). */
   readonly narrOpen = computed(() => this._state().narrOpen);
@@ -168,14 +171,39 @@ export class StateStore {
    * badge Copertura sono già completi) e la FSM passa a RESULTS; la narrativa di ZONA arriva poi in
    * background (`loadZoneNarrative`, non attesa qui) e aggiorna solo il campo narrativa dello stato
    * già in RESULTS — mai un giro extra della FSM.
+   *
+   * `center`/`radiusM` sono il cerchio disegnato (#318, sostituisce citta/zona digitati): la
+   * richiesta non porta più un nome di città/zona, perché `loadZoneNarrative` (e con essa
+   * `lastQuery`, popolato da `transition()` su `LOAD_SUCCESS`) usa le etichette `citta`/
+   * `zona_normalizzata` RISOLTE dal backend nella risposta — un cerchio disegnato non ha
+   * equivalente testuale da echeggiare prima che la risposta arrivi.
    */
-  async startAnalysis(citta: string, zona: string, domanda?: string | null): Promise<void> {
-    this.dispatch({ type: 'ANALYZE', citta, zona, domanda, pipeline: 'completo' });
+  async startAnalysis(
+    center: { lat: number; lon: number },
+    radiusM: number,
+    domanda?: string | null,
+  ): Promise<void> {
+    this.dispatch({ type: 'ANALYZE', center, radiusM, domanda, pipeline: 'completo' });
     try {
       // Niente `domanda` qui (#292): la fase 1 non chiama più l'LLM, va solo a `loadZoneNarrative`.
-      const result = await this.api.analyze(citta, zona);
-      this.dispatch({ type: 'LOAD_SUCCESS', data: result, pipeline: 'completo' });
-      void this.loadZoneNarrative(result.contesto_hash, citta, zona, domanda ?? null);
+      const result = await this.api.analyze(center, radiusM);
+      this.dispatch({
+        type: 'LOAD_SUCCESS',
+        data: result,
+        pipeline: 'completo',
+        center,
+        radiusM,
+        domanda: domanda ?? null,
+      });
+      // citta/zona qui sono le etichette RISOLTE dalla risposta (result.citta/zona_normalizzata),
+      // non quelle della richiesta (che non esistono più, #318): stesso valore che `transition()`
+      // ha appena scritto in `lastQuery`, usato da /analyze/poi e /analyze/narrativa.
+      void this.loadZoneNarrative(
+        result.contesto_hash,
+        result.citta,
+        result.zona_normalizzata,
+        domanda ?? null,
+      );
     } catch (err) {
       this.dispatch({
         type: 'LOAD_ERROR',
@@ -187,7 +215,12 @@ export class StateStore {
 
   /** Pipeline 'base': stessa logica di `startAnalysis`, letterale `pipeline: 'base'` fisso. */
   async startBaselineAnalysis(params: BaselineParams): Promise<void> {
-    this.dispatch({ type: 'ANALYZE', citta: params.citta, zona: params.zona, pipeline: 'base' });
+    this.dispatch({
+      type: 'ANALYZE',
+      center: params.center,
+      radiusM: params.radiusM,
+      pipeline: 'base',
+    });
     try {
       const result = await this.api.analyzeBaseline(params);
       this.dispatch({ type: 'LOAD_SUCCESS', data: result, pipeline: 'base' });

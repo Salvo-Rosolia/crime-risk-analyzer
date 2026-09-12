@@ -9,7 +9,9 @@ piatta e' preservata.
 
 from __future__ import annotations
 
-from crime_risk_analyzer.models.geo import Bbox
+import math
+
+from crime_risk_analyzer.models.geo import Bbox, bbox_from_circle
 
 
 def test_bbox_center_is_the_midpoint() -> None:
@@ -49,3 +51,30 @@ def test_geocoding_and_overpass_share_same_bbox() -> None:
 
     assert GeoBbox is Bbox
     assert OverpassBbox is Bbox
+
+
+def test_bbox_from_circle_simmetrico_su_centro() -> None:
+    bbox = bbox_from_circle(41.9028, 12.4964, 500.0)
+    lat_mid = (bbox.min_lat + bbox.max_lat) / 2
+    lon_mid = (bbox.min_lon + bbox.max_lon) / 2
+    assert math.isclose(lat_mid, 41.9028, abs_tol=1e-9)
+    assert math.isclose(lon_mid, 12.4964, abs_tol=1e-9)
+
+
+def test_bbox_from_circle_raggio_maggiore_bbox_piu_grande() -> None:
+    piccolo = bbox_from_circle(41.9, 12.5, 200.0)
+    grande = bbox_from_circle(41.9, 12.5, 2000.0)
+    assert (grande.max_lat - grande.min_lat) > (piccolo.max_lat - piccolo.min_lat)
+    assert (grande.max_lon - grande.min_lon) > (piccolo.max_lon - piccolo.min_lon)
+
+
+def test_bbox_from_circle_semi_ampiezza_lat_coerente_con_metri() -> None:
+    # Pinna la FORMULA di bbox_from_circle (metri per grado di latitudine derivati dal
+    # raggio terrestre IUGG, lo stesso di haversine_m: _EARTH_RADIUS_M in models/geo.py,
+    # non importato qui per non toccare un simbolo privato del modulo), non un magic
+    # number indipendente: prima dell'unificazione qui viveva il letterale 111_320,
+    # corrispondente a un raggio leggermente diverso (~6378.1 km equatoriale).
+    earth_radius_m = 6_371_008.8  # == crime_risk_analyzer.models.geo._EARTH_RADIUS_M
+    meters_per_degree_lat = earth_radius_m * math.pi / 180
+    bbox = bbox_from_circle(0.0, 0.0, 500.0)
+    assert math.isclose(bbox.max_lat - 0.0, 500.0 / meters_per_degree_lat, rel_tol=1e-9)

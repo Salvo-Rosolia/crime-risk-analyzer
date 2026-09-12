@@ -161,9 +161,9 @@ def test_cors_allow_origins_default(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_cors_allow_origins_from_env_json(monkeypatch: pytest.MonkeyPatch) -> None:
     """L'allowlist e' configurabile da env come lista JSON.
 
-    Come per ``supported_cities`` (stessa convenzione pydantic-settings), i tipi
-    complessi (``list``) sono letti dalla variabile d'ambiente come JSON: una CSV
-    verrebbe respinta con ``SettingsError``.
+    Convenzione pydantic-settings: i tipi complessi (``list``) sono letti dalla
+    variabile d'ambiente come JSON: una CSV verrebbe respinta con
+    ``SettingsError``.
     """
     monkeypatch.setenv(
         "CORS_ALLOW_ORIGINS",
@@ -330,3 +330,20 @@ def test_geocoding_country_codes_trimmed(monkeypatch: pytest.MonkeyPatch) -> Non
     settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
 
     assert settings.geocoding_country_codes == "it"
+
+
+def test_search_radius_defaults() -> None:
+    """Senza env i default del raggio di ricerca sono applicati (#318)."""
+    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+    assert settings.search_radius_min_m == 150.0
+    assert settings.search_radius_max_m == 3000.0
+
+
+def test_search_radius_min_ge_max_rejected() -> None:
+    """search_radius_min_m >= max e' respinto al load (#318)."""
+    with pytest.raises(ValidationError):
+        Settings(
+            _env_file=None,  # pyright: ignore[reportCallIssue]
+            search_radius_min_m=3000.0,
+            search_radius_max_m=150.0,
+        )

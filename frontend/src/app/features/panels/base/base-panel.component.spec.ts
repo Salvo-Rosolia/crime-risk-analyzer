@@ -1,6 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { BasePanelComponent } from './base-panel.component';
-import { ApiService } from '@core/api/api.service';
 import type { AnalyzeResponse } from '@core/models/models';
 
 const dataWithRows: AnalyzeResponse = {
@@ -56,51 +55,28 @@ const dataWithRows: AnalyzeResponse = {
 
 describe('BasePanelComponent', () => {
   let fixture: ComponentFixture<BasePanelComponent>;
-  let api: { cities: jest.Mock };
-
-  function setZona(value: string): void {
-    const input: HTMLInputElement = fixture.nativeElement.querySelector('#cra-base-zona');
-    input.value = value;
-    input.dispatchEvent(new Event('input'));
-  }
-
-  function setCitta(value: string): void {
-    const input: HTMLInputElement = fixture.nativeElement.querySelector('#cra-base-citta');
-    input.value = value;
-    input.dispatchEvent(new Event('input'));
-  }
 
   function submitForm(): void {
     const form: HTMLFormElement = fixture.nativeElement.querySelector('form');
     form.dispatchEvent(new Event('submit', { cancelable: true }));
   }
 
+  function setTipoPoi(value: string): void {
+    const input: HTMLInputElement = fixture.nativeElement.querySelector('#cra-base-tipo-poi');
+    input.value = value;
+    input.dispatchEvent(new Event('input'));
+  }
+
   beforeEach(async () => {
-    api = { cities: jest.fn().mockResolvedValue(['Roma', 'Milano']) };
     await TestBed.configureTestingModule({
       imports: [BasePanelComponent],
-      providers: [{ provide: ApiService, useValue: api }],
     }).compileComponents();
     fixture = TestBed.createComponent(BasePanelComponent);
     fixture.detectChanges();
-    await fixture.whenStable();
-    fixture.detectChanges();
   });
 
-  it('mostra il form "Parametri ricerca" con Tipo POI, Città (input libero + datalist da cities()) e Zona', () => {
-    expect(api.cities).toHaveBeenCalled();
-    const options = fixture.nativeElement.querySelectorAll('#cra-base-citta-options option');
-    expect(Array.from(options).map((o) => (o as HTMLOptionElement).value)).toEqual([
-      'Roma',
-      'Milano',
-    ]);
+  it('mostra il form "Parametri ricerca" con il campo Tipo POI opzionale', () => {
     expect(fixture.nativeElement.querySelector('#cra-base-tipo-poi')).toBeTruthy();
-    expect(fixture.nativeElement.querySelector('#cra-base-zona')).toBeTruthy();
-  });
-
-  it('il campo zona ha maxlength=200, coerente col vincolo backend zona: max_length=200', () => {
-    const zona: HTMLInputElement = fixture.nativeElement.querySelector('#cra-base-zona');
-    expect(zona.maxLength).toBe(200);
   });
 
   it('elenca cosa è assente nel sistema base', () => {
@@ -113,50 +89,65 @@ describe('BasePanelComponent', () => {
     expect(text).toContain('mappa');
   });
 
-  it("submit senza città/zona non emette search e mostra l'errore di validazione", () => {
-    const spy = jest.fn();
-    fixture.componentInstance.analyzeBaseline.subscribe(spy);
-    submitForm();
+  it('il bottone Cerca è disabilitato senza un cerchio disegnato', () => {
+    fixture.componentRef.setInput('circle', null);
     fixture.detectChanges();
-    expect(spy).not.toHaveBeenCalled();
-    expect(fixture.nativeElement.textContent).toContain('Inserisci una città');
+    const btn: HTMLButtonElement = fixture.nativeElement.querySelector('button[type="submit"]');
+    expect(btn.disabled).toBe(true);
   });
 
-  it('submit con città+zona valide emette search con BaselineParams (tipo_poi assente se vuoto)', () => {
+  it('il bottone Cerca è abilitato quando un cerchio è stato disegnato', () => {
+    fixture.componentRef.setInput('circle', { lat: 41.9, lon: 12.5, radiusM: 500 });
+    fixture.detectChanges();
+    const btn: HTMLButtonElement = fixture.nativeElement.querySelector('button[type="submit"]');
+    expect(btn.disabled).toBe(false);
+  });
+
+  it('submit con cerchio disegnato emette analyzeBaseline con BaselineParams (tipo_poi assente se vuoto)', () => {
     const spy = jest.fn();
     fixture.componentInstance.analyzeBaseline.subscribe(spy);
-    setCitta('Roma');
-    setZona('Colosseo');
+    fixture.componentRef.setInput('circle', { lat: 41.9, lon: 12.5, radiusM: 500 });
     fixture.detectChanges();
     submitForm();
-    expect(spy).toHaveBeenCalledWith({ citta: 'Roma', zona: 'Colosseo' });
+    expect(spy).toHaveBeenCalledWith({
+      center: { lat: 41.9, lon: 12.5 },
+      radiusM: 500,
+    });
   });
 
   it('include tipo_poi (trimmato) quando valorizzato', () => {
     const spy = jest.fn();
     fixture.componentInstance.analyzeBaseline.subscribe(spy);
-    setCitta('Roma');
-    setZona('Colosseo');
-    const tipoPoi: HTMLInputElement = fixture.nativeElement.querySelector('#cra-base-tipo-poi');
-    tipoPoi.value = '  Railway_station  ';
-    tipoPoi.dispatchEvent(new Event('input'));
+    fixture.componentRef.setInput('circle', { lat: 41.9, lon: 12.5, radiusM: 500 });
+    fixture.detectChanges();
+    setTipoPoi('  Railway_station  ');
     fixture.detectChanges();
     submitForm();
     expect(spy).toHaveBeenCalledWith({
-      citta: 'Roma',
-      zona: 'Colosseo',
+      center: { lat: 41.9, lon: 12.5 },
+      radiusM: 500,
       tipo_poi: 'Railway_station',
     });
   });
 
-  it('accetta una città libera non presente nei suggerimenti (baseline è city-agnostic come InputPanel)', () => {
+  it('il bottone disabilitato è collegato via aria-describedby al testo che spiega perché (fix reperto review accessibilità)', () => {
+    fixture.componentRef.setInput('circle', null);
+    fixture.detectChanges();
+    const btn: HTMLButtonElement = fixture.nativeElement.querySelector('button[type="submit"]');
+    const describedById = btn.getAttribute('aria-describedby');
+    expect(describedById).toBeTruthy();
+    const hint = fixture.nativeElement.querySelector(`#${describedById}`);
+    expect(hint).toBeTruthy();
+    expect(hint.classList).toContain('cra-hint');
+  });
+
+  it('senza cerchio il submit non emette analyzeBaseline (guardia difensiva anche a bottone disabilitato)', () => {
     const spy = jest.fn();
     fixture.componentInstance.analyzeBaseline.subscribe(spy);
-    setCitta('Acireale');
-    setZona('Piazza Duomo');
+    fixture.componentRef.setInput('circle', null);
     fixture.detectChanges();
     submitForm();
-    expect(spy).toHaveBeenCalledWith({ citta: 'Acireale', zona: 'Piazza Duomo' });
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it('senza data mostra un placeholder onesto (non una tabella con righe inventate)', () => {
@@ -196,20 +187,45 @@ describe('BasePanelComponent', () => {
     );
   });
 
+  describe('#318 (reperto review C1): punto morto senza cerchio disegnato', () => {
+    it('senza cerchio mostra l\'invito a tornare a Completo (non la frase "disegna sulla mappa", impossibile da qui) e un bottone dedicato', () => {
+      fixture.componentRef.setInput('circle', null);
+      fixture.detectChanges();
+
+      const text = fixture.nativeElement.textContent;
+      expect(text).toContain('Torna a Completo');
+      expect(text).not.toContain('Disegna un cerchio sulla mappa');
+    });
+
+    it('il bottone "Torna a Completo" emette backToCompleto', () => {
+      fixture.componentRef.setInput('circle', null);
+      fixture.detectChanges();
+
+      const spy = jest.fn();
+      fixture.componentInstance.backToCompleto.subscribe(spy);
+      const buttons: HTMLButtonElement[] = Array.from(
+        fixture.nativeElement.querySelectorAll('button'),
+      );
+      buttons.find((b) => b.textContent?.trim() === 'Torna a Completo')!.click();
+
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it('con un cerchio disegnato torna al messaggio originale, niente bottone "Torna a Completo"', () => {
+      fixture.componentRef.setInput('circle', { lat: 41.9, lon: 12.5, radiusM: 500 });
+      fixture.detectChanges();
+
+      const text = fixture.nativeElement.textContent;
+      expect(text).toContain('Disegna un cerchio sulla mappa');
+      expect(text).not.toContain('Torna a Completo');
+    });
+  });
+
   describe('gestione errore/retry (bloccante 2 review #67: il retry resta dentro questo pannello)', () => {
     it("mostra il messaggio d'errore server (serverError) quando presente", () => {
       fixture.componentRef.setInput('serverError', '"Atlantide" non corrisponde ad alcuna area.');
       fixture.detectChanges();
       expect(fixture.nativeElement.textContent).toContain('non corrisponde ad alcuna area');
-    });
-
-    it('la validazione client ha priorità sul messaggio server quando entrambi sono presenti (stessa convenzione di InputPanelComponent)', () => {
-      fixture.componentRef.setInput('serverError', 'errore server');
-      fixture.detectChanges();
-      submitForm();
-      fixture.detectChanges();
-      expect(fixture.nativeElement.textContent).toContain('Inserisci una città');
-      expect(fixture.nativeElement.textContent).not.toContain('errore server');
     });
 
     it('il form resta invariato e riutilizzabile dopo un errore server: un nuovo submit richiama ancora analyzeBaseline', () => {
@@ -218,37 +234,11 @@ describe('BasePanelComponent', () => {
       const spy = jest.fn();
       fixture.componentInstance.analyzeBaseline.subscribe(spy);
 
-      setCitta('Roma');
-      setZona('Atlantide');
+      fixture.componentRef.setInput('circle', { lat: 41.9, lon: 12.5, radiusM: 500 });
       fixture.detectChanges();
       submitForm();
 
-      expect(spy).toHaveBeenCalledWith({ citta: 'Roma', zona: 'Atlantide' });
+      expect(spy).toHaveBeenCalledWith({ center: { lat: 41.9, lon: 12.5 }, radiusM: 500 });
     });
-  });
-});
-
-describe('BasePanelComponent — pre-fill da initialCitta/initialZona (retry dopo remount)', () => {
-  let fixture: ComponentFixture<BasePanelComponent>;
-
-  beforeEach(async () => {
-    await TestBed.configureTestingModule({
-      imports: [BasePanelComponent],
-      providers: [
-        { provide: ApiService, useValue: { cities: jest.fn().mockResolvedValue(['Roma']) } },
-      ],
-    }).compileComponents();
-    fixture = TestBed.createComponent(BasePanelComponent);
-  });
-
-  it('ripopola citta/zona dagli input initial* al mount', () => {
-    fixture.componentRef.setInput('initialCitta', 'Roma');
-    fixture.componentRef.setInput('initialZona', 'Trastevere');
-    fixture.detectChanges();
-
-    const citta: HTMLInputElement = fixture.nativeElement.querySelector('#cra-base-citta');
-    const zona: HTMLInputElement = fixture.nativeElement.querySelector('#cra-base-zona');
-    expect(citta.value).toBe('Roma');
-    expect(zona.value).toBe('Trastevere');
   });
 });
