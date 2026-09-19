@@ -36,24 +36,24 @@
     "brace-expansion": "^5.0.8"
   },
   "dependencies": {
-    "@angular/common": "^20.3.30",
-    "@angular/compiler": "^20.3.30",
-    "@angular/core": "^20.3.30",
-    "@angular/forms": "^20.3.30",
-    "@angular/platform-browser": "^20.3.30",
-    "@angular/router": "^20.3.30",
+    "@angular/common": "^20.3.31",
+    "@angular/compiler": "^20.3.31",
+    "@angular/core": "^20.3.31",
+    "@angular/forms": "^20.3.31",
+    "@angular/platform-browser": "^20.3.31",
+    "@angular/router": "^20.3.31",
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "@fontsource/ibm-plex-sans": "^5.2.8",
     "leaflet": "^1.9.4",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0",
-    "zone.js": "~0.16.2"
+    "zone.js": "~0.16.3"
   },
   "devDependencies": {
-    "@angular/build": "^20.3.35",
-    "@angular/cli": "^20.3.35",
-    "@angular/compiler-cli": "^20.3.30",
-    "@playwright/test": "^1.62.1",
+    "@angular/build": "^20.3.37",
+    "@angular/cli": "^20.3.37",
+    "@angular/compiler-cli": "^20.3.31",
+    "@playwright/test": "^1.63.0",
     "@types/jest": "^30.0.0",
     "@types/leaflet": "^1.9.22",
     "angular-eslint": "21.0.1",
@@ -62,9 +62,9 @@
     "jest": "^30.5.1",
     "jest-environment-jsdom": "^30.5.1",
     "jest-preset-angular": "^17.0.0",
-    "prettier": "^3.9.5",
+    "prettier": "^3.9.7",
     "typescript": "~5.9.2",
-    "typescript-eslint": "8.69.0"
+    "typescript-eslint": "8.70.0"
   },
   "allowScripts": {
     "@parcel/watcher@2.5.6": true,
