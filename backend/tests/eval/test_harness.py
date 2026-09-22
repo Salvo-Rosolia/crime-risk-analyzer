@@ -24,6 +24,7 @@ from crime_risk_analyzer.eval.snapshots import (
     load_snapshot,
     snapshot_path,
 )
+from crime_risk_analyzer.llm.client import GROQ_MODEL
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.models.vocab import ConfidenceSummary
 from crime_risk_analyzer.orchestrator import AnalyzeResponse, ZonaGeo
@@ -388,6 +389,207 @@ async def test_run_experiment_error_isolation(
     assert records[1].status == RunStatus.ERROR
     assert (tmp_path / "runs" / f"{rid_ok}.json").exists()
     assert (tmp_path / "runs" / f"{rid_err}.json").exists()
+
+
+async def test_run_case_non_maschera_un_errore_di_calcolo_delle_metriche(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Il ``try`` copre la chiamata al modello, non le metriche a valle.
+
+    Un ``model_id`` non a listino (qui: ``KeyError`` da ``pricing.cost_usd``) e'
+    un bug di codice/configurazione, non un fallimento del provider: deve
+    propagare con il suo traceback invece di diventare un record
+    ``status=ERROR`` con metriche a zero, indistinguibile da "il modello ha
+    fallito". In una run live la differenza e' tutta: assorbirlo brucerebbe la
+    quota Groq della giornata producendo il 100% di record ERROR senza un solo
+    traceback da leggere.
+
+    Resta vero anche dopo che ``run_experiment`` ha imparato a non morire su un
+    caso rotto: l'isolamento sta un livello SOPRA (con traceback e uno status
+    suo), non dentro questo ``try``. Rimetterlo qui richiuderebbe il buco
+    sbagliato — e questo caso tornerebbe rosso.
+    """
+    from crime_risk_analyzer.llm.client import LLMResponse
+    from crime_risk_analyzer.rag import retrieval
+    from tests.eval._doubles import FakeLLMClient, FakeProfiler
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
+    scrivi_snapshot(
+        snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
+    )
+    risposta_di_modello_non_prezzato = LLMResponse(
+        text="Analisi: Banca A presenta rischio rapina.",
+        llm_used="provider/modello-mai-prezzato",
+        tokens_input=10,
+        tokens_output=20,
+        cache_hit=False,
+        temperature=0.0,
+        seed=0,
+        prompt_hash="abc",
+    )
+
+    with pytest.raises(KeyError, match="modello-mai-prezzato"):
+        await run_case(
+            RunCase(citta="Roma", zona="Centro"),
+            ExperimentConfig(
+                name="exp",
+                mode="analyze",
+                model="groq",
+                cases=[RunCase(citta="Roma", zona="Centro")],
+            ),
+            executor=FakeProfiler(),
+            llm_client=FakeLLMClient(risposta_di_modello_non_prezzato),
+            results_dir=tmp_path,
+            code_commit="abc",
+            ontology_hash="def",
+        )
+
+
+async def test_run_experiment_rifiuta_subito_un_braccio_senza_client(
+    tmp_path: Path,
+) -> None:
+    """Una configurazione impossibile si ferma PRIMA di eseguire, non caso per caso.
+
+    L'isolamento serve ai guasti che riguardano UN caso. Un braccio con modello
+    a cui manca il client non e' quello: fallirebbe identico su tutti i casi e su
+    tutte le ripetizioni, lasciando a terra N record ``HARNESS_ERROR`` che il
+    confronto conterebbe poi come zone fallite. Non c'e' nulla da salvare
+    proseguendo, e l'errore e' noto prima di partire.
+    """
+    from tests.eval._doubles import FakeProfiler
+
+    with pytest.raises(ValueError, match="llm_client"):
+        await run_experiment(
+            ExperimentConfig(
+                name="senza-client",
+                mode="analyze",
+                model="groq",
+                cases=[RunCase(citta="Roma", zona="Centro")],
+            ),
+            executor=FakeProfiler(),
+            llm_client=None,
+            results_dir=tmp_path,
+            code_commit="abc",
+            ontology_hash="def",
+        )
+
+    assert not (tmp_path / "runs").exists(), "nessun record scritto: non si parte"
+
+
+async def test_run_experiment_isola_un_errore_di_configurazione_e_prosegue(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Un caso che esplode FUORI dal ``try`` di ``run_case`` non abbatte la run.
+
+    L'eccezione che il fix precedente ha lasciato propagare (``KeyError`` dal
+    listino prezzi su un ``llm_used`` non a listino — l'alias versionato che Groq
+    riporta davvero) usciva da ``run_case`` e arrivava fino in cima: l'intero
+    esperimento moriva sul PRIMO caso, perdendo tutti i successivi. In una run
+    live con quota giornaliera e' il danno peggiore, perche' la quota consumata
+    fin li' non torna indietro.
+
+    Il caso rotto resta rotto (nessuna metrica inventata), ma e' isolato: gli
+    altri casi girano, e il suo record lo dice per cio' che e'.
+    """
+    from crime_risk_analyzer.llm.client import LLMResponse
+    from crime_risk_analyzer.rag import retrieval
+    from tests.eval._doubles import FakeProfiler, default_llm_response
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
+    for zona in ("Centro", "Prati"):
+        scrivi_snapshot(
+            snapshot_path(tmp_path, make_snapshot_key("Roma", zona)), _sample_pois()
+        )
+
+    class _PrimoCasoNonPrezzato:
+        """Primo caso: model id fuori listino → KeyError nelle metriche."""
+
+        def __init__(self) -> None:
+            self.chiamate = 0
+
+        async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
+            self.chiamate += 1
+            if self.chiamate == 1:
+                return default_llm_response().model_copy(
+                    update={"llm_used": "provider/modello-mai-prezzato"}
+                )
+            return default_llm_response()
+
+    cfg = ExperimentConfig(
+        name="iso-harness",
+        mode="analyze",
+        model="groq",
+        cases=[
+            RunCase(citta="Roma", zona="Centro"),
+            RunCase(citta="Roma", zona="Prati"),
+        ],
+    )
+
+    with caplog.at_level("ERROR"):
+        records = await run_experiment(
+            cfg,
+            executor=FakeProfiler(),
+            llm_client=_PrimoCasoNonPrezzato(),
+            results_dir=tmp_path,
+            code_commit="abc",
+            ontology_hash="def",
+        )
+
+    assert len(records) == 2
+    assert records[0].status == RunStatus.HARNESS_ERROR
+    assert records[1].status == RunStatus.OK
+    # Entrambi i record finiscono su disco: la run e' completa e auditabile.
+    for zona in ("Centro", "Prati"):
+        rid = make_run_id("iso-harness", "Roma", zona, "analyze", "groq")
+        assert (tmp_path / "runs" / f"{rid}.json").exists()
+
+
+async def test_un_errore_di_configurazione_non_passa_inosservato(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Isolare non e' zittire: l'eccezione va loggata CON il suo traceback.
+
+    E' la meta' che rende l'isolamento accettabile. Un ``except`` che si limita a
+    scrivere un record marcato riprodurrebbe il bloccante precedente spostato di
+    un livello: la run finirebbe, ma chi legge i risultati non avrebbe modo di
+    sapere che a rompersi e' stato il codice e non il provider.
+    """
+    from crime_risk_analyzer.llm.client import LLMResponse
+    from crime_risk_analyzer.rag import retrieval
+    from tests.eval._doubles import FakeProfiler, default_llm_response
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
+    scrivi_snapshot(
+        snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
+    )
+
+    class _NonPrezzato:
+        async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
+            return default_llm_response().model_copy(
+                update={"llm_used": "provider/modello-mai-prezzato"}
+            )
+
+    with caplog.at_level("ERROR"):
+        await run_experiment(
+            ExperimentConfig(
+                name="log-harness",
+                mode="analyze",
+                model="groq",
+                cases=[RunCase(citta="Roma", zona="Centro")],
+            ),
+            executor=FakeProfiler(),
+            llm_client=_NonPrezzato(),
+            results_dir=tmp_path,
+            code_commit="abc",
+            ontology_hash="def",
+        )
+
+    errori = [rec for rec in caplog.records if rec.levelname == "ERROR"]
+    assert errori, "l'eccezione isolata deve restare visibile nei log"
+    assert any(rec.exc_info is not None for rec in errori), (
+        "senza traceback il log dice che qualcosa e' fallito ma non dove"
+    )
+    assert any("Centro" in rec.getMessage() for rec in errori)
 
 
 @pytest.mark.parametrize("mode", ["baseline", "analyze"])
@@ -765,7 +967,7 @@ async def test_no_ontology_arm_is_measured_on_the_block_its_prompt_asks_for(
             f"Sintesi della zona.\n\n{LLM_SYNTHESIS_BLOCK_HEADER}\n"
             "Banca A presenta rischio rapina."
         ),
-        llm_used="llama-3.3-70b-versatile",
+        llm_used=GROQ_MODEL,
         tokens_input=10,
         tokens_output=20,
         cache_hit=False,

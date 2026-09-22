@@ -9,17 +9,21 @@ responsabilita' del generation layer (#23), non di questo modulo.
 from crime_risk_analyzer.llm.client import (
     CLAUDE_MODEL,
     GROQ_MODEL,
+    GROQ_MODEL_FAMILY,
     LLMClient,
     LLMError,
     LLMResponse,
     build_llm_client,
+    model_id_for_provider,
 )
 
 __all__ = [
     "CLAUDE_MODEL",
     "GROQ_MODEL",
+    "GROQ_MODEL_FAMILY",
     "LLMClient",
     "LLMError",
     "LLMResponse",
     "build_llm_client",
+    "model_id_for_provider",
 ]

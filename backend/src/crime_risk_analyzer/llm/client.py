@@ -1,4 +1,4 @@
-"""Client LLM provider-agnostico: Claude (Anthropic) + Llama (Groq) (#20).
+"""Client LLM provider-agnostico: Claude (Anthropic) + modello via Groq (#20).
 
 Wrapper sottile e *async* sopra i due SDK ufficiali, con un'unica superficie
 pubblica :meth:`LLMClient.generate`. Lo switch tra provider avviene via
@@ -28,10 +28,26 @@ from crime_risk_analyzer.config import Settings, get_settings
 #: Versione esatta del modello Claude (non un alias) — generation.md §Riproducibilita'.
 CLAUDE_MODEL = "claude-sonnet-4-6"
 
-#: Modello Llama su Groq per il confronto sperimentale — generation.md.
-#: ``llama-3.1-70b-versatile`` e' stato dismesso da Groq; il sostituto attuale
-#: e' ``llama-3.3-70b-versatile`` (Groq production models, console.groq.com).
-GROQ_MODEL = "llama-3.3-70b-versatile"
+#: Modello su Groq per il confronto sperimentale — generation.md.
+#: ``llama-3.1-70b-versatile`` e' stato dismesso da Groq; il sostituto
+#: ``llama-3.3-70b-versatile`` e' stato a sua volta rimosso dal catalogo
+#: (2026-09-10): Groq non ospita piu' alcun modello Llama generalista, solo
+#: due modelli prompt-guard (classificatori, non chat). Sostituito con
+#: ``openai/gpt-oss-120b`` (stesso ordine di grandezza, 120B open-weight),
+#: verificato disponibile via ``GET /openai/v1/models`` con la chiave attuale.
+GROQ_MODEL = "openai/gpt-oss-120b"
+
+#: Tag stabile della FAMIGLIA del modello Groq corrente (non la release esatta):
+#: i test di integrazione lo usano per pinnare il ramo (Groq, non Claude, non
+#: fallback) in ``response.llm_used`` tollerando un alias versionato diverso da
+#: ``GROQ_MODEL`` che Groq puo' riportare. Va aggiornato a mano insieme a
+#: ``GROQ_MODEL`` — derivarlo con un parsing euristico della stringa non regge
+#: al cambio di forma del model id: lo split su ``"-"`` che su
+#: ``llama-3.3-70b-versatile`` dava "llama" su ``openai/gpt-oss-120b`` da'
+#: "openai/gpt", cioe' il prefisso del VENDOR, che pinnerebbe qualunque
+#: ``openai/gpt-*`` invece della sola famiglia gpt-oss. Il legame
+#: famiglia/model id e' verificato offline in ``tests/test_llm_client.py``.
+GROQ_MODEL_FAMILY = "gpt-oss"
 
 #: Parametri fissi condivisi (generation.md §Riproducibilita').
 #: #229: default alzato 1024 -> 1536 (margine anti-troncamento sul caso denso). DEVE
@@ -41,12 +57,35 @@ _MAX_TOKENS = 1536
 _DEFAULT_TEMPERATURE = 0.2
 _DEFAULT_SEED = 42
 
+#: Parametri del solo ramo Groq, perche' ``GROQ_MODEL`` e' un modello reasoning
+#: (#20/#316). Senza di loro Groq ragiona a effort "medium" di default e puo' far
+#: trapelare il chain-of-thought dentro il content del messaggio (bug documentato
+#: sul forum Groq). L'effort basso riduce anche la competizione col budget di
+#: ``_MAX_TOKENS``, condiviso fra ragionamento e narrativa: speso li', il modello
+#: chiude con ``finish_reason="stop"`` e contenuto vuoto (guardia in
+#: ``_generate_groq``). Nominati e non inline: sono scelte di configurazione del
+#: modello, come temperature/seed, e vanno lette accanto a quelle.
+_GROQ_REASONING_EFFORT = "low"
+_GROQ_INCLUDE_REASONING = False
+
 #: Timeout di default (secondi) del layer LLM (#114). Bilancia una generazione
 #: legittima (qualche secondo) con un tetto che impedisce hang indefiniti;
 #: sovrascrivibile via ``Settings.llm_timeout_seconds``.
 _DEFAULT_TIMEOUT_SECONDS = 30.0
 
 Provider = Literal["claude", "groq"]
+
+
+def model_id_for_provider(provider: Provider) -> str:
+    """Model id esatto per un provider, senza istanziare un client.
+
+    Unica fonte di verita' condivisa da :attr:`LLMClient.model` e dal fallback
+    di ``eval.harness._model_id_of`` (nessun doppio ternario claude/groq da
+    tenere sincronizzato a mano): legge ``CLAUDE_MODEL``/``GROQ_MODEL`` come
+    globals di questo modulo a ogni chiamata, cosi' un test che monkeypatcha
+    ``client.GROQ_MODEL`` resta coerente ovunque questa funzione sia invocata.
+    """
+    return CLAUDE_MODEL if provider == "claude" else GROQ_MODEL
 
 
 class LLMError(RuntimeError):
@@ -172,7 +211,7 @@ class LLMClient:
         timeout: float = _DEFAULT_TIMEOUT_SECONDS,
         max_tokens: int = _MAX_TOKENS,
     ) -> LLMClient:
-        """Costruisce un client che usa Llama via l'SDK Groq iniettato."""
+        """Costruisce un client che usa ``GROQ_MODEL`` via l'SDK Groq iniettato."""
         return cls(
             provider="groq",
             groq_client=groq_client,
@@ -207,7 +246,7 @@ class LLMClient:
     @property
     def model(self) -> str:
         """Model id esatto del provider attivo."""
-        return CLAUDE_MODEL if self._provider == "claude" else GROQ_MODEL
+        return model_id_for_provider(self._provider)
 
     async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
         """Genera la narrativa per il ``system_prompt``/``user_content`` dati.
@@ -272,10 +311,23 @@ class LLMClient:
                 f"max_tokens={self._max_tokens}): narrativa incompleta scartata"
             )
 
+        # Contenuto vuoto con esito dichiarato "riuscito": la risposta non e'
+        # troncata (nessun ``max_tokens``) ma non porta testo utilizzabile. Una
+        # narrativa vuota non e' mai un successo — il citation layer non ha nulla
+        # da ancorare e l'interfaccia mostrerebbe un'analisi muta al posto del
+        # fallback strutturato. Stessa guardia, stessa uscita del troncamento.
+        text = _extract_anthropic_text(message)
+        if not text.strip():
+            raise LLMError(
+                f"Risposta Claude senza testo utilizzabile "
+                f"(stop_reason={getattr(message, 'stop_reason', None)!r}): "
+                "narrativa vuota scartata"
+            )
+
         usage = message.usage
         cache_read = int(getattr(usage, "cache_read_input_tokens", 0) or 0)
         return LLMResponse(
-            text=_extract_anthropic_text(message),
+            text=text,
             llm_used=str(message.model),
             tokens_input=int(usage.input_tokens),
             tokens_output=int(usage.output_tokens),
@@ -296,6 +348,9 @@ class LLMClient:
                     max_tokens=self._max_tokens,
                     temperature=self._temperature,
                     seed=self._seed,
+                    # Modello reasoning: vedi _GROQ_REASONING_EFFORT.
+                    reasoning_effort=_GROQ_REASONING_EFFORT,
+                    include_reasoning=_GROQ_INCLUDE_REASONING,
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_content},
@@ -320,9 +375,26 @@ class LLMClient:
                 f"max_tokens={self._max_tokens}): narrativa incompleta scartata"
             )
 
+        # Contenuto vuoto NONOSTANTE un ``finish_reason`` normale: la guardia
+        # sopra non lo vede (non e' "length"), ma il caso e' concreto proprio su
+        # ``GROQ_MODEL``, che e' un modello reasoning — puo' consumare l'intero
+        # budget di ``max_tokens`` a ragionare e chiudere con ``stop`` senza aver
+        # scritto una riga di narrativa. Senza questo controllo diventava un
+        # ``LLMResponse(text="")`` di SUCCESSO: nessun fallback strutturato,
+        # nessun errore, un'analisi muta servita come se fosse un'analisi.
+        text = str(completion.choices[0].message.content or "")
+        if not text.strip():
+            raise LLMError(
+                f"Risposta Groq senza testo utilizzabile "
+                f"(finish_reason="
+                f"{getattr(completion.choices[0], 'finish_reason', None)!r}, "
+                f"max_tokens={self._max_tokens}): narrativa vuota scartata — "
+                "possibile budget di reasoning esaurito"
+            )
+
         usage = completion.usage
         return LLMResponse(
-            text=str(completion.choices[0].message.content or ""),
+            text=text,
             llm_used=str(completion.model),
             tokens_input=int(usage.prompt_tokens),
             tokens_output=int(usage.completion_tokens),

@@ -39,8 +39,13 @@ logger = logging.getLogger(__name__)
 _MEAN_LABEL = "MEDIA"
 
 #: Status che escludono una zona dal confronto: metriche non rappresentative
-#: della qualità (ERROR = azzerate dall'harness; FALLBACK = narrativa vuota, #163).
-_EXCLUDED_STATUSES = (RunStatus.ERROR, RunStatus.FALLBACK)
+#: della qualità (ERROR = azzerate dall'harness; FALLBACK = narrativa vuota, #163;
+#: HARNESS_ERROR = azzerate anch'esse, ma per un guasto della strumentazione a
+#: valle della pipeline). Vale la regola generale: **tutto ciò che non è OK sta
+#: fuori dalle medie** — un nuovo status nasce senza misura, e includerlo
+#: significherebbe far peggiorare un braccio per un bug. Il vincolo è verificato
+#: sull'enum intero in ``test_compare.py``.
+_EXCLUDED_STATUSES = (RunStatus.ERROR, RunStatus.FALLBACK, RunStatus.HARNESS_ERROR)
 
 
 def guard_no_overwrite(paths: list[Path], force: bool) -> None:

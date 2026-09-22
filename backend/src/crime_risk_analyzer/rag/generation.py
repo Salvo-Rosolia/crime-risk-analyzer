@@ -16,7 +16,7 @@ Confini (generation.md / grounding.md / retrieval.md):
 
 Riproducibilita' (generation.md §Riproducibilita'): ``temperature``/``seed``/
 ``prompt_hash`` arrivano dal :class:`LLMResponse` e vengono esposti nel blocco
-``repro`` cosi' ogni run e' confrontabile (Claude vs Llama) e ricostruibile.
+``repro`` cosi' ogni run e' confrontabile (Claude vs Groq) e ricostruibile.
 """
 
 from __future__ import annotations

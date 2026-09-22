@@ -28,11 +28,34 @@ ModelChoice = Literal["claude", "groq"]
 
 
 class RunStatus(StrEnum):
-    """Esito di una singola run."""
+    """Esito di una singola run.
+
+    ``ERROR`` e ``HARNESS_ERROR`` sono entrambi fallimenti, ma non dicono la
+    stessa cosa e non si diagnosticano allo stesso modo:
+
+    - ``ERROR`` = la PIPELINE del caso e' fallita (snapshot mancante, provider
+      giu', geocoding, SPARQL...): l'errore sta dentro cio' che l'esperimento
+      misura, e il caso semplicemente non ha prodotto una risposta;
+    - ``HARNESS_ERROR`` = la pipeline puo' benissimo essere andata a buon fine e
+      la STRUMENTAZIONE si e' rotta a valle (tipicamente il calcolo delle
+      metriche: un ``model_id`` non a listino → ``KeyError`` da
+      ``pricing.cost_usd``). E' un bug di codice o di configurazione, non un
+      fallimento del modello.
+
+    Tenerli distinti e' il punto: una run live che torna con il 100% di ERROR si
+    legge come "il provider era giu'/gli snapshot mancavano" e si rifa' domani;
+    la stessa run col 100% di HARNESS_ERROR dice invece che la quota E' STATA
+    SPESA e che a rompersi e' stato il nostro codice dopo la chiamata. Con una
+    sola etichetta le due diagnosi sono indistinguibili nei risultati — cioe'
+    esattamente la misattribuzione che il fix di ``run_case`` aveva chiuso.
+
+    Nessuno dei due entra nelle medie: vedi ``compare.py``/``repeat.py``.
+    """
 
     OK = "ok"
     FALLBACK = "fallback"
     ERROR = "error"
+    HARNESS_ERROR = "harness_error"
 
 
 class Provenance(BaseModel):

@@ -28,6 +28,7 @@ from crime_risk_analyzer.eval.snapshots import (
     snapshot_path,
     snapshot_provenance,
 )
+from crime_risk_analyzer.llm.client import model_id_for_provider
 from crime_risk_analyzer.orchestrator import (
     AnalyzeResponse,
     _LLMClientLike,  # pyright: ignore[reportPrivateUsage]
@@ -183,7 +184,16 @@ def _error_record(
     ontology_hash: str,
     snapshot_catturato_il: str | None,
     snapshot_configurazione_canonica: dict[str, object] | None,
+    status: RunStatus = RunStatus.ERROR,
 ) -> RunRecord:
+    """Record di un caso fallito: metriche azzerate, nessuna narrativa.
+
+    ``status`` distingue CHI ha fallito (vedi :class:`RunStatus`): la pipeline
+    del caso (``ERROR``, default, prodotto da :func:`run_case`) o la
+    strumentazione a valle (``HARNESS_ERROR``, prodotto da
+    :func:`run_experiment`). Il resto del record e' identico perche' identico e'
+    cio' che si puo' dire: non c'e' nulla da misurare in nessuno dei due casi.
+    """
     return RunRecord(
         run_id=run_id,
         experiment=config.name,
@@ -191,7 +201,7 @@ def _error_record(
         zona=case.zona,
         mode=config.mode,
         model_id=model_id,
-        status=RunStatus.ERROR,
+        status=status,
         metrics=Metrics(grounding=0.0, hallucination=0.0, latency_ms=0, cost_usd=0.0),
         narrativa="",
         n_poi=0,
@@ -211,14 +221,37 @@ def _error_record(
     )
 
 
-def _model_id_of(llm_client: _LLMClientLike, config: ExperimentConfig) -> str:
-    """Model id dal client se esposto (.model), altrimenti dal config."""
+def _model_id_of(llm_client: _LLMClientLike | None, config: ExperimentConfig) -> str:
+    """Model id del braccio: ``"baseline"``, il ``.model`` del client, o il config.
+
+    Totale di proposito (accetta ``llm_client=None``): serve anche sul percorso
+    d'ERRORE di :func:`run_experiment`, dove un record va scritto comunque e una
+    seconda eccezione mentre si descrive la prima renderebbe l'isolamento inutile.
+    Il rifiuto di un braccio con modello ma senza client sta altrove, in
+    :func:`_require_llm_client`, dove serve: prima di eseguire.
+    """
+    if config.mode == "baseline":
+        return "baseline"
     model = getattr(llm_client, "model", None)
     if isinstance(model, str):
         return model
-    return (
-        "claude-sonnet-4-6" if config.model == "claude" else "llama-3.3-70b-versatile"
-    )
+    return model_id_for_provider(config.model)
+
+
+def _require_llm_client(
+    config: ExperimentConfig, llm_client: _LLMClientLike | None
+) -> None:
+    """Solleva se un braccio CON modello non ha ricevuto il client.
+
+    Chiamata sia da :func:`run_case` sia in testa a :func:`run_experiment`, e non
+    solo dalla prima: e' una configurazione impossibile, non il guasto di un
+    singolo caso. Lasciarla cadere nell'isolamento per-caso scriverebbe un record
+    ``HARNESS_ERROR`` per ogni caso e ogni ripetizione — N zone "fallite" nel
+    confronto a valle — per un errore noto prima di partire, in cui non c'e'
+    proprio nulla da salvare proseguendo.
+    """
+    if config.mode != "baseline" and llm_client is None:
+        raise ValueError(f"llm_client required for mode={config.mode}")
 
 
 async def run_case(
@@ -238,13 +271,8 @@ async def run_case(
     ``no_ontology_prompt``, #236); per ``mode='baseline'`` puo' essere ``None``.
     Solleva :class:`ValueError` se un braccio con modello riceve ``None``.
     """
-    model_id: str
-    if config.mode == "baseline":
-        model_id = "baseline"
-    else:
-        if llm_client is None:
-            raise ValueError(f"llm_client required for mode={config.mode}")
-        model_id = _model_id_of(llm_client, config)
+    _require_llm_client(config, llm_client)
+    model_id = _model_id_of(llm_client, config)
     run_id = make_run_id(
         config.name, case.citta, case.zona, config.mode, config.model, rep
     )
@@ -330,6 +358,18 @@ async def run_case(
             snapshot_catturato_il=snapshot_catturato_il,
             snapshot_configurazione_canonica=snapshot_configurazione_canonica,
         )
+    # Fuori dal try di proposito: il calcolo delle metriche non e' un evento da
+    # assorbire come "il modello ha fallito". Un ``KeyError`` dal listino prezzi
+    # (#34) su un model_id non prezzato e' un bug di codice/configurazione, e
+    # dentro il try diventerebbe un record status=ERROR con metriche a zero,
+    # indistinguibile da una chiamata LLM andata male: in una run live
+    # brucerebbe la quota della giornata producendo il 100% di record ERROR
+    # senza un solo traceback da leggere.
+    # L'eccezione esce quindi da qui, ma NON arriva piu' in cima: la raccoglie
+    # ``run_experiment`` un livello sopra, che la logga col traceback e le
+    # assegna uno status suo (``HARNESS_ERROR``). Le due meta' dicono cose
+    # diverse — qui "non mascherare", la' "non far morire l'esperimento" — e
+    # servono entrambe.
     return _record_from_response(
         run_id=run_id,
         snapshot_id=snapshot_key,
@@ -358,10 +398,17 @@ async def run_experiment(
     """Esegue tutti i casi ``repeat`` volte, scrive i JSON, ritorna i record.
 
     ``llm_client`` e' opzionale: puo' essere ``None`` per ``mode='baseline'``;
-    per ``mode='analyze'`` deve essere fornito (propagato a :func:`run_case`).
+    per i bracci con modello deve essere fornito, e la mancanza e' rifiutata
+    subito (:func:`_require_llm_client`) invece di diventare N record falliti.
 
     ``repeat`` (#157): K ripetizioni per stimare la varianza; ogni ripetizione
     ha un ``rep`` distinto nel run_id (nessuna sovrascrittura). Default 1.
+
+    Un caso che esplode non ferma l'esperimento: l'eccezione viene loggata col
+    traceback e il caso prende un record ``status=HARNESS_ERROR`` (distinto da
+    ``ERROR``, che descrive un fallimento della pipeline — vedi
+    :class:`~crime_risk_analyzer.eval.schema.RunStatus`). Nessuna metrica viene
+    inventata: il record resta azzerato ed e' escluso dalle medie a valle.
 
     ``clean_stale`` (#165.4): se ``True`` rimuove i record legacy pre-#157
     dell'esperimento prima di eseguire; altrimenti la guardia solleva
@@ -373,20 +420,66 @@ async def run_experiment(
     """
     if repeat < 1:
         raise ValueError(f"repeat deve essere >= 1, ricevuto {repeat}")
+    _require_llm_client(config, llm_client)
     guard_no_legacy_runs(results_dir, config.name, clean_stale=clean_stale)
     records: list[RunRecord] = []
     for rep in range(repeat):
         for case in config.cases:
-            record = await run_case(
-                case,
-                config,
-                executor=executor,
-                llm_client=llm_client,
-                results_dir=results_dir,
-                code_commit=code_commit,
-                ontology_hash=ontology_hash,
-                rep=rep,
-            )
+            try:
+                record = await run_case(
+                    case,
+                    config,
+                    executor=executor,
+                    llm_client=llm_client,
+                    results_dir=results_dir,
+                    code_commit=code_commit,
+                    ontology_hash=ontology_hash,
+                    rep=rep,
+                )
+            except Exception as exc:  # noqa: BLE001 — vedi il commento sotto
+                # Cio' che ``run_case`` lascia passare (metriche/listino prezzi,
+                # o un braccio configurato male) morirebbe qui portandosi via
+                # TUTTI i casi e le ripetizioni successive. Su una run live con
+                # quota giornaliera e' il danno peggiore: la quota gia' spesa non
+                # torna, e un ``model_id`` fuori listino la brucerebbe tutta al
+                # primo caso senza nemmeno finire l'esperimento.
+                # Non e' il vecchio try largo dentro ``run_case``: li' l'errore
+                # spariva dentro un record indistinguibile da "il modello ha
+                # fallito", qui esce col suo traceback (``logger.exception``) e
+                # con uno status che lo dice (``HARNESS_ERROR``).
+                logger.exception(
+                    "harness fallito su (%s, %s) rep %d: %s — record marcato "
+                    "'%s', l'esperimento prosegue",
+                    case.citta,
+                    case.zona,
+                    rep,
+                    exc,
+                    RunStatus.HARNESS_ERROR.value,
+                )
+                record = _error_record(
+                    run_id=make_run_id(
+                        config.name,
+                        case.citta,
+                        case.zona,
+                        config.mode,
+                        config.model,
+                        rep,
+                    ),
+                    snapshot_id=make_snapshot_key(case.citta, case.zona),
+                    config=config,
+                    case=case,
+                    model_id=_model_id_of(llm_client, config),
+                    code_commit=code_commit,
+                    ontology_hash=ontology_hash,
+                    # Provenienza dello snapshot non riportata: qui non si sa a
+                    # che punto il caso si sia rotto, e rileggere il file per
+                    # descriverlo significherebbe rischiare una seconda
+                    # eccezione mentre si gestisce la prima. ``None`` = "non
+                    # rilevata", che e' la verita' disponibile.
+                    snapshot_catturato_il=None,
+                    snapshot_configurazione_canonica=None,
+                    status=RunStatus.HARNESS_ERROR,
+                )
             write_record(results_dir, record)
             records.append(record)
     return records

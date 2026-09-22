@@ -283,6 +283,45 @@ def test_error_zone_excluded_from_zones_and_means() -> None:
     assert cmp.mean_delta.grounding == pytest.approx(baseline.mean_delta.grounding)
 
 
+@pytest.mark.parametrize(
+    "status", [s for s in RunStatus if s is not RunStatus.OK], ids=lambda s: s.value
+)
+def test_ogni_status_diverso_da_ok_e_tenuto_fuori_dalle_medie(
+    status: RunStatus,
+) -> None:
+    """Nessuno status di fallimento entra nelle medie, presenti e futuri.
+
+    Parametrizzato sull'enum e non sulla coppia ERROR/FALLBACK di oggi: un nuovo
+    valore (``HARNESS_ERROR``) nasce con metriche azzerate per costruzione, e se
+    qualcuno dimentica di aggiungerlo a ``_EXCLUDED_STATUSES`` quegli zeri
+    finiscono nella media come se fossero una misura — un braccio peggiorerebbe
+    per un bug della strumentazione, in silenzio. Questo caso fallisce al posto
+    della tabella.
+    """
+    arm_a = _arm_a() + [
+        _rec(
+            "full",
+            "Napoli",
+            "Garibaldi",
+            grounding=0.0,
+            hallucination=0.0,
+            latency_ms=0,
+            cost_usd=0.0,
+            status=status,
+        )
+    ]
+    cmp = compare_records(arm_a, _arm_b_napoli_ok(), label_a="full", label_b="base")
+
+    assert [(z.citta, z.zona) for z in cmp.zones] == [
+        ("Milano", "Duomo"),
+        ("Roma", "Colosseo"),
+    ]
+    assert [(f.citta, f.zona) for f in cmp.failed] == [("Napoli", "Garibaldi")]
+    assert cmp.failed[0].status_a == status.value
+    baseline = compare_records(_arm_a(), _arm_b(), label_a="full", label_b="base")
+    assert cmp.mean_a.grounding == pytest.approx(baseline.mean_a.grounding)
+
+
 def test_error_zone_reported_with_both_statuses() -> None:
     """La zona fallita è riportata con lo status di ENTRAMBI i bracci."""
     cmp = compare_records(
