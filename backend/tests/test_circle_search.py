@@ -16,6 +16,7 @@ async def test_resolve_circle_ritorna_etichetta_e_geo_source(
 
     Il geo_source ignora gli argomenti e ritorna sempre lo stesso GeoResult.
     """
+
     def _fake_reverse_geocode(lat: float, lon: float) -> tuple[str, str]:
         return ("Roma", "Trastevere")
 

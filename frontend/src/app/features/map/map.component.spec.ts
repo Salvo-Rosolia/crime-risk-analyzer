@@ -361,7 +361,7 @@ describe('MapComponent', () => {
       expect(radiusInput()).toBeTruthy();
     });
 
-    it('un drag aggiorna il valore mostrato dall\'input (sincronizzazione mappa -> input)', () => {
+    it("un drag aggiorna il valore mostrato dall'input (sincronizzazione mappa -> input)", () => {
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
       fixture.detectChanges();
       (mockMap.distance as jest.Mock).mockReturnValueOnce(900);
@@ -497,7 +497,7 @@ describe('MapComponent', () => {
       expect(input.value).toBe('');
     });
 
-    it('svuotare il campo del tutto e confermare (change) ripristina l\'ultimo raggio valido, non scatta al minimo 150 (fix reperto review: Number(\'\')===0 è finito, non NaN)', () => {
+    it("svuotare il campo del tutto e confermare (change) ripristina l'ultimo raggio valido, non scatta al minimo 150 (fix reperto review: Number('')===0 è finito, non NaN)", () => {
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
       fixture.detectChanges();
       const input = radiusInput()!;
@@ -555,7 +555,7 @@ describe('MapComponent', () => {
       expect(spy).not.toHaveBeenCalled();
     });
 
-    it('nasconde di nuovo l\'input numerico del raggio', () => {
+    it("nasconde di nuovo l'input numerico del raggio", () => {
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
       fixture.detectChanges();
       expect(fixture.nativeElement.querySelector('#cra-radius-input')).toBeTruthy();

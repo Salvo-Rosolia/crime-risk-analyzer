@@ -110,7 +110,12 @@ describe('models (contratto /analyze)', () => {
   });
 
   it('Action ANALYZE richiede center e radiusM (contratto startAnalysis)', () => {
-    const a: Action = { type: 'ANALYZE', center: { lat: 41.8908, lon: 12.4918 }, radiusM: 1000, pipeline: 'completo' };
+    const a: Action = {
+      type: 'ANALYZE',
+      center: { lat: 41.8908, lon: 12.4918 },
+      radiusM: 1000,
+      pipeline: 'completo',
+    };
     expect(a.type === 'ANALYZE' ? a.center.lat : null).toBe(41.8908);
   });
 
@@ -137,7 +142,12 @@ describe('models (contratto /analyze)', () => {
       fallback: false,
       contesto_hash: 'h-ctx',
     };
-    const analyze: Action = { type: 'ANALYZE', center: { lat: 41.8908, lon: 12.4918 }, radiusM: 1000, pipeline: 'base' };
+    const analyze: Action = {
+      type: 'ANALYZE',
+      center: { lat: 41.8908, lon: 12.4918 },
+      radiusM: 1000,
+      pipeline: 'base',
+    };
     const success: Action = { type: 'LOAD_SUCCESS', data: minimalResponse, pipeline: 'base' };
     const error: Action = { type: 'LOAD_ERROR', message: 'x', pipeline: 'completo' };
     expect(analyze.type === 'ANALYZE' ? analyze.pipeline : null).toBe('base');

@@ -252,8 +252,21 @@ export type Action =
    * #67-bis, bloccante A — race condition). Campo obbligatorio apposta: un'omissione futura deve
    * essere un errore di compilazione, non un default silenzioso su 'completo'.
    */
-  | { type: 'ANALYZE'; center: { lat: number; lon: number }; radiusM: number; domanda?: string | null; pipeline: Mode }
-  | { type: 'LOAD_SUCCESS'; data: AnalyzeResponse; pipeline: Mode; center?: { lat: number; lon: number }; radiusM?: number; domanda?: string | null }
+  | {
+      type: 'ANALYZE';
+      center: { lat: number; lon: number };
+      radiusM: number;
+      domanda?: string | null;
+      pipeline: Mode;
+    }
+  | {
+      type: 'LOAD_SUCCESS';
+      data: AnalyzeResponse;
+      pipeline: Mode;
+      center?: { lat: number; lon: number };
+      radiusM?: number;
+      domanda?: string | null;
+    }
   | { type: 'LOAD_ERROR'; message: string; pipeline: Mode }
   | { type: 'SELECT_POI'; id: string }
   | { type: 'DESELECT_POI' }

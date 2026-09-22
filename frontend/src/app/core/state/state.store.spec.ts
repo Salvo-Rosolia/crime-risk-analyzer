@@ -86,7 +86,7 @@ describe('StateStore', () => {
     expect(store.screen()).toBe('LOADING');
   });
 
-  it('pendingDomanda riflette l\'ultimo valore inviato (per il retry dopo un errore)', () => {
+  it("pendingDomanda riflette l'ultimo valore inviato (per il retry dopo un errore)", () => {
     expect(store.pendingDomanda()).toBeNull();
     store.dispatch({
       type: 'ANALYZE',

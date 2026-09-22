@@ -1374,7 +1374,7 @@ describe('App shell', () => {
     });
   });
 
-  describe('#318 (reperto review C1): via d\'uscita dal Sistema base senza cerchio disegnato', () => {
+  describe("#318 (reperto review C1): via d'uscita dal Sistema base senza cerchio disegnato", () => {
     it('toggle a Base PRIMA di aver mai disegnato un cerchio: "Torna a Completo" nel pannello riporta a INPUT (dove la mappa torna visibile/cliccabile)', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();

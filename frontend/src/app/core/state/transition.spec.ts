@@ -78,7 +78,7 @@ describe('transition (FSM)', () => {
     expect(s.lastQuery).toEqual(withPreviousQuery.lastQuery);
   });
 
-  it('LOAD_SUCCESS (completo) popola lastQuery da center/radiusM/domanda dell\'azione + citta/zona_normalizzata della risposta (#318)', () => {
+  it("LOAD_SUCCESS (completo) popola lastQuery da center/radiusM/domanda dell'azione + citta/zona_normalizzata della risposta (#318)", () => {
     const dataConEtichetteRisolte: AnalyzeResponse = {
       ...data,
       citta: 'Roma',
