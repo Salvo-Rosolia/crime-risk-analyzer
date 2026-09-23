@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 
 from crime_risk_analyzer import zone_context_cache
 from crime_risk_analyzer.context_fingerprint import ContestoHash, fingerprint
+from crime_risk_analyzer.geocoding import ZoneNotFoundError
 from crime_risk_analyzer.llm.client import LLMError
 from crime_risk_analyzer.orchestrator import (
     AnalyzeResponse,
@@ -27,6 +28,7 @@ from crime_risk_analyzer.orchestrator import (
     RiskProfiler,
     _build_poi_list,  # pyright: ignore[reportPrivateUsage]
     _elapsed_ms,  # pyright: ignore[reportPrivateUsage]
+    _filter_pois_by_radius,  # pyright: ignore[reportPrivateUsage]
     _LLMClientLike,  # pyright: ignore[reportPrivateUsage]
     _messaggio_zero_poi,  # pyright: ignore[reportPrivateUsage]
     _structured_response,  # pyright: ignore[reportPrivateUsage]
@@ -61,6 +63,7 @@ async def run_analysis_fast(
     executor: RiskProfiler,
     poi_source: PoiSource | None = None,
     geo_source: GeoSource | None = None,
+    radius_m: float | None = None,
 ) -> AnalyzeResponse:
     """Fase 1 (#259): dati strutturati subito, ``narrativa=None``.
 
@@ -70,11 +73,20 @@ async def run_analysis_fast(
     (#292): i percorsi di valutazione
     (:func:`~crime_risk_analyzer.orchestrator.run_analysis` e il braccio ablato)
     non ci scrivono, perche' nessuno li' rilegge quel contesto.
+
+    ``radius_m`` (opzionale, #318) filtra i POI server-side entro il raggio dal
+    centro geocodificato (``_filter_pois_by_radius``), stesso pattern di
+    ``run_baseline``: applicato PRIMA del grounding, cosi' la cache di zona
+    scalda col contesto GIA' filtrato. ``None`` = nessun filtro per raggio
+    (comportamento invariato).
     """
     start = time.perf_counter()
     retrieval_ctx = await retrieve(
         citta, zona, executor=executor, poi_source=poi_source, geo_source=geo_source
     )
+    if radius_m is not None:
+        lat, lon = retrieval_ctx["geo"]["lat"], retrieval_ctx["geo"]["lon"]
+        retrieval_ctx = _filter_pois_by_radius(retrieval_ctx, lat, lon, radius_m)
     grounded = ground(retrieval_ctx)
     zone_context_cache.put(
         citta, zona, ZoneContext(retrieval=retrieval_ctx, grounded=grounded)
@@ -185,14 +197,41 @@ async def run_zone_narrative(
     propagati da ``Settings`` dalla rotta — questa è ormai l'unica chiamata a
     ``generate_analysis`` che può sforare il TPM del provider, quindi deve
     rispettare lo stesso budget configurabile, non i default hardcoded.
+
+    A cache fredda senza ``geo_source`` (il caso reale della rotta: il client
+    rimanda solo ``citta``/``zona``, mai il cerchio originale) la ricostruzione
+    passa da un geocode FORWARD (:func:`~crime_risk_analyzer.geocoding.geocode_zone`)
+    di un'etichetta che pero' nasce da un reverse geocode del centro del cerchio
+    (#318): quasi mai una stringa che Nominatim ritrova cercandola in avanti, e
+    sempre impossibile nel caso di fallback (``"area lat,lon"``/``"zona non
+    identificata"``, D9 del design doc). La conseguente
+    :class:`~crime_risk_analyzer.geocoding.ZoneNotFoundError` diventa qui lo
+    stesso :class:`ContextMismatchError` del ramo ``contesto_hash`` -> 409, non
+    un 422 "zona non geocodificabile": il contesto non e' scritto male, e'
+    semplicemente scaduto/sfrattato, e la via d'uscita e' la stessa, rilanciare
+    l'analisi di zona (che ridisegna il cerchio e ripassa da
+    ``resolve_circle``). :class:`~crime_risk_analyzer.geocoding.GeocodingError`
+    generico (Nominatim irraggiungibile) resta INVECE un 503 non catturato qui:
+    e' un guasto di servizio reale, non un'etichetta non ricercabile, e
+    rilanciare l'analisi non lo risolverebbe.
     """
     start = time.perf_counter()
     cached = zone_context_cache.get(citta, zona)
     ricostruito = cached is None
     if cached is None:
-        retrieval_ctx = await retrieve(
-            citta, zona, executor=executor, poi_source=poi_source, geo_source=geo_source
-        )
+        try:
+            retrieval_ctx = await retrieve(
+                citta,
+                zona,
+                executor=executor,
+                poi_source=poi_source,
+                geo_source=geo_source,
+            )
+        except ZoneNotFoundError as exc:
+            raise ContextMismatchError(
+                f"il contesto di {citta}/{zona} non e' piu' ricostruibile: rilancia "
+                "l'analisi di zona"
+            ) from exc
         grounded = ground(retrieval_ctx)
         cached = ZoneContext(retrieval=retrieval_ctx, grounded=grounded)
 

@@ -16,8 +16,11 @@ from crime_risk_analyzer.orchestrator import (
     AnalyzeRequest,
     AnalyzeResponse,
     BaselineRequest,
+    Center,
     PoiOut,
     _build_poi_list,  # pyright: ignore[reportPrivateUsage]
+    _filter_pois_by_radius,  # pyright: ignore[reportPrivateUsage]
+    _filter_pois_by_type,  # pyright: ignore[reportPrivateUsage]
     _generated_response,  # pyright: ignore[reportPrivateUsage]
     _risk_models_from_grounded,  # pyright: ignore[reportPrivateUsage]
     _structured_response,  # pyright: ignore[reportPrivateUsage]
@@ -34,6 +37,7 @@ from crime_risk_analyzer.rag.no_ontology_generation import (
     LLM_SYNTHESIS_BLOCK_HEADER,
     NO_ONTOLOGY_SYSTEM_PROMPT,
 )
+from crime_risk_analyzer.rag.retrieval import RetrievalContext, RetrievalStats
 from tests.eval._doubles import FakeLLMClient as _FakeLLMClient
 from tests.eval._doubles import FakeProfiler as _FakeProfiler
 from tests.eval._doubles import default_llm_response as _llm_response
@@ -824,6 +828,56 @@ async def test_run_analysis_fallback_llm_narrativa_fonti_vuoto(
     assert resp.narrativa_fonti == SourceProse()
 
 
+# --- #318: filtro per raggio condiviso con quello per tipo_poi ---
+
+
+def _ctx_con_due_poi() -> RetrievalContext:
+    vicino: Poi = {
+        "id": "node/1",
+        "name": "Vicino",
+        "lat": 41.900,
+        "lon": 12.500,
+        "osm_tags": "amenity=bank",
+        "terminus_class": "Bank",
+        "citta": "Roma",
+    }
+    lontano: Poi = {
+        "id": "node/2",
+        "name": "Lontano",
+        "lat": 42.100,
+        "lon": 12.700,
+        "osm_tags": "amenity=bank",
+        "terminus_class": "Bank",
+        "citta": "Roma",
+    }
+    return RetrievalContext(
+        citta="Roma",
+        zona="Trastevere",
+        geo={"lat": 41.900, "lon": 12.500, "bbox": Bbox(41.8, 12.4, 42.0, 12.6)},
+        pois=[vicino, lontano],
+        profiles={"Bank": PoiRiskProfile(terminus_class="Bank")},
+        stats=RetrievalStats(n_pois=2, n_classes=1),
+    )
+
+
+def test_filter_pois_by_radius_esclude_i_lontani() -> None:
+    ctx = _ctx_con_due_poi()
+    filtrato = _filter_pois_by_radius(ctx, 41.900, 12.500, radius_m=500.0)
+    assert [p["id"] for p in filtrato["pois"]] == ["node/1"]
+    assert filtrato["stats"]["n_pois"] == 1
+
+
+def test_filter_pois_by_type_invariato_dopo_la_condivisione() -> None:
+    ctx = _ctx_con_due_poi()
+    filtrato = _filter_pois_by_type(ctx, "Bank")
+    assert len(filtrato["pois"]) == 2  # entrambi sono Bank, nessuno escluso
+
+
+def test_center_valida_i_bound() -> None:
+    with pytest.raises(ValidationError):
+        Center(lat=95.0, lon=12.0)
+
+
 # --- #119: tipo_poi filtra i POI server-side nel baseline ---
 
 
@@ -906,6 +960,91 @@ async def test_run_baseline_tipo_poi_no_match_yields_empty(
     # nessun POI di quella classe -> lista vuota, nessun errore
     assert resp.poi == []
     assert resp.risk_models == []
+
+
+# --- #318: radius_m filtra i POI server-side nel baseline ---
+
+
+def _pois_for_radius() -> list[Poi]:
+    return [
+        {
+            "id": "1",
+            "name": "Banca A",
+            "lat": 41.89,
+            "lon": 12.49,
+            "osm_tags": "amenity=bank",
+            "terminus_class": "Bank",
+            "citta": "Roma",
+        },
+        {
+            "id": "2",
+            "name": "Bar Roma",
+            "lat": 41.90,
+            "lon": 12.50,
+            "osm_tags": "amenity=bar",
+            "terminus_class": "GenericUrbanPOI",
+            "citta": "Roma",
+        },
+        {
+            "id": "3",
+            "name": "Banca Lontana",
+            "lat": 42.10,
+            "lon": 12.70,
+            "osm_tags": "amenity=bank",
+            "terminus_class": "Bank",
+            "citta": "Roma",
+        },
+    ]
+
+
+async def test_run_baseline_filters_by_radius_m(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``radius_m`` filtra i POI server-side dal centro geocodificato (#318).
+
+    Il centro geocodificato da ``_patch_io`` e' (41.89, 12.49), che coincide con
+    ``Banca A``: gli altri due POI sono oltre 500m e vengono esclusi.
+    """
+    _patch_io(monkeypatch, pois=_pois_for_radius())
+    resp = await run_baseline(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+        radius_m=500.0,
+    )
+    assert [p.name for p in resp.poi] == ["Banca A"]
+
+
+async def test_run_baseline_no_radius_filter_when_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_io(monkeypatch, pois=_pois_for_radius())
+    resp = await run_baseline(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+    )
+    # default (None): nessun filtro per raggio, tutti i POI passano
+    assert [p.name for p in resp.poi] == ["Banca A", "Bar Roma", "Banca Lontana"]
+
+
+async def test_run_baseline_radius_and_tipo_poi_compose(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """I due filtri server-side si compongono (intersezione, #318).
+
+    ``Banca Lontana`` e' di classe ``Bank`` ma fuori raggio; ``Bar Roma`` e' nel
+    raggio ma non e' ``Bank``: solo ``Banca A`` soddisfa entrambi i filtri.
+    """
+    _patch_io(monkeypatch, pois=_pois_for_radius())
+    resp = await run_baseline(
+        "Roma",
+        "Centro",
+        executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
+        radius_m=500.0,
+        tipo_poi="Bank",
+    )
+    assert [p.name for p in resp.poi] == ["Banca A"]
 
 
 # --- #236: braccio di ablazione «LLM senza contributo ontologico nel prompt» ---
@@ -1096,45 +1235,46 @@ async def test_run_analysis_does_not_touch_the_zone_cache(
         zone_context_cache.clear()
 
 
-# --- #170: max_length sulla zona (free-text verso Nominatim + chiave _CACHE) ---
+# --- #318: contratto center/radius_m (sostituisce citta/zona free-text) ---
 
 
-def test_analyze_request_rejects_overlong_zona() -> None:
-    # oltre il tetto (200): la validazione Pydantic respinge la richiesta
+def test_analyze_request_centro_e_raggio() -> None:
+    req = AnalyzeRequest(center=Center(lat=41.9, lon=12.5), radius_m=500.0)
+    assert req.center.lat == 41.9
+    assert req.radius_m == 500.0
+
+
+def test_analyze_request_raggio_sotto_il_minimo_respinto() -> None:
     with pytest.raises(ValidationError):
-        AnalyzeRequest(citta="Roma", zona="x" * 201)
+        AnalyzeRequest(center=Center(lat=41.9, lon=12.5), radius_m=1.0)
 
 
-def test_analyze_request_accepts_zona_at_max_length() -> None:
-    # esattamente al tetto: ammessa (il bound e' inclusivo)
-    req = AnalyzeRequest(citta="Roma", zona="x" * 200)
-    assert len(req.zona) == 200
-
-
-def test_baseline_request_rejects_overlong_zona() -> None:
+def test_analyze_request_raggio_sopra_il_massimo_respinto() -> None:
     with pytest.raises(ValidationError):
-        BaselineRequest(citta="Roma", zona="x" * 201)
+        AnalyzeRequest(center=Center(lat=41.9, lon=12.5), radius_m=50_000.0)
 
 
-def test_baseline_request_accepts_zona_at_max_length() -> None:
-    req = BaselineRequest(citta="Roma", zona="x" * 200)
-    assert len(req.zona) == 200
+def test_baseline_request_centro_raggio_e_tipo_poi() -> None:
+    req = BaselineRequest(
+        center=Center(lat=41.9, lon=12.5), radius_m=500.0, tipo_poi="Bank"
+    )
+    assert req.tipo_poi == "Bank"
 
 
-def test_analyze_request_surface_is_exactly_citta_and_zona() -> None:
-    """La fase 1 chiede DOVE, non cosa raccontare (#292).
+def test_analyze_request_surface_is_exactly_center_and_radius_m() -> None:
+    """La fase 1 chiede DOVE (un cerchio sulla mappa), non cosa raccontare (#292/#318).
 
-    ``domanda`` e' stata rimossa: senza chiamata LLM su questa rotta non c'e'
-    prompt in cui iniettarla, e tenerla nel contratto significava dichiarare un
-    input che il server accettava e ignorava — la specie di campo che un client
+    ``domanda`` resta fuori: senza chiamata LLM su questa rotta non c'e' prompt
+    in cui iniettarla, e tenerla nel contratto significava dichiarare un input
+    che il server accettava e ignorava — la specie di campo che un client
     riempie credendo di ottenere qualcosa. Vive in ``ZoneNarrativeRequest``, la
     richiesta che porta davvero il testo al modello. L'insieme esatto tiene fuori
     anche il ritorno di un ``tipo_poi``/``score`` per la strada del «tanto e'
     opzionale»."""
-    assert set(AnalyzeRequest.model_fields) == {"citta", "zona"}
+    assert set(AnalyzeRequest.model_fields) == {"center", "radius_m"}
 
 
-def test_baseline_request_surface_is_citta_zona_tipo_poi() -> None:
+def test_baseline_request_surface_is_center_radius_tipo_poi() -> None:
     """Guardia sull'asimmetria iso-input fra i due bracci (#263).
 
     ``BaselineRequest`` porta ``tipo_poi`` ma non ``domanda``; ``ZoneNarrativeRequest``
@@ -1145,7 +1285,7 @@ def test_baseline_request_surface_is_citta_zona_tipo_poi() -> None:
     presa. Questo test rende il gap verificabile invece che solo descritto: se un
     domani ``domanda`` compare qui (o ``tipo_poi`` sparisce), va aggiornato insieme
     ai docstring di ``BaselineRequest``/``ZoneNarrativeRequest``."""
-    assert set(BaselineRequest.model_fields) == {"citta", "zona", "tipo_poi"}
+    assert set(BaselineRequest.model_fields) == {"center", "radius_m", "tipo_poi"}
 
 
 # --- #184: guardia anti-scoring estesa al contratto di risposta /analyze ---

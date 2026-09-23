@@ -8,6 +8,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from crime_risk_analyzer import circle_search
 from crime_risk_analyzer.geocoding import GeoResult, ZoneNotFoundError
 from crime_risk_analyzer.main import create_app
 from crime_risk_analyzer.models.geo import Bbox
@@ -54,22 +55,26 @@ def _pois(citta: str) -> list[Poi]:
     ]
 
 
-def _patch_io(monkeypatch: pytest.MonkeyPatch) -> None:
-    geo: dict[str, object] = {
-        "lat": 41.89,
-        "lon": 12.49,
-        "bbox": Bbox(41.88, 12.48, 41.90, 12.50),
-    }
+def _fake_reverse_geocode(lat: float, lon: float) -> tuple[str, str]:
+    return ("Roma", "Trastevere")
 
-    def _fake_geocode(zona: str, citta: str) -> dict[str, object]:
-        return geo
+
+def _patch_io(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Patcha la sola I/O che il nuovo path a cerchio (#318) attraversa davvero.
+
+    ``geocode_zone`` non e' piu' chiamato da ``/analyze``/``/analyze/baseline``:
+    ``resolve_circle`` passa sempre un ``geo_source`` proprio. La label
+    citta'/zona arriva da ``circle_search.reverse_geocode_label`` (reverse
+    geocode del centro); il bbox da ``bbox_from_circle`` (puro, nessun I/O) —
+    solo la label va quindi simulata qui.
+    """
+    monkeypatch.setattr(circle_search, "reverse_geocode_label", _fake_reverse_geocode)
 
     async def _fake_fetch(
         bbox: object, citta: str, *args: object, **kwargs: object
     ) -> list[Poi]:
         return _pois(citta)
 
-    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode)
     monkeypatch.setattr(retrieval, "fetch_pois", _fake_fetch)
 
 
@@ -83,7 +88,10 @@ def test_baseline_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_io(monkeypatch)
     resp = cast(
         httpx.Response,
-        _client().post("/analyze/baseline", json={"citta": "Roma", "zona": "Centro"}),  # pyright: ignore[reportUnknownMemberType]
+        _client().post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze/baseline",
+            json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0},
+        ),
     )
     assert resp.status_code == 200
     body = resp.json()
@@ -94,107 +102,167 @@ def test_baseline_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     assert body["risk_models"][0]["poi"] == "Banca A"
 
 
-def test_baseline_accepts_non_allowlisted_city(
+def test_baseline_reports_reverse_geocoded_city(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#191: baseline non applica piu' l'allowlist; una citta' fuori lista -> 200."""
-    seen: list[tuple[str, str]] = []
+    """#318: la ``citta'`` in risposta e' quella del reverse geocode del centro.
 
-    def _recording_geocode(zona: str, citta: str) -> dict[str, object]:
-        seen.append((zona, citta))
-        return {
-            "lat": 37.61,
-            "lon": 15.16,
-            "bbox": Bbox(37.60, 15.15, 37.62, 15.17),
-        }
+    Non c'e' piu' un'allowlist (gia' rimossa da #191) ne' un campo ``citta`` in
+    richiesta: verifica che ``center.lat``/``center.lon`` raggiungano
+    ``reverse_geocode_label`` e che l'etichetta restituita finisca in risposta.
+    """
+    seen: list[tuple[float, float]] = []
+
+    def _recording_reverse(lat: float, lon: float) -> tuple[str, str]:
+        seen.append((lat, lon))
+        return ("Acireale", "Centro")
 
     async def _fake_fetch(
         bbox: object, citta: str, *args: object, **kwargs: object
     ) -> list[Poi]:
         return _pois(citta)
 
-    monkeypatch.setattr(retrieval, "geocode_zone", _recording_geocode)
+    monkeypatch.setattr(circle_search, "reverse_geocode_label", _recording_reverse)
     monkeypatch.setattr(retrieval, "fetch_pois", _fake_fetch)
     resp = cast(
         httpx.Response,
         _client().post(  # pyright: ignore[reportUnknownMemberType]
-            "/analyze/baseline", json={"citta": "Acireale", "zona": "Centro"}
+            "/analyze/baseline",
+            json={"center": {"lat": 37.61, "lon": 15.16}, "radius_m": 2000.0},
         ),
     )
     assert resp.status_code == 200
     assert resp.json()["citta"] == "Acireale"
-    assert seen == [("Centro", "Acireale")]
+    assert seen == [(37.61, 15.16)]
 
 
-def test_baseline_rejects_overlong_citta(monkeypatch: pytest.MonkeyPatch) -> None:
-    """#191: citta' oltre max_length=100 -> 422 (validazione Pydantic, pre-I/O)."""
+def test_baseline_rejects_out_of_range_radius(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """radius_m fuori da [search_radius_min_m, search_radius_max_m] -> 422 (#318).
+
+    Validazione Pydantic pre-I/O, come il vecchio limite ``max_length=100`` su
+    ``citta'`` (rimosso insieme al campo): il body malformato non deve
+    raggiungere ne' il reverse geocode ne' Overpass.
+    """
     _patch_io(monkeypatch)
     resp = cast(
         httpx.Response,
         _client().post(  # pyright: ignore[reportUnknownMemberType]
-            "/analyze/baseline", json={"citta": "A" * 101, "zona": "Centro"}
+            "/analyze/baseline",
+            json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 50_000.0},
         ),
     )
     assert resp.status_code == 422
 
 
-def test_baseline_zone_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
-    def _raise(zona: str, citta: str) -> dict[str, object]:
-        raise ZoneNotFoundError("zona ignota")
+def _pois_per_raggio(citta: str) -> list[Poi]:
+    """Un POI al centro esatto della richiesta + uno a oltre un km (#318)."""
+    return [
+        {
+            "id": "vicino",
+            "name": "Banca A",
+            "lat": 41.89,
+            "lon": 12.49,
+            "osm_tags": "amenity=bank",
+            "terminus_class": "Bank",
+            "citta": citta,
+        },
+        {
+            "id": "lontano",
+            "name": "Bar Roma",
+            "lat": 41.90,
+            "lon": 12.50,
+            "osm_tags": "amenity=bar",
+            "terminus_class": "GenericUrbanPOI",
+            "citta": citta,
+        },
+    ]
 
-    monkeypatch.setattr(retrieval, "geocode_zone", _raise)
+
+def test_baseline_radius_m_raggiunge_davvero_il_filtro_geospaziale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#318: prova al confine HTTP che ``radius_m`` filtra i POI, non solo che
+    e' validato dal ``field_validator`` (gemello di
+    ``test_analyze_radius_m_raggiunge_davvero_il_filtro_geospaziale``).
+
+    Senza ``radius_m=request.radius_m`` cablato da ``main.py`` a
+    ``run_baseline``, l'intera suite passerebbe comunque. Il centro della
+    richiesta coincide con ``Banca A`` (distanza ~0 m) mentre ``Bar Roma`` e' a
+    oltre un km: un raggio di 150 m (il minimo consentito) deve escludere la
+    seconda dalla response.
+    """
+    monkeypatch.setattr(circle_search, "reverse_geocode_label", _fake_reverse_geocode)
+
+    async def _fake_fetch(
+        bbox: object, citta: str, *args: object, **kwargs: object
+    ) -> list[Poi]:
+        return _pois_per_raggio(citta)
+
+    monkeypatch.setattr(retrieval, "fetch_pois", _fake_fetch)
     resp = cast(
         httpx.Response,
         _client().post(  # pyright: ignore[reportUnknownMemberType]
-            "/analyze/baseline", json={"citta": "Roma", "zona": "Nessundove"}
+            "/analyze/baseline",
+            json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 150.0},
+        ),
+    )
+    assert resp.status_code == 200
+    assert [p["id"] for p in resp.json()["poi"]] == ["vicino"]
+
+
+def test_baseline_zone_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Un errore alla risoluzione dell'etichetta (reverse geocode) propaga a 422.
+
+    ``reverse_geocode_label`` reale non solleva mai (fallback cosmetico, #318):
+    questo verifica solo che l'handler centrale di ``ZoneNotFoundError`` resti
+    cablato anche dietro il nuovo ``resolve_circle``.
+    """
+
+    def _raise(lat: float, lon: float) -> tuple[str, str]:
+        raise ZoneNotFoundError("zona ignota")
+
+    monkeypatch.setattr(circle_search, "reverse_geocode_label", _raise)
+    resp = cast(
+        httpx.Response,
+        _client().post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze/baseline",
+            json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0},
         ),
     )
     assert resp.status_code == 422
 
 
 def test_baseline_overpass_down(monkeypatch: pytest.MonkeyPatch) -> None:
-    geo: dict[str, object] = {
-        "lat": 41.89,
-        "lon": 12.49,
-        "bbox": Bbox(41.88, 12.48, 41.90, 12.50),
-    }
-
-    def _fake_geocode(zona: str, citta: str) -> dict[str, object]:
-        return geo
+    monkeypatch.setattr(circle_search, "reverse_geocode_label", _fake_reverse_geocode)
 
     async def _raise_fetch(*args: object, **kwargs: object) -> list[Poi]:
         raise OverpassError("overpass giu'")
 
-    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode)
     monkeypatch.setattr(retrieval, "fetch_pois", _raise_fetch)
     resp = cast(
         httpx.Response,
         _client().post(  # pyright: ignore[reportUnknownMemberType]
-            "/analyze/baseline", json={"citta": "Roma", "zona": "Centro"}
+            "/analyze/baseline",
+            json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0},
         ),
     )
     assert resp.status_code == 503
 
 
 def test_baseline_zero_pois(monkeypatch: pytest.MonkeyPatch) -> None:
-    geo: dict[str, object] = {
-        "lat": 41.89,
-        "lon": 12.49,
-        "bbox": Bbox(41.88, 12.48, 41.90, 12.50),
-    }
-
-    def _fake_geocode(zona: str, citta: str) -> dict[str, object]:
-        return geo
+    monkeypatch.setattr(circle_search, "reverse_geocode_label", _fake_reverse_geocode)
 
     async def _fake_fetch_empty(*args: object, **kwargs: object) -> list[Poi]:
         return []
 
-    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode)
     monkeypatch.setattr(retrieval, "fetch_pois", _fake_fetch_empty)
     resp = cast(
         httpx.Response,
         _client().post(  # pyright: ignore[reportUnknownMemberType]
-            "/analyze/baseline", json={"citta": "Roma", "zona": "Centro"}
+            "/analyze/baseline",
+            json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0},
         ),
     )
     assert resp.status_code == 200
@@ -215,14 +283,19 @@ def test_baseline_filters_by_tipo_poi(monkeypatch: pytest.MonkeyPatch) -> None:
     base = cast(
         httpx.Response,
         client.post(  # pyright: ignore[reportUnknownMemberType]
-            "/analyze/baseline", json={"citta": "Roma", "zona": "Centro"}
+            "/analyze/baseline",
+            json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0},
         ),
     )
     filtered = cast(
         httpx.Response,
         client.post(  # pyright: ignore[reportUnknownMemberType]
             "/analyze/baseline",
-            json={"citta": "Roma", "zona": "Centro", "tipo_poi": "Bank"},
+            json={
+                "center": {"lat": 41.89, "lon": 12.49},
+                "radius_m": 2000.0,
+                "tipo_poi": "Bank",
+            },
         ),
     )
     assert base.status_code == 200

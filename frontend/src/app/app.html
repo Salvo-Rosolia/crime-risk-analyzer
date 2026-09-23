@@ -2,6 +2,21 @@
   <span class="cra-title">◆ Crime Risk Analyzer</span>
   <span class="cra-tagline">supporto decisionale · human-in-the-loop</span>
   <span class="cra-header-spacer"></span>
+  <!-- "vai a un luogo" (#318): puro aiuto di navigazione sulla mappa (Nominatim + flyTo),
+       indipendente dal cerchio di ricerca disegnato — non fa parte della FSM. -->
+  <div class="cra-place-search">
+    <input
+      type="text"
+      aria-label="Vai a un luogo"
+      placeholder="Vai a un luogo…"
+      [value]="placeQuery()"
+      (input)="onPlaceQueryInput($event)"
+      (keydown.enter)="onGoToPlace()"
+    />
+    @if (placeError(); as msg) {
+      <span class="cra-place-error" role="alert">{{ msg }}</span>
+    }
+  </div>
   <cra-header-controls
     [data]="store.completoData()"
     [mode]="store.mode()"
@@ -18,6 +33,7 @@
   [filter]="store.filter()"
   [selectedId]="store.selectedPoiId()"
   (poiClick)="onPoiClick($event)"
+  (circleChange)="onCircleChange($event)"
 />
 
 <section class="cra-panels">
@@ -73,22 +89,20 @@
       @case ('INPUT') {
         <div class="cra-panel">
           <cra-input-panel
-            [initialCitta]="store.pendingCitta()"
-            [initialZona]="store.pendingZona()"
             [initialDomanda]="store.pendingDomanda()"
+            [circle]="circle()"
             (analyze)="onAnalyze($event)"
           />
         </div>
       }
       @case ('LOADING') {
-        <cra-loading-overlay [zona]="store.pendingZona()" />
+        <cra-loading-overlay />
       }
       @case ('ERROR') {
         <div class="cra-panel">
           <cra-input-panel
-            [initialCitta]="store.pendingCitta()"
-            [initialZona]="store.pendingZona()"
             [initialDomanda]="store.pendingDomanda()"
+            [circle]="circle()"
             [serverError]="store.error()"
             (analyze)="onAnalyze($event)"
           />
@@ -104,9 +118,9 @@
         <cra-base-panel
           [data]="store.baselineData()"
           [serverError]="store.error()"
-          [initialCitta]="store.pendingCitta()"
-          [initialZona]="store.pendingZona()"
+          [circle]="circle()"
           (analyzeBaseline)="onBaseSearch($event)"
+          (backToCompleto)="onToggleMode('completo')"
         />
       }
     }

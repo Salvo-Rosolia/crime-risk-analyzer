@@ -2,27 +2,30 @@
 
 Espone la factory :func:`create_app` e un'istanza ``app`` pronta per Uvicorn
 (``uvicorn crime_risk_analyzer.main:app``). Registra gli endpoint di dominio —
-``GET /health``, ``GET /cities``, ``POST /analyze`` + ``POST /analyze/narrativa``
-(le due fasi dell'analisi di zona, #259/#292), ``POST /analyze/baseline`` e
-``POST /analyze/poi`` (#197) — e configura il CORS (#106) e il warm-up delle
-risorse nel ``lifespan``.
+``GET /health``, ``GET /geocode`` (#318), ``POST /analyze`` + ``POST
+/analyze/narrativa`` (le due fasi dell'analisi di zona, #259/#292), ``POST
+/analyze/baseline`` e ``POST /analyze/poi`` (#197) — e configura il CORS (#106)
+e il warm-up delle risorse nel ``lifespan``.
 """
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, FastAPI
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from rdflib import Graph
 
+from crime_risk_analyzer import geocoding
 from crime_risk_analyzer.analyze_narrative import (
     ZoneNarrativeRequest,
     ZoneNarrativeResponse,
     run_analysis_fast,
     run_zone_narrative,
 )
+from crime_risk_analyzer.circle_search import resolve_circle
 from crime_risk_analyzer.config import Settings, get_settings
 from crime_risk_analyzer.errors import register_exception_handlers
 from crime_risk_analyzer.llm.client import LLMClient, get_llm_client
@@ -65,15 +68,25 @@ async def health(graph: Annotated[Graph, Depends(get_ontology)]) -> HealthRespon
     return HealthResponse(status="ok", ontology_triples=len(graph))
 
 
-@router.get("/cities")
-async def cities(settings: Annotated[Settings, Depends(get_settings)]) -> list[str]:
-    """Elenca le città suggerite per l'autocomplete (non un vincolo).
+@router.get("/geocode")
+async def geocode(
+    query: Annotated[str, Query(max_length=200)],
+) -> dict[str, float]:
+    """Forward geocode di un luogo libero (#318): sposta solo la mappa, non fa
+    parte dell'analisi.
 
-    Roma, Milano e Napoli sono garantite e testate end-to-end; le altre sono
-    best-effort (vedi backend/orchestrator.md). La lista vive nella config
-    centralizzata ed è iniettata via ``Depends`` (niente stato globale).
+    Serve la casella "vai a un luogo" del frontend: nessun bbox, nessuna
+    zona/citta' — solo un punto per ricentrare la mappa, da cui l'utente
+    disegna poi il cerchio che alimenta ``POST /analyze``. ``GeocodingError``
+    (servizio non raggiungibile) e' gia' mappato centralmente -> 503 (#21); qui
+    si gestisce solo l'esito "nessun risultato", che non e' un errore di
+    servizio.
     """
-    return settings.supported_cities
+    result = await run_in_threadpool(geocoding.geocode_freeform, query)
+    if result is None:
+        raise HTTPException(status_code=404, detail="luogo non trovato")
+    lat, lon = result
+    return {"lat": lat, "lon": lon}
 
 
 @router.post("/analyze")
@@ -81,7 +94,7 @@ async def analyze(
     request: AnalyzeRequest,
     executor: Annotated[RiskQueryExecutor, Depends(get_executor)],
 ) -> AnalyzeResponse:
-    """Fase 1 (#259/#292): geocoding -> OSM -> SPARQL -> grounding -> JSON.
+    """Fase 1 (#259/#292): cerchio -> OSM -> SPARQL -> grounding -> JSON.
 
     **Nessuna chiamata LLM qui.** La rotta risponde con i dati strutturati e
     ``narrativa=None`` — non un fallback (``fallback`` resta ``False``), ma
@@ -90,20 +103,26 @@ async def analyze(
     risposta. Prima la mappa compariva solo dopo la generazione, cioe' dopo tutta
     la latenza del provider.
 
-    Nessuna allowlist di citta' (#191): qualsiasi citta' italiana raggiunge il
-    geocoding (ristretto all'Italia via ``GEOCODING_COUNTRY_CODES``). Una citta'/
-    zona inesistente fallisce pulita al geocoding con ``ZoneNotFoundError`` -> 422.
-    Gli altri errori di dominio propagano agli handler centrali (#21).
+    Il body porta centro+raggio del cerchio disegnato sulla mappa (#318), non
+    piu' ``citta``/``zona`` testuali: ``resolve_circle`` deriva una label
+    citta'/zona best-effort via reverse geocode (mai bloccante, #318) e un
+    ``geo_source`` che ignora il geocoding forward — nessuna allowlist di
+    citta' (#191) e nessuna zona da risolvere. Gli errori di dominio (Overpass
+    giu', ecc.) propagano agli handler centrali (#21).
 
-    Il body porta solo ``citta``/``zona``: la ``domanda`` libera (#119) e' della
-    fase 2, che e' l'unica a costruire un prompt. Per la stessa ragione questa
-    rotta non dipende ne' dal client LLM ne' dai tetti di token di ``Settings``:
-    sono argomenti della fase 2.
+    La ``domanda`` libera (#119) resta della fase 2, che e' l'unica a costruire
+    un prompt. Per la stessa ragione questa rotta non dipende ne' dal client
+    LLM ne' dai tetti di token di ``Settings``: sono argomenti della fase 2.
     """
+    citta, zona, geo_source = await resolve_circle(
+        request.center.lat, request.center.lon, request.radius_m
+    )
     return await run_analysis_fast(
-        request.citta,
-        request.zona,
+        citta,
+        zona,
         executor=executor,
+        geo_source=geo_source,
+        radius_m=request.radius_m,
     )
 
 
@@ -160,14 +179,21 @@ async def analyze_baseline(
 ) -> AnalyzeResponse:
     """Variante senza LLM per l'ablation: solo dati strutturati dal grounding.
 
-    Nessuna allowlist di citta' (#191): come ``/analyze``, qualsiasi citta'
-    italiana raggiunge il geocoding. ``request.tipo_poi`` (opzionale, #119) filtra
-    i POI server-side per classe TERMINUS; ``None``/vuoto = nessun filtro.
+    Stesso cerchio centro+raggio di ``/analyze`` (#318), via lo stesso
+    ``resolve_circle``: nessuna allowlist di citta' (#191) e nessuna zona
+    testuale da risolvere. ``request.tipo_poi`` (opzionale, #119) filtra i POI
+    server-side per classe TERMINUS, applicato dopo il filtro per raggio;
+    ``None``/vuoto = nessun filtro.
     """
+    citta, zona, geo_source = await resolve_circle(
+        request.center.lat, request.center.lon, request.radius_m
+    )
     return await run_baseline(
-        request.citta,
-        request.zona,
+        citta,
+        zona,
         executor=executor,
+        geo_source=geo_source,
+        radius_m=request.radius_m,
         tipo_poi=request.tipo_poi,
     )
 
@@ -232,7 +258,7 @@ def create_app() -> FastAPI:
     # CORS (#106) come DIFESA IN PROFONDITA'. Il deploy canonico e' same-origin
     # (build Angular servita da FastAPI/StaticFiles): li' il CORS non serve. Il
     # middleware abilita comunque un eventuale deploy split-origin e chiude i
-    # buchi cross-origin in dev su ``/health``/``/cities`` (non proxati da
+    # buchi cross-origin in dev su ``/health``/``/geocode`` (non proxati da
     # ``ng serve``, a differenza di ``/analyze``). Allowlist ESPLICITA da
     # ``Settings`` (mai wildcard ``*``); API stateless -> nessun cookie
     # (``allow_credentials=False``). Copre tutte le rotte.

@@ -10,7 +10,7 @@ layer LLM, dove servono davvero. I valori segreti usano
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -90,23 +90,20 @@ class Settings(BaseSettings):
     # (era 0.01 = ~1.1 km). Vincolo ``gt=0``: un misconfig da env (0/negativo) e'
     # respinto al load, non lasciato degenerare in un bbox nullo a runtime.
     geocoding_min_bbox_half_span_deg: float = Field(default=0.0045, gt=0)
+    # Limiti del raggio di ricerca disegnato sulla mappa (#318): tengono sotto
+    # controllo il costo di Overpass/LLM su cerchi enormi. Vincolo ``gt=0``: un
+    # misconfig da env (0/negativo) e' respinto al load.
+    search_radius_min_m: float = Field(default=150.0, gt=0)
+    search_radius_max_m: float = Field(default=3000.0, gt=0)
     default_city: str = "Roma"
-    # Citta SUGGERITE, esposte come autocomplete da ``GET /cities`` — NON un
-    # vincolo di validazione (#191): ``POST /analyze``/``/analyze/baseline``
-    # accettano qualsiasi citta' italiana e la passano al geocoding (ristretto
-    # all'Italia via ``geocoding_country_codes``); una citta'/zona inesistente
-    # fallisce pulita al geocoding (422). Roma/Milano/Napoli sono garantite e
-    # testate end-to-end (orchestrator.md); le altre sono best-effort.
-    supported_cities: list[str] = ["Roma", "Milano", "Napoli", "Torino", "Firenze"]
     # Allowlist CORS (#106): origini del frontend autorizzate a leggere le
     # risposte dell'API. Allowlist ESPLICITA, mai wildcard ``*`` (una policy
     # ``*`` esporrebbe l'API a qualunque sito) — invariante blindata dal
     # validator ``_reject_cors_wildcard``, non solo dal default. Default in dev:
     # il dev-server di Angular. In prod si sovrascrive con l'origine reale.
-    # Parsing da env: come ``supported_cities``, pydantic-settings legge i tipi
-    # complessi (``list``) come JSON, quindi
-    # ``CORS_ALLOW_ORIGINS='["https://app.example"]'`` (una CSV verrebbe
-    # respinta con ``SettingsError``).
+    # Parsing da env: pydantic-settings legge i tipi complessi (``list``) come
+    # JSON, quindi ``CORS_ALLOW_ORIGINS='["https://app.example"]'`` (una CSV
+    # verrebbe respinta con ``SettingsError``).
     cors_allow_origins: list[str] = ["http://localhost:4200"]
 
     @field_validator("cors_allow_origins")
@@ -165,6 +162,21 @@ class Settings(BaseSettings):
                 "nazione di Nominatim (risultati nella nazione sbagliata)."
             )
         return value.strip()
+
+    @model_validator(mode="after")
+    def _reject_radius_bounds_inverted(self) -> "Settings":
+        """Rifiuta la configurazione con raggio minimo >= massimo (#318).
+
+        L'invariante ``search_radius_min_m < search_radius_max_m`` deve valere
+        al caricamento per evitare che un misconfig da env (es. una inversione
+        accidentale dei valori) sia usato silenziosamente a runtime,
+        introducendo logica di validazione incoerente nel layer di orchestration.
+        """
+        if self.search_radius_min_m >= self.search_radius_max_m:
+            raise ValueError(
+                "search_radius_min_m deve essere minore di search_radius_max_m"
+            )
+        return self
 
 
 @lru_cache

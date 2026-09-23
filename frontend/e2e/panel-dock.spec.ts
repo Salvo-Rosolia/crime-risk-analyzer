@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { mockApi } from './support/mocking';
 import { S } from './support/selectors';
+import { drawSearchCircle } from './support/map';
 import analyzeFixture from './fixtures/analyze.happy.json';
 import type { AnalyzeResponse } from '../src/app/core/models/models';
 
@@ -17,8 +18,7 @@ async function gotoResults(page: import('@playwright/test').Page): Promise<void>
   await mockApi(page, { analyze });
   await page.goto('/');
   await expect(S.inputPanel(page)).toBeVisible();
-  await S.cittaField(page).fill(analyze.citta);
-  await S.zonaField(page).fill(analyze.zona_normalizzata);
+  await drawSearchCircle(page);
   await S.submitButton(page).click();
   await expect(S.poiPanel(page)).toBeVisible();
 }
@@ -83,8 +83,10 @@ test.describe('"+ Nuova richiesta" (#199 decisione 4): conferma leggera IN-APP, 
 
     await expect(S.inputPanel(page)).toBeVisible();
     await expect(S.panelDock(page)).toHaveCount(0);
-    await expect(S.cittaField(page)).toHaveValue('');
-    await expect(S.zonaField(page)).toHaveValue('');
+    // Il form non ha più città/zona da svuotare (#318): `onResetConfirmed` (app.ts) azzera
+    // esplicitamente anche il cerchio disegnato (`circle.set(null)`), quindi il bottone torna
+    // disabilitato finché l'utente non ne ridisegna uno nuovo sulla mappa.
+    await expect(S.submitButton(page)).toBeDisabled();
   });
 
   test('"Annulla" resta in Stato RESULTS coi risultati intatti, nessun RESET', async ({ page }) => {

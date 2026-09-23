@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { mockApi } from './support/mocking';
 import { S } from './support/selectors';
+import { drawSearchCircle } from './support/map';
 import error422 from './fixtures/error-422.json';
 
 test('INPUT→ERROR mostra il messaggio del backend, non il fallback generico', async ({ page }) => {
@@ -8,9 +9,8 @@ test('INPUT→ERROR mostra il messaggio del backend, non il fallback generico', 
   await page.goto('/');
   await expect(S.inputPanel(page)).toBeVisible();
 
-  // Il campo città è un <input list> + <datalist> (non un <select>): si compila digitando.
-  await S.cittaField(page).fill('Roma');
-  await S.zonaField(page).fill('Colosseo');
+  // Il centro/raggio non si digitano più (#318): si disegna un cerchio sulla mappa reale.
+  await drawSearchCircle(page);
   await S.submitButton(page).click();
 
   // Stato ERROR: stesso cra-input-panel, con [serverError]=store.error() mostrato inline.
