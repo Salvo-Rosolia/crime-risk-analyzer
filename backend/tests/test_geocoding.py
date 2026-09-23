@@ -6,8 +6,10 @@ from collections.abc import Iterator
 from typing import Any, cast
 
 import pytest
+from geopy.exc import GeocoderServiceError  # pyright: ignore[reportMissingTypeStubs]
 
 import crime_risk_analyzer.geocoding as _geo_mod
+from crime_risk_analyzer import geocoding
 from crime_risk_analyzer.config import get_settings
 from crime_risk_analyzer.geocoding import (
     GeocodingError,
@@ -21,17 +23,18 @@ from crime_risk_analyzer.models.geo import Bbox
 def _reset_geocoding_state() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]
     """Resetta lo stato di modulo condiviso prima/dopo ogni test.
 
-    ``get_settings`` e il RateLimiter singleton (``_get_rate_limited_geocode``,
-    che porta lo stato di throttling ``_last_call``) sono cacheati per processo:
-    senza reset i test si contaminerebbero a vicenda (sleep residui, delay stale
-    dai setting di un altro test).
+    ``get_settings`` e il RateLimiter singleton (``_get_rate_limited_call``,
+    che porta lo stato di throttling ``_last_call``, condiviso da geocode e
+    reverse dal #318) sono cacheati per processo: senza reset i test si
+    contaminerebbero a vicenda (sleep residui, delay stale dai setting di un
+    altro test).
     """
     get_settings.cache_clear()
-    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    _geo_mod._get_rate_limited_call.cache_clear()  # pyright: ignore[reportPrivateUsage]
     _geo_mod._CACHE.clear()  # pyright: ignore[reportPrivateUsage]
     yield
     get_settings.cache_clear()
-    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    _geo_mod._get_rate_limited_call.cache_clear()  # pyright: ignore[reportPrivateUsage]
     _geo_mod._CACHE.clear()  # pyright: ignore[reportPrivateUsage]
 
 
@@ -56,10 +59,25 @@ class _FakeGeocoder:
         self._exc = exc
         self.queries: list[str] = []
         self.calls: list[dict[str, object]] = []
+        self.reverse_queries: list[tuple[float, float]] = []
+        self.reverse_calls: list[dict[str, object]] = []
 
     def geocode(self, query: str, **kwargs: object) -> _FakeLocation | None:
         self.queries.append(query)
         self.calls.append(kwargs)
+        if self._exc is not None:
+            raise self._exc
+        return self._location
+
+    def reverse(
+        self, query: tuple[float, float], **kwargs: object
+    ) -> _FakeLocation | None:
+        """Stub di ``geolocator.reverse`` (#318): registra query e kwargs come
+        ``.geocode`` fa gia' sopra, cosi' i test possono esercitare il ramo
+        reverse di ``_nominatim_dispatch`` invece di monkeypatchare l'accessor.
+        """
+        self.reverse_queries.append(query)
+        self.reverse_calls.append(kwargs)
         if self._exc is not None:
             raise self._exc
         return self._location
@@ -131,10 +149,6 @@ def test_geocode_zone_service_error_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Errore del servizio (timeout/HTTP) -> GeocodingError, non eccezione grezza."""
-    from geopy.exc import (  # pyright: ignore[reportMissingTypeStubs]
-        GeocoderServiceError,
-    )
-
     _patch_geocoder(monkeypatch, _FakeGeocoder(exc=GeocoderServiceError("boom")))
 
     with pytest.raises(GeocodingError):
@@ -187,7 +201,7 @@ def test_geocode_zone_cache_disabled_queries_twice(
     # reale sulla 2a chiamata mantenendo il vincolo di config.
     monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.001")
     get_settings.cache_clear()
-    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    _geo_mod._get_rate_limited_call.cache_clear()  # pyright: ignore[reportPrivateUsage]
     fake = _FakeGeocoder(
         _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
     )
@@ -205,15 +219,11 @@ def test_geocode_zone_cache_disabled_queries_twice(
 
 def test_geocode_zone_does_not_cache_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     """Un fallimento non popola la cache: la chiamata successiva riprova davvero."""
-    from geopy.exc import (  # pyright: ignore[reportMissingTypeStubs]
-        GeocoderServiceError,
-    )
-
     # min_delay minimo (gt=0) + limiter ricostruito: azzera il ~1s di sleep
     # reale tra le 2 chiamate mantenendo il vincolo di config.
     monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.001")
     get_settings.cache_clear()
-    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    _geo_mod._get_rate_limited_call.cache_clear()  # pyright: ignore[reportPrivateUsage]
     failing = _FakeGeocoder(exc=GeocoderServiceError("boom"))
     _patch_geocoder(monkeypatch, failing)
     with pytest.raises(GeocodingError):
@@ -252,7 +262,7 @@ def test_geocode_zone_cache_distinguishes_zones(
     """
     monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.001")
     get_settings.cache_clear()
-    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    _geo_mod._get_rate_limited_call.cache_clear()  # pyright: ignore[reportPrivateUsage]
     fake = _FakeGeocoder(
         _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
     )
@@ -275,7 +285,7 @@ def test_geocode_zone_cache_distinguishes_cities(
     """
     monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.001")
     get_settings.cache_clear()
-    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    _geo_mod._get_rate_limited_call.cache_clear()  # pyright: ignore[reportPrivateUsage]
     fake = _FakeGeocoder(_FakeLocation(45.46, 9.19, ["45.45", "45.47", "9.18", "9.20"]))
     _patch_geocoder(monkeypatch, fake)
 
@@ -297,7 +307,7 @@ def test_geocode_zone_does_not_cache_zone_not_found(
     """
     monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.001")
     get_settings.cache_clear()
-    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    _geo_mod._get_rate_limited_call.cache_clear()  # pyright: ignore[reportPrivateUsage]
     _patch_geocoder(monkeypatch, _FakeGeocoder(location=None))
     with pytest.raises(ZoneNotFoundError):
         geocode_zone("Duomo", "Milano")
@@ -316,7 +326,7 @@ def test_rate_limiter_wired_with_settings() -> None:
         RateLimiter,
     )
 
-    rl = _geo_mod._get_rate_limited_geocode()  # pyright: ignore[reportPrivateUsage]
+    rl = _geo_mod._get_rate_limited_call()  # pyright: ignore[reportPrivateUsage]
     assert isinstance(rl, RateLimiter)
     assert rl.min_delay_seconds == get_settings().geocoding_min_delay_seconds
     assert rl.max_retries == 0
@@ -333,8 +343,8 @@ def test_rate_limiter_builds_with_high_min_delay(
 
     monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "6")
     get_settings.cache_clear()
-    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
-    rl = _geo_mod._get_rate_limited_geocode()  # pyright: ignore[reportPrivateUsage]
+    _geo_mod._get_rate_limited_call.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    rl = _geo_mod._get_rate_limited_call()  # pyright: ignore[reportPrivateUsage]
     assert isinstance(rl, RateLimiter)
     assert rl.min_delay_seconds == 6.0
     assert rl.error_wait_seconds >= rl.min_delay_seconds
@@ -344,7 +354,7 @@ def test_rate_limiter_throttles_second_call(monkeypatch: pytest.MonkeyPatch) -> 
     """Due chiamate ravvicinate -> applica un ritardo >= min_delay (clock finto)."""
     monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "1")
     get_settings.cache_clear()
-    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    _geo_mod._get_rate_limited_call.cache_clear()  # pyright: ignore[reportPrivateUsage]
 
     fake = _FakeGeocoder(
         _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
@@ -359,7 +369,7 @@ def test_rate_limiter_throttles_second_call(monkeypatch: pytest.MonkeyPatch) -> 
         now[0] += seconds  # il tempo avanza di quanto si dorme
 
     monkeypatch.setattr("geopy.extra.rate_limiter.sleep", fake_sleep)
-    rl = _geo_mod._get_rate_limited_geocode()  # pyright: ignore[reportPrivateUsage]
+    rl = _geo_mod._get_rate_limited_call()  # pyright: ignore[reportPrivateUsage]
     monkeypatch.setattr(rl, "_clock", lambda: now[0])
 
     geocode_zone("Colosseo", "Roma")  # 1a chiamata: nessuno sleep
@@ -381,7 +391,7 @@ def test_cache_evicts_oldest_when_full(monkeypatch: pytest.MonkeyPatch) -> None:
     # tra le chiamate mantenendo il vincolo di config.
     monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.001")
     get_settings.cache_clear()
-    _geo_mod._get_rate_limited_geocode.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    _geo_mod._get_rate_limited_call.cache_clear()  # pyright: ignore[reportPrivateUsage]
     fake = _FakeGeocoder(
         _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
     )
@@ -626,3 +636,145 @@ def test_min_bbox_floor_expands_degenerate_point_bbox(
     # centrato sul punto degenere (espansione simmetrica)
     assert (bbox.min_lat + bbox.max_lat) / 2 == pytest.approx(41.8902)
     assert (bbox.min_lon + bbox.max_lon) / 2 == pytest.approx(12.4922)
+
+
+# --- #318: rate limiter condiviso (geocode+reverse) + reverse/forward liberi ---
+
+
+class _FakeReverseLocation:
+    def __init__(self, address: dict[str, str]) -> None:
+        self.raw = {"address": address}
+
+
+def test_reverse_geocode_label_da_address(monkeypatch: pytest.MonkeyPatch) -> None:
+    loc = _FakeReverseLocation({"city": "Roma", "suburb": "Trastevere"})
+
+    def _fake_dispatch(op: str, arg: object) -> object:
+        assert op == "reverse"
+        assert arg == (41.8, 12.5)
+        return loc
+
+    geocoding._get_rate_limited_call.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    monkeypatch.setattr(geocoding, "_get_rate_limited_call", lambda: _fake_dispatch)
+    citta, zona = geocoding.reverse_geocode_label(41.8, 12.5)
+    assert citta == "Roma"
+    assert zona == "Trastevere"
+
+
+def test_reverse_geocode_label_fallback_su_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _none_dispatch(op: str, arg: object) -> object:
+        return None
+
+    monkeypatch.setattr(geocoding, "_get_rate_limited_call", lambda: _none_dispatch)
+    citta, zona = geocoding.reverse_geocode_label(41.8, 12.5)
+    assert citta == "area 41.8000,12.5000"
+    assert zona == "zona non identificata"
+
+
+def test_reverse_geocode_label_fallback_su_errore_servizio(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _boom(op: str, arg: object) -> object:
+        raise GeocoderServiceError("giu")
+
+    monkeypatch.setattr(geocoding, "_get_rate_limited_call", lambda: _boom)
+    citta, zona = geocoding.reverse_geocode_label(41.8, 12.5)
+    assert citta == "area 41.8000,12.5000"
+    assert zona == "zona non identificata"
+
+
+def test_geocode_freeform_successo(monkeypatch: pytest.MonkeyPatch) -> None:
+    loc = _FakeReverseLocation({})
+    loc.latitude = 41.9  # type: ignore[attr-defined]
+    loc.longitude = 12.5  # type: ignore[attr-defined]
+
+    def _loc_dispatch(op: str, arg: object) -> object:
+        return loc
+
+    monkeypatch.setattr(geocoding, "_get_rate_limited_call", lambda: _loc_dispatch)
+    assert geocoding.geocode_freeform("Duomo di Milano") == (41.9, 12.5)
+
+
+def test_geocode_freeform_nessun_risultato(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _none_dispatch(op: str, arg: object) -> object:
+        return None
+
+    monkeypatch.setattr(geocoding, "_get_rate_limited_call", lambda: _none_dispatch)
+    assert geocoding.geocode_freeform("xyzxyz") is None
+
+
+def test_reverse_geocode_label_passa_per_nominatim_dispatch_reale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Il ramo reverse esercita DAVVERO ``_nominatim_dispatch`` (#318).
+
+    A differenza dei test ``reverse_geocode_label_*``/``geocode_freeform_*``
+    qui sopra (che monkeypatchano direttamente ``_get_rate_limited_call``,
+    bypassando ``_nominatim_dispatch``), qui si patcha solo ``_get_geolocator``
+    -- lo stesso stile gia' usato per ``geocode_zone`` -- cosi' il percorso
+    reale ``_get_rate_limited_call() -> _nominatim_dispatch() ->
+    geolocator.reverse(...)`` viene esercitato contro un fake che registra i
+    kwargs ricevuti: una firma sbagliata (``exactly_one``/``addressdetails``/
+    ``timeout``) verrebbe presa qui, non solo da una chiamata live a Nominatim.
+    """
+    loc = _FakeLocation(41.8, 12.5, None)
+    loc.raw["address"] = {"city": "Roma", "suburb": "Trastevere"}
+    fake = _FakeGeocoder(loc)
+    _patch_geocoder(monkeypatch, fake)
+
+    citta, zona = geocoding.reverse_geocode_label(41.8, 12.5)
+
+    assert citta == "Roma"
+    assert zona == "Trastevere"
+    assert fake.reverse_queries == [(41.8, 12.5)]
+    assert fake.reverse_calls[0]["exactly_one"] is True
+    assert fake.reverse_calls[0]["addressdetails"] is True
+    assert fake.reverse_calls[0]["timeout"] == get_settings().geocoding_timeout_seconds
+
+
+def test_geocode_e_reverse_condividono_lo_stesso_rate_limiter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """geocode e reverse passano DAVVERO per lo stesso RateLimiter (#318).
+
+    Non basta che ``_get_rate_limited_call() is _get_rate_limited_call()``:
+    quello sarebbe garantito da ``@lru_cache(maxsize=1)`` per QUALSIASI
+    funzione a zero argomenti, anche se ``geocode_zone``/``reverse_geocode_label``
+    chiamassero due dispatcher/limiter indipendenti (il bug che questo test
+    deve prevenire). Qui si esercitano DAVVERO i due percorsi consumer in
+    sequenza, con un clock finto (stesso stile di
+    ``test_rate_limiter_throttles_second_call``): se i due versi avessero
+    limiter separati, la chiamata reverse -- la "prima" per un limiter
+    indipendente -- non dovrebbe attendere. Lo sleep osservato prova che il
+    ``_last_call`` e' condiviso attraverso le due direzioni.
+    """
+    monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "1")
+    get_settings.cache_clear()
+    geocoding._get_rate_limited_call.cache_clear()  # pyright: ignore[reportPrivateUsage]
+
+    loc = _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
+    loc.raw["address"] = {"city": "Roma", "suburb": "Trastevere"}
+    fake = _FakeGeocoder(loc)
+    _patch_geocoder(monkeypatch, fake)
+
+    now = [1000.0]
+    slept: list[float] = []
+
+    def fake_sleep(seconds: float) -> None:
+        slept.append(seconds)
+        now[0] += seconds  # il tempo avanza di quanto si dorme
+
+    monkeypatch.setattr("geopy.extra.rate_limiter.sleep", fake_sleep)
+    rl = geocoding._get_rate_limited_call()  # pyright: ignore[reportPrivateUsage]
+    monkeypatch.setattr(rl, "_clock", lambda: now[0])
+
+    geocode_zone("Colosseo", "Roma")  # prima chiamata in assoluto: nessuno sleep
+    assert not slept
+
+    geocoding.reverse_geocode_label(41.8, 12.5)  # subito dopo, verso diverso
+
+    assert slept and slept[0] == pytest.approx(1.0)

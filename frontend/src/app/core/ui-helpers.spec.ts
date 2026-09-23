@@ -8,7 +8,6 @@ import {
   orderGroupsByTag,
   poiNameDisplayLabel,
   poiPopupHTML,
-  validateInputPanel,
 } from '@core/ui-helpers';
 import { CONF, DIM_COLOR } from '@core/confidence';
 import { Poi, RiskItem, RiskModel, SourceProse } from '@core/models/models';
@@ -17,35 +16,6 @@ describe('ui-helpers', () => {
   it('cityColorFor: città note e fallback', () => {
     expect(cityColorFor('Roma')).toBe('#0e7b80');
     expect(cityColorFor('Atlantide')).toBe('#928d82');
-  });
-
-  it('validateInputPanel: citta assente → errore sul campo citta, non valuta la zona', () => {
-    expect(validateInputPanel({ zona: 'Roma' })).toEqual({
-      ok: false,
-      error: 'Inserisci una città.',
-      field: 'citta',
-    });
-  });
-
-  it("validateInputPanel: città non presente tra i suggerimenti → ok (validazione rilassata, l'allowlist è stata rimossa dal backend — #191)", () => {
-    expect(validateInputPanel({ citta: 'Acireale', zona: 'Centro' })).toEqual({
-      ok: true,
-      error: null,
-      field: null,
-    });
-  });
-
-  it('validateInputPanel: zona vuota → errore sul campo zona, valorizzata → ok (citta valida)', () => {
-    expect(validateInputPanel({ citta: 'Roma', zona: '' })).toEqual({
-      ok: false,
-      error: 'Inserisci una zona.',
-      field: 'zona',
-    });
-    expect(validateInputPanel({ citta: 'Roma', zona: 'Centro' })).toEqual({
-      ok: true,
-      error: null,
-      field: null,
-    });
   });
 
   it('buildNarrativeSections: raggruppa per tag in ordine ONTOLOGIA→CONTESTO→SPECULATIVO', () => {

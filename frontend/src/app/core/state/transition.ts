@@ -18,8 +18,6 @@ export const initialState: AppState = {
   filter: null,
   error: null,
   mode: 'completo',
-  pendingCitta: null,
-  pendingZona: null,
   pendingDomanda: null,
   lastQuery: null,
   poiPanelOpen: true,
@@ -43,8 +41,6 @@ export function transition(state: AppState, action: Action): AppState {
       return {
         ...state,
         screen: 'LOADING',
-        pendingCitta: action.citta,
-        pendingZona: action.zona,
         pendingDomanda: action.domanda ?? null,
         error: null,
         selectedPoiId: null,
@@ -60,13 +56,11 @@ export function transition(state: AppState, action: Action): AppState {
         // ancora pendente) o già mostrato (se un errore era rimasto) irrilevante.
         zoneNarrativeLoading: isBase ? state.zoneNarrativeLoading : false,
         zoneNarrativeError: isBase ? state.zoneNarrativeError : null,
-        // lastQuery è la sorgente di "Rigenera", funzione SOLO del sistema completo (review
-        // #67-bis, bloccante B): una ANALYZE della pipeline base non deve sovrascriverlo, altrimenti
-        // Rigenera rilancerebbe l'ultima ricerca Base invece dell'ultima analisi completo. Il Base
-        // non ha "Rigenera", quindi non gli serve un lastQuery proprio.
-        lastQuery: isBase
-          ? state.lastQuery
-          : { citta: action.citta, zona: action.zona, domanda: action.domanda ?? null },
+        // lastQuery NON si tocca qui (#318): con un cerchio disegnato non c'è più una città/zona
+        // digitata da echeggiare subito — citta/zona_normalizzata sono etichette RISOLTE dal
+        // backend (reverse geocode) e non esistono finché non arriva la risposta. È LOAD_SUCCESS
+        // (non-base) a popolare lastQuery, combinando il center/radiusM/domanda dell'azione con
+        // le etichette risolte di action.data.
       };
     }
     case 'LOAD_SUCCESS': {
@@ -84,20 +78,40 @@ export function transition(state: AppState, action: Action): AppState {
         mode: action.pipeline,
         completoData: isBase ? state.completoData : action.data,
         baselineData: isBase ? action.data : state.baselineData,
-        pendingZona: null,
         error: null,
         selectedPoiId: null,
         filter: null,
+        // lastQuery (#318) nasce QUI, non in ANALYZE: serve la combinazione di (a) il center/
+        // radiusM/domanda ORIGINALI passati attraverso la catena di azioni dalla richiesta
+        // (necessari a "Rigenera", che re-invoca /analyze) e (b) le etichette citta/zona
+        // RISOLTE dal backend nella risposta (necessarie a /analyze/poi e /analyze/narrativa,
+        // che le rimandano come contesto — stesso trattamento di contesto_hash). La pipeline
+        // base non ha "Rigenera" e non tocca mai lastQuery (bloccante B review #67-bis); un
+        // LOAD_SUCCESS completo senza center/radiusM nell'azione (difensivo, non dovrebbe
+        // accadere: state.store.ts li passa sempre) lascia lastQuery invariato invece di
+        // scrivere un valore parziale.
+        lastQuery:
+          isBase || !action.center || action.radiusM === undefined
+            ? state.lastQuery
+            : {
+                center: action.center,
+                radiusM: action.radiusM,
+                citta: action.data.citta,
+                zona: action.data.zona_normalizzata,
+                domanda: action.domanda ?? null,
+              },
       };
     }
     case 'LOAD_ERROR':
-      // pendingCitta/pendingZona/pendingDomanda NON si azzerano: il form rimontato (InputPanel in
-      // Stato Errore, o BasePanel che resta su BASE) deve ripopolarsi con gli ultimi valori inviati
-      // (vedi review #66 MAJOR). Lo schermo di arrivo segue action.pipeline, non state.mode (stessa
-      // ragione di LOAD_SUCCESS sopra — bloccante A): un errore in pipeline base resta sullo Stato
-      // Sistema base — che gestisce da sé errore+retry col proprio form — invece di dirottare sullo
-      // Stato Errore condiviso col form del sistema completo (che ritenterebbe erroneamente su
-      // `/analyze` invece che su `/analyze/baseline`).
+      // pendingDomanda NON si azzera: il form rimontato (InputPanel in Stato Errore, o BasePanel
+      // che resta su BASE) deve ripopolarsi con l'ultima domanda inviata (vedi review #66 MAJOR).
+      // Il cerchio digitato non ha più bisogno di questo trattamento (#318): pendingCitta/
+      // pendingZona sono rimossi, perché il cerchio vive in MapComponent, che sopravvive da solo
+      // al remount tra schermi e non richiede reseeding esterno. Lo schermo di arrivo segue
+      // action.pipeline, non state.mode (stessa ragione di LOAD_SUCCESS sopra — bloccante A): un
+      // errore in pipeline base resta sullo Stato Sistema base — che gestisce da sé errore+retry
+      // col proprio form — invece di dirottare sullo Stato Errore condiviso col form del sistema
+      // completo (che ritenterebbe erroneamente su `/analyze` invece che su `/analyze/baseline`).
       return {
         ...state,
         screen: action.pipeline === 'base' ? 'BASE' : 'ERROR',

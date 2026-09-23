@@ -37,7 +37,15 @@ from geopy.geocoders import (  # pyright: ignore[reportMissingTypeStubs]
 from crime_risk_analyzer.config import get_settings
 from crime_risk_analyzer.models.geo import Bbox
 
-__all__ = ["Bbox", "GeoResult", "GeocodingError", "ZoneNotFoundError", "geocode_zone"]
+__all__ = [
+    "Bbox",
+    "GeoResult",
+    "GeocodingError",
+    "ZoneNotFoundError",
+    "geocode_zone",
+    "geocode_freeform",
+    "reverse_geocode_label",
+]
 
 #: User-agent dedicato, richiesto dalla usage policy di Nominatim.
 _USER_AGENT = (
@@ -59,11 +67,12 @@ class _Location(Protocol):
 
 
 class _Geocoder(Protocol):
-    """Vista tipata minimale del geocoder (geopy senza stub): solo ``geocode``.
+    """Vista tipata minimale del geocoder (geopy senza stub): ``geocode`` e ``reverse``.
 
-    Dichiarare qui la firma che ci serve (invece di ereditare quella non tipata
+    Dichiarare qui le firme che ci servono (invece di ereditare quella non tipata
     di ``Nominatim``) mantiene la chiamata verificabile da pyright strict senza
-    ``# pyright: ignore`` sparsi sugli argomenti.
+    ``# pyright: ignore`` sparsi sugli argomenti. ``reverse`` si aggiunge qui
+    (#318) perche' passa per lo stesso dispatcher di ``geocode``.
     """
 
     def geocode(
@@ -72,6 +81,15 @@ class _Geocoder(Protocol):
         *,
         addressdetails: bool = ...,
         country_codes: str = ...,
+        timeout: float = ...,
+    ) -> _Location | None: ...
+
+    def reverse(
+        self,
+        query: tuple[float, float],
+        *,
+        exactly_one: bool = ...,
+        addressdetails: bool = ...,
         timeout: float = ...,
     ) -> _Location | None: ...
 
@@ -124,30 +142,52 @@ def _get_geolocator() -> Nominatim:
     return Nominatim(user_agent=_USER_AGENT)
 
 
-def _geocode_raw(query: str) -> _Location | None:
-    """Chiamata effettiva a geopy (senza stub), con timeout e country_codes.
+def _nominatim_dispatch(op: str, arg: str | tuple[float, float]) -> _Location | None:
+    """Chiamata effettiva a geopy (senza stub): dispatcha su ``geocode``/``reverse``.
 
     Ri-risolve ``_get_geolocator()`` a ogni chiamata cosi' il monkeypatch dei
-    test resta onorato anche dietro il RateLimiter singleton (#115).
+    test resta onorato anche dietro il RateLimiter singleton (#115). Un solo
+    dispatcher per le due direzioni (#318): e' quello che permette a
+    :func:`_get_rate_limited_call` di avvolgerle in un unico RateLimiter
+    condiviso, invece di uno per direzione.
     """
     settings = get_settings()
     geolocator = cast("_Geocoder", _get_geolocator())
-    return geolocator.geocode(
-        query,
-        addressdetails=False,
-        country_codes=settings.geocoding_country_codes,
+    if op == "geocode":
+        return geolocator.geocode(
+            cast(str, arg),
+            addressdetails=False,
+            country_codes=settings.geocoding_country_codes,
+            timeout=settings.geocoding_timeout_seconds,
+        )
+    lat, lon = cast("tuple[float, float]", arg)
+    return geolocator.reverse(
+        (lat, lon),
+        exactly_one=True,
+        addressdetails=True,
         timeout=settings.geocoding_timeout_seconds,
     )
 
 
 @lru_cache(maxsize=1)
-def _get_rate_limited_geocode() -> Callable[[str], _Location | None]:
-    """RateLimiter singleton per processo attorno a :func:`_geocode_raw` (#115).
+def _get_rate_limited_call() -> Callable[
+    [str, str | tuple[float, float]], _Location | None
+]:
+    """RateLimiter singleton per processo, condiviso da geocode E reverse (#318).
 
-    ``min_delay_seconds`` dai setting distanzia le chiamate a Nominatim entro la
-    sua usage policy (~1 req/s). ``max_retries=0`` preserva la semantica a
-    chiamata singola (un errore di servizio propaga subito, niente attese di
-    retry); ``swallow_exceptions=False`` fa propagare ``GeocoderServiceError``
+    La usage policy di Nominatim e' "1 richiesta/secondo, assoluta, sull'intero
+    servizio" -- non "1 req/s per direzione". Prima di questa unificazione
+    (era ``_get_rate_limited_geocode``, solo forward) un reverse geocode
+    avrebbe avuto il proprio RateLimiter indipendente: il traffico combinato
+    delle due direzioni avrebbe potuto superare la policy anche se ciascuna,
+    isolata, la rispettava. Avvolgendo :func:`_nominatim_dispatch` (che
+    smista lui stesso su ``geocode``/``reverse``) in un solo RateLimiter, ogni
+    chiamata -- qualunque sia la direzione -- attraversa lo stesso throttling.
+
+    ``min_delay_seconds`` dai setting distanzia le chiamate entro quella
+    policy. ``max_retries=0`` preserva la semantica a chiamata singola (un
+    errore di servizio propaga subito, niente attese di retry);
+    ``swallow_exceptions=False`` fa propagare ``GeocoderServiceError``
     (altrimenti geopy lo inghiottirebbe restituendo ``None``, confondendolo con
     "zona non trovata" -> 422 invece di 503). Cached cosi' lo stato di
     throttling (``_last_call``) persiste tra le chiamate; i test lo resettano
@@ -155,9 +195,9 @@ def _get_rate_limited_geocode() -> Callable[[str], _Location | None]:
     """
     min_delay = get_settings().geocoding_min_delay_seconds
     return cast(
-        "Callable[[str], _Location | None]",
+        "Callable[[str, str | tuple[float, float]], _Location | None]",
         RateLimiter(
-            _geocode_raw,
+            _nominatim_dispatch,
             min_delay_seconds=min_delay,
             max_retries=0,
             # geopy impone ``error_wait_seconds >= min_delay_seconds`` (assert in
@@ -231,7 +271,7 @@ def geocode_zone(zona: str, citta: str) -> GeoResult:
 
     query = f"{zona}, {citta}"
     try:
-        location = _get_rate_limited_geocode()(query)
+        location = _get_rate_limited_call()("geocode", query)
     except GeocoderServiceError as exc:
         raise GeocodingError(
             f"Servizio di geocoding non raggiungibile per {query!r}"
@@ -265,3 +305,57 @@ def geocode_zone(zona: str, citta: str) -> GeoResult:
     # Copia difensiva anche sul miss (#170): la entry appena memorizzata e' la
     # stessa istanza, quindi ritornare ``result`` per riferimento la esporrebbe.
     return _copy_result(result)
+
+
+def reverse_geocode_label(lat: float, lon: float) -> tuple[str, str]:
+    """Etichetta (citta, zona) best-effort per un punto, via reverse geocode (#318).
+
+    Mai solleva: un fallimento di Nominatim (errore di servizio, nessun
+    risultato, address mancante) ritorna un fallback su coordinate formattate,
+    perche' l'etichetta e' cosmetica (narrativa/UI) e non deve mai bloccare
+    l'analisi (D9, design doc).
+    """
+    fallback = (f"area {lat:.4f},{lon:.4f}", "zona non identificata")
+    try:
+        location = _get_rate_limited_call()("reverse", (lat, lon))
+    except GeocoderServiceError:
+        return fallback
+    if location is None:
+        return fallback
+    address_raw = location.raw.get("address")
+    if not isinstance(address_raw, dict):
+        return fallback
+    # ``isinstance(x, dict)`` restringe solo a ``dict[Unknown, Unknown]`` (nessun
+    # controllo sui type-arg): il cast esplicito tiene ``citta``/``zona``
+    # verificabili da pyright strict, come in _parse_bbox qui sopra.
+    address = cast("dict[str, object]", address_raw)
+    citta = (
+        address.get("city")
+        or address.get("town")
+        or address.get("village")
+        or fallback[0]
+    )
+    zona = (
+        address.get("suburb")
+        or address.get("neighbourhood")
+        or address.get("quarter")
+        or fallback[1]
+    )
+    return (str(citta), str(zona))
+
+
+def geocode_freeform(query: str) -> tuple[float, float] | None:
+    """Forward geocode di una query libera (#318, casella "vai a un luogo").
+
+    A differenza di :func:`geocode_zone`: nessuna concatenazione "zona, citta",
+    nessun floor di bbox (qui serve solo un punto per centrare la mappa).
+    """
+    try:
+        location = _get_rate_limited_call()("geocode", query)
+    except GeocoderServiceError as exc:
+        raise GeocodingError(
+            f"Servizio di geocoding non raggiungibile per {query!r}"
+        ) from exc
+    if location is None:
+        return None
+    return (location.latitude, location.longitude)

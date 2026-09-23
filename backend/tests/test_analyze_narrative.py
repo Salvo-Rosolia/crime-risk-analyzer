@@ -14,9 +14,9 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from crime_risk_analyzer import zone_context_cache
+from crime_risk_analyzer import circle_search, zone_context_cache
 from crime_risk_analyzer.config import Settings, get_settings
-from crime_risk_analyzer.geocoding import GeoResult
+from crime_risk_analyzer.geocoding import GeoResult, ZoneNotFoundError
 from crime_risk_analyzer.llm.client import LLMError, LLMResponse, get_llm_client
 from crime_risk_analyzer.main import create_app
 from crime_risk_analyzer.models.geo import Bbox
@@ -239,6 +239,74 @@ async def test_fast_response_contesto_hash_matches_the_cached_context() -> None:
     assert out.contesto_hash == fingerprint(cached["retrieval"]["pois"])
 
 
+# --- #318: radius_m filtra i POI server-side in run_analysis_fast ---
+# Stesso pattern di ``run_baseline`` (Task 5, test_orchestrator.py): il filtro
+# vive fra ``retrieve`` e ``ground``, quindi la cache di zona deve scaldarsi con
+# il contesto GIA' filtrato, non quello grezzo.
+
+
+def _pois_per_raggio(citta: str) -> list[Poi]:
+    return [
+        *_pois(citta),
+        {
+            "id": "node/2",
+            "name": "Banca Lontana",
+            "lat": 42.100,
+            "lon": 12.700,
+            "osm_tags": "amenity=bank",
+            "terminus_class": "Bank",
+            "citta": citta,
+        },
+    ]
+
+
+async def _poi_source_per_raggio(bbox: Bbox, citta: str) -> list[Poi]:
+    return _pois_per_raggio(citta)
+
+
+async def test_run_analysis_fast_filtra_per_raggio() -> None:
+    """``radius_m`` filtra i POI server-side dal centro geocodificato (#318).
+
+    Il centro di ``_geo_source`` (41.89, 12.49) e' a ~166m da ``Banca A`` (entro
+    i 300m richiesti) ma a decine di km da ``Banca Lontana``: solo la prima
+    resta nella risposta.
+    """
+    zone_context_cache.clear()
+    from crime_risk_analyzer.analyze_narrative import run_analysis_fast
+
+    out = await run_analysis_fast(
+        "Roma",
+        "Raggio",
+        executor=_FakeProfiler(),
+        poi_source=_poi_source_per_raggio,
+        geo_source=_geo_source,
+        radius_m=300.0,
+    )
+    assert [p.id for p in out.poi] == ["node/1"]
+
+
+async def test_run_analysis_fast_senza_radius_m_e_identico_a_oggi() -> None:
+    """``radius_m=None`` (il default) non cambia il comportamento pre-#318:
+    stessa chiamata di ``test_fast_response_has_no_narrativa_yet``, nessun
+    filtro applicato (regressione esplicita)."""
+    zone_context_cache.clear()
+    from crime_risk_analyzer.analyze_narrative import run_analysis_fast
+
+    out = await run_analysis_fast(
+        "Roma",
+        "Colosseo",
+        executor=_FakeProfiler(),
+        poi_source=_poi_source,
+        geo_source=_geo_source,
+    )
+    assert out.narrativa is None
+    assert out.fallback is False
+    assert len(out.poi) == 1
+    assert out.poi[0].id == "node/1"
+    assert (out.zona_geo.lat, out.zona_geo.lon) == (41.89, 12.49)
+    assert out.messaggio is None
+
+
 class _FakeLLMClient:
     async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
         return LLMResponse(
@@ -358,6 +426,37 @@ async def test_zone_narrative_cold_cache_divergent_rebuild_refuses() -> None:
             geo_source=_geo_source,
         )
     assert zone_context_cache.get("Roma", "Colosseo") is None
+
+
+async def test_zone_narrative_cold_cache_geocode_failure_becomes_context_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#318 (reperto review I2): a cache fredda SENZA ``geo_source`` (il caso
+    reale della rotta) la ricostruzione fa un geocode FORWARD di ``citta``/
+    ``zona`` — che pero' nascono da un reverse geocode del cerchio, quasi mai
+    una stringa che Nominatim ritrova cercandola in avanti. Il fallimento non
+    deve propagare come 422 "zona non geocodificabile" (l'operatore non ha
+    digitato nulla di sbagliato): diventa lo stesso ``ContextMismatchError`` ->
+    409 del ramo ``contesto_hash``, con lo stesso invito a rilanciare l'analisi.
+    """
+    contesto_hash = await _prime_cache()
+    zone_context_cache.clear()
+
+    def _boom(zona: str, citta: str) -> GeoResult:
+        raise ZoneNotFoundError("zona ignota")
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _boom)
+
+    from crime_risk_analyzer.analyze_narrative import run_zone_narrative
+
+    with pytest.raises(ContextMismatchError):
+        await run_zone_narrative(
+            "Roma",
+            "Colosseo",
+            contesto_hash=contesto_hash,
+            executor=_FakeProfiler(),
+            llm_client=_FakeLLMClient(),
+        )
 
 
 async def test_zone_narrative_context_mismatch_raises() -> None:
@@ -520,18 +619,25 @@ class _RecordingLLMClient:
         )
 
 
-def _patch_io(monkeypatch: pytest.MonkeyPatch, *, densa: bool = False) -> None:
-    """Sostituisce geocoding e Overpass per i test delle rotte HTTP."""
+def _fake_reverse_geocode(lat: float, lon: float) -> tuple[str, str]:
+    return ("Roma", "Colosseo")
 
-    def _fake_geocode(zona: str, citta: str) -> GeoResult:
-        return GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50))
+
+def _patch_io(monkeypatch: pytest.MonkeyPatch, *, densa: bool = False) -> None:
+    """Sostituisce reverse geocode e Overpass per i test delle rotte HTTP (#318).
+
+    ``retrieval.geocode_zone`` non e' piu' chiamato da ``/analyze`` (il body
+    della rotta e' un cerchio, ``resolve_circle`` passa sempre un proprio
+    ``geo_source``): la sola I/O da patchare qui e' la label reverse-geocoded
+    (``circle_search.reverse_geocode_label``) e Overpass.
+    """
+    monkeypatch.setattr(circle_search, "reverse_geocode_label", _fake_reverse_geocode)
 
     async def _fake_fetch(
         bbox: object, citta: str, *args: object, **kwargs: object
     ) -> list[Poi]:
         return _pois_densi(citta) if densa else _pois(citta)
 
-    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode)
     monkeypatch.setattr(retrieval, "fetch_pois", _fake_fetch)
 
 
@@ -549,7 +655,10 @@ def _analizza(client: TestClient) -> str:
     zone_context_cache.clear()
     zona = cast(
         httpx.Response,
-        client.post("/analyze", json={"citta": "Roma", "zona": "Colosseo"}),  # pyright: ignore[reportUnknownMemberType]
+        client.post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze",
+            json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0},
+        ),
     )
     assert zona.status_code == 200
     return str(zona.json()["contesto_hash"])
@@ -585,7 +694,10 @@ def test_endpoint_completa_la_narrativa_lasciata_aperta_dalla_fase_1(
     client = _client()
     zona = cast(
         httpx.Response,
-        client.post("/analyze", json={"citta": "Roma", "zona": "Colosseo"}),  # pyright: ignore[reportUnknownMemberType]
+        client.post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze",
+            json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0},
+        ),
     )
     assert zona.status_code == 200
     assert zona.json()["narrativa"] is None

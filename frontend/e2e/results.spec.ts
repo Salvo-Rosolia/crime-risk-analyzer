@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { mockApi } from './support/mocking';
 import { S } from './support/selectors';
+import { drawSearchCircle } from './support/map';
 import analyzeFixture from './fixtures/analyze.happy.json';
 import {
   CONF,
@@ -25,11 +26,9 @@ test.describe('INPUT→LOADING→RESULTS: parità marker/card/badge col fixture'
     await page.goto('/');
     await expect(S.inputPanel(page)).toBeVisible();
 
-    // Il campo città è un <input list> + <datalist> (non un <select>): si compila digitando.
-    // "Roma" è presente nel fixture cities.json condiviso, altrimenti la validazione client
-    // bloccherebbe il submit prima di raggiungere /analyze.
-    await S.cittaField(page).fill(analyze.citta);
-    await S.zonaField(page).fill(analyze.zona_normalizzata);
+    // Il centro/raggio non si digitano più (#318): si disegna un cerchio sulla mappa reale, che
+    // abilita il submit (`[disabled]="!circle()"`, `input-panel.component.html`).
+    await drawSearchCircle(page);
     await S.submitButton(page).click();
 
     await expect(S.poiPanel(page)).toBeVisible();

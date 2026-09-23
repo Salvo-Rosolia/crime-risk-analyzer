@@ -1,4 +1,11 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { MapComponent } from '@features/map/map.component';
 import { InputPanelComponent } from '@features/panels/input/input-panel.component';
 import { LoadingOverlayComponent } from '@features/panels/loading/loading-overlay.component';
@@ -6,10 +13,12 @@ import { PanelDockComponent } from '@features/panels/dock/panel-dock.component';
 import { NarrativeSheetComponent } from '@features/panels/narrative/narrative-sheet.component';
 import { BasePanelComponent } from '@features/panels/base/base-panel.component';
 import { HeaderControlsComponent } from '@features/panels/header-controls/header-controls.component';
-import { StateStore } from '@core/state/state.store';
+import { ApiService } from '@core/api/api.service';
+import { errorMessage, StateStore } from '@core/state/state.store';
 import {
   AnalyzeRequestPayload,
   BaselineParams,
+  Circle,
   Confidence,
   Mode,
   NumberedPoi,
@@ -32,6 +41,31 @@ import {
 })
 export class App {
   protected readonly store = inject(StateStore);
+  private readonly api = inject(ApiService);
+  /** Handle sulla mappa reale (#318): serve solo per `flyTo` dalla casella "vai a un luogo" — vedi
+   * l'idioma identico dentro `MapComponent` stesso (`mapEl = viewChild.required(...)`). */
+  private readonly mapRef = viewChild.required(MapComponent);
+
+  /**
+   * Cerchio disegnato sulla mappa (#318, sostituisce citta/zona digitati): unica sorgente per
+   * entrambi i pannelli di ricerca (`InputPanelComponent`/`BasePanelComponent`), alimentata
+   * dall'output `circleChange` di `MapComponent`. `MapComponent` non è dentro il `@switch` di
+   * schermo (sempre montato), quindi questo segnale non ha bisogno di reseeding al cambio di
+   * schermo — solo `onResetConfirmed` lo azzera esplicitamente ("+ Nuova richiesta" impone di
+   * ridisegnare).
+   */
+  protected readonly circle = signal<Circle | null>(null);
+  /** Casella "vai a un luogo" (#318): puro aiuto di navigazione sulla mappa (Nominatim + flyTo),
+   * indipendente dal cerchio di ricerca — non tocca la FSM né `circle`. */
+  protected readonly placeQuery = signal('');
+  protected readonly placeError = signal<string | null>(null);
+  /** Token di sequenza per `onGoToPlace` (fix reperto review, stesso idioma di
+   * `StateStore.contestoCambiato`, qui con un contatore invece di un'impronta perché non esiste un
+   * hash di richiesta da confrontare): incrementato a ogni submit, catturato localmente prima
+   * dell'`await`. Una richiesta A lanciata e poi superata da una richiesta B più recente non deve
+   * applicare i propri effetti (`flyTo`/`placeError`) se arriva dopo — altrimenti una risposta A
+   * arrivata in ritardo sovrascriverebbe silenziosamente la mappa/l'errore che B ha già impostato. */
+  private placeRequestSeq = 0;
 
   /**
    * POI selezionato + il suo numero (stesso ordine/numero del pin e della card accoppiati), per
@@ -53,8 +87,50 @@ export class App {
     return index >= 0 ? { poi: poi[index], number: index + 1 } : null;
   });
 
-  protected onAnalyze({ citta, zona, domanda }: AnalyzeRequestPayload): void {
-    void this.store.startAnalysis(citta, zona, domanda);
+  protected onCircleChange(c: Circle | null): void {
+    this.circle.set(c);
+  }
+
+  protected onPlaceQueryInput(event: Event): void {
+    this.placeQuery.set((event.target as HTMLInputElement).value);
+  }
+
+  /**
+   * "vai a un luogo" (#318): geocodifica il testo libero (`ApiService.geocodePlace`, Nominatim) e
+   * sposta la mappa (`MapComponent.flyTo`) — non tocca `circle`: è pura navigazione, non selezione
+   * dell'area da analizzare.
+   *
+   * Guardia di sequenza (fix reperto review, race condition): senza `seq`, un submit rapido di
+   * A poi B con la risposta di A arrivata DOPO quella di B applicherebbe per ultima gli effetti di
+   * A — la mappa/l'errore mostrati non corrisponderebbero più all'ultima richiesta dell'utente,
+   * silenziosamente. Solo la risposta della richiesta ANCORA la più recente (`seq === this.
+   * placeRequestSeq` quando arriva) applica `flyTo`/`placeError`; le altre vengono scartate.
+   *
+   * Messaggio d'errore (fix reperto review): `errorMessage` (esportata da `state.store.ts`, stessa
+   * funzione già usata per ogni altro errore backend in questa app) spacchetta
+   * `error.error.detail.messaggio` quando il backend lo fornisce (es. 503 "geocoding non
+   * disponibile") invece del letterale fisso "Luogo non trovato." —
+   * quel fallback resta corretto SOLO per il 404 reale (`/geocode` risponde con `detail` STRINGA,
+   * non `{messaggio}`, per il caso "nessun risultato": vedi `main.py:geocode`), che quindi non viene
+   * spacchettato e cade comunque sul fallback.
+   */
+  protected async onGoToPlace(): Promise<void> {
+    const q = this.placeQuery().trim();
+    if (!q) return;
+    const seq = ++this.placeRequestSeq;
+    try {
+      const { lat, lon } = await this.api.geocodePlace(q);
+      if (seq !== this.placeRequestSeq) return;
+      this.placeError.set(null);
+      this.mapRef().flyTo(lat, lon);
+    } catch (err) {
+      if (seq !== this.placeRequestSeq) return;
+      this.placeError.set(errorMessage(err, 'Luogo non trovato.'));
+    }
+  }
+
+  protected onAnalyze({ center, radiusM, domanda }: AnalyzeRequestPayload): void {
+    void this.store.startAnalysis(center, radiusM, domanda);
   }
 
   protected onPoiClick(id: string): void {
@@ -91,6 +167,15 @@ export class App {
    * dell'utente, quindi dispatcha `RESET` direttamente (nessun `window.confirm`). */
   protected onResetConfirmed(): void {
     this.store.dispatch({ type: 'RESET' });
+    // #318: dopo "+ Nuova richiesta" l'utente deve ridisegnare il cerchio — non lo si riusa
+    // implicitamente per la prossima analisi (MapComponent stesso non si smonta, quindi senza
+    // questo azzeramento esplicito il vecchio cerchio resterebbe silenziosamente valido).
+    this.circle.set(null);
+    // Azzerare il segnale locale non basta (reperto review I5): MapComponent tiene il proprio
+    // circleLayer disegnato sulla mappa indipendentemente da questo segnale, quindi senza
+    // clearCircle() il cerchio vecchio resterebbe visibile e cliccabile mentre il resto della UI
+    // (bottone disabilitato, istruzione "disegna un cerchio") dice il contrario.
+    this.mapRef().clearCircle();
   }
 
   /**
@@ -128,6 +213,6 @@ export class App {
     }
     const query = this.store.lastQuery();
     if (!query) return;
-    void this.store.startAnalysis(query.citta, query.zona, query.domanda);
+    void this.store.startAnalysis(query.center, query.radiusM, query.domanda);
   }
 }

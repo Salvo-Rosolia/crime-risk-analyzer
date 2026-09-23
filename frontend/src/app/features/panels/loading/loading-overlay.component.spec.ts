@@ -10,22 +10,11 @@ describe('LoadingOverlayComponent', () => {
       imports: [LoadingOverlayComponent],
     }).compileComponents();
     fixture = TestBed.createComponent(LoadingOverlayComponent);
-    fixture.componentRef.setInput('zona', 'Trastevere');
     fixture.detectChanges();
   });
 
   afterEach(() => {
     jest.useRealTimers();
-  });
-
-  it('mostra "Analizzando {zona}"', () => {
-    expect(fixture.nativeElement.textContent).toContain('Analizzando Trastevere');
-  });
-
-  it('senza zona mostra un fallback generico', () => {
-    fixture.componentRef.setInput('zona', null);
-    fixture.detectChanges();
-    expect(fixture.nativeElement.textContent).toContain('Analizzando la zona');
   });
 
   it('elenca gli step cosmetici della fase 1 (geocoding → Overpass → SPARQL → grounding, nessuna generazione LLM qui)', () => {

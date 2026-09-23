@@ -28,30 +28,6 @@ export function cityColorFor(city: string): string {
   return CITY_COLOR_MAP[city] ?? CITY_COLOR_FALLBACK;
 }
 
-export interface InputPanelValidation {
-  ok: boolean;
-  error: string | null;
-  /** Campo a cui imputare l'errore (per evidenziare solo il bordo pertinente in UI). */
-  field: 'citta' | 'zona' | null;
-}
-
-export function validateInputPanel({
-  citta,
-  zona,
-}: {
-  citta?: string;
-  zona?: string;
-  domanda?: string;
-} = {}): InputPanelValidation {
-  if (!citta || !citta.trim()) {
-    return { ok: false, error: 'Inserisci una città.', field: 'citta' };
-  }
-  if (!zona || !zona.trim()) {
-    return { ok: false, error: 'Inserisci una zona.', field: 'zona' };
-  }
-  return { ok: true, error: null, field: null };
-}
-
 /** Etichetta IT controllata dell'hazard (#77) con fallback all'identificatore di classe grezzo. */
 export function hazardDisplayLabel(risk: Pick<RiskItem, 'hazard' | 'hazard_label_it'>): string {
   return risk.hazard_label_it || risk.hazard;
