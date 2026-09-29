@@ -34,13 +34,20 @@ basa a sua volta sui dati OpenStreetMap (© OpenStreetMap contributors, ODbL).
   - Usage policy:   https://operations.osmfoundation.org/policies/nominatim/
 
 --------------------------------------------------------------------------------
-Basemap — CARTO (tile "Voyager")
+Basemap — tile standard OpenStreetMap
 --------------------------------------------------------------------------------
-Le tile della mappa di base sono fornite da CARTO.
+Le tile della mappa di base sono servite dall'infrastruttura OpenStreetMap.
 
-    © CARTO — basemaps © OpenStreetMap contributors
+    © OpenStreetMap contributors (ODbL)
 
-  - Attribuzioni CARTO: https://carto.com/attributions
+  - Copyright OSM:  https://www.openstreetmap.org/copyright
+  - Usage policy:   https://operations.osmfoundation.org/policies/tiles/
+
+La tile usage policy copre usi leggeri (sviluppo, demo, ricerca): un servizio ad
+alto volume richiede un provider dedicato o tile self-hosted.
+
+Fino a settembre 2026 il basemap era CARTO (stile "Voyager"), sostituito quando
+basemaps.cartocdn.com ha iniziato a richiedere una API key.
 
 --------------------------------------------------------------------------------
 Libreria di mappe — Leaflet

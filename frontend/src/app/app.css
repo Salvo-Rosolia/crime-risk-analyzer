@@ -46,7 +46,17 @@ cra-map {
   pointer-events: none;
 }
 
+/*
+ * `box-sizing: border-box` NON è cosmetico qui: rende vero ciò che il resto del layout già
+ * assume, cioè che `--panel-max-width` sia la larghezza ESTERNA del pannello. Senza, padding
+ * (2 × var(--space-4)) e bordo (2 × var(--panel-border)) si sommavano fuori dal token e il
+ * pannello arrivava 35px più a destra del previsto, coprendo l'inizio della barra del raggio
+ * (`.cra-radius-control`, map.component.ts), che si ancora proprio a `--panel-max-width`.
+ * L'invariante è presidiata da `e2e/map-radius-control.spec.ts` — un test di geometria reale,
+ * perché jsdom non calcola layout.
+ */
 .cra-panel {
+  box-sizing: border-box;
   pointer-events: auto;
   margin: var(--space-4);
   max-width: var(--panel-max-width);
