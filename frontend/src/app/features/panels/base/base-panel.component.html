@@ -1,6 +1,6 @@
 <aside class="cra-base-form-panel">
   <h2 class="cra-base-heading">Parametri ricerca</h2>
-  @if (circle()) {
+  @if (area()) {
     <p class="cra-hint" id="cra-base-circle-hint">
       Disegna un cerchio sulla mappa (clic per il centro, poi ancora un clic per confermare il
       raggio).
@@ -34,7 +34,7 @@
     <button
       type="submit"
       class="cra-btn-solid"
-      [disabled]="!circle()"
+      [disabled]="!area()"
       aria-describedby="cra-base-circle-hint"
     >
       Cerca

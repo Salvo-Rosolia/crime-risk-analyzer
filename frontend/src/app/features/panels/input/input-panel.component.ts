@@ -1,14 +1,14 @@
 import { ChangeDetectionStrategy, Component, OnInit, input, output, signal } from '@angular/core';
-import { AnalyzeRequestPayload, Circle } from '@core/models/models';
+import { AnalyzeRequestPayload, SearchArea } from '@core/models/models';
 
 /**
  * Pannello "Analisi zona": copre sia lo Stato A (input iniziale) sia lo Stato Errore
  * (stesso form, con il messaggio server mostrato inline) — vedi spec-frontend.md §Stato Errore.
  *
- * Il centro/raggio non sono più digitati qui (#318): arrivano dall'esterno come `circle`,
- * disegnato su `MapComponent` (clic per il centro, poi ancora un clic per confermare il
- * raggio). Il form si riduce alla sola `domanda` opzionale; il bottone resta disabilitato
- * finché `circle` non è valorizzato.
+ * L'AREA non si digita qui: arriva dall'esterno come `area`, gia' scelta in una delle due
+ * modalita' che coesistono — il cerchio disegnato su `MapComponent` oppure la ricerca testuale
+ * della casella in header. Il form si riduce alla sola `domanda` opzionale; il bottone resta
+ * disabilitato finche' un'area non e' stata scelta, in nessuna delle due modalita'.
  *
  * `@switch (store.screen())` smonta/rimonta questo componente ad ogni cambio di stato
  * (INPUT→LOADING→ERROR sono `@case` distinti): il segnale locale `domanda` verrebbe azzerato
@@ -27,8 +27,8 @@ export class InputPanelComponent implements OnInit {
   readonly serverError = input<string | null>(null);
   /** Ultimo valore inviato (da `store.pendingDomanda`): risemina il form al remount. */
   readonly initialDomanda = input<string | null>(null);
-  /** Cerchio disegnato su `MapComponent` (centro + raggio); `null` finché non è stato confermato. */
-  readonly circle = input<Circle | null>(null);
+  /** Area scelta (cerchio disegnato o ricerca testuale); `null` finché non ne è stata scelta una. */
+  readonly area = input<SearchArea | null>(null);
   readonly analyze = output<AnalyzeRequestPayload>();
 
   protected readonly domanda = signal('');
@@ -44,14 +44,10 @@ export class InputPanelComponent implements OnInit {
   protected onSubmit(event: Event): void {
     event.preventDefault();
 
-    const c = this.circle();
-    if (!c) return;
+    const area = this.area();
+    if (!area) return;
 
     const domanda = this.domanda().trim();
-    this.analyze.emit({
-      center: { lat: c.lat, lon: c.lon },
-      radiusM: c.radiusM,
-      domanda: domanda || null,
-    });
+    this.analyze.emit({ area, domanda: domanda || null });
   }
 }

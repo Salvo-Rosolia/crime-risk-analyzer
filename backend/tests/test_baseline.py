@@ -8,7 +8,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from crime_risk_analyzer import circle_search
+from crime_risk_analyzer import area_search
 from crime_risk_analyzer.geocoding import GeoResult, ZoneNotFoundError
 from crime_risk_analyzer.main import create_app
 from crime_risk_analyzer.models.geo import Bbox
@@ -64,11 +64,11 @@ def _patch_io(monkeypatch: pytest.MonkeyPatch) -> None:
 
     ``geocode_zone`` non e' piu' chiamato da ``/analyze``/``/analyze/baseline``:
     ``resolve_circle`` passa sempre un ``geo_source`` proprio. La label
-    citta'/zona arriva da ``circle_search.reverse_geocode_label`` (reverse
+    citta'/zona arriva da ``area_search.reverse_geocode_label`` (reverse
     geocode del centro); il bbox da ``bbox_from_circle`` (puro, nessun I/O) —
     solo la label va quindi simulata qui.
     """
-    monkeypatch.setattr(circle_search, "reverse_geocode_label", _fake_reverse_geocode)
+    monkeypatch.setattr(area_search, "reverse_geocode_label", _fake_reverse_geocode)
 
     async def _fake_fetch(
         bbox: object, citta: str, *args: object, **kwargs: object
@@ -122,7 +122,7 @@ def test_baseline_reports_reverse_geocoded_city(
     ) -> list[Poi]:
         return _pois(citta)
 
-    monkeypatch.setattr(circle_search, "reverse_geocode_label", _recording_reverse)
+    monkeypatch.setattr(area_search, "reverse_geocode_label", _recording_reverse)
     monkeypatch.setattr(retrieval, "fetch_pois", _fake_fetch)
     resp = cast(
         httpx.Response,
@@ -193,7 +193,7 @@ def test_baseline_radius_m_raggiunge_davvero_il_filtro_geospaziale(
     oltre un km: un raggio di 150 m (il minimo consentito) deve escludere la
     seconda dalla response.
     """
-    monkeypatch.setattr(circle_search, "reverse_geocode_label", _fake_reverse_geocode)
+    monkeypatch.setattr(area_search, "reverse_geocode_label", _fake_reverse_geocode)
 
     async def _fake_fetch(
         bbox: object, citta: str, *args: object, **kwargs: object
@@ -223,7 +223,7 @@ def test_baseline_zone_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
     def _raise(lat: float, lon: float) -> tuple[str, str]:
         raise ZoneNotFoundError("zona ignota")
 
-    monkeypatch.setattr(circle_search, "reverse_geocode_label", _raise)
+    monkeypatch.setattr(area_search, "reverse_geocode_label", _raise)
     resp = cast(
         httpx.Response,
         _client().post(  # pyright: ignore[reportUnknownMemberType]
@@ -235,7 +235,7 @@ def test_baseline_zone_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_baseline_overpass_down(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(circle_search, "reverse_geocode_label", _fake_reverse_geocode)
+    monkeypatch.setattr(area_search, "reverse_geocode_label", _fake_reverse_geocode)
 
     async def _raise_fetch(*args: object, **kwargs: object) -> list[Poi]:
         raise OverpassError("overpass giu'")
@@ -252,7 +252,7 @@ def test_baseline_overpass_down(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_baseline_zero_pois(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(circle_search, "reverse_geocode_label", _fake_reverse_geocode)
+    monkeypatch.setattr(area_search, "reverse_geocode_label", _fake_reverse_geocode)
 
     async def _fake_fetch_empty(*args: object, **kwargs: object) -> list[Poi]:
         return []

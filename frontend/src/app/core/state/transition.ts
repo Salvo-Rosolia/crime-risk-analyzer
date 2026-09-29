@@ -56,11 +56,11 @@ export function transition(state: AppState, action: Action): AppState {
         // ancora pendente) o già mostrato (se un errore era rimasto) irrilevante.
         zoneNarrativeLoading: isBase ? state.zoneNarrativeLoading : false,
         zoneNarrativeError: isBase ? state.zoneNarrativeError : null,
-        // lastQuery NON si tocca qui (#318): con un cerchio disegnato non c'è più una città/zona
-        // digitata da echeggiare subito — citta/zona_normalizzata sono etichette RISOLTE dal
-        // backend (reverse geocode) e non esistono finché non arriva la risposta. È LOAD_SUCCESS
-        // (non-base) a popolare lastQuery, combinando il center/radiusM/domanda dell'azione con
-        // le etichette risolte di action.data.
+        // lastQuery NON si tocca qui: l'area scelta non porta con sé una città/zona
+        // da echeggiare subito — citta/zona_normalizzata sono etichette RISOLTE dal backend
+        // (reverse geocode) e non esistono finché non arriva la risposta. È LOAD_SUCCESS
+        // (non-base) a popolare lastQuery, combinando l'area e la domanda dell'azione con le
+        // etichette risolte di action.data.
       };
     }
     case 'LOAD_SUCCESS': {
@@ -81,21 +81,20 @@ export function transition(state: AppState, action: Action): AppState {
         error: null,
         selectedPoiId: null,
         filter: null,
-        // lastQuery (#318) nasce QUI, non in ANALYZE: serve la combinazione di (a) il center/
-        // radiusM/domanda ORIGINALI passati attraverso la catena di azioni dalla richiesta
+        // lastQuery nasce QUI, non in ANALYZE: serve la combinazione di (a) l'area e la
+        // domanda ORIGINALI passate attraverso la catena di azioni dalla richiesta
         // (necessari a "Rigenera", che re-invoca /analyze) e (b) le etichette citta/zona
         // RISOLTE dal backend nella risposta (necessarie a /analyze/poi e /analyze/narrativa,
         // che le rimandano come contesto — stesso trattamento di contesto_hash). La pipeline
         // base non ha "Rigenera" e non tocca mai lastQuery (bloccante B review #67-bis); un
-        // LOAD_SUCCESS completo senza center/radiusM nell'azione (difensivo, non dovrebbe
+        // LOAD_SUCCESS completo senza area nell'azione (difensivo, non dovrebbe
         // accadere: state.store.ts li passa sempre) lascia lastQuery invariato invece di
         // scrivere un valore parziale.
         lastQuery:
-          isBase || !action.center || action.radiusM === undefined
+          isBase || !action.area
             ? state.lastQuery
             : {
-                center: action.center,
-                radiusM: action.radiusM,
+                area: action.area,
                 citta: action.data.citta,
                 zona: action.data.zona_normalizzata,
                 domanda: action.domanda ?? null,

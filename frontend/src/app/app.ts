@@ -22,6 +22,7 @@ import {
   Confidence,
   Mode,
   NumberedPoi,
+  SearchArea,
 } from '@core/models/models';
 
 @Component({
@@ -55,6 +56,20 @@ export class App {
    * ridisegnare).
    */
   protected readonly circle = signal<Circle | null>(null);
+  /** Ricerca testuale CONFERMATA (invio nella casella in alto), `null` se non e' quella attiva. */
+  protected readonly textQuery = signal<string | null>(null);
+  /**
+   * L'AREA attiva, nella modalita' scelta per ultima. Le due modalita' coesistono ma non si
+   * sommano: sceglierne una azzera l'altra (vedi `onCircleChange`/`onGoToPlace`), cosi' non
+   * esiste uno stato in cui l'utente non sappia quale area verrebbe analizzata. `SearchArea`
+   * rende quella mutua esclusione un fatto di tipo, non una convenzione da ricordare.
+   */
+  protected readonly area = computed<SearchArea | null>(() => {
+    const c = this.circle();
+    if (c) return { kind: 'circle', center: { lat: c.lat, lon: c.lon }, radiusM: c.radiusM };
+    const q = this.textQuery();
+    return q ? { kind: 'query', query: q } : null;
+  });
   /** Casella "vai a un luogo" (#318): puro aiuto di navigazione sulla mappa (Nominatim + flyTo),
    * indipendente dal cerchio di ricerca — non tocca la FSM né `circle`. */
   protected readonly placeQuery = signal('');
@@ -89,6 +104,10 @@ export class App {
 
   protected onCircleChange(c: Circle | null): void {
     this.circle.set(c);
+    // Disegnare un cerchio SOSTITUISCE la ricerca testuale come area attiva: tenerle entrambe
+    // lascerebbe l'utente senza modo di sapere quale delle due verrebbe analizzata (e il backend
+    // rifiuterebbe comunque un body con tutte e due, 422).
+    if (c) this.textQuery.set(null);
   }
 
   protected onPlaceQueryInput(event: Event): void {
@@ -123,14 +142,21 @@ export class App {
       if (seq !== this.placeRequestSeq) return;
       this.placeError.set(null);
       this.mapRef().flyTo(lat, lon);
+      // La casella non sposta soltanto la mappa: il testo confermato DIVENTA l'area da
+      // analizzare, alternativa al cerchio. Il geocode qui serve a mostrare subito dove si
+      // atterra; l'area vera la ricalcola il backend dal testo (bbox del luogo, non questo
+      // punto), quindi si propaga la query e non le coordinate.
+      this.textQuery.set(q);
+      this.circle.set(null);
+      this.mapRef().clearCircle();
     } catch (err) {
       if (seq !== this.placeRequestSeq) return;
       this.placeError.set(errorMessage(err, 'Luogo non trovato.'));
     }
   }
 
-  protected onAnalyze({ center, radiusM, domanda }: AnalyzeRequestPayload): void {
-    void this.store.startAnalysis(center, radiusM, domanda);
+  protected onAnalyze({ area, domanda }: AnalyzeRequestPayload): void {
+    void this.store.startAnalysis(area, domanda);
   }
 
   protected onPoiClick(id: string): void {
@@ -171,6 +197,8 @@ export class App {
     // implicitamente per la prossima analisi (MapComponent stesso non si smonta, quindi senza
     // questo azzeramento esplicito il vecchio cerchio resterebbe silenziosamente valido).
     this.circle.set(null);
+    this.textQuery.set(null);
+    this.placeQuery.set('');
     // Azzerare il segnale locale non basta (reperto review I5): MapComponent tiene il proprio
     // circleLayer disegnato sulla mappa indipendentemente da questo segnale, quindi senza
     // clearCircle() il cerchio vecchio resterebbe visibile e cliccabile mentre il resto della UI
@@ -213,6 +241,6 @@ export class App {
     }
     const query = this.store.lastQuery();
     if (!query) return;
-    void this.store.startAnalysis(query.center, query.radiusM, query.domanda);
+    void this.store.startAnalysis(query.area, query.domanda);
   }
 }

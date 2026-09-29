@@ -26,14 +26,18 @@ describe('InputPanelComponent', () => {
   });
 
   it('il bottone Analizza è disabilitato senza un cerchio disegnato', () => {
-    fixture.componentRef.setInput('circle', null);
+    fixture.componentRef.setInput('area', null);
     fixture.detectChanges();
     const btn: HTMLButtonElement = fixture.nativeElement.querySelector('button[type="submit"]');
     expect(btn.disabled).toBe(true);
   });
 
   it('il bottone Analizza è abilitato quando un cerchio è stato disegnato', () => {
-    fixture.componentRef.setInput('circle', { lat: 41.9, lon: 12.5, radiusM: 500 });
+    fixture.componentRef.setInput('area', {
+      kind: 'circle',
+      center: { lat: 41.9, lon: 12.5 },
+      radiusM: 500,
+    });
     fixture.detectChanges();
     const btn: HTMLButtonElement = fixture.nativeElement.querySelector('button[type="submit"]');
     expect(btn.disabled).toBe(false);
@@ -42,13 +46,16 @@ describe('InputPanelComponent', () => {
   it('emette AnalyzeRequestPayload con center/radiusM dal cerchio disegnato', () => {
     const spy = jest.fn();
     component.analyze.subscribe(spy);
-    fixture.componentRef.setInput('circle', { lat: 41.9, lon: 12.5, radiusM: 500 });
+    fixture.componentRef.setInput('area', {
+      kind: 'circle',
+      center: { lat: 41.9, lon: 12.5 },
+      radiusM: 500,
+    });
     fixture.detectChanges();
     component['domanda'].set('di sera?');
     fixture.nativeElement.querySelector('form').dispatchEvent(new Event('submit'));
     expect(spy).toHaveBeenCalledWith({
-      center: { lat: 41.9, lon: 12.5 },
-      radiusM: 500,
+      area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
       domanda: 'di sera?',
     });
   });
@@ -56,12 +63,15 @@ describe('InputPanelComponent', () => {
   it('emette domanda null quando il campo è lasciato vuoto', () => {
     const spy = jest.fn();
     component.analyze.subscribe(spy);
-    fixture.componentRef.setInput('circle', { lat: 41.9, lon: 12.5, radiusM: 500 });
+    fixture.componentRef.setInput('area', {
+      kind: 'circle',
+      center: { lat: 41.9, lon: 12.5 },
+      radiusM: 500,
+    });
     fixture.detectChanges();
     submitForm();
     expect(spy).toHaveBeenCalledWith({
-      center: { lat: 41.9, lon: 12.5 },
-      radiusM: 500,
+      area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
       domanda: null,
     });
   });
@@ -69,14 +79,17 @@ describe('InputPanelComponent', () => {
   it('trimma la domanda prima di emetterla', () => {
     const spy = jest.fn();
     component.analyze.subscribe(spy);
-    fixture.componentRef.setInput('circle', { lat: 41.9, lon: 12.5, radiusM: 500 });
+    fixture.componentRef.setInput('area', {
+      kind: 'circle',
+      center: { lat: 41.9, lon: 12.5 },
+      radiusM: 500,
+    });
     fixture.detectChanges();
     setDomanda('  di sera?  ');
     fixture.detectChanges();
     submitForm();
     expect(spy).toHaveBeenCalledWith({
-      center: { lat: 41.9, lon: 12.5 },
-      radiusM: 500,
+      area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
       domanda: 'di sera?',
     });
   });
@@ -84,14 +97,14 @@ describe('InputPanelComponent', () => {
   it('senza cerchio il submit non emette analyze (guardia difensiva anche a bottone disabilitato)', () => {
     const spy = jest.fn();
     component.analyze.subscribe(spy);
-    fixture.componentRef.setInput('circle', null);
+    fixture.componentRef.setInput('area', null);
     fixture.detectChanges();
     submitForm();
     expect(spy).not.toHaveBeenCalled();
   });
 
   it('il bottone disabilitato è collegato via aria-describedby al testo che spiega perché (fix reperto review accessibilità)', () => {
-    fixture.componentRef.setInput('circle', null);
+    fixture.componentRef.setInput('area', null);
     fixture.detectChanges();
     const btn: HTMLButtonElement = fixture.nativeElement.querySelector('button[type="submit"]');
     const describedById = btn.getAttribute('aria-describedby');

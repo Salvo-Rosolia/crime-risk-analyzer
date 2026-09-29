@@ -5,29 +5,38 @@ import {
   AnalyzeResponse,
   BaselineParams,
   PoiNarrativeResponse,
+  SearchArea,
   ZoneNarrativeResponse,
 } from '@core/models/models';
+
+/**
+ * Serializza l'area nel body atteso dal backend. Un solo posto in cui la forma viene decisa:
+ * `/analyze` e `/analyze/baseline` condividono lo stesso contratto di area, e due copie
+ * divergerebbero al primo che ne tocca una.
+ */
+function areaBody(area: SearchArea): Record<string, unknown> {
+  return area.kind === 'circle'
+    ? { center: area.center, radius_m: area.radiusM }
+    : { query: area.query };
+}
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private readonly http = inject(HttpClient);
 
   /**
-   * Fase 1 (`POST /analyze`): accetta il centro del cerchio di ricerca e il raggio in metri.
-   * Il backend emette i rischi geospaziali per i POI entro il cerchio.
+   * Fase 1 (`POST /analyze`): manda l'AREA nella modalita' scelta dall'utente — il cerchio
+   * disegnato (centro+raggio) oppure una ricerca testuale libera. Il backend accetta
+   * esattamente una delle due forme e risponde 422 se ne arrivano zero o due: qui non si
+   * compone mai un body ambiguo perche' `SearchArea` non lo permette.
    */
-  analyze(center: { lat: number; lon: number }, radiusM: number): Promise<AnalyzeResponse> {
-    return firstValueFrom(
-      this.http.post<AnalyzeResponse>('/analyze', { center, radius_m: radiusM }),
-    );
+  analyze(area: SearchArea): Promise<AnalyzeResponse> {
+    return firstValueFrom(this.http.post<AnalyzeResponse>('/analyze', areaBody(area)));
   }
 
   analyzeBaseline(params: BaselineParams): Promise<AnalyzeResponse> {
-    const body: { center: { lat: number; lon: number }; radius_m: number; tipo_poi?: string } = {
-      center: params.center,
-      radius_m: params.radiusM,
-    };
-    if (params.tipo_poi) body.tipo_poi = params.tipo_poi;
+    const body: Record<string, unknown> = { ...areaBody(params.area) };
+    if (params.tipo_poi) body['tipo_poi'] = params.tipo_poi;
     return firstValueFrom(this.http.post<AnalyzeResponse>('/analyze/baseline', body));
   }
 
