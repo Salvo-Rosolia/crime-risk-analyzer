@@ -2,13 +2,14 @@
   <span class="cra-title">◆ Crime Risk Analyzer</span>
   <span class="cra-tagline">supporto decisionale · human-in-the-loop</span>
   <span class="cra-header-spacer"></span>
-  <!-- "vai a un luogo" (#318): puro aiuto di navigazione sulla mappa (Nominatim + flyTo),
-       indipendente dal cerchio di ricerca disegnato — non fa parte della FSM. -->
+  <!-- Ricerca testuale: la SECONDA modalita' di scelta dell'area, alternativa al cerchio
+       disegnato. L'invio sposta la mappa sul luogo (Nominatim + flyTo) E conferma il testo come
+       area da analizzare; disegnare un cerchio la sostituisce, e viceversa. -->
   <div class="cra-place-search">
     <input
       type="text"
-      aria-label="Vai a un luogo"
-      placeholder="Vai a un luogo…"
+      aria-label="Cerca un luogo da analizzare"
+      placeholder="Cerca un luogo…"
       [value]="placeQuery()"
       (input)="onPlaceQueryInput($event)"
       (keydown.enter)="onGoToPlace()"
@@ -89,7 +90,7 @@
         <div class="cra-panel">
           <cra-input-panel
             [initialDomanda]="store.pendingDomanda()"
-            [circle]="circle()"
+            [area]="area()"
             (analyze)="onAnalyze($event)"
           />
         </div>
@@ -101,7 +102,7 @@
         <div class="cra-panel">
           <cra-input-panel
             [initialDomanda]="store.pendingDomanda()"
-            [circle]="circle()"
+            [area]="area()"
             [serverError]="store.error()"
             (analyze)="onAnalyze($event)"
           />
@@ -117,7 +118,7 @@
         <cra-base-panel
           [data]="store.baselineData()"
           [serverError]="store.error()"
-          [circle]="circle()"
+          [area]="area()"
           (analyzeBaseline)="onBaseSearch($event)"
           (backToCompleto)="onToggleMode('completo')"
         />

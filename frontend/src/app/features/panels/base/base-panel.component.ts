@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
-import { AnalyzeResponse, BaselineParams, Circle } from '@core/models/models';
+import { AnalyzeResponse, BaselineParams, SearchArea } from '@core/models/models';
 import { buildBaseRows } from '@core/ui-helpers';
 
 /**
@@ -8,16 +8,16 @@ import { buildBaseRows } from '@core/ui-helpers';
  * deliberatamente spartana (niente NL, narrativa, confidence, path SPARQL, mappa: il contrasto con
  * il sistema completo è esso stesso argomento di tesi).
  *
- * Il centro/raggio non sono più digitati qui (#318): arrivano dall'esterno come `circle`, disegnato
+ * L'area non si digita qui: arriva dall'esterno come `area`, scelta col cerchio disegnato
  * su `MapComponent` (clic per il centro, poi ancora un clic per confermare il raggio) — stesso
  * schema di `InputPanelComponent`. Il form si riduce al solo Tipo POI opzionale; il bottone resta
- * disabilitato finché `circle` non è valorizzato.
+ * disabilitato finché un'area non è stata scelta.
  *
  * Punto morto altrimenti (reperto review finale C1): `:host` (base-panel.component.css) è un
  * overlay opaco che coincide, sopra, con l'intera mappa — se l'utente passa a "Sistema base" PRIMA
  * di aver mai disegnato un cerchio in modalità completo, l'istruzione "disegna un cerchio sulla
  * mappa" diventa impossibile da seguire da qui dentro (la mappa è sotto, invisibile e non
- * cliccabile). `!circle()` mostra quindi un messaggio diverso più un bottone che emette
+ * cliccabile). `!area()` mostra quindi un messaggio diverso più un bottone che emette
  * `backToCompleto`, cablato in `app.html` sulla stessa `onToggleMode('completo')` che già esiste
  * per l'header: nessuna nuova via di navigazione, solo la stessa resa raggiungibile da dentro il
  * pannello invece di richiedere che l'utente trovi da sé il toggle nell'header.
@@ -31,7 +31,7 @@ import { buildBaseRows } from '@core/ui-helpers';
 export class BasePanelComponent {
   readonly data = input<AnalyzeResponse | null>(null);
   /** Cerchio disegnato su `MapComponent` (centro + raggio); `null` finché non è stato confermato. */
-  readonly circle = input<Circle | null>(null);
+  readonly area = input<SearchArea | null>(null);
   /** Emesso dal bottone "Torna a Completo" (visibile solo senza cerchio, #318 C1): lo shell lo
    * cabla su `onToggleMode('completo')`, la stessa transizione già raggiungibile dal toggle
    * dell'header. */
@@ -59,11 +59,11 @@ export class BasePanelComponent {
   protected onSubmit(event: Event): void {
     event.preventDefault();
 
-    const c = this.circle();
-    if (!c) return;
+    const area = this.area();
+    if (!area) return;
 
     const tipoPoi = this.tipoPoi().trim();
-    const params: BaselineParams = { center: { lat: c.lat, lon: c.lon }, radiusM: c.radiusM };
+    const params: BaselineParams = { area };
     if (tipoPoi) params.tipo_poi = tipoPoi;
     this.analyzeBaseline.emit(params);
   }

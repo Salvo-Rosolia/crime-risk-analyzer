@@ -46,8 +46,7 @@ describe('transition (FSM)', () => {
   it('ANALYZE → LOADING, azzera selezione/filtro, salva la domanda pending; NON popola più lastQuery (lo fa LOAD_SUCCESS, #318)', () => {
     const s = transition(initialState, {
       type: 'ANALYZE',
-      center: { lat: 41.9, lon: 12.5 },
-      radiusM: 500,
+      area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
       domanda: 'di sera?',
       pipeline: 'completo',
     });
@@ -61,8 +60,7 @@ describe('transition (FSM)', () => {
     const withPreviousQuery: AppState = {
       ...initialState,
       lastQuery: {
-        center: { lat: 41.9, lon: 12.5 },
-        radiusM: 500,
+        area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
         citta: 'Roma',
         zona: 'Colosseo',
         domanda: null,
@@ -70,8 +68,7 @@ describe('transition (FSM)', () => {
     };
     const s = transition(withPreviousQuery, {
       type: 'ANALYZE',
-      center: { lat: 45.4, lon: 9.2 },
-      radiusM: 300,
+      area: { kind: 'circle', center: { lat: 45.4, lon: 9.2 }, radiusM: 300 },
       pipeline: 'base',
     });
     expect(s.screen).toBe('LOADING');
@@ -88,13 +85,11 @@ describe('transition (FSM)', () => {
       type: 'LOAD_SUCCESS',
       data: dataConEtichetteRisolte,
       pipeline: 'completo',
-      center: { lat: 41.9, lon: 12.5 },
-      radiusM: 500,
+      area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
       domanda: 'di sera?',
     });
     expect(s.lastQuery).toEqual({
-      center: { lat: 41.9, lon: 12.5 },
-      radiusM: 500,
+      area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
       citta: 'Roma',
       zona: 'Trastevere',
       domanda: 'di sera?',
@@ -104,7 +99,12 @@ describe('transition (FSM)', () => {
   it('LOAD_SUCCESS (base) non tocca lastQuery', () => {
     const prev: AppState = {
       ...initialState,
-      lastQuery: { center: { lat: 1, lon: 1 }, radiusM: 1, citta: 'X', zona: 'Y', domanda: null },
+      lastQuery: {
+        area: { kind: 'circle', center: { lat: 1, lon: 1 }, radiusM: 1 },
+        citta: 'X',
+        zona: 'Y',
+        domanda: null,
+      },
     };
     const s = transition(prev, { type: 'LOAD_SUCCESS', data, pipeline: 'base' });
     expect(s.lastQuery).toBe(prev.lastQuery);
@@ -190,8 +190,7 @@ describe('transition (FSM)', () => {
   it('percorso reale: submit del cerchio → ANALYZE → LOAD_ERROR conserva la domanda digitata per il retry', () => {
     const afterAnalyze = transition(initialState, {
       type: 'ANALYZE',
-      center: { lat: 41.9, lon: 12.5 },
-      radiusM: 500,
+      area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
       domanda: 'di sera?',
       pipeline: 'completo',
     });
@@ -323,8 +322,7 @@ describe('transition (FSM)', () => {
     };
     const s = transition(results, {
       type: 'ANALYZE',
-      center: { lat: 41.9, lon: 12.5 },
-      radiusM: 800,
+      area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 800 },
       pipeline: 'completo',
     });
     expect(s.screen).toBe('LOADING');
@@ -341,8 +339,7 @@ describe('transition (FSM)', () => {
       error: 'zona non trovata',
       pendingDomanda: 'vecchia domanda',
       lastQuery: {
-        center: { lat: 41.9, lon: 12.5 },
-        radiusM: 500,
+        area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
         citta: 'Roma',
         zona: 'Colosseo',
         domanda: null,
@@ -350,8 +347,7 @@ describe('transition (FSM)', () => {
     };
     const s = transition(error, {
       type: 'ANALYZE',
-      center: { lat: 45.4, lon: 9.2 },
-      radiusM: 700,
+      area: { kind: 'circle', center: { lat: 45.4, lon: 9.2 }, radiusM: 700 },
       domanda: 'nuova domanda',
       pipeline: 'completo',
     });
@@ -408,8 +404,7 @@ describe('transition (FSM)', () => {
       };
       const s = transition(before, {
         type: 'ANALYZE',
-        center: { lat: 41.9, lon: 12.5 },
-        radiusM: 500,
+        area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
         pipeline: 'completo',
       });
       expect(s.poiNarratives).toEqual({});
@@ -426,8 +421,7 @@ describe('transition (FSM)', () => {
       };
       const s = transition(before, {
         type: 'ANALYZE',
-        center: { lat: 45.4, lon: 9.2 },
-        radiusM: 300,
+        area: { kind: 'circle', center: { lat: 45.4, lon: 9.2 }, radiusM: 300 },
         pipeline: 'base',
       });
       expect(s.poiNarratives).toEqual({ 'node/1': narrativa });
@@ -514,8 +508,7 @@ describe('transition (FSM)', () => {
       };
       const s = transition(before, {
         type: 'ANALYZE',
-        center: { lat: 41.9, lon: 12.5 },
-        radiusM: 500,
+        area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
         pipeline: 'completo',
       });
       expect(s.zoneNarrativeLoading).toBe(false);
@@ -530,8 +523,7 @@ describe('transition (FSM)', () => {
       };
       const s = transition(before, {
         type: 'ANALYZE',
-        center: { lat: 45.4, lon: 9.2 },
-        radiusM: 300,
+        area: { kind: 'circle', center: { lat: 45.4, lon: 9.2 }, radiusM: 300 },
         pipeline: 'base',
       });
       expect(s.zoneNarrativeLoading).toBe(true);

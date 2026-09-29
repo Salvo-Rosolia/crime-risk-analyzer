@@ -1,6 +1,6 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { ApiService } from '@core/api/api.service';
-import { Action, AppState, BaselineParams } from '@core/models/models';
+import { Action, AppState, BaselineParams, SearchArea } from '@core/models/models';
 import { initialState, transition } from '@core/state/transition';
 import { poiNameDisplayLabel } from '@core/ui-helpers';
 
@@ -175,21 +175,16 @@ export class StateStore {
    * `zona_normalizzata` RISOLTE dal backend nella risposta — un cerchio disegnato non ha
    * equivalente testuale da echeggiare prima che la risposta arrivi.
    */
-  async startAnalysis(
-    center: { lat: number; lon: number },
-    radiusM: number,
-    domanda?: string | null,
-  ): Promise<void> {
-    this.dispatch({ type: 'ANALYZE', center, radiusM, domanda, pipeline: 'completo' });
+  async startAnalysis(area: SearchArea, domanda?: string | null): Promise<void> {
+    this.dispatch({ type: 'ANALYZE', area, domanda, pipeline: 'completo' });
     try {
       // Niente `domanda` qui (#292): la fase 1 non chiama più l'LLM, va solo a `loadZoneNarrative`.
-      const result = await this.api.analyze(center, radiusM);
+      const result = await this.api.analyze(area);
       this.dispatch({
         type: 'LOAD_SUCCESS',
         data: result,
         pipeline: 'completo',
-        center,
-        radiusM,
+        area,
         domanda: domanda ?? null,
       });
       // citta/zona qui sono le etichette RISOLTE dalla risposta (result.citta/zona_normalizzata),
@@ -212,12 +207,7 @@ export class StateStore {
 
   /** Pipeline 'base': stessa logica di `startAnalysis`, letterale `pipeline: 'base'` fisso. */
   async startBaselineAnalysis(params: BaselineParams): Promise<void> {
-    this.dispatch({
-      type: 'ANALYZE',
-      center: params.center,
-      radiusM: params.radiusM,
-      pipeline: 'base',
-    });
+    this.dispatch({ type: 'ANALYZE', area: params.area, pipeline: 'base' });
     try {
       const result = await this.api.analyzeBaseline(params);
       this.dispatch({ type: 'LOAD_SUCCESS', data: result, pipeline: 'base' });

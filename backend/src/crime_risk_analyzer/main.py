@@ -10,7 +10,7 @@ e il warm-up delle risorse nel ``lifespan``.
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Annotated
+from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
@@ -25,7 +25,7 @@ from crime_risk_analyzer.analyze_narrative import (
     run_analysis_fast,
     run_zone_narrative,
 )
-from crime_risk_analyzer.circle_search import resolve_circle
+from crime_risk_analyzer.area_search import resolve_circle, resolve_query
 from crime_risk_analyzer.config import Settings, get_settings
 from crime_risk_analyzer.errors import register_exception_handlers
 from crime_risk_analyzer.llm.client import LLMClient, get_llm_client
@@ -34,6 +34,7 @@ from crime_risk_analyzer.orchestrator import (
     AnalyzeRequest,
     AnalyzeResponse,
     BaselineRequest,
+    Center,
     run_baseline,
 )
 from crime_risk_analyzer.poi_narrative import (
@@ -41,6 +42,7 @@ from crime_risk_analyzer.poi_narrative import (
     PoiNarrativeResponse,
     run_poi_narrative,
 )
+from crime_risk_analyzer.rag.retrieval import GeoSource
 from crime_risk_analyzer.sparql_module.query_executor import (
     RiskQueryExecutor,
     get_executor,
@@ -52,6 +54,28 @@ class HealthResponse(BaseModel):
 
     status: str
     ontology_triples: int
+
+
+async def _resolve_area(
+    request: AnalyzeRequest | BaselineRequest,
+) -> tuple[str, str, GeoSource]:
+    """Instrada il body sul resolver della modalita' che porta.
+
+    Le due modalita' di ricerca coesistono e il body ne porta esattamente una
+    (invariante garantita dal validator di ``_AreaRequest``): qui si sceglie solo
+    il resolver. Entrambi ritornano ``(citta, zona, geo_source)``, quindi da qui
+    in giu' la pipeline non sa quale modalita' l'utente abbia usato.
+
+    Il ``cast`` regge sull'invariante del validator, non su un controllo locale:
+    ``is_circle`` implica ``center``/``radius_m`` valorizzati, ed e' la stessa
+    ragione per cui il ramo testuale puo' passare ``query`` senza ri-verificarla.
+    """
+    if request.is_circle:
+        center = cast(Center, request.center)
+        return await resolve_circle(
+            center.lat, center.lon, cast(float, request.radius_m)
+        )
+    return await resolve_query(cast(str, request.query))
 
 
 router = APIRouter()
@@ -114,9 +138,7 @@ async def analyze(
     un prompt. Per la stessa ragione questa rotta non dipende ne' dal client
     LLM ne' dai tetti di token di ``Settings``: sono argomenti della fase 2.
     """
-    citta, zona, geo_source = await resolve_circle(
-        request.center.lat, request.center.lon, request.radius_m
-    )
+    citta, zona, geo_source = await _resolve_area(request)
     return await run_analysis_fast(
         citta,
         zona,
@@ -185,9 +207,7 @@ async def analyze_baseline(
     server-side per classe TERMINUS, applicato dopo il filtro per raggio;
     ``None``/vuoto = nessun filtro.
     """
-    citta, zona, geo_source = await resolve_circle(
-        request.center.lat, request.center.lon, request.radius_m
-    )
+    citta, zona, geo_source = await _resolve_area(request)
     return await run_baseline(
         citta,
         zona,

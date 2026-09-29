@@ -1235,13 +1235,43 @@ async def test_run_analysis_does_not_touch_the_zone_cache(
         zone_context_cache.clear()
 
 
-# --- #318: contratto center/radius_m (sostituisce citta/zona free-text) ---
+# --- contratto dell'area: cerchio (center/radius_m) OPPURE ricerca testuale (query) ---
 
 
 def test_analyze_request_centro_e_raggio() -> None:
     req = AnalyzeRequest(center=Center(lat=41.9, lon=12.5), radius_m=500.0)
-    assert req.center.lat == 41.9
+    assert req.is_circle is True
+    assert req.center is not None and req.center.lat == 41.9
     assert req.radius_m == 500.0
+
+
+def test_analyze_request_ricerca_testuale() -> None:
+    """La modalita' testuale coesiste col cerchio: query sola, senza geometria."""
+    req = AnalyzeRequest(query="Colosseo, Roma")
+    assert req.is_circle is False
+    assert req.query == "Colosseo, Roma"
+    assert req.center is None
+    assert req.radius_m is None
+
+
+def test_analyze_request_due_modalita_insieme_respinte() -> None:
+    """Cerchio e query insieme: ambiguo su QUALE area analizzare -> respinto."""
+    with pytest.raises(ValidationError):
+        AnalyzeRequest(
+            center=Center(lat=41.9, lon=12.5), radius_m=500.0, query="Colosseo"
+        )
+
+
+def test_analyze_request_nessuna_modalita_respinta() -> None:
+    """Non esiste un'area di default: un body vuoto e' un errore."""
+    with pytest.raises(ValidationError):
+        AnalyzeRequest()
+
+
+def test_analyze_request_cerchio_incompleto_respinto() -> None:
+    """Il centro da solo non e' un cerchio: servono entrambi i campi."""
+    with pytest.raises(ValidationError):
+        AnalyzeRequest(center=Center(lat=41.9, lon=12.5))
 
 
 def test_analyze_request_raggio_sotto_il_minimo_respinto() -> None:
@@ -1262,7 +1292,11 @@ def test_baseline_request_centro_raggio_e_tipo_poi() -> None:
 
 
 def test_analyze_request_surface_is_exactly_center_and_radius_m() -> None:
-    """La fase 1 chiede DOVE (un cerchio sulla mappa), non cosa raccontare (#292/#318).
+    """La fase 1 chiede DOVE (l'area), non cosa raccontare (#292/#318).
+
+    L'area arriva in una delle DUE modalita' che coesistono — ``center``+``radius_m``
+    (cerchio disegnato) oppure ``query`` (ricerca testuale libera) — e il validator
+    di ``_AreaRequest`` impone che il body ne porti esattamente una.
 
     ``domanda`` resta fuori: senza chiamata LLM su questa rotta non c'e' prompt
     in cui iniettarla, e tenerla nel contratto significava dichiarare un input
@@ -1271,7 +1305,7 @@ def test_analyze_request_surface_is_exactly_center_and_radius_m() -> None:
     richiesta che porta davvero il testo al modello. L'insieme esatto tiene fuori
     anche il ritorno di un ``tipo_poi``/``score`` per la strada del «tanto e'
     opzionale»."""
-    assert set(AnalyzeRequest.model_fields) == {"center", "radius_m"}
+    assert set(AnalyzeRequest.model_fields) == {"center", "radius_m", "query"}
 
 
 def test_baseline_request_surface_is_center_radius_tipo_poi() -> None:
@@ -1285,7 +1319,12 @@ def test_baseline_request_surface_is_center_radius_tipo_poi() -> None:
     presa. Questo test rende il gap verificabile invece che solo descritto: se un
     domani ``domanda`` compare qui (o ``tipo_poi`` sparisce), va aggiornato insieme
     ai docstring di ``BaselineRequest``/``ZoneNarrativeRequest``."""
-    assert set(BaselineRequest.model_fields) == {"center", "radius_m", "tipo_poi"}
+    assert set(BaselineRequest.model_fields) == {
+        "center",
+        "radius_m",
+        "query",
+        "tipo_poi",
+    }
 
 
 # --- #184: guardia anti-scoring estesa al contratto di risposta /analyze ---

@@ -72,20 +72,45 @@ class Center(BaseModel):
     lon: float = Field(ge=-180, le=180)
 
 
-class _CircleRequest(BaseModel):
-    """Base condivisa per i body che portano centro+raggio (#318)."""
+class _AreaRequest(BaseModel):
+    """Base dei body che portano l'AREA da analizzare, in una delle DUE modalita'.
 
-    center: Center
-    radius_m: float = Field(
+    Il cerchio disegnato sulla mappa non sostituisce la ricerca testuale: le due
+    coesistono e l'utente usa l'una o l'altra. Il body ne porta quindi ESATTAMENTE
+    una, e l'endpoint sceglie il resolver corrispondente
+    (:mod:`crime_risk_analyzer.area_search`):
+
+    * ``center`` + ``radius_m`` — il cerchio: bbox calcolato puramente, nessuna rete;
+    * ``query`` — ricerca testuale libera: bbox da Nominatim col pavimento minimo.
+
+    Perche' "esattamente una" e non una precedenza: accettarne una in silenzio
+    quando arrivano entrambe significherebbe analizzare un'area diversa da quella
+    che l'utente crede di aver scelto, senza modo di accorgersene. Meglio un 422.
+    """
+
+    center: Center | None = Field(
+        default=None, description="Centro del cerchio disegnato (con ``radius_m``)."
+    )
+    radius_m: float | None = Field(
+        default=None,
         description=(
             "Raggio in metri del cerchio disegnato sulla mappa. Validato contro "
             "Settings.search_radius_min_m/search_radius_max_m (422 se fuori range)."
-        )
+        ),
+    )
+    query: str | None = Field(
+        default=None,
+        max_length=200,
+        description=(
+            "Ricerca testuale libera (es. 'Colosseo, Roma'), alternativa al cerchio."
+        ),
     )
 
     @field_validator("radius_m")
     @classmethod
-    def _radius_in_range(cls, v: float) -> float:
+    def _radius_in_range(cls, v: float | None) -> float | None:
+        if v is None:
+            return None
         settings = get_settings()
         if not (settings.search_radius_min_m <= v <= settings.search_radius_max_m):
             raise ValueError(
@@ -94,18 +119,38 @@ class _CircleRequest(BaseModel):
             )
         return v
 
+    @model_validator(mode="after")
+    def _exactly_one_mode(self) -> _AreaRequest:
+        """Esattamente una modalita': cerchio COMPLETO oppure query non vuota."""
+        cerchio = self.center is not None or self.radius_m is not None
+        testo = self.query is not None and self.query.strip() != ""
+        if cerchio and testo:
+            raise ValueError(
+                "specificare il cerchio (center+radius_m) OPPURE query, non entrambi"
+            )
+        if not cerchio and not testo:
+            raise ValueError("specificare il cerchio (center+radius_m) oppure query")
+        if cerchio and (self.center is None or self.radius_m is None):
+            raise ValueError("il cerchio richiede sia center sia radius_m")
+        return self
 
-class AnalyzeRequest(_CircleRequest):
-    """Body della fase 1 di ``POST /analyze``: centro+raggio del cerchio (#318).
+    @property
+    def is_circle(self) -> bool:
+        """True se il body porta il cerchio (garantito completo dal validator)."""
+        return self.center is not None
 
-    Solo ``center``/``radius_m``: la rotta non chiama il modello (#292), quindi
-    non ha un prompt in cui iniettare una ``domanda``. Quel campo vive in
-    ``ZoneNarrativeRequest`` (:mod:`~crime_risk_analyzer.analyze_narrative`), la
-    richiesta della fase 2 che porta davvero il testo dell'operatore al modello.
+
+class AnalyzeRequest(_AreaRequest):
+    """Body della fase 1 di ``POST /analyze``: l'area, in una delle due modalita'.
+
+    Nessuna ``domanda``: la rotta non chiama il modello (#292), quindi non ha un
+    prompt in cui iniettarla. Quel campo vive in ``ZoneNarrativeRequest``
+    (:mod:`~crime_risk_analyzer.analyze_narrative`), la richiesta della fase 2 che
+    porta davvero il testo dell'operatore al modello.
     """
 
 
-class BaselineRequest(_CircleRequest):
+class BaselineRequest(_AreaRequest):
     """Body di ``POST /analyze/baseline`` (ablation, senza LLM).
 
     Porta ``tipo_poi`` ma non ``domanda``: l'asimmetria con ``ZoneNarrativeRequest``

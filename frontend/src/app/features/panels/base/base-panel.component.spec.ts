@@ -90,14 +90,18 @@ describe('BasePanelComponent', () => {
   });
 
   it('il bottone Cerca è disabilitato senza un cerchio disegnato', () => {
-    fixture.componentRef.setInput('circle', null);
+    fixture.componentRef.setInput('area', null);
     fixture.detectChanges();
     const btn: HTMLButtonElement = fixture.nativeElement.querySelector('button[type="submit"]');
     expect(btn.disabled).toBe(true);
   });
 
   it('il bottone Cerca è abilitato quando un cerchio è stato disegnato', () => {
-    fixture.componentRef.setInput('circle', { lat: 41.9, lon: 12.5, radiusM: 500 });
+    fixture.componentRef.setInput('area', {
+      kind: 'circle',
+      center: { lat: 41.9, lon: 12.5 },
+      radiusM: 500,
+    });
     fixture.detectChanges();
     const btn: HTMLButtonElement = fixture.nativeElement.querySelector('button[type="submit"]');
     expect(btn.disabled).toBe(false);
@@ -106,32 +110,38 @@ describe('BasePanelComponent', () => {
   it('submit con cerchio disegnato emette analyzeBaseline con BaselineParams (tipo_poi assente se vuoto)', () => {
     const spy = jest.fn();
     fixture.componentInstance.analyzeBaseline.subscribe(spy);
-    fixture.componentRef.setInput('circle', { lat: 41.9, lon: 12.5, radiusM: 500 });
+    fixture.componentRef.setInput('area', {
+      kind: 'circle',
+      center: { lat: 41.9, lon: 12.5 },
+      radiusM: 500,
+    });
     fixture.detectChanges();
     submitForm();
     expect(spy).toHaveBeenCalledWith({
-      center: { lat: 41.9, lon: 12.5 },
-      radiusM: 500,
+      area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
     });
   });
 
   it('include tipo_poi (trimmato) quando valorizzato', () => {
     const spy = jest.fn();
     fixture.componentInstance.analyzeBaseline.subscribe(spy);
-    fixture.componentRef.setInput('circle', { lat: 41.9, lon: 12.5, radiusM: 500 });
+    fixture.componentRef.setInput('area', {
+      kind: 'circle',
+      center: { lat: 41.9, lon: 12.5 },
+      radiusM: 500,
+    });
     fixture.detectChanges();
     setTipoPoi('  Railway_station  ');
     fixture.detectChanges();
     submitForm();
     expect(spy).toHaveBeenCalledWith({
-      center: { lat: 41.9, lon: 12.5 },
-      radiusM: 500,
+      area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
       tipo_poi: 'Railway_station',
     });
   });
 
   it('il bottone disabilitato è collegato via aria-describedby al testo che spiega perché (fix reperto review accessibilità)', () => {
-    fixture.componentRef.setInput('circle', null);
+    fixture.componentRef.setInput('area', null);
     fixture.detectChanges();
     const btn: HTMLButtonElement = fixture.nativeElement.querySelector('button[type="submit"]');
     const describedById = btn.getAttribute('aria-describedby');
@@ -144,7 +154,7 @@ describe('BasePanelComponent', () => {
   it('senza cerchio il submit non emette analyzeBaseline (guardia difensiva anche a bottone disabilitato)', () => {
     const spy = jest.fn();
     fixture.componentInstance.analyzeBaseline.subscribe(spy);
-    fixture.componentRef.setInput('circle', null);
+    fixture.componentRef.setInput('area', null);
     fixture.detectChanges();
     submitForm();
     expect(spy).not.toHaveBeenCalled();
@@ -189,7 +199,7 @@ describe('BasePanelComponent', () => {
 
   describe('#318 (reperto review C1): punto morto senza cerchio disegnato', () => {
     it('senza cerchio mostra l\'invito a tornare a Completo (non la frase "disegna sulla mappa", impossibile da qui) e un bottone dedicato', () => {
-      fixture.componentRef.setInput('circle', null);
+      fixture.componentRef.setInput('area', null);
       fixture.detectChanges();
 
       const text = fixture.nativeElement.textContent;
@@ -198,7 +208,7 @@ describe('BasePanelComponent', () => {
     });
 
     it('il bottone "Torna a Completo" emette backToCompleto', () => {
-      fixture.componentRef.setInput('circle', null);
+      fixture.componentRef.setInput('area', null);
       fixture.detectChanges();
 
       const spy = jest.fn();
@@ -212,7 +222,11 @@ describe('BasePanelComponent', () => {
     });
 
     it('con un cerchio disegnato torna al messaggio originale, niente bottone "Torna a Completo"', () => {
-      fixture.componentRef.setInput('circle', { lat: 41.9, lon: 12.5, radiusM: 500 });
+      fixture.componentRef.setInput('area', {
+        kind: 'circle',
+        center: { lat: 41.9, lon: 12.5 },
+        radiusM: 500,
+      });
       fixture.detectChanges();
 
       const text = fixture.nativeElement.textContent;
@@ -234,11 +248,17 @@ describe('BasePanelComponent', () => {
       const spy = jest.fn();
       fixture.componentInstance.analyzeBaseline.subscribe(spy);
 
-      fixture.componentRef.setInput('circle', { lat: 41.9, lon: 12.5, radiusM: 500 });
+      fixture.componentRef.setInput('area', {
+        kind: 'circle',
+        center: { lat: 41.9, lon: 12.5 },
+        radiusM: 500,
+      });
       fixture.detectChanges();
       submitForm();
 
-      expect(spy).toHaveBeenCalledWith({ center: { lat: 41.9, lon: 12.5 }, radiusM: 500 });
+      expect(spy).toHaveBeenCalledWith({
+        area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
+      });
     });
   });
 });

@@ -42,6 +42,7 @@ __all__ = [
     "GeoResult",
     "GeocodingError",
     "ZoneNotFoundError",
+    "geocode_query",
     "geocode_zone",
     "geocode_freeform",
     "reverse_geocode_label",
@@ -253,23 +254,34 @@ def _enforce_min_bbox(bbox: Bbox, half_span: float) -> Bbox:
     )
 
 
-def geocode_zone(zona: str, citta: str) -> GeoResult:
-    """Geocodifica ``zona`` dentro ``citta`` -> ``{lat, lon, bbox}``.
+#: Prefisso della chiave di cache della ricerca TESTUALE libera (secondo elemento
+#: vuoto), che la tiene separata dalle chiavi ``(zona, citta)`` di :func:`geocode_zone`,
+#: dove entrambi gli elementi sono valorizzati. Le due modalita' possono arrivare alla
+#: stessa query Nominatim partendo da input diversi: chiavi collidenti renderebbero il
+#: risultato dell'una osservabile dall'altra.
+_FREEFORM_KEY_PREFIX = "freeform:"
 
-    Solleva :class:`ZoneNotFoundError` se la zona non e' trovata o e' priva di
-    bounding box utilizzabile, e :class:`GeocodingError` se il servizio Nominatim
-    non e' raggiungibile.
 
-    Con ``Settings.cache_enabled`` i soli SUCCESSI sono memorizzati per chiave
-    normalizzata (#115): una zona gia' risolta non ri-interroga Nominatim. Gli
-    errori sollevano prima di raggiungere lo store, quindi non vengono cacheati.
+def _geocode_area(
+    query: str, key: tuple[str, str], *, non_trovato: str, senza_bbox: str
+) -> GeoResult:
+    """Risolve una query Nominatim in un'AREA (``{lat, lon, bbox}``), con cache.
+
+    Corpo condiviso dalle due modalita' di ricerca che coesistono nel prodotto:
+    :func:`geocode_zone` (due campi, "zona, citta") e :func:`geocode_query` (query
+    libera). Tutto cio' che segue il geocode — parsing del bounding box, pavimento
+    minimo (#204), cache FIFO con copia difensiva — e' identico e vive qui una volta
+    sola: due copie divergerebbero al primo che ne tocca una, e il pavimento minimo
+    applicato solo a un ramo darebbe a quel ramo un'area di ricerca inutilizzabile.
+
+    Cambiano solo la query inviata, la chiave di cache e i messaggi d'errore, che i
+    chiamanti passano perche' nominano cose diverse (una zona in una citta' vs un
+    luogo).
     """
     settings = get_settings()
-    key = _cache_key(zona, citta)
     if settings.cache_enabled and key in _CACHE:
         return _copy_result(_CACHE[key])
 
-    query = f"{zona}, {citta}"
     try:
         location = _get_rate_limited_call()("geocode", query)
     except GeocoderServiceError as exc:
@@ -278,18 +290,15 @@ def geocode_zone(zona: str, citta: str) -> GeoResult:
         ) from exc
 
     if location is None:
-        raise ZoneNotFoundError(f"Zona non trovata: {zona!r} in {citta!r}")
+        raise ZoneNotFoundError(non_trovato)
 
-    raw = location.raw
     try:
-        bbox = _parse_bbox(raw.get("boundingbox"))
+        bbox = _parse_bbox(location.raw.get("boundingbox"))
     except (ValueError, TypeError) as exc:
-        raise ZoneNotFoundError(
-            f"Zona priva di bounding box: {zona!r} in {citta!r}"
-        ) from exc
+        raise ZoneNotFoundError(senza_bbox) from exc
 
     # Pavimento minimo (#204): garantisce un'area di ricerca Overpass utilizzabile
-    # anche quando la zona risolve a un landmark puntuale (bbox Nominatim ~150 m).
+    # anche quando il luogo risolve a un landmark puntuale (bbox Nominatim ~150 m).
     # Applicato PRIMA di costruire il GeoResult (e quindi di popolare la cache);
     # lat/lon restano quelli di Nominatim.
     bbox = _enforce_min_bbox(bbox, settings.geocoding_min_bbox_half_span_deg)
@@ -305,6 +314,44 @@ def geocode_zone(zona: str, citta: str) -> GeoResult:
     # Copia difensiva anche sul miss (#170): la entry appena memorizzata e' la
     # stessa istanza, quindi ritornare ``result`` per riferimento la esporrebbe.
     return _copy_result(result)
+
+
+def geocode_zone(zona: str, citta: str) -> GeoResult:
+    """Geocodifica ``zona`` dentro ``citta`` -> ``{lat, lon, bbox}``.
+
+    Modalita' a DUE campi: compone la query come "zona, citta". Usata dall'harness di
+    valutazione (``eval/``), che lavora su coppie (citta, zona) fisse per
+    riproducibilita'.
+
+    Solleva :class:`ZoneNotFoundError` se la zona non e' trovata o e' priva di bounding
+    box utilizzabile, e :class:`GeocodingError` se Nominatim non e' raggiungibile.
+    """
+    return _geocode_area(
+        f"{zona}, {citta}",
+        _cache_key(zona, citta),
+        non_trovato=f"Zona non trovata: {zona!r} in {citta!r}",
+        senza_bbox=f"Zona priva di bounding box: {zona!r} in {citta!r}",
+    )
+
+
+def geocode_query(query: str) -> GeoResult:
+    """Geocodifica una query LIBERA in un'area -> ``{lat, lon, bbox}``.
+
+    Modalita' TESTUALE del prodotto, alternativa al cerchio disegnato sulla mappa: le
+    due coesistono e l'utente usa l'una o l'altra. A differenza di :func:`geocode_zone`
+    non compone nulla — la query arriva a Nominatim verbatim, perche' l'interfaccia ha
+    una sola casella e non due campi separati.
+
+    A differenza di :func:`geocode_freeform` (che sposta solo la mappa e ritorna un
+    punto) qui serve un'AREA, quindi si passa dal bounding box e dal suo pavimento
+    minimo: e' questo che rende il risultato utilizzabile come area di analisi.
+    """
+    return _geocode_area(
+        query,
+        (f"{_FREEFORM_KEY_PREFIX}{query.strip().lower()}", ""),
+        non_trovato=f"Luogo non trovato: {query!r}",
+        senza_bbox=f"Luogo privo di bounding box: {query!r}",
+    )
 
 
 def reverse_geocode_label(lat: float, lon: float) -> tuple[str, str]:

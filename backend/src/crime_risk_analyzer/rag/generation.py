@@ -934,7 +934,7 @@ def build_context_str(
 
     ``zona`` non e' piu' un campo digitato dall'utente: da #318 e' l'etichetta
     best-effort del reverse geocode Nominatim sul centro del cerchio disegnato
-    (``circle_search.resolve_circle``). Resta pero' un dato ESTERNO
+    (``area_search.resolve_circle``). Resta pero' un dato ESTERNO
     all'ontologia — stessa superficie e stessa difesa dei nomi OSM (#119,
     estesa qui da #244) — perche' l'etichetta di Nominatim non e' verificata
     contro il grafo TERMINUS ne' controllata quanto il vocabolario dei nomi
