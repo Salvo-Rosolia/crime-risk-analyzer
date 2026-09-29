@@ -1097,6 +1097,10 @@ def test_per_poi_format_keeps_rendering_an_anonymous_poi_as_before() -> None:
     Nel corpus i punti anonimi ci sono (3-6 per zona): applicare il segnaposto
     anche al formato per-POI ne cambierebbe i byte, e quello e' esattamente cio'
     che deve restare fermo perche' le metriche raccolte restino confrontabili.
+
+    La riga resta identica anche dopo #332: l'etichetta italiana della classe e'
+    andata su una riga a parte del blocco ontologico, non qui, proprio perche'
+    questa riga e' condivisa col braccio ablato.
     """
     ctx = _due_poi_stessa_classe()
     out = build_context_str(ctx, context_format="per_poi")
@@ -1146,3 +1150,93 @@ def test_grouped_format_unions_the_vulnerabilities_too() -> None:
     out = build_context_str(ctx, context_format="per_classe")
     assert "Lack_of_controls" in out
     assert out.count("Poor_police_control") == 1
+
+
+# --- Ogni asse ontologico che entra nel prompt porta la sua etichetta italiana ---
+#
+# Il blocco [CONTESTO] interpreta il carattere della zona a partire dal MIX DI POI,
+# cioe' ragiona su classi e vulnerabilita'. Finche' quelle arrivavano col solo
+# identificatore TERMINUS, il modello non aveva un termine italiano da usare e citava
+# l'identificatore fra virgolette dentro un testo italiano. Gli hazard non avevano il
+# problema: erano gia' bilingui. Qui si estende lo stesso pattern agli altri assi.
+
+
+def _real_context() -> dict[str, Any]:
+    """Context con identifier TERMINUS REALI, cosi' le etichette non sono di ripiego."""
+    return _context_dict(
+        zona="Municipio Roma I",
+        validated_risks=[
+            {
+                "poi": "Colosseo-Fori Imperiali",
+                "poi_id": "node/1",
+                "terminus_class": "Bus_stops",
+                "risks": [
+                    {
+                        "hazard": "Crime_explosion",
+                        "tag": "ONTOLOGIA",
+                        "confidence": "verificato",
+                        "source": "Bus_stops -> havingHazard -> Crime_explosion",
+                    }
+                ],
+                "vulnerabilities": [
+                    {
+                        "name": "Public_crowding",
+                        "source": "Bus_stops -> isVulnerableTo -> Public_crowding",
+                    }
+                ],
+                "critical_events": [],
+                "stakeholders": [],
+                "sparql_path": "Bus_stops -> havingHazard -> Crime_explosion",
+            }
+        ],
+    )
+
+
+def test_build_context_str_classe_poi_porta_letichetta_italiana() -> None:
+    """Formato per-POI: la classe esce bilingue, non col solo identifier.
+
+    Il formato per-classe lo faceva gia'; questo e' il default, e in un'interfaccia
+    italiana era l'asse da cui l'inglese affiorava nella narrativa.
+    """
+    out = build_context_str(_real_context())
+
+    assert "Fermate degli autobus" in out
+    assert "Bus_stops" in out  # l'identifier resta: e' la chiave verso l'ontologia
+
+
+def test_build_context_str_vulnerabilita_portano_letichetta_italiana() -> None:
+    """Le vulnerabilita' escono bilingui come gli hazard."""
+    out = build_context_str(_real_context())
+
+    assert "Affollamento di pubblico" in out
+    assert "Public_crowding" in out
+
+
+def test_build_context_str_vulnerabilita_bilingui_anche_per_classe() -> None:
+    """Stesso trattamento nel formato per-classe: i due prompt non divergono qui."""
+    out = build_context_str(_real_context(), context_format="per_classe")
+
+    assert "Affollamento di pubblico" in out
+
+
+def test_vocabolario_controllato_copre_classi_e_vulnerabilita() -> None:
+    """Il vocabolario in testa al prompt non elenca piu' i soli hazard.
+
+    Senza, la regola che impone i termini italiani non ha nulla da imporre sugli
+    assi diversi dagli hazard — che sono proprio quelli su cui il blocco [CONTESTO]
+    ragiona.
+    """
+    out = build_context_str(_real_context())
+    intestazione, _, resto = out.partition("POI RILEVANTI")
+    del resto
+
+    assert "Impennata della criminalità" in intestazione
+    assert "Fermate degli autobus" in intestazione
+    assert "Affollamento di pubblico" in intestazione
+
+
+def test_regola_vocabolario_nomina_tutti_gli_assi_esposti() -> None:
+    """La regola 6 del system prompt non parla piu' dei soli hazard."""
+    assert "hazard" in SYSTEM_PROMPT
+    assert "classi" in SYSTEM_PROMPT
+    assert "vulnerabilit" in SYSTEM_PROMPT
