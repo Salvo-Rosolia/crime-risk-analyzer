@@ -97,10 +97,10 @@ from crime_risk_analyzer.rag.generation import (
     GenerationResult,
     Repro,
     _LLMClientLike,  # pyright: ignore[reportPrivateUsage]
-    _poi_display_name,  # pyright: ignore[reportPrivateUsage]
     _risk_models_from_context,  # pyright: ignore[reportPrivateUsage]
     block_structure_rule,
     normalize_untrusted_line,
+    poi_line,
 )
 
 __all__ = [
@@ -189,8 +189,8 @@ REGOLE OBBLIGATORIE:
 def build_no_ontology_context_str(context_dict: dict[str, Any]) -> str:
     """Assembla lo ``user_content`` del braccio ablato: zona + soli punti.
 
-    La riga di ogni punto e' IDENTICA a quella del braccio completo
-    (``  POI: <nome> (<classe>)``, vedi ``generation._poi_block_lines``): cambia
+    La riga di ogni punto e' IDENTICA a quella del braccio completo: non e' riscritta
+    qui, arriva da ``generation.poi_line``, che entrambi chiamano. Cambia
     cio' che le sta sotto — hazard, vulnerabilita' e path ontologico — che qui non
     c'e'. Se anche il rendering dei punti divergesse, il confronto porterebbe
     dentro una seconda differenza oltre a quella che vuole isolare.
@@ -214,9 +214,10 @@ def build_no_ontology_context_str(context_dict: dict[str, Any]) -> str:
     zona = normalize_untrusted_line(str(context_dict.get("zona", "")))
     validated: list[dict[str, Any]] = list(context_dict.get("validated_risks", []))
     lines: list[str] = [f"ZONA: {zona}", "", "POI RILEVANTI:"]
-    for poi in validated:
-        terminus = str(poi.get("terminus_class", ""))
-        lines.append(f"  POI: {_poi_display_name(poi)} ({terminus})")
+    # Riga condivisa col braccio completo (``generation.poi_line``), non riscritta qui:
+    # e' l'unico modo perche' "le righe POI sono identiche" resti vero per costruzione
+    # invece che per disciplina di chi tocca i due moduli.
+    lines.extend(poi_line(poi) for poi in validated)
     return "\n".join(lines).rstrip() + "\n"
 
 

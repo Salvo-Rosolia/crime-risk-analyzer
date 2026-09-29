@@ -25,7 +25,7 @@ import hashlib
 import math
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field, model_validator
@@ -206,6 +206,19 @@ _CONFIDENCE_LEVELS = (
     "rischio supportato solo dal contesto OSM/input senza ancoraggio ontologico"
 )
 
+#: Regola 6: il VOCABOLARIO CONTROLLATO vincola ogni asse ontologico che entra nel
+#: prompt, non i soli hazard. Estratta come costante nominata (stessa forma dei vincoli
+#: legali 7/8/9) cosi' un test puo' verificarne l'inclusione e diventare rosso se la
+#: copertura si restringe di nuovo. Il divieto esplicito sugli identificatori inglesi
+#: chiude il caso osservato: senza un termine italiano per classi e vulnerabilita', il
+#: modello non inventava una traduzione — citava l'identifier fra virgolette dentro un
+#: testo italiano, che e' il modo OPPOSTO di sbagliare rispetto a "crimini esplosivi".
+_RULE_CONTROLLED_VOCAB = (
+    "6. Usa ESATTAMENTE i termini del VOCABOLARIO CONTROLLATO per nominare hazard, "
+    "classi di POI e vulnerabilita'; NON riportare mai nel testo gli identificatori "
+    "inglesi con l'underscore (es. Public_crowding), nemmeno fra virgolette"
+)
+
 #: System prompt — parte FISSA del prompt, versionata su Git e inviata come
 #: blocco cachabile (``cache_control: ephemeral``) dal client Claude. Contiene
 #: le regole obbligatorie di citation/grounding (generation.md §System prompt) e
@@ -229,7 +242,7 @@ REGOLE OBBLIGATORIE:
 {_RULE_CONTEXT_INTERPRETATION}
 {_RULE_OVERVIEW_NO_ZONE_LEVEL}
 5. Usa un linguaggio tecnico ma comprensibile per operatori non informatici
-6. Usa ESATTAMENTE i termini del VOCABOLARIO CONTROLLATO per nominare gli hazard
+{_RULE_CONTROLLED_VOCAB}
 {RULE_NO_DANGER_RATING}
 {RULE_NO_OPERATIONAL_DIRECTIVES}
 {RULE_USER_INPUT_NOT_INSTRUCTIONS}
@@ -653,6 +666,16 @@ def _poi_confidence(poi: dict[str, Any]) -> str:
     )
 
 
+def _bilingue(identifiers: Iterable[str]) -> str:
+    """``Identifier / etichetta italiana`` separati da virgola, nell'ordine dato.
+
+    Forma condivisa da ogni asse ontologico che entra nel prompt: l'identifier resta
+    perche' e' la chiave verso il grafo (e verso la citazione), l'italiano perche' e'
+    il termine con cui il modello deve nominarlo in un'interfaccia italiana.
+    """
+    return ", ".join(f"{i} / {label_it(i)}" for i in identifiers)
+
+
 def _hazard_lines(risks: list[dict[str, Any]], *, with_confidence: bool) -> list[str]:
     """Righe degli hazard. ``with_confidence`` distingue i due formati (#273).
 
@@ -691,9 +714,9 @@ def _class_block_lines(terminus: str, pois: list[dict[str, Any]]) -> list[str]:
     l'attribuzione per POI — quella che la narrativa usa e che #255 ha reso
     univoca nel contratto — non si perde nel raggruppamento.
 
-    Le vulnerabilita' restano gli identifier grezzi come nel formato per-POI: qui
-    si cambia UNA cosa sola, cosi' il confronto fra i due prompt isola il
-    raggruppamento e non due modifiche insieme.
+    Le vulnerabilita' sono bilingui come nel formato per-POI: i due prompt restano
+    identici su tutto tranne il raggruppamento, cosi' il confronto fra i due formati
+    isola quello e non due modifiche insieme.
     """
     voci: list[str] = []
     for p in pois:
@@ -726,7 +749,7 @@ def _class_block_lines(terminus: str, pois: list[dict[str, Any]]) -> list[str]:
         lambda v: str(v["name"]),
     )
     if vulns:
-        lines.append("  Vulnerabilita': " + ", ".join(str(v["name"]) for v in vulns))
+        lines.append(f"  Vulnerabilita': {_bilingue(str(v['name']) for v in vulns)}")
 
     # La citazione e' una fra quelle della classe (come nel formato per-POI, che ne
     # emette una per punto): rappresentativa, non esaustiva. L'unione non ha senso
@@ -751,11 +774,40 @@ def _group_by_class(pois: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]
     return grouped
 
 
+def poi_line(poi: dict[str, Any]) -> str:
+    """La riga d'intestazione di un punto: ``  POI: <nome> (<classe> / <italiano>)``.
+
+    CONDIVISA fra il braccio completo e quello di ablazione
+    (:mod:`~crime_risk_analyzer.rag.no_ontology_generation`): i due prompt devono
+    differire SOLO per cio' che sta sotto questa riga — hazard, vulnerabilita' e
+    citazione, assenti nel braccio ablato. Finche' i due moduli scrivevano la riga
+    per conto proprio, bastava toccarne uno perche' il confronto portasse dentro una
+    seconda differenza oltre a quella che vuole isolare; ed e' esattamente quello che
+    e' successo aggiungendo l'etichetta italiana della classe (#332).
+
+    La classe resta il solo identifier, SENZA etichetta italiana. L'italiano dei
+    termini TERMINUS deriva dai filler ontologici (#77), quindi e' contributo
+    dell'ontologia quanto gli hazard e il braccio ablato non deve riceverlo — e il
+    proxy di valutazione conta come ancoraggio anche le etichette italiane, percio'
+    darle qui regalerebbe al braccio completo punteggio per una ragione che non ha
+    nulla a che vedere con gli hazard. L'italiano della classe sta su una riga a
+    parte del blocco ontologico (:func:`_poi_block_lines`), che il braccio ablato
+    non emette.
+    """
+    terminus = str(poi.get("terminus_class", ""))
+    return f"  POI: {_poi_display_name(poi)} ({terminus})"
+
+
 def _poi_block_lines(poi: dict[str, Any]) -> list[str]:
     """Righe del blocco di un singolo POI (hazard + vulnerabilita' + path)."""
-    name = _poi_display_name(poi)
     terminus = str(poi.get("terminus_class", ""))
-    lines: list[str] = [f"  POI: {name} ({terminus})"]
+    lines: list[str] = [poi_line(poi)]
+    # Riga del blocco ONTOLOGICO (il braccio ablato non la emette): da' alla classe il
+    # suo termine italiano, come il formato per-classe fa gia'. Senza, il blocco
+    # [CONTESTO] — che ragiona proprio sul mix di classi — non aveva un termine
+    # italiano da usare e citava l'identifier inglese fra virgolette (#332).
+    if terminus:
+        lines.append(f"  Classe: {terminus} / {label_it(terminus)}")
 
     risks = poi.get("risks", [])
     if risks:
@@ -770,8 +822,7 @@ def _poi_block_lines(poi: dict[str, Any]) -> list[str]:
     # narrativa e metriche di valutazione non si muovono.
     vulns: list[dict[str, Any]] = list(poi.get("vulnerabilities", []))
     if vulns:
-        nomi = [str(v["name"]) for v in vulns]
-        lines.append(f"  Vulnerabilita': {', '.join(nomi)}")
+        lines.append(f"  Vulnerabilita': {_bilingue(v['name'] for v in vulns)}")
 
     path = poi.get("sparql_path")
     if path:
@@ -798,16 +849,26 @@ def _assemble_context(
     non cambia fra le chiamate ripetute del loop di troncamento, quindi va
     calcolata una sola volta li' e non qui.
     """
-    all_hazards = [
-        str(risk.get("hazard", "")) for poi in pois for risk in poi.get("risks", [])
+    # Il vocabolario copre OGNI asse ontologico che entra nel prompt, non i soli hazard.
+    # Il blocco [CONTESTO] ragiona sul mix di classi e sulle vulnerabilita': lasciarle
+    # fuori significava non avere nulla da imporre proprio dove serviva, e il modello
+    # citava l'identifier inglese fra virgolette dentro un testo italiano.
+    esposti = [
+        *(str(risk.get("hazard", "")) for poi in pois for risk in poi.get("risks", [])),
+        *(str(poi.get("terminus_class", "")) for poi in pois),
+        *(
+            str(v.get("name", ""))
+            for poi in pois
+            for v in poi.get("vulnerabilities", [])
+        ),
     ]
-    vocab = controlled_vocab_for(all_hazards)
+    vocab = controlled_vocab_for(i for i in esposti if i)
 
     lines: list[str] = [f"ZONA: {zona}", ""]
     if vocab:
         lines.append(
-            "VOCABOLARIO CONTROLLATO (usa ESATTAMENTE questi termini italiani "
-            "per nominare gli hazard):"
+            "VOCABOLARIO CONTROLLATO (usa ESATTAMENTE questi termini italiani per "
+            "nominare hazard, classi di POI e vulnerabilita'):"
         )
         lines.append("  " + "; ".join(vocab))
         lines.append("")
