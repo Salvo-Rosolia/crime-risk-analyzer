@@ -1,7 +1,6 @@
 import {
   buildBaseRows,
   buildDetailModel,
-  buildNarrativeSections,
   buildSourceTabs,
   cityColorFor,
   matchesFilter,
@@ -16,72 +15,6 @@ describe('ui-helpers', () => {
   it('cityColorFor: città note e fallback', () => {
     expect(cityColorFor('Roma')).toBe('#0e7b80');
     expect(cityColorFor('Atlantide')).toBe('#928d82');
-  });
-
-  it('buildNarrativeSections: raggruppa per tag in ordine ONTOLOGIA→CONTESTO→SPECULATIVO', () => {
-    const rm: RiskModel[] = [
-      {
-        poi_id: '1',
-        poi: 'A',
-        risks: [
-          {
-            hazard: 'h-spec',
-            confidence: 'da_confermare',
-            tag: 'SPECULATIVO',
-            hazard_label_it: 'H spec',
-            hazard_label_en: 'H spec',
-          },
-          {
-            hazard: 'h-onto',
-            confidence: 'verificato',
-            tag: 'ONTOLOGIA',
-            hazard_label_it: 'H onto',
-            hazard_label_en: 'H onto',
-          },
-          {
-            hazard: 'h-ctx',
-            confidence: 'da_confermare',
-            tag: 'CONTESTO',
-            hazard_label_it: 'H ctx',
-            hazard_label_en: 'H ctx',
-          },
-        ],
-      },
-    ];
-    expect(buildNarrativeSections(rm)).toEqual([
-      { tag: 'ONTOLOGIA', hazards: ['H onto'] },
-      { tag: 'CONTESTO', hazards: ['H ctx'] },
-      { tag: 'SPECULATIVO', hazards: ['H spec'] },
-    ]);
-  });
-
-  it("buildNarrativeSections: preferisce hazard_label_it, fallback a hazard (identificatore grezzo) se l'etichetta manca", () => {
-    const rm: RiskModel[] = [
-      {
-        poi_id: '1',
-        poi: 'A',
-        risks: [
-          {
-            hazard: 'Bank',
-            confidence: 'verificato',
-            tag: 'ONTOLOGIA',
-            hazard_label_it: 'Banca',
-            hazard_label_en: 'Bank',
-          },
-          {
-            hazard: 'RawClass',
-            confidence: 'da_confermare',
-            tag: 'CONTESTO',
-            hazard_label_it: '',
-            hazard_label_en: '',
-          },
-        ],
-      },
-    ];
-    expect(buildNarrativeSections(rm)).toEqual([
-      { tag: 'ONTOLOGIA', hazards: ['Banca'] },
-      { tag: 'CONTESTO', hazards: ['RawClass'] },
-    ]);
   });
 
   it('buildDetailModel: split sparql_path e groups per tag del POI corrispondente', () => {
@@ -572,91 +505,41 @@ describe('buildSourceTabs', () => {
   };
 
   it('estrae overview e tab in ordine ONTOLOGIA→CONTESTO→SPECULATIVO', () => {
-    const rm: RiskModel[] = [
-      {
-        poi_id: '1',
-        poi: 'P',
-        risks: [
-          {
-            hazard: 'H1',
-            confidence: 'verificato',
-            tag: 'ONTOLOGIA',
-            hazard_label_it: 'Furto',
-            hazard_label_en: '',
-          },
-          {
-            hazard: 'H2',
-            confidence: 'da_confermare',
-            tag: 'CONTESTO',
-            hazard_label_it: 'Borseggio',
-            hazard_label_en: '',
-          },
-        ],
-      },
-    ];
-    const out = buildSourceTabs(FONTI, rm);
+    const out = buildSourceTabs(FONTI);
     expect(out.overview).toBe('Sintesi zona.');
     expect(out.tabs.map((t) => t.tag)).toEqual(['ONTOLOGIA', 'CONTESTO']);
-    expect(out.tabs[0]).toEqual({ tag: 'ONTOLOGIA', prose: 'Prosa onto.', hazards: ['Furto'] });
-    expect(out.tabs[1]).toEqual({ tag: 'CONTESTO', prose: 'Prosa ctx.', hazards: ['Borseggio'] });
+    expect(out.tabs[0]).toEqual({ tag: 'ONTOLOGIA', prose: 'Prosa onto.' });
+    expect(out.tabs[1]).toEqual({ tag: 'CONTESTO', prose: 'Prosa ctx.' });
   });
 
-  // SPECULATIVO qui copre la gestione generica del tag da parte della funzione pura (compreso il
-  // caso limite "prosa vuota, solo hazard"), non un payload che il backend produce oggi: dal
-  // blocco [SPECULATIVO] rimosso dal prompt (#229) `narrativa_fonti.speculativo` è sempre vuoto e
-  // gli hazard SPECULATIVO/non taggati restano solo copertura difensiva (vedi `detail-filter.spec.ts`).
-  it('include un tab con sola prosa e uno con soli hazard', () => {
-    const rm: RiskModel[] = [
-      {
-        poi_id: '1',
-        poi: 'P',
-        risks: [
-          {
-            hazard: 'H',
-            confidence: 'da_confermare',
-            tag: 'SPECULATIVO',
-            hazard_label_it: 'Accattonaggio',
-            hazard_label_en: '',
-          },
-        ],
-      },
-    ];
+  /*
+   * #329: un tab esiste SOLO se ha prosa. Prima ne nasceva uno anche dai soli hazard, perché il
+   * pannello mostrava sotto la prosa l'elenco di tutti i rischi di tutti i POI — circa 160 voci
+   * su una zona da 20 punti, con gli stessi blocchi ripetuti perché i rischi dipendono solo dalla
+   * classe TERMINUS. Quell'elenco e' stato tolto: i rischi restano nel pannello Dettaglio, dove
+   * sono attribuiti al loro POI e portano la citazione SPARQL.
+   */
+  it('#329: un tag con soli hazard e nessuna prosa non produce piu un tab', () => {
     const fonti: SourceProse = {
       overview: '',
       ontologia: 'Solo prosa onto.',
       contesto: '',
       speculativo: '',
     };
-    const out = buildSourceTabs(fonti, rm);
-    expect(out.tabs.map((t) => t.tag)).toEqual(['ONTOLOGIA', 'SPECULATIVO']);
-    expect(out.tabs[0]).toEqual({ tag: 'ONTOLOGIA', prose: 'Solo prosa onto.', hazards: [] });
-    expect(out.tabs[1]).toEqual({ tag: 'SPECULATIVO', prose: '', hazards: ['Accattonaggio'] });
+    const out = buildSourceTabs(fonti);
+    expect(out.tabs.map((t) => t.tag)).toEqual(['ONTOLOGIA']);
+    expect(out.tabs[0]).toEqual({ tag: 'ONTOLOGIA', prose: 'Solo prosa onto.' });
   });
 
-  it('nessuna prosa e nessun hazard → nessun tab', () => {
-    const out = buildSourceTabs({ overview: '', ontologia: '', contesto: '', speculativo: '' }, []);
+  it('nessuna prosa -> nessun tab', () => {
+    const out = buildSourceTabs({ overview: '', ontologia: '', contesto: '', speculativo: '' });
     expect(out.tabs).toEqual([]);
     expect(out.overview).toBe('');
   });
 
-  it('fonti null → overview vuoto, tab solo dagli hazard', () => {
-    const rm: RiskModel[] = [
-      {
-        poi_id: '1',
-        poi: 'P',
-        risks: [
-          {
-            hazard: 'H',
-            confidence: 'verificato',
-            tag: 'ONTOLOGIA',
-            hazard_label_it: 'Furto',
-            hazard_label_en: '',
-          },
-        ],
-      },
-    ];
-    const out = buildSourceTabs(null, rm);
+  it('fonti null -> overview vuoto e nessun tab', () => {
+    const out = buildSourceTabs(null);
     expect(out.overview).toBe('');
-    expect(out.tabs).toEqual([{ tag: 'ONTOLOGIA', prose: '', hazards: ['Furto'] }]);
+    expect(out.tabs).toEqual([]);
   });
 });

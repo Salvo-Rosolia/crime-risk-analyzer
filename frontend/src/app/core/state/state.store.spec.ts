@@ -473,7 +473,6 @@ describe('StateStore', () => {
       store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
       expect(store.currentNarrativa()).toBe('narrativa del POI');
       expect(store.currentNarrativaFonti()?.ontologia).toBe('rischio rapina');
-      expect(store.currentRiskModels()).toEqual(poiResp.risk_models);
       store.dispatch({ type: 'DESELECT_POI' });
       expect(store.currentNarrativa()).toBe('narrativa di zona');
     });

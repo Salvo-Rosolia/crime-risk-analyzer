@@ -49,7 +49,7 @@ const UNKNOWN_TAG_META = { color: SPECULATIVE_TAG_COLOR, description: '' };
 /**
  * Variante di `SRC_TAG_META` sicura per tag generici (`string`, non ristretti a `SourceTag`):
  * usata dai componenti (`DetailPanelComponent`, `NarrativeSheetComponent`) che iterano i gruppi
- * di `orderGroupsByTag`/`buildNarrativeSections`, dove un tag fuori contratto è ammesso e deve
+ * di `orderGroupsByTag`, dove un tag fuori contratto è ammesso e deve
  * degradare allo stesso fallback difensivo di `pinColor` invece di lanciare.
  */
 export function srcTagMeta(tag: string): { color: string; description: string } {

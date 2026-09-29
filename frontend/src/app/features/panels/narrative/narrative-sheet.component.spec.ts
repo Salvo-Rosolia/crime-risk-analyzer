@@ -1,36 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NarrativeSheetComponent } from './narrative-sheet.component';
-import type { RiskModel, SourceProse } from '@core/models/models';
-
-const riskModels: RiskModel[] = [
-  {
-    poi_id: '1',
-    poi: 'Colosseo',
-    risks: [
-      {
-        hazard: 'h-spec',
-        confidence: 'da_confermare',
-        tag: 'SPECULATIVO',
-        hazard_label_it: 'Ipotesi',
-        hazard_label_en: 'Hypothesis',
-      },
-      {
-        hazard: 'h-onto',
-        confidence: 'verificato',
-        tag: 'ONTOLOGIA',
-        hazard_label_it: 'Borseggio',
-        hazard_label_en: 'Pickpocketing',
-      },
-      {
-        hazard: 'h-ctx',
-        confidence: 'da_confermare',
-        tag: 'CONTESTO',
-        hazard_label_it: 'Contesto',
-        hazard_label_en: 'Context',
-      },
-    ],
-  },
-];
+import type { SourceProse } from '@core/models/models';
 
 const narrativaFonti: SourceProse = {
   overview: 'Sintesi generale della zona.',
@@ -50,7 +20,6 @@ describe('NarrativeSheetComponent', () => {
       zona?: string;
       narrativa?: string;
       narrativaFonti?: SourceProse | null;
-      riskModels?: RiskModel[];
       open?: boolean;
       loading?: boolean;
       error?: string | null;
@@ -65,7 +34,6 @@ describe('NarrativeSheetComponent', () => {
       'narrativaFonti',
       inputs.narrativaFonti !== undefined ? inputs.narrativaFonti : narrativaFonti,
     );
-    fixture.componentRef.setInput('riskModels', inputs.riskModels ?? riskModels);
     fixture.componentRef.setInput('open', inputs.open ?? true);
     if (inputs.loading !== undefined) fixture.componentRef.setInput('loading', inputs.loading);
     if (inputs.error !== undefined) fixture.componentRef.setInput('error', inputs.error);
@@ -130,7 +98,6 @@ describe('NarrativeSheetComponent', () => {
     expect(panels.filter((p) => !p.hidden).length).toBe(1);
     expect(panels[0].hidden).toBe(false);
     expect(fixture.nativeElement.textContent).toContain('Prosa ancorata alla ontologia formale.');
-    expect(fixture.nativeElement.textContent).toContain('Borseggio');
   });
 
   it('a11y: ogni aria-controls dei tab risolve a un id di tabpanel esistente; il pannello attivo ha tabindex 0, gli altri sono hidden', () => {
@@ -154,7 +121,7 @@ describe('NarrativeSheetComponent', () => {
     }
   });
 
-  it('click sul secondo tab lo attiva e mostra la sua prosa/hazard', () => {
+  it('click sul secondo tab lo attiva e mostra la sua prosa', () => {
     setup();
     const tabs: HTMLElement[] = Array.from(fixture.nativeElement.querySelectorAll('[role="tab"]'));
     tabs[1].click();
@@ -165,7 +132,6 @@ describe('NarrativeSheetComponent', () => {
     expect(tabsAfter[1].getAttribute('aria-selected')).toBe('true');
     expect(tabsAfter[0].getAttribute('aria-selected')).toBe('false');
     expect(fixture.nativeElement.textContent).toContain('Prosa dal contesto ambientale osservato.');
-    expect(fixture.nativeElement.textContent).toContain('Contesto');
   });
 
   it('ArrowRight sul primo tab sposta il focus/attivo al secondo', () => {
@@ -231,7 +197,6 @@ describe('NarrativeSheetComponent', () => {
   it('senza risk_models e senza narrativaFonti non fallisce e non mostra tab', () => {
     expect(() =>
       setup({
-        riskModels: [],
         narrativaFonti: { overview: '', ontologia: '', contesto: '', speculativo: '' },
       }),
     ).not.toThrow();
@@ -263,21 +228,6 @@ describe('NarrativeSheetComponent', () => {
     expect(tabsAfter[1].getAttribute('aria-selected')).toBe('true');
 
     // Nuovo set di dati: solo SPECULATIVO (CONTESTO, il tag attivo, sparisce).
-    fixture.componentRef.setInput('riskModels', [
-      {
-        poi_id: '2',
-        poi: 'Duomo',
-        risks: [
-          {
-            hazard: 'h-spec-2',
-            confidence: 'da_confermare' as const,
-            tag: 'SPECULATIVO' as const,
-            hazard_label_it: 'Nuova ipotesi',
-            hazard_label_en: 'New hypothesis',
-          },
-        ],
-      },
-    ]);
     fixture.componentRef.setInput('narrativaFonti', {
       overview: '',
       ontologia: '',
@@ -295,12 +245,10 @@ describe('NarrativeSheetComponent', () => {
     expect(panels.length).toBe(1);
     expect(panels[0].hidden).toBe(false);
     expect(fixture.nativeElement.textContent).toContain('Nuova prosa speculativa.');
-    expect(fixture.nativeElement.textContent).toContain('Nuova ipotesi');
   });
 
-  it('fallback: senza overview/prosa/riskModels mostra narrativa() legacy e nessun tab', () => {
+  it('fallback: senza overview/prosa mostra narrativa() legacy e nessun tab', () => {
     setup({
-      riskModels: [],
       narrativaFonti: { overview: '', ontologia: '', contesto: '', speculativo: '' },
       narrativa: 'Narrativa legacy senza fonti strutturate.',
     });
@@ -327,7 +275,7 @@ describe('NarrativeSheetComponent', () => {
 
   describe('#292: i tre stati del dato (narrativa in arrivo / arrivata / errore-fallback)', () => {
     it('loading: mostra un indicatore leggero, non un errore, anche se la narrativa è ancora vuota', () => {
-      setup({ loading: true, narrativa: '', narrativaFonti: null, riskModels: [] });
+      setup({ loading: true, narrativa: '', narrativaFonti: null });
       const loadingEl = fixture.nativeElement.querySelector('.cra-narr-loading');
       expect(loadingEl).toBeTruthy();
       expect(loadingEl.getAttribute('role')).toBe('status');
