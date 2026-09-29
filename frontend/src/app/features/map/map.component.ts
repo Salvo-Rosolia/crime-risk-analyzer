@@ -157,12 +157,26 @@ export class MapComponent implements OnDestroy {
         zoomControl: false,
         doubleClickZoom: false,
       }).setView([41.9028, 12.4964], 12);
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        subdomains: 'abcd',
+      // Basemap: tile standard OpenStreetMap, senza chiave.
+      //
+      // Si veniva da CARTO (`basemaps.cartocdn.com/rastertiles/voyager`), che ha iniziato a
+      // richiedere una API key: la richiesta continua a rispondere HTTP 200 con `image/png`, ma il
+      // corpo è un segnaposto "API KEY REQUIRED" di ~2 KB invece di una tile vera di ~14 KB. Poiché
+      // non è un 4xx, Leaflet non emette `tileerror` e la console resta pulita: la mappa risulta
+      // vuota senza un solo segnale d'errore. Vale per tutti gli stili della loro CDN, non solo
+      // Voyager, quindi non era una questione di stile ma di accesso.
+      //
+      // Niente `{s}`: OSM ha deprecato i subdomini (un solo host su HTTP/2 è la via consigliata, e
+      // passarli fa loggare un warning da Leaflet). Niente `{r}`: le tile standard non hanno la
+      // variante retina @2x, e chiederla darebbe 404.
+      //
+      // LIMITE DICHIARATO: la tile usage policy di OSM copre usi leggeri — sviluppo, demo, tesi —
+      // non un servizio ad alto volume. Un deploy reale richiede un provider dedicato (o tile
+      // self-hosted), non questo endpoint.
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
         attribution:
-          'Dati © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors (<a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener noreferrer">ODbL</a>) · ' +
-          'Tile © <a href="https://carto.com/attributions" target="_blank" rel="noopener noreferrer">CARTO</a> · ' +
+          'Dati e tile © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors (<a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener noreferrer">ODbL</a>) · ' +
           'Geocoding: <a href="https://nominatim.org/" target="_blank" rel="noopener noreferrer">Nominatim</a>',
       }).addTo(map);
       L.control.zoom({ position: 'bottomright' }).addTo(map);

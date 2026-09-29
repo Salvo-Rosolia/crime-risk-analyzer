@@ -99,29 +99,41 @@ describe('MapComponent', () => {
     await fixture.whenStable();
   });
 
-  it('init Leaflet + tile CARTO', () => {
+  it('init Leaflet + tile OpenStreetMap standard', () => {
     expect(L.map).toHaveBeenCalled();
     expect(L.tileLayer).toHaveBeenCalledWith(
-      expect.stringContaining('basemaps.cartocdn.com'),
+      expect.stringContaining('tile.openstreetmap.org'),
       expect.anything(),
     );
   });
 
-  it('attribution copre dati POI (OSM/ODbL), geocoding (Nominatim) e tile (CARTO)', () => {
+  /*
+   * Il basemap NON passa più da CARTO: `basemaps.cartocdn.com` ha iniziato a richiedere una API
+   * key e serve un PNG segnaposto "API KEY REQUIRED" con HTTP 200 (~2 KB invece di ~14 KB), quindi
+   * né Leaflet né la console segnalavano un errore — la mappa risultava semplicemente vuota.
+   * Questo test blinda il fatto che non ci si torni per distrazione: un URL con chiave fallirebbe
+   * allo stesso modo, in silenzio.
+   */
+  it('nessuna dipendenza residua da CARTO (né URL né attribuzione)', () => {
+    const [url, options] = (L.tileLayer as jest.Mock).mock.calls[0];
+    const attribution = (options as { attribution: string }).attribution;
+    expect(url).not.toEqual(expect.stringContaining('carto'));
+    expect(attribution).not.toEqual(expect.stringContaining('CARTO'));
+  });
+
+  it('attribution copre dati POI e tile (OSM/ODbL) e geocoding (Nominatim)', () => {
     const [, options] = (L.tileLayer as jest.Mock).mock.calls[0];
     const attribution = (options as { attribution: string }).attribution;
     expect(attribution).toEqual(expect.stringContaining('OpenStreetMap'));
     expect(attribution).toEqual(expect.stringContaining('ODbL'));
-    expect(attribution).toEqual(expect.stringContaining('CARTO'));
     expect(attribution).toEqual(expect.stringContaining('Nominatim'));
   });
 
-  it('attribution: i 4 termini sono link cliccabili verso le rispettive fonti', () => {
+  it('attribution: i 3 termini sono link cliccabili verso le rispettive fonti', () => {
     const [, options] = (L.tileLayer as jest.Mock).mock.calls[0];
     const attribution = (options as { attribution: string }).attribution;
     expect(attribution).toEqual(expect.stringContaining('openstreetmap.org/copyright'));
     expect(attribution).toEqual(expect.stringContaining('opendatacommons.org'));
-    expect(attribution).toEqual(expect.stringContaining('carto.com/attributions'));
     expect(attribution).toEqual(expect.stringContaining('nominatim.org'));
   });
 
