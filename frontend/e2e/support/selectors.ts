@@ -98,6 +98,17 @@ export const S = {
    * cerchio di ricerca via `page.mouse` — non un locator su un elemento semantico del cerchio in
    * sé, che non esiste (il cerchio è uno stato interno di `MapComponent`, non markup ispezionabile). */
   mapEl: (p: Page): Locator => p.locator('cra-map'),
+  /** Barra fluttuante del raggio (`.cra-radius-control`, `map.component.ts`): montata solo in
+   * `drawing-radius`/`ready`, cioè da quando un centro è stato fissato. È ancorata in alto nel
+   * corridoio libero a destra del pannello di ricerca, quindi il suo box è l'unico modo di
+   * verificare dal layout REALE che nessun pannello la copra — un test jsdom non calcola
+   * geometria e non potrebbe accorgersene. */
+  radiusControl: (p: Page): Locator => p.locator('.cra-radius-control'),
+  /** Pannello di ricerca flottante in alto a sinistra (`.cra-panel`, `app.css`): il wrapper con
+   * chrome e padding dentro cui vive `cra-input-panel` negli stati INPUT/ERROR/BASE. Serve come
+   * riferimento geometrico per {@link radiusControl}: è il pannello più largo che possa
+   * contendergli il corridoio. */
+  searchPanel: (p: Page): Locator => p.locator('.cra-panel'),
   /** Marker Leaflet (pin numerati): `divIcon` con `className: 'cra-poi-pin'`, che Leaflet
    * concatena al proprio `leaflet-marker-icon` di base (`map.component.ts`). */
   mapMarkers: (p: Page): Locator => p.locator('.leaflet-marker-icon'),

@@ -6,6 +6,12 @@
  * larghezza deve reagire al collasso (`open`).
  */
 :host {
+  /* Stessa ragione di `.cra-panel` (app.css): `--panel-max-width` deve essere la larghezza
+     ESTERNA, bordo incluso, perché il corridoio libero a destra dei pannelli — dove si ancora
+     `.cra-radius-control` — è calcolato da quel token. Qui lo scarto era solo il bordo
+     (2 × var(--panel-border)), non abbastanza da sovrapporsi, ma tenere i due pannelli sullo
+     stesso box model evita che l'invariante regga per caso. */
+  box-sizing: border-box;
   position: absolute;
   top: var(--space-4);
   left: var(--space-4);
