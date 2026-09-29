@@ -100,8 +100,7 @@ describe('App shell', () => {
 
     store.dispatch({
       type: 'ANALYZE',
-      center: { lat: 41.9, lon: 12.5 },
-      radiusM: 300,
+      area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 300 },
       pipeline: 'completo',
     });
     f.detectChanges();
@@ -257,8 +256,7 @@ describe('App shell', () => {
     form.dispatchEvent(new Event('submit', { cancelable: true }));
     expect(store.screen()).toBe('LOADING');
     expect(startAnalysisSpy).toHaveBeenCalledWith(
-      { lat: circle.lat, lon: circle.lon },
-      circle.radiusM,
+      { kind: 'circle', center: { lat: circle.lat, lon: circle.lon }, radiusM: circle.radiusM },
       'di sera?',
     );
 
@@ -409,15 +407,14 @@ describe('App shell', () => {
         },
       ],
     });
-    await store.startAnalysis(center, 300, 'di sera?');
+    await store.startAnalysis({ kind: 'circle', center: center, radiusM: 300 }, 'di sera?');
     f.detectChanges();
     expect(store.completoData()?.poi).toHaveLength(1);
     // #318: citta/zona in lastQuery sono le etichette RISOLTE dalla risposta (emptyResp.citta/
-    // zona_normalizzata), non un testo digitato — center/radiusM/domanda sono invece quelli
+    // zona_normalizzata), non un testo digitato — l'area e la domanda sono invece quelle
     // dell'azione originale, la coppia che "Rigenera" deve rilanciare identica.
     expect(store.lastQuery()).toEqual({
-      center,
-      radiusM: 300,
+      area: { kind: 'circle', center, radiusM: 300 },
       citta: 'Roma',
       zona: 'Centro',
       domanda: 'di sera?',
@@ -457,7 +454,10 @@ describe('App shell', () => {
     // questa asserzione fallisce, perché lastQuery non ha più campi citta/zona come primi due
     // argomenti posizionali.
     (f.nativeElement.querySelector('.cra-btn-regen') as HTMLElement).click();
-    expect(startAnalysisSpy).toHaveBeenCalledWith(center, 300, 'di sera?');
+    expect(startAnalysisSpy).toHaveBeenCalledWith(
+      { kind: 'circle', center: center, radiusM: 300 },
+      'di sera?',
+    );
 
     await startAnalysisSpy.mock.results[0].value;
     f.detectChanges();
@@ -522,8 +522,7 @@ describe('App shell', () => {
     const form: HTMLFormElement = f.nativeElement.querySelector('.cra-base-form-panel form');
     form.dispatchEvent(new Event('submit', { cancelable: true }));
     expect(startBaselineSpy).toHaveBeenCalledWith({
-      center: { lat: 41.9, lon: 12.5 },
-      radiusM: 300,
+      area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 300 },
     });
 
     await startBaselineSpy.mock.results[0].value;
@@ -634,7 +633,9 @@ describe('App shell', () => {
         ],
       };
       api.analyzeBaseline.mockResolvedValue(baselineResp);
-      await store.startBaselineAnalysis({ center: { lat: 41.9, lon: 12.5 }, radiusM: 300 });
+      await store.startBaselineAnalysis({
+        area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 300 },
+      });
       f.detectChanges();
       expect(store.screen()).toBe('BASE');
 
@@ -742,8 +743,7 @@ describe('App shell', () => {
 
       store.dispatch({
         type: 'ANALYZE',
-        center: { lat: 41.9, lon: 12.5 },
-        radiusM: 300,
+        area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 300 },
         pipeline: 'completo',
       });
       f.detectChanges();
@@ -762,8 +762,7 @@ describe('App shell', () => {
 
       store.dispatch({
         type: 'ANALYZE',
-        center: { lat: 41.9, lon: 12.5 },
-        radiusM: 300,
+        area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 300 },
         pipeline: 'completo',
       });
       f.detectChanges();
@@ -789,7 +788,7 @@ describe('App shell', () => {
         citta: 'Roma',
         zona_normalizzata: 'Colosseo',
       });
-      await store.startAnalysis(romaCenter, 300, null);
+      await store.startAnalysis({ kind: 'circle', center: romaCenter, radiusM: 300 }, null);
       f.detectChanges();
       expect(store.screen()).toBe('RESULTS');
 
@@ -827,7 +826,10 @@ describe('App shell', () => {
       });
       (f.nativeElement.querySelector('.cra-btn-regen') as HTMLElement).click();
 
-      expect(startAnalysisSpy).toHaveBeenCalledWith(romaCenter, 300, null);
+      expect(startAnalysisSpy).toHaveBeenCalledWith(
+        { kind: 'circle', center: romaCenter, radiusM: 300 },
+        null,
+      );
     });
   });
 
@@ -1008,7 +1010,10 @@ describe('App shell', () => {
       f.detectChanges();
       await f.whenStable();
       api.analyze.mockResolvedValue(zoneResp);
-      await store.startAnalysis({ lat: 41.9, lon: 12.5 }, 300, null);
+      await store.startAnalysis(
+        { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 300 },
+        null,
+      );
       f.detectChanges();
       return f;
     }
@@ -1069,7 +1074,10 @@ describe('App shell', () => {
 
       (f.nativeElement.querySelector('.cra-btn-regen') as HTMLElement).click();
 
-      expect(zoneSpy).toHaveBeenCalledWith({ lat: 41.9, lon: 12.5 }, 300, null);
+      expect(zoneSpy).toHaveBeenCalledWith(
+        { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 300 },
+        null,
+      );
     });
 
     it('durante la generazione il pannello dichiara il caricamento', async () => {

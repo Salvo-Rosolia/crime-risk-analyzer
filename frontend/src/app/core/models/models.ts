@@ -173,15 +173,23 @@ export interface Circle {
 }
 
 export interface BaselineParams {
-  center: { lat: number; lon: number };
-  radiusM: number;
+  area: SearchArea;
   tipo_poi?: string;
 }
 
-/** Payload emesso dal pannello "completo" verso lo shell (#318: sostituisce citta/zona col cerchio). */
+/**
+ * L'AREA da analizzare, in una delle DUE modalita' che coesistono: il cerchio disegnato sulla
+ * mappa oppure una ricerca testuale libera. Unione discriminata e non due coppie di campi
+ * opzionali: cosi' "cerchio a meta'" o "cerchio e testo insieme" non sono rappresentabili, e il
+ * backend (che rifiuta entrambi i casi con 422) non deve fare da rete di sicurezza per il client.
+ */
+export type SearchArea =
+  | { kind: 'circle'; center: { lat: number; lon: number }; radiusM: number }
+  | { kind: 'query'; query: string };
+
+/** Payload emesso dal pannello "completo" verso lo shell: l'area scelta + la domanda opzionale. */
 export interface AnalyzeRequestPayload {
-  center: { lat: number; lon: number };
-  radiusM: number;
+  area: SearchArea;
   domanda: string | null;
 }
 
@@ -195,8 +203,7 @@ export type Mode = 'completo' | 'base';
  * che ripete l'ultima analisi senza introdurre un nuovo endpoint né una nuova azione FSM.
  */
 export interface LastQuery {
-  center: { lat: number; lon: number };
-  radiusM: number;
+  area: SearchArea;
   /** Etichetta risolta dal backend (reverse geocode, #318): usata per /analyze/poi e /analyze/narrativa. */
   citta: string;
   zona: string;
@@ -254,8 +261,7 @@ export type Action =
    */
   | {
       type: 'ANALYZE';
-      center: { lat: number; lon: number };
-      radiusM: number;
+      area: SearchArea;
       domanda?: string | null;
       pipeline: Mode;
     }
@@ -263,8 +269,7 @@ export type Action =
       type: 'LOAD_SUCCESS';
       data: AnalyzeResponse;
       pipeline: Mode;
-      center?: { lat: number; lon: number };
-      radiusM?: number;
+      area?: SearchArea;
       domanda?: string | null;
     }
   | { type: 'LOAD_ERROR'; message: string; pipeline: Mode }

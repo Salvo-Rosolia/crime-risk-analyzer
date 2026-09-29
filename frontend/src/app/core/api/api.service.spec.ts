@@ -94,7 +94,7 @@ describe('ApiService', () => {
   afterEach(() => http.verify());
 
   it('analyze manda center+radius_m', async () => {
-    const promise = api.analyze({ lat: 41.9, lon: 12.5 }, 500);
+    const promise = api.analyze({ kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 });
     const req = http.expectOne('/analyze');
     expect(req.request.body).toEqual({ center: { lat: 41.9, lon: 12.5 }, radius_m: 500 });
     req.flush(resp);
@@ -158,7 +158,9 @@ describe('ApiService', () => {
   });
 
   it('analyzeBaseline: POST /analyze/baseline con center, radius_m e tipo_poi opzionale', async () => {
-    const params: BaselineParams = { center: { lat: 41.9, lon: 12.5 }, radiusM: 500 };
+    const params: BaselineParams = {
+      area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
+    };
     const p = api.analyzeBaseline(params);
     const req = http.expectOne('/analyze/baseline');
     expect(req.request.method).toBe('POST');
@@ -169,8 +171,7 @@ describe('ApiService', () => {
 
   it('analyzeBaseline: include tipo_poi se presente', async () => {
     const params: BaselineParams = {
-      center: { lat: 41.9, lon: 12.5 },
-      radiusM: 500,
+      area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
       tipo_poi: 'museo',
     };
     const p = api.analyzeBaseline(params);
@@ -186,7 +187,7 @@ describe('ApiService', () => {
 
   describe('contratto AnalyzeRequest/BaselineRequest (backend orchestrator.py)', () => {
     it('analyze(): il payload emesso è un sottoinsieme valido di AnalyzeRequest (center+radius_m obbligatori)', async () => {
-      const p = api.analyze({ lat: 41.9, lon: 12.5 }, 500);
+      const p = api.analyze({ kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 });
       const req = http.expectOne('/analyze');
       expect(isValidAnalyzeRequestPayload(req.request.body)).toBe(true);
       req.flush(resp);
@@ -200,8 +201,7 @@ describe('ApiService', () => {
 
     it('analyzeBaseline(): il payload emesso è un sottoinsieme valido di BaselineRequest (center+radius_m obbligatori)', async () => {
       const p = api.analyzeBaseline({
-        center: { lat: 41.9, lon: 12.5 },
-        radiusM: 500,
+        area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
         tipo_poi: 'museo',
       });
       const req = http.expectOne('/analyze/baseline');

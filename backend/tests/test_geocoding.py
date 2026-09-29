@@ -778,3 +778,89 @@ def test_geocode_e_reverse_condividono_lo_stesso_rate_limiter(
     geocoding.reverse_geocode_label(41.8, 12.5)  # subito dopo, verso diverso
 
     assert slept and slept[0] == pytest.approx(1.0)
+
+
+# --- geocode_query: ricerca testuale libera come AREA di analisi ---
+#
+# Il cerchio disegnato non sostituisce la ricerca testuale: le due modalita'
+# coesistono e l'utente usa l'una o l'altra. `geocode_query` e' il percorso
+# testo -> bbox della modalita' testuale: stessa logica di `geocode_zone`
+# (bbox Nominatim + pavimento minimo + cache) ma su una query LIBERA, senza
+# la concatenazione "zona, citta" che presuppone due campi separati.
+
+
+def test_geocode_query_returns_lat_lon_bbox(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Query libera trovata -> dict con lat, lon e bbox."""
+    fake = _FakeGeocoder(
+        _FakeLocation(41.8902, 12.4922, ["41.88", "41.90", "12.48", "12.50"])
+    )
+    _patch_geocoder(monkeypatch, fake)
+
+    result = geocoding.geocode_query("Colosseo, Roma")
+
+    assert result["lat"] == pytest.approx(41.8902)
+    assert result["lon"] == pytest.approx(12.4922)
+    assert result["bbox"] == (41.88, 12.48, 41.90, 12.50)
+
+
+def test_geocode_query_passa_la_query_verbatim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nessuna concatenazione: la query arriva a Nominatim com'e'.
+
+    E' la differenza con `geocode_zone`, che compone "zona, citta" da due campi.
+    """
+    fake = _FakeGeocoder(_FakeLocation(45.46, 9.19, ["45.45", "45.47", "9.18", "9.20"]))
+    _patch_geocoder(monkeypatch, fake)
+
+    geocoding.geocode_query("Piazza Duomo, Milano")
+
+    assert fake.queries == ["Piazza Duomo, Milano"]
+
+
+def test_geocode_query_not_found_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Nominatim ritorna None -> ZoneNotFoundError con la query nel messaggio."""
+    _patch_geocoder(monkeypatch, _FakeGeocoder(location=None))
+
+    with pytest.raises(ZoneNotFoundError, match="Atlantide"):
+        geocoding.geocode_query("Atlantide")
+
+
+def test_geocode_query_applica_il_pavimento_minimo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Un landmark puntuale riceve lo stesso floor di bbox di geocode_zone (#204).
+
+    Senza, la ricerca testuale su un monumento darebbe un riquadro di ~150 m in
+    cui Overpass non trova nulla: lo stesso difetto gia' chiuso per il percorso
+    a due campi.
+    """
+    fake = _FakeGeocoder(
+        _FakeLocation(41.8902, 12.4922, ["41.8902", "41.8902", "12.4922", "12.4922"])
+    )
+    _patch_geocoder(monkeypatch, fake)
+
+    result = geocoding.geocode_query("Colosseo")
+
+    lat_min, lon_min, lat_max, lon_max = result["bbox"]
+    half = get_settings().geocoding_min_bbox_half_span_deg
+    assert lat_max - lat_min == pytest.approx(2 * half)
+    assert lon_max - lon_min == pytest.approx(2 * half)
+
+
+def test_geocode_query_non_condivide_la_cache_con_geocode_zone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Chiavi distinte: "Duomo, Milano" libero non e' ("Duomo", "Milano").
+
+    Le due modalita' possono arrivare alla stessa query Nominatim partendo da
+    input diversi; chiavi collidenti renderebbero il risultato dell'una
+    osservabile dall'altra.
+    """
+    fake = _FakeGeocoder(_FakeLocation(45.46, 9.19, ["45.45", "45.47", "9.18", "9.20"]))
+    _patch_geocoder(monkeypatch, fake)
+
+    geocode_zone("Duomo", "Milano")
+    geocoding.geocode_query("Duomo, Milano")
+
+    assert len(fake.queries) == 2

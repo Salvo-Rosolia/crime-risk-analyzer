@@ -1,6 +1,17 @@
 <h2 class="cra-eyebrow">Analisi zona</h2>
 <p class="cra-hint" id="cra-circle-hint">
-  Disegna un cerchio sulla mappa (clic per il centro, poi ancora un clic per confermare il raggio).
+  @switch (area()?.kind) {
+    @case ('circle') {
+      Area scelta: il cerchio disegnato sulla mappa.
+    }
+    @case ('query') {
+      Area scelta: la ricerca in alto.
+    }
+    @default {
+      Scegli l'area: disegna un cerchio sulla mappa (clic per il centro, poi ancora un clic per
+      confermare il raggio) oppure scrivi un luogo nella casella di ricerca in alto.
+    }
+  }
 </p>
 
 <form (submit)="onSubmit($event)">
@@ -23,7 +34,7 @@
   <button
     type="submit"
     class="cra-btn-solid"
-    [disabled]="!circle()"
+    [disabled]="!area()"
     aria-describedby="cra-circle-hint"
   >
     Analizza zona →

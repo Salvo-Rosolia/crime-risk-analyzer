@@ -109,19 +109,33 @@ describe('models (contratto /analyze)', () => {
     expect(s.screen).toBe('INPUT');
   });
 
-  it('Action ANALYZE richiede center e radiusM (contratto startAnalysis)', () => {
+  it("Action ANALYZE porta l'area, non la geometria sciolta (contratto startAnalysis)", () => {
     const a: Action = {
       type: 'ANALYZE',
-      center: { lat: 41.8908, lon: 12.4918 },
-      radiusM: 1000,
+      area: { kind: 'circle', center: { lat: 41.8908, lon: 12.4918 }, radiusM: 1000 },
       pipeline: 'completo',
     };
-    expect(a.type === 'ANALYZE' ? a.center.lat : null).toBe(41.8908);
+    expect(a.type === 'ANALYZE' && a.area.kind === 'circle' ? a.area.center.lat : null).toBe(
+      41.8908,
+    );
+  });
+
+  it("Action ANALYZE accetta anche l'area in modalita' testuale (le due coesistono)", () => {
+    const a: Action = {
+      type: 'ANALYZE',
+      area: { kind: 'query', query: 'Colosseo, Roma' },
+      pipeline: 'completo',
+    };
+    expect(a.type === 'ANALYZE' && a.area.kind === 'query' ? a.area.query : null).toBe(
+      'Colosseo, Roma',
+    );
   });
 
   it('parametri baseline sono assegnabili a BaselineParams', () => {
-    const params: BaselineParams = { center: { lat: 41.8908, lon: 12.4918 }, radiusM: 1000 };
-    expect(params.center.lat).toBe(41.8908);
+    const params: BaselineParams = {
+      area: { kind: 'circle', center: { lat: 41.8908, lon: 12.4918 }, radiusM: 1000 },
+    };
+    expect(params.area.kind === 'circle' ? params.area.center.lat : null).toBe(41.8908);
   });
 
   it('ANALYZE/LOAD_SUCCESS/LOAD_ERROR richiedono pipeline (review #67-bis, bloccante A: obbligatorio apposta, nessun default silenzioso)', () => {
@@ -144,8 +158,7 @@ describe('models (contratto /analyze)', () => {
     };
     const analyze: Action = {
       type: 'ANALYZE',
-      center: { lat: 41.8908, lon: 12.4918 },
-      radiusM: 1000,
+      area: { kind: 'circle', center: { lat: 41.8908, lon: 12.4918 }, radiusM: 1000 },
       pipeline: 'base',
     };
     const success: Action = { type: 'LOAD_SUCCESS', data: minimalResponse, pipeline: 'base' };
