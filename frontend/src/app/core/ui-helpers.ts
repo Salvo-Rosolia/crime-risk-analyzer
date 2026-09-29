@@ -11,7 +11,7 @@ import {
 
 /**
  * Ordine canonico dei tag fonte (spec-frontend.md, cross-cutting: Stato B narrativa per fonte E
- * Stato C fattori di rischio per fonte). Unica costante condivisa da `buildNarrativeSections` e
+ * Stato C fattori di rischio per fonte). Unica costante condivisa da `buildSourceTabs` e
  * `orderGroupsByTag` — prima duplicata in due array locali identici (review #67, non-bloccante).
  */
 const SOURCE_TAG_ORDER: readonly SourceTag[] = ['ONTOLOGIA', 'CONTESTO', 'SPECULATIVO'];
@@ -61,34 +61,6 @@ export function poiNameDisplayLabel(
   return name || `${poiDisplayLabel(poi)} (senza nome su OSM)`;
 }
 
-export interface NarrativeSection {
-  tag: string;
-  hazards: string[];
-}
-
-export function buildNarrativeSections(
-  riskModels: RiskModel[] | null | undefined,
-): NarrativeSection[] {
-  const byTag = new Map<string, string[]>();
-  for (const model of riskModels ?? []) {
-    for (const risk of model.risks ?? []) {
-      const tag = risk.tag || 'SPECULATIVO';
-      const list = byTag.get(tag) ?? [];
-      list.push(hazardDisplayLabel(risk));
-      byTag.set(tag, list);
-    }
-  }
-  const sections: NarrativeSection[] = [];
-  for (const tag of SOURCE_TAG_ORDER) {
-    const hazards = byTag.get(tag);
-    if (hazards) sections.push({ tag, hazards });
-  }
-  for (const [tag, hazards] of byTag) {
-    if (!SOURCE_TAG_ORDER.includes(tag as SourceTag)) sections.push({ tag, hazards });
-  }
-  return sections;
-}
-
 export interface DetailModel {
   poi: Poi;
   /** Etichetta IT preferita del POI (fallback a terminus_class se manca). */
@@ -123,7 +95,7 @@ export interface TagGroup {
 /**
  * Ordina i `groups` di `buildDetailModel` (Record non ordinato) nell'ordine canonico
  * ONTOLOGIA → CONTESTO → SPECULATIVO richiesto dallo Stato C (spec-frontend.md); eventuali tag
- * fuori contratto restano in coda, stessa convenzione di `buildNarrativeSections`. Tag assenti
+ * fuori contratto restano in coda. Tag assenti
  * o con lista vuota vengono omessi.
  */
 export function orderGroupsByTag(groups: Record<string, RiskItem[]>): TagGroup[] {
@@ -197,7 +169,6 @@ function escapeHtml(value: string): string {
 export interface SourceTab {
   tag: SourceTag;
   prose: string;
-  hazards: string[];
 }
 export interface NarrativeTabsModel {
   overview: string;
@@ -211,21 +182,26 @@ const SOURCE_PROSE_KEY: Readonly<Record<SourceTag, keyof Omit<SourceProse, 'over
 };
 
 /**
- * Unisce la prosa per fonte (`narrativa_fonti`) con gli hazard per fonte (deterministici, via
- * `buildNarrativeSections`) in un modello a tab (Stato B). Un tab è incluso solo se ha prosa non
- * vuota OPPURE almeno un hazard; ordine canonico ONTOLOGIA→CONTESTO→SPECULATIVO. `overview` è
- * esposto a parte (mostrato sopra i tab). `fonti` null/assente → prosa vuota (tab solo da hazard).
+ * Costruisce il modello a tab della narrativa (Stato B) dalla sola prosa per fonte
+ * (`narrativa_fonti`). Un tab è incluso solo se ha prosa non vuota; ordine canonico
+ * ONTOLOGIA→CONTESTO→SPECULATIVO. `overview` è esposto a parte (mostrato sopra i tab).
+ *
+ * #329: il pannello mostrava anche, sotto la prosa, l'elenco degli hazard per fonte — tutti i
+ * rischi di tutti i POI della zona, appiattiti e non deduplicati. Su una zona da 20 punti erano
+ * circa 160 voci, con gli stessi blocchi ripetuti: i rischi dipendono solo dalla classe TERMINUS,
+ * quindi tre stazioni ferroviarie versavano tre volte gli stessi undici hazard. Staccati dal
+ * proprio POI non erano nemmeno interpretabili. Sono rimasti dove hanno senso, cioè nel pannello
+ * Dettaglio: lì ogni rischio è attribuito al suo punto e porta la citazione SPARQL.
+ *
+ * Di conseguenza `riskModels` non serve più qui, e un tag con soli hazard non apre più un tab
+ * (che sarebbe vuoto). Con la narrativa in fallback non c'è alcun tab: il messaggio di fallback
+ * rimanda al Dettaglio.
  */
-export function buildSourceTabs(
-  fonti: SourceProse | null | undefined,
-  riskModels: RiskModel[] | null | undefined,
-): NarrativeTabsModel {
-  const hazByTag = new Map(buildNarrativeSections(riskModels).map((s) => [s.tag, s.hazards]));
+export function buildSourceTabs(fonti: SourceProse | null | undefined): NarrativeTabsModel {
   const tabs: SourceTab[] = [];
   for (const tag of SOURCE_TAG_ORDER) {
     const prose = (fonti?.[SOURCE_PROSE_KEY[tag]] ?? '').trim();
-    const hazards = hazByTag.get(tag) ?? [];
-    if (prose || hazards.length) tabs.push({ tag, prose, hazards });
+    if (prose) tabs.push({ tag, prose });
   }
   return { overview: (fonti?.overview ?? '').trim(), tabs };
 }

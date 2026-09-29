@@ -86,9 +86,6 @@ export class StateStore {
   readonly currentNarrativaFonti = computed(
     () => this.currentPoiNarrative()?.fonti ?? this._state().completoData?.narrativa_fonti ?? null,
   );
-  readonly currentRiskModels = computed(
-    () => this.currentPoiNarrative()?.riskModels ?? this._state().completoData?.risk_models ?? [],
-  );
   /**
    * Nome del punto CHE IL PANNELLO STA MOSTRANDO (#197), `null` in scope zona. Deriva dalla
    * stessa risposta della prosa (`riskModels[0].poi`, sempre presente lato BE), non dalla lista
@@ -133,8 +130,8 @@ export class StateStore {
   /**
    * "narrativa in caricamento" dello SCOPE corrente (#292): in Vista Dettaglio segue il POI
    * selezionato (`poiNarrativePending`), altrimenti la narrativa di ZONA in volo dopo la fase 1 di
-   * `/analyze` (#259). Stesso pattern di `currentNarrativa`/`currentNarrativaFonti`/
-   * `currentRiskModels`: il pannello legge solo da qui, non sa nulla della selezione.
+   * `/analyze` (#259). Stesso pattern di `currentNarrativa`/`currentNarrativaFonti`: il
+   * pannello legge solo da qui, non sa nulla della selezione.
    */
   readonly currentNarrativeLoading = computed(() => {
     const s = this._state();

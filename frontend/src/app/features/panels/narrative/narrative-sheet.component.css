@@ -171,15 +171,6 @@
   border-bottom-color: var(--tab-color);
 }
 
-.cra-narr-count {
-  font-family: var(--font-mono);
-  font-size: 0.66rem;
-  background: var(--hair);
-  color: var(--ink-2);
-  border-radius: 999px;
-  padding: 1px 7px;
-}
-
 .cra-narr-panel {
   padding-top: var(--space-3);
 }
@@ -203,13 +194,6 @@
   line-height: 1.62;
   max-width: 960px;
   white-space: pre-wrap;
-}
-
-.cra-narr-hazard-list {
-  margin: 0;
-  padding-left: 1.1em;
-  font-size: 0.82rem;
-  line-height: 1.6;
 }
 
 /*

@@ -9,14 +9,14 @@ import {
   viewChildren,
 } from '@angular/core';
 import { srcTagMeta } from '@core/confidence';
-import { RiskModel, SourceProse, SourceTag } from '@core/models/models';
+import { SourceProse, SourceTag } from '@core/models/models';
 import { SourceTab, buildSourceTabs } from '@core/ui-helpers';
 
 /**
  * "Narrativa generata" (Stato B): a layout largo è un PANNELLO A DESTRA a tutta altezza (#218),
  * sotto 1100px torna bottom-sheet full-width (posizionamento in `narrative-sheet.component.css`).
  * Contenuto: overview discorsivo + un tab per fonte (ONTOLOGIA → CONTESTO → SPECULATIVO, via
- * `buildSourceTabs`) con prosa (`narrativa_fonti`) + hazard, banner anti-hallucination SEMPRE
+ * `buildSourceTabs`) con la sola prosa (`narrativa_fonti`), banner anti-hallucination SEMPRE
  * visibile (anche da collassato — vive nell'header, non nel corpo collassabile) e bottone
  * "Rigenera" (re-POST `/analyze`, nessun endpoint nuovo). Componente "thin": nessuna chiamata
  * store/http diretta, solo output verso lo shell; il collasso è guidato da `open()` (classe host
@@ -39,7 +39,6 @@ export class NarrativeSheetComponent {
   readonly zona = input<string | null>(null);
   readonly narrativa = input<string>('');
   readonly narrativaFonti = input<SourceProse | null>(null);
-  readonly riskModels = input<RiskModel[]>([]);
   readonly open = input<boolean>(true);
   /** Generazione in corso (#197): il corpo lo dichiara, il contenuto precedente resta visibile. */
   readonly loading = input<boolean>(false);
@@ -55,9 +54,7 @@ export class NarrativeSheetComponent {
   readonly toggleNarrative = output<void>();
   readonly regenerate = output<void>();
 
-  protected readonly model = computed(() =>
-    buildSourceTabs(this.narrativaFonti(), this.riskModels()),
-  );
+  protected readonly model = computed(() => buildSourceTabs(this.narrativaFonti()));
   protected readonly activeTag = signal<SourceTag | null>(null);
   protected readonly activeTab = computed<SourceTab | null>(() => {
     const tabs = this.model().tabs;
