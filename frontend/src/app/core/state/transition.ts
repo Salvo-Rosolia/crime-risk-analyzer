@@ -56,11 +56,12 @@ export function transition(state: AppState, action: Action): AppState {
         // ancora pendente) o già mostrato (se un errore era rimasto) irrilevante.
         zoneNarrativeLoading: isBase ? state.zoneNarrativeLoading : false,
         zoneNarrativeError: isBase ? state.zoneNarrativeError : null,
-        // lastQuery NON si tocca qui: l'area scelta non porta con sé una città/zona
-        // da echeggiare subito — citta/zona_normalizzata sono etichette RISOLTE dal backend
-        // (reverse geocode) e non esistono finché non arriva la risposta. È LOAD_SUCCESS
-        // (non-base) a popolare lastQuery, combinando l'area e la domanda dell'azione con le
-        // etichette risolte di action.data.
+        // lastQuery NON si tocca qui: anche quando l'area scelta porta già con sé una città/zona
+        // (#335, modalità testuale) le etichette definitive sono quelle della RISPOSTA
+        // (citta/zona_normalizzata — in modalità cerchio un reverse geocode, in modalità
+        // città/zona il testo dell'utente dopo lo strip) e non esistono finché non arriva. È
+        // LOAD_SUCCESS (non-base) a popolare lastQuery, combinando l'area e la domanda
+        // dell'azione con le etichette di action.data.
       };
     }
     case 'LOAD_SUCCESS': {
@@ -83,9 +84,10 @@ export function transition(state: AppState, action: Action): AppState {
         filter: null,
         // lastQuery nasce QUI, non in ANALYZE: serve la combinazione di (a) l'area e la
         // domanda ORIGINALI passate attraverso la catena di azioni dalla richiesta
-        // (necessari a "Rigenera", che re-invoca /analyze) e (b) le etichette citta/zona
-        // RISOLTE dal backend nella risposta (necessarie a /analyze/poi e /analyze/narrativa,
-        // che le rimandano come contesto — stesso trattamento di contesto_hash). La pipeline
+        // (necessari a "Rigenera", che re-invoca /analyze) e (b) le etichette citta/zona della
+        // RISPOSTA (necessarie a /analyze/poi e /analyze/narrativa, che le rimandano come
+        // contesto — stesso trattamento di contesto_hash; in modalità cerchio sono un reverse
+        // geocode, in modalità città/zona coincidono con `action.area.citta`/`.zona`, #335). La pipeline
         // base non ha "Rigenera" e non tocca mai lastQuery (bloccante B review #67-bis); un
         // LOAD_SUCCESS completo senza area nell'azione (difensivo, non dovrebbe
         // accadere: state.store.ts li passa sempre) lascia lastQuery invariato invece di

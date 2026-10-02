@@ -75,13 +75,16 @@ class Center(BaseModel):
 class _AreaRequest(BaseModel):
     """Base dei body che portano l'AREA da analizzare, in una delle DUE modalita'.
 
-    Il cerchio disegnato sulla mappa non sostituisce la ricerca testuale: le due
-    coesistono e l'utente usa l'una o l'altra. Il body ne porta quindi ESATTAMENTE
-    una, e l'endpoint sceglie il resolver corrispondente
+    Il cerchio disegnato sulla mappa non sostituisce i due campi testuali: le due
+    modalita' coesistono e l'utente usa l'una o l'altra. Il body ne porta quindi
+    ESATTAMENTE una, e l'endpoint sceglie il resolver corrispondente
     (:mod:`crime_risk_analyzer.area_search`):
 
     * ``center`` + ``radius_m`` — il cerchio: bbox calcolato puramente, nessuna rete;
-    * ``query`` — ricerca testuale libera: bbox da Nominatim col pavimento minimo.
+    * ``citta`` + ``zona`` — la zona dentro la citta': bbox da Nominatim su
+      "zona, citta" col pavimento minimo. Servono ENTRAMBI: una sola meta'
+      finirebbe a Nominatim come query ambigua (una zona senza citta' in tutta
+      Italia) o troppo larga (una citta' intera).
 
     Perche' "esattamente una" e non una precedenza: accettarne una in silenzio
     quando arrivano entrambe significherebbe analizzare un'area diversa da quella
@@ -98,13 +101,44 @@ class _AreaRequest(BaseModel):
             "Settings.search_radius_min_m/search_radius_max_m (422 se fuori range)."
         ),
     )
-    query: str | None = Field(
+    citta: str | None = Field(
+        default=None,
+        max_length=100,
+        description=(
+            "Citta' da analizzare (con ``zona``), alternativa al cerchio. "
+            "Autocomplete via GET /cities (suggerimenti, non un vincolo). "
+            "max_length=100: un nome di comune ci sta ampiamente e chiude la "
+            "superficie free-text verso Nominatim e la chiave di _CACHE (#170)."
+        ),
+    )
+    zona: str | None = Field(
         default=None,
         max_length=200,
         description=(
-            "Ricerca testuale libera (es. 'Colosseo, Roma'), alternativa al cerchio."
+            "Zona/quartiere da analizzare dentro ``citta``, alternativa al cerchio. "
+            "max_length=200: un nome di zona ci sta ampiamente, mentre il tetto "
+            "chiude la superficie free-text verso Nominatim e _CACHE (#170)."
         ),
     )
+
+    @field_validator("citta", "zona", mode="before")
+    @classmethod
+    def _strip(cls, v: object) -> object:
+        """Spazi ai bordi tolti; vuoto o soli spazi equivale ad ASSENTE.
+
+        Gli spazi non devono finire in Nominatim ne' nella cache. E una casella
+        lasciata vuota non e' una richiesta della seconda modalita': un client
+        che serializza il form con ``citta: ""`` accanto al cerchio manda un
+        cerchio valido, non un body ambiguo.
+
+        ``mode="before"``: lo strip avviene PRIMA di ``max_length``, cosi' il
+        tetto si misura sul valore che finira' davvero in Nominatim, e una
+        casella di soli spazi lunga oltre il tetto resta "vuota", non un 422.
+        I non-stringa passano intatti e li respinge la validazione del tipo.
+        """
+        if isinstance(v, str):
+            return v.strip() or None
+        return v
 
     @field_validator("radius_m")
     @classmethod
@@ -121,22 +155,36 @@ class _AreaRequest(BaseModel):
 
     @model_validator(mode="after")
     def _exactly_one_mode(self) -> _AreaRequest:
-        """Esattamente una modalita': cerchio COMPLETO oppure query non vuota."""
+        """Esattamente una modalita': cerchio COMPLETO oppure citta + zona non vuoti.
+
+        I campi testuali vuoti sono gia' ``None`` (``_strip``), quindi qui "testo"
+        significa almeno un campo con contenuto: ``{"citta": "Roma", "zona": ""}``
+        e' un 422 che nomina la zona mancante.
+        """
         cerchio = self.center is not None or self.radius_m is not None
-        testo = self.query is not None and self.query.strip() != ""
+        testo = self.citta is not None or self.zona is not None
         if cerchio and testo:
             raise ValueError(
-                "specificare il cerchio (center+radius_m) OPPURE query, non entrambi"
+                "specificare il cerchio (center+radius_m) OPPURE citta e zona, "
+                "non entrambi"
             )
         if not cerchio and not testo:
-            raise ValueError("specificare il cerchio (center+radius_m) oppure query")
+            raise ValueError(
+                "specificare il cerchio (center+radius_m) oppure citta e zona"
+            )
         if cerchio and (self.center is None or self.radius_m is None):
             raise ValueError("il cerchio richiede sia center sia radius_m")
+        if testo and not (self.citta and self.zona):
+            raise ValueError("la ricerca per zona richiede sia citta sia zona")
         return self
 
     @property
     def is_circle(self) -> bool:
-        """True se il body porta il cerchio (garantito completo dal validator)."""
+        """True se il body porta il cerchio, False se porta citta + zona.
+
+        Il validator garantisce che il ramo scelto sia completo: cerchio con
+        ``center`` e ``radius_m``, oppure ``citta`` e ``zona`` entrambi non vuoti.
+        """
         return self.center is not None
 
 
@@ -158,7 +206,7 @@ class BaselineRequest(_AreaRequest):
     vs baseline non iso-input su questi due parametri (#263). Chiuderla richiede
     prima la decisione sul contratto di ``tipo_poi`` fra frontend e backend (#143):
     finché resta aperta, l'asimmetria è documentata qui e nel test
-    ``test_baseline_request_surface_is_center_radius_tipo_poi``, non colmata.
+    ``test_baseline_request_surface_is_cerchio_or_citta_zona_tipo_poi``, non colmata.
     """
 
     tipo_poi: str | None = Field(

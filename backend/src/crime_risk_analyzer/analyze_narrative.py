@@ -199,9 +199,11 @@ async def run_zone_narrative(
     rispettare lo stesso budget configurabile, non i default hardcoded.
 
     A cache fredda senza ``geo_source`` (il caso reale della rotta: il client
-    rimanda solo ``citta``/``zona``, mai il cerchio originale) la ricostruzione
+    rimanda solo ``citta``/``zona``, mai l'area originale) la ricostruzione
     passa da un geocode FORWARD (:func:`~crime_risk_analyzer.geocoding.geocode_zone`)
-    di un'etichetta che pero' nasce da un reverse geocode del centro del cerchio
+    delle etichette. Nella modalita' citta + zona sono il testo digitato
+    (``area_search.resolve_zone``), quindi la ricostruzione ritrova la stessa
+    area. Nel cerchio invece l'etichetta nasce da un reverse geocode del centro
     (#318): quasi mai una stringa che Nominatim ritrova cercandola in avanti, e
     sempre impossibile nel caso di fallback (``"area lat,lon"``/``"zona non
     identificata"``, D9 del design doc). La conseguente
@@ -209,8 +211,8 @@ async def run_zone_narrative(
     stesso :class:`ContextMismatchError` del ramo ``contesto_hash`` -> 409, non
     un 422 "zona non geocodificabile": il contesto non e' scritto male, e'
     semplicemente scaduto/sfrattato, e la via d'uscita e' la stessa, rilanciare
-    l'analisi di zona (che ridisegna il cerchio e ripassa da
-    ``resolve_circle``). :class:`~crime_risk_analyzer.geocoding.GeocodingError`
+    l'analisi di zona (che ripassa da ``resolve_circle``/``resolve_zone``).
+    :class:`~crime_risk_analyzer.geocoding.GeocodingError`
     generico (Nominatim irraggiungibile) resta INVECE un 503 non catturato qui:
     e' un guasto di servizio reale, non un'etichetta non ricercabile, e
     rilanciare l'analisi non lo risolverebbe.

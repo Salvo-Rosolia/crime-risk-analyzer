@@ -93,9 +93,17 @@ export const S = {
   hiddenBar: (p: Page): Locator => p.locator('cra-poi-panel .cra-hidden-bar'),
   /** Badge di confidence su ciascuna card POI (`.cra-badge-confidence`: dot + etichetta). */
   poiCardConfidenceBadges: (p: Page): Locator => p.locator('cra-poi-panel .cra-badge-confidence'),
-  /** Casella di ricerca testuale in header: la SECONDA modalita' di scelta dell'area, alternativa
-   * al cerchio disegnato. L'invio conferma il testo come area da analizzare (e sposta la mappa). */
-  placeSearch: (p: Page): Locator => p.getByLabel('Cerca un luogo da analizzare'),
+  /** Casella "vai a un luogo" in header: puro aiuto di navigazione sulla mappa (Nominatim +
+   * flyTo), non sceglie l'area da analizzare (#335). */
+  placeSearch: (p: Page): Locator => p.getByLabel('Vai a un luogo sulla mappa'),
+  /** Campo Città del pannello input-panel (Stato INPUT/ERROR, #335: ripristinato da prima di #318). */
+  cittaField: (p: Page): Locator => p.locator('#cra-citta'),
+  /** Campo Zona del pannello input-panel (Stato INPUT/ERROR, #335). */
+  zonaField: (p: Page): Locator => p.locator('#cra-zona'),
+  /** Campo Città del pannello Sistema base (#335). */
+  baseCittaField: (p: Page): Locator => p.locator('#cra-base-citta'),
+  /** Campo Zona del pannello Sistema base (#335). */
+  baseZonaField: (p: Page): Locator => p.locator('#cra-base-zona'),
   /** Host `<cra-map>` reale (Leaflet, #318): mai smontato (fuori dallo `@switch` di schermo in
    * `app.html`), usato per calcolare le coordinate pixel su cui `support/map.ts` disegna il
    * cerchio di ricerca via `page.mouse` — non un locator su un elemento semantico del cerchio in

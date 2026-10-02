@@ -96,6 +96,14 @@ class Settings(BaseSettings):
     search_radius_min_m: float = Field(default=150.0, gt=0)
     search_radius_max_m: float = Field(default=3000.0, gt=0)
     default_city: str = "Roma"
+    # Citta SUGGERITE, esposte come autocomplete da ``GET /cities`` — NON un
+    # vincolo di validazione (#191): la modalita' citta + zona di
+    # ``POST /analyze``/``/analyze/baseline`` accetta qualsiasi citta' italiana e
+    # la passa al geocoding (ristretto all'Italia via ``geocoding_country_codes``);
+    # una citta'/zona inesistente fallisce pulita al geocoding (422).
+    # Roma/Milano/Napoli sono garantite e testate end-to-end (orchestrator.md); le
+    # altre sono best-effort.
+    supported_cities: list[str] = ["Roma", "Milano", "Napoli", "Torino", "Firenze"]
     # Allowlist CORS (#106): origini del frontend autorizzate a leggere le
     # risposte dell'API. Allowlist ESPLICITA, mai wildcard ``*`` (una policy
     # ``*`` esporrebbe l'API a qualunque sito) — invariante blindata dal

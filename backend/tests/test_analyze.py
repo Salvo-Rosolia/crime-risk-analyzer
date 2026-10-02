@@ -98,10 +98,11 @@ def _fake_reverse_geocode(lat: float, lon: float) -> tuple[str, str]:
 
 
 def _patch_io(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Patcha la sola I/O che il nuovo path a cerchio (#318) attraversa davvero.
+    """Patcha la sola I/O che il path a cerchio (#318) attraversa davvero.
 
-    ``geocode_zone`` non e' piu' chiamato da ``/analyze``/``/analyze/baseline``:
-    ``resolve_circle`` passa sempre un ``geo_source`` proprio. La label
+    Col cerchio ``geocode_zone`` non e' chiamato (lo e' solo nella modalita'
+    citta + zona, vedi ``_patch_zone_io``): ``resolve_circle`` passa sempre un
+    ``geo_source`` proprio. La label
     citta'/zona arriva da ``area_search.reverse_geocode_label`` (reverse
     geocode del centro); il bbox da ``bbox_from_circle`` (puro, nessun I/O) —
     solo la label va quindi simulata qui.
@@ -501,54 +502,87 @@ async def test_impronta_baseline_calcolata_dopo_il_filtro_tipo_poi() -> None:
     assert resp.contesto_hash != fingerprint(_pois("Roma"))
 
 
-# --- Le due modalita' di ricerca coesistono: cerchio OPPURE testo ---
+# --- Le due modalita' di ricerca coesistono: cerchio OPPURE citta + zona ---
 #
-# Il cerchio non sostituisce la ricerca testuale. /analyze accetta esattamente
+# Il cerchio non sostituisce i due campi testuali. /analyze accetta esattamente
 # una delle due forme e le instrada su resolver diversi, che pero' ritornano lo
 # stesso contratto: da retrieve() in giu' la pipeline non sa quale sia stata usata.
 
 
-def _patch_query_io(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Come ``_patch_io`` ma per la modalita' testuale: geocode + reverse.
+def _patch_zone_io(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
+    """Come ``_patch_io`` ma per la modalita' citta + zona: geocode + reverse.
 
     Qui il bbox NON e' calcolato da centro+raggio: arriva da Nominatim, quindi
-    va simulato anche ``geocode_query`` (che nel cerchio non viene mai chiamato).
+    va simulato anche ``geocode_zone`` (che nel cerchio non viene mai chiamato).
+    Ritorna le coppie (zona, citta) ricevute, per verificare l'instradamento.
     """
+    chiamate: list[tuple[str, str]] = []
 
-    def _fake_geocode_query(query: str) -> GeoResult:
+    def _fake_geocode_zone(zona: str, citta: str) -> GeoResult:
+        chiamate.append((zona, citta))
         return GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50))
 
-    monkeypatch.setattr(area_search, "geocode_query", _fake_geocode_query)
+    monkeypatch.setattr(area_search, "geocode_zone", _fake_geocode_zone)
     _patch_io(monkeypatch)
+    return chiamate
 
 
-def test_analyze_accetta_la_ricerca_testuale(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Una query libera produce la stessa risposta strutturata del cerchio."""
-    _patch_query_io(monkeypatch)
+def test_analyze_accetta_citta_e_zona(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Citta + zona producono la stessa risposta strutturata del cerchio.
+
+    Le etichette in risposta sono quelle digitate, non il reverse geocode.
+    """
+    chiamate = _patch_zone_io(monkeypatch)
     resp = cast(
         httpx.Response,
         _client().post(  # pyright: ignore[reportUnknownMemberType]
             "/analyze",
-            json={"query": "Colosseo, Roma"},
+            json={"citta": "Roma", "zona": "Colosseo"},
         ),
     )
     assert resp.status_code == 200
+    assert chiamate == [("Colosseo", "Roma")]
     body = resp.json()
     assert body["citta"] == "Roma"
-    assert body["zona_normalizzata"] == "Trastevere"
+    assert body["zona_normalizzata"] == "Colosseo"
     assert body["narrativa"] is None
     assert len(body["poi"]) == 2
+
+
+def test_analyze_zona_non_trovata_e_422(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Una zona che Nominatim non trova e' un 422 leggibile, non un'area a caso.
+
+    Il messaggio nomina zona e citta': e' quello che il frontend mostra.
+    """
+
+    def _raise(zona: str, citta: str) -> GeoResult:
+        raise ZoneNotFoundError(f"Zona non trovata: {zona!r} in {citta!r}")
+
+    monkeypatch.setattr(area_search, "geocode_zone", _raise)
+    _patch_io(monkeypatch)
+    resp = cast(
+        httpx.Response,
+        _client().post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze",
+            json={"citta": "Roma", "zona": "Atlantide"},
+        ),
+    )
+    assert resp.status_code == 422
+    detail = resp.json()["detail"]
+    assert detail["errore"] == "zona_non_geocodificabile"
+    assert "Atlantide" in detail["messaggio"]
+    assert "Roma" in detail["messaggio"]
 
 
 def test_analyze_rifiuta_le_due_modalita_insieme(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Cerchio e query nello stesso body -> 422.
+    """Cerchio e citta/zona nello stesso body -> 422.
 
     Accettarne una in silenzio significherebbe analizzare un'area diversa da
     quella che l'utente crede di aver scelto.
     """
-    _patch_query_io(monkeypatch)
+    _patch_zone_io(monkeypatch)
     resp = cast(
         httpx.Response,
         _client().post(  # pyright: ignore[reportUnknownMemberType]
@@ -556,7 +590,8 @@ def test_analyze_rifiuta_le_due_modalita_insieme(
             json={
                 "center": {"lat": 41.89, "lon": 12.49},
                 "radius_m": 2000.0,
-                "query": "Colosseo, Roma",
+                "citta": "Roma",
+                "zona": "Colosseo",
             },
         ),
     )
@@ -566,8 +601,8 @@ def test_analyze_rifiuta_le_due_modalita_insieme(
 def test_analyze_rifiuta_il_body_senza_modalita(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Ne' cerchio ne' query -> 422: non esiste un'area di default."""
-    _patch_query_io(monkeypatch)
+    """Ne' cerchio ne' citta/zona -> 422: non esiste un'area di default."""
+    _patch_zone_io(monkeypatch)
     resp = cast(
         httpx.Response,
         _client().post("/analyze", json={}),  # pyright: ignore[reportUnknownMemberType]
@@ -575,24 +610,28 @@ def test_analyze_rifiuta_il_body_senza_modalita(
     assert resp.status_code == 422
 
 
-def test_analyze_rifiuta_la_query_vuota(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Una query di soli spazi non e' una modalita' valida."""
-    _patch_query_io(monkeypatch)
+@pytest.mark.parametrize(
+    "body",
+    [{"citta": "Roma"}, {"zona": "Colosseo"}, {"citta": "Roma", "zona": "   "}],
+)
+def test_analyze_rifiuta_citta_o_zona_mancante(
+    monkeypatch: pytest.MonkeyPatch, body: dict[str, str]
+) -> None:
+    """Servono entrambi i campi testuali, non vuoti."""
+    chiamate = _patch_zone_io(monkeypatch)
     resp = cast(
         httpx.Response,
-        _client().post(  # pyright: ignore[reportUnknownMemberType]
-            "/analyze",
-            json={"query": "   "},
-        ),
+        _client().post("/analyze", json=body),  # pyright: ignore[reportUnknownMemberType]
     )
     assert resp.status_code == 422
+    assert chiamate == []
 
 
 def test_analyze_rifiuta_il_cerchio_senza_raggio(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Il centro da solo non basta: il cerchio richiede entrambi i campi."""
-    _patch_query_io(monkeypatch)
+    _patch_zone_io(monkeypatch)
     resp = cast(
         httpx.Response,
         _client().post(  # pyright: ignore[reportUnknownMemberType]

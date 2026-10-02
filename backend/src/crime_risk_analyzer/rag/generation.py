@@ -932,16 +932,17 @@ def build_context_str(
     system prompt. ``None`` (o stringa vuota/whitespace) lascia lo user_content
     invariato.
 
-    ``zona`` non e' piu' un campo digitato dall'utente: da #318 e' l'etichetta
-    best-effort del reverse geocode Nominatim sul centro del cerchio disegnato
-    (``area_search.resolve_circle``). Resta pero' un dato ESTERNO
-    all'ontologia — stessa superficie e stessa difesa dei nomi OSM (#119,
-    estesa qui da #244) — perche' l'etichetta di Nominatim non e' verificata
-    contro il grafo TERMINUS ne' controllata quanto il vocabolario dei nomi
-    OSM: un servizio terzo, non l'utente, ne resta comunque la fonte non
-    fidata. E' normalizzata una sola volta qui, come ``domanda_norm``, perche'
-    non cambia fra le chiamate ripetute di :func:`_assemble_context` nel loop
-    di troncamento sotto: ricalcolarla ad ogni iterazione sarebbe lavoro
+    ``zona`` e' l'etichetta best-effort del reverse geocode Nominatim sul centro
+    del cerchio (``area_search.resolve_circle``) oppure, nella modalita' citta +
+    zona, il testo digitato dall'utente (``area_search.resolve_zone``). In
+    entrambi i casi e' un dato ESTERNO all'ontologia — stessa superficie e
+    stessa difesa dei nomi OSM (#119, estesa qui da #244) — perche' ne'
+    l'etichetta di Nominatim ne' il testo dell'utente sono verificati contro il
+    grafo TERMINUS: la normalizzazione qui sotto li tratta allo stesso modo,
+    come input non fidato. E'
+    normalizzata una sola volta qui, come ``domanda_norm``, perche' non cambia
+    fra le chiamate ripetute di :func:`_assemble_context` nel loop di
+    troncamento sotto: ricalcolarla ad ogni iterazione sarebbe lavoro
     ripetuto che scala col numero di POI per nessun beneficio (l'input e' lo
     stesso).
     """

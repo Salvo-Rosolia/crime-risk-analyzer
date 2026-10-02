@@ -1,26 +1,38 @@
-import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  OnInit,
+  computed,
+  effect,
+  inject,
+  input,
+  output,
+  signal,
+  untracked,
+} from '@angular/core';
+import { ApiService } from '@core/api/api.service';
 import { AnalyzeResponse, BaselineParams, SearchArea } from '@core/models/models';
-import { buildBaseRows } from '@core/ui-helpers';
+import { buildBaseRows, validateInputPanel } from '@core/ui-helpers';
 
 /**
  * Pannello "Sistema base" (ablation study, Stato Sistema base — spec-frontend.md): form
- * strutturato (Tipo POI opzionale) → tabella "POI · Hazard · Categoria" via `POST /analyze/baseline`,
- * deliberatamente spartana (niente NL, narrativa, confidence, path SPARQL, mappa: il contrasto con
- * il sistema completo è esso stesso argomento di tesi).
+ * strutturato (Tipo POI opzionale + Città/Zona) → tabella "POI · Hazard · Categoria" via
+ * `POST /analyze/baseline`, deliberatamente spartana (niente NL, narrativa, confidence, path
+ * SPARQL, mappa: il contrasto con il sistema completo è esso stesso argomento di tesi).
  *
- * L'area non si digita qui: arriva dall'esterno come `area`, scelta col cerchio disegnato
- * su `MapComponent` (clic per il centro, poi ancora un clic per confermare il raggio) — stesso
- * schema di `InputPanelComponent`. Il form si riduce al solo Tipo POI opzionale; il bottone resta
- * disabilitato finché un'area non è stata scelta.
+ * L'area si sceglie in una delle DUE modalità che coesistono (#335, stesso schema di
+ * `InputPanelComponent`): il cerchio disegnato su `MapComponent`, oppure città e zona digitate
+ * QUI — `citta`/`zona` sono stato condiviso nello shell (`App`), così sopravvivono sia al remount
+ * di questo componente sia a un giro Completo↔Base (lo stesso valore digitato resta visibile in
+ * entrambi i pannelli).
  *
  * Punto morto altrimenti (reperto review finale C1): `:host` (base-panel.component.css) è un
  * overlay opaco che coincide, sopra, con l'intera mappa — se l'utente passa a "Sistema base" PRIMA
- * di aver mai disegnato un cerchio in modalità completo, l'istruzione "disegna un cerchio sulla
- * mappa" diventa impossibile da seguire da qui dentro (la mappa è sotto, invisibile e non
- * cliccabile). `!area()` mostra quindi un messaggio diverso più un bottone che emette
- * `backToCompleto`, cablato in `app.html` sulla stessa `onToggleMode('completo')` che già esiste
- * per l'header: nessuna nuova via di navigazione, solo la stessa resa raggiungibile da dentro il
- * pannello invece di richiedere che l'utente trovi da sé il toggle nell'header.
+ * di aver mai disegnato un cerchio in modalità completo E senza aver digitato città/zona, la mappa
+ * per disegnare il cerchio resta nascosta/non cliccabile. `!area()` mostra quindi un messaggio che
+ * ricorda ENTRAMBE le vie (digitare qui, o tornare a Completo per il cerchio) più un bottone che
+ * emette `backToCompleto`, cablato in `app.html` sulla stessa `onToggleMode('completo')` che già
+ * esiste per l'header.
  */
 @Component({
   selector: 'cra-base-panel',
@@ -28,11 +40,17 @@ import { buildBaseRows } from '@core/ui-helpers';
   templateUrl: './base-panel.component.html',
   styleUrl: './base-panel.component.css',
 })
-export class BasePanelComponent {
+export class BasePanelComponent implements OnInit {
   readonly data = input<AnalyzeResponse | null>(null);
-  /** Cerchio disegnato su `MapComponent` (centro + raggio); `null` finché non è stato confermato. */
+  /** Area scelta (cerchio disegnato o città/zona digitate), combinata dallo shell; `null` finché
+   * non ne è stata scelta una in nessuna delle due modalità. */
   readonly area = input<SearchArea | null>(null);
-  /** Emesso dal bottone "Torna a Completo" (visibile solo senza cerchio, #318 C1): lo shell lo
+  /** Città/zona correnti (stato condiviso nello shell, #335): riflesse nei campi, non possedute qui. */
+  readonly citta = input<string>('');
+  readonly zona = input<string>('');
+  readonly cittaChange = output<string>();
+  readonly zonaChange = output<string>();
+  /** Emesso dal bottone "Torna a Completo" (visibile solo senza area, #318 C1): lo shell lo
    * cabla su `onToggleMode('completo')`, la stessa transizione già raggiungibile dal toggle
    * dell'header. */
   readonly backToCompleto = output<void>();
@@ -46,11 +64,64 @@ export class BasePanelComponent {
 
   readonly analyzeBaseline = output<BaselineParams>();
 
+  private readonly api = inject(ApiService);
+
+  protected readonly cities = signal<string[]>([]);
   protected readonly tipoPoi = signal('');
+  protected readonly validationError = signal<string | null>(null);
+  protected readonly validationField = signal<'citta' | 'zona' | null>(null);
+  /** L'area per cui è arrivato l'ultimo errore server (reperto review, stessa convenzione di
+   * InputPanelComponent.serverErrorArea): confronto per riferimento, affidabile perché `area()`
+   * (lo shell combina circle/citta/zona in un `computed`) cambia referenza solo quando una di
+   * quelle sorgenti cambia davvero. */
+  private readonly serverErrorArea = signal<SearchArea | null>(null);
+  /** Validazione client sempre in priorità sull'errore server, stessa convenzione di InputPanelComponent. */
+  protected readonly displayError = computed(() => this.validationError() ?? this.serverError());
+  protected readonly cittaHasError = computed(() => this.validationField() === 'citta');
+  /** Bordo d'errore sulla zona: validazione client su di lei, oppure — senza errore client attivo,
+   * solo se l'area rifiutata era in modalità città/zona E l'area ATTUALE è ancora quella per cui
+   * l'errore è arrivato (stessa convenzione di InputPanelComponent.zonaHasError). */
+  protected readonly zonaHasError = computed(
+    () =>
+      this.validationField() === 'zona' ||
+      (!this.validationError() &&
+        !!this.serverError() &&
+        this.area()?.kind === 'zone' &&
+        this.area() === this.serverErrorArea()),
+  );
 
   protected readonly rows = computed(() =>
     buildBaseRows(this.data()?.poi, this.data()?.risk_models),
   );
+
+  constructor() {
+    // Stessa coppia di effetti di InputPanelComponent: il cambio di area azzera la validazione
+    // client ancora visibile, e l'area di un errore server si cattura SOLO al momento in cui
+    // l'errore arriva (letta senza tracciarla, altrimenti l'effetto scatterebbe a ogni cambio di
+    // area vanificando il confronto in `zonaHasError`).
+    effect(() => {
+      this.area();
+      untracked(() => this.clearValidation());
+    });
+    effect(() => {
+      const err = this.serverError();
+      this.serverErrorArea.set(err ? untracked(() => this.area()) : null);
+    });
+  }
+
+  ngOnInit(): void {
+    void this.loadCities();
+  }
+
+  protected onCittaInput(event: Event): void {
+    this.cittaChange.emit((event.target as HTMLInputElement).value);
+    this.clearValidation();
+  }
+
+  protected onZonaInput(event: Event): void {
+    this.zonaChange.emit((event.target as HTMLInputElement).value);
+    this.clearValidation();
+  }
 
   protected onTipoPoiInput(event: Event): void {
     this.tipoPoi.set((event.target as HTMLInputElement).value);
@@ -60,11 +131,32 @@ export class BasePanelComponent {
     event.preventDefault();
 
     const area = this.area();
-    if (!area) return;
+    if (!area) {
+      const { ok, error, field } = validateInputPanel({ citta: this.citta(), zona: this.zona() });
+      if (!ok) {
+        this.validationError.set(error);
+        this.validationField.set(field);
+      }
+      return;
+    }
 
+    this.clearValidation();
     const tipoPoi = this.tipoPoi().trim();
     const params: BaselineParams = { area };
     if (tipoPoi) params.tipo_poi = tipoPoi;
     this.analyzeBaseline.emit(params);
+  }
+
+  private clearValidation(): void {
+    this.validationError.set(null);
+    this.validationField.set(null);
+  }
+
+  private async loadCities(): Promise<void> {
+    try {
+      this.cities.set(await this.api.cities());
+    } catch {
+      this.cities.set([]);
+    }
   }
 }

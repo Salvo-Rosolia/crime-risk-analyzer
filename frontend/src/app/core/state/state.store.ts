@@ -169,11 +169,14 @@ export class StateStore {
    * background (`loadZoneNarrative`, non attesa qui) e aggiorna solo il campo narrativa dello stato
    * già in RESULTS — mai un giro extra della FSM.
    *
-   * `center`/`radiusM` sono il cerchio disegnato (#318, sostituisce citta/zona digitati): la
-   * richiesta non porta più un nome di città/zona, perché `loadZoneNarrative` (e con essa
-   * `lastQuery`, popolato da `transition()` su `LOAD_SUCCESS`) usa le etichette `citta`/
-   * `zona_normalizzata` RISOLTE dal backend nella risposta — un cerchio disegnato non ha
-   * equivalente testuale da echeggiare prima che la risposta arrivi.
+   * `area` è una delle due modalità che coesistono (#335): il cerchio disegnato (centro+raggio)
+   * oppure città/zona digitate. In entrambi i casi `loadZoneNarrative` (e con essa `lastQuery`,
+   * popolato da `transition()` su `LOAD_SUCCESS`) usa le etichette `citta`/`zona_normalizzata`
+   * della RISPOSTA, mai quelle della richiesta: un cerchio disegnato non ha equivalente testuale
+   * prima che la risposta arrivi (il backend lo risolve lui, reverse geocode), e anche in modalità
+   * città/zona è più semplice leggere sempre dallo stesso punto (la risposta) che diramare la
+   * fonte per modalità — anche se qui il valore coincide con quanto digitato, perché il backend
+   * riporta in risposta il testo dell'utente dopo lo strip, non un reverse geocode.
    */
   async startAnalysis(area: SearchArea, domanda?: string | null): Promise<void> {
     this.dispatch({ type: 'ANALYZE', area, domanda, pipeline: 'completo' });
@@ -187,9 +190,11 @@ export class StateStore {
         area,
         domanda: domanda ?? null,
       });
-      // citta/zona qui sono le etichette RISOLTE dalla risposta (result.citta/zona_normalizzata),
-      // non quelle della richiesta (che non esistono più, #318): stesso valore che `transition()`
-      // ha appena scritto in `lastQuery`, usato da /analyze/poi e /analyze/narrativa.
+      // citta/zona qui sono le etichette della RISPOSTA (result.citta/zona_normalizzata), non
+      // quelle eventualmente presenti nella richiesta (#335: in modalità cerchio non esistono
+      // affatto; in modalità città/zona il backend le riporta già uguali a quanto digitato, dopo
+      // lo strip) — stesso valore che `transition()` ha appena scritto in `lastQuery`, usato da
+      // /analyze/poi e /analyze/narrativa.
       void this.loadZoneNarrative(
         result.contesto_hash,
         result.citta,

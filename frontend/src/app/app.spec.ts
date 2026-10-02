@@ -878,7 +878,7 @@ describe('App shell', () => {
       expect(dock.classList.contains('cra-dock-narr-open')).toBe(false);
     });
 
-    it('"+ Nuova richiesta": conferma leggera IN-APP → "Sì" dispatcha RESET, torna a Stato INPUT col form vuoto E azzera il cerchio (#318: bisogna ridisegnare)', async () => {
+    it('"+ Nuova richiesta": conferma leggera IN-APP → "Sì" dispatcha RESET, torna a Stato INPUT col form vuoto E azzera il cerchio (#318/#335: bisogna ridisegnare o ridigitare)', async () => {
       const f = TestBed.createComponent(App);
       await setupResults(f);
       expect(store.screen()).toBe('RESULTS');
@@ -901,10 +901,14 @@ describe('App shell', () => {
       expect(f.nativeElement.querySelector('cra-input-panel')).toBeTruthy();
       expect(f.nativeElement.querySelector('cra-panel-dock')).toBeNull();
 
-      // #318: il cerchio locale dello shell si azzera al RESET — il bottone resta disabilitato
-      // finché l'utente non ridisegna, non riusa implicitamente il cerchio della ricerca precedente.
+      // #318/#335: il cerchio E città/zona locali dello shell si azzerano al RESET — il form non
+      // riusa implicitamente l'area della ricerca precedente (il bottone resta comunque sempre
+      // abilitato, UX pre-#318: un submit senza area mostra l'errore client, non un controllo
+      // disabilitato senza spiegazione).
+      const cittaField: HTMLInputElement = f.nativeElement.querySelector('#cra-citta');
+      expect(cittaField.value).toBe('');
       const submitBtn: HTMLButtonElement = f.nativeElement.querySelector('button[type=submit]');
-      expect(submitBtn.disabled).toBe(true);
+      expect(submitBtn.disabled).toBe(false);
     });
 
     it('"+ Nuova richiesta" → "Annulla": resta in RESULTS, nessun RESET dispatchato', async () => {
@@ -1160,20 +1164,20 @@ describe('App shell', () => {
     });
   });
 
-  describe('#318: cerchio disegnato condiviso fra i pannelli + "vai a un luogo"', () => {
+  describe('#318/#335: cerchio disegnato condiviso fra i pannelli + "vai a un luogo"', () => {
     it('circleChange di MapComponent alimenta il segnale locale, passato sia a InputPanel sia a BasePanel', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
 
-      // Stato INPUT: senza cerchio il bottone di InputPanel resta disabilitato.
-      const submitBtn = (): HTMLButtonElement =>
-        f.nativeElement.querySelector('button[type=submit]');
-      expect(submitBtn().disabled).toBe(true);
+      // Stato INPUT: senza cerchio l'hint invita a scegliere l'area (cerchio o città/zona).
+      const hint = (): string =>
+        (f.nativeElement.querySelector('#cra-circle-hint') as HTMLElement).textContent ?? '';
+      expect(hint()).toContain("Scegli l'area");
 
       emitCircle(f, { lat: 41.9, lon: 12.5, radiusM: 300 });
       f.detectChanges();
-      expect(submitBtn().disabled).toBe(false);
+      expect(hint()).toContain('il cerchio disegnato sulla mappa');
 
       // Stesso segnale raggiunge anche BasePanel dopo il toggle di modalità.
       const modeButtons: HTMLButtonElement[] = Array.from(
@@ -1185,7 +1189,9 @@ describe('App shell', () => {
       f.detectChanges();
 
       expect(store.screen()).toBe('BASE');
-      expect(submitBtn().disabled).toBe(false);
+      const baseHint =
+        (f.nativeElement.querySelector('#cra-base-circle-hint') as HTMLElement).textContent ?? '';
+      expect(baseHint).toContain('il cerchio disegnato sulla mappa');
     });
 
     it('un secondo cerchio disegnato (nuovo centro) sostituisce quello corrente', async () => {
@@ -1197,9 +1203,60 @@ describe('App shell', () => {
       emitCircle(f, null); // MapComponent lo emette lui stesso al nuovo clic di centro (vedi onMapClick).
       f.detectChanges();
 
-      expect(
-        (f.nativeElement.querySelector('button[type=submit]') as HTMLButtonElement).disabled,
-      ).toBe(true);
+      const hint =
+        (f.nativeElement.querySelector('#cra-circle-hint') as HTMLElement).textContent ?? '';
+      expect(hint).toContain("Scegli l'area");
+    });
+
+    it('digitare città/zona dopo un cerchio disegnato rimuove il cerchio, anche dalla mappa', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      const mapDebugEl = f.debugElement.query(By.directive(MapComponent));
+      const clearCircleSpy = jest.spyOn(mapDebugEl.componentInstance, 'clearCircle');
+
+      emitCircle(f, { lat: 41.9, lon: 12.5, radiusM: 300 });
+      f.detectChanges();
+
+      const cittaInput: HTMLInputElement = f.nativeElement.querySelector('#cra-citta');
+      cittaInput.value = 'Milano';
+      cittaInput.dispatchEvent(new Event('input'));
+      f.detectChanges();
+
+      // Il cerchio è già rimosso al primo carattere non vuoto (anche con zona ancora vuota, cioè
+      // prima che l'area diventi una coppia città/zona completa): "vince l'ultima scelta" scatta
+      // sulla digitazione, non solo quando l'area testuale è già valida.
+      expect(clearCircleSpy).toHaveBeenCalled();
+
+      const zonaInput: HTMLInputElement = f.nativeElement.querySelector('#cra-zona');
+      zonaInput.value = 'Duomo';
+      zonaInput.dispatchEvent(new Event('input'));
+      f.detectChanges();
+
+      const hint =
+        (f.nativeElement.querySelector('#cra-circle-hint') as HTMLElement).textContent ?? '';
+      expect(hint).toContain('città e zona inserite qui sotto');
+    });
+
+    it('disegnare un cerchio dopo aver digitato città/zona svuota i campi', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      const cittaInput: HTMLInputElement = f.nativeElement.querySelector('#cra-citta');
+      const zonaInput: HTMLInputElement = f.nativeElement.querySelector('#cra-zona');
+      cittaInput.value = 'Roma';
+      cittaInput.dispatchEvent(new Event('input'));
+      zonaInput.value = 'Colosseo';
+      zonaInput.dispatchEvent(new Event('input'));
+      f.detectChanges();
+
+      emitCircle(f, { lat: 41.9, lon: 12.5, radiusM: 300 });
+      f.detectChanges();
+
+      expect((f.nativeElement.querySelector('#cra-citta') as HTMLInputElement).value).toBe('');
+      expect((f.nativeElement.querySelector('#cra-zona') as HTMLInputElement).value).toBe('');
     });
 
     it('"vai a un luogo": submit → geocodePlace → MapComponent.flyTo col risultato', async () => {

@@ -120,15 +120,13 @@ describe('models (contratto /analyze)', () => {
     );
   });
 
-  it("Action ANALYZE accetta anche l'area in modalita' testuale (le due coesistono)", () => {
+  it("Action ANALYZE accetta anche l'area in modalita' citta'/zona (le due coesistono)", () => {
     const a: Action = {
       type: 'ANALYZE',
-      area: { kind: 'query', query: 'Colosseo, Roma' },
+      area: { kind: 'zone', citta: 'Roma', zona: 'Colosseo' },
       pipeline: 'completo',
     };
-    expect(a.type === 'ANALYZE' && a.area.kind === 'query' ? a.area.query : null).toBe(
-      'Colosseo, Roma',
-    );
+    expect(a.type === 'ANALYZE' && a.area.kind === 'zone' ? a.area.zona : null).toBe('Colosseo');
   });
 
   it('parametri baseline sono assegnabili a BaselineParams', () => {

@@ -101,6 +101,47 @@ describe('ApiService', () => {
     await promise;
   });
 
+  it('analyze manda citta+zona quando l’area è in modalità città/zona', async () => {
+    const promise = api.analyze({ kind: 'zone', citta: 'Roma', zona: 'Colosseo' });
+    const req = http.expectOne('/analyze');
+    expect(req.request.body).toEqual({ citta: 'Roma', zona: 'Colosseo' });
+    req.flush(resp);
+    await promise;
+  });
+
+  it('cities: GET /cities ritorna l’elenco delle città per il datalist', async () => {
+    const promise = api.cities();
+    const req = http.expectOne('/cities');
+    expect(req.request.method).toBe('GET');
+    req.flush(['Roma', 'Milano']);
+    expect(await promise).toEqual(['Roma', 'Milano']);
+  });
+
+  it('cities: una sola chiamata HTTP per sessione, anche invocando il metodo più volte (reperto review: InputPanel + BasePanel lo chiamano entrambi)', async () => {
+    const p1 = api.cities();
+    const p2 = api.cities();
+    const req = http.expectOne('/cities');
+    req.flush(['Roma', 'Milano']);
+    expect(await p1).toEqual(['Roma', 'Milano']);
+    expect(await p2).toEqual(['Roma', 'Milano']);
+
+    // Una terza chiamata, anche dopo che la prima è già risolta, riusa ancora la stessa Promise:
+    // nessuna seconda richiesta HTTP in volo (http.verify() in afterEach lo confermerebbe comunque).
+    const p3 = api.cities();
+    expect(await p3).toEqual(['Roma', 'Milano']);
+  });
+
+  it('cities: su errore la memoizzazione si azzera, una chiamata successiva ritenta', async () => {
+    const p1 = api.cities();
+    http.expectOne('/cities').flush('boom', { status: 503, statusText: 'Service Unavailable' });
+    await expect(p1).rejects.toBeTruthy();
+
+    const p2 = api.cities();
+    const req2 = http.expectOne('/cities');
+    req2.flush(['Roma']);
+    expect(await p2).toEqual(['Roma']);
+  });
+
   it('geocodePlace chiama GET /geocode con la query', async () => {
     const promise = api.geocodePlace('Duomo di Milano');
     const req = http.expectOne((r) => r.url === '/geocode');
