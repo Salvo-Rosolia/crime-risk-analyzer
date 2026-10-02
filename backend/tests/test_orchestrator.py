@@ -8,6 +8,7 @@ import logging
 import pytest
 from pydantic import ValidationError
 
+from crime_risk_analyzer.config import get_settings
 from crime_risk_analyzer.geocoding import GeoResult
 from crime_risk_analyzer.llm.client import GROQ_MODEL, LLMError, LLMResponse
 from crime_risk_analyzer.models.geo import Bbox
@@ -1235,7 +1236,7 @@ async def test_run_analysis_does_not_touch_the_zone_cache(
         zone_context_cache.clear()
 
 
-# --- contratto dell'area: cerchio (center/radius_m) OPPURE ricerca testuale (query) ---
+# --- contratto dell'area: cerchio (center/radius_m) OPPURE citta + zona ---
 
 
 def test_analyze_request_centro_e_raggio() -> None:
@@ -1245,21 +1246,115 @@ def test_analyze_request_centro_e_raggio() -> None:
     assert req.radius_m == 500.0
 
 
-def test_analyze_request_ricerca_testuale() -> None:
-    """La modalita' testuale coesiste col cerchio: query sola, senza geometria."""
-    req = AnalyzeRequest(query="Colosseo, Roma")
+def test_analyze_request_citta_e_zona() -> None:
+    """La seconda modalita' sono i DUE campi citta + zona, senza geometria."""
+    req = AnalyzeRequest(citta="Roma", zona="Colosseo")
     assert req.is_circle is False
-    assert req.query == "Colosseo, Roma"
+    assert req.citta == "Roma"
+    assert req.zona == "Colosseo"
     assert req.center is None
     assert req.radius_m is None
 
 
+def test_analyze_request_citta_e_zona_ripulite_dagli_spazi() -> None:
+    """Gli spazi ai bordi non entrano nella query Nominatim ne' nella cache."""
+    req = AnalyzeRequest(citta="  Roma ", zona=" Colosseo  ")
+    assert req.citta == "Roma"
+    assert req.zona == "Colosseo"
+
+
 def test_analyze_request_due_modalita_insieme_respinte() -> None:
-    """Cerchio e query insieme: ambiguo su QUALE area analizzare -> respinto."""
+    """Cerchio e citta/zona insieme: ambiguo su QUALE area analizzare -> respinto."""
     with pytest.raises(ValidationError):
         AnalyzeRequest(
-            center=Center(lat=41.9, lon=12.5), radius_m=500.0, query="Colosseo"
+            center=Center(lat=41.9, lon=12.5),
+            radius_m=500.0,
+            citta="Roma",
+            zona="Colosseo",
         )
+
+
+@pytest.mark.parametrize("vuoto", ["", "   "])
+def test_analyze_request_cerchio_con_campi_testuali_vuoti_e_un_cerchio(
+    vuoto: str,
+) -> None:
+    """Un campo testuale vuoto o di soli spazi conta come ASSENTE.
+
+    Un client che serializza il form con le caselle vuote non sta chiedendo una
+    seconda modalita': il body resta un cerchio valido.
+    """
+    req = AnalyzeRequest(
+        center=Center(lat=41.9, lon=12.5), radius_m=500.0, citta=vuoto, zona=vuoto
+    )
+    assert req.is_circle is True
+    assert req.citta is None
+    assert req.zona is None
+
+
+def test_analyze_request_campi_testuali_tutti_vuoti_senza_cerchio_respinti() -> None:
+    """Vuoti = assenti: senza cerchio non resta alcuna modalita' -> respinto."""
+    with pytest.raises(ValidationError):
+        AnalyzeRequest(citta="  ", zona="")
+
+
+def test_analyze_request_cerchio_e_un_solo_campo_testuale_respinto() -> None:
+    """Anche un solo campo testuale accanto al cerchio e' una seconda modalita'."""
+    with pytest.raises(ValidationError):
+        AnalyzeRequest(center=Center(lat=41.9, lon=12.5), radius_m=500.0, citta="Roma")
+
+
+@pytest.mark.parametrize(
+    ("citta", "zona"),
+    [("Roma", None), (None, "Colosseo"), ("Roma", "   "), ("  ", "Colosseo")],
+)
+def test_analyze_request_citta_o_zona_mancante_respinta(
+    citta: str | None, zona: str | None
+) -> None:
+    """Servono ENTRAMBI i campi: una zona senza citta' (o viceversa) non e' un'area.
+
+    Una sola meta' finirebbe a Nominatim come query ambigua ("Colosseo" in tutta
+    Italia) o troppo larga (una citta' intera): meglio un 422 che un'area diversa
+    da quella che l'utente crede di aver chiesto.
+    """
+    with pytest.raises(ValidationError):
+        AnalyzeRequest(citta=citta, zona=zona)
+
+
+def test_analyze_request_citta_fuori_dai_suggerimenti_accettata() -> None:
+    """Nessuna allowlist (#191): ``supported_cities`` suggerisce, non vincola."""
+    citta = "Matera"
+    assert citta not in get_settings().supported_cities
+    req = AnalyzeRequest(citta=citta, zona="Sassi")
+    assert req.citta == citta
+
+
+def test_analyze_request_citta_troppo_lunga_respinta() -> None:
+    """max_length=100 su citta: un nome di comune ci sta ampiamente (#170)."""
+    AnalyzeRequest(citta="x" * 100, zona="Centro")
+    with pytest.raises(ValidationError):
+        AnalyzeRequest(citta="x" * 101, zona="Centro")
+
+
+def test_analyze_request_strip_prima_del_tetto_di_lunghezza() -> None:
+    """Il tetto vale sul valore RIPULITO: gli spazi ai bordi non contano.
+
+    ``"Roma"`` seguito da 100 spazi e' "Roma"; e una casella di soli spazi, per
+    quanto lunga, resta una casella vuota accanto al cerchio, non un 422.
+    """
+    req = AnalyzeRequest(citta="Roma" + " " * 100, zona="Colosseo" + " " * 200)
+    assert (req.citta, req.zona) == ("Roma", "Colosseo")
+
+    cerchio = AnalyzeRequest(
+        center=Center(lat=41.9, lon=12.5), radius_m=500.0, citta=" " * 101
+    )
+    assert cerchio.is_circle is True
+    assert cerchio.citta is None
+
+
+def test_analyze_request_zona_troppo_lunga_respinta() -> None:
+    """max_length chiude la superficie free-text verso Nominatim e _CACHE (#170)."""
+    with pytest.raises(ValidationError):
+        AnalyzeRequest(citta="Roma", zona="x" * 201)
 
 
 def test_analyze_request_nessuna_modalita_respinta() -> None:
@@ -1291,12 +1386,12 @@ def test_baseline_request_centro_raggio_e_tipo_poi() -> None:
     assert req.tipo_poi == "Bank"
 
 
-def test_analyze_request_surface_is_exactly_center_and_radius_m() -> None:
+def test_analyze_request_surface_is_cerchio_or_citta_zona() -> None:
     """La fase 1 chiede DOVE (l'area), non cosa raccontare (#292/#318).
 
     L'area arriva in una delle DUE modalita' che coesistono — ``center``+``radius_m``
-    (cerchio disegnato) oppure ``query`` (ricerca testuale libera) — e il validator
-    di ``_AreaRequest`` impone che il body ne porti esattamente una.
+    (cerchio disegnato) oppure ``citta``+``zona`` (i due campi testuali) — e il
+    validator di ``_AreaRequest`` impone che il body ne porti esattamente una.
 
     ``domanda`` resta fuori: senza chiamata LLM su questa rotta non c'e' prompt
     in cui iniettarla, e tenerla nel contratto significava dichiarare un input
@@ -1305,10 +1400,10 @@ def test_analyze_request_surface_is_exactly_center_and_radius_m() -> None:
     richiesta che porta davvero il testo al modello. L'insieme esatto tiene fuori
     anche il ritorno di un ``tipo_poi``/``score`` per la strada del «tanto e'
     opzionale»."""
-    assert set(AnalyzeRequest.model_fields) == {"center", "radius_m", "query"}
+    assert set(AnalyzeRequest.model_fields) == {"center", "radius_m", "citta", "zona"}
 
 
-def test_baseline_request_surface_is_center_radius_tipo_poi() -> None:
+def test_baseline_request_surface_is_cerchio_or_citta_zona_tipo_poi() -> None:
     """Guardia sull'asimmetria iso-input fra i due bracci (#263).
 
     ``BaselineRequest`` porta ``tipo_poi`` ma non ``domanda``; ``ZoneNarrativeRequest``
@@ -1322,7 +1417,8 @@ def test_baseline_request_surface_is_center_radius_tipo_poi() -> None:
     assert set(BaselineRequest.model_fields) == {
         "center",
         "radius_m",
-        "query",
+        "citta",
+        "zona",
         "tipo_poi",
     }
 

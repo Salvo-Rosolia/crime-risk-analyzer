@@ -2,14 +2,14 @@
   <span class="cra-title">◆ Crime Risk Analyzer</span>
   <span class="cra-tagline">supporto decisionale · human-in-the-loop</span>
   <span class="cra-header-spacer"></span>
-  <!-- Ricerca testuale: la SECONDA modalita' di scelta dell'area, alternativa al cerchio
-       disegnato. L'invio sposta la mappa sul luogo (Nominatim + flyTo) E conferma il testo come
-       area da analizzare; disegnare un cerchio la sostituisce, e viceversa. -->
+  <!-- "Vai a un luogo": puro aiuto di navigazione sulla mappa (Nominatim + flyTo). Non sceglie
+       l'area da analizzare: quella si sceglie col cerchio disegnato o con città/zona nel pannello
+       di ricerca (#335). -->
   <div class="cra-place-search">
     <input
       type="text"
-      aria-label="Cerca un luogo da analizzare"
-      placeholder="Cerca un luogo…"
+      aria-label="Vai a un luogo sulla mappa"
+      placeholder="Vai a un luogo…"
       [value]="placeQuery()"
       (input)="onPlaceQueryInput($event)"
       (keydown.enter)="onGoToPlace()"
@@ -91,6 +91,10 @@
           <cra-input-panel
             [initialDomanda]="store.pendingDomanda()"
             [area]="area()"
+            [citta]="citta()"
+            [zona]="zona()"
+            (cittaChange)="onCittaChange($event)"
+            (zonaChange)="onZonaChange($event)"
             (analyze)="onAnalyze($event)"
           />
         </div>
@@ -103,6 +107,10 @@
           <cra-input-panel
             [initialDomanda]="store.pendingDomanda()"
             [area]="area()"
+            [citta]="citta()"
+            [zona]="zona()"
+            (cittaChange)="onCittaChange($event)"
+            (zonaChange)="onZonaChange($event)"
             [serverError]="store.error()"
             (analyze)="onAnalyze($event)"
           />
@@ -119,6 +127,10 @@
           [data]="store.baselineData()"
           [serverError]="store.error()"
           [area]="area()"
+          [citta]="citta()"
+          [zona]="zona()"
+          (cittaChange)="onCittaChange($event)"
+          (zonaChange)="onZonaChange($event)"
           (analyzeBaseline)="onBaseSearch($event)"
           (backToCompleto)="onToggleMode('completo')"
         />

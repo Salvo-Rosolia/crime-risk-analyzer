@@ -39,7 +39,17 @@ _STORE: dict[tuple[str, str], tuple[float, ZoneContext]] = {}
 
 
 def _key(citta: str, zona: str) -> tuple[str, str]:
-    """Chiave tollerante: il client rimanda la zona come l'ha ricevuta."""
+    """Chiave tollerante: il client rimanda la zona come l'ha ricevuta.
+
+    La chiave e' l'ETICHETTA, non l'area: un cerchio la cui etichetta di reverse
+    geocode e' ("Roma", "Monti") e la modalita' citta + zona con "Roma"/"Monti"
+    digitati condividono lo stesso slot, pur essendo aree diverse. Preesistente
+    da #318 (due cerchi diversi con la stessa etichetta collidevano gia'). Non
+    produce narrative su un'area sbagliata: la fase 2 confronta
+    ``contesto_hash`` con l'impronta del contesto in slot, e un contesto
+    sovrascritto dall'altra area da' ``ContextMismatchError`` -> 409, che invita a
+    rilanciare l'analisi.
+    """
     return (citta.strip().casefold(), zona.strip().casefold())
 
 

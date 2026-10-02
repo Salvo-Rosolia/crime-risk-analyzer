@@ -17,16 +17,39 @@ import {
 function areaBody(area: SearchArea): Record<string, unknown> {
   return area.kind === 'circle'
     ? { center: area.center, radius_m: area.radiusM }
-    : { query: area.query };
+    : { citta: area.citta, zona: area.zona };
 }
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private readonly http = inject(HttpClient);
 
+  /** Promise memoizzata di `cities()` (reperto review): sia `InputPanelComponent` sia
+   * `BasePanelComponent` la chiamano al proprio `ngOnInit`, e un giro Completo↔Base o un remount
+   * INPUT→ERROR ne rimonta uno dei due a ogni cambio — senza memoizzazione, ogni rimonto
+   * ripeterebbe la stessa GET per una lista che non cambia in sessione. */
+  private citiesPromise: Promise<string[]> | null = null;
+
+  /**
+   * Elenco delle città suggerite per il datalist dei pannelli di ricerca (`GET /cities`): UNA sola
+   * chiamata HTTP per sessione, le chiamate successive (da qualunque pannello) riusano la stessa
+   * Promise. Se la richiesta fallisce la memoizzazione si azzera, così un rimonto successivo
+   * (es. dopo che la rete è tornata) può ritentare invece di restare bloccato su un fallimento
+   * vecchio.
+   */
+  cities(): Promise<string[]> {
+    if (!this.citiesPromise) {
+      this.citiesPromise = firstValueFrom(this.http.get<string[]>('/cities')).catch((err) => {
+        this.citiesPromise = null;
+        throw err;
+      });
+    }
+    return this.citiesPromise;
+  }
+
   /**
    * Fase 1 (`POST /analyze`): manda l'AREA nella modalita' scelta dall'utente — il cerchio
-   * disegnato (centro+raggio) oppure una ricerca testuale libera. Il backend accetta
+   * disegnato (centro+raggio) oppure città e zona digitate. Il backend accetta
    * esattamente una delle due forme e risponde 422 se ne arrivano zero o due: qui non si
    * compone mai un body ambiguo perche' `SearchArea` non lo permette.
    */

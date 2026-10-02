@@ -48,30 +48,39 @@ export class App {
   private readonly mapRef = viewChild.required(MapComponent);
 
   /**
-   * Cerchio disegnato sulla mappa (#318, sostituisce citta/zona digitati): unica sorgente per
-   * entrambi i pannelli di ricerca (`InputPanelComponent`/`BasePanelComponent`), alimentata
-   * dall'output `circleChange` di `MapComponent`. `MapComponent` non è dentro il `@switch` di
-   * schermo (sempre montato), quindi questo segnale non ha bisogno di reseeding al cambio di
-   * schermo — solo `onResetConfirmed` lo azzera esplicitamente ("+ Nuova richiesta" impone di
-   * ridisegnare).
+   * Cerchio disegnato sulla mappa: una delle DUE modalità di scelta dell'area che coesistono
+   * (#335, come prima di #318), alimentata dall'output `circleChange` di `MapComponent`.
+   * `MapComponent` non è dentro il `@switch` di schermo (sempre montato), quindi questo segnale
+   * non ha bisogno di reseeding al cambio di schermo — solo `onResetConfirmed` lo azzera
+   * esplicitamente ("+ Nuova richiesta" impone di ridisegnare o ridigitare).
    */
   protected readonly circle = signal<Circle | null>(null);
-  /** Ricerca testuale CONFERMATA (invio nella casella in alto), `null` se non e' quella attiva. */
-  protected readonly textQuery = signal<string | null>(null);
+  /**
+   * Città/zona digitate (#335): l'ALTRA modalità di scelta dell'area, stato condiviso qui nello
+   * shell (non nei pannelli, non nella FSM) perché sia `InputPanelComponent` sia
+   * `BasePanelComponent` devono vederle identiche e sopravvivere al proprio remount fra stati
+   * (`@switch (store.screen())`) e a un giro Completo↔Base.
+   */
+  protected readonly citta = signal('');
+  protected readonly zona = signal('');
   /**
    * L'AREA attiva, nella modalita' scelta per ultima. Le due modalita' coesistono ma non si
-   * sommano: sceglierne una azzera l'altra (vedi `onCircleChange`/`onGoToPlace`), cosi' non
-   * esiste uno stato in cui l'utente non sappia quale area verrebbe analizzata. `SearchArea`
-   * rende quella mutua esclusione un fatto di tipo, non una convenzione da ricordare.
+   * sommano: sceglierne una azzera l'altra (vedi `onCircleChange`/`onCittaChange`/`onZonaChange`),
+   * cosi' non esiste uno stato in cui l'utente non sappia quale area verrebbe analizzata.
+   * `SearchArea` rende quella mutua esclusione un fatto di tipo, non una convenzione da ricordare.
+   * Città/zona contano solo a COPPIA COMPLETA (trimmata): una sola compilata non è ancora un'area,
+   * stessa regola di `validateInputPanel` (`core/ui-helpers.ts`).
    */
   protected readonly area = computed<SearchArea | null>(() => {
     const c = this.circle();
     if (c) return { kind: 'circle', center: { lat: c.lat, lon: c.lon }, radiusM: c.radiusM };
-    const q = this.textQuery();
-    return q ? { kind: 'query', query: q } : null;
+    const citta = this.citta().trim();
+    const zona = this.zona().trim();
+    return citta && zona ? { kind: 'zone', citta, zona } : null;
   });
-  /** Casella "vai a un luogo" (#318): puro aiuto di navigazione sulla mappa (Nominatim + flyTo),
-   * indipendente dal cerchio di ricerca — non tocca la FSM né `circle`. */
+  /** Casella "vai a un luogo" in header (#318, tornata pura navigazione con #335): aiuto di
+   * navigazione sulla mappa (Nominatim + flyTo), indipendente dall'area di ricerca — non tocca la
+   * FSM né `circle`/`citta`/`zona`. */
   protected readonly placeQuery = signal('');
   protected readonly placeError = signal<string | null>(null);
   /** Token di sequenza per `onGoToPlace` (fix reperto review, stesso idioma di
@@ -104,10 +113,31 @@ export class App {
 
   protected onCircleChange(c: Circle | null): void {
     this.circle.set(c);
-    // Disegnare un cerchio SOSTITUISCE la ricerca testuale come area attiva: tenerle entrambe
-    // lascerebbe l'utente senza modo di sapere quale delle due verrebbe analizzata (e il backend
-    // rifiuterebbe comunque un body con tutte e due, 422).
-    if (c) this.textQuery.set(null);
+    // Disegnare un cerchio SOSTITUISCE città/zona come area attiva: tenerle entrambe lascerebbe
+    // l'utente senza modo di sapere quale delle due verrebbe analizzata (e il backend rifiuterebbe
+    // comunque un body con tutte e due, 422).
+    if (c) {
+      this.citta.set('');
+      this.zona.set('');
+    }
+  }
+
+  /** Digitare in città/zona (valore non vuoto) SOSTITUISCE il cerchio come area attiva — stessa
+   * mutua esclusione di `onCircleChange`, nella direzione opposta: "vince l'ultima scelta". */
+  protected onCittaChange(value: string): void {
+    this.citta.set(value);
+    if (value.trim()) this.clearCircleIfAny();
+  }
+
+  protected onZonaChange(value: string): void {
+    this.zona.set(value);
+    if (value.trim()) this.clearCircleIfAny();
+  }
+
+  private clearCircleIfAny(): void {
+    if (!this.circle()) return;
+    this.circle.set(null);
+    this.mapRef().clearCircle();
   }
 
   protected onPlaceQueryInput(event: Event): void {
@@ -115,9 +145,10 @@ export class App {
   }
 
   /**
-   * "vai a un luogo" (#318): geocodifica il testo libero (`ApiService.geocodePlace`, Nominatim) e
-   * sposta la mappa (`MapComponent.flyTo`) — non tocca `circle`: è pura navigazione, non selezione
-   * dell'area da analizzare.
+   * "vai a un luogo" (#318, tornata pura navigazione con #335): geocodifica il testo libero
+   * (`ApiService.geocodePlace`, Nominatim) e sposta la mappa (`MapComponent.flyTo`) — non tocca
+   * `circle` né `citta`/`zona`: è SOLO un aiuto di navigazione, mai la scelta dell'area da
+   * analizzare (quella si sceglie col cerchio o coi campi del pannello, mai da qui).
    *
    * Guardia di sequenza (fix reperto review, race condition): senza `seq`, un submit rapido di
    * A poi B con la risposta di A arrivata DOPO quella di B applicherebbe per ultima gli effetti di
@@ -142,13 +173,6 @@ export class App {
       if (seq !== this.placeRequestSeq) return;
       this.placeError.set(null);
       this.mapRef().flyTo(lat, lon);
-      // La casella non sposta soltanto la mappa: il testo confermato DIVENTA l'area da
-      // analizzare, alternativa al cerchio. Il geocode qui serve a mostrare subito dove si
-      // atterra; l'area vera la ricalcola il backend dal testo (bbox del luogo, non questo
-      // punto), quindi si propaga la query e non le coordinate.
-      this.textQuery.set(q);
-      this.circle.set(null);
-      this.mapRef().clearCircle();
     } catch (err) {
       if (seq !== this.placeRequestSeq) return;
       this.placeError.set(errorMessage(err, 'Luogo non trovato.'));
@@ -193,11 +217,13 @@ export class App {
    * dell'utente, quindi dispatcha `RESET` direttamente (nessun `window.confirm`). */
   protected onResetConfirmed(): void {
     this.store.dispatch({ type: 'RESET' });
-    // #318: dopo "+ Nuova richiesta" l'utente deve ridisegnare il cerchio — non lo si riusa
-    // implicitamente per la prossima analisi (MapComponent stesso non si smonta, quindi senza
-    // questo azzeramento esplicito il vecchio cerchio resterebbe silenziosamente valido).
+    // #318/#335: dopo "+ Nuova richiesta" l'utente deve ridisegnare il cerchio o ridigitare
+    // città/zona — non si riusano implicitamente per la prossima analisi (MapComponent stesso non
+    // si smonta, quindi senza questo azzeramento esplicito il vecchio cerchio resterebbe
+    // silenziosamente valido).
     this.circle.set(null);
-    this.textQuery.set(null);
+    this.citta.set('');
+    this.zona.set('');
     this.placeQuery.set('');
     // Azzerare il segnale locale non basta (reperto review I5): MapComponent tiene il proprio
     // circleLayer disegnato sulla mappa indipendentemente da questo segnale, quindi senza

@@ -3,9 +3,10 @@
 Il deploy canonico e' same-origin (build Angular servita da FastAPI/StaticFiles):
 li' il CORS non serve. Il middleware e' DIFESA IN PROFONDITA': abilita un
 eventuale deploy split-origin e chiude i buchi cross-origin in dev su ``/health``
-e ``/cities`` (non proxati da ``ng serve``, a differenza di ``/analyze`` e
-``/analyze/baseline``). Opzione A: allowlist ESPLICITA da ``Settings``, mai
-wildcard ``*`` (vincolo #106), ``allow_credentials=False`` (API stateless).
+e ``/geocode`` (non proxati da ``ng serve``, a differenza di ``/analyze``,
+``/analyze/baseline`` e ``/cities``). Opzione A: allowlist ESPLICITA da
+``Settings``, mai wildcard ``*`` (vincolo #106), ``allow_credentials=False``
+(API stateless).
 
 ``cast`` + ignore puntuale sui metodi di ``TestClient``: il loro tipo non e'
 risolto da pyright strict con questa combinazione di versioni (stesso pattern di

@@ -179,13 +179,14 @@ export interface BaselineParams {
 
 /**
  * L'AREA da analizzare, in una delle DUE modalita' che coesistono: il cerchio disegnato sulla
- * mappa oppure una ricerca testuale libera. Unione discriminata e non due coppie di campi
- * opzionali: cosi' "cerchio a meta'" o "cerchio e testo insieme" non sono rappresentabili, e il
- * backend (che rifiuta entrambi i casi con 422) non deve fare da rete di sicurezza per il client.
+ * mappa oppure città e zona digitate nel pannello (come prima di #318). Unione discriminata e non
+ * due coppie di campi opzionali: cosi' "cerchio a meta'" o "cerchio e citta'/zona insieme" non sono
+ * rappresentabili, e il backend (che rifiuta entrambi i casi con 422) non deve fare da rete di
+ * sicurezza per il client.
  */
 export type SearchArea =
   | { kind: 'circle'; center: { lat: number; lon: number }; radiusM: number }
-  | { kind: 'query'; query: string };
+  | { kind: 'zone'; citta: string; zona: string };
 
 /** Payload emesso dal pannello "completo" verso lo shell: l'area scelta + la domanda opzionale. */
 export interface AnalyzeRequestPayload {
@@ -204,7 +205,13 @@ export type Mode = 'completo' | 'base';
  */
 export interface LastQuery {
   area: SearchArea;
-  /** Etichetta risolta dal backend (reverse geocode, #318): usata per /analyze/poi e /analyze/narrativa. */
+  /**
+   * Etichette per /analyze/poi e /analyze/narrativa. In modalita' cerchio sono il reverse geocode
+   * del centro (il backend le risolve lui, il client non ha un nome da proporre). In modalita'
+   * citta'/zona sono esattamente quanto digitato — stesso valore di `area.citta`/`area.zona`, non
+   * un reverse geocode — perche' il backend, in quella modalita', riporta in risposta il testo
+   * dell'utente dopo lo strip, non una ricerca sul punto.
+   */
   citta: string;
   zona: string;
   domanda: string | null;

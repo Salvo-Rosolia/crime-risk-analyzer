@@ -14,7 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from crime_risk_analyzer import area_search, zone_context_cache
+from crime_risk_analyzer import area_search, geocoding, zone_context_cache
 from crime_risk_analyzer.config import Settings, get_settings
 from crime_risk_analyzer.geocoding import GeoResult, ZoneNotFoundError
 from crime_risk_analyzer.llm.client import LLMError, LLMResponse, get_llm_client
@@ -551,7 +551,8 @@ def test_zone_narrative_response_has_no_numeric_danger_scoring_field() -> None:
 
 
 def test_zone_narrative_request_surface_is_citta_zona_domanda_contesto_hash() -> None:
-    """Guardia gemella di ``test_baseline_request_surface_is_citta_zona_tipo_poi``
+    """Guardia gemella di
+    ``test_baseline_request_surface_is_cerchio_or_citta_zona_tipo_poi``
     (`test_orchestrator.py`, #263): fissa l'altro lato dell'asimmetria iso-input.
 
     ``ZoneNarrativeRequest`` porta ``domanda`` ma non ``tipo_poi``; ``BaselineRequest``
@@ -626,9 +627,9 @@ def _fake_reverse_geocode(lat: float, lon: float) -> tuple[str, str]:
 def _patch_io(monkeypatch: pytest.MonkeyPatch, *, densa: bool = False) -> None:
     """Sostituisce reverse geocode e Overpass per i test delle rotte HTTP (#318).
 
-    ``retrieval.geocode_zone`` non e' piu' chiamato da ``/analyze`` (il body
-    della rotta e' un cerchio, ``resolve_circle`` passa sempre un proprio
-    ``geo_source``): la sola I/O da patchare qui e' la label reverse-geocoded
+    ``retrieval.geocode_zone`` non e' chiamato da ``/analyze`` (i test qui usano
+    il cerchio, e ``resolve_circle`` passa sempre un proprio ``geo_source``):
+    la sola I/O da patchare qui e' la label reverse-geocoded
     (``area_search.reverse_geocode_label``) e Overpass.
     """
     monkeypatch.setattr(area_search, "reverse_geocode_label", _fake_reverse_geocode)
@@ -1185,3 +1186,113 @@ def test_i_due_percorsi_partono_dagli_stessi_tetti() -> None:
         == Settings.model_fields["llm_max_tokens"].default
         == DEFAULT_MAX_TOKENS
     )
+
+
+# --- Giro completo in modalita' citta + zona, a cache di zona FREDDA ---
+#
+# Le etichette della modalita' zona sono il testo digitato proprio perche' la
+# fase 2 possa ricostruire il contesto scaduto rifacendo ``geocode_zone`` sulle
+# etichette ricevute. Qui Nominatim e' simulato IN BASSO (sotto ``geocode_zone``,
+# al livello del geolocator), cosi' fase 1 e ricostruzione passano dalla stessa
+# ``_cache_key`` e dalla stessa query: se le etichette divergessero dal digitato,
+# la ricostruzione cercherebbe un'altra area e la rotta risponderebbe 409.
+
+
+class _FakeNominatimLocation:
+    def __init__(self) -> None:
+        self.latitude = 41.8902
+        self.longitude = 12.4922
+        self.raw: dict[str, object] = {
+            "boundingbox": ["41.88", "41.90", "12.48", "12.50"]
+        }
+
+
+class _FakeNominatim:
+    """Geolocator finto: registra le query forward, vieta il reverse."""
+
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+
+    def geocode(self, query: str, **kwargs: object) -> _FakeNominatimLocation:
+        self.queries.append(query)
+        return _FakeNominatimLocation()
+
+    def reverse(self, query: object, **kwargs: object) -> None:
+        raise AssertionError("la modalita' zona non deve fare reverse geocode")
+
+
+def _patch_nominatim(monkeypatch: pytest.MonkeyPatch) -> _FakeNominatim:
+    """Sostituisce il solo geolocator, lasciando reale tutto cio' che sta sopra.
+
+    Il RateLimiter e' scavalcato (dispatch diretto) per non attendere il
+    ``min_delay`` reale fra le due chiamate; cache, chiave e parsing del bbox
+    restano quelli veri.
+    """
+    fake = _FakeNominatim()
+    monkeypatch.setattr(geocoding, "_get_geolocator", lambda: fake)
+    monkeypatch.setattr(
+        geocoding,
+        "_get_rate_limited_call",
+        lambda: geocoding._nominatim_dispatch,  # pyright: ignore[reportPrivateUsage]
+    )
+    geocoding._CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+
+    async def _fake_fetch(
+        bbox: object, citta: str, *args: object, **kwargs: object
+    ) -> list[Poi]:
+        return _pois(citta)
+
+    monkeypatch.setattr(retrieval, "fetch_pois", _fake_fetch)
+    return fake
+
+
+def test_modalita_zona_ricostruisce_lo_stesso_contesto_a_cache_fredda(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``/analyze`` con citta+zona, cache svuotata, poi narrativa e POI: 200, non 409.
+
+    Fra le due fasi si svuotano sia la cache di zona sia quella del geocoding,
+    cosi' la ricostruzione rifa' davvero la query Nominatim: deve essere la
+    stessa della fase 1, e deve riportare alla stessa lista di POI.
+    """
+    nominatim = _patch_nominatim(monkeypatch)
+    client = _client()
+    zone_context_cache.clear()
+
+    fase1 = cast(
+        httpx.Response,
+        client.post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze",
+            json={"citta": " Roma ", "zona": "Colosseo"},
+        ),
+    )
+    assert fase1.status_code == 200
+    dati = fase1.json()
+    assert (dati["citta"], dati["zona_normalizzata"]) == ("Roma", "Colosseo")
+
+    body = {
+        "citta": dati["citta"],
+        "zona": dati["zona_normalizzata"],
+        "contesto_hash": dati["contesto_hash"],
+    }
+
+    zone_context_cache.clear()
+    geocoding._CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+    narrativa = cast(
+        httpx.Response,
+        client.post("/analyze/narrativa", json=body),  # pyright: ignore[reportUnknownMemberType]
+    )
+    assert narrativa.status_code == 200
+    assert narrativa.json()["fallback"] is False
+
+    zone_context_cache.clear()
+    geocoding._CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+    poi = cast(
+        httpx.Response,
+        client.post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze/poi", json={**body, "poi_id": dati["poi"][0]["id"]}
+        ),
+    )
+    assert poi.status_code == 200
+
+    assert nominatim.queries == ["Colosseo, Roma"] * 3

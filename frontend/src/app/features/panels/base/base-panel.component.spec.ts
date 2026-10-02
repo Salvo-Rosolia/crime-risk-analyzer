@@ -1,4 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { ApiService } from '@core/api/api.service';
 import { BasePanelComponent } from './base-panel.component';
 import type { AnalyzeResponse } from '@core/models/models';
 
@@ -55,6 +56,7 @@ const dataWithRows: AnalyzeResponse = {
 
 describe('BasePanelComponent', () => {
   let fixture: ComponentFixture<BasePanelComponent>;
+  let api: { cities: jest.Mock };
 
   function submitForm(): void {
     const form: HTMLFormElement = fixture.nativeElement.querySelector('form');
@@ -67,16 +69,33 @@ describe('BasePanelComponent', () => {
     input.dispatchEvent(new Event('input'));
   }
 
+  function setFieldValue(selector: string, value: string): void {
+    const input: HTMLInputElement = fixture.nativeElement.querySelector(selector);
+    input.value = value;
+    input.dispatchEvent(new Event('input'));
+  }
+
   beforeEach(async () => {
+    api = { cities: jest.fn().mockResolvedValue(['Roma', 'Milano']) };
     await TestBed.configureTestingModule({
       imports: [BasePanelComponent],
+      providers: [{ provide: ApiService, useValue: api }],
     }).compileComponents();
     fixture = TestBed.createComponent(BasePanelComponent);
     fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
   });
 
-  it('mostra il form "Parametri ricerca" con il campo Tipo POI opzionale', () => {
+  it('mostra il form "Parametri ricerca" con il campo Tipo POI opzionale e i campi Città/Zona', () => {
     expect(fixture.nativeElement.querySelector('#cra-base-tipo-poi')).toBeTruthy();
+    expect(fixture.nativeElement.querySelector('#cra-base-citta')).toBeTruthy();
+    expect(fixture.nativeElement.querySelector('#cra-base-zona')).toBeTruthy();
+  });
+
+  it('carica le città da ApiService.cities() e le propone nella datalist', () => {
+    expect(api.cities).toHaveBeenCalled();
+    expect(fixture.nativeElement.querySelectorAll('#cra-base-citta-options option').length).toBe(2);
   });
 
   it('elenca cosa è assente nel sistema base', () => {
@@ -89,19 +108,8 @@ describe('BasePanelComponent', () => {
     expect(text).toContain('mappa');
   });
 
-  it('il bottone Cerca è disabilitato senza un cerchio disegnato', () => {
+  it('il bottone Cerca è sempre abilitato (pre-#318, stessa UX di InputPanelComponent)', () => {
     fixture.componentRef.setInput('area', null);
-    fixture.detectChanges();
-    const btn: HTMLButtonElement = fixture.nativeElement.querySelector('button[type="submit"]');
-    expect(btn.disabled).toBe(true);
-  });
-
-  it('il bottone Cerca è abilitato quando un cerchio è stato disegnato', () => {
-    fixture.componentRef.setInput('area', {
-      kind: 'circle',
-      center: { lat: 41.9, lon: 12.5 },
-      radiusM: 500,
-    });
     fixture.detectChanges();
     const btn: HTMLButtonElement = fixture.nativeElement.querySelector('button[type="submit"]');
     expect(btn.disabled).toBe(false);
@@ -119,6 +127,17 @@ describe('BasePanelComponent', () => {
     submitForm();
     expect(spy).toHaveBeenCalledWith({
       area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
+    });
+  });
+
+  it('submit con città/zona compilate emette analyzeBaseline con area in modalità città/zona', () => {
+    const spy = jest.fn();
+    fixture.componentInstance.analyzeBaseline.subscribe(spy);
+    fixture.componentRef.setInput('area', { kind: 'zone', citta: 'Roma', zona: 'Colosseo' });
+    fixture.detectChanges();
+    submitForm();
+    expect(spy).toHaveBeenCalledWith({
+      area: { kind: 'zone', citta: 'Roma', zona: 'Colosseo' },
     });
   });
 
@@ -140,9 +159,24 @@ describe('BasePanelComponent', () => {
     });
   });
 
-  it('il bottone disabilitato è collegato via aria-describedby al testo che spiega perché (fix reperto review accessibilità)', () => {
+  it('a11y: il campo in errore porta aria-invalid e aria-describedby verso l’id del messaggio', () => {
     fixture.componentRef.setInput('area', null);
     fixture.detectChanges();
+    submitForm();
+    fixture.detectChanges();
+
+    const cittaField: HTMLInputElement = fixture.nativeElement.querySelector('#cra-base-citta');
+    const zonaField: HTMLInputElement = fixture.nativeElement.querySelector('#cra-base-zona');
+    const errorMsg: HTMLElement = fixture.nativeElement.querySelector('.cra-input-error');
+
+    expect(errorMsg.id).toBeTruthy();
+    expect(cittaField.getAttribute('aria-invalid')).toBe('true');
+    expect(cittaField.getAttribute('aria-describedby')).toBe(errorMsg.id);
+    expect(zonaField.getAttribute('aria-invalid')).toBeNull();
+    expect(zonaField.getAttribute('aria-describedby')).toBeNull();
+  });
+
+  it('il bottone è collegato via aria-describedby al testo che spiega le due modalità di scelta dell’area', () => {
     const btn: HTMLButtonElement = fixture.nativeElement.querySelector('button[type="submit"]');
     const describedById = btn.getAttribute('aria-describedby');
     expect(describedById).toBeTruthy();
@@ -151,13 +185,28 @@ describe('BasePanelComponent', () => {
     expect(hint.classList).toContain('cra-hint');
   });
 
-  it('senza cerchio il submit non emette analyzeBaseline (guardia difensiva anche a bottone disabilitato)', () => {
+  it('senza area il submit non emette analyzeBaseline e mostra l’errore sul campo città', () => {
     const spy = jest.fn();
     fixture.componentInstance.analyzeBaseline.subscribe(spy);
     fixture.componentRef.setInput('area', null);
     fixture.detectChanges();
     submitForm();
+    fixture.detectChanges();
     expect(spy).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.textContent).toContain('Inserisci una città.');
+  });
+
+  it('digitare in città/zona emette cittaChange/zonaChange verso lo shell', () => {
+    const cittaSpy = jest.fn();
+    const zonaSpy = jest.fn();
+    fixture.componentInstance.cittaChange.subscribe(cittaSpy);
+    fixture.componentInstance.zonaChange.subscribe(zonaSpy);
+
+    setFieldValue('#cra-base-citta', 'Napoli');
+    setFieldValue('#cra-base-zona', 'Centro');
+
+    expect(cittaSpy).toHaveBeenCalledWith('Napoli');
+    expect(zonaSpy).toHaveBeenCalledWith('Centro');
   });
 
   it('senza data mostra un placeholder onesto (non una tabella con righe inventate)', () => {
@@ -197,8 +246,8 @@ describe('BasePanelComponent', () => {
     );
   });
 
-  describe('#318 (reperto review C1): punto morto senza cerchio disegnato', () => {
-    it('senza cerchio mostra l\'invito a tornare a Completo (non la frase "disegna sulla mappa", impossibile da qui) e un bottone dedicato', () => {
+  describe('#318/#335 (reperto review C1): punto morto senza area scelta', () => {
+    it("senza area mostra l'invito a compilare città/zona o tornare a Completo, e un bottone dedicato", () => {
       fixture.componentRef.setInput('area', null);
       fixture.detectChanges();
 
@@ -230,7 +279,16 @@ describe('BasePanelComponent', () => {
       fixture.detectChanges();
 
       const text = fixture.nativeElement.textContent;
-      expect(text).toContain('Disegna un cerchio sulla mappa');
+      expect(text).toContain('il cerchio disegnato sulla mappa');
+      expect(text).not.toContain('Torna a Completo');
+    });
+
+    it('con città/zona compilate stessa cosa: niente bottone "Torna a Completo"', () => {
+      fixture.componentRef.setInput('area', { kind: 'zone', citta: 'Roma', zona: 'Colosseo' });
+      fixture.detectChanges();
+
+      const text = fixture.nativeElement.textContent;
+      expect(text).toContain('città e zona inserite qui sotto');
       expect(text).not.toContain('Torna a Completo');
     });
   });
@@ -240,6 +298,14 @@ describe('BasePanelComponent', () => {
       fixture.componentRef.setInput('serverError', '"Atlantide" non corrisponde ad alcuna area.');
       fixture.detectChanges();
       expect(fixture.nativeElement.textContent).toContain('non corrisponde ad alcuna area');
+    });
+
+    it('errore server con area in modalità città/zona: il bordo d’errore va sul campo zona', () => {
+      fixture.componentRef.setInput('area', { kind: 'zone', citta: 'Roma', zona: 'Atlantide' });
+      fixture.componentRef.setInput('serverError', '"Atlantide" non trovata.');
+      fixture.detectChanges();
+      const zonaField: HTMLInputElement = fixture.nativeElement.querySelector('#cra-base-zona');
+      expect(zonaField.classList).toContain('cra-field-error');
     });
 
     it('il form resta invariato e riutilizzabile dopo un errore server: un nuovo submit richiama ancora analyzeBaseline', () => {
@@ -259,6 +325,52 @@ describe('BasePanelComponent', () => {
       expect(spy).toHaveBeenCalledWith({
         area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
       });
+    });
+
+    it('BLOCCANTE (reperto review): un submit vuoto mostra "Inserisci una città.", ma disegnare un cerchio subito dopo azzera l’errore', () => {
+      fixture.componentRef.setInput('area', null);
+      fixture.detectChanges();
+      submitForm();
+      fixture.detectChanges();
+      expect(fixture.nativeElement.textContent).toContain('Inserisci una città.');
+
+      fixture.componentRef.setInput('area', {
+        kind: 'circle',
+        center: { lat: 41.9, lon: 12.5 },
+        radiusM: 500,
+      });
+      fixture.detectChanges();
+
+      expect(fixture.nativeElement.textContent).not.toContain('Inserisci una città.');
+    });
+
+    it('BLOCCANTE (reperto review): un 503 in modalità cerchio non resta agganciato al campo zona dopo aver digitato una NUOVA città/zona', () => {
+      fixture.componentRef.setInput('area', {
+        kind: 'circle',
+        center: { lat: 41.9, lon: 12.5 },
+        radiusM: 500,
+      });
+      fixture.componentRef.setInput('serverError', 'Servizio di geocoding non raggiungibile.');
+      fixture.detectChanges();
+
+      fixture.componentRef.setInput('area', { kind: 'zone', citta: 'Roma', zona: 'Colosseo' });
+      fixture.detectChanges();
+
+      const zonaField: HTMLInputElement = fixture.nativeElement.querySelector('#cra-base-zona');
+      expect(zonaField.classList).not.toContain('cra-field-error');
+    });
+
+    it('un errore server sulla STESSA area città/zona (retry senza modificare i campi) resta agganciato al campo zona', () => {
+      const zoneArea = { kind: 'zone' as const, citta: 'Roma', zona: 'Atlantide' };
+      fixture.componentRef.setInput('area', zoneArea);
+      fixture.componentRef.setInput('serverError', '"Atlantide" non trovata.');
+      fixture.detectChanges();
+
+      fixture.componentRef.setInput('serverError', '"Atlantide" non trovata.');
+      fixture.detectChanges();
+
+      const zonaField: HTMLInputElement = fixture.nativeElement.querySelector('#cra-base-zona');
+      expect(zonaField.classList).toContain('cra-field-error');
     });
   });
 });
