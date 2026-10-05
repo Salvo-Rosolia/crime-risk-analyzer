@@ -312,12 +312,13 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
     # CORS (#106) come DIFESA IN PROFONDITA'. Il deploy canonico e' same-origin
     # (build Angular servita da FastAPI/StaticFiles): li' il CORS non serve. Il
-    # middleware abilita comunque un eventuale deploy split-origin e chiude i
-    # buchi cross-origin in dev su ``/health``/``/geocode`` (non proxati da
-    # ``ng serve``, a differenza di ``/analyze``, ``/analyze/baseline``,
-    # ``/cities`` e ``/poi-types``). Allowlist ESPLICITA da
-    # ``Settings`` (mai wildcard ``*``); API stateless -> nessun cookie
-    # (``allow_credentials=False``). Copre tutte le rotte.
+    # middleware abilita comunque un eventuale deploy split-origin e chiude il
+    # buco cross-origin in dev su ``/health``, l'unica rotta non proxata da
+    # ``ng serve``. Le rotte che il frontend chiama passano tutte dal proxy
+    # (#342): ApiService usa percorsi relativi, che senza proxy finirebbero sul
+    # dev server di Angular, quindi il CORS da solo non le coprirebbe.
+    # Allowlist ESPLICITA da ``Settings`` (mai wildcard ``*``); API stateless ->
+    # nessun cookie (``allow_credentials=False``). Copre tutte le rotte.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_allow_origins,
