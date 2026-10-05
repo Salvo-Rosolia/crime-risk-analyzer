@@ -3,15 +3,16 @@
 API e logica di dominio del sistema: query geospaziali, ragionamento ontologico
 (SPARQL) e pipeline RAG con ragionamento LLM. L'app FastAPI carica l'ontologia RDF
 in memoria all'avvio ed espone gli endpoint `GET /health`, `GET /cities`,
-`GET /geocode`, `POST /analyze`, `POST /analyze/narrativa`, `POST /analyze/baseline`
-e `POST /analyze/poi`. L'area da analizzare arriva in una di due modalità, mai
-entrambe (422 altrimenti): un cerchio disegnato sulla mappa (centro `{lat, lon}` +
-`radius_m`), che `resolve_circle` traduce in un bounding box circoscritto, oppure i
-due campi `citta` + `zona`, che `resolve_zone` geocodifica con Nominatim (zona non
-trovata → 422). Col cerchio l'etichetta città/zona viene dal reverse geocode del
-centro (solo per display/narrativa — un fallimento non blocca mai l'analisi); con
-città + zona l'etichetta è il testo digitato. L'analisi di zona è divisa in due fasi: `POST /analyze`
-esegue la pipeline dei dati sull'area (bbox → POI OSM via Overpass →
+`GET /poi-types`, `GET /geocode`, `POST /analyze`, `POST /analyze/narrativa`,
+`POST /analyze/baseline` e `POST /analyze/poi`. L'area da analizzare arriva in
+una di due modalità, mai entrambe (422 altrimenti): un cerchio disegnato sulla
+mappa (centro `{lat, lon}` + `radius_m`), che `resolve_circle` traduce in un
+bounding box circoscritto, oppure i due campi `citta` + `zona`, che
+`resolve_zone` geocodifica con Nominatim (zona non trovata → 422). Col cerchio
+l'etichetta città/zona viene dal reverse geocode del centro (solo per
+display/narrativa — un fallimento non blocca mai l'analisi); con città + zona
+l'etichetta è il testo digitato. L'analisi di zona è divisa in due fasi:
+`POST /analyze` esegue la pipeline dei dati sull'area (bbox → POI OSM via Overpass →
 mapping OSM→TERMINUS → query SPARQL dei rischi → grounding → filtro per raggio,
 solo col cerchio) e
 risponde subito con `narrativa: null`, mentre `POST /analyze/narrativa` genera il
@@ -19,11 +20,19 @@ testo con l'LLM sullo stesso contesto — così mappa e lista non aspettano la
 latenza del provider. `POST /analyze/poi` fa lo stesso per il singolo punto
 selezionato; `POST /analyze/baseline` è la variante senza LLM usata per l'ablation
 (accetta `tipo_poi` ma non `domanda`, mentre `POST /analyze/narrativa` accetta
-`domanda` ma non `tipo_poi`: asimmetria nota fra i due bracci del confronto,
-tracciata da #263 e non ancora chiusa perché dipende dalla decisione sul contratto
-di `tipo_poi` FE-BE, #143). `GET /geocode` è un forward-geocode indipendente
-dal contratto di ricerca: serve solo la casella "vai a un luogo" del frontend
-(ricentra la mappa, non seleziona un'area da analizzare). I moduli di supporto —
+`domanda` ma non `tipo_poi`: asimmetria fra i due bracci del confronto accettata
+e documentata, #263). `tipo_poi` è testo libero: si accettano il nome della classe
+TERMINUS o la sua etichetta italiana, senza distinzione di maiuscole e con spazi,
+underscore e apostrofi tipografici equivalenti (`bank`, `Banca`,
+`railway_station`), e il filtro riceve sempre la classe canonica; vuoto = nessun
+filtro, un tipo non riconosciuto dà 422
+(`{"errore": "tipo_poi_non_riconosciuto", "messaggio": ...}`) invece di una lista
+vuota. `GET /poi-types` restituisce l'elenco dei tipi accettati
+(`[{"terminus_class": "Bank", "label_it": "Banca"}, ...]`): le classi che il
+mapping OSM→TERMINUS può produrre, ordinate per etichetta italiana. `GET /geocode`
+è un forward-geocode indipendente dal contratto di ricerca: serve solo la casella
+"vai a un luogo" del frontend (ricentra la mappa, non seleziona un'area da
+analizzare). I moduli di supporto —
 geocoding, client Overpass, mapping OSM→ontologia, executor SPARQL, client LLM
 provider-agnostico e pipeline RAG — sono cablati dall'orchestratore.
 

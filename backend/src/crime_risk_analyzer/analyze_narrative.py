@@ -110,9 +110,10 @@ class ZoneNarrativeRequest(BaseModel):
     """Body di ``POST /analyze/narrativa`` (#259).
 
     Porta ``domanda`` ma non ``tipo_poi``: l'asimmetria con ``BaselineRequest``
-    (che porta ``tipo_poi`` ma non ``domanda``) è tracciata da #263, non ancora
-    chiusa perché dipende dalla decisione sul contratto di ``tipo_poi`` FE-BE
-    (#143). Vedi ``BaselineRequest`` in :mod:`~crime_risk_analyzer.orchestrator`.
+    (che porta ``tipo_poi`` ma non ``domanda``) è accettata e documentata (#263,
+    chiusa), non colmata; il contratto di ``tipo_poi`` è fissato da #143
+    (catalogo ``GET /poi-types``). Vedi ``BaselineRequest`` in
+    :mod:`~crime_risk_analyzer.orchestrator`.
     """
 
     citta: str = Field(

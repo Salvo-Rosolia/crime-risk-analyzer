@@ -2,7 +2,8 @@
 
 Espone la factory :func:`create_app` e un'istanza ``app`` pronta per Uvicorn
 (``uvicorn crime_risk_analyzer.main:app``). Registra gli endpoint di dominio —
-``GET /health``, ``GET /cities``, ``GET /geocode`` (#318), ``POST /analyze`` + ``POST
+``GET /health``, ``GET /cities``, ``GET /poi-types`` (#143), ``GET /geocode``
+(#318), ``POST /analyze`` + ``POST
 /analyze/narrativa`` (le due fasi dell'analisi di zona, #259/#292), ``POST
 /analyze/baseline`` e ``POST /analyze/poi`` (#197) — e configura il CORS (#106)
 e il warm-up delle risorse nel ``lifespan``.
@@ -42,6 +43,7 @@ from crime_risk_analyzer.poi_narrative import (
     PoiNarrativeResponse,
     run_poi_narrative,
 )
+from crime_risk_analyzer.poi_types import PoiType, poi_types, resolve_poi_type
 from crime_risk_analyzer.rag.retrieval import GeoSource
 from crime_risk_analyzer.sparql_module.query_executor import (
     RiskQueryExecutor,
@@ -102,6 +104,18 @@ async def cities(settings: Annotated[Settings, Depends(get_settings)]) -> list[s
     centralizzata ed è iniettata via ``Depends`` (niente stato globale).
     """
     return settings.supported_cities
+
+
+@router.get("/poi-types")
+async def list_poi_types() -> list[PoiType]:
+    """Catalogo dei tipi POI accettati da ``tipo_poi`` di ``/analyze/baseline`` (#143).
+
+    Le classi TERMINUS che il mapping OSM puo' produrre, con l'etichetta IT del
+    vocabolario controllato, ordinate per etichetta. Dati statici del package,
+    calcolati una volta (:func:`poi_types` e' in cache): nessuna rete, nessuna
+    dipendenza dall'ontologia caricata.
+    """
+    return list(poi_types())
 
 
 @router.get("/geocode")
@@ -220,7 +234,13 @@ async def analyze_baseline(
     area scelta nello stesso modo. Nessuna allowlist di citta' (#191).
     ``request.tipo_poi`` (opzionale, #119) filtra i POI server-side per classe
     TERMINUS, applicato dopo il filtro per raggio; ``None``/vuoto = nessun filtro.
+    Arriva da un campo di testo libero: :func:`resolve_poi_type` lo normalizza
+    alla classe canonica del catalogo ``GET /poi-types`` (maiuscole, spazi ed
+    etichetta IT indifferenti, #143) PRIMA di geocoding e Overpass, cosi' un tipo
+    sconosciuto e' un 422 (``UnknownPoiTypeError``, handler centrale) che non
+    costa chiamate di rete, invece di una lista vuota silenziosa.
     """
+    tipo_poi = resolve_poi_type(request.tipo_poi)
     citta, zona, geo_source = await _resolve_area(request)
     return await run_baseline(
         citta,
@@ -228,7 +248,7 @@ async def analyze_baseline(
         executor=executor,
         geo_source=geo_source,
         radius_m=request.radius_m,
-        tipo_poi=request.tipo_poi,
+        tipo_poi=tipo_poi,
     )
 
 
@@ -294,8 +314,8 @@ def create_app() -> FastAPI:
     # (build Angular servita da FastAPI/StaticFiles): li' il CORS non serve. Il
     # middleware abilita comunque un eventuale deploy split-origin e chiude i
     # buchi cross-origin in dev su ``/health``/``/geocode`` (non proxati da
-    # ``ng serve``, a differenza di ``/analyze``, ``/analyze/baseline`` e
-    # ``/cities``). Allowlist ESPLICITA da
+    # ``ng serve``, a differenza di ``/analyze``, ``/analyze/baseline``,
+    # ``/cities`` e ``/poi-types``). Allowlist ESPLICITA da
     # ``Settings`` (mai wildcard ``*``); API stateless -> nessun cookie
     # (``allow_credentials=False``). Copre tutte le rotte.
     app.add_middleware(

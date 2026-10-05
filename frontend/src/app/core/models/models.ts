@@ -2,6 +2,17 @@ export type Confidence = 'verificato' | 'da_confermare';
 export type SourceTag = 'ONTOLOGIA' | 'CONTESTO' | 'SPECULATIVO';
 
 /**
+ * Tipo POI selezionabile nel filtro opzionale "Tipo POI" del pannello Sistema base (#143): `GET
+ * /poi-types` lo ritorna già ordinato per `label_it`. `terminus_class` è il valore canonico
+ * (inglese) che il backend confronta esattamente in `/analyze/baseline`; `label_it` è la sola
+ * etichetta mostrata nel `<select>`.
+ */
+export interface PoiType {
+  terminus_class: string;
+  label_it: string;
+}
+
+/**
  * Entità ontologica di un asse non-hazard (#256): eventi critici, vulnerabilità, stakeholder.
  * Nessuna confidenza e nessun tag — la forza probatoria è un bit derivato dal nome del POI,
  * quindi identica per ogni asserzione ontologica su quel punto, e il badge del POI le qualifica

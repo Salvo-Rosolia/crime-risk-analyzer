@@ -1409,9 +1409,9 @@ def test_baseline_request_surface_is_cerchio_or_citta_zona_tipo_poi() -> None:
     ``BaselineRequest`` porta ``tipo_poi`` ma non ``domanda``; ``ZoneNarrativeRequest``
     (fase 2 del sistema completo, in ``analyze_narrative.py``) porta ``domanda`` ma
     non ``tipo_poi``. Per un confronto ablation davvero iso-input i due bracci
-    dovrebbero accettare gli stessi parametri — oggi non è così, e la chiusura
-    dipende dalla decisione sul contratto di ``tipo_poi`` FE-BE (#143), non ancora
-    presa. Questo test rende il gap verificabile invece che solo descritto: se un
+    dovrebbero accettare gli stessi parametri — oggi non è così: asimmetria
+    accettata e documentata (#263, chiusa). Questo test rende il gap verificabile
+    invece che solo descritto: se un
     domani ``domanda`` compare qui (o ``tipo_poi`` sparisce), va aggiornato insieme
     ai docstring di ``BaselineRequest``/``ZoneNarrativeRequest``."""
     assert set(BaselineRequest.model_fields) == {

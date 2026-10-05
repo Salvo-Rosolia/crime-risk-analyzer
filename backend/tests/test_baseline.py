@@ -337,6 +337,88 @@ def test_baseline_filters_by_tipo_poi(monkeypatch: pytest.MonkeyPatch) -> None:
     assert [m["poi"] for m in filtered.json()["risk_models"]] == ["Banca A"]
 
 
+@pytest.mark.parametrize("tipo_poi", ["bank", "  BANK ", "Banca", "banca"])
+def test_baseline_tipo_poi_is_normalized_to_canonical_class(
+    monkeypatch: pytest.MonkeyPatch, tipo_poi: str
+) -> None:
+    """#143: il campo libero della UI non deve dare una lista vuota silenziosa.
+
+    Maiuscole, spazi ai bordi e l'etichetta IT arrivano al filtro come la classe
+    TERMINUS canonica.
+    """
+    _patch_io(monkeypatch)
+    resp = cast(
+        httpx.Response,
+        _client().post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze/baseline",
+            json={
+                "center": {"lat": 41.89, "lon": 12.49},
+                "radius_m": 2000.0,
+                "tipo_poi": tipo_poi,
+            },
+        ),
+    )
+    assert resp.status_code == 200
+    assert [p["terminus_class"] for p in resp.json()["poi"]] == ["Bank"]
+
+
+@pytest.mark.parametrize("tipo_poi", ["", "   "])
+def test_baseline_blank_tipo_poi_is_no_filter(
+    monkeypatch: pytest.MonkeyPatch, tipo_poi: str
+) -> None:
+    _patch_io(monkeypatch)
+    resp = cast(
+        httpx.Response,
+        _client().post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze/baseline",
+            json={
+                "center": {"lat": 41.89, "lon": 12.49},
+                "radius_m": 2000.0,
+                "tipo_poi": tipo_poi,
+            },
+        ),
+    )
+    assert resp.status_code == 200
+    assert [p["terminus_class"] for p in resp.json()["poi"]] == [
+        "Bank",
+        "GenericUrbanPOI",
+    ]
+
+
+def test_baseline_unknown_tipo_poi_is_422_before_any_io(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#143: tipo sconosciuto -> 422 nel formato degli errori di dominio, non [].
+
+    Il rifiuto arriva prima di geocoding e Overpass: un input invalido non costa
+    chiamate di rete.
+    """
+
+    def _boom(*args: object, **kwargs: object) -> object:
+        raise AssertionError("nessun I/O atteso su tipo_poi invalido")
+
+    monkeypatch.setattr(area_search, "reverse_geocode_label", _boom)
+    monkeypatch.setattr(retrieval, "fetch_pois", _boom)
+    resp = cast(
+        httpx.Response,
+        _client().post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze/baseline",
+            json={
+                "center": {"lat": 41.89, "lon": 12.49},
+                "radius_m": 2000.0,
+                "tipo_poi": " xyz ",
+            },
+        ),
+    )
+    assert resp.status_code == 422
+    assert resp.json() == {
+        "detail": {
+            "errore": "tipo_poi_non_riconosciuto",
+            "messaggio": "Tipo POI non riconosciuto: 'xyz'",
+        }
+    }
+
+
 async def test_run_baseline_threads_geo_source(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

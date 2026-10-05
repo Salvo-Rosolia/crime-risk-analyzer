@@ -5,6 +5,7 @@ import {
   AnalyzeResponse,
   BaselineParams,
   PoiNarrativeResponse,
+  PoiType,
   SearchArea,
   ZoneNarrativeResponse,
 } from '@core/models/models';
@@ -29,6 +30,8 @@ export class ApiService {
    * INPUT→ERROR ne rimonta uno dei due a ogni cambio — senza memoizzazione, ogni rimonto
    * ripeterebbe la stessa GET per una lista che non cambia in sessione. */
   private citiesPromise: Promise<string[]> | null = null;
+  /** Stessa memoizzazione di `citiesPromise`, per `poiTypes()` (#143). */
+  private poiTypesPromise: Promise<PoiType[]> | null = null;
 
   /**
    * Elenco delle città suggerite per il datalist dei pannelli di ricerca (`GET /cities`): UNA sola
@@ -45,6 +48,21 @@ export class ApiService {
       });
     }
     return this.citiesPromise;
+  }
+
+  /**
+   * Tipi POI selezionabili nel filtro opzionale del pannello Sistema base (`GET /poi-types`, #143):
+   * già ordinati per `label_it` dal backend. Stessa memoizzazione di `cities()` (una sola chiamata
+   * HTTP per sessione, azzerata su errore così un rimonto successivo può ritentare).
+   */
+  poiTypes(): Promise<PoiType[]> {
+    if (!this.poiTypesPromise) {
+      this.poiTypesPromise = firstValueFrom(this.http.get<PoiType[]>('/poi-types')).catch((err) => {
+        this.poiTypesPromise = null;
+        throw err;
+      });
+    }
+    return this.poiTypesPromise;
   }
 
   /**
