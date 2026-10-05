@@ -127,9 +127,9 @@ def _fake_reverse_geocode(lat: float, lon: float) -> tuple[str, str]:
 def _patch_io(monkeypatch: pytest.MonkeyPatch) -> None:
     """Sostituisce reverse geocode e Overpass per i test dell'endpoint HTTP (#318).
 
-    ``retrieval.geocode_zone`` non e' piu' chiamato da ``/analyze`` (il body
-    della rotta e' un cerchio, ``resolve_circle`` passa sempre un proprio
-    ``geo_source``): la sola I/O da patchare qui e' la label reverse-geocoded
+    ``retrieval.geocode_zone`` non e' chiamato da ``/analyze`` (i test qui usano
+    il cerchio, e ``resolve_circle`` passa sempre un proprio ``geo_source``):
+    la sola I/O da patchare qui e' la label reverse-geocoded
     (``area_search.reverse_geocode_label``) e Overpass.
     """
     monkeypatch.setattr(area_search, "reverse_geocode_label", _fake_reverse_geocode)

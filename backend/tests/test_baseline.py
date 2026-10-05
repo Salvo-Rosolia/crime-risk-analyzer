@@ -60,10 +60,10 @@ def _fake_reverse_geocode(lat: float, lon: float) -> tuple[str, str]:
 
 
 def _patch_io(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Patcha la sola I/O che il nuovo path a cerchio (#318) attraversa davvero.
+    """Patcha la sola I/O che il path a cerchio (#318) attraversa davvero.
 
-    ``geocode_zone`` non e' piu' chiamato da ``/analyze``/``/analyze/baseline``:
-    ``resolve_circle`` passa sempre un ``geo_source`` proprio. La label
+    Col cerchio ``geocode_zone`` non e' chiamato (lo e' solo nella modalita'
+    citta + zona): ``resolve_circle`` passa sempre un ``geo_source`` proprio. La label
     citta'/zona arriva da ``area_search.reverse_geocode_label`` (reverse
     geocode del centro); il bbox da ``bbox_from_circle`` (puro, nessun I/O) —
     solo la label va quindi simulata qui.
@@ -232,6 +232,32 @@ def test_baseline_zone_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
         ),
     )
     assert resp.status_code == 422
+
+
+def test_baseline_accetta_citta_e_zona(monkeypatch: pytest.MonkeyPatch) -> None:
+    """La baseline accetta la stessa seconda modalita' di ``/analyze``.
+
+    I due bracci dell'ablation devono poter analizzare la stessa area scelta
+    nello stesso modo: il bbox arriva da ``geocode_zone`` su (zona, citta).
+    """
+    chiamate: list[tuple[str, str]] = []
+
+    def _fake_geocode_zone(zona: str, citta: str) -> GeoResult:
+        chiamate.append((zona, citta))
+        return GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50))
+
+    monkeypatch.setattr(area_search, "geocode_zone", _fake_geocode_zone)
+    _patch_io(monkeypatch)
+    resp = cast(
+        httpx.Response,
+        _client().post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze/baseline",
+            json={"citta": "Roma", "zona": "Colosseo"},
+        ),
+    )
+    assert resp.status_code == 200
+    assert chiamate == [("Colosseo", "Roma")]
+    assert resp.json()["citta"] == "Roma"
 
 
 def test_baseline_overpass_down(monkeypatch: pytest.MonkeyPatch) -> None:

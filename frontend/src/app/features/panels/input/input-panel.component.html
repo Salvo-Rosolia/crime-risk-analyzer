@@ -4,17 +4,57 @@
     @case ('circle') {
       Area scelta: il cerchio disegnato sulla mappa.
     }
-    @case ('query') {
-      Area scelta: la ricerca in alto.
+    @case ('zone') {
+      Area scelta: città e zona inserite qui sotto.
     }
     @default {
       Scegli l'area: disegna un cerchio sulla mappa (clic per il centro, poi ancora un clic per
-      confermare il raggio) oppure scrivi un luogo nella casella di ricerca in alto.
+      confermare il raggio) oppure inserisci città e zona qui sotto.
     }
   }
 </p>
 
 <form (submit)="onSubmit($event)">
+  <div class="cra-field">
+    <label for="cra-citta">Città <span class="cra-required" aria-hidden="true">*</span></label>
+    <input
+      id="cra-citta"
+      type="text"
+      list="cra-citta-options"
+      autocomplete="off"
+      maxlength="100"
+      placeholder="es. Roma"
+      aria-required="true"
+      [value]="citta()"
+      [class.cra-field-error]="cittaHasError()"
+      [attr.aria-invalid]="cittaHasError() ? true : null"
+      [attr.aria-describedby]="cittaHasError() ? 'cra-input-error' : null"
+      (input)="onCittaInput($event)"
+    />
+    <datalist id="cra-citta-options">
+      @for (c of cities(); track c) {
+        <option [value]="c"></option>
+      }
+    </datalist>
+  </div>
+
+  <div class="cra-field">
+    <label for="cra-zona">Zona <span class="cra-required" aria-hidden="true">*</span></label>
+    <input
+      id="cra-zona"
+      type="text"
+      autocomplete="off"
+      placeholder="es. Colosseo, Trastevere…"
+      aria-required="true"
+      maxlength="200"
+      [value]="zona()"
+      [class.cra-field-error]="zonaHasError()"
+      [attr.aria-invalid]="zonaHasError() ? true : null"
+      [attr.aria-describedby]="zonaHasError() ? 'cra-input-error' : null"
+      (input)="onZonaInput($event)"
+    />
+  </div>
+
   <div class="cra-field">
     <label for="cra-domanda">
       Domanda <span class="cra-optional">(opzionale · linguaggio naturale)</span>
@@ -27,16 +67,11 @@
     ></textarea>
   </div>
 
-  @if (serverError(); as msg) {
-    <p class="cra-input-error" role="alert">{{ msg }}</p>
+  @if (displayError(); as msg) {
+    <p class="cra-input-error" id="cra-input-error" role="alert">{{ msg }}</p>
   }
 
-  <button
-    type="submit"
-    class="cra-btn-solid"
-    [disabled]="!area()"
-    aria-describedby="cra-circle-hint"
-  >
+  <button type="submit" class="cra-btn-solid" aria-describedby="cra-circle-hint">
     Analizza zona →
   </button>
 </form>

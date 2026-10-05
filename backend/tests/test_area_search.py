@@ -1,4 +1,4 @@
-"""Test dei resolver di area: cerchio disegnato e ricerca testuale."""
+"""Test dei resolver di area: cerchio disegnato e coppia citta + zona."""
 
 from __future__ import annotations
 
@@ -33,32 +33,32 @@ async def test_resolve_circle_ritorna_etichetta_e_geo_source(
     assert geo["bbox"] == bbox_from_circle(41.89, 12.47, 500.0)
 
 
+def _fake_geocode_zone(zona: str, citta: str) -> GeoResult:
+    return GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50))
+
+
 @pytest.mark.asyncio
-async def test_resolve_query_ritorna_etichetta_e_geo_source(
+async def test_resolve_zone_ritorna_etichetta_e_geo_source(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """La modalita' TESTUALE produce lo stesso contratto del cerchio.
+    """La modalita' citta + zona produce lo stesso contratto del cerchio.
 
     Le due modalita' di ricerca coesistono e l'utente usa l'una o l'altra: a
     valle il resto della pipeline non deve sapere quale sia stata usata, quindi
     entrambe ritornano (citta, zona, geo_source). Qui il bbox arriva da
-    Nominatim (`geocode_query`), non dal calcolo centro+raggio.
+    Nominatim (`geocode_zone`), non dal calcolo centro+raggio.
     """
+    chiamate: list[tuple[str, str]] = []
 
-    def _fake_geocode_query(query: str) -> GeoResult:
-        return GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50))
+    def _recording_geocode_zone(zona: str, citta: str) -> GeoResult:
+        chiamate.append((zona, citta))
+        return _fake_geocode_zone(zona, citta)
 
-    def _fake_reverse_geocode(lat: float, lon: float) -> tuple[str, str]:
-        return ("Roma", "Colosseo")
+    monkeypatch.setattr(area_search, "geocode_zone", _recording_geocode_zone)
 
-    monkeypatch.setattr(area_search, "geocode_query", _fake_geocode_query)
-    monkeypatch.setattr(area_search, "reverse_geocode_label", _fake_reverse_geocode)
+    _, _, geo_source = await area_search.resolve_zone("Roma", "Colosseo")
 
-    citta, zona, geo_source = await area_search.resolve_query("Colosseo, Roma")
-
-    assert citta == "Roma"
-    assert zona == "Colosseo"
-
+    assert chiamate == [("Colosseo", "Roma")]
     geo = await geo_source("qualsiasi", "cosa")
     assert geo["bbox"] == (41.88, 12.48, 41.90, 12.50)
     assert geo["lat"] == 41.89
@@ -66,20 +66,43 @@ async def test_resolve_query_ritorna_etichetta_e_geo_source(
 
 
 @pytest.mark.asyncio
-async def test_resolve_query_propaga_il_luogo_non_trovato(
+async def test_resolve_zone_etichette_sono_quelle_digitate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Un luogo inesistente resta un errore, non un'area di ripiego.
+    """Le etichette sono (citta, zona) digitati, e nessun reverse geocode parte.
+
+    Le rotte di fase 2 (``/analyze/narrativa``, ``/analyze/poi``) ricostruiscono
+    il contesto scaduto rifacendo ``geocode_zone`` sulle etichette: solo il testo
+    digitato riporta alla STESSA area. Un'etichetta dal reverse geocode darebbe
+    un'area diversa, quindi un 409.
+    """
+
+    def _reverse_vietato(lat: float, lon: float) -> tuple[str, str]:
+        raise AssertionError("la modalita' zona non deve chiamare il reverse")
+
+    monkeypatch.setattr(area_search, "geocode_zone", _fake_geocode_zone)
+    monkeypatch.setattr(area_search, "reverse_geocode_label", _reverse_vietato)
+
+    citta, zona, _ = await area_search.resolve_zone("Roma", "Colosseo")
+
+    assert (citta, zona) == ("Roma", "Colosseo")
+
+
+@pytest.mark.asyncio
+async def test_resolve_zone_propaga_la_zona_non_trovata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Una zona inesistente resta un errore, non un'area di ripiego.
 
     Asimmetria voluta col cerchio: li' il reverse geocode e' cosmetico e non
     blocca mai, qui il geocode DETERMINA l'area analizzata — fallire in
     silenzio significherebbe analizzare un posto a caso.
     """
 
-    def _raise(query: str) -> GeoResult:
-        raise ZoneNotFoundError(f"Luogo non trovato: {query!r}")
+    def _raise(zona: str, citta: str) -> GeoResult:
+        raise ZoneNotFoundError(f"Zona non trovata: {zona!r} in {citta!r}")
 
-    monkeypatch.setattr(area_search, "geocode_query", _raise)
+    monkeypatch.setattr(area_search, "geocode_zone", _raise)
 
     with pytest.raises(ZoneNotFoundError):
-        await area_search.resolve_query("Atlantide")
+        await area_search.resolve_zone("Roma", "Atlantide")

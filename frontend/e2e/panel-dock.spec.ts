@@ -83,10 +83,13 @@ test.describe('"+ Nuova richiesta" (#199 decisione 4): conferma leggera IN-APP, 
 
     await expect(S.inputPanel(page)).toBeVisible();
     await expect(S.panelDock(page)).toHaveCount(0);
-    // Il form non ha più città/zona da svuotare (#318): `onResetConfirmed` (app.ts) azzera
-    // esplicitamente anche il cerchio disegnato (`circle.set(null)`), quindi il bottone torna
-    // disabilitato finché l'utente non ne ridisegna uno nuovo sulla mappa.
-    await expect(S.submitButton(page)).toBeDisabled();
+    // `onResetConfirmed` (app.ts) azzera esplicitamente cerchio E città/zona (#335): il form torna
+    // vuoto, nessuna delle due aree della ricerca precedente resta implicitamente valida.
+    await expect(S.cittaField(page)).toHaveValue('');
+    await expect(S.zonaField(page)).toHaveValue('');
+    // Il bottone resta comunque abilitato (UX pre-#318): un submit senza area mostra l'errore
+    // client invece di un controllo disabilitato senza spiegazione.
+    await expect(S.submitButton(page)).toBeEnabled();
   });
 
   test('"Annulla" resta in Stato RESULTS coi risultati intatti, nessun RESET', async ({ page }) => {

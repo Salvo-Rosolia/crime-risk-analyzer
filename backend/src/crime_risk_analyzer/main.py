@@ -2,7 +2,7 @@
 
 Espone la factory :func:`create_app` e un'istanza ``app`` pronta per Uvicorn
 (``uvicorn crime_risk_analyzer.main:app``). Registra gli endpoint di dominio —
-``GET /health``, ``GET /geocode`` (#318), ``POST /analyze`` + ``POST
+``GET /health``, ``GET /cities``, ``GET /geocode`` (#318), ``POST /analyze`` + ``POST
 /analyze/narrativa`` (le due fasi dell'analisi di zona, #259/#292), ``POST
 /analyze/baseline`` e ``POST /analyze/poi`` (#197) — e configura il CORS (#106)
 e il warm-up delle risorse nel ``lifespan``.
@@ -25,7 +25,7 @@ from crime_risk_analyzer.analyze_narrative import (
     run_analysis_fast,
     run_zone_narrative,
 )
-from crime_risk_analyzer.area_search import resolve_circle, resolve_query
+from crime_risk_analyzer.area_search import resolve_circle, resolve_zone
 from crime_risk_analyzer.config import Settings, get_settings
 from crime_risk_analyzer.errors import register_exception_handlers
 from crime_risk_analyzer.llm.client import LLMClient, get_llm_client
@@ -68,14 +68,15 @@ async def _resolve_area(
 
     Il ``cast`` regge sull'invariante del validator, non su un controllo locale:
     ``is_circle`` implica ``center``/``radius_m`` valorizzati, ed e' la stessa
-    ragione per cui il ramo testuale puo' passare ``query`` senza ri-verificarla.
+    ragione per cui il ramo testuale puo' passare ``citta``/``zona`` senza
+    ri-verificarli.
     """
     if request.is_circle:
         center = cast(Center, request.center)
         return await resolve_circle(
             center.lat, center.lon, cast(float, request.radius_m)
         )
-    return await resolve_query(cast(str, request.query))
+    return await resolve_zone(cast(str, request.citta), cast(str, request.zona))
 
 
 router = APIRouter()
@@ -90,6 +91,17 @@ async def health(graph: Annotated[Graph, Depends(get_ontology)]) -> HealthRespon
     l'ontologia e' effettivamente in memoria (vedi backend/orchestrator.md).
     """
     return HealthResponse(status="ok", ontology_triples=len(graph))
+
+
+@router.get("/cities")
+async def cities(settings: Annotated[Settings, Depends(get_settings)]) -> list[str]:
+    """Elenca le città suggerite per l'autocomplete del campo città (non un vincolo).
+
+    Roma, Milano e Napoli sono garantite e testate end-to-end; le altre sono
+    best-effort (vedi backend/orchestrator.md). La lista vive nella config
+    centralizzata ed è iniettata via ``Depends`` (niente stato globale).
+    """
+    return settings.supported_cities
 
 
 @router.get("/geocode")
@@ -118,7 +130,7 @@ async def analyze(
     request: AnalyzeRequest,
     executor: Annotated[RiskQueryExecutor, Depends(get_executor)],
 ) -> AnalyzeResponse:
-    """Fase 1 (#259/#292): cerchio -> OSM -> SPARQL -> grounding -> JSON.
+    """Fase 1 (#259/#292): area -> OSM -> SPARQL -> grounding -> JSON.
 
     **Nessuna chiamata LLM qui.** La rotta risponde con i dati strutturati e
     ``narrativa=None`` — non un fallback (``fallback`` resta ``False``), ma
@@ -127,12 +139,13 @@ async def analyze(
     risposta. Prima la mappa compariva solo dopo la generazione, cioe' dopo tutta
     la latenza del provider.
 
-    Il body porta centro+raggio del cerchio disegnato sulla mappa (#318), non
-    piu' ``citta``/``zona`` testuali: ``resolve_circle`` deriva una label
-    citta'/zona best-effort via reverse geocode (mai bloccante, #318) e un
-    ``geo_source`` che ignora il geocoding forward — nessuna allowlist di
-    citta' (#191) e nessuna zona da risolvere. Gli errori di dominio (Overpass
-    giu', ecc.) propagano agli handler centrali (#21).
+    Il body porta l'area in UNA delle due modalita' (:func:`_resolve_area`): il
+    cerchio disegnato sulla mappa (#318), di cui ``resolve_circle`` deriva una
+    label citta'/zona best-effort via reverse geocode (mai bloccante), oppure i
+    due campi ``citta``/``zona``, che ``resolve_zone`` geocodifica in un bbox —
+    una zona non trovata e' ``ZoneNotFoundError`` -> 422. Nessuna allowlist di
+    citta' (#191): ``GET /cities`` suggerisce, non vincola. Gli errori di dominio
+    (Overpass giu', ecc.) propagano agli handler centrali (#21).
 
     La ``domanda`` libera (#119) resta della fase 2, che e' l'unica a costruire
     un prompt. Per la stessa ragione questa rotta non dipende ne' dal client
@@ -176,11 +189,12 @@ async def analyze_narrativa(
     l'unica chiamata a ``generate_analysis`` del prodotto, quindi e' qui che il
     tetto va rispettato.
 
-    ``citta`` e ``zona`` restano stringhe del client che raggiungono il prompt
-    non sanificate quando la cache e' fredda (la ricostruzione le passa a
-    ``retrieve``, e la zona finisce nello ``user_content``), come nel percorso
-    per-POI: l'impronta non copre quel vettore — verifica l'identita' della lista
-    di POI, non la provenienza delle due stringhe.
+    ``citta`` e ``zona`` restano stringhe del client: a cache fredda la
+    ricostruzione le passa a ``retrieve`` e la zona finisce nello
+    ``user_content``, normalizzata come dato non fidato (``build_context_str``),
+    come nel percorso per-POI. L'impronta non ne verifica la PROVENIENZA:
+    certifica l'identita' della lista di POI, non che le due stringhe siano
+    quelle che la fase 1 ha restituito.
     """
     return await run_zone_narrative(
         request.citta,
@@ -201,11 +215,11 @@ async def analyze_baseline(
 ) -> AnalyzeResponse:
     """Variante senza LLM per l'ablation: solo dati strutturati dal grounding.
 
-    Stesso cerchio centro+raggio di ``/analyze`` (#318), via lo stesso
-    ``resolve_circle``: nessuna allowlist di citta' (#191) e nessuna zona
-    testuale da risolvere. ``request.tipo_poi`` (opzionale, #119) filtra i POI
-    server-side per classe TERMINUS, applicato dopo il filtro per raggio;
-    ``None``/vuoto = nessun filtro.
+    Stesse due modalita' di ``/analyze`` (cerchio oppure citta + zona), via lo
+    stesso :func:`_resolve_area`: i due bracci dell'ablation analizzano la stessa
+    area scelta nello stesso modo. Nessuna allowlist di citta' (#191).
+    ``request.tipo_poi`` (opzionale, #119) filtra i POI server-side per classe
+    TERMINUS, applicato dopo il filtro per raggio; ``None``/vuoto = nessun filtro.
     """
     citta, zona, geo_source = await _resolve_area(request)
     return await run_baseline(
@@ -234,8 +248,9 @@ async def analyze_poi(
     a schermo. ``poi_id`` fuori dal contesto -> ``PoiNotFoundError`` -> 404
     (handler centrale). I dati di RISCHIO sono tutti ri-derivati dal server: del
     punto il client fornisce solo l'id e un'impronta opaca. ``citta`` e ``zona``
-    restano invece stringhe del client che raggiungono il prompt non sanificate,
-    come nel percorso di zona (#119): l'impronta non copre quel vettore.
+    restano invece stringhe del client: arrivano al prompt normalizzate come
+    dato non fidato (#119), come nel percorso di zona, ma l'impronta non ne
+    verifica la provenienza.
     """
     return await run_poi_narrative(
         request.citta,
@@ -279,7 +294,8 @@ def create_app() -> FastAPI:
     # (build Angular servita da FastAPI/StaticFiles): li' il CORS non serve. Il
     # middleware abilita comunque un eventuale deploy split-origin e chiude i
     # buchi cross-origin in dev su ``/health``/``/geocode`` (non proxati da
-    # ``ng serve``, a differenza di ``/analyze``). Allowlist ESPLICITA da
+    # ``ng serve``, a differenza di ``/analyze``, ``/analyze/baseline`` e
+    # ``/cities``). Allowlist ESPLICITA da
     # ``Settings`` (mai wildcard ``*``); API stateless -> nessun cookie
     # (``allow_credentials=False``). Copre tutte le rotte.
     app.add_middleware(
