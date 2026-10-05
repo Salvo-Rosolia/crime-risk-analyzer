@@ -140,6 +140,41 @@ describe('StateStore', () => {
     expect(store.error()).toBe("Zona X non trovata nell'ontologia.");
   });
 
+  it('startBaselineAnalysis failure con 422 "tipo_poi non riconosciuto" (#143) → error() contiene il messaggio del backend, non il fallback generico', async () => {
+    const err = new HttpErrorResponse({
+      status: 422,
+      error: {
+        detail: {
+          errore: 'tipo_poi_non_riconosciuto',
+          messaggio: "Tipo POI non riconosciuto: 'banca'",
+        },
+      },
+    });
+    api.analyzeBaseline.mockRejectedValue(err);
+    await store.startBaselineAnalysis({ area: AREA, tipo_poi: 'banca' });
+    expect(store.screen()).toBe('BASE');
+    expect(store.error()).toBe("Tipo POI non riconosciuto: 'banca'");
+  });
+
+  it('startBaselineAnalysis failure con 422 standard pydantic (detail LISTA, non la forma {errore, messaggio}) non va in crash e ricade sul fallback generico', async () => {
+    const err = new HttpErrorResponse({
+      status: 422,
+      error: {
+        detail: [
+          {
+            type: 'string_too_long',
+            loc: ['body', 'tipo_poi'],
+            msg: 'String should have at most 100 characters',
+          },
+        ],
+      },
+    });
+    api.analyzeBaseline.mockRejectedValue(err);
+    await expect(store.startBaselineAnalysis({ area: AREA })).resolves.toBeUndefined();
+    expect(store.screen()).toBe('BASE');
+    expect(store.error()).toBe('Endpoint /analyze/baseline non ancora disponibile.');
+  });
+
   it('startBaselineAnalysis success → LOAD_SUCCESS con i dati in baselineData (mai in completoData)', async () => {
     store.dispatch({ type: 'TOGGLE_MODE', mode: 'base' });
     api.analyzeBaseline.mockResolvedValue(data);

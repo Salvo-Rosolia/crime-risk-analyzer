@@ -66,6 +66,8 @@ describe('App shell', () => {
     geocodePlace: jest.Mock;
     poiNarrative: jest.Mock;
     zoneNarrative: jest.Mock;
+    cities: jest.Mock;
+    poiTypes: jest.Mock;
   };
 
   beforeEach(async () => {
@@ -77,6 +79,15 @@ describe('App shell', () => {
       // Default: mai risolve, così i test estranei alla narrativa di zona in background (#292)
       // non devono preoccuparsene; i test dedicati sovrascrivono esplicitamente.
       zoneNarrative: jest.fn().mockReturnValue(new Promise<ZoneNarrativeResponse>(() => undefined)),
+      // Valori realistici (reperto review #143): senza un mock esplicito la chiamata sarebbe
+      // "api.cities/poiTypes is not a function", ma `loadCities`/`loadPoiTypes` la inghiottono nel
+      // proprio try/catch (fallback a `[]`) — i test passerebbero comunque senza verificare nulla
+      // sul contenuto reale del select/datalist.
+      cities: jest.fn().mockResolvedValue(['Roma', 'Milano']),
+      poiTypes: jest.fn().mockResolvedValue([
+        { terminus_class: 'Bank', label_it: 'Banca' },
+        { terminus_class: 'Railway_station', label_it: 'Stazione ferroviaria' },
+      ]),
     };
     await TestBed.configureTestingModule({
       imports: [App],
@@ -924,6 +935,48 @@ describe('App shell', () => {
       expect(store.completoData()).toBe(emptyResp);
       expect(f.nativeElement.querySelector('.cra-btn-new-request')).toBeTruthy();
     });
+
+    it('"+ Nuova richiesta" azzera anche il tipo POI selezionato in Base (#143, stesso trattamento di città/zona)', async () => {
+      const f = TestBed.createComponent(App);
+      await setupResults(f);
+
+      const modeButtons = (): HTMLButtonElement[] =>
+        Array.from(f.nativeElement.querySelectorAll('.cra-mode-btn'));
+
+      // Sceglie un tipo POI in Base, poi torna a Completo (resta in RESULTS: completoData c'è già).
+      modeButtons()
+        .find((b) => b.textContent?.trim() === 'Base')!
+        .click();
+      f.detectChanges();
+      await f.whenStable();
+      f.detectChanges();
+      const select: HTMLSelectElement = f.nativeElement.querySelector('#cra-base-tipo-poi');
+      select.value = 'Bank';
+      select.dispatchEvent(new Event('change'));
+      f.detectChanges();
+      modeButtons()
+        .find((b) => b.textContent?.trim() === 'Completo')!
+        .click();
+      f.detectChanges();
+      expect(store.screen()).toBe('RESULTS');
+
+      (f.nativeElement.querySelector('.cra-btn-new-request') as HTMLElement).click();
+      f.detectChanges();
+      (f.nativeElement.querySelector('.cra-btn-confirm-yes') as HTMLElement).click();
+      f.detectChanges();
+
+      // Dopo RESET (Stato INPUT, completoData nullo): tornando in Base il select è di nuovo su
+      // "Tutti i tipi" — la selezione precedente non sopravvive a "+ Nuova richiesta".
+      modeButtons()
+        .find((b) => b.textContent?.trim() === 'Base')!
+        .click();
+      f.detectChanges();
+      await f.whenStable();
+      f.detectChanges();
+      const selectAfterReset: HTMLSelectElement =
+        f.nativeElement.querySelector('#cra-base-tipo-poi');
+      expect(selectAfterReset.value).toBe('');
+    });
   });
 
   describe('narrativa del POI selezionato (#197)', () => {
@@ -1192,6 +1245,65 @@ describe('App shell', () => {
       const baseHint =
         (f.nativeElement.querySelector('#cra-base-circle-hint') as HTMLElement).textContent ?? '';
       expect(baseHint).toContain('il cerchio disegnato sulla mappa');
+    });
+
+    it('in modalità Base il select "Tipo POI" è popolato da ApiService.poiTypes() (#143)', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      const modeButtons: HTMLButtonElement[] = Array.from(
+        f.nativeElement.querySelectorAll('.cra-mode-btn'),
+      );
+      modeButtons.find((b) => b.textContent?.trim() === 'Base')!.click();
+      f.detectChanges();
+      await f.whenStable();
+      f.detectChanges();
+
+      const options: HTMLOptionElement[] = Array.from(
+        f.nativeElement.querySelectorAll('#cra-base-tipo-poi option'),
+      );
+      expect(options.map((o) => o.value)).toEqual(['', 'Bank', 'Railway_station']);
+      expect(options.map((o) => o.textContent?.trim())).toEqual([
+        'Tutti i tipi',
+        'Banca',
+        'Stazione ferroviaria',
+      ]);
+    });
+
+    it('il tipo POI selezionato in Base sopravvive a un giro Base→Completo→Base (#143, stesso stato condiviso di città/zona)', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      const modeButtons = (): HTMLButtonElement[] =>
+        Array.from(f.nativeElement.querySelectorAll('.cra-mode-btn'));
+
+      modeButtons()
+        .find((b) => b.textContent?.trim() === 'Base')!
+        .click();
+      f.detectChanges();
+      await f.whenStable();
+      f.detectChanges();
+
+      const select: HTMLSelectElement = f.nativeElement.querySelector('#cra-base-tipo-poi');
+      select.value = 'Railway_station';
+      select.dispatchEvent(new Event('change'));
+      f.detectChanges();
+
+      modeButtons()
+        .find((b) => b.textContent?.trim() === 'Completo')!
+        .click();
+      f.detectChanges();
+      modeButtons()
+        .find((b) => b.textContent?.trim() === 'Base')!
+        .click();
+      f.detectChanges();
+      await f.whenStable();
+      f.detectChanges();
+
+      const selectAfter: HTMLSelectElement = f.nativeElement.querySelector('#cra-base-tipo-poi');
+      expect(selectAfter.value).toBe('Railway_station');
     });
 
     it('un secondo cerchio disegnato (nuovo centro) sostituisce quello corrente', async () => {

@@ -143,8 +143,12 @@ export const S = {
     p
       .locator('cra-header-controls')
       .getByRole('button', { name: mode === 'base' ? 'Base' : 'Completo', exact: true }),
-  /** Stato BASE: campo opzionale "Tipo POI" (`#cra-base-tipo-poi`). */
+  /** Stato BASE: select opzionale "Tipo POI" (`#cra-base-tipo-poi`, #143 — sostituisce il testo
+   * libero: prima opzione "Tutti i tipi" [value=""], poi le label_it con value=terminus_class
+   * canonico da `GET /poi-types`). */
   baseTipoPoiField: (p: Page): Locator => p.locator('#cra-base-tipo-poi'),
+  /** Stato BASE: opzioni del select "Tipo POI" (`#cra-base-tipo-poi option`, #143). */
+  baseTipoPoiOptions: (p: Page): Locator => p.locator('#cra-base-tipo-poi option'),
   /** Stato BASE: bottone di invio del form parametri ("Cerca", `base-panel.component.html:50`). */
   baseSubmitButton: (p: Page): Locator => p.getByRole('button', { name: 'Cerca', exact: true }),
   /** Stato BASE: testo placeholder prima di una ricerca (`.cra-base-placeholder-text`, visibile

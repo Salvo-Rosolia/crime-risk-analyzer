@@ -54,19 +54,24 @@ const dataWithRows: AnalyzeResponse = {
   contesto_hash: 'h-ctx',
 };
 
+const poiTypesFixture = [
+  { terminus_class: 'Bank', label_it: 'Banca' },
+  { terminus_class: 'Railway_station', label_it: 'Stazione ferroviaria' },
+];
+
 describe('BasePanelComponent', () => {
   let fixture: ComponentFixture<BasePanelComponent>;
-  let api: { cities: jest.Mock };
+  let api: { cities: jest.Mock; poiTypes: jest.Mock };
 
   function submitForm(): void {
     const form: HTMLFormElement = fixture.nativeElement.querySelector('form');
     form.dispatchEvent(new Event('submit', { cancelable: true }));
   }
 
-  function setTipoPoi(value: string): void {
-    const input: HTMLInputElement = fixture.nativeElement.querySelector('#cra-base-tipo-poi');
-    input.value = value;
-    input.dispatchEvent(new Event('input'));
+  function selectTipoPoi(value: string): void {
+    const select: HTMLSelectElement = fixture.nativeElement.querySelector('#cra-base-tipo-poi');
+    select.value = value;
+    select.dispatchEvent(new Event('change'));
   }
 
   function setFieldValue(selector: string, value: string): void {
@@ -76,7 +81,10 @@ describe('BasePanelComponent', () => {
   }
 
   beforeEach(async () => {
-    api = { cities: jest.fn().mockResolvedValue(['Roma', 'Milano']) };
+    api = {
+      cities: jest.fn().mockResolvedValue(['Roma', 'Milano']),
+      poiTypes: jest.fn().mockResolvedValue(poiTypesFixture),
+    };
     await TestBed.configureTestingModule({
       imports: [BasePanelComponent],
       providers: [{ provide: ApiService, useValue: api }],
@@ -87,8 +95,10 @@ describe('BasePanelComponent', () => {
     fixture.detectChanges();
   });
 
-  it('mostra il form "Parametri ricerca" con il campo Tipo POI opzionale e i campi Città/Zona', () => {
-    expect(fixture.nativeElement.querySelector('#cra-base-tipo-poi')).toBeTruthy();
+  it('mostra il form "Parametri ricerca" con il campo Tipo POI opzionale (select) e i campi Città/Zona', () => {
+    const select = fixture.nativeElement.querySelector('#cra-base-tipo-poi');
+    expect(select).toBeTruthy();
+    expect(select.tagName).toBe('SELECT');
     expect(fixture.nativeElement.querySelector('#cra-base-citta')).toBeTruthy();
     expect(fixture.nativeElement.querySelector('#cra-base-zona')).toBeTruthy();
   });
@@ -96,6 +106,88 @@ describe('BasePanelComponent', () => {
   it('carica le città da ApiService.cities() e le propone nella datalist', () => {
     expect(api.cities).toHaveBeenCalled();
     expect(fixture.nativeElement.querySelectorAll('#cra-base-citta-options option').length).toBe(2);
+  });
+
+  describe('select Tipo POI (#143: sostituisce il testo libero, confrontato esattamente dal backend)', () => {
+    it('carica i tipi da ApiService.poiTypes() e popola il select con "Tutti i tipi" come prima opzione', () => {
+      expect(api.poiTypes).toHaveBeenCalled();
+      const options: HTMLOptionElement[] = Array.from(
+        fixture.nativeElement.querySelectorAll('#cra-base-tipo-poi option'),
+      );
+      expect(options.length).toBe(1 + poiTypesFixture.length);
+      expect(options[0].value).toBe('');
+      expect(options[0].textContent?.trim()).toBe('Tutti i tipi');
+      expect(options[1].value).toBe('Bank');
+      expect(options[1].textContent?.trim()).toBe('Banca');
+      expect(options[2].value).toBe('Railway_station');
+      expect(options[2].textContent?.trim()).toBe('Stazione ferroviaria');
+    });
+
+    it('chiama ApiService.poiTypes() una sola volta (memoizzata lato service, qui solo un invito a ngOnInit)', () => {
+      expect(api.poiTypes).toHaveBeenCalledTimes(1);
+    });
+
+    it('se ApiService.poiTypes() fallisce il select mostra solo "Tutti i tipi", senza errore bloccante', async () => {
+      api.poiTypes.mockRejectedValueOnce(new Error('503'));
+      const f = TestBed.createComponent(BasePanelComponent);
+      f.detectChanges();
+      await f.whenStable();
+      f.detectChanges();
+
+      const options: HTMLOptionElement[] = Array.from(
+        f.nativeElement.querySelectorAll('#cra-base-tipo-poi option'),
+      );
+      expect(options.length).toBe(1);
+      expect(options[0].value).toBe('');
+      // Il form resta usabile: nessun alert generato da questo fallimento.
+      expect(f.nativeElement.querySelector('.cra-input-error')).toBeNull();
+    });
+
+    it('con "Tutti i tipi" selezionato (default, nessun input tipoPoi dallo shell) il submit non include tipo_poi', () => {
+      const spy = jest.fn();
+      fixture.componentInstance.analyzeBaseline.subscribe(spy);
+      fixture.componentRef.setInput('area', {
+        kind: 'circle',
+        center: { lat: 41.9, lon: 12.5 },
+        radiusM: 500,
+      });
+      fixture.detectChanges();
+      submitForm();
+      expect(spy).toHaveBeenCalledWith({
+        area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
+      });
+    });
+
+    it('il select riflette l’input `tipoPoi` ricevuto dallo shell (stesso pattern di citta/zona, #143 reperto review)', () => {
+      fixture.componentRef.setInput('tipoPoi', 'Bank');
+      fixture.detectChanges();
+      const select: HTMLSelectElement = fixture.nativeElement.querySelector('#cra-base-tipo-poi');
+      expect(select.value).toBe('Bank');
+    });
+
+    it("selezionare un'opzione emette tipoPoiChange verso lo shell col terminus_class canonico (non la label italiana)", () => {
+      const spy = jest.fn();
+      fixture.componentInstance.tipoPoiChange.subscribe(spy);
+      selectTipoPoi('Railway_station');
+      expect(spy).toHaveBeenCalledWith('Railway_station');
+    });
+
+    it('submit include tipo_poi quando l’input `tipoPoi` (stato dello shell) è valorizzato', () => {
+      const spy = jest.fn();
+      fixture.componentInstance.analyzeBaseline.subscribe(spy);
+      fixture.componentRef.setInput('area', {
+        kind: 'circle',
+        center: { lat: 41.9, lon: 12.5 },
+        radiusM: 500,
+      });
+      fixture.componentRef.setInput('tipoPoi', 'Railway_station');
+      fixture.detectChanges();
+      submitForm();
+      expect(spy).toHaveBeenCalledWith({
+        area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
+        tipo_poi: 'Railway_station',
+      });
+    });
   });
 
   it('elenca cosa è assente nel sistema base', () => {
@@ -138,24 +230,6 @@ describe('BasePanelComponent', () => {
     submitForm();
     expect(spy).toHaveBeenCalledWith({
       area: { kind: 'zone', citta: 'Roma', zona: 'Colosseo' },
-    });
-  });
-
-  it('include tipo_poi (trimmato) quando valorizzato', () => {
-    const spy = jest.fn();
-    fixture.componentInstance.analyzeBaseline.subscribe(spy);
-    fixture.componentRef.setInput('area', {
-      kind: 'circle',
-      center: { lat: 41.9, lon: 12.5 },
-      radiusM: 500,
-    });
-    fixture.detectChanges();
-    setTipoPoi('  Railway_station  ');
-    fixture.detectChanges();
-    submitForm();
-    expect(spy).toHaveBeenCalledWith({
-      area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
-      tipo_poi: 'Railway_station',
     });
   });
 
@@ -298,6 +372,20 @@ describe('BasePanelComponent', () => {
       fixture.componentRef.setInput('serverError', '"Atlantide" non corrisponde ad alcuna area.');
       fixture.detectChanges();
       expect(fixture.nativeElement.textContent).toContain('non corrisponde ad alcuna area');
+    });
+
+    it('422 tipo POI non riconosciuto (#143): il messaggio del backend è mostrato come ogni altro errore del pannello', () => {
+      fixture.componentRef.setInput('serverError', "Tipo POI non riconosciuto: 'banca'");
+      fixture.detectChanges();
+      expect(fixture.nativeElement.textContent).toContain('Tipo POI non riconosciuto');
+    });
+
+    it('il messaggio d’errore è reso come TESTO, non interpretato come HTML (interpolazione Angular, mai innerHTML)', () => {
+      fixture.componentRef.setInput('serverError', '<b>Tipo POI</b> non riconosciuto');
+      fixture.detectChanges();
+      const errorEl: HTMLElement = fixture.nativeElement.querySelector('.cra-input-error');
+      expect(errorEl.querySelector('b')).toBeNull();
+      expect(errorEl.textContent).toContain('<b>Tipo POI</b> non riconosciuto');
     });
 
     it('errore server con area in modalità città/zona: il bordo d’errore va sul campo zona', () => {

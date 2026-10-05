@@ -64,6 +64,14 @@ export class App {
   protected readonly citta = signal('');
   protected readonly zona = signal('');
   /**
+   * `terminus_class` selezionato nel select "Tipo POI" del pannello Sistema base (#143), stesso
+   * stato condiviso nello shell di `citta`/`zona`: `BasePanelComponent` si rimonta a ogni giro
+   * Completo↔Base (`@switch (store.screen())`, `app.html`), quindi una copia locale nel pannello
+   * perderebbe la selezione in silenzio. Non entra in `area` (a differenza di `citta`/`zona`): è un
+   * filtro opzionale del form, non una delle due modalità di scelta dell'area.
+   */
+  protected readonly tipoPoi = signal('');
+  /**
    * L'AREA attiva, nella modalita' scelta per ultima. Le due modalita' coesistono ma non si
    * sommano: sceglierne una azzera l'altra (vedi `onCircleChange`/`onCittaChange`/`onZonaChange`),
    * cosi' non esiste uno stato in cui l'utente non sappia quale area verrebbe analizzata.
@@ -132,6 +140,13 @@ export class App {
   protected onZonaChange(value: string): void {
     this.zona.set(value);
     if (value.trim()) this.clearCircleIfAny();
+  }
+
+  /** Select "Tipo POI" del pannello Sistema base (#143): a differenza di `onCittaChange`/
+   * `onZonaChange` non tocca `circle`/l'area — è un filtro opzionale, non una modalità di scelta
+   * dell'area. */
+  protected onTipoPoiChange(value: string): void {
+    this.tipoPoi.set(value);
   }
 
   private clearCircleIfAny(): void {
@@ -224,6 +239,7 @@ export class App {
     this.circle.set(null);
     this.citta.set('');
     this.zona.set('');
+    this.tipoPoi.set('');
     this.placeQuery.set('');
     // Azzerare il segnale locale non basta (reperto review I5): MapComponent tiene il proprio
     // circleLayer disegnato sulla mappa indipendentemente da questo segnale, quindi senza

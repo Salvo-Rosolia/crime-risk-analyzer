@@ -23,14 +23,14 @@
   <form (submit)="onSubmit($event)">
     <div class="cra-field">
       <label for="cra-base-tipo-poi">Tipo POI <span class="cra-optional">(opzionale)</span></label>
-      <input
-        id="cra-base-tipo-poi"
-        type="text"
-        autocomplete="off"
-        placeholder="es. Railway_station"
-        [value]="tipoPoi()"
-        (input)="onTipoPoiInput($event)"
-      />
+      <select id="cra-base-tipo-poi" (change)="onTipoPoiChange($event)">
+        <option value="" [selected]="tipoPoi() === ''">Tutti i tipi</option>
+        @for (t of poiTypes(); track t.terminus_class) {
+          <option [value]="t.terminus_class" [selected]="t.terminus_class === tipoPoi()">
+            {{ t.label_it }}
+          </option>
+        }
+      </select>
     </div>
 
     <div class="cra-field">

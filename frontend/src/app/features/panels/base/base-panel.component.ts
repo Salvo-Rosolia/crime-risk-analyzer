@@ -11,7 +11,7 @@ import {
   untracked,
 } from '@angular/core';
 import { ApiService } from '@core/api/api.service';
-import { AnalyzeResponse, BaselineParams, SearchArea } from '@core/models/models';
+import { AnalyzeResponse, BaselineParams, PoiType, SearchArea } from '@core/models/models';
 import { buildBaseRows, validateInputPanel } from '@core/ui-helpers';
 
 /**
@@ -50,6 +50,12 @@ export class BasePanelComponent implements OnInit {
   readonly zona = input<string>('');
   readonly cittaChange = output<string>();
   readonly zonaChange = output<string>();
+  /** `terminus_class` selezionato nel select "Tipo POI", o stringa vuota per "Tutti i tipi"
+   * (nessun filtro): stesso stato condiviso nello shell di `citta`/`zona` (#143, reperto review),
+   * così sopravvive al remount Completo↔Base e si azzera con "+ Nuova richiesta" insieme al resto
+   * dell'area, invece di una copia locale che un giro di modalità perderebbe in silenzio. */
+  readonly tipoPoi = input<string>('');
+  readonly tipoPoiChange = output<string>();
   /** Emesso dal bottone "Torna a Completo" (visibile solo senza area, #318 C1): lo shell lo
    * cabla su `onToggleMode('completo')`, la stessa transizione già raggiungibile dal toggle
    * dell'header. */
@@ -67,7 +73,10 @@ export class BasePanelComponent implements OnInit {
   private readonly api = inject(ApiService);
 
   protected readonly cities = signal<string[]>([]);
-  protected readonly tipoPoi = signal('');
+  /** Opzioni del select "Tipo POI" (`GET /poi-types`, #143), già ordinate per `label_it` dal
+   * backend. Vuoto se la richiesta fallisce: il select mostra solo "Tutti i tipi" — il filtro è
+   * opzionale, non deve bloccare la ricerca. */
+  protected readonly poiTypes = signal<PoiType[]>([]);
   protected readonly validationError = signal<string | null>(null);
   protected readonly validationField = signal<'citta' | 'zona' | null>(null);
   /** L'area per cui è arrivato l'ultimo errore server (reperto review, stessa convenzione di
@@ -111,6 +120,7 @@ export class BasePanelComponent implements OnInit {
 
   ngOnInit(): void {
     void this.loadCities();
+    void this.loadPoiTypes();
   }
 
   protected onCittaInput(event: Event): void {
@@ -123,8 +133,8 @@ export class BasePanelComponent implements OnInit {
     this.clearValidation();
   }
 
-  protected onTipoPoiInput(event: Event): void {
-    this.tipoPoi.set((event.target as HTMLInputElement).value);
+  protected onTipoPoiChange(event: Event): void {
+    this.tipoPoiChange.emit((event.target as HTMLSelectElement).value);
   }
 
   protected onSubmit(event: Event): void {
@@ -157,6 +167,16 @@ export class BasePanelComponent implements OnInit {
       this.cities.set(await this.api.cities());
     } catch {
       this.cities.set([]);
+    }
+  }
+
+  /** Fallisce senza bloccare la ricerca (#143): il filtro Tipo POI è opzionale, un elenco vuoto
+   * lascia solo "Tutti i tipi" nel select invece di mostrare un errore. */
+  private async loadPoiTypes(): Promise<void> {
+    try {
+      this.poiTypes.set(await this.api.poiTypes());
+    } catch {
+      this.poiTypes.set([]);
     }
   }
 }

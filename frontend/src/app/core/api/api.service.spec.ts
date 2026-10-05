@@ -9,6 +9,11 @@ import {
   ZoneNarrativeResponse,
 } from '@core/models/models';
 
+const poiTypes = [
+  { terminus_class: 'Bank', label_it: 'Banca' },
+  { terminus_class: 'Railway_station', label_it: 'Stazione ferroviaria' },
+];
+
 const resp: AnalyzeResponse = {
   citta: 'Roma',
   zona_normalizzata: 'Colosseo',
@@ -140,6 +145,37 @@ describe('ApiService', () => {
     const req2 = http.expectOne('/cities');
     req2.flush(['Roma']);
     expect(await p2).toEqual(['Roma']);
+  });
+
+  it('poiTypes: GET /poi-types ritorna l’elenco dei tipi POI per il select del pannello Sistema base', async () => {
+    const promise = api.poiTypes();
+    const req = http.expectOne('/poi-types');
+    expect(req.request.method).toBe('GET');
+    req.flush(poiTypes);
+    expect(await promise).toEqual(poiTypes);
+  });
+
+  it('poiTypes: una sola chiamata HTTP per sessione, anche invocando il metodo più volte (stessa memoizzazione di cities())', async () => {
+    const p1 = api.poiTypes();
+    const p2 = api.poiTypes();
+    const req = http.expectOne('/poi-types');
+    req.flush(poiTypes);
+    expect(await p1).toEqual(poiTypes);
+    expect(await p2).toEqual(poiTypes);
+
+    const p3 = api.poiTypes();
+    expect(await p3).toEqual(poiTypes);
+  });
+
+  it('poiTypes: su errore la memoizzazione si azzera, una chiamata successiva ritenta', async () => {
+    const p1 = api.poiTypes();
+    http.expectOne('/poi-types').flush('boom', { status: 503, statusText: 'Service Unavailable' });
+    await expect(p1).rejects.toBeTruthy();
+
+    const p2 = api.poiTypes();
+    const req2 = http.expectOne('/poi-types');
+    req2.flush([poiTypes[0]]);
+    expect(await p2).toEqual([poiTypes[0]]);
   });
 
   it('geocodePlace chiama GET /geocode con la query', async () => {

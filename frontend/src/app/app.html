@@ -129,8 +129,10 @@
           [area]="area()"
           [citta]="citta()"
           [zona]="zona()"
+          [tipoPoi]="tipoPoi()"
           (cittaChange)="onCittaChange($event)"
           (zonaChange)="onZonaChange($event)"
+          (tipoPoiChange)="onTipoPoiChange($event)"
           (analyzeBaseline)="onBaseSearch($event)"
           (backToCompleto)="onToggleMode('completo')"
         />

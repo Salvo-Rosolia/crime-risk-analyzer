@@ -203,19 +203,36 @@ class BaselineRequest(_AreaRequest):
 
     Porta ``tipo_poi`` ma non ``domanda``: l'asimmetria con ``ZoneNarrativeRequest``
     (che porta ``domanda`` ma non ``tipo_poi``) rende il confronto braccio-completo
-    vs baseline non iso-input su questi due parametri (#263). Chiuderla richiede
-    prima la decisione sul contratto di ``tipo_poi`` fra frontend e backend (#143):
-    finché resta aperta, l'asimmetria è documentata qui e nel test
+    vs baseline non iso-input su questi due parametri (#263). Il contratto di
+    ``tipo_poi`` e' ora fissato (#143: catalogo ``GET /poi-types``, normalizzazione
+    alla classe canonica in :func:`~crime_risk_analyzer.poi_types.resolve_poi_type`),
+    ma l'asimmetria resta: e' documentata qui e nel test
     ``test_baseline_request_surface_is_cerchio_or_citta_zona_tipo_poi``, non colmata.
+
+    Il modello fa solo strip e tetto di lunghezza; il riconoscimento del tipo
+    avviene nella rotta, perche' un tipo sconosciuto e' un errore di dominio (422
+    nel formato ``{"errore", "messaggio"}`` di :mod:`~crime_risk_analyzer.errors`),
+    non un errore di forma del body.
     """
 
     tipo_poi: str | None = Field(
         default=None,
+        max_length=100,
         description=(
-            "Filtro server-side per classe TERMINUS del POI (opzionale, #119); "
-            "None/vuoto = nessun filtro."
+            "Filtro server-side per tipo di POI (opzionale, #119/#143): nome della "
+            "classe TERMINUS o etichetta IT del catalogo GET /poi-types, senza "
+            "distinzione di maiuscole; None/vuoto = nessun filtro, tipo non "
+            "riconosciuto = 422."
         ),
     )
+
+    @field_validator("tipo_poi", mode="before")
+    @classmethod
+    def _strip_tipo_poi(cls, v: object) -> object:
+        """Come ``_strip`` di citta/zona: strip prima del tetto, vuoto = assente."""
+        if isinstance(v, str):
+            return v.strip() or None
+        return v
 
 
 class OntologyItem(BaseModel):
@@ -876,7 +893,10 @@ async def run_baseline(
 
     ``tipo_poi`` (opzionale, #119) filtra i POI server-side per classe TERMINUS
     (:func:`_filter_pois_by_type`), applicato prima del grounding. ``None`` o
-    stringa vuota/whitespace = nessun filtro (comportamento invariato).
+    stringa vuota/whitespace = nessun filtro (comportamento invariato). Il
+    confronto e' esatto: il valore atteso e' gia' il nome-classe canonico, che la
+    rotta ricava dall'input libero con
+    :func:`~crime_risk_analyzer.poi_types.resolve_poi_type` (#143).
 
     ``geo_source`` (opzionale, #169) e' propagato a :func:`retrieve` per il replay
     del geo nell'harness di eval; ``None`` = geocoding live (prodotto invariato).

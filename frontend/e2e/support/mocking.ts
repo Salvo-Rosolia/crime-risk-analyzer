@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 import cities from '../fixtures/cities.json';
+import poiTypes from '../fixtures/poi-types.json';
 import type { AnalyzeResponse } from '../../src/app/core/models/models';
 
 /**
@@ -10,8 +11,17 @@ import type { AnalyzeResponse } from '../../src/app/core/models/models';
  */
 export interface MockOpts {
   cities?: unknown;
+  /** Risposta di `GET /poi-types` (#143, select "Tipo POI" del pannello Sistema base): di default
+   * il fixture condiviso `poi-types.json`, sovrascrivibile per scenario. */
+  poiTypes?: unknown;
+  /** Status HTTP della risposta `/poi-types` (default 200; usare un 4xx/5xx per verificare il
+   * fallback — select con sola "Tutti i tipi", nessun errore bloccante). */
+  poiTypesStatus?: number;
   analyze?: unknown;
   baseline?: unknown;
+  /** Status HTTP della risposta `/analyze/baseline` (default 200; usare 4xx/5xx — es. 422 "Tipo
+   * POI non riconosciuto", #143 — per verificare che l'errore resti dentro il pannello Base). */
+  baselineStatus?: number;
   /** Status HTTP della risposta `/analyze` (default 200; usare 4xx/5xx per lo stato ERROR). */
   analyzeStatus?: number;
   /** Risposta di `POST /analyze/poi` (#197): narrativa del singolo POI selezionato. */
@@ -34,6 +44,9 @@ export interface MockOpts {
 
 export async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
   await page.route('**/cities', (route) => route.fulfill({ json: opts.cities ?? cities }));
+  await page.route('**/poi-types', (route) =>
+    route.fulfill({ status: opts.poiTypesStatus ?? 200, json: opts.poiTypes ?? poiTypes }),
+  );
 
   if (opts.analyze !== undefined || opts.analyzeStatus !== undefined) {
     await page.route('**/analyze', (route) =>
@@ -41,8 +54,10 @@ export async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
     );
   }
 
-  if (opts.baseline !== undefined) {
-    await page.route('**/analyze/baseline', (route) => route.fulfill({ json: opts.baseline }));
+  if (opts.baseline !== undefined || opts.baselineStatus !== undefined) {
+    await page.route('**/analyze/baseline', (route) =>
+      route.fulfill({ status: opts.baselineStatus ?? 200, json: opts.baseline ?? {} }),
+    );
   }
 
   // `**/analyze` sopra non intercetta `/analyze/poi` (il glob àncora il suffisso), quindi la rotta

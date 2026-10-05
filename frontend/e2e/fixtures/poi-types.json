@@ -1,0 +1,4 @@
+[
+  { "terminus_class": "Bank", "label_it": "Banca" },
+  { "terminus_class": "Railway_station", "label_it": "Stazione ferroviaria" }
+]
