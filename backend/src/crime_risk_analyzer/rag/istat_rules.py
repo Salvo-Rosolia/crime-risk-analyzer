@@ -20,13 +20,15 @@ __all__ = [
     "sostituisci_una_volta",
 ]
 
-#: Vincoli sulle cifre, IDENTICI nella zona e nel POI: una sola costante.
+#: Vincoli sulle cifre, IDENTICI nella zona e nel POI: una sola costante. Dove
+#: le cifre NON vanno lo dice ciascun prompt (:data:`_SOLO_NEL_BLOCCO_ZONA`,
+#: :data:`_SOLO_NEL_BLOCCO_POI`): il prompt del POI non ha una sintesi iniziale.
 ISTAT_REGOLE_CIFRE = (
     "Riporta le cifre ESATTAMENTE come fornite (stesse cifre, stessi decimali, "
     "stesso segno), senza arrotondarle, ricalcolarle, sommarle o scriverle in "
-    "lettere, e non introdurre numeri che non compaiono nel contesto. Le cifre "
-    "ISTAT stanno SOLO nel blocco [ISTAT]: non usarle nella sintesi iniziale ne' "
-    "negli altri blocchi. I dati sono del comune o della provincia indicati tra "
+    'lettere o come rapporti e multipli (es. "il doppio", "un terzo"), e non '
+    "introdurre numeri che non compaiono nel contesto. I dati sono del comune o "
+    "della provincia indicati tra "
     "parentesi quadre, MAI della zona analizzata ne' dei singoli POI: non "
     "attribuirli a un luogo piu' piccolo. Quando una voce e' indicata come piu' "
     "ampia del rischio o come copertura solo parziale, dillo nella stessa frase "
@@ -35,6 +37,16 @@ ISTAT_REGOLE_CIFRE = (
     "per nominare la voce, mai al posto di un hazard (regola 6). La riga del "
     "totale dei delitti e' contesto generale del luogo: non usarla per dare peso "
     "a un rischio."
+)
+
+_SOLO_NEL_BLOCCO_ZONA = (
+    "Le cifre ISTAT stanno SOLO nel blocco [ISTAT]: non usarle nella sintesi "
+    "iniziale ne' negli altri blocchi."
+)
+
+_SOLO_NEL_BLOCCO_POI = (
+    "Le cifre ISTAT stanno SOLO nel blocco [ISTAT]: non usarle fuori dal blocco "
+    "[ISTAT]."
 )
 
 _CITAZIONE = (
@@ -53,22 +65,29 @@ _PESO = (
 RULE_ISTAT_BLOCCO = (
     "3c. Nel blocco [ISTAT] riporta i dati della sezione DATI ISTAT del contesto "
     f"che danno sostanza ai rischi del blocco [ONTOLOGIA]. {_CITAZIONE} "
-    f"{ISTAT_REGOLE_CIFRE} {_PESO}"
+    f"{ISTAT_REGOLE_CIFRE} {_SOLO_NEL_BLOCCO_ZONA} {_PESO}"
 )
 
-#: Regola 7-bis (zona e POI): i divieti di D9 applicati alle cifre.
+#: Regola 7-bis (zona e POI): i divieti di D9 applicati alle cifre. Dichiara anche
+#: che le cifre fornite non sono le percentuali vietate dalla regola 7, che resta
+#: nel prompt e altrimenti contraddirebbe la 3c (che chiede "+16%" e il confronto
+#: con l'Italia).
 RULE_ISTAT_DIVIETI = (
-    "7-bis. Con i DATI ISTAT valgono gli stessi divieti della regola 7: non "
-    'trasformare le cifre in un giudizio sulla zona o sui POI (es. "zona '
-    'pericolosa/sicura", "rischio alto"), non costruire punteggi, classifiche o '
-    "scale ALTO/MEDIO/BASSO fra luoghi o voci e non fare previsioni (es. "
-    '"continuera\' a crescere"): descrivi solo i valori e le variazioni forniti'
+    "7-bis. Le cifre della sezione DATI ISTAT (conteggi, tassi ogni 100.000 "
+    "abitanti, variazioni percentuali e confronto con l'Italia) sono dati da "
+    "riportare come forniti e NON sono i punteggi o le percentuali vietati dalla "
+    "regola 7. Non devono pero' mai diventare un giudizio: non trasformare le cifre "
+    'in un giudizio sulla zona o sui POI (es. "zona pericolosa/sicura", "rischio '
+    'alto"), non costruire punteggi, classifiche o scale ALTO/MEDIO/BASSO fra '
+    'luoghi o voci e non fare previsioni (es. "continuera\' a crescere"): descrivi '
+    "solo i valori e le variazioni forniti"
 )
 
 #: Descrizione del terzo blocco nel prompt del POI.
 POI_ISTAT_SECTION = (
     "Riporta i dati della sezione DATI ISTAT del contesto che riguardano i rischi "
-    f"di questo punto. {_CITAZIONE} {ISTAT_REGOLE_CIFRE} {_PESO}"
+    f"di questo punto. {_CITAZIONE} {ISTAT_REGOLE_CIFRE} {_SOLO_NEL_BLOCCO_POI} "
+    f"{_PESO}"
 )
 
 

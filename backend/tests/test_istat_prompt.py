@@ -141,3 +141,46 @@ def test_sostituisci_una_volta_rifiuta_zero_o_piu_occorrenze() -> None:
         sostituisci_una_volta("a b c", "z", "x")
     with pytest.raises(ValueError, match="una sola volta"):
         sostituisci_una_volta("b b", "b", "x")
+
+
+def test_variante_del_poi_aggiunge_solo_le_regole_istat() -> None:
+    """F3 (review finale): disfatte le sostituzioni si torna a POI_SYSTEM_PROMPT."""
+    ricostruito = (
+        POI_SYSTEM_PROMPT_ISTAT.replace(f"\n\n{RULE_ISTAT_DIVIETI}", "")
+        .replace(
+            "Struttura la risposta in TRE blocchi",
+            "Struttura la risposta in DUE blocchi",
+        )
+        .replace(
+            f"[ISTAT]\n{POI_ISTAT_SECTION}\n\nNon aggiungere altri blocchi oltre a "
+            "questi tre.",
+            "Non aggiungere altri blocchi oltre a questi due.",
+        )
+    )
+    assert ricostruito == POI_SYSTEM_PROMPT
+
+
+def test_7_bis_dichiara_che_le_cifre_istat_non_sono_le_percentuali_vietate() -> None:
+    """F3: la regola 7 vieta percentuali-giudizio; 3c chiede le variazioni ISTAT."""
+    assert "NON sono i punteggi o le percentuali vietati dalla regola 7" in (
+        RULE_ISTAT_DIVIETI
+    )
+    for dato in (
+        "conteggi",
+        "ogni 100.000 abitanti",
+        "variazioni percentuali",
+        "confronto con l'Italia",
+    ):
+        assert dato in RULE_ISTAT_DIVIETI
+    assert "giudizio sulla zona o sui POI" in RULE_ISTAT_DIVIETI
+
+
+def test_numeri_in_lettere_comprendono_rapporti_e_multipli() -> None:
+    assert '"il doppio", "un terzo"' in ISTAT_REGOLE_CIFRE
+
+
+def test_la_sezione_del_poi_non_parla_di_sintesi_iniziale() -> None:
+    """Il prompt del POI non ha una sintesi iniziale."""
+    assert "sintesi iniziale" not in POI_ISTAT_SECTION
+    assert "fuori dal blocco [ISTAT]" in POI_ISTAT_SECTION
+    assert "sintesi iniziale" in RULE_ISTAT_BLOCCO
