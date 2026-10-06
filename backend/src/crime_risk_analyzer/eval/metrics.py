@@ -119,7 +119,9 @@ def hazards_cited_in(narrativa: str, mode: Mode) -> str:
     ).ontologia.lower()
 
 
-def _ontology_assertions(resp: AnalyzeResponse, mode: Mode) -> list[str]:
+def _ontology_assertions(
+    resp: AnalyzeResponse, mode: Mode, narrativa: str | None = None
+) -> list[str]:
     """Asserzioni gradabili dal proxy (M1, #229): le frasi del blocco misurato.
 
     :func:`~crime_risk_analyzer.rag.generation.parse_source_prose` isola il CORPO del
@@ -133,9 +135,13 @@ def _ontology_assertions(resp: AnalyzeResponse, mode: Mode) -> list[str]:
     Quale riga-etichetta apra quel blocco dipende dal braccio
     (:data:`_MEASURED_TOKEN_BY_MODE`): ``[ONTOLOGIA]`` dove l'ontologia c'e'
     davvero, ``[SINTESI-LLM]`` nel braccio ablato (#236).
+
+    ``narrativa`` (#345) sostituisce ``resp.narrativa`` quando fornita: l'harness
+    la usa per gradare M1 sul testo grezzo senza le frasi con cifre ISTAT.
     """
+    testo = resp.narrativa if narrativa is None else narrativa
     prose = parse_source_prose(
-        resp.narrativa or "", measured_token=_MEASURED_TOKEN_BY_MODE[mode]
+        testo or "", measured_token=_MEASURED_TOKEN_BY_MODE[mode]
     ).ontologia
     return _sentences(prose)
 
@@ -145,7 +151,9 @@ def _grounded(assertions: list[str], anchors: set[str]) -> list[str]:
     return [s for s in assertions if any(a in s.lower() for a in anchors)]
 
 
-def _grade(resp: AnalyzeResponse, mode: Mode) -> tuple[int, int] | None:
+def _grade(
+    resp: AnalyzeResponse, mode: Mode, narrativa: str | None = None
+) -> tuple[int, int] | None:
     """``(grounded, assertions)`` del blocco misurato, o ``None`` se non gradabile.
 
     ``None`` = ramo VACUO (grounding 1.0 / hallucination 0.0), riservato ai casi in cui
@@ -164,13 +172,17 @@ def _grade(resp: AnalyzeResponse, mode: Mode) -> tuple[int, int] | None:
     ``resp.narrativa`` e' ``str | None`` da #259 (fase 1: narrativa non ancora
     generata): una narrativa ``None`` e' trattata come vuota, stesso ramo VACUO —
     l'harness gira solo su pipeline che oggi producono sempre una stringa.
+
+    ``narrativa`` (#345): passata a :func:`_ontology_assertions` al posto di
+    ``resp.narrativa``.
     """
-    if not (resp.narrativa or "").strip():
+    testo = resp.narrativa if narrativa is None else narrativa
+    if not (testo or "").strip():
         return None
     anchors = _anchors(resp)
     if not anchors:
         return None
-    assertions = _ontology_assertions(resp, mode)
+    assertions = _ontology_assertions(resp, mode, testo)
     if not assertions:
         return (0, 1)
     return (len(_grounded(assertions, anchors)), len(assertions))
@@ -233,12 +245,22 @@ def cost_usd_of(resp: AnalyzeResponse) -> float:
     return cost_usd(resp.llm_used, resp.tokens_input, resp.tokens_output)
 
 
-def compute_metrics(resp: AnalyzeResponse, *, mode: Mode = _DEFAULT_MODE) -> Metrics:
+def compute_metrics(
+    resp: AnalyzeResponse,
+    *,
+    mode: Mode = _DEFAULT_MODE,
+    narrativa_m1: str | None = None,
+) -> Metrics:
     """Assembla le quattro metriche dalla AnalyzeResponse.
 
     ``mode`` e' il braccio della run: decide su quale blocco i due proxy testuali
     si pronunciano (#236). L'harness lo passa dal ``ExperimentConfig``, unico
     posto che lo conosce.
+
+    ``narrativa_m1`` (#345): testo su cui gradare M1 al posto di ``resp.narrativa``.
+    Sui record con ISTAT l'harness passa il testo grezzo senza le frasi con cifre
+    ISTAT: M1 resta un controllo di non peggioramento dell'ancoraggio, formula e
+    ``METRICS_VERSION`` invariate.
 
     ``quality_vacuous`` (#240) espone se questo record e' caduto nel ramo VACUO di
     :func:`_grade` (narrativa vuota o nessun ancoraggio da citare): grounding/
@@ -252,7 +274,7 @@ def compute_metrics(resp: AnalyzeResponse, *, mode: Mode = _DEFAULT_MODE) -> Met
     deterministico quindi non era un bug, ma le tre invocazioni indipendenti di
     prima erano lavoro ripetuto senza motivo.
     """
-    graded = _grade(resp, mode)
+    graded = _grade(resp, mode, narrativa_m1)
     if graded is None:
         grounding_value, hallucination_value = 1.0, 0.0
     else:

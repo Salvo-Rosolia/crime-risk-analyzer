@@ -23,7 +23,9 @@ from collections import defaultdict
 from pydantic import BaseModel
 
 from crime_risk_analyzer.eval.compare import MetricValues
+from crime_risk_analyzer.eval.istat_metrics import somma_istat_metrics
 from crime_risk_analyzer.eval.schema import (
+    IstatMetrics,
     Metrics,
     RunRecord,
     RunStatus,
@@ -116,12 +118,18 @@ def _representative_narrativa(group: list[RunRecord]) -> str:
 
 
 def _mean_record(
-    source: RunRecord, metrics: Metrics, status: RunStatus, narrativa: str = ""
+    source: RunRecord,
+    metrics: Metrics,
+    status: RunStatus,
+    narrativa: str = "",
+    istat_metrics: IstatMetrics | None = None,
 ) -> RunRecord:
     """Record-media di una zona; riusa la provenienza (snapshot_id) di ``source``.
 
     ``narrativa`` è rappresentativa, non mediata: vedi
-    :func:`_representative_narrativa`.
+    :func:`_representative_narrativa`. ``istat_metrics`` (#345) e' invece la
+    SOMMA delle K ripetizioni (``istat_metrics.somma_istat_metrics``): conteggi,
+    non media, cosi' sommarla fra ripetizioni resta corretto.
     """
     return RunRecord(
         run_id=f"{source.experiment}__{source.citta}__{source.zona}__mean".lower(),
@@ -134,6 +142,7 @@ def _mean_record(
         metrics=metrics,
         narrativa=narrativa,
         n_poi=source.n_poi,
+        istat_metrics=istat_metrics,
         provenance=source.provenance,
     )
 
@@ -181,6 +190,7 @@ def fold_arm(records: list[RunRecord]) -> FoldedArm:
                 _mean_metrics(valid),
                 RunStatus.OK,
                 _representative_narrativa(valid),
+                somma_istat_metrics(r.istat_metrics for r in valid),
             )
         )
         variances.append(

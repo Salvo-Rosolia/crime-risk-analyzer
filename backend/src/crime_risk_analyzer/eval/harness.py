@@ -12,6 +12,7 @@ import logging
 import re
 from pathlib import Path
 
+from crime_risk_analyzer.eval.istat_metrics import compute_istat_metrics
 from crime_risk_analyzer.eval.metrics import compute_metrics
 from crime_risk_analyzer.eval.schema import (
     ExperimentConfig,
@@ -149,7 +150,16 @@ def _record_from_response(
         # Il ``mode`` decide su quale blocco i proxy testuali si pronunciano
         # (#236): il braccio ablato etichetta il suo blocco per cio' che e', e
         # misurarlo sull'etichetta dell'altro lo darebbe per non attribuito.
-        metrics=compute_metrics(resp, mode=config.mode),
+        # ``narrativa_m1`` (#345): sui record con ISTAT, M1 grada il testo grezzo
+        # SENZA le frasi con cifre ISTAT (il filtro altrimenti cambierebbe anche
+        # le asserzioni misurate, non solo cio' che l'operatore vede).
+        metrics=compute_metrics(
+            resp,
+            mode=config.mode,
+            narrativa_m1=resp.controllo_istat.testo_senza_cifre_istat
+            if resp.controllo_istat
+            else None,
+        ),
         # ``resp.narrativa`` e' ``str | None`` da #259 (fase 1: narrativa non
         # ancora generata); l'harness gira solo su ``run_analysis``/``run_baseline``,
         # che oggi producono sempre una stringa (mai None) — la coercizione e'
@@ -157,6 +167,15 @@ def _record_from_response(
         narrativa=resp.narrativa or "",
         n_poi=len(resp.poi),
         risk_models=resp.risk_models,
+        # #345: grezzo/metriche ISTAT solo per l'harness (``AnalyzeResponse`` li
+        # esclude dalla response HTTP, ``exclude=True``).
+        narrativa_grezza=resp.narrativa_grezza,
+        istat_frasi_scartate=resp.istat_frasi_scartate,
+        istat_metrics=(
+            compute_istat_metrics(resp.controllo_istat)
+            if resp.controllo_istat
+            else None
+        ),
         provenance=Provenance(
             code_commit=code_commit,
             ontology_hash=ontology_hash,
@@ -169,6 +188,8 @@ def _record_from_response(
             context_format=config.context_format,
             snapshot_catturato_il=snapshot_catturato_il,
             snapshot_configurazione_canonica=snapshot_configurazione_canonica,
+            istat=config.istat,
+            istat_versione_dati=resp.istat_versione_dati,
         ),
     )
 
@@ -217,6 +238,7 @@ def _error_record(
             context_format=config.context_format,
             snapshot_catturato_il=snapshot_catturato_il,
             snapshot_configurazione_canonica=snapshot_configurazione_canonica,
+            istat=config.istat,
         ),
     )
 
@@ -345,6 +367,7 @@ async def run_case(
                 poi_source=source,
                 geo_source=geo_source,
                 context_format=config.context_format,
+                istat_context_enabled=config.istat,
             )
     except Exception:  # noqa: BLE001 — un caso rotto non blocca l'esperimento
         return _error_record(

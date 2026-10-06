@@ -376,3 +376,13 @@ def test_cost_usd_of_zero_when_no_llm() -> None:
         _narrativa("Banca A presenta rischio rapina."), tokens=(1_000_000, 0)
     ).model_copy(update={"llm_used": ""})
     assert cost_usd_of(r) == 0.0
+
+
+def test_m1_con_testo_alternativo_esclude_le_frasi_istat() -> None:
+    """#345: sulla coppia ISTAT M1 si calcola sul grezzo senza le frasi con cifre."""
+    corpo_pulito = "Banca A: rapina in banca."
+    con_cifre = _narrativa(f"{corpo_pulito} Nel comune i furti sono 134.169.")
+    pulita = _narrativa(corpo_pulito)
+    resp = _resp(con_cifre)
+    assert compute_metrics(resp, narrativa_m1=pulita) == compute_metrics(_resp(pulita))
+    assert compute_metrics(resp) == compute_metrics(resp, narrativa_m1=None)

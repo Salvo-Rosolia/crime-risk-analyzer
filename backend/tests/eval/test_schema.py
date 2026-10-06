@@ -4,6 +4,7 @@ from pydantic import ValidationError
 from crime_risk_analyzer.eval.schema import (
     ExperimentConfig,
     Metrics,
+    Mode,
     Provenance,
     RunCase,
     RunRecord,
@@ -233,3 +234,28 @@ def test_run_record_risk_models_defaults_to_empty_list() -> None:
         ),
     )
     assert rec.risk_models == []
+
+
+@pytest.mark.parametrize("mode", ["baseline", "no_ontology_prompt"])
+def test_istat_solo_nel_braccio_completo(mode: Mode) -> None:
+    """#345 spec 4.9: ISTAT ha senso solo dove l'ontologia e' nel prompt e
+    c'e' l'LLM."""
+    with pytest.raises(ValidationError, match="istat"):
+        ExperimentConfig(name="x", mode=mode, model="groq", cases=[], istat=True)
+
+
+def test_istat_spento_di_default_e_record_vecchi_validi() -> None:
+    cfg = ExperimentConfig(name="x", mode="analyze", model="groq", cases=[])
+    assert cfg.istat is False
+    vecchio = {
+        "code_commit": "c",
+        "ontology_hash": "o",
+        "snapshot_id": "s",
+        "model_id": "m",
+        "prompt_hash": "p",
+        "temperature": 0.0,
+        "seed": 0,
+        "experiment": "e",
+    }
+    prov = Provenance.model_validate(vecchio)
+    assert (prov.istat, prov.istat_versione_dati) == (False, None)
