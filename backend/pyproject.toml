@@ -25,6 +25,9 @@ dev = [
     "pyright",
     "respx>=0.23.1",
     "pytest-asyncio>=1.4.0",
+    "pyproj>=3.7",
+    "pyshp>=2.3,<3",
+    "shapely>=2.1",
 ]
 
 [build-system]

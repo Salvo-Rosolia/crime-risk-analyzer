@@ -55,6 +55,23 @@ Libreria di mappe — Leaflet
 La mappa interattiva usa Leaflet (BSD-2-Clause).
   - https://leafletjs.com/
 
+--------------------------------------------------------------------------------
+Dati ISTAT — delitti denunciati e confini amministrativi
+--------------------------------------------------------------------------------
+La narrativa può citare i delitti denunciati dalle forze di polizia
+all'autorità giudiziaria (dataset ISTAT 73_67) del comune capoluogo o della
+provincia; il luogo si ricava dai confini amministrativi generalizzati ISTAT.
+
+    Fonte: ISTAT — Istituto nazionale di statistica
+
+I dati e i confini ISTAT sono rilasciati con licenza Creative Commons
+Attribuzione 4.0 (CC BY 4.0).
+  - Licenza:  https://creativecommons.org/licenses/by/4.0/deed.it
+  - Dati:     https://esploradati.istat.it/
+  - Confini:  https://www.istat.it/storage/cartografia/confini_amministrativi/generalizzati/2024/Limiti01012024_g.zip
+              https://www.istat.it/storage/cartografia/confini_amministrativi/generalizzati/Limiti2001_g.zip
+Copia ridotta nel repository: backend/src/crime_risk_analyzer/istat/ (vedi README.md).
+
 ================================================================================
 Ontologia TERMINUS-Crime (ENEA)
 ================================================================================
