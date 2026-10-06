@@ -7,6 +7,8 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+
+from crime_risk_analyzer.istat import dati as dati_mod
 from crime_risk_analyzer.istat.dati import (
     IstatDatiError,
     carica_dati,
@@ -15,8 +17,6 @@ from crime_risk_analyzer.istat.dati import (
     svuota_cache,
     versione_dati,
 )
-
-from crime_risk_analyzer.istat import dati as dati_mod
 
 
 @pytest.fixture(autouse=True)

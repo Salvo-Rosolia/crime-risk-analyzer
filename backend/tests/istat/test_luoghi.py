@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+
 from crime_risk_analyzer.istat.dati import (
     DatiIstat,
     FileDelitti,
@@ -11,7 +12,6 @@ from crime_risk_analyzer.istat.dati import (
     dati_istat,
 )
 from crime_risk_analyzer.istat.luoghi import luogo_di
-
 from crime_risk_analyzer.models.geo import CityBoundary, point_in_multipolygon
 
 

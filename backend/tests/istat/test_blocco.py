@@ -12,7 +12,6 @@ from crime_risk_analyzer.istat.blocco import (
     ha_righe_istat,
     nota_taglio,
 )
-
 from crime_risk_analyzer.istat.righe import IstatPoi
 from tests.istat._fattorie import BANKROB, collegamento, istat_poi, riga
 
