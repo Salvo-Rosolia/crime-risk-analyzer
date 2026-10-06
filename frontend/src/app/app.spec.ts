@@ -1371,6 +1371,15 @@ describe('App shell', () => {
       expect((f.nativeElement.querySelector('#cra-zona') as HTMLInputElement).value).toBe('');
     });
 
+    it('"vai a un luogo": la casella ha maxlength=200 (stesso limite di città/zona nei pannelli di ricerca)', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      const input: HTMLInputElement = f.nativeElement.querySelector('.cra-place-search input');
+      expect(input.maxLength).toBe(200);
+    });
+
     it('"vai a un luogo": submit → geocodePlace → MapComponent.flyTo col risultato', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
@@ -1455,6 +1464,133 @@ describe('App shell', () => {
       expect(flyToSpy).not.toHaveBeenCalled();
       const err = f.nativeElement.querySelector('.cra-place-error');
       expect(err.textContent).toContain('Servizio di geocoding non raggiungibile.');
+      expect(err.textContent).not.toContain('Luogo non trovato');
+    });
+
+    it('"vai a un luogo": 500 senza corpo (backend giù, proxy Vite → corpo vuoto) → messaggio generico, non "Luogo non trovato"', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      const mapDebugEl = f.debugElement.query(By.directive(MapComponent));
+      const flyToSpy = jest.spyOn(mapDebugEl.componentInstance, 'flyTo');
+      // Stesso scenario del reperto review: backend giù sotto `ng serve`, il proxy Vite risponde
+      // 500 a corpo vuoto (nessun `detail` spacchettabile).
+      api.geocodePlace.mockRejectedValue(
+        new HttpErrorResponse({ status: 500, statusText: 'Internal Server Error', error: null }),
+      );
+
+      const input: HTMLInputElement = f.nativeElement.querySelector('.cra-place-search input');
+      input.value = 'Duomo di Milano';
+      input.dispatchEvent(new Event('input'));
+      f.detectChanges();
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+      await f.whenStable();
+      f.detectChanges();
+
+      expect(flyToSpy).not.toHaveBeenCalled();
+      const err = f.nativeElement.querySelector('.cra-place-error');
+      expect(err.textContent).toContain('Ricerca del luogo non disponibile');
+      expect(err.textContent).not.toContain('Luogo non trovato');
+    });
+
+    it('"vai a un luogo": status 0 (rete irraggiungibile) → messaggio generico, non "Luogo non trovato"', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      const mapDebugEl = f.debugElement.query(By.directive(MapComponent));
+      const flyToSpy = jest.spyOn(mapDebugEl.componentInstance, 'flyTo');
+      api.geocodePlace.mockRejectedValue(
+        new HttpErrorResponse({ status: 0, statusText: 'Unknown Error', error: null }),
+      );
+
+      const input: HTMLInputElement = f.nativeElement.querySelector('.cra-place-search input');
+      input.value = 'Duomo di Milano';
+      input.dispatchEvent(new Event('input'));
+      f.detectChanges();
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+      await f.whenStable();
+      f.detectChanges();
+
+      expect(flyToSpy).not.toHaveBeenCalled();
+      const err = f.nativeElement.querySelector('.cra-place-error');
+      expect(err.textContent).toContain('Ricerca del luogo non disponibile');
+      expect(err.textContent).not.toContain('Luogo non trovato');
+    });
+
+    it('"vai a un luogo": 422 con detail lista (validazione pydantic, es. query oltre i 200 caratteri) → messaggio generico, non "Luogo non trovato"', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      const mapDebugEl = f.debugElement.query(By.directive(MapComponent));
+      const flyToSpy = jest.spyOn(mapDebugEl.componentInstance, 'flyTo');
+      // Forma reale di un errore di validazione pydantic: `detail` è una LISTA, non un oggetto con
+      // `messaggio` — `errorMessage` non la spacchetta (giustamente: sarebbe un testo tecnico lungo).
+      api.geocodePlace.mockRejectedValue(
+        new HttpErrorResponse({
+          status: 422,
+          error: {
+            detail: [
+              {
+                type: 'string_too_long',
+                loc: ['query', 'query'],
+                msg: 'String should have at most 200 characters',
+              },
+            ],
+          },
+        }),
+      );
+
+      const input: HTMLInputElement = f.nativeElement.querySelector('.cra-place-search input');
+      input.value = 'Duomo di Milano';
+      input.dispatchEvent(new Event('input'));
+      f.detectChanges();
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+      await f.whenStable();
+      f.detectChanges();
+
+      expect(flyToSpy).not.toHaveBeenCalled();
+      const err = f.nativeElement.querySelector('.cra-place-error');
+      expect(err.textContent).toContain('Ricerca del luogo non disponibile');
+      expect(err.textContent).not.toContain('Luogo non trovato');
+    });
+
+    it('"vai a un luogo": 200 con corpo non-JSON (proxy mancante, risposta HTML → errore di parsing) → messaggio generico, non "Luogo non trovato"', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+
+      const mapDebugEl = f.debugElement.query(By.directive(MapComponent));
+      const flyToSpy = jest.spyOn(mapDebugEl.componentInstance, 'flyTo');
+      // HttpClient, quando il body non è JSON valido (es. l'HTML di `index.html` servito da un
+      // proxy mancante), costruisce un HttpErrorResponse con status 200 ma `ok: false` e
+      // `error` = l'errore di parsing — niente `detail.messaggio` spacchettabile, e lo status non è
+      // 404: non deve mai cadere su "Luogo non trovato".
+      api.geocodePlace.mockRejectedValue(
+        new HttpErrorResponse({
+          status: 200,
+          statusText: 'OK',
+          error: new SyntaxError('Unexpected token < in JSON at position 0'),
+        }),
+      );
+
+      const input: HTMLInputElement = f.nativeElement.querySelector('.cra-place-search input');
+      input.value = 'Duomo di Milano';
+      input.dispatchEvent(new Event('input'));
+      f.detectChanges();
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+      await f.whenStable();
+      f.detectChanges();
+
+      expect(flyToSpy).not.toHaveBeenCalled();
+      const err = f.nativeElement.querySelector('.cra-place-error');
+      expect(err.textContent).toContain('Ricerca del luogo non disponibile');
       expect(err.textContent).not.toContain('Luogo non trovato');
     });
 
