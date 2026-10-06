@@ -26,6 +26,7 @@ from crime_risk_analyzer.config import get_settings
 from crime_risk_analyzer.context_fingerprint import fingerprint
 from crime_risk_analyzer.geocoding import GeoResult
 from crime_risk_analyzer.i18n.terminus_labels import label_en, label_it
+from crime_risk_analyzer.istat.campi_risposta import CampiIstatRisposta
 from crime_risk_analyzer.istat.cifre import EsitoControllo
 from crime_risk_analyzer.llm.client import LLMError, LLMResponse
 from crime_risk_analyzer.models.geo import haversine_m
@@ -381,8 +382,13 @@ def _messaggio_zero_poi(n_poi: int, narrativa: str | None) -> str | None:
     return _MESSAGGIO_ZERO_POI
 
 
-class AnalyzeResponse(BaseModel):
-    """Schema canonico di ``/analyze`` (backend/orchestrator.md)."""
+class AnalyzeResponse(CampiIstatRisposta):
+    """Schema canonico di ``/analyze`` (backend/orchestrator.md).
+
+    ``istat_attivo``/``istat_versione_dati``/``istat_frasi_scartate`` arrivano da
+    :class:`~crime_risk_analyzer.istat.campi_risposta.CampiIstatRisposta`, la base
+    condivisa con ``ZoneNarrativeResponse``/``PoiNarrativeResponse`` (#345).
+    """
 
     citta: str
     zona_normalizzata: str
@@ -445,23 +451,6 @@ class AnalyzeResponse(BaseModel):
             "geocodificata ma la copertura OSM/TERMINUS non ha trovato punti, "
             "invece di lasciar intendere una zona indicata male. None quando "
             "``poi`` non e' vuoto o quando ``narrativa`` ha gia' del testo."
-        ),
-    )
-    istat_attivo: bool = Field(
-        default=False,
-        description=(
-            "True se la narrativa e' stata scritta coi dati ISTAT nel prompt (#345)."
-        ),
-    )
-    istat_versione_dati: str | None = Field(
-        default=None, description="Data di estrazione dei dati ISTAT usati (#345)."
-    )
-    istat_frasi_scartate: int = Field(
-        default=0,
-        ge=0,
-        description=(
-            "Frasi tolte dal controllo delle cifre (#345): trasparenza sul filtro, "
-            "non una misura di pericolosita'."
         ),
     )
     narrativa_grezza: str | None = Field(

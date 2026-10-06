@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 from crime_risk_analyzer import zone_context_cache
 from crime_risk_analyzer.context_fingerprint import ContestoHash, fingerprint
 from crime_risk_analyzer.geocoding import ZoneNotFoundError
+from crime_risk_analyzer.istat.campi_risposta import CampiIstatRisposta
 from crime_risk_analyzer.llm.client import LLMError
 from crime_risk_analyzer.orchestrator import (
     AnalyzeResponse,
@@ -137,8 +138,13 @@ class ZoneNarrativeRequest(BaseModel):
     contesto_hash: ContestoHash
 
 
-class ZoneNarrativeResponse(BaseModel):
-    """Narrativa di zona generata in fase 2 (#259): solo testo + provenienza."""
+class ZoneNarrativeResponse(CampiIstatRisposta):
+    """Narrativa di zona generata in fase 2 (#259): solo testo + provenienza.
+
+    I tre campi ``istat_*`` arrivano da
+    :class:`~crime_risk_analyzer.istat.campi_risposta.CampiIstatRisposta`, la
+    base condivisa con ``AnalyzeResponse``/``PoiNarrativeResponse`` (#345).
+    """
 
     narrativa: str
     narrativa_fonti: SourceProse
@@ -169,23 +175,6 @@ class ZoneNarrativeResponse(BaseModel):
             "dalla fase 1 (``AnalyzeResponse.messaggio``): solo questa risposta "
             "sa se la narrativa appena generata copre gia' il caso, quindi e' "
             "l'unico valore di cui un consumer si puo' fidare come piu' fresco."
-        ),
-    )
-    istat_attivo: bool = Field(
-        default=False,
-        description=(
-            "True se la narrativa e' stata scritta coi dati ISTAT nel prompt (#345)."
-        ),
-    )
-    istat_versione_dati: str | None = Field(
-        default=None, description="Data di estrazione dei dati ISTAT usati (#345)."
-    )
-    istat_frasi_scartate: int = Field(
-        default=0,
-        ge=0,
-        description=(
-            "Frasi tolte dal controllo delle cifre (#345): trasparenza sul filtro, "
-            "non una misura di pericolosita'."
         ),
     )
 

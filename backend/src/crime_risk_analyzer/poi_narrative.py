@@ -27,6 +27,7 @@ from crime_risk_analyzer import zone_context_cache
 from crime_risk_analyzer.context_fingerprint import ContestoHash, fingerprint
 from crime_risk_analyzer.geocoding import ZoneNotFoundError
 from crime_risk_analyzer.i18n.terminus_labels import label_it
+from crime_risk_analyzer.istat.campi_risposta import CampiIstatRisposta
 from crime_risk_analyzer.llm.client import LLMError
 from crime_risk_analyzer.orchestrator import (
     GeoSource,
@@ -88,8 +89,13 @@ class PoiNarrativeRequest(BaseModel):
     contesto_hash: ContestoHash
 
 
-class PoiNarrativeResponse(BaseModel):
-    """Narrativa del singolo POI: prosa, fonti, rischi citabili, provenienza."""
+class PoiNarrativeResponse(CampiIstatRisposta):
+    """Narrativa del singolo POI: prosa, fonti, rischi citabili, provenienza.
+
+    I tre campi ``istat_*`` arrivano da
+    :class:`~crime_risk_analyzer.istat.campi_risposta.CampiIstatRisposta`, la
+    base condivisa con ``AnalyzeResponse``/``ZoneNarrativeResponse`` (#345).
+    """
 
     poi_id: str
     narrativa: str
@@ -102,23 +108,6 @@ class PoiNarrativeResponse(BaseModel):
     fallback: bool = Field(
         default=False,
         description="True se l'LLM e' caduto: response con soli dati strutturati.",
-    )
-    istat_attivo: bool = Field(
-        default=False,
-        description=(
-            "True se la narrativa e' stata scritta coi dati ISTAT nel prompt (#345)."
-        ),
-    )
-    istat_versione_dati: str | None = Field(
-        default=None, description="Data di estrazione dei dati ISTAT usati (#345)."
-    )
-    istat_frasi_scartate: int = Field(
-        default=0,
-        ge=0,
-        description=(
-            "Frasi tolte dal controllo delle cifre (#345): trasparenza sul filtro, "
-            "non una misura di pericolosita'."
-        ),
     )
 
 
