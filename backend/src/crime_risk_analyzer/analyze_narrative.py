@@ -171,6 +171,23 @@ class ZoneNarrativeResponse(BaseModel):
             "l'unico valore di cui un consumer si puo' fidare come piu' fresco."
         ),
     )
+    istat_attivo: bool = Field(
+        default=False,
+        description=(
+            "True se la narrativa e' stata scritta coi dati ISTAT nel prompt (#345)."
+        ),
+    )
+    istat_versione_dati: str | None = Field(
+        default=None, description="Data di estrazione dei dati ISTAT usati (#345)."
+    )
+    istat_frasi_scartate: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Frasi tolte dal controllo delle cifre (#345): trasparenza sul filtro, "
+            "non una misura di pericolosita'."
+        ),
+    )
 
 
 async def run_zone_narrative(
@@ -185,6 +202,7 @@ async def run_zone_narrative(
     geo_source: GeoSource | None = None,
     request_token_budget: int = DEFAULT_REQUEST_TOKEN_BUDGET,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    istat_context_enabled: bool = False,
 ) -> ZoneNarrativeResponse:
     """Fase 2 (#259): genera la narrativa sul contesto già scaldato da
     :func:`run_analysis_fast`, a cache fredda lo ricostruisce.
@@ -255,6 +273,7 @@ async def run_zone_narrative(
             domanda=domanda,
             request_token_budget=request_token_budget,
             max_tokens=max_tokens,
+            istat=istat_context_enabled,
         )
     except LLMError as exc:
         logger.warning(
@@ -288,4 +307,7 @@ async def run_zone_narrative(
         repro=gen.repro,
         fallback=False,
         messaggio=_messaggio_zero_poi(n_poi, gen.narrativa),
+        istat_attivo=gen.istat_attivo,
+        istat_versione_dati=gen.istat_versione_dati,
+        istat_frasi_scartate=gen.istat_frasi_scartate,
     )

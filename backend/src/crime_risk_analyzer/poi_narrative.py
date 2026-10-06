@@ -103,6 +103,23 @@ class PoiNarrativeResponse(BaseModel):
         default=False,
         description="True se l'LLM e' caduto: response con soli dati strutturati.",
     )
+    istat_attivo: bool = Field(
+        default=False,
+        description=(
+            "True se la narrativa e' stata scritta coi dati ISTAT nel prompt (#345)."
+        ),
+    )
+    istat_versione_dati: str | None = Field(
+        default=None, description="Data di estrazione dei dati ISTAT usati (#345)."
+    )
+    istat_frasi_scartate: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Frasi tolte dal controllo delle cifre (#345): trasparenza sul filtro, "
+            "non una misura di pericolosita'."
+        ),
+    )
 
 
 def _risk_model_of(vr: ValidatedRisk) -> RiskModel:
@@ -138,6 +155,7 @@ async def run_poi_narrative(
     llm_client: _LLMClientLike,
     poi_source: PoiSource | None = None,
     geo_source: GeoSource | None = None,
+    istat_context_enabled: bool = False,
 ) -> PoiNarrativeResponse:
     """Genera la narrativa del POI ``poi_id`` nella zona indicata.
 
@@ -239,6 +257,7 @@ async def run_poi_narrative(
             neighbours=neighbours,
             zone_summary=zone_summary,
             llm_client=llm_client,
+            istat=vr.get("istat") if istat_context_enabled else None,
         )
     except LLMError as exc:
         logger.warning(
@@ -271,4 +290,7 @@ async def run_poi_narrative(
         latenza_ms=generated.latenza_ms,
         repro=generated.repro,
         fallback=False,
+        istat_attivo=generated.istat_attivo,
+        istat_versione_dati=generated.istat_versione_dati,
+        istat_frasi_scartate=generated.istat_frasi_scartate,
     )

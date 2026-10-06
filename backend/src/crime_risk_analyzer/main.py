@@ -29,6 +29,7 @@ from crime_risk_analyzer.analyze_narrative import (
 from crime_risk_analyzer.area_search import resolve_circle, resolve_zone
 from crime_risk_analyzer.config import Settings, get_settings
 from crime_risk_analyzer.errors import register_exception_handlers
+from crime_risk_analyzer.istat.dati import dati_istat
 from crime_risk_analyzer.llm.client import LLMClient, get_llm_client
 from crime_risk_analyzer.ontology import get_ontology
 from crime_risk_analyzer.orchestrator import (
@@ -219,6 +220,7 @@ async def analyze_narrativa(
         domanda=request.domanda,
         request_token_budget=settings.llm_request_token_budget,
         max_tokens=settings.llm_max_tokens,
+        istat_context_enabled=settings.istat_context_enabled,
     )
 
 
@@ -257,6 +259,7 @@ async def analyze_poi(
     request: PoiNarrativeRequest,
     executor: Annotated[RiskQueryExecutor, Depends(get_executor)],
     llm_client: Annotated[LLMClient, Depends(get_llm_client)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> PoiNarrativeResponse:
     """Narrativa del singolo POI selezionato (#197).
 
@@ -279,6 +282,7 @@ async def analyze_poi(
         contesto_hash=request.contesto_hash,
         executor=executor,
         llm_client=llm_client,
+        istat_context_enabled=settings.istat_context_enabled,
     )
 
 
@@ -297,11 +301,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
       richiesta (vedi docstring di :class:`RiskQueryExecutor`);
     * :func:`get_llm_client` — istanzia il client LLM dal provider configurato
       (fail-fast: ``LLMError`` all'avvio se la chiave del provider manca, invece
-      che alla prima ``/analyze``).
+      che alla prima ``/analyze``);
+    * :func:`dati_istat` — solo con ``istat_context_enabled``: carica e valida i
+      dati ISTAT (fail-fast).
     """
     get_ontology()
     get_executor()
     get_llm_client()
+    # Dati ISTAT (#345): con l'interruttore acceso, file mancanti o non validi
+    # fermano l'avvio invece di produrre narrative senza dati in silenzio.
+    if get_settings().istat_context_enabled:
+        dati_istat()
     yield
 
 

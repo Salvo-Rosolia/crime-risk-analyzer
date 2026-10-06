@@ -1236,6 +1236,48 @@ async def test_run_analysis_does_not_touch_the_zone_cache(
         zone_context_cache.clear()
 
 
+async def test_run_analysis_espone_i_campi_istat_e_nasconde_il_grezzo() -> None:
+    from tests.eval._doubles import FakeLLMClient
+
+    class _FakeProfilerRoma:
+        def profile(self, terminus_class: str) -> PoiRiskProfile:
+            return PoiRiskProfile(
+                terminus_class="Bank",
+                hazards=["Bank_robbery"],
+                sparql_paths=["Bank → havingHazard → Bank_robbery"],
+            )
+
+    async def _poi_source_roma(bbox: Bbox, citta: str) -> list[Poi]:
+        return [
+            {
+                "id": "node/1",
+                "name": "Banca A",
+                "lat": 41.8902,
+                "lon": 12.4922,
+                "osm_tags": "amenity=bank",
+                "terminus_class": "Bank",
+                "citta": citta,
+            }
+        ]
+
+    async def _geo_source_roma(citta: str, zona: str) -> GeoResult:
+        return GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50))
+
+    resp = await run_analysis(
+        "Roma",
+        "Colosseo",
+        executor=_FakeProfilerRoma(),
+        llm_client=FakeLLMClient(),
+        poi_source=_poi_source_roma,
+        geo_source=_geo_source_roma,
+        istat_context_enabled=True,
+    )
+    assert resp.istat_attivo is True
+    assert resp.narrativa_grezza is not None
+    corpo = resp.model_dump()
+    assert "narrativa_grezza" not in corpo and "controllo_istat" not in corpo
+
+
 # --- contratto dell'area: cerchio (center/radius_m) OPPURE citta + zona ---
 
 
@@ -1461,6 +1503,11 @@ def test_analyze_response_has_no_numeric_danger_scoring_field() -> None:
         "contesto_hash",
         "zona_geo",
         "messaggio",
+        "istat_attivo",
+        "istat_versione_dati",
+        "istat_frasi_scartate",
+        "narrativa_grezza",
+        "controllo_istat",
     }
 
 

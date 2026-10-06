@@ -347,3 +347,13 @@ def test_search_radius_min_ge_max_rejected() -> None:
             search_radius_min_m=3000.0,
             search_radius_max_m=150.0,
         )
+
+
+def test_istat_context_enabled_default_acceso(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ISTAT_CONTEXT_ENABLED", raising=False)
+    assert Settings(_env_file=None).istat_context_enabled is True  # pyright: ignore[reportCallIssue]
+
+
+def test_istat_context_enabled_da_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ISTAT_CONTEXT_ENABLED", "false")
+    assert Settings(_env_file=None).istat_context_enabled is False  # pyright: ignore[reportCallIssue]

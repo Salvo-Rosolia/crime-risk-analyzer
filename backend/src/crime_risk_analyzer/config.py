@@ -55,6 +55,13 @@ class Settings(BaseSettings):
     # margine per l'errore di stima. Vincolo ``ge=1``: un misconfig da env
     # (0/negativo) e' respinto al load, non lasciato degenerare a runtime.
     llm_request_token_budget: int = Field(default=10000, ge=1)
+    # Dati ISTAT nella narrativa (#345, D6): acceso di default nell'app. Spento,
+    # prompt e comportamento sono identici a prima di #345 (il grounding calcola
+    # comunque le righe: l'interruttore agisce solo su prompt e controllo delle
+    # cifre). Acceso, l'avvio fallisce se i dati del package mancano o non sono
+    # validi (``main.lifespan``). La valutazione NON lo legge: usa
+    # ``ExperimentConfig.istat`` (spento di default, confronto della tesi).
+    istat_context_enabled: bool = True
     cache_enabled: bool = True
     # Geocoding hardening (#115). ``cache_enabled`` (sopra) gate la cache dei
     # risultati di geocoding (prima setting dichiarato ma inutilizzato).

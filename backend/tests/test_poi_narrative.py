@@ -149,6 +149,48 @@ def _client(llm: object = None) -> TestClient:
     return TestClient(app, raise_server_exceptions=False)
 
 
+@pytest.mark.parametrize("acceso", [True, False], ids=["istat-acceso", "istat-spento"])
+def test_rotta_poi_legge_l_interruttore_dalle_settings(
+    acceso: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from crime_risk_analyzer.config import Settings, get_settings
+    from crime_risk_analyzer.rag.poi_generation import (
+        POI_SYSTEM_PROMPT,
+        POI_SYSTEM_PROMPT_ISTAT,
+    )
+
+    sistemi: list[str] = []
+
+    class _Spia(_FakeLLMClient):
+        async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
+            sistemi.append(system_prompt)
+            return await super().generate(system_prompt, user_content)
+
+    _patch_io(monkeypatch)
+    impostazioni = Settings(istat_context_enabled=acceso)
+    app = create_app()
+    app.dependency_overrides[get_executor] = lambda: _FakeProfiler()
+    app.dependency_overrides[get_llm_client] = lambda: _Spia()
+    app.dependency_overrides[get_settings] = lambda: impostazioni
+    client = TestClient(app, raise_server_exceptions=False)
+    contesto_hash = _analizza(client)
+    resp = cast(
+        httpx.Response,
+        client.post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze/poi",
+            json={
+                "citta": "Roma",
+                "zona": "Colosseo",
+                "poi_id": _POI_ID,
+                "contesto_hash": contesto_hash,
+            },
+        ),
+    )
+    assert resp.status_code == 200
+    assert sistemi == [POI_SYSTEM_PROMPT_ISTAT if acceso else POI_SYSTEM_PROMPT]
+    assert resp.json()["istat_attivo"] is acceso
+
+
 def test_risk_model_of_propagates_source() -> None:
     vr = {
         "poi_id": "node/1",
@@ -618,6 +660,9 @@ def test_poi_narrative_response_has_no_numeric_danger_scoring_field() -> None:
         "latenza_ms",
         "repro",
         "fallback",
+        "istat_attivo",
+        "istat_versione_dati",
+        "istat_frasi_scartate",
     }
 
 
