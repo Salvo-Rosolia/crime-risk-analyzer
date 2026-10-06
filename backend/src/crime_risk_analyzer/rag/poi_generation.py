@@ -42,10 +42,16 @@ from crime_risk_analyzer.rag.generation import (
     parse_source_prose,
 )
 from crime_risk_analyzer.rag.grounding import GroundedRisk
+from crime_risk_analyzer.rag.istat_rules import (
+    POI_ISTAT_SECTION,
+    RULE_ISTAT_DIVIETI,
+    sostituisci_una_volta,
+)
 from crime_risk_analyzer.rag.poi_context import NeighbourPoi
 
 __all__ = [
     "POI_SYSTEM_PROMPT",
+    "POI_SYSTEM_PROMPT_ISTAT",
     "PoiGenerationResult",
     "build_poi_context_str",
     "generate_poi_narrative",
@@ -89,6 +95,23 @@ Descrivi la funzione urbana del punto e del suo intorno, non la loro sicurezza.
 
 Non aggiungere altri blocchi oltre a questi due.
 """
+
+#: Variante con i dati ISTAT (#345): la frase strutturale passa da DUE a TRE
+#: blocchi, la 7-bis segue la 7 e la sezione [ISTAT] precede la chiusura.
+#: Sostituzioni verificate su :data:`POI_SYSTEM_PROMPT`, che non cambia.
+POI_SYSTEM_PROMPT_ISTAT = sostituisci_una_volta(
+    sostituisci_una_volta(
+        sostituisci_una_volta(
+            POI_SYSTEM_PROMPT,
+            f"{RULE_NO_DANGER_RATING}\n\n",
+            f"{RULE_NO_DANGER_RATING}\n\n{RULE_ISTAT_DIVIETI}\n\n",
+        ),
+        "Struttura la risposta in DUE blocchi",
+        "Struttura la risposta in TRE blocchi",
+    ),
+    "Non aggiungere altri blocchi oltre a questi due.",
+    f"[ISTAT]\n{POI_ISTAT_SECTION}\n\nNon aggiungere altri blocchi oltre a questi tre.",
+)
 
 
 def build_poi_context_str(
