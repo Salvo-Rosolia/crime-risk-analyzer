@@ -113,6 +113,7 @@ _CASI: list[tuple[str, str, Motivo | None]] = [
     ),
     ("istat", "Il totale dei delitti denunciati e' 217.536 nel 2024.", None),
     ("istat", "I dati coprono il periodo 2014-2024.", None),
+    ("istat", "I dati coprono il periodo 2014\u20132024.", None),
     (
         "istat",
         "Nei danneggiamenti la serie e' interrotta dal 2016, con 19.843 casi nel 2024 (fonte ISTAT, Comune di Roma, 2024).",
@@ -122,6 +123,8 @@ _CASI: list[tuple[str, str, Motivo | None]] = [
     # formati equivalenti
     ("istat", "I furti sono 134169 nel 2024.", None),
     ("istat", "I furti sono 134 169 nel 2024.", None),
+    ("istat", "I furti sono 134\xa0169 nel 2024.", None),
+    ("istat", "I furti sono 134\u202f169 nel 2024.", None),
     ("istat", "I furti sono 4876.4 ogni 100.000 abitanti.", None),
     # arrotondamenti e numeri inventati
     (
@@ -137,6 +140,12 @@ _CASI: list[tuple[str, str, Motivo | None]] = [
     # segni
     ("istat", "Le rapine in esercizi commerciali calano del -16%.", "segno_errato"),
     ("istat", "Le rapine in esercizi commerciali variano del −16%.", "segno_errato"),
+    # fix round 1 - minore (c): trattino medio come segno
+    (
+        "istat",
+        "Le rapine in esercizi commerciali variano del \u201316%.",
+        "segno_errato",
+    ),
     # direzione contraria al segno
     (
         "istat",
@@ -148,6 +157,15 @@ _CASI: list[tuple[str, str, Motivo | None]] = [
         "I furti sono in crescita (fonte ISTAT, Comune di Roma, 2024).",
         "direzione_contraria",
     ),
+    # fix round 1 - importante 3: vocabolario di direzione esteso (sale/scende)
+    (
+        "istat",
+        "Le rapine in esercizi commerciali scendono del 16%.",
+        "direzione_contraria",
+    ),
+    ("istat", "Le rapine in esercizi commerciali sono scese.", "direzione_contraria"),
+    # fix round 1 - minore (a): voce nominata senza tendenza calcolata (rottura 2016)
+    ("istat", "I danneggiamenti sono in aumento.", "direzione_contraria"),
     # cifra ISTAT nel blocco sbagliato
     ("ontologia", "Il Colosseo concentra 134.169 furti.", "cifra_istat_fuori_blocco"),
     ("contesto", "La zona ha 4.876,4 visitatori.", "cifra_istat_fuori_blocco"),
@@ -156,6 +174,12 @@ _CASI: list[tuple[str, str, Motivo | None]] = [
         "speculativo",
         "Forse i furti potrebbero essere collegati ai 134.169 casi denunciati.",
         "cifra_istat_fuori_blocco",
+    ),
+    # fix round 1 - minore (b): una variazione e' una cifra ISTAT solo col '%'
+    (
+        "istat",
+        "Il totale dei delitti denunciati e' stabile negli ultimi 10 anni.",
+        None,
     ),
     # numeri del contesto e marcatori d'elenco
     ("ontologia", "Tra i 12 POI analizzati, Bar 2000 e' esposto a rapina.", None),
@@ -189,6 +213,20 @@ def test_intestazione_istat_mancante_toglie_le_cifre_nella_sintesi() -> None:
         == "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nRischio rapina.\n"
     )
     assert esito.frasi_scartate == 1
+
+
+def test_direzione_contraria_fuori_dal_blocco_istat() -> None:
+    """Fix round 1 - importante 2: la direzione si controlla in ogni blocco."""
+    testo = (
+        "Sintesi: i furti sono in forte aumento.\n\n"
+        "Rischi da ontologia [ONTOLOGIA]\nI furti sono in forte aumento.\n"
+    )
+    esito = _controlla(testo)
+    assert [(f.blocco, f.motivo) for f in esito.frasi] == [
+        ("overview", "direzione_contraria"),
+        ("intestazione", None),
+        ("ontologia", "direzione_contraria"),
+    ]
 
 
 def test_filtro_toglie_righe_rimaste_col_solo_marcatore() -> None:

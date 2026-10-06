@@ -8,20 +8,31 @@ generazione. Gira solo quando il prompt conteneva il blocco DATI ISTAT.
    ("1.", "-", "*") non fanno parte della frase. (``eval.metrics._sentences``
    spezza a ogni punto e non va riusata.)
 2. Numeri normalizzati all'italiana: ``.`` seguito da gruppi di tre cifre e' il
-   separatore delle migliaia (come lo spazio e lo spazio stretto), altrimenti e'
-   decimale; ``,`` e' decimale; ``−`` vale ``-``; un ``-`` fra due cifre e' un
-   intervallo ("2014-2024" sono due anni).
+   separatore delle migliaia (come lo spazio normale, l'NBSP e lo spazio stretto
+   NNBSP), altrimenti e' decimale; ``,`` e' decimale; ``−`` e ``–`` (trattino medio)
+   valgono ``-``; un ``-`` (o ``–``) fra due cifre e' un intervallo ("2014-2024"
+   sono due anni, non un segno).
 3. Ammessi: tutti i numeri dello user_content (blocco DATI ISTAT compreso) piu' la
    lista fissa (100.000, ``Y``, ``Y-10``, 0,1, i POI coinvolti). Cifre ISTAT:
-   conteggi, tassi, tasso nazionale e variazioni delle righe, tranne quelli che
-   compaiono anche nel contesto fuori dal blocco o nella lista fissa (non si puo'
-   dire a cosa si riferiscano).
+   conteggi, tassi, tasso nazionale delle righe, piu' le variazioni ma SOLO quando
+   scritte con ``%`` (un numero senza ``%`` puo' coincidere per caso col valore
+   assoluto di una variazione — es. "10" in "negli ultimi 10 anni" — e non va
+   scambiato per una cifra ISTAT); in ogni caso tranne quelli che compaiono anche
+   nel contesto fuori dal blocco o nella lista fissa (non si puo' dire a cosa si
+   riferiscano).
 4. Regole, nell'ordine: numero non ammesso; cifra ISTAT fuori dal blocco
    ``[ISTAT]`` (il blocco ``[SPECULATIVO]`` non e' il blocco ISTAT: una cifra
    ISTAT li' dentro e' trattata come fuori blocco); nel blocco, ogni cifra ISTAT
    deve appartenere a una voce nominata nella stessa frase (etichetta o codice) e
    il segno esplicito di una variazione deve essere quello giusto; parole di
-   direzione contrarie al segno della variazione della voce nominata.
+   direzione contrarie al segno della variazione della voce nominata — questo
+   controllo vale in OGNI blocco (non solo ``[ISTAT]``: una frase di overview o di
+   ``[ONTOLOGIA]``/``[CONTESTO]``/``[SPECULATIVO]`` che nomina una voce con una
+   parola di direzione sbagliata si toglie comunque). Se la voce nominata non ha
+   nessuna tendenza calcolata (serie interrotta, anno mancante, sotto soglia), una
+   parola di direzione su di essa non e' verificabile e la frase si toglie lo
+   stesso, con lo stesso motivo ``direzione_contraria`` (scelta di
+   implementazione: non si introduce un settimo motivo solo per questo caso).
 5. I numeri in lettere ("il doppio") si contano per la valutazione, non si tolgono.
 
 Il testo grezzo resta disponibile: l'esito porta il testo filtrato (cio' che vede
@@ -92,8 +103,8 @@ class Numero(NamedTuple):
 
 _NUMERO = re.compile(
     r"(?<![\w.,])"
-    r"(?P<segno>[+\-−])?"
-    r"(?P<corpo>\d{1,3}(?:[.   ]\d{3})+(?:,\d+)?|\d+(?:[.,]\d+)?)"
+    r"(?P<segno>[+\-−–])?"
+    r"(?P<corpo>\d{1,3}(?:[.\xa0\u202f ]\d{3})+(?:,\d+)?|\d+(?:[.,]\d+)?)"
     r"(?!\w)"
     r"(?P<pct>\s?%)?"
 )
@@ -102,11 +113,12 @@ _MARCATORE_ELENCO = re.compile(r"^\s*(?:[-*•]|\d{1,2}[.)])\s+")
 _FINE_FRASE = re.compile(r"(?<=[.!?;])\s+")
 _SU = re.compile(
     r"\b(?:aumento|aumenti|aumentat[oaie]|aumenta|aumentano|crescita|cresciut[oaie]"
-    r"|cresce|crescono|incremento|incrementi|rialzo)\b"
+    r"|cresce|crescono|incremento|incrementi|rialzo|sale|salgono|salit[oaie])\b"
 )
 _GIU = re.compile(
     r"\b(?:calo|cali|calat[oaie]|cala|calano|diminuzione|diminuzioni|diminuit[oaie]"
-    r"|diminuisce|diminuiscono|riduzione|ridott[oaie]|flessione|discesa|ribasso)\b"
+    r"|diminuisce|diminuiscono|riduzione|ridott[oaie]|flessione|discesa|ribasso"
+    r"|scende|scendono|sces[oaie])\b"
 )
 _IN_LETTERE = re.compile(
     r"\b(?:mille|duemila|tremila|quattromila|cinquemila|diecimila|centomila"
@@ -158,7 +170,7 @@ class EsitoControllo(BaseModel):
 
 
 def _valore(corpo: str) -> Decimal:
-    pulito = corpo.replace(" ", "").replace(" ", "").replace(" ", "")
+    pulito = corpo.replace("\xa0", "").replace("\u202f", "").replace(" ", "")
     if "," in pulito:
         intera, decimali = pulito.split(",", 1)
         return Decimal(f"{intera.replace('.', '')}.{decimali}")
@@ -172,7 +184,7 @@ def estrai_numeri(testo: str) -> list[Numero]:
     testo = _MARCATORE_ELENCO.sub("", testo, count=1)
     numeri: list[Numero] = []
     for m in _NUMERO.finditer(testo):
-        segno = (m.group("segno") or "").replace("−", "-")
+        segno = (m.group("segno") or "").replace("−", "-").replace("–", "-")
         numeri.append(
             Numero(_valore(m.group("corpo")), segno, m.group("pct") is not None)
         )
@@ -213,6 +225,7 @@ def _blocco_di(pos: int, blocchi: Sequence[SpanBlocco]) -> Blocco:
 def _figure(
     righe: Sequence[RigaIstat], escluse: set[Decimal]
 ) -> dict[Decimal, set[str]]:
+    """Conteggi e tassi delle righe: cifre ISTAT sempre, col ``%`` o senza."""
     figure: dict[Decimal, set[str]] = {}
     for r in righe:
         valori: list[float | int] = [
@@ -220,13 +233,26 @@ def _figure(
             for v in (r.delitti, r.delitti_confronto, r.tasso, r.tasso_italia)
             if v is not None
         ]
-        if r.variazione_pct is not None:
-            valori.append(abs(r.variazione_pct))
         for v in valori:
             d = Decimal(str(v))
             if d not in escluse:
                 figure.setdefault(d, set()).add(r.voce)
     return figure
+
+
+def _variazioni(
+    righe: Sequence[RigaIstat], escluse: set[Decimal]
+) -> dict[Decimal, set[str]]:
+    """Valore assoluto delle variazioni: cifra ISTAT solo se scritto con ``%``
+    (altrimenti un numero come "10" in "negli ultimi 10 anni" non e' una cifra
+    ISTAT solo perche' coincide col valore assoluto di una variazione)."""
+    variazioni: dict[Decimal, set[str]] = {}
+    for r in righe:
+        if r.variazione_pct is not None:
+            d = Decimal(str(abs(r.variazione_pct)))
+            if d not in escluse:
+                variazioni.setdefault(d, set()).add(r.voce)
+    return variazioni
 
 
 def _tendenze(righe: Sequence[RigaIstat]) -> dict[str, set[int]]:
@@ -287,8 +313,26 @@ class _Regole(NamedTuple):
     fissi: set[Decimal]
     ammessi: set[Decimal]
     figure: dict[Decimal, set[str]]
+    variazioni: dict[Decimal, set[str]]
     tendenze: dict[str, set[int]]
     etichette: list[tuple[str, str]]
+
+
+def _e_cifra_istat(n: Numero, regole: _Regole) -> bool:
+    """``True`` se ``n`` e' una cifra ISTAT: conteggio/tasso sempre, variazione
+    solo se scritta con ``%`` (ruling minore b)."""
+    if n.valore in regole.figure:
+        return True
+    return n.percentuale and n.valore in regole.variazioni
+
+
+def _voci_di(n: Numero, regole: _Regole) -> set[str]:
+    """Voci a cui ``n`` puo' riferirsi (conteggi/tassi sempre, variazioni solo
+    se ``n`` e' scritto con ``%``)."""
+    voci = set(regole.figure.get(n.valore, ()))
+    if n.percentuale:
+        voci |= regole.variazioni.get(n.valore, set())
+    return voci
 
 
 def _valuta(
@@ -296,9 +340,12 @@ def _valuta(
 ) -> FraseControllata:
     numeri = estrai_numeri(testo)
     non_fissi = [n for n in numeri if n.valore not in regole.fissi]
-    istat = [n for n in non_fissi if n.valore in regole.figure]
+    istat = [n for n in non_fissi if _e_cifra_istat(n, regole)]
     voci = voci_nominate(testo, regole.etichette)
-    direzione = direzione_di(testo) if blocco == "istat" else ""
+    # Il controllo di direzione vale in ogni blocco, non solo in [ISTAT] (ruling
+    # controller IMPORTANT 2): una parola di direzione su una voce nominata e'
+    # verificabile ovunque compaia nella narrativa.
+    direzione = direzione_di(testo)
     motivo: Motivo | None = None
     corrette = 0
     if any(n.valore not in regole.ammessi for n in numeri):
@@ -308,19 +355,26 @@ def _valuta(
     elif istat:
         if not voci:
             motivo = "voce_mancante"
-        elif any(not (regole.figure[n.valore] & voci) for n in istat):
+        elif any(not (_voci_di(n, regole) & voci) for n in istat):
             motivo = "voce_errata"
         elif any(not _segno_coerente(n, voci, regole.tendenze) for n in istat):
             motivo = "segno_errato"
         else:
             corrette = len(istat)
     coerente: bool | None = None
-    if direzione:
+    if direzione and voci:
         segni = [t for v in voci for t in regole.tendenze.get(v, set())]
         if segni:
             coerente = any(_coerente(direzione, t) for t in segni)
             if not coerente and motivo is None:
                 motivo = "direzione_contraria"
+        elif motivo is None:
+            # Voce nominata con una parola di direzione ma senza tendenza
+            # calcolata (serie interrotta, anno mancante, sotto soglia): non si
+            # puo' verificare la direzione, quindi la frase si toglie comunque
+            # (ruling minore a). ``direzione_coerente`` resta ``None`` perche' non
+            # c'e' una tendenza con cui confrontarsi.
+            motivo = "direzione_contraria"
     return FraseControllata(
         testo=testo,
         blocco=blocco,
@@ -376,10 +430,12 @@ def controlla_cifre(
     }
     fissi |= {Decimal(n) for n in _POI_COINVOLTI.findall(blocco_istat)}
     nel_contesto = valori_del_testo(contesto_senza_istat)
+    escluse = fissi | nel_contesto
     regole = _Regole(
         fissi=fissi,
         ammessi=fissi | nel_contesto | valori_del_testo(blocco_istat),
-        figure=_figure(righe, fissi | nel_contesto),
+        figure=_figure(righe, escluse),
+        variazioni=_variazioni(righe, escluse),
         tendenze=_tendenze(righe),
         etichette=_etichette(righe),
     )
