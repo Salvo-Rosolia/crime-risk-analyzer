@@ -186,6 +186,29 @@ _CASI: list[tuple[str, str, Motivo | None]] = [
     ("ontologia", "Tra i 12 POI analizzati, Bar 2000 e' esposto a rapina.", None),
     ("ontologia", "Tre banche su 9 sono esposte.", "numero_non_ammesso"),
     ("ontologia", "1. Rischio di rapina per Bar 2000.", None),
+    # F1 (review finale): il ';' non chiude la frase, la variazione resta con la voce
+    (
+        "istat",
+        "Nel Comune di Roma i furti denunciati nel 2024 sono 134.169 (fonte ISTAT, Comune di Roma, 2024); variazione 2014-2024: -10%.",
+        None,
+    ),
+    # F5: fuori da [ISTAT] la direzione si controlla solo se la frase parla dei dati ISTAT
+    (
+        "ontologia",
+        "Il furto di beni domina la zona e i furti sono in aumento per la folla.",
+        None,
+    ),
+    ("ontologia", "Secondo l'ISTAT i furti sono in aumento.", "direzione_contraria"),
+    (
+        "contesto",
+        "Nel Comune di Roma i furti sono in aumento.",
+        "direzione_contraria",
+    ),
+    (
+        "speculativo",
+        "Forse i delitti denunciati di furti sono in aumento.",
+        "direzione_contraria",
+    ),
 ]
 
 
@@ -217,10 +240,11 @@ def test_intestazione_istat_mancante_toglie_le_cifre_nella_sintesi() -> None:
 
 
 def test_direzione_contraria_fuori_dal_blocco_istat() -> None:
-    """Fix round 1 - importante 2: la direzione si controlla in ogni blocco."""
+    """Fix round 1 - importante 2, raffinato da F5 (review finale): fuori da
+    ``[ISTAT]`` la direzione si controlla quando la frase parla dei dati ISTAT."""
     testo = (
-        "Sintesi: i furti sono in forte aumento.\n\n"
-        "Rischi da ontologia [ONTOLOGIA]\nI furti sono in forte aumento.\n"
+        "Sintesi: secondo l'ISTAT i furti sono in forte aumento.\n\n"
+        "Rischi da ontologia [ONTOLOGIA]\nNel Comune di Roma i furti sono in forte aumento.\n"
     )
     esito = _controlla(testo)
     assert [(f.blocco, f.motivo) for f in esito.frasi] == [
@@ -332,3 +356,55 @@ def test_applica_controllo_con_blocco_attivo_filtra_e_ritorna_esito() -> None:
         contesto_senza_istat=_CONTESTO,
         righe=_BLOCCO.righe,
     )
+
+
+def test_span_degli_anni_e_un_numero_ammesso_non_una_cifra_istat() -> None:
+    """F2 (review finale): "10 anni" (Y - Y_confronto) non e' un numero inventato."""
+    blocco = blocco_istat_poi(istat_poi(riga(variazione=-11)))
+    testo = (
+        "Sintesi.\n\nDati statistici ISTAT [ISTAT]\nNegli ultimi 10 anni i furti sono "
+        "diminuiti dell'11% (fonte ISTAT, Comune di Roma, 2024).\n"
+    )
+    esito = controlla_cifre(
+        testo,
+        blocchi=_spans(testo),
+        blocco_istat=blocco.testo,
+        contesto_senza_istat=_CONTESTO,
+        righe=blocco.righe,
+    )
+    frase = [f for f in esito.frasi if f.blocco == "istat"][0]
+    assert frase.motivo is None
+    assert (frase.cifre_istat, frase.cifre_istat_corrette) == (1, 1)
+
+
+def test_per_cento_in_parole_vale_come_percentuale() -> None:
+    """F6 (review finale): "10 per cento" e' una variazione ISTAT come "10%"."""
+    testo = (
+        "Nel Comune di Roma i furti sono calati del 10 per cento in dieci anni.\n\n"
+        "Rischi da ontologia [ONTOLOGIA]\nRischio rapina.\n"
+    )
+    esito = _controlla(testo)
+    assert [(f.blocco, f.motivo) for f in esito.frasi][0] == (
+        "overview",
+        "cifra_istat_fuori_blocco",
+    )
+    assert estrai_numeri("del 10 per cento e del 3 percento") == [
+        Numero(Decimal("10"), "", True),
+        Numero(Decimal("3"), "", True),
+    ]
+
+
+def test_prosa_sulla_riga_dell_intestazione_appartiene_al_blocco() -> None:
+    """F7 (review finale): il testo dopo il token sulla riga-etichetta e' del blocco."""
+    testo = (
+        "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nRischio rapina.\n\n"
+        "Dati statistici ISTAT [ISTAT]: nel Comune di Roma i furti denunciati nel 2024 "
+        "sono 134.169 (fonte ISTAT, Comune di Roma, 2024).\n"
+    )
+    esito = _controlla(testo)
+    istat = [f for f in esito.frasi if f.blocco == "istat"]
+    assert len(istat) == 1
+    assert istat[0].motivo is None
+    assert istat[0].testo.startswith("nel Comune di Roma")
+    assert esito.frasi_scartate == 0
+    assert esito.testo_filtrato == testo

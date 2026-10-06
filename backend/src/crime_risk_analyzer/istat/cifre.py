@@ -4,16 +4,23 @@ Meccanismo NUOVO: per la prima volta una frase generata puo' essere tolta dopo l
 generazione. Gira solo quando il prompt conteneva il blocco DATI ISTAT.
 
 1. Divisione in frasi che non spezza i numeri ("3.016", "1.162,7"): si spezza dopo
-   ``.!?;`` seguiti da spazio e a ogni a-capo; i marcatori d'elenco a inizio riga
-   ("1.", "-", "*") non fanno parte della frase. (``eval.metrics._sentences``
-   spezza a ogni punto e non va riusata.)
+   ``.!?`` seguiti da spazio e a ogni a-capo; il ``;`` NON chiude la frase (la
+   citazione "(fonte ISTAT, ...); variazione 2014-2024: -10%" resta una frase sola,
+   con la voce che la regge); i marcatori d'elenco a inizio riga ("1.", "-", "*")
+   non fanno parte della frase. (``eval.metrics._sentences`` spezza a ogni punto e
+   non va riusata.) La prosa scritta sulla stessa riga dell'etichetta, dopo il
+   token (``Dati statistici ISTAT [ISTAT]: nel Comune ...``), appartiene al blocco
+   che l'etichetta apre: solo il controllo delle cifre la sposta, il parser dei
+   blocchi (che alimenta M1) resta com'e'.
 2. Numeri normalizzati all'italiana: ``.`` seguito da gruppi di tre cifre e' il
    separatore delle migliaia (come lo spazio normale, l'NBSP e lo spazio stretto
    NNBSP), altrimenti e' decimale; ``,`` e' decimale; ``−`` e ``–`` (trattino medio)
    valgono ``-``; un ``-`` (o ``–``) fra due cifre e' un intervallo ("2014-2024"
-   sono due anni, non un segno).
+   sono due anni, non un segno); "per cento"/"percento" dopo un numero vale ``%``.
 3. Ammessi: tutti i numeri dello user_content (blocco DATI ISTAT compreso) piu' la
-   lista fissa (100.000, ``Y``, ``Y-10``, 0,1, i POI coinvolti). Cifre ISTAT:
+   lista fissa (100.000, ``Y``, ``Y-10``, 0,1, i POI coinvolti) e l'ampiezza del
+   periodo ``Y - Y_confronto`` ("negli ultimi 10 anni"), che senza ``%`` e' un
+   numero qualunque e mai una cifra ISTAT. Cifre ISTAT:
    conteggi, tassi, tasso nazionale delle righe, piu' le variazioni ma SOLO quando
    scritte con ``%`` (un numero senza ``%`` puo' coincidere per caso col valore
    assoluto di una variazione — es. "10" in "negli ultimi 10 anni" — e non va
@@ -25,10 +32,12 @@ generazione. Gira solo quando il prompt conteneva il blocco DATI ISTAT.
    ISTAT li' dentro e' trattata come fuori blocco); nel blocco, ogni cifra ISTAT
    deve appartenere a una voce nominata nella stessa frase (etichetta o codice) e
    il segno esplicito di una variazione deve essere quello giusto; parole di
-   direzione contrarie al segno della variazione della voce nominata — questo
-   controllo vale in OGNI blocco (non solo ``[ISTAT]``: una frase di overview o di
-   ``[ONTOLOGIA]``/``[CONTESTO]``/``[SPECULATIVO]`` che nomina una voce con una
-   parola di direzione sbagliata si toglie comunque). Se la voce nominata non ha
+   direzione contrarie al segno della variazione della voce nominata — dentro
+   ``[ISTAT]`` sempre; fuori (overview, ``[ONTOLOGIA]``/``[CONTESTO]``/
+   ``[SPECULATIVO]``) solo quando la frase parla dei dati ISTAT: nomina "ISTAT" o i
+   "delitti denunciati", un luogo delle righe, o contiene una cifra ISTAT. ("I furti
+   sono in aumento per la folla" in ``[ONTOLOGIA]`` parla del rischio, non della
+   statistica, e resta.) Se la voce nominata non ha
    nessuna tendenza calcolata (serie interrotta, anno mancante, sotto soglia), una
    parola di direzione su di essa non e' verificabile e la frase si toglie lo
    stesso, con lo stesso motivo ``direzione_contraria`` (scelta di
@@ -108,11 +117,15 @@ _NUMERO = re.compile(
     r"(?P<segno>[+\-−–])?"
     r"(?P<corpo>\d{1,3}(?:[.\xa0\u202f ]\d{3})+(?:,\d+)?|\d+(?:[.,]\d+)?)"
     r"(?!\w)"
-    r"(?P<pct>\s?%)?"
+    r"(?P<pct>\s?%|\s+[Pp]er\s?cento\b)?"
 )
 _MIGLIAIA_CON_PUNTO = re.compile(r"\d{1,3}(?:\.\d{3})+")
 _MARCATORE_ELENCO = re.compile(r"^\s*(?:[-*•]|\d{1,2}[.)])\s+")
-_FINE_FRASE = re.compile(r"(?<=[.!?;])\s+")
+_FINE_FRASE = re.compile(r"(?<=[.!?])\s+")
+#: Token di fonte sulla riga-etichetta (``[ISTAT]``, ``[ONTOLOGIA]``, ...).
+_TOKEN_FONTE = re.compile(r"\[[A-Z][A-Z_ ]*\]")
+#: Caratteri fra il token e la prosa sulla stessa riga (come il parser dei blocchi).
+_DOPO_TOKEN = " \t\r*_:#"
 _SU = re.compile(
     r"\b(?:aumento|aumenti|aumentat[oaie]|aumenta|aumentano|crescita|cresciut[oaie]"
     r"|cresce|crescono|incremento|incrementi|rialzo|sale|salgono|salit[oaie])\b"
@@ -313,6 +326,10 @@ def _segno_coerente(n: Numero, voci: set[str], tendenze: dict[str, set[int]]) ->
 
 class _Regole(NamedTuple):
     fissi: set[Decimal]
+    #: Ampiezza del periodo (``Y - Y_confronto``): ammessa, mai cifra ISTAT senza ``%``.
+    intervalli: set[Decimal]
+    #: Nomi dei luoghi delle righe, in minuscolo ("comune di roma", "roma").
+    luoghi: frozenset[str]
     ammessi: set[Decimal]
     figure: dict[Decimal, set[str]]
     variazioni: dict[Decimal, set[str]]
@@ -322,7 +339,10 @@ class _Regole(NamedTuple):
 
 def _e_cifra_istat(n: Numero, regole: _Regole) -> bool:
     """``True`` se ``n`` e' una cifra ISTAT: conteggio/tasso sempre, variazione
-    solo se scritta con ``%`` (ruling minore b)."""
+    solo se scritta con ``%`` (ruling minore b). L'ampiezza del periodo senza ``%``
+    non e' mai una cifra ISTAT (F2 della review finale)."""
+    if not n.percentuale and n.valore in regole.intervalli:
+        return False
     if n.valore in regole.figure:
         return True
     return n.percentuale and n.valore in regole.variazioni
@@ -337,17 +357,35 @@ def _voci_di(n: Numero, regole: _Regole) -> set[str]:
     return voci
 
 
+def _parla_di_istat(testo: str, cifre_istat: bool, regole: _Regole) -> bool:
+    """``True`` se la frase si riferisce ai dati ISTAT (F5 della review finale)."""
+    if cifre_istat:
+        return True
+    minuscolo = testo.lower()
+    if "istat" in minuscolo or "delitti denunciati" in minuscolo:
+        return True
+    return any(
+        re.search(rf"\b{re.escape(luogo)}\b", minuscolo) for luogo in regole.luoghi
+    )
+
+
 def _valuta(
     testo: str, blocco: Blocco, inizio: int, fine: int, regole: _Regole
 ) -> FraseControllata:
     numeri = estrai_numeri(testo)
-    non_fissi = [n for n in numeri if n.valore not in regole.fissi]
+    non_fissi = [
+        n
+        for n in numeri
+        if n.valore not in regole.fissi
+        and (n.percentuale or n.valore not in regole.intervalli)
+    ]
     istat = [n for n in non_fissi if _e_cifra_istat(n, regole)]
     voci = voci_nominate(testo, regole.etichette)
-    # Il controllo di direzione vale in ogni blocco, non solo in [ISTAT] (ruling
-    # controller IMPORTANT 2): una parola di direzione su una voce nominata e'
-    # verificabile ovunque compaia nella narrativa.
+    # Il controllo di direzione vale in [ISTAT] e, fuori, nelle frasi che parlano
+    # dei dati ISTAT (ruling controller IMPORTANT 2 raffinato da F5): "i furti sono
+    # in aumento per la folla" in [ONTOLOGIA] parla del rischio, non della serie.
     direzione = direzione_di(testo)
+    verifica = blocco == "istat" or _parla_di_istat(testo, bool(istat), regole)
     motivo: Motivo | None = None
     corrette = 0
     if any(n.valore not in regole.ammessi for n in numeri):
@@ -364,7 +402,7 @@ def _valuta(
         else:
             corrette = len(istat)
     coerente: bool | None = None
-    if direzione and voci:
+    if direzione and voci and verifica:
         segni = [t for v in voci for t in regole.tendenze.get(v, set())]
         if segni:
             coerente = any(_coerente(direzione, t) for t in segni)
@@ -417,6 +455,44 @@ def _senza(testo: str, tagli: Sequence[tuple[int, int]]) -> str:
     return "\n".join(righe)
 
 
+def _prosa_in_intestazione(
+    narrativa: str, blocchi: Sequence[SpanBlocco]
+) -> tuple[list[SpanBlocco], dict[int, int]]:
+    """Blocchi con la prosa della riga-etichetta dentro il blocco (F7).
+
+    Se dopo il token della riga-etichetta c'e' del testo, per il controllo delle
+    cifre il blocco comincia da li' (non dalla riga dopo). Ritorna anche
+    ``{fine del token: inizio della prosa}`` per spezzare la frase che
+    :func:`dividi_frasi` farebbe a cavallo fra etichetta e prosa.
+    """
+    adattati: list[SpanBlocco] = []
+    tagli: dict[int, int] = {}
+    for b in blocchi:
+        riga = narrativa[b.inizio_riga : b.inizio].rstrip("\n")
+        token = _TOKEN_FONTE.search(riga)
+        resto = riga[token.end() :] if token else ""
+        if token is None or not resto.strip(_DOPO_TOKEN):
+            adattati.append(b)
+            continue
+        fine_token = b.inizio_riga + token.end()
+        prosa = fine_token + len(resto) - len(resto.lstrip(_DOPO_TOKEN))
+        tagli[fine_token] = prosa
+        adattati.append(b._replace(inizio=prosa))
+    return adattati, tagli
+
+
+def _frasi(narrativa: str, tagli: dict[int, int]) -> list[tuple[int, int]]:
+    """:func:`dividi_frasi`, con l'etichetta separata dalla prosa che la segue."""
+    spans: list[tuple[int, int]] = []
+    for a, b in dividi_frasi(narrativa):
+        taglio = next((t for t in tagli if a < t and tagli[t] < b), None)
+        if taglio is None:
+            spans.append((a, b))
+        else:
+            spans += [(a, taglio), (tagli[taglio], b)]
+    return spans
+
+
 def controlla_cifre(
     narrativa: str,
     *,
@@ -431,19 +507,25 @@ def controlla_cifre(
         Decimal(r.anno_confronto) for r in righe
     }
     fissi |= {Decimal(n) for n in _POI_COINVOLTI.findall(blocco_istat)}
+    intervalli = {Decimal(r.anno - r.anno_confronto) for r in righe}
     nel_contesto = valori_del_testo(contesto_senza_istat)
     escluse = fissi | nel_contesto
     regole = _Regole(
         fissi=fissi,
-        ammessi=fissi | nel_contesto | valori_del_testo(blocco_istat),
+        intervalli=intervalli,
+        luoghi=frozenset(
+            nome.lower() for r in righe for nome in (r.luogo_nome, r.luogo_breve)
+        ),
+        ammessi=fissi | intervalli | nel_contesto | valori_del_testo(blocco_istat),
         figure=_figure(righe, escluse),
         variazioni=_variazioni(righe, escluse),
         tendenze=_tendenze(righe),
         etichette=_etichette(righe),
     )
+    blocchi, tagli = _prosa_in_intestazione(narrativa, blocchi)
     frasi = tuple(
         _valuta(narrativa[a:b], _blocco_di(a, blocchi), a, b, regole)
-        for a, b in dividi_frasi(narrativa)
+        for a, b in _frasi(narrativa, tagli)
     )
     return EsitoControllo(
         frasi=frasi,
