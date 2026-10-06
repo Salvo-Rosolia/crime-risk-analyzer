@@ -3,6 +3,7 @@ import {
   AnalyzeResponse,
   AppState,
   BaselineParams,
+  NarrativeSourceTag,
   Poi,
   RiskItem,
 } from '@core/models/models';
@@ -164,5 +165,12 @@ describe('models (contratto /analyze)', () => {
     expect(analyze.type === 'ANALYZE' ? analyze.pipeline : null).toBe('base');
     expect(success.type === 'LOAD_SUCCESS' ? success.pipeline : null).toBe('base');
     expect(error.type === 'LOAD_ERROR' ? error.pipeline : null).toBe('completo');
+  });
+
+  it('#345: un rischio non può avere fonte ISTAT (tipo distinto per la narrativa)', () => {
+    // @ts-expect-error -- ISTAT è una fonte della narrativa, mai di un rischio.
+    const tag: RiskItem['tag'] = 'ISTAT';
+    const fonte: NarrativeSourceTag = 'ISTAT';
+    expect([tag, fonte]).toEqual(['ISTAT', 'ISTAT']);
   });
 });

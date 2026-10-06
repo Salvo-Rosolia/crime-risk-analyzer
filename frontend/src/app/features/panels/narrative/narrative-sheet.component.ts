@@ -9,14 +9,14 @@ import {
   viewChildren,
 } from '@angular/core';
 import { srcTagMeta } from '@core/confidence';
-import { SourceProse, SourceTag } from '@core/models/models';
+import { NarrativeSourceTag, SourceProse } from '@core/models/models';
 import { SourceTab, buildSourceTabs } from '@core/ui-helpers';
 
 /**
  * "Narrativa generata" (Stato B): a layout largo è un PANNELLO A DESTRA a tutta altezza (#218),
  * sotto 1100px torna bottom-sheet full-width (posizionamento in `narrative-sheet.component.css`).
- * Contenuto: overview discorsivo + un tab per fonte (ONTOLOGIA → CONTESTO → SPECULATIVO, via
- * `buildSourceTabs`) con la sola prosa (`narrativa_fonti`), banner anti-hallucination SEMPRE
+ * Contenuto: overview discorsivo + un tab per fonte (ONTOLOGIA → CONTESTO → ISTAT → SPECULATIVO,
+ * via `buildSourceTabs`) con la sola prosa (`narrativa_fonti`), banner anti-hallucination SEMPRE
  * visibile (anche da collassato — vive nell'header, non nel corpo collassabile) e bottone
  * "Rigenera" (re-POST `/analyze`, nessun endpoint nuovo). Componente "thin": nessuna chiamata
  * store/http diretta, solo output verso lo shell; il collasso è guidato da `open()` (classe host
@@ -55,7 +55,7 @@ export class NarrativeSheetComponent {
   readonly regenerate = output<void>();
 
   protected readonly model = computed(() => buildSourceTabs(this.narrativaFonti()));
-  protected readonly activeTag = signal<SourceTag | null>(null);
+  protected readonly activeTag = signal<NarrativeSourceTag | null>(null);
   protected readonly activeTab = computed<SourceTab | null>(() => {
     const tabs = this.model().tabs;
     if (tabs.length === 0) return null;
@@ -74,7 +74,7 @@ export class NarrativeSheetComponent {
   protected readonly srcMeta = srcTagMeta;
   private readonly tabButtons = viewChildren<ElementRef<HTMLButtonElement>>('tabBtn');
 
-  protected selectTab(tag: SourceTag): void {
+  protected selectTab(tag: NarrativeSourceTag): void {
     this.activeTag.set(tag);
   }
 

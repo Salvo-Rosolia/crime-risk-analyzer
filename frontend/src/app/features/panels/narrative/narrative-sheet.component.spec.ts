@@ -273,6 +273,27 @@ describe('NarrativeSheetComponent', () => {
     expect(fixture.nativeElement.classList.contains('cra-narr-collapsed')).toBe(false);
   });
 
+  it('#345: con la prosa ISTAT mostra la scheda [ISTAT] dopo CONTESTO', () => {
+    setup({
+      narrativaFonti: {
+        overview: 'Sintesi.',
+        ontologia: 'Prosa onto.',
+        contesto: 'Prosa ctx.',
+        speculativo: '',
+        istat: 'I furti sono 134.169 (fonte ISTAT, Comune di Roma, 2024).',
+      },
+    });
+    const tabs: HTMLElement[] = Array.from(fixture.nativeElement.querySelectorAll('[role="tab"]'));
+    expect(tabs.map((t) => t.textContent?.trim())).toEqual(['ONTOLOGIA', 'CONTESTO', 'ISTAT']);
+    tabs[2].click();
+    fixture.detectChanges();
+    const attivo: HTMLElement = fixture.nativeElement.querySelector(
+      '[role="tabpanel"]:not([hidden])',
+    );
+    expect(attivo.textContent).toContain('[ISTAT]');
+    expect(attivo.textContent).toContain('fonte ISTAT, Comune di Roma, 2024');
+  });
+
   describe('#292: i tre stati del dato (narrativa in arrivo / arrivata / errore-fallback)', () => {
     it('loading: mostra un indicatore leggero, non un errore, anche se la narrativa è ancora vuota', () => {
       setup({ loading: true, narrativa: '', narrativaFonti: null });

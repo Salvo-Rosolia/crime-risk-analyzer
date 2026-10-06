@@ -1,6 +1,8 @@
 import {
   CONF,
   DIM_COLOR,
+  ISTAT_TAG_COLOR,
+  NARRATIVE_TAG_META,
   SPECULATIVE_TAG_COLOR,
   SRC_TAG_META,
   confMeta,
@@ -157,5 +159,13 @@ describe('confidence', () => {
 
   it('srcTagMeta: fallback difensivo per tag fuori contratto (colore SPECULATIVE_TAG_COLOR, nessuna descrizione)', () => {
     expect(srcTagMeta('ALTRO')).toEqual({ color: SPECULATIVE_TAG_COLOR, description: '' });
+  });
+
+  it('#345: la fonte ISTAT ha colore e descrizione propri, solo fra le fonti della narrativa', () => {
+    expect(srcTagMeta('ISTAT')).toEqual(NARRATIVE_TAG_META.ISTAT);
+    expect(NARRATIVE_TAG_META.ISTAT.color).toBe(ISTAT_TAG_COLOR);
+    expect(NARRATIVE_TAG_META.ISTAT.description).toBe('dati ISTAT del comune o della provincia');
+    expect(Object.keys(SRC_TAG_META)).toEqual(['ONTOLOGIA', 'CONTESTO', 'SPECULATIVO']);
+    expect(Object.isFrozen(NARRATIVE_TAG_META)).toBe(true);
   });
 });

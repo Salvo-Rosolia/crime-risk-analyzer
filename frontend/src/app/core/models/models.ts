@@ -2,6 +2,13 @@ export type Confidence = 'verificato' | 'da_confermare';
 export type SourceTag = 'ONTOLOGIA' | 'CONTESTO' | 'SPECULATIVO';
 
 /**
+ * Fonti della NARRATIVA (#345): i tag dei rischi più `ISTAT`, il blocco con i delitti denunciati
+ * del comune o della provincia. Tipo distinto da `SourceTag` di proposito: `RiskItem.tag` non può
+ * mai valere `ISTAT` — i dati ISTAT danno contesto ai rischi dell'ontologia, non ne creano.
+ */
+export type NarrativeSourceTag = SourceTag | 'ISTAT';
+
+/**
  * Tipo POI selezionabile nel filtro opzionale "Tipo POI" del pannello Sistema base (#143): `GET
  * /poi-types` lo ritorna già ordinato per `label_it`. `terminus_class` è il valore canonico
  * (inglese) che il backend confronta esattamente in `/analyze/baseline`; `label_it` è la sola
@@ -97,6 +104,9 @@ export interface SourceProse {
   ontologia: string;
   contesto: string;
   speculativo: string;
+  /** Prosa del blocco [ISTAT] (#345). Opzionale: assente nelle risposte senza dati ISTAT di
+   * backend precedenti e nei fixture esistenti. */
+  istat?: string;
 }
 
 export interface AnalyzeResponse {
@@ -144,6 +154,12 @@ export interface PoiNarrativeResponse {
   repro: Repro;
   /** True se l'LLM è caduto: solo dati strutturati, `narrativa` vuota. */
   fallback: boolean;
+  /** True se il prompt conteneva i dati ISTAT (#345); assente = false. */
+  istat_attivo?: boolean;
+  /** Data di estrazione dei dati ISTAT usati (#345); `null` se non attivi. */
+  istat_versione_dati?: string | null;
+  /** Frasi tolte dal controllo delle cifre (#345). */
+  istat_frasi_scartate?: number;
 }
 
 /**
@@ -163,6 +179,12 @@ export interface ZoneNarrativeResponse {
   fallback: boolean;
   /** Modello che ha scritto la narrativa (fase 2, #292). */
   llm_used: string;
+  /** True se il prompt conteneva i dati ISTAT (#345); assente = false. */
+  istat_attivo?: boolean;
+  /** Data di estrazione dei dati ISTAT usati (#345); `null` se non attivi. */
+  istat_versione_dati?: string | null;
+  /** Frasi tolte dal controllo delle cifre (#345). */
+  istat_frasi_scartate?: number;
 }
 
 /**

@@ -572,4 +572,20 @@ describe('buildSourceTabs', () => {
     expect(out.overview).toBe('');
     expect(out.tabs).toEqual([]);
   });
+
+  it('#345: il blocco ISTAT apre una scheda fra CONTESTO e SPECULATIVO', () => {
+    const out = buildSourceTabs({
+      overview: '',
+      ontologia: 'O.',
+      contesto: 'C.',
+      speculativo: 'S.',
+      istat: 'I furti nel 2024 sono 134.169 (fonte ISTAT, Comune di Roma, 2024).',
+    });
+    expect(out.tabs.map((t) => t.tag)).toEqual(['ONTOLOGIA', 'CONTESTO', 'ISTAT', 'SPECULATIVO']);
+    expect(out.tabs[2].prose).toContain('fonte ISTAT');
+  });
+
+  it('#345: senza il campo istat (backend precedente) nessuna scheda ISTAT', () => {
+    expect(buildSourceTabs(FONTI).tabs.map((t) => t.tag)).not.toContain('ISTAT');
+  });
 });

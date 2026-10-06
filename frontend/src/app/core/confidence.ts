@@ -1,4 +1,4 @@
-import { Confidence, Poi, SourceTag } from '@core/models/models';
+import { Confidence, NarrativeSourceTag, Poi, SourceTag } from '@core/models/models';
 
 export interface ConfMeta {
   color: string;
@@ -44,17 +44,32 @@ export const SRC_TAG_META: Readonly<Record<SourceTag, { color: string; descripti
     SPECULATIVO: { color: SPECULATIVE_TAG_COLOR, description: 'inferenza non verificata' },
   });
 
+/** Colore della fonte ISTAT (#345): un blu distinto dalla palette dei livelli di confidence. */
+export const ISTAT_TAG_COLOR = '#2f5d8a';
+
+/**
+ * Meta delle fonti della NARRATIVA (#345): quelle dei rischi più ISTAT. `SRC_TAG_META` resta
+ * limitato ai tag dei rischi (Stato C), che non possono essere ISTAT.
+ */
+export const NARRATIVE_TAG_META: Readonly<
+  Record<NarrativeSourceTag, { color: string; description: string }>
+> = Object.freeze({
+  ...SRC_TAG_META,
+  ISTAT: { color: ISTAT_TAG_COLOR, description: 'dati ISTAT del comune o della provincia' },
+});
+
 const UNKNOWN_TAG_META = { color: SPECULATIVE_TAG_COLOR, description: '' };
 
 /**
- * Variante di `SRC_TAG_META` sicura per tag generici (`string`, non ristretti a `SourceTag`):
- * usata dai componenti (`DetailPanelComponent`, `NarrativeSheetComponent`) che iterano i gruppi
- * di `orderGroupsByTag`, dove un tag fuori contratto è ammesso e deve
- * degradare allo stesso fallback difensivo di `pinColor` invece di lanciare.
+ * Variante di `NARRATIVE_TAG_META` sicura per tag generici (`string`, non ristretti a
+ * `NarrativeSourceTag`): usata dai componenti (`DetailPanelComponent`, `NarrativeSheetComponent`)
+ * che iterano i gruppi di `orderGroupsByTag` o i tab di `buildSourceTabs`, dove un tag fuori
+ * contratto è ammesso e deve degradare allo stesso fallback difensivo di `pinColor` invece di
+ * lanciare.
  */
 export function srcTagMeta(tag: string): { color: string; description: string } {
   return (
-    (SRC_TAG_META as Record<string, { color: string; description: string }>)[tag] ??
+    (NARRATIVE_TAG_META as Record<string, { color: string; description: string }>)[tag] ??
     UNKNOWN_TAG_META
   );
 }
