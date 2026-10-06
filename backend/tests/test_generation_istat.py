@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from crime_risk_analyzer.istat.cifre import SpanBlocco
+from crime_risk_analyzer.istat.cifre import SpanBlocco, applica_controllo
 from crime_risk_analyzer.istat.righe import IstatPoi
 from crime_risk_analyzer.llm.client import LLMResponse
 from crime_risk_analyzer.rag import generation as generation_mod
@@ -23,7 +23,7 @@ from crime_risk_analyzer.rag.generation import (
     parse_source_prose,
     source_block_spans,
 )
-from tests.istat._fattorie import BANKROB, istat_poi
+from tests.istat._fattorie import BANKROB, istat_poi, riga
 
 _NARRATIVA = (
     "Sintesi della zona.\n\n"
@@ -213,3 +213,57 @@ def test_riserva_lascia_spazio_al_blocco_su_un_contesto_troncato() -> None:
     assert acceso.poi_inclusi < spento.poi_inclusi
     assert _estimate_tokens(acceso.testo) <= budget
     assert 0 < ISTAT_RISERVA_MAX_TOKEN <= 1200
+
+
+async def test_righe_perse_nel_troncamento_torna_al_ramo_spento() -> None:
+    """Fix round 1 - IMPORTANT 1 (spec 4.10): le righe ISTAT ci sono solo sul POI
+    meno rilevante, che il budget ridotto riservato al tentativo ISTAT scarta dal
+    troncamento. Il blocco ricalcolato sui POI selezionati resta allora vuoto, ma
+    tornare al ramo spento SOLO per il blocco (lasciando la selezione gia' fatta
+    col budget piu' piccolo) darebbe meno POI e nessuna nota di quanti ne
+    avrebbe un run con l'interruttore spento fin dall'inizio: la richiesta intera
+    va rifatta con l'allowance di SYSTEM_PROMPT, non solo il blocco."""
+    pois = [_poi(f"node/{i}") for i in range(5)] + [_poi("node/5", istat_poi(BANKROB))]
+    acceso, spento = _Spia(), _Spia()
+    out = await generate_analysis(
+        _ctx(*pois), acceso, istat=True, request_token_budget=2390, max_tokens=0
+    )
+    await generate_analysis(
+        _ctx(*pois), spento, istat=False, request_token_budget=2390, max_tokens=0
+    )
+    assert acceso.calls == spento.calls
+    assert out.istat_attivo is False and out.controllo_istat is None
+    assert "POI piu' rilevanti" not in acceso.calls[0][1]  # nessun POI scartato
+
+
+def test_nota_taglio_delle_voci_non_tocca_la_cifra_citata() -> None:
+    """Fix round 1 - MINOR 2: quando ``blocco_istat_zona`` taglia delle voci per
+    budget, la nota "NB: per limiti di lunghezza ..." finisce nello user_content
+    di zona e il suo numero resta una cifra AMMESSA (compare nel blocco [ISTAT]
+    stesso): una frase che lo cita non viene scartata dal controllo cifre."""
+    pois = [
+        _poi(f"node/{i}", istat_poi(riga(f"V{i:02d}", label=f"voce numero {i}")))
+        for i in range(13)
+    ]
+    budget = _estimate_tokens(build_context_str(_ctx(*pois))) + 1200
+    contesto = build_context(_ctx(*pois), context_budget_tokens=budget, istat=True)
+    assert contesto.poi_inclusi == 13  # nessun POI scartato, solo le voci
+    assert contesto.blocco_istat.voci_tagliate == 1
+    nota = "NB: per limiti di lunghezza 1 voce ISTAT non e' riportata."
+    assert nota in contesto.testo
+
+    narrativa = (
+        "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\n"
+        "Rischio di rapina per Banca node/0.\n\n"
+        f"{ISTAT_BLOCK_HEADER}\n"
+        "1 voce ISTAT non compare in questo riepilogo per limiti di spazio.\n"
+    )
+    filtrata, esito = applica_controllo(
+        narrativa,
+        blocco=contesto.blocco_istat,
+        spans=source_block_spans(narrativa),
+        contesto=contesto.testo_senza_istat,
+    )
+    assert esito is not None
+    assert filtrata == narrativa
+    assert esito.frasi_scartate == 0

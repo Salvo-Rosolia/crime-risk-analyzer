@@ -1287,19 +1287,53 @@ async def generate_analysis(
     la risposta al controllo delle cifre (:func:`~crime_risk_analyzer.istat.cifre.
     applica_controllo`); ``narrativa`` e' il testo filtrato, ``narrativa_grezza``
     quello del modello. Senza righe, o spento, il comportamento e' quello di prima.
+
+    Fix round 1 (spec 4.10): le righe ISTAT possono esserci nel context ma non
+    sopravvivere alla selezione dei POI (troncate, o senza budget residuo per il
+    blocco): in quel caso il TENTATIVO va scartato per intero, non solo il
+    blocco. Rifare la selezione col budget di :data:`SYSTEM_PROMPT_ISTAT` e poi
+    scoprire che il blocco e' vuoto lascerebbe comunque MENO POI nel prompt di
+    quanti ne avrebbe scelti un run a interruttore spento (quel budget e' piu'
+    piccolo, e in piu' riserva spazio per un blocco che non si materializza mai):
+    ``istat_attivo=False`` da solo non basta a rendere il risultato uguale.
     """
     # #345: il prompt effettivo e' lo stesso per budget e chiamata. Con ISTAT acceso
     # ma nessuna riga nella zona, tutto resta come a interruttore spento.
     istat_richiesto = istat and ha_righe_istat(context_dict.get("validated_risks", []))
-    prompt_budget = SYSTEM_PROMPT_ISTAT if istat_richiesto else SYSTEM_PROMPT
-    user_allowance = request_token_budget - _estimate_tokens(prompt_budget) - max_tokens
-    contesto = build_context(
-        context_dict,
-        domanda=domanda,
-        context_budget_tokens=user_allowance,
-        context_format=context_format,
-        istat=istat_richiesto,
+    user_allowance_senza = (
+        request_token_budget - _estimate_tokens(SYSTEM_PROMPT) - max_tokens
     )
+    if istat_richiesto:
+        user_allowance_con = (
+            request_token_budget - _estimate_tokens(SYSTEM_PROMPT_ISTAT) - max_tokens
+        )
+        contesto = build_context(
+            context_dict,
+            domanda=domanda,
+            context_budget_tokens=user_allowance_con,
+            context_format=context_format,
+            istat=True,
+        )
+        if not contesto.blocco_istat.testo:
+            # Il tentativo non si e' materializzato (righe perse nel troncamento
+            # o budget residuo <= 0 per il blocco): si rifa' la selezione da capo
+            # con l'allowance e l'interruttore di un run spento, cosi' il
+            # risultato e' byte-identico a ``generate_analysis(..., istat=False)``.
+            contesto = build_context(
+                context_dict,
+                domanda=domanda,
+                context_budget_tokens=user_allowance_senza,
+                context_format=context_format,
+                istat=False,
+            )
+    else:
+        contesto = build_context(
+            context_dict,
+            domanda=domanda,
+            context_budget_tokens=user_allowance_senza,
+            context_format=context_format,
+            istat=False,
+        )
     istat_attivo = bool(contesto.blocco_istat.testo)
     system_prompt = SYSTEM_PROMPT_ISTAT if istat_attivo else SYSTEM_PROMPT
 
