@@ -1249,6 +1249,70 @@ def _prompt_hash_with_domanda(system_prompt_hash: str, domanda_norm: str) -> str
     return hashlib.sha256(combined).hexdigest()
 
 
+class RichiestaZona(NamedTuple):
+    """System prompt e contesto costruito della richiesta di zona (#345)."""
+
+    system_prompt: str
+    contesto: ContestoCostruito
+
+
+def prepara_richiesta_zona(
+    context_dict: dict[str, Any],
+    *,
+    domanda: str | None = None,
+    request_token_budget: int = DEFAULT_REQUEST_TOKEN_BUDGET,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+    context_format: ContextFormat = DEFAULT_CONTEXT_FORMAT,
+    istat: bool = False,
+) -> RichiestaZona:
+    """Prepara la richiesta di zona senza chiamare il modello (#345, F9).
+
+    UNICA costruzione della richiesta, usata da :func:`generate_analysis` e dallo
+    script di misura del budget (``scripts/istat_budget.py``): due copie della
+    stessa logica misurerebbero una richiesta diversa da quella inviata.
+
+    Il prompt effettivo e' lo stesso per budget e chiamata. Con ISTAT acceso ma
+    nessuna riga nella zona tutto resta come a interruttore spento. Fix round 1
+    (spec 4.10): le righe ISTAT possono esserci nel context ma non sopravvivere
+    alla selezione dei POI (troncate, o senza budget residuo per il blocco): in
+    quel caso il TENTATIVO va scartato per intero, non solo il blocco. Rifare la
+    selezione col budget di :data:`SYSTEM_PROMPT_ISTAT` e poi scoprire che il
+    blocco e' vuoto lascerebbe comunque MENO POI nel prompt di quanti ne avrebbe
+    scelti un run a interruttore spento.
+    """
+    istat_richiesto = istat and ha_righe_istat(context_dict.get("validated_risks", []))
+    user_allowance_senza = (
+        request_token_budget - _estimate_tokens(SYSTEM_PROMPT) - max_tokens
+    )
+    contesto: ContestoCostruito | None = None
+    if istat_richiesto:
+        user_allowance_con = (
+            request_token_budget - _estimate_tokens(SYSTEM_PROMPT_ISTAT) - max_tokens
+        )
+        contesto = build_context(
+            context_dict,
+            domanda=domanda,
+            context_budget_tokens=user_allowance_con,
+            context_format=context_format,
+            istat=True,
+        )
+    if contesto is None or not contesto.blocco_istat.testo:
+        # Spento, nessuna riga, o tentativo non materializzato: la selezione si fa
+        # da capo con l'allowance e l'interruttore di un run spento, cosi' il
+        # risultato e' byte-identico a ``istat=False``.
+        contesto = build_context(
+            context_dict,
+            domanda=domanda,
+            context_budget_tokens=user_allowance_senza,
+            context_format=context_format,
+            istat=False,
+        )
+    system_prompt = (
+        SYSTEM_PROMPT_ISTAT if contesto.blocco_istat.testo else SYSTEM_PROMPT
+    )
+    return RichiestaZona(system_prompt=system_prompt, contesto=contesto)
+
+
 async def generate_analysis(
     context_dict: dict[str, Any],
     llm_client: _LLMClientLike,
@@ -1295,47 +1359,19 @@ async def generate_analysis(
     scoprire che il blocco e' vuoto lascerebbe comunque MENO POI nel prompt di
     quanti ne avrebbe scelti un run a interruttore spento (quel budget e' piu'
     piccolo, e in piu' riserva spazio per un blocco che non si materializza mai):
-    ``istat_attivo=False`` da solo non basta a rendere il risultato uguale.
+    ``istat_attivo=False`` da solo non basta a rendere il risultato uguale. La
+    costruzione sta in :func:`prepara_richiesta_zona`, condivisa con lo script di
+    misura del budget.
     """
-    # #345: il prompt effettivo e' lo stesso per budget e chiamata. Con ISTAT acceso
-    # ma nessuna riga nella zona, tutto resta come a interruttore spento.
-    istat_richiesto = istat and ha_righe_istat(context_dict.get("validated_risks", []))
-    user_allowance_senza = (
-        request_token_budget - _estimate_tokens(SYSTEM_PROMPT) - max_tokens
+    system_prompt, contesto = prepara_richiesta_zona(
+        context_dict,
+        domanda=domanda,
+        request_token_budget=request_token_budget,
+        max_tokens=max_tokens,
+        context_format=context_format,
+        istat=istat,
     )
-    if istat_richiesto:
-        user_allowance_con = (
-            request_token_budget - _estimate_tokens(SYSTEM_PROMPT_ISTAT) - max_tokens
-        )
-        contesto = build_context(
-            context_dict,
-            domanda=domanda,
-            context_budget_tokens=user_allowance_con,
-            context_format=context_format,
-            istat=True,
-        )
-        if not contesto.blocco_istat.testo:
-            # Il tentativo non si e' materializzato (righe perse nel troncamento
-            # o budget residuo <= 0 per il blocco): si rifa' la selezione da capo
-            # con l'allowance e l'interruttore di un run spento, cosi' il
-            # risultato e' byte-identico a ``generate_analysis(..., istat=False)``.
-            contesto = build_context(
-                context_dict,
-                domanda=domanda,
-                context_budget_tokens=user_allowance_senza,
-                context_format=context_format,
-                istat=False,
-            )
-    else:
-        contesto = build_context(
-            context_dict,
-            domanda=domanda,
-            context_budget_tokens=user_allowance_senza,
-            context_format=context_format,
-            istat=False,
-        )
     istat_attivo = bool(contesto.blocco_istat.testo)
-    system_prompt = SYSTEM_PROMPT_ISTAT if istat_attivo else SYSTEM_PROMPT
 
     start = time.perf_counter()
     response = await llm_client.generate(system_prompt, contesto.testo)

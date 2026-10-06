@@ -35,10 +35,8 @@ from crime_risk_analyzer.ontology import load_ontology
 from crime_risk_analyzer.rag.generation import (
     DEFAULT_MAX_TOKENS,
     DEFAULT_REQUEST_TOKEN_BUDGET,
-    SYSTEM_PROMPT,
-    SYSTEM_PROMPT_ISTAT,
     _estimate_tokens,  # pyright: ignore[reportPrivateUsage]
-    build_context,
+    prepara_richiesta_zona,
 )
 from crime_risk_analyzer.rag.grounding import ground
 from crime_risk_analyzer.rag.retrieval import retrieve
@@ -50,6 +48,8 @@ RISULTATI = BACKEND / "results"
 #: TPM di gpt-oss-120b su Groq (D14) e margine del 5% per l'errore residuo.
 TPM_GROQ = 8000
 LIMITE_REALE = int(TPM_GROQ * 0.95)
+#: Intervallo della ricerca del budget, attorno al default (passi di 100).
+BUDGET_MIN, BUDGET_MAX, BUDGET_PASSO = 6000, 12000, 100
 
 Contatore = Callable[[str], int]
 
@@ -91,14 +91,14 @@ def misura(
     max_tokens: int = DEFAULT_MAX_TOKENS,
     reali: Contatore | None = None,
 ) -> Misura:
-    """Stessa costruzione di ``generate_analysis``, senza chiamare il modello."""
-    prompt_budget = SYSTEM_PROMPT_ISTAT if istat else SYSTEM_PROMPT
-    contesto = build_context(
-        ctx,
-        context_budget_tokens=budget - _estimate_tokens(prompt_budget) - max_tokens,
-        istat=istat,
+    """La richiesta che ``generate_analysis`` invierebbe, senza chiamare il modello.
+
+    Stessa funzione (:func:`prepara_richiesta_zona`): gate sulle righe ISTAT e
+    ritorno al percorso spento quando il blocco non si materializza compresi.
+    """
+    system, contesto = prepara_richiesta_zona(
+        ctx, request_token_budget=budget, max_tokens=max_tokens, istat=istat
     )
-    system = SYSTEM_PROMPT_ISTAT if contesto.blocco_istat.testo else SYSTEM_PROMPT
     return Misura(
         zona=zona,
         istat=istat,
@@ -134,8 +134,13 @@ def contatore_reale() -> Contatore | None:
 def budget_suggerito(
     casi: list[tuple[str, dict[str, Any]]], *, reali: Contatore
 ) -> int | None:
-    """Il budget piu' alto (passi di 100) con tutte le richieste sotto il limite."""
-    for budget in range(DEFAULT_REQUEST_TOKEN_BUDGET, 3999, -100):
+    """Il budget piu' alto con tutte le richieste sotto il limite.
+
+    Cerca in :data:`BUDGET_MIN`..:data:`BUDGET_MAX` (passi di
+    :data:`BUDGET_PASSO`), sopra e sotto il default: partire dal default e
+    scendere non direbbe mai che c'e' margine per alzarlo.
+    """
+    for budget in range(BUDGET_MAX, BUDGET_MIN - 1, -BUDGET_PASSO):
         richieste = [
             misura(zona, ctx, istat=istat, budget=budget, reali=reali)
             for zona, ctx in casi
