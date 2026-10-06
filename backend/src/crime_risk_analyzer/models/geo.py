@@ -13,7 +13,10 @@ tupla piatta: unpacking ``min_lat, min_lon, max_lat, max_lon = bbox`` e confront
 from __future__ import annotations
 
 import math
-from typing import NamedTuple
+from collections.abc import Mapping
+from typing import NamedTuple, cast
+
+from pydantic import BaseModel
 
 #: Raggio medio terrestre in metri (IUGG).
 _EARTH_RADIUS_M = 6_371_008.8
@@ -100,3 +103,67 @@ class Bbox(NamedTuple):
             (self.min_lat + self.max_lat) / 2,
             (self.min_lon + self.max_lon) / 2,
         )
+
+
+# --- Ray casting dei confini (#31, spostato qui da eval/geometry.py con #345) ---
+# Il grounding deve sapere in quale comune o provincia cade un POI (dati ISTAT,
+# #345): la geometria non e' piu' solo uno strumento di valutazione. Punti in
+# ordine GeoJSON ``(lon, lat)``; nessuna dipendenza esterna (ray casting even-odd
+# con multipoligoni e buchi, es. Citta' del Vaticano dentro Roma).
+
+Point = tuple[float, float]  # (lon, lat)
+Ring = list[Point]
+Polygon = list[Ring]  # ring[0] = anello esterno; ring[1:] = buchi
+
+
+class CityBoundary(BaseModel):
+    """Poligono amministrativo normalizzato (multipoligono con eventuali buchi)."""
+
+    polygons: list[Polygon]
+
+
+def point_in_ring(point: Point, ring: Ring) -> bool:
+    """True se ``point`` e' dentro ``ring`` (ray casting even-odd)."""
+    x, y = point
+    inside = False
+    n = len(ring)
+    j = n - 1
+    for i in range(n):
+        xi, yi = ring[i]
+        xj, yj = ring[j]
+        if ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / (yj - yi) + xi):
+            inside = not inside
+        j = i
+    return inside
+
+
+def point_in_polygon(point: Point, polygon: Polygon) -> bool:
+    """Dentro l'anello esterno e fuori da ogni buco."""
+    if not polygon or not point_in_ring(point, polygon[0]):
+        return False
+    return not any(point_in_ring(point, hole) for hole in polygon[1:])
+
+
+def point_in_multipolygon(point: Point, boundary: CityBoundary) -> bool:
+    """Dentro almeno uno dei poligoni del confine."""
+    return any(point_in_polygon(point, poly) for poly in boundary.polygons)
+
+
+def boundary_from_geojson(geometry: Mapping[str, object]) -> CityBoundary:
+    """Normalizza una geometria GeoJSON (Polygon|MultiPolygon) in CityBoundary."""
+    gtype = geometry.get("type")
+    coords = geometry.get("coordinates")
+    if gtype == "Polygon":
+        raw: object = [coords]
+    elif gtype == "MultiPolygon":
+        raw = coords
+    else:
+        raise ValueError(f"Tipo GeoJSON non supportato: {gtype!r}")
+    try:
+        polygons: list[Polygon] = [
+            [[(float(pt[0]), float(pt[1])) for pt in ring] for ring in poly]
+            for poly in cast("list[list[list[list[float]]]]", raw)
+        ]
+    except (TypeError, IndexError, ValueError) as exc:
+        raise ValueError("Coordinate GeoJSON malformate") from exc
+    return CityBoundary(polygons=polygons)

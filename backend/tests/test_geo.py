@@ -11,7 +11,14 @@ from __future__ import annotations
 
 import math
 
-from crime_risk_analyzer.models.geo import Bbox, bbox_from_circle
+from crime_risk_analyzer.eval import geometry as eval_geometry
+from crime_risk_analyzer.models.geo import (
+    Bbox,
+    CityBoundary,
+    bbox_from_circle,
+    boundary_from_geojson,
+    point_in_multipolygon,
+)
 
 
 def test_bbox_center_is_the_midpoint() -> None:
@@ -78,3 +85,24 @@ def test_bbox_from_circle_semi_ampiezza_lat_coerente_con_metri() -> None:
     meters_per_degree_lat = earth_radius_m * math.pi / 180
     bbox = bbox_from_circle(0.0, 0.0, 500.0)
     assert math.isclose(bbox.max_lat - 0.0, 500.0 / meters_per_degree_lat, rel_tol=1e-9)
+
+
+def test_ray_casting_vive_in_models_geo() -> None:
+    """#345: il grounding (non solo eval/) deve sapere in che luogo cade un POI."""
+    quadrato = boundary_from_geojson(
+        {
+            "type": "Polygon",
+            "coordinates": [
+                [[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0], [0.0, 0.0]]
+            ],
+        }
+    )
+    assert point_in_multipolygon((1.0, 1.0), quadrato)
+    assert not point_in_multipolygon((3.0, 1.0), quadrato)
+
+
+def test_eval_geometry_riesporta_gli_stessi_oggetti() -> None:
+    """Una sola implementazione: eval/ importa da models.geo, non ne tiene una copia."""
+    assert eval_geometry.CityBoundary is CityBoundary
+    assert eval_geometry.point_in_multipolygon is point_in_multipolygon
+    assert eval_geometry.boundary_from_geojson is boundary_from_geojson
