@@ -618,11 +618,11 @@ def _normalize_user_question(domanda: str | None) -> str:
 #: Budget di DEFAULT (stima) di token dell'INTERA richiesta LLM (#210): copre
 #: system prompt + user_content + i ``max_tokens`` riservati all'output, NON solo
 #: lo user_content. DEVE combaciare con ``Settings.llm_request_token_budget``
-#: (config.py, default 10000): la config non puo' importare questo modulo (ciclo
+#: (config.py, default 8700): la config non puo' importare questo modulo (ciclo
 #: config <- llm.client <- generation), quindi il valore e' duplicato e tenuto in
 #: sync a mano. E' solo il fallback per le chiamate dirette/di test: a runtime il
 #: valore reale arriva da Settings via l'orchestrator (DI, nessuno stato globale).
-DEFAULT_REQUEST_TOKEN_BUDGET = 10000
+DEFAULT_REQUEST_TOKEN_BUDGET = 8700
 
 #: ``max_tokens`` di DEFAULT riservati all'output dentro il budget totale (#210).
 #: DEVE combaciare con ``Settings.llm_max_tokens`` (config.py) e

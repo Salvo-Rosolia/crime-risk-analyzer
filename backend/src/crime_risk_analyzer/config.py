@@ -40,8 +40,8 @@ class Settings(BaseSettings):
     # la narrativa piu' analitica (guardia anti-troncamento invariata: finish=stop ->
     # LLMError -> fallback). DEVE restare in sync con ``generation.DEFAULT_MAX_TOKENS``
     # e ``llm.client._MAX_TOKENS`` (test_generation::..._synced_across_modules).
-    # Il budget totale richiesta (``llm_request_token_budget``) resta 10000 < TPM Groq
-    # free 12000; l'allowance user_content cala di 512 ma resta capiente (~20 POI).
+    # Il budget totale richiesta (``llm_request_token_budget``) resta sotto il TPM
+    # del modello in uso (gpt-oss-120b su Groq = 8.000, #345 D14).
     # Configurabile per tuning senza toccare il codice. Vincolo ``ge=1``.
     llm_max_tokens: int = Field(default=1536, ge=1)
     # Tetto massimo (STIMA) di token dell'INTERA richiesta LLM (#210): copre
@@ -50,11 +50,14 @@ class Settings(BaseSettings):
     # user_content sottraendo la stima del system prompt e ``llm_max_tokens`` da
     # questo tetto, poi include GREEDY per rilevanza solo i POI che ci stanno
     # (mappa/lista/confidence_summary restano completi). Cosi' su una zona densa
-    # l'intera richiesta non sfora il limite TPM del provider. DEVE stare sotto il
-    # TPM del provider (Groq free = 12000): il default 10000 lascia ~2000 di
-    # margine per l'errore di stima. Vincolo ``ge=1``: un misconfig da env
-    # (0/negativo) e' respinto al load, non lasciato degenerare a runtime.
-    llm_request_token_budget: int = Field(default=10000, ge=1)
+    # l'intera richiesta non sfora il limite TPM del provider.
+    # Deve stare sotto il TPM del modello in uso: gpt-oss-120b su Groq = 8.000
+    # token al minuto, contando input e ``max_tokens`` (#345, D14). Misurato col
+    # tokenizer reale sulle 4 zone di valutazione, ISTAT acceso e spento
+    # (``scripts/istat_budget.py``): 8700 e' il valore piu' alto con tutte le
+    # richieste sotto 7.600. Vincolo ``ge=1``: un misconfig da env (0/negativo)
+    # e' respinto al load, non lasciato degenerare a runtime.
+    llm_request_token_budget: int = Field(default=8700, ge=1)
     # Dati ISTAT nella narrativa (#345, D6): acceso di default nell'app. Spento,
     # prompt e comportamento sono identici a prima di #345 (il grounding calcola
     # comunque le righe: l'interruttore agisce solo su prompt e controllo delle

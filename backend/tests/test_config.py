@@ -91,16 +91,15 @@ def test_valid_llm_timeout_and_max_tokens_from_env(
 
 
 def test_llm_request_token_budget_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Senza env il tetto totale di token della richiesta LLM ha il default (#210).
+    """8700 tiene la richiesta reale sotto il TPM 8.000 di gpt-oss-120b su Groq.
 
-    10000 sta sotto il TPM del provider (Groq free = 12000) e lascia ~2000 di
-    margine per l'errore di stima: la richiesta densa reale non sfora piu' il TPM.
+    #345, D14.
     """
     monkeypatch.delenv("LLM_REQUEST_TOKEN_BUDGET", raising=False)
 
     settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
 
-    assert settings.llm_request_token_budget == 10000
+    assert settings.llm_request_token_budget == 8700
 
 
 def test_llm_request_token_budget_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
