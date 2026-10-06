@@ -6,14 +6,25 @@ costruiti a mano. Il caso 8 aggancia l'output al consumer reale (generation).
 
 from __future__ import annotations
 
+import pytest as _pytest
+
 from crime_risk_analyzer.geocoding import GeoResult
+from crime_risk_analyzer.geocoding import GeoResult as _GeoResult
+from crime_risk_analyzer.istat import righe as _righe_mod
+from crime_risk_analyzer.istat.righe import IstatPoi as _IstatPoi
 from crime_risk_analyzer.models.geo import Bbox
+from crime_risk_analyzer.models.geo import Bbox as _Bbox
 from crime_risk_analyzer.models.risk import PoiRiskProfile
+from crime_risk_analyzer.models.risk import PoiRiskProfile as _Profilo
 from crime_risk_analyzer.models.vocab import ConfidenceSummary
 from crime_risk_analyzer.overpass_client import Poi
+from crime_risk_analyzer.overpass_client import Poi as _Poi
 from crime_risk_analyzer.rag.generation import RiskItem, build_context_str
 from crime_risk_analyzer.rag.grounding import ground
+from crime_risk_analyzer.rag.grounding import ground as _ground
 from crime_risk_analyzer.rag.retrieval import RetrievalContext, RetrievalStats
+from crime_risk_analyzer.rag.retrieval import RetrievalContext as _Ctx
+from crime_risk_analyzer.rag.retrieval import RetrievalStats as _Stats
 
 
 def _poi(poi_id: str, name: str, terminus_class: str) -> Poi:
@@ -373,3 +384,56 @@ def test_ground_output_conforms_to_generation_consumer() -> None:
     cs = ConfidenceSummary.model_validate(out["confidence_summary"])
     assert cs.verificato == 1
     assert cs.da_confermare == 0
+
+
+# --- #345: luogo e righe ISTAT calcolati nel grounding ---
+
+
+def _contesto_istat(lat: float, lon: float, hazards: list[str]) -> _Ctx:
+    poi = _Poi(
+        id="node/1",
+        name="Banca A",
+        lat=lat,
+        lon=lon,
+        osm_tags="amenity=bank",
+        terminus_class="Bank",
+        citta="Roma",
+    )
+    profilo = _Profilo(
+        terminus_class="Bank",
+        hazards=hazards,
+        sparql_paths=[f"Bank → havingHazard → {h}" for h in hazards],
+    )
+    return _Ctx(
+        citta="Roma",
+        zona="Colosseo",
+        geo=_GeoResult(
+            lat=lat, lon=lon, bbox=_Bbox(lat - 0.01, lon - 0.01, lat + 0.01, lon + 0.01)
+        ),
+        pois=[poi],
+        profiles={"Bank": profilo},
+        stats=_Stats(n_pois=1, n_classes=1),
+    )
+
+
+def test_ground_calcola_le_righe_istat_dalle_coordinate_del_poi() -> None:
+    out = _ground(_contesto_istat(41.8902, 12.4922, ["Bank_robbery", "Landslide"]))
+    istat = out["validated_risks"][0].get("istat")
+    assert isinstance(istat, _IstatPoi)
+    assert istat.cornice.luogo_codice == "058091"
+    assert [r.voce for r in istat.righe] == ["BANKROB"]
+    assert istat.righe[0].collegamenti[0].hazard == "Bank_robbery"
+
+
+def test_ground_senza_righe_istat_fuori_dai_poligoni_o_senza_voci() -> None:
+    mare = _ground(_contesto_istat(41.0, 12.0, ["Bank_robbery"]))
+    senza_voci = _ground(_contesto_istat(41.8902, 12.4922, ["Landslide"]))
+    assert mare["validated_risks"][0].get("istat") is None
+    assert senza_voci["validated_risks"][0].get("istat") is None
+
+
+def test_ground_senza_dati_istat_non_fallisce(monkeypatch: _pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_righe_mod, "dati_istat_o_none", lambda: None)
+    out = _ground(_contesto_istat(41.8902, 12.4922, ["Bank_robbery"]))
+    assert out["validated_risks"][0].get("istat") is None
+    assert out["validated_risks"][0]["risks"][0]["hazard"] == "Bank_robbery"

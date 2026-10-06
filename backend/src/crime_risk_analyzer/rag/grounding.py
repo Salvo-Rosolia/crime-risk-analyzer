@@ -23,13 +23,16 @@ solo la forza probatoria). La confidence qualifica la prova, MAI la pericolosita
 (vincolo legale, _project.md §Vincoli). ``CONTESTO``/``SPECULATIVO`` restano
 vocabolario per la narrativa LLM, non prodotti qui.
 
-Funzione PURA e sincrona: nessun I/O, nessun accesso al grafo/executor.
+Funzione sincrona e deterministica: nessun accesso al grafo/executor. L'unico I/O
+e' la lettura, una volta per processo e poi in cache, dei dati ISTAT del package
+(#345).
 """
 
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
+from crime_risk_analyzer.istat.righe import IstatPoi, istat_per_poi
 from crime_risk_analyzer.models.risk import PoiRiskProfile
 from crime_risk_analyzer.models.vocab import Confidence, Tag
 from crime_risk_analyzer.rag.retrieval import RetrievalContext
@@ -127,6 +130,14 @@ class ValidatedRisk(TypedDict):
     vulnerabilities: list[OntologyEntity]
     stakeholders: list[OntologyEntity]
     sparql_path: str | None
+    #: Dati ISTAT del luogo del POI collegati ai suoi hazard (#345, spec 4.3):
+    #: comune capoluogo o provincia ricavati dalle COORDINATE del POI, mai dal centro
+    #: dell'area (in valutazione il ``geo`` e' un segnaposto). Calcolato SEMPRE: la
+    #: cache di zona lo porta gia' e la ricostruzione a cache fredda e' deterministica;
+    #: l'interruttore agisce solo su prompt e controllo delle cifre. ``None`` fuori
+    #: da ogni poligono, senza voci collegate o senza dati. ``NotRequired``: i
+    #: contesti costruiti a mano (test, doppi) restano validi senza il campo.
+    istat: NotRequired[IstatPoi | None]
 
 
 class GroundedContext(TypedDict):
@@ -217,6 +228,7 @@ def ground(context: RetrievalContext) -> GroundedContext:
                     profile, _PROPS_STAKEHOLDER, profile.stakeholders
                 ),
                 "sparql_path": risks[0]["source"] if risks else None,
+                "istat": istat_per_poi(poi["lat"], poi["lon"], profile.hazards),
             }
         )
     return {
