@@ -1,12 +1,11 @@
 """Test del CORSMiddleware (#106).
 
-Il deploy canonico e' same-origin (build Angular servita da FastAPI/StaticFiles):
-li' il CORS non serve. Il middleware e' DIFESA IN PROFONDITA': abilita un
-eventuale deploy split-origin e chiude il buco cross-origin in dev su ``/health``,
-l'unica rotta non proxata da ``ng serve`` (dal #342 anche ``/geocode`` passa dal
-proxy, come tutte le rotte che il frontend chiama). Opzione A: allowlist
-ESPLICITA da ``Settings``, mai wildcard ``*`` (vincolo #106),
-``allow_credentials=False`` (API stateless).
+Il middleware e' DIFESA IN PROFONDITA' per un client su un'origine diversa da
+quella dell'API; perche' oggi il frontend non ne dipenda e' spiegato accanto a
+``add_middleware`` in main.py (quali rotte passano dal proxy di ``ng serve`` lo
+dice solo ``frontend/proxy.config.json``). Opzione A: allowlist ESPLICITA da
+``Settings``, mai wildcard ``*`` (vincolo #106), ``allow_credentials=False``
+(API stateless).
 
 ``cast`` + ignore puntuale sui metodi di ``TestClient``: il loro tipo non e'
 risolto da pyright strict con questa combinazione di versioni (stesso pattern di

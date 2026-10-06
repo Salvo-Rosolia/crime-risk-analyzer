@@ -310,15 +310,15 @@ def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title="Crime Risk Analyzer", lifespan=lifespan)
     register_exception_handlers(app)
-    # CORS (#106) come DIFESA IN PROFONDITA'. Il deploy canonico e' same-origin
-    # (build Angular servita da FastAPI/StaticFiles): li' il CORS non serve. Il
-    # middleware abilita comunque un eventuale deploy split-origin e chiude il
-    # buco cross-origin in dev su ``/health``, l'unica rotta non proxata da
-    # ``ng serve``. Le rotte che il frontend chiama passano tutte dal proxy
-    # (#342): ApiService usa percorsi relativi, che senza proxy finirebbero sul
-    # dev server di Angular, quindi il CORS da solo non le coprirebbe.
-    # Allowlist ESPLICITA da ``Settings`` (mai wildcard ``*``); API stateless ->
-    # nessun cookie (``allow_credentials=False``). Copre tutte le rotte.
+    # CORS (#106) come DIFESA IN PROFONDITA', per un client su un'origine diversa
+    # da quella dell'API. Oggi nessuna chiamata del frontend ne dipende:
+    # ApiService usa percorsi relativi e in sviluppo passa dal proxy di
+    # ``ng serve`` (``frontend/proxy.config.json`` e' l'unica fonte su cosa e'
+    # proxato, #342). Per questo il CORS non puo' coprire una rotta dimenticata
+    # nel proxy, e un deploy con l'API su un'altra origine richiederebbe anche
+    # un base URL nel frontend. Allowlist ESPLICITA da ``Settings`` (mai
+    # wildcard ``*``); API stateless -> nessun cookie
+    # (``allow_credentials=False``). Copre tutte le rotte.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_allow_origins,

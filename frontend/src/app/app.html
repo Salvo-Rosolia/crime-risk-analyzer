@@ -10,6 +10,7 @@
       type="text"
       aria-label="Vai a un luogo sulla mappa"
       placeholder="Vai a un luogo…"
+      maxlength="200"
       [value]="placeQuery()"
       (input)="onPlaceQueryInput($event)"
       (keydown.enter)="onGoToPlace()"

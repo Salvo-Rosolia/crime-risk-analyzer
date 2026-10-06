@@ -1,6 +1,8 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
+import * as fs from 'fs';
+import * as path from 'path';
 import { ApiService } from '@core/api/api.service';
 import {
   AnalyzeResponse,
@@ -291,5 +293,59 @@ describe('ApiService', () => {
       const payloadPreFix = { radius_m: 500 };
       expect(isValidBaselineRequestPayload(payloadPreFix)).toBe(false);
     });
+  });
+
+  // Guardia contro il drift del proxy (già successo due volte in questo progetto: `/cities` fuori
+  // dal proxy per mesi, poi `/geocode`): `HttpTestingController` (qui) e Playwright (E2E) mockano
+  // l'HTTP, quindi NESSUno dei due passa davvero da `proxy.config.json` — un path mancante nel
+  // proxy non fa fallire nessun test, solo `ng serve` in dev. Questa spec legge le chiavi REALI di
+  // `proxy.config.json` e verifica che ogni metodo pubblico di `ApiService` che fa una richiesta
+  // HTTP la mandi a un path che il proxy di sviluppo inoltrerebbe davvero al backend.
+  describe('guardia contro il drift del proxy (proxy.config.json)', () => {
+    const proxyConfigPath = path.resolve(__dirname, '../../../../proxy.config.json');
+    const proxyKeys: string[] = Object.keys(
+      JSON.parse(fs.readFileSync(proxyConfigPath, 'utf-8')) as Record<string, unknown>,
+    );
+
+    function isProxied(url: string): boolean {
+      return proxyKeys.some((key) => url === key || url.startsWith(`${key}/`));
+    }
+
+    // Un caso per OGNI metodo pubblico di ApiService che emette una richiesta HTTP: aggiungere un
+    // nuovo metodo senza aggiungerlo qui lascia la guardia cieca su di esso, stessa cosa che è già
+    // successa due volte con un path dimenticato nel proxy.
+    const httpMethods: { name: string; invoke: () => Promise<unknown> }[] = [
+      { name: 'cities', invoke: () => api.cities() },
+      { name: 'poiTypes', invoke: () => api.poiTypes() },
+      {
+        name: 'analyze',
+        invoke: () =>
+          api.analyze({ kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 }),
+      },
+      {
+        name: 'analyzeBaseline',
+        invoke: () =>
+          api.analyzeBaseline({
+            area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
+          }),
+      },
+      { name: 'geocodePlace', invoke: () => api.geocodePlace('Duomo di Milano') },
+      {
+        name: 'poiNarrative',
+        invoke: () => api.poiNarrative('Roma', 'Colosseo', 'node/1', 'h-ctx'),
+      },
+      { name: 'zoneNarrative', invoke: () => api.zoneNarrative('Roma', 'Colosseo', 'h-ctx') },
+    ];
+
+    it.each(httpMethods)(
+      '$name: la richiesta HTTP va a un path proxato in sviluppo (proxy.config.json)',
+      async ({ invoke }) => {
+        const promise = invoke();
+        const req = http.expectOne(() => true);
+        expect(isProxied(req.request.url)).toBe(true);
+        req.flush({});
+        await promise.catch(() => undefined);
+      },
+    );
   });
 });

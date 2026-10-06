@@ -1,3 +1,4 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -24,6 +25,25 @@ import {
   NumberedPoi,
   SearchArea,
 } from '@core/models/models';
+
+/**
+ * Messaggio d'errore per "vai a un luogo" (fix reperto review): a differenza di tutti gli altri
+ * punti di questa app che usano `errorMessage(err, fallback)` con un fallback fisso, qui il
+ * letterale "Luogo non trovato." è corretto SOLO quando il backend risponde realmente 404 (nessun
+ * risultato per la query — `/geocode` lo manda come `detail` STRINGA, non `{messaggio}`, vedi
+ * `main.py:geocode`). Mostrarlo per QUALUNQUE altro errore — backend giù (proxy Vite → 500 a corpo
+ * vuoto), 500 Starlette, `status 0` (rete irraggiungibile), 422 pydantic con `detail` LISTA (es.
+ * query oltre i 200 caratteri), risposta non-JSON dal proxy (200 con parse error) — nasconderebbe
+ * il guasto reale dietro un messaggio che implica "il luogo non esiste" invece di "il servizio non
+ * ha risposto": è esattamente il bug che ha nascosto, sotto `ng serve`, l'assenza di `/geocode` in
+ * `proxy.config.json`. Fuori dal 404, riusa `errorMessage` per lo stesso spacchettamento di
+ * `error.error.detail.messaggio` (es. il 503 "Servizio di geocoding non raggiungibile."), con un
+ * fallback generico quando il backend non fornisce un messaggio spacchettabile.
+ */
+function placeSearchErrorMessage(err: unknown): string {
+  if (err instanceof HttpErrorResponse && err.status === 404) return 'Luogo non trovato.';
+  return errorMessage(err, 'Ricerca del luogo non disponibile, riprova.');
+}
 
 @Component({
   selector: 'cra-root',
@@ -171,13 +191,13 @@ export class App {
    * silenziosamente. Solo la risposta della richiesta ANCORA la più recente (`seq === this.
    * placeRequestSeq` quando arriva) applica `flyTo`/`placeError`; le altre vengono scartate.
    *
-   * Messaggio d'errore (fix reperto review): `errorMessage` (esportata da `state.store.ts`, stessa
-   * funzione già usata per ogni altro errore backend in questa app) spacchetta
-   * `error.error.detail.messaggio` quando il backend lo fornisce (es. 503 "geocoding non
-   * disponibile") invece del letterale fisso "Luogo non trovato." —
-   * quel fallback resta corretto SOLO per il 404 reale (`/geocode` risponde con `detail` STRINGA,
-   * non `{messaggio}`, per il caso "nessun risultato": vedi `main.py:geocode`), che quindi non viene
-   * spacchettato e cade comunque sul fallback.
+   * Messaggio d'errore (fix reperto review): `placeSearchErrorMessage` (sotto) mostra "Luogo non
+   * trovato." SOLO per un 404 reale (nessun risultato); per ogni altro errore — backend giù, 500,
+   * status 0, 422 con `detail` lista, risposta non-JSON dal proxy — mostra il `detail.messaggio` del
+   * backend quando c'è (es. 503 "Servizio di geocoding non raggiungibile.") o un messaggio generico
+   * altrimenti. Prima di questo fix il letterale "Luogo non trovato." compariva per QUALUNQUE
+   * errore senza `detail.messaggio`, nascondendo guasti reali (fu così che l'assenza di `/geocode`
+   * in `proxy.config.json` passò inosservata).
    */
   protected async onGoToPlace(): Promise<void> {
     const q = this.placeQuery().trim();
@@ -190,7 +210,7 @@ export class App {
       this.mapRef().flyTo(lat, lon);
     } catch (err) {
       if (seq !== this.placeRequestSeq) return;
-      this.placeError.set(errorMessage(err, 'Luogo non trovato.'));
+      this.placeError.set(placeSearchErrorMessage(err));
     }
   }
 
