@@ -35,6 +35,7 @@ from crime_risk_analyzer.i18n.terminus_labels import (
     label_en,
     label_it,
 )
+from crime_risk_analyzer.istat.cifre import SpanBlocco
 from crime_risk_analyzer.llm.client import LLMResponse
 from crime_risk_analyzer.models.vocab import Confidence, ConfidenceSummary, Tag
 from crime_risk_analyzer.rag.istat_rules import (
@@ -298,11 +299,15 @@ def _source_tokens(measured_token: str) -> tuple[tuple[str, str], ...]:
     braccio ablato (#236). Finisce nel campo ``ontologia`` in entrambi i casi: il
     campo nomina lo SLOT della risposta, non la provenienza del testo, che e'
     dichiarata dall'etichetta e dal ``mode`` della run.
+
+    ``istat`` (#345) esiste solo nelle narrative scritte col prompt ISTAT; nelle
+    altre il token non compare e il parsing e' quello di prima.
     """
     return (
         ("ontologia", measured_token),
         ("contesto", _CONTEXT_TOKEN),
         ("speculativo", _SPECULATIVE_TOKEN),
+        ("istat", ISTAT_TOKEN),
     )
 
 
@@ -364,6 +369,41 @@ class SourceProse(BaseModel):
     ontologia: str = ""
     contesto: str = ""
     speculativo: str = ""
+    #: Prosa del blocco ``[ISTAT]`` (#345): solo con i dati ISTAT nel prompt.
+    istat: str = ""
+
+
+def source_block_spans(
+    narrativa: str, *, measured_token: str = ONTOLOGY_TOKEN
+) -> list[SpanBlocco]:
+    """Blocchi per fonte della narrativa, in ordine di posizione (#345).
+
+    Stessa individuazione delle righe-etichetta di sempre
+    (:func:`_block_header_index`): estratta da :func:`parse_source_prose` perche'
+    il controllo delle cifre deve sapere in quale blocco sta ogni frase, e due
+    letture diverse dello stesso testo sarebbero due verita'. Ogni blocco va dalla
+    fine della sua riga-etichetta all'inizio della riga-etichetta successiva.
+    """
+    text = narrativa or ""
+    found: list[tuple[str, int, int]] = []
+    for field, token in _source_tokens(measured_token):
+        idx = _block_header_index(text, token)
+        if idx == -1:
+            continue
+        line_start = text.rfind("\n", 0, idx) + 1
+        nl = text.find("\n", idx)
+        content_start = len(text) if nl == -1 else nl + 1
+        found.append((field, line_start, content_start))
+    found.sort(key=lambda t: t[1])
+    return [
+        SpanBlocco(
+            campo=field,
+            inizio_riga=line_start,
+            inizio=content_start,
+            fine=found[i + 1][1] if i + 1 < len(found) else len(text),
+        )
+        for i, (field, line_start, content_start) in enumerate(found)
+    ]
 
 
 def parse_source_prose(
@@ -386,24 +426,16 @@ def parse_source_prose(
     ablazione non ha consultato alcuna ontologia e etichetta quel blocco per cio'
     che e', quindi chi lo misura deve cercare l'etichetta del suo braccio. Il
     default e' il braccio storico, cosi' i chiamanti di prodotto non cambiano.
+
+    Da #345 riconosce anche il blocco ``[ISTAT]`` (campo ``istat``).
     """
     text = narrativa or ""
-    found: list[tuple[str, int, int]] = []
-    for field, token in _source_tokens(measured_token):
-        idx = _block_header_index(text, token)
-        if idx == -1:
-            continue
-        line_start = text.rfind("\n", 0, idx) + 1
-        nl = text.find("\n", idx)
-        content_start = len(text) if nl == -1 else nl + 1
-        found.append((field, line_start, content_start))
-    if not found:
+    spans = source_block_spans(text, measured_token=measured_token)
+    if not spans:
         return SourceProse(overview=text.strip())
-    found.sort(key=lambda t: t[1])
-    values: dict[str, str] = {"overview": text[: found[0][1]].strip()}
-    for i, (field, _line_start, content_start) in enumerate(found):
-        end = found[i + 1][1] if i + 1 < len(found) else len(text)
-        values[field] = text[content_start:end].strip()
+    values: dict[str, str] = {"overview": text[: spans[0].inizio_riga].strip()}
+    for span in spans:
+        values[span.campo] = text[span.inizio : span.fine].strip()
     return SourceProse(**values)
 
 
