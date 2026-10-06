@@ -97,11 +97,40 @@ class Provenance(BaseModel):
             "quella corrente."
         ),
     )
-    # #345: con o senza dati ISTAT nel prompt. Default False: i record scritti
+    # #345: con o senza dati ISTAT richiesti. Default False: i record scritti
     # prima restano validi e dicono il vero (allora ISTAT non esisteva).
-    istat: bool = Field(default=False, description="Dati ISTAT nel prompt (#345).")
+    istat: bool = Field(
+        default=False,
+        description=(
+            "ISTAT richiesto dalla configurazione (#345). Se i dati sono "
+            "arrivati davvero nel prompt lo dice istat_versione_dati (None = "
+            "nessuna riga ISTAT nel prompt)."
+        ),
+    )
     istat_versione_dati: str | None = Field(
-        default=None, description="Data di estrazione dei dati ISTAT usati (#345)."
+        default=None,
+        description=(
+            "Data di estrazione dei dati ISTAT finiti nel prompt (#345); None se "
+            "il prompt non li portava."
+        ),
+    )
+    # #345 (F8 della review finale): il budget decide quanti POI entrano nel
+    # prompt, quindi due bracci con budget diversi non isolano nessuna
+    # variabile. ``None`` sui record vecchi (dato non registrato): non equivale
+    # a nessun valore, e il confronto lo tratta come diverso da ogni budget.
+    request_token_budget: int | None = Field(
+        default=None,
+        description=(
+            "Budget di token dell'intera richiesta LLM usato dalla run (#345); "
+            "None sui record vecchi e nel braccio baseline (nessuna chiamata LLM)."
+        ),
+    )
+    llm_max_tokens: int | None = Field(
+        default=None,
+        description=(
+            "Token riservati all'output nel budget della richiesta (#345); None "
+            "sui record vecchi e nel braccio baseline."
+        ),
     )
 
 
@@ -251,8 +280,8 @@ class RunRecord(BaseModel):
             "Narrativa mostrata all'operatore (filtrata dal controllo delle "
             "cifre con ISTAT, #345). eval/gold.py (collect_kept_risks) e "
             "eval/compare.py (has_narrativa / vacuity) leggono QUESTO campo, "
-            "non narrativa_grezza: coincide col testo grezzo quando ISTAT e' "
-            "spento."
+            "non narrativa_grezza: coincide con il grezzo nel braccio analyze a "
+            "ISTAT spento."
         )
     )
     n_poi: int = Field(ge=0)

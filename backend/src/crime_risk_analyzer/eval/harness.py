@@ -37,9 +37,28 @@ from crime_risk_analyzer.orchestrator import (
     run_baseline,
     run_no_ontology_prompt,
 )
+from crime_risk_analyzer.rag.generation import (
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_REQUEST_TOKEN_BUDGET,
+)
 from crime_risk_analyzer.rag.retrieval import RiskProfiler
 
 logger = logging.getLogger(__name__)
+
+
+def _budget_della_run(config: ExperimentConfig) -> tuple[int | None, int | None]:
+    """``(budget della richiesta, max_tokens)`` con cui il braccio costruisce il prompt.
+
+    Sono i valori che l'harness passa a :func:`run_analysis` (#345, F8 della review
+    finale): finiscono nella provenienza perche' il budget decide quanti POI
+    entrano nel prompt, e due bracci con budget diversi non isolano una sola
+    variabile. Il braccio senza ontologia gira con la stessa configurazione (il suo
+    prompt non tronca, ma la run e' configurata cosi'); la baseline non chiama
+    l'LLM e non ha budget.
+    """
+    if config.mode == "baseline":
+        return None, None
+    return DEFAULT_REQUEST_TOKEN_BUDGET, DEFAULT_MAX_TOKENS
 
 
 def _slug(text: str) -> str:
@@ -190,6 +209,8 @@ def _record_from_response(
             snapshot_configurazione_canonica=snapshot_configurazione_canonica,
             istat=config.istat,
             istat_versione_dati=resp.istat_versione_dati,
+            request_token_budget=_budget_della_run(config)[0],
+            llm_max_tokens=_budget_della_run(config)[1],
         ),
     )
 
@@ -239,6 +260,8 @@ def _error_record(
             snapshot_catturato_il=snapshot_catturato_il,
             snapshot_configurazione_canonica=snapshot_configurazione_canonica,
             istat=config.istat,
+            request_token_budget=_budget_della_run(config)[0],
+            llm_max_tokens=_budget_della_run(config)[1],
         ),
     )
 
@@ -368,6 +391,8 @@ async def run_case(
                 geo_source=geo_source,
                 context_format=config.context_format,
                 istat_context_enabled=config.istat,
+                request_token_budget=DEFAULT_REQUEST_TOKEN_BUDGET,
+                max_tokens=DEFAULT_MAX_TOKENS,
             )
     except Exception:  # noqa: BLE001 — un caso rotto non blocca l'esperimento
         return _error_record(

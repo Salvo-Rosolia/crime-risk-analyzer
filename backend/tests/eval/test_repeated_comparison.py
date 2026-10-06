@@ -10,6 +10,7 @@ from pytest import MonkeyPatch
 
 from crime_risk_analyzer.eval.compare import (
     ISOLATED_VARIABLE_HEAD,
+    ISTAT_NO_WINNER_REASON,
     VACUOUS_CAVEAT_HEAD,
     NoUsableOutputError,
     compare_records,
@@ -1089,3 +1090,36 @@ def test_repeated_report_marks_verdict_applicable_in_the_happy_path(
     assert payload["quality_verdict"]["applicable"] is True
     assert payload["quality_verdict"]["vacuous_arms"] == []
     assert payload["comparison"]["vacuous_zones"] == []
+
+
+def test_repeated_report_of_the_istat_pair_gives_the_d12_reason(
+    tmp_path: Path,
+) -> None:
+    """F4 (review finale): sulla coppia ontologia vs ontologia + ISTAT, con
+    narrativa in entrambi i bracci, il verdetto e' trattenuto per D12 e il report
+    lo dice, invece di parlare di un braccio muto che non c'e'."""
+    base = _arm("base-exp", GROQ_MODEL, (0.80, 0.20, 1000, 0.0006))
+    con = [
+        r.model_copy(
+            update={
+                "experiment": "istat-exp",
+                "run_id": r.run_id.replace("base-exp", "istat-exp"),
+                "provenance": r.provenance.model_copy(
+                    update={"istat": True, "experiment": "istat-exp"}
+                ),
+            }
+        )
+        for r in _arm("base-exp", GROQ_MODEL, (0.85, 0.15, 1100, 0.0007))
+    ]
+    _write_arm(tmp_path, base)
+    _write_arm(tmp_path, con)
+    md_path, json_path = build_repeated_report(
+        tmp_path, "istat-exp", "base-exp", label_a="istat", label_b="base", stem="d12"
+    )
+    md = md_path.read_text(encoding="utf-8")
+    assert ISTAT_NO_WINNER_REASON in md
+    assert "NON APPLICABILE" not in md
+    assert "non ha prodotto narrativa" not in md
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    assert payload["winner"] is None
+    assert payload["quality_verdict"]["reason"] == ISTAT_NO_WINNER_REASON

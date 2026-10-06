@@ -153,3 +153,74 @@ def test_confronti_senza_istat_restano_identici() -> None:
     assert confronto.istat_metrics == []
     assert confronto.quality_verdict.applicable is True
     assert "Metriche ISTAT" not in to_markdown(confronto)
+
+
+def _con_budget(
+    records: list[RunRecord], budget: int | None, max_tokens: int | None = 1536
+) -> list[RunRecord]:
+    return [
+        r.model_copy(
+            update={
+                "provenance": r.provenance.model_copy(
+                    update={
+                        "request_token_budget": budget,
+                        "llm_max_tokens": max_tokens,
+                    }
+                )
+            }
+        )
+        for r in records
+    ]
+
+
+def test_budget_diverso_rende_la_coppia_istat_non_isolata() -> None:
+    """F8 (review finale): un record vecchio (budget 10000, o non registrato)
+    contro uno nuovo con ISTAT (8700) non isola ISTAT."""
+    a, b = _bracci()
+    for budget_b in (10000, None):
+        confronto = compare_records(
+            _con_budget(a, 8700),
+            _con_budget(b, budget_b),
+            label_a="istat",
+            label_b="base",
+        )
+        assert confronto.isolated_variable.startswith(CONFOUNDED_VARIABLE_HEAD)
+        assert "budget di token della richiesta" in confronto.isolated_variable
+
+
+def test_max_tokens_diverso_rende_la_coppia_istat_non_isolata() -> None:
+    a, b = _bracci()
+    confronto = compare_records(
+        _con_budget(a, 8700, 1536),
+        _con_budget(b, 8700, 2048),
+        label_a="istat",
+        label_b="base",
+    )
+    assert confronto.isolated_variable.startswith(CONFOUNDED_VARIABLE_HEAD)
+    assert "max_tokens" in confronto.isolated_variable
+
+
+def test_stesso_budget_la_coppia_istat_resta_isolata() -> None:
+    a, b = _bracci()
+    confronto = compare_records(
+        _con_budget(a, 8700), _con_budget(b, 8700), label_a="istat", label_b="base"
+    )
+    assert confronto.isolated_variable.startswith(ISTAT_ISOLATED_VARIABLE_HEAD)
+
+
+def test_budget_diverso_rende_la_coppia_ontologica_non_isolata() -> None:
+    """Lo stesso controllo vale per la coppia ontologia vs senza ontologia."""
+    a = [_rec("con", z, istat=False) for z in ("Colosseo", "Termini")]
+    b = [
+        _rec("senza", z, istat=False, mode="no_ontology_prompt")
+        for z in ("Colosseo", "Termini")
+    ]
+    confuso = compare_records(
+        _con_budget(a, 10000), _con_budget(b, 8700), label_a="con", label_b="senza"
+    )
+    assert confuso.isolated_variable.startswith(CONFOUNDED_VARIABLE_HEAD)
+    assert "budget di token della richiesta" in confuso.isolated_variable
+    isolato = compare_records(
+        _con_budget(a, 8700), _con_budget(b, 8700), label_a="con", label_b="senza"
+    )
+    assert not isolato.isolated_variable.startswith(CONFOUNDED_VARIABLE_HEAD)

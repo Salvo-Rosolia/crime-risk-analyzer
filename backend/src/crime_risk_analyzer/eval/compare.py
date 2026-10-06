@@ -359,6 +359,14 @@ _SHARED_SETTINGS: tuple[tuple[str, Callable[[RunRecord], object]], ...] = (
     ("temperatura", lambda rec: rec.provenance.temperature),
     ("formato del contesto", lambda rec: rec.provenance.context_format),
     ("seed di campionamento", lambda rec: rec.provenance.seed),
+    # #345: il budget decide quanti POI entrano nel prompt (F8 della review
+    # finale): un record vecchio (budget non registrato) contro uno nuovo non
+    # condivide l'impostazione, anche se modello e seed coincidono.
+    (
+        "budget di token della richiesta",
+        lambda rec: rec.provenance.request_token_budget,
+    ),
+    ("max_tokens della risposta", lambda rec: rec.provenance.llm_max_tokens),
     # #345: il confronto della tesi gira a ISTAT spento (D6); se un braccio lo
     # avesse acceso cambierebbe anche il prompt, e va detto.
     ("dati ISTAT nel prompt", lambda rec: rec.provenance.istat),
@@ -549,8 +557,9 @@ def istat_isolated_variable_note(
         )
     return (
         f"{ISTAT_ISOLATED_VARIABLE_HEAD} I due bracci condividono modello, "
-        "temperatura, formato del contesto, seed di campionamento, snapshot POI e "
-        "dati strutturati della risposta. L'unica differenza e' il blocco DATI "
+        "temperatura, formato del contesto, seed di campionamento, budget di token "
+        "della richiesta, snapshot POI e dati strutturati della risposta. "
+        "L'unica differenza e' il blocco DATI "
         "ISTAT nel prompt, con le regole che lo accompagnano e il controllo delle "
         f"cifre: `{con}` lo riceve, `{senza}` no. Nessun vincitore automatico (D12): "
         "`grounding`/`hallucination` servono solo a verificare che ISTAT non "

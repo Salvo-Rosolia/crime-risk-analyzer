@@ -130,6 +130,12 @@ def _mean_record(
     :func:`_representative_narrativa`. ``istat_metrics`` (#345) e' invece la
     SOMMA delle K ripetizioni (``istat_metrics.somma_istat_metrics``): conteggi,
     non media, cosi' sommarla fra ripetizioni resta corretto.
+
+    Dei campi ISTAT del record si ripiega SOLO ``istat_metrics``:
+    ``istat_frasi_scartate`` e ``narrativa_grezza`` restano ai default (0 e
+    ``None``) sul record-media. Le frasi tolte sono gia' contate nella somma
+    (``IstatMetrics.frasi_scartabili``), e il grezzo, come la narrativa, non si
+    media; chi li vuole per ripetizione li legge sui record delle ripetizioni.
     """
     return RunRecord(
         run_id=f"{source.experiment}__{source.citta}__{source.zona}__mean".lower(),
