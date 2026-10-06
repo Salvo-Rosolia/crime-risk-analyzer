@@ -7,12 +7,13 @@ from decimal import Decimal
 
 import pytest
 
-from crime_risk_analyzer.istat.blocco import blocco_istat_poi
+from crime_risk_analyzer.istat.blocco import BloccoIstat, blocco_istat_poi
 from crime_risk_analyzer.istat.cifre import (
     EsitoControllo,
     Motivo,
     Numero,
     SpanBlocco,
+    applica_controllo,
     controlla_cifre,
     dividi_frasi,
     estrai_numeri,
@@ -290,3 +291,44 @@ def test_divisione_in_frasi_non_spezza_i_numeri() -> None:
         "Poi altro!",
         "Nuova riga",
     ]
+
+
+def test_applica_controllo_senza_blocco_lascia_il_testo_invariato() -> None:
+    """``blocco=None``: il prompt non aveva ISTAT, nessun controllo (#345 P4)."""
+    testo = "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nRapina.\n"
+    assert applica_controllo(testo, blocco=None, spans=[], contesto="") == (
+        testo,
+        None,
+    )
+
+
+def test_applica_controllo_con_blocco_vuoto_lascia_il_testo_invariato() -> None:
+    """``BloccoIstat()`` di default (``testo=""``): stesso ramo di ISTAT spento."""
+    testo = "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nRapina.\n"
+    assert applica_controllo(testo, blocco=BloccoIstat(), spans=[], contesto="") == (
+        testo,
+        None,
+    )
+
+
+def test_applica_controllo_con_blocco_attivo_filtra_e_ritorna_esito() -> None:
+    """Con un blocco non vuoto delega a ``controlla_cifre`` e torna il filtrato."""
+    testo = (
+        "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nIl Colosseo concentra "
+        "134.169 furti. Bar 2000 e' esposto a rapina.\n\n"
+        "Dati statistici ISTAT [ISTAT]\nI furti sono 134.169 nel 2024.\n"
+    )
+    narrativa, esito = applica_controllo(
+        testo, blocco=_BLOCCO, spans=_spans(testo), contesto=_CONTESTO
+    )
+    assert esito is not None
+    assert narrativa == esito.testo_filtrato
+    assert "134.169 furti" not in narrativa
+    assert "Bar 2000 e' esposto a rapina." in narrativa
+    assert esito == controlla_cifre(
+        testo,
+        blocchi=_spans(testo),
+        blocco_istat=_BLOCCO.testo,
+        contesto_senza_istat=_CONTESTO,
+        righe=_BLOCCO.righe,
+    )

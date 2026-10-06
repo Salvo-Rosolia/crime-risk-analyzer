@@ -48,6 +48,7 @@ from typing import Literal, NamedTuple
 
 from pydantic import BaseModel, ConfigDict
 
+from crime_risk_analyzer.istat.blocco import BloccoIstat
 from crime_risk_analyzer.istat.dati import VOCE_TOTALE
 from crime_risk_analyzer.istat.righe import RigaIstat
 
@@ -58,6 +59,7 @@ __all__ = [
     "Motivo",
     "Numero",
     "SpanBlocco",
+    "applica_controllo",
     "controlla_cifre",
     "direzione_di",
     "dividi_frasi",
@@ -454,3 +456,39 @@ def controlla_cifre(
         numeri_in_lettere=len(_IN_LETTERE.findall(narrativa.lower())),
         righe=tuple(righe),
     )
+
+
+def applica_controllo(
+    testo: str,
+    *,
+    blocco: BloccoIstat | None,
+    spans: Sequence[SpanBlocco],
+    contesto: str,
+) -> tuple[str, EsitoControllo | None]:
+    """Applica il controllo delle cifre a ``testo`` se il prompt portava ISTAT (#345).
+
+    Helper CONDIVISO fra la narrativa di zona (``rag.generation.generate_analysis``)
+    e quella per-POI (``rag.poi_generation``, stesso schema): incapsula la
+    decisione "il prompt aveva il blocco DATI ISTAT?" insieme alla chiamata a
+    :func:`controlla_cifre`, cosi' i due generation layer non duplicano la stessa
+    logica (ruling P4 del controller: niente if-ISTAT inline in ``generate_analysis``).
+
+    ``blocco`` e' quello EFFETTIVAMENTE finito nel prompt: puo' essere ``None``
+    (il chiamante non ha nemmeno provato ad accendere ISTAT) o avere ``testo``
+    vuoto (righe ISTAT richieste ma nessuna per i POI inclusi, #345 D-no-righe). In
+    entrambi i casi il prompt non portava il blocco e il controllo non si applica:
+    ``testo`` torna invariato e l'esito e' ``None`` — lo stesso ramo di "ISTAT
+    spento". Altrimenti chiama :func:`controlla_cifre` e ritorna il testo filtrato
+    (quello che vede l'operatore) insieme all':class:`EsitoControllo` completo, che
+    il chiamante tiene in memoria per l'harness di valutazione.
+    """
+    if blocco is None or not blocco.testo:
+        return testo, None
+    controllo = controlla_cifre(
+        testo,
+        blocchi=spans,
+        blocco_istat=blocco.testo,
+        contesto_senza_istat=contesto,
+        righe=blocco.righe,
+    )
+    return controllo.testo_filtrato, controllo
