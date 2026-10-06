@@ -1,7 +1,9 @@
 """Test del grounding layer (#24): RetrievalContext grezzo -> context validato.
 
-ground() e' una funzione PURA: nessun I/O, nessun mock. I RetrievalContext sono
-costruiti a mano. Il caso 8 aggancia l'output al consumer reale (generation).
+ground() non chiama rete ne' modello: i RetrievalContext sono costruiti a mano e
+non servono mock. Non e' piu' una funzione pura in senso stretto (#345): con i
+dati ISTAT legge la copia locale dei dati, caricata una volta e tenuta in cache.
+Il caso 8 aggancia l'output al consumer reale (generation).
 """
 
 from __future__ import annotations

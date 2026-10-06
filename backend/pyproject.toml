@@ -26,6 +26,7 @@ dev = [
     "respx>=0.23.1",
     "pytest-asyncio>=1.4.0",
     "pyproj>=3.7",
+    # pyshp<3: i tipi inline della 3.x rompono pyright su istat_refresh.py
     "pyshp>=2.3,<3",
     "shapely>=2.1",
 ]
