@@ -4,6 +4,8 @@ import {
   buildDetailModel,
   buildSourceTabs,
   cityColorFor,
+  istatIndicator,
+  istatIndicatorText,
   istatOrderNote,
   istatWeight,
   matchesFilter,
@@ -14,7 +16,7 @@ import {
   validateInputPanel,
 } from '@core/ui-helpers';
 import { CONF, DIM_COLOR } from '@core/confidence';
-import { Poi, RiskItem, RiskModel, SourceProse } from '@core/models/models';
+import { IstatPoi, IstatRiga, Poi, RiskItem, RiskModel, SourceProse } from '@core/models/models';
 import { istatPoi, istatRiga } from '@core/testing/istat-fixtures';
 
 describe('ui-helpers', () => {
@@ -622,8 +624,103 @@ describe('ui-helpers', () => {
 
     it('istatOrderNote: luogo e anno dalla cornice, nessun numero di tasso', () => {
       expect(istatOrderNote(istatPoi())).toBe(
-        'Ordinati in base ai delitti denunciati rispetto alla media italiana (ISTAT 2024, Comune di Roma).',
+        'Ordinati in base a quanto i delitti denunciati superano la media italiana, non in base al loro numero (ISTAT 2024, Comune di Roma).',
       );
+    });
+  });
+
+  describe('indicatore ISTAT accanto al rischio (#347)', () => {
+    function testo(hazard: string, dati: IstatPoi): string | null {
+      const ind = istatIndicator(hazard, dati);
+      return ind ? istatIndicatorText(ind) : null;
+    }
+
+    function indicatore(over: Partial<IstatRiga> = {}): string | null {
+      return testo('Theft', istatPoi(istatRiga('THEFT', ['Theft'], over)));
+    }
+
+    it('voce più ampia, delitti col punto delle migliaia, calo oltre il 5%', () => {
+      expect(indicatore({ voce_label: 'furti', delitti: 134169, variazione_pct: -10 })).toBe(
+        'furti (voce ISTAT più ampia del rischio) · 134.169 delitti nel 2024 · ▼ in calo (−10% dal 2014)',
+      );
+    });
+
+    it('corrispondenza esatta: nessun avviso; crescita oltre il 5%; 4 cifre col punto', () => {
+      const riga = istatRiga('PICKTHEF', ['Theft'], {
+        voce_label: 'scippi',
+        delitti: 3016,
+        variazione_pct: 15,
+        collegamenti: [{ hazard: 'Theft', hazard_label_it: 'Furto', corrispondenza: 'esatta' }],
+      });
+      expect(testo('Theft', istatPoi(riga))).toBe(
+        'scippi · 3.016 delitti nel 2024 · ▲ in crescita (+15% dal 2014)',
+      );
+    });
+
+    it('voce più stretta: avviso dedicato', () => {
+      const riga = istatRiga('CARTHEF', ['Vehicle_Theft'], {
+        voce_label: 'furti di autovetture',
+        collegamenti: [
+          {
+            hazard: 'Vehicle_Theft',
+            hazard_label_it: 'Furto di veicoli',
+            corrispondenza: 'piu_stretta',
+          },
+        ],
+      });
+      expect(testo('Vehicle_Theft', istatPoi(riga))).toContain(
+        'furti di autovetture (voce ISTAT che copre solo una parte del rischio)',
+      );
+    });
+
+    it('stabile entro ±5%, estremi compresi', () => {
+      expect(indicatore({ variazione_pct: 5 })).toContain('· stabile (+5% dal 2014)');
+      expect(indicatore({ variazione_pct: -5 })).toContain('· stabile (−5% dal 2014)');
+      expect(indicatore({ variazione_pct: 0 })).toContain('· stabile (0% dal 2014)');
+      expect(indicatore({ variazione_pct: 6 })).toContain('▲ in crescita (+6% dal 2014)');
+      expect(indicatore({ variazione_pct: -6 })).toContain('▼ in calo (−6% dal 2014)');
+    });
+
+    it('tendenza non calcolabile: riporta il motivo del backend', () => {
+      expect(
+        indicatore({
+          variazione_pct: null,
+          motivo_senza_variazione:
+            'serie interrotta dalla depenalizzazione del 2016 (d.lgs. 7/2016)',
+        }),
+      ).toContain(
+        '· tendenza non calcolabile: serie interrotta dalla depenalizzazione del 2016 (d.lgs. 7/2016)',
+      );
+      expect(indicatore({ variazione_pct: null, motivo_senza_variazione: null })).toMatch(
+        /· tendenza non calcolabile$/,
+      );
+    });
+
+    it('nessun indicatore dove non c’è peso: sotto soglia, senza voce, senza istat', () => {
+      expect(indicatore({ delitti: ISTAT_MIN_DELITTI - 1 })).toBeNull();
+      expect(indicatore({ tasso_italia: null })).toBeNull();
+      expect(istatIndicator('Altro', istatPoi(istatRiga('THEFT', ['Theft'])))).toBeNull();
+      expect(istatIndicator('Theft', null)).toBeNull();
+      expect(istatIndicator('Theft', undefined)).toBeNull();
+    });
+
+    it('indicatore presente al confine: 20 delitti, e tasso «meno di 0,1» (peso 0 ma ordinato)', () => {
+      expect(indicatore({ delitti: ISTAT_MIN_DELITTI })).toContain('20 delitti nel 2024');
+      expect(indicatore({ tasso: null, tasso_sotto_soglia: true })).not.toBeNull();
+    });
+
+    it('la freccia è una parte separata (decorativa), la tendenza si legge da sola', () => {
+      const su = istatIndicator(
+        'Theft',
+        istatPoi(istatRiga('THEFT', ['Theft'], { variazione_pct: 20 })),
+      );
+      expect(su?.freccia).toBe('▲');
+      expect(su?.tendenza).toBe('in crescita (+20% dal 2014)');
+      const stabile = istatIndicator(
+        'Theft',
+        istatPoi(istatRiga('THEFT', ['Theft'], { variazione_pct: 2 })),
+      );
+      expect(stabile?.freccia).toBeNull();
     });
   });
 });

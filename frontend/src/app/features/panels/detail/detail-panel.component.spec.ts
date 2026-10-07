@@ -594,5 +594,31 @@ describe('DetailPanelComponent', () => {
 
     expect(factorLists().length).toBe(1);
     expect(fixture.nativeElement.querySelector('.cra-istat-tail-label')).toBeNull();
+    // #347: gruppo tutto ordinato → un indicatore su ogni riga.
+    expect(indicators(factorLists()[0]).every((t) => t !== null)).toBe(true);
+  });
+
+  function indicators(list: HTMLElement): (string | null)[] {
+    return Array.from(list.querySelectorAll('.cra-factor-row') as NodeListOf<HTMLElement>).map(
+      (row) =>
+        row.querySelector('.cra-istat-indicator')?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
+    );
+  }
+
+  it('#347: indicatore ISTAT sotto i rischi ordinati, assente nella coda «Senza dato ISTAT»', () => {
+    const dati = istatPoi(istatRiga('HIGH', ['h-c'], { tasso: 300, variazione_pct: 12 }));
+    setup(makePoi({ istat: dati }), ontoModels);
+
+    const lists = factorLists();
+    expect(indicators(lists[0])[0]).toContain('▲ in crescita (+12% dal 2014)');
+    expect(indicators(lists[1])).toEqual([null, null]);
+    // La freccia è decorativa: nascosta ai lettori di schermo.
+    const freccia = lists[0].querySelector('.cra-istat-indicator [aria-hidden="true"]');
+    expect(freccia?.textContent?.trim()).toBe('▲');
+  });
+
+  it('#347: senza istat nessun indicatore', () => {
+    setup(makePoi(), ontoModels);
+    expect(fixture.nativeElement.querySelector('.cra-istat-indicator')).toBeNull();
   });
 });

@@ -222,6 +222,25 @@
   min-width: 0;
 }
 
+/* #347: etichetta + indicatore ISTAT impilati a sinistra, il badge di confidenza resta a destra. */
+.cra-factor-main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/*
+ * #347: indicatore ISTAT sotto il rischio. Colore neutro (ink-2), mai rosso/verde: una tendenza
+ * colorata si leggerebbe come un giudizio di pericolosità sul luogo (D9). Le frecce ▲/▼ sono nel
+ * testo, che dice già «in crescita»/«in calo».
+ */
+.cra-istat-indicator {
+  font-size: 0.7rem;
+  line-height: 1.35;
+  color: var(--ink-2);
+}
+
 /*
  * Provenienza (rework UI): la citazione SPARQL scende in secondo piano rispetto ai fattori — sta
  * DOPO, separata da un filo, in mono più piccolo e attenuato (ink-2). Non è nascosta (è il cuore
