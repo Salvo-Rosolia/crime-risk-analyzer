@@ -44,6 +44,9 @@
           }}</span>
         </button>
         @if (isOpen(group.tag)) {
+          @if (group.istatNote) {
+            <p class="cra-istat-order-note">{{ group.istatNote }}</p>
+          }
           <ul class="cra-factor-list">
             @for (risk of group.risks; track risk.hazard) {
               <li class="cra-factor-row">

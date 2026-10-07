@@ -10,12 +10,14 @@ import {
   output,
 } from '@angular/core';
 import { confMeta, pinColor, srcTagMeta } from '@core/confidence';
-import { OntologyItem, Poi, RiskModel } from '@core/models/models';
+import { OntologyItem, Poi, RiskItem, RiskModel } from '@core/models/models';
 import {
   buildDetailModel,
   hazardDisplayLabel,
+  istatOrderNote,
   ontologyDisplayLabel,
   orderGroupsByTag,
+  orderRisksByIstat,
   poiNameDisplayLabel,
 } from '@core/ui-helpers';
 
@@ -30,7 +32,8 @@ export const STAKEHOLDER_AXIS_NOTE =
 /**
  * Scheda "Dettaglio POI" (Stato C, spec-frontend.md §Stato C): citazione SPARQL lineare
  * (Classe → proprietà → entità) + fattori di rischio raggruppati per tag fonte, nell'ordine
- * ONTOLOGIA → CONTESTO → SPECULATIVO. Componente "thin": consuma gli helper puri già testati
+ * ONTOLOGIA → CONTESTO → SPECULATIVO; dentro ogni gruppo i rischi collegati a una voce ISTAT
+ * vengono prima (#346). Componente "thin": consuma gli helper puri già testati
  * (`buildDetailModel`, `orderGroupsByTag`) senza reimplementarne la logica.
  *
  * Focus management (a11y, richiesto da frontend-dev.md/reviewer-frontend.md — review #67,
@@ -76,7 +79,27 @@ export class DetailPanelComponent {
   protected readonly hazardLabel = hazardDisplayLabel;
 
   protected readonly detailModel = computed(() => buildDetailModel(this.poi(), this.riskModels()));
-  protected readonly orderedGroups = computed(() => orderGroupsByTag(this.detailModel().groups));
+
+  /**
+   * Gruppi-fonte nell'ordine canonico (`orderGroupsByTag`) e, dentro ciascuno, rischi ordinati col
+   * dato ISTAT del luogo del POI (#346): prima quelli con dato, per tasso locale rispetto alla
+   * media italiana, poi gli altri. `istatNote` è la riga che dichiara da dove viene l'ordine — senza,
+   * un ordine che cambia senza motivo si leggerebbe come una graduatoria di pericolosità del POI.
+   * `null` se il gruppo non ha rischi con dato o il POI non porta `istat` (interruttore spento).
+   */
+  protected readonly orderedGroups = computed<
+    { tag: string; risks: RiskItem[]; istatNote: string | null }[]
+  >(() => {
+    const istat = this.poi().istat;
+    return orderGroupsByTag(this.detailModel().groups).map((group) => {
+      const ordering = orderRisksByIstat(group.risks, istat);
+      return {
+        tag: group.tag,
+        risks: ordering.risks,
+        istatNote: ordering.byIstat && istat ? istatOrderNote(istat) : null,
+      };
+    });
+  });
   protected readonly srcMeta = srcTagMeta;
   /** Nome del POI con ripiego sulla classe se manca su OSM (#261). */
   protected readonly poiName = computed(() => poiNameDisplayLabel(this.poi()));

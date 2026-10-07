@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { DetailPanelComponent, STAKEHOLDER_AXIS_NOTE } from './detail-panel.component';
 import type { Poi, RiskModel } from '@core/models/models';
+import type { IstatPoi, IstatRiga } from '@core/models/models';
 
 function makePoi(overrides: Partial<Poi> = {}): Poi {
   return {
@@ -492,5 +493,87 @@ describe('DetailPanelComponent', () => {
     expect(
       Array.from(fixture.nativeElement.querySelectorAll('.cra-source-header')).map(aria),
     ).toEqual(['true', 'false', 'false']);
+  });
+
+  function riga(voce: string, hazards: string[], tasso: number): IstatRiga {
+    return {
+      luogo_codice: '058091',
+      luogo_nome: 'Comune di Roma',
+      luogo_breve: 'Roma',
+      luogo_tipo: 'comune',
+      voce,
+      voce_label: voce,
+      anno: 2024,
+      anno_confronto: 2014,
+      delitti: 100,
+      delitti_confronto: 100,
+      tasso,
+      tasso_sotto_soglia: false,
+      tasso_italia: 100,
+      tasso_italia_sotto_soglia: false,
+      variazione_pct: 0,
+      motivo_senza_variazione: null,
+      rottura_2016: false,
+      collegamenti: hazards.map((h) => ({
+        hazard: h,
+        hazard_label_it: h,
+        corrispondenza: 'piu_larga' as const,
+      })),
+    };
+  }
+
+  const ontoModels: RiskModel[] = [
+    {
+      poi_id: '1',
+      poi: 'Colosseo',
+      risks: ['h-a', 'h-b', 'h-c'].map((hazard) => ({
+        hazard,
+        confidence: 'verificato' as const,
+        tag: 'ONTOLOGIA' as const,
+        hazard_label_it: hazard.toUpperCase(),
+        hazard_label_en: hazard,
+      })),
+    },
+  ];
+
+  function istat(...righe: IstatRiga[]): IstatPoi {
+    return { cornice: riga('TOT', [], 100), righe };
+  }
+
+  function labels(): string[] {
+    return Array.from(
+      fixture.nativeElement.querySelectorAll('.cra-factor-label') as NodeListOf<HTMLElement>,
+    ).map((el) => el.textContent?.trim() ?? '');
+  }
+
+  it('#346: ordina i rischi del gruppo col dato ISTAT e mostra la nota con luogo e anno', () => {
+    setup(
+      makePoi({ istat: istat(riga('LOW', ['h-b'], 50), riga('HIGH', ['h-c'], 300)) }),
+      ontoModels,
+    );
+    expect(labels()).toEqual(['H-C', 'H-B', 'H-A']);
+    const nota = fixture.nativeElement.querySelector('.cra-istat-order-note');
+    expect(nota?.textContent?.trim()).toBe(
+      'Ordinati in base ai delitti denunciati rispetto alla media italiana (ISTAT 2024, Comune di Roma).',
+    );
+  });
+
+  it('#346: senza istat (assente o null) ordine di oggi e nessuna nota', () => {
+    for (const poi of [makePoi(), makePoi({ istat: null })]) {
+      setup(poi, ontoModels);
+      expect(labels()).toEqual(['H-A', 'H-B', 'H-C']);
+      expect(fixture.nativeElement.querySelector('.cra-istat-order-note')).toBeNull();
+      fixture.nativeElement.remove();
+    }
+  });
+
+  it('#346: nota solo sui gruppi che hanno almeno un rischio con dato', () => {
+    setup(makePoi({ istat: istat(riga('HIGH', ['h-onto'], 300)) }), riskModels);
+    const gruppi = Array.from(
+      fixture.nativeElement.querySelectorAll('.cra-source-group') as NodeListOf<HTMLElement>,
+    );
+    const conNota = gruppi.map((g) => g.querySelector('.cra-istat-order-note') !== null);
+    // riskModels: un rischio per gruppo (ONTOLOGIA, CONTESTO, SPECULATIVO), solo h-onto ha dato.
+    expect(conNota).toEqual([true, false, false]);
   });
 });
