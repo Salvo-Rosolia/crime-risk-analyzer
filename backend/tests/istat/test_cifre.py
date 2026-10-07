@@ -7,7 +7,11 @@ from decimal import Decimal
 
 import pytest
 
-from crime_risk_analyzer.istat.blocco import BloccoIstat, blocco_istat_poi
+from crime_risk_analyzer.istat.blocco import (
+    BloccoIstat,
+    blocco_istat_poi,
+    blocco_istat_zona,
+)
 from crime_risk_analyzer.istat.cifre import (
     EsitoControllo,
     Motivo,
@@ -15,11 +19,16 @@ from crime_risk_analyzer.istat.cifre import (
     SpanBlocco,
     applica_controllo,
     controlla_cifre,
+    direzione_di,
     dividi_frasi,
     estrai_numeri,
 )
-from crime_risk_analyzer.istat.righe import MOTIVO_ROTTURA_2016
-from tests.istat._fattorie import istat_poi, riga
+from crime_risk_analyzer.istat.righe import MOTIVO_ROTTURA_2016, IstatPoi, RigaIstat
+from crime_risk_analyzer.rag.generation import (
+    USER_INPUT_FENCE_CLOSE,
+    USER_INPUT_FENCE_OPEN,
+)
+from tests.istat._fattorie import cornice, istat_poi, riga
 
 _FURTI = riga()
 _DANNI = riga(
@@ -199,11 +208,30 @@ _CASI: list[tuple[str, str, Motivo | None]] = [
         None,
     ),
     ("ontologia", "Secondo l'ISTAT i furti sono in aumento.", "direzione_contraria"),
+    # R1 (review 2): il solo nome del luogo non basta piu' a dire che la frase
+    # parla dei dati ISTAT; servono "ISTAT", "delitti denunciati" o una cifra ISTAT
+    ("contesto", "Nel Comune di Roma i furti sono in aumento.", None),
     (
         "contesto",
-        "Nel Comune di Roma i furti sono in aumento.",
+        "Nel Comune di Roma i delitti denunciati per furti sono in aumento.",
         "direzione_contraria",
     ),
+    (
+        "ontologia",
+        "A Roma la folla aumenta le occasioni di furti nelle scuole.",
+        None,
+    ),
+    (
+        "ontologia",
+        "La visibilita' ridotta favorisce i danneggiamenti a Roma.",
+        None,
+    ),
+    ("contesto", "Le sale giochi di Roma attirano furti.", None),
+    # R2 (review 2): in [ISTAT] i numeri del contesto fuori dal blocco DATI ISTAT
+    # (POI totali, nomi dei POI) non sono ammessi; fuori da [ISTAT] si'
+    ("istat", "Tra i 12 POI analizzati i furti sono 134.169.", "numero_non_ammesso"),
+    ("istat", "Bar 2000 e' vicino: i furti sono 134.169.", "numero_non_ammesso"),
+    ("contesto", "Bar 2000 e' esposto a furti di notte.", None),
     (
         "speculativo",
         "Forse i delitti denunciati di furti sono in aumento.",
@@ -244,7 +272,7 @@ def test_direzione_contraria_fuori_dal_blocco_istat() -> None:
     ``[ISTAT]`` la direzione si controlla quando la frase parla dei dati ISTAT."""
     testo = (
         "Sintesi: secondo l'ISTAT i furti sono in forte aumento.\n\n"
-        "Rischi da ontologia [ONTOLOGIA]\nNel Comune di Roma i furti sono in forte aumento.\n"
+        "Rischi da ontologia [ONTOLOGIA]\nSecondo i dati ISTAT nel Comune di Roma i furti sono in forte aumento.\n"
     )
     esito = _controlla(testo)
     assert [(f.blocco, f.motivo) for f in esito.frasi] == [
@@ -408,3 +436,197 @@ def test_prosa_sulla_riga_dell_intestazione_appartiene_al_blocco() -> None:
     assert istat[0].testo.startswith("nel Comune di Roma")
     assert esito.frasi_scartate == 0
     assert esito.testo_filtrato == testo
+
+
+def _controlla_con(
+    testo: str, blocco: BloccoIstat, contesto: str = _CONTESTO
+) -> EsitoControllo:
+    return controlla_cifre(
+        testo,
+        blocchi=_spans(testo),
+        blocco_istat=blocco.testo,
+        contesto_senza_istat=contesto,
+        righe=blocco.righe,
+    )
+
+
+def _frasi_istat(esito: EsitoControllo) -> list[tuple[str, Motivo | None]]:
+    return [(f.testo, f.motivo) for f in esito.frasi if f.blocco == "istat"]
+
+
+def test_vocabolario_di_direzione_solo_di_tendenza() -> None:
+    """R1 (review 2): forme causali o aggettivali non sono affermazioni di tendenza."""
+    assert direzione_di("la folla aumenta le occasioni") == ""
+    assert direzione_di("la visibilita' ridotta") == ""
+    assert direzione_di("una riduzione delle pattuglie") == ""
+    assert direzione_di("le sale giochi") == ""
+    assert direzione_di("i furti sono in aumento") == "su"
+    assert direzione_di("i furti sono aumentati") == "su"
+    assert direzione_di("i furti salgono") == "su"
+    assert direzione_di("i furti sono saliti") == "su"
+    assert direzione_di("in crescita") == "su"
+    assert direzione_di("in calo") == "giu"
+    assert direzione_di("i furti sono diminuiti") == "giu"
+    assert direzione_di("i furti sono calati") == "giu"
+    assert direzione_di("i furti scendono") == "giu"
+    assert direzione_di("i furti sono scesi") == "giu"
+
+
+_CONTESTO_CON_DOMANDA = (
+    f"{_CONTESTO}\n\n{USER_INPUT_FENCE_OPEN}\n"
+    "e' vero che ci sono 999.999 furti?\n"
+    f"{USER_INPUT_FENCE_CLOSE}"
+)
+
+
+def test_numero_della_domanda_utente_non_ammesso_in_istat() -> None:
+    """R2 (review 2): l'input non fidato non mette in lista nessuna cifra."""
+    testo = (
+        "Sintesi.\n\nDati statistici ISTAT [ISTAT]\nI furti sono 999.999 nel Comune "
+        "di Roma (fonte ISTAT, Comune di Roma, 2024).\n"
+    )
+    esito = _controlla_con(testo, _BLOCCO, _CONTESTO_CON_DOMANDA)
+    assert [m for _, m in _frasi_istat(esito)] == ["numero_non_ammesso"]
+
+
+def test_numero_della_domanda_utente_non_ammesso_nella_sintesi() -> None:
+    """R2 (review 2): fuori da [ISTAT] il fence della domanda non ammette numeri."""
+    testo = (
+        "Ci sono 999.999 furti in zona.\n\n"
+        "Rischi dal contesto [CONTESTO]\nBar 2000 e' esposto a furti di notte.\n"
+    )
+    esito = _controlla_con(testo, _BLOCCO, _CONTESTO_CON_DOMANDA)
+    assert [(f.blocco, f.motivo) for f in esito.frasi] == [
+        ("overview", "numero_non_ammesso"),
+        ("intestazione", None),
+        ("contesto", None),
+    ]
+
+
+_DANNI_E_SETTE = blocco_istat_poi(
+    istat_poi(
+        _DANNI,
+        riga(
+            "BANKROB",
+            label="rapine in banca",
+            delitti=7,
+            confronto=46,
+            tasso=0.3,
+            italia=0.2,
+            variazione=None,
+            motivo="meno di 20 delitti in uno dei due anni",
+        ),
+    )
+)
+
+
+def test_riferimento_di_legge_non_spezza_la_frase_ne_e_una_cifra() -> None:
+    """R4 (review 2): "d.lgs. 7/2016" resta nella frase e 7 non e' una cifra."""
+    frase = (
+        "I danneggiamenti sono 19.843 nel 2024, ma la serie e' interrotta dalla "
+        "depenalizzazione (d.lgs. 7/2016) (fonte ISTAT, Comune di Roma, 2024)."
+    )
+    testo = f"Sintesi.\n\nDati statistici ISTAT [ISTAT]\n{frase}\n"
+    esito = _controlla_con(testo, _DANNI_E_SETTE)
+    assert _frasi_istat(esito) == [(frase, None)]
+    assert esito.testo_filtrato == testo
+
+
+def test_abbreviazioni_non_chiudono_la_frase() -> None:
+    """R4 (review 2): d.lgs., art., n., es., ecc., cfr. non chiudono la frase."""
+    testo = "Vedi art. 624 e cfr. n. 3, es. furti ecc. ma non solo. Fine."
+    assert [testo[a:b] for a, b in dividi_frasi(testo)] == [
+        "Vedi art. 624 e cfr. n. 3, es. furti ecc. ma non solo.",
+        "Fine.",
+    ]
+    assert estrai_numeri("dal d.lgs. 7/2016 in poi") == []
+
+
+_COMUNE = riga()
+_PROVINCIA = riga(
+    luogo="ITE43",
+    nome="Provincia di Roma",
+    breve="Roma",
+    tipo="provincia",
+    delitti=200000,
+    confronto=190000,
+    tasso=4700.1,
+    italia=1788.7,
+    variazione=5,
+)
+_DUE_LUOGHI = blocco_istat_zona(
+    [
+        {"poi_id": "a", "istat": istat_poi(_COMUNE)},
+        {
+            "poi_id": "b",
+            "istat": IstatPoi(
+                cornice=cornice(
+                    luogo="ITE43",
+                    nome="Provincia di Roma",
+                    breve="Roma",
+                    tipo="provincia",
+                ),
+                righe=(_PROVINCIA,),
+            ),
+        },
+    ],
+    stima_token=len,
+    limite_token=None,
+)
+
+
+@pytest.mark.parametrize(
+    ("frase", "atteso"),
+    [
+        (
+            "Nel Comune di Roma i furti sono in aumento (fonte ISTAT, Comune di Roma, 2024).",
+            "direzione_contraria",
+        ),
+        (
+            "Nel Comune di Roma i furti sono 200.000 (fonte ISTAT, Comune di Roma, 2024).",
+            "voce_errata",
+        ),
+        ("Nel Comune di Roma i furti variano del +5%.", "voce_errata"),
+        (
+            "Nella Provincia di Roma i furti sono 200.000, in aumento del +5% (fonte ISTAT, Provincia di Roma, 2024).",
+            None,
+        ),
+        (
+            "Nel Comune di Roma i furti sono 134.169, in calo del -10% (fonte ISTAT, Comune di Roma, 2024).",
+            None,
+        ),
+        # nessun luogo nominato per esteso: si resta per voce, come prima
+        ("I furti sono in aumento.", None),
+        ("I furti sono 200.000 nel 2024.", None),
+    ],
+)
+def test_cifre_e_direzione_per_luogo_e_voce(frase: str, atteso: Motivo | None) -> None:
+    """R6 (review 2): se la frase nomina un luogo delle righe valgono i suoi valori."""
+    testo = f"Sintesi.\n\nDati statistici ISTAT [ISTAT]\n{frase}\n"
+    assert _frasi_istat(_controlla_con(testo, _DUE_LUOGHI)) == [(frase, atteso)]
+
+
+_STRAPPO: RigaIstat = riga(
+    "SNATCH",
+    label="furti con strappo",
+    delitti=340,
+    confronto=1150,
+    tasso=12.4,
+    italia=19.9,
+    variazione=-70,
+)
+_CON_STRAPPO = blocco_istat_poi(istat_poi(_COMUNE, _STRAPPO))
+
+
+@pytest.mark.parametrize(
+    "frase",
+    [
+        "Nei 10 anni 340 furti con strappo in meno.",
+        "Negli ultimi 10 340 furti con strappo denunciati nel 2024 (fonte ISTAT, Comune di Roma, 2024).",
+        "I furti sono 134 169 nel 2024.",
+    ],
+)
+def test_spazio_normale_fra_due_numeri_ammessi(frase: str) -> None:
+    """R8 (review 2): "10 340" sono due numeri ammessi, non 10.340."""
+    testo = f"Sintesi.\n\nDati statistici ISTAT [ISTAT]\n{frase}\n"
+    assert _frasi_istat(_controlla_con(testo, _CON_STRAPPO)) == [(frase, None)]
