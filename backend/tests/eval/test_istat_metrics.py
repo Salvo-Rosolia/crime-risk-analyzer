@@ -60,3 +60,21 @@ def test_somma_fra_ripetizioni() -> None:
     assert (s.cifre_totali, s.cifre_istat_corrette) == (2, 1)
     assert s.precisione_cifre == 0.5
     assert somma_istat_metrics([None, None]) is None
+
+
+def test_voce_citata_solo_se_c_e_una_sua_cifra() -> None:
+    """R7 (review 2): nominare una voce accanto alla cifra di un'altra non la cita."""
+    m = _metriche(
+        "Dati statistici ISTAT [ISTAT]\n"
+        "I furti sono 134.169, mentre le rapine in banca restano rare.\n"
+    )
+    assert m.cifre_istat_corrette == 1
+    assert m.voci_citate == 1
+
+
+def test_luogo_della_frase_a_parola_intera() -> None:
+    """R7 (review 2): "romano" non nomina "Roma"."""
+    m = _metriche(
+        "Dati statistici ISTAT [ISTAT]\nI furti nel territorio romano sono 134.169.\n"
+    )
+    assert (m.frasi_istat, m.frasi_istat_con_luogo) == (1, 0)

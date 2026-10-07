@@ -38,9 +38,15 @@ def compute_istat_metrics(esito: EsitoControllo) -> IstatMetrics:
     cifre = sum(f.cifre for f in frasi)
     corrette = sum(f.cifre_istat_corrette for f in frasi)
     fornite = {r.voce for r in esito.righe if r.voce != VOCE_TOTALE}
-    citate = {v for f in frasi if f.cifre_istat_corrette for v in f.voci} & fornite
+    # R7 (review 2): una voce e' citata solo se nella frase c'e' una SUA cifra,
+    # non solo perche' e' nominata accanto alla cifra di un'altra voce.
+    citate = {v for f in frasi for v in f.voci_cifre} & fornite
     frasi_istat = [f for f in frasi if f.blocco == "istat" and f.cifre_istat]
-    luoghi = {r.luogo_breve.lower() for r in esito.righe}
+    # A parola intera: "romano" non nomina "Roma".
+    luoghi = [
+        re.compile(rf"\b{re.escape(luogo)}\b")
+        for luogo in sorted({r.luogo_breve.lower() for r in esito.righe})
+    ]
     non_esatte = {
         r.voce
         for r in esito.righe
@@ -56,7 +62,9 @@ def compute_istat_metrics(esito: EsitoControllo) -> IstatMetrics:
         voci_citate=len(citate),
         frasi_istat=len(frasi_istat),
         frasi_istat_con_luogo=sum(
-            1 for f in frasi_istat if any(luogo in f.testo.lower() for luogo in luoghi)
+            1
+            for f in frasi_istat
+            if any(luogo.search(f.testo.lower()) for luogo in luoghi)
         ),
         direzioni_totali=len(direzioni),
         direzioni_coerenti=sum(1 for f in direzioni if f.direzione_coerente),
