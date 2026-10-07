@@ -144,6 +144,7 @@ async def geocode(
 async def analyze(
     request: AnalyzeRequest,
     executor: Annotated[RiskQueryExecutor, Depends(get_executor)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> AnalyzeResponse:
     """Fase 1 (#259/#292): area -> OSM -> SPARQL -> grounding -> JSON.
 
@@ -164,7 +165,9 @@ async def analyze(
 
     La ``domanda`` libera (#119) resta della fase 2, che e' l'unica a costruire
     un prompt. Per la stessa ragione questa rotta non dipende ne' dal client
-    LLM ne' dai tetti di token di ``Settings``: sono argomenti della fase 2.
+    LLM ne' dai tetti di token: sono argomenti della fase 2. Da ``Settings``
+    legge solo l'interruttore ISTAT (#346), che decide se ``poi[].istat`` arriva
+    al client.
     """
     citta, zona, geo_source = await _resolve_area(request)
     return await run_analysis_fast(
@@ -173,6 +176,7 @@ async def analyze(
         executor=executor,
         geo_source=geo_source,
         radius_m=request.radius_m,
+        istat_context_enabled=settings.istat_context_enabled,
     )
 
 

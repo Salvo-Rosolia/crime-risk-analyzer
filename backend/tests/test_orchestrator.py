@@ -42,6 +42,7 @@ from crime_risk_analyzer.rag.retrieval import RetrievalContext, RetrievalStats
 from tests.eval._doubles import FakeLLMClient as _FakeLLMClient
 from tests.eval._doubles import FakeProfiler as _FakeProfiler
 from tests.eval._doubles import default_llm_response as _llm_response
+from tests.istat._fattorie import BANKROB, istat_poi
 
 
 def _poi(poi_id: str, name: str, terminus_class: str) -> dict[str, object]:
@@ -229,6 +230,47 @@ def test_build_poi_list_strict_zip_mismatch() -> None:
             {"pois": [_poi("1", "Banca A", "Bank")]},  # type: ignore[arg-type]
             {"validated_risks": []},  # type: ignore[arg-type]
         )
+
+
+def test_build_poi_list_espone_istat_con_interruttore_acceso() -> None:
+    """#346: l'IstatPoi del grounding arriva al contratto, gia' calcolato."""
+    dati = istat_poi(BANKROB)
+    vr = _vr("Banca A", "Bank", ["Bank_robbery"], poi_id="1")
+    vr["istat"] = dati
+    out = _build_poi_list(
+        {"pois": [_poi("1", "Banca A", "Bank")]},  # type: ignore[arg-type]
+        {"validated_risks": [vr]},  # type: ignore[arg-type]
+        istat_context_enabled=True,
+    )
+    assert out[0].istat == dati
+    assert out[0].model_dump()["istat"]["righe"][0]["collegamenti"][0]["hazard"] == (
+        "Bank_robbery"
+    )
+
+
+def test_build_poi_list_istat_spento_non_espone_anche_se_il_grounding_lo_porta() -> (
+    None
+):
+    """Spento vuol dire spento anche nell'interfaccia: la cache di zona porta
+    sempre l'IstatPoi, quindi il filtro sta qui."""
+    vr = _vr("Banca A", "Bank", ["Bank_robbery"], poi_id="1")
+    vr["istat"] = istat_poi(BANKROB)
+    out = _build_poi_list(
+        {"pois": [_poi("1", "Banca A", "Bank")]},  # type: ignore[arg-type]
+        {"validated_risks": [vr]},  # type: ignore[arg-type]
+        istat_context_enabled=False,
+    )
+    assert out[0].istat is None
+
+
+def test_build_poi_list_istat_assente_nel_grounding() -> None:
+    """Contesti senza il campo (test, doppi, POI fuori poligono) -> None."""
+    out = _build_poi_list(
+        {"pois": [_poi("1", "Banca A", "Bank")]},  # type: ignore[arg-type]
+        {"validated_risks": [_vr("Banca A", "Bank", ["Bank_robbery"], poi_id="1")]},  # type: ignore[arg-type]
+        istat_context_enabled=True,
+    )
+    assert out[0].istat is None
 
 
 def test_build_poi_list_espone_gli_assi_con_etichette_e_citazione() -> None:
@@ -1532,6 +1574,9 @@ def test_poi_out_has_no_numeric_danger_scoring_field() -> None:
         "critical_events",
         "vulnerabilities",
         "stakeholders",
+        # #346: dati ISTAT gia' calcolati nel grounding (tassi/conteggi del comune
+        # o della provincia, mai del POI), non un punteggio derivato dal POI stesso.
+        "istat",
     }
 
 

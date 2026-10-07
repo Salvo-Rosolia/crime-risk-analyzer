@@ -149,6 +149,38 @@ def test_analyze_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     assert [p["confidence"] for p in body["poi"]] == ["verificato", None]
 
 
+@pytest.mark.parametrize("acceso", [True, False], ids=["istat-acceso", "istat-spento"])
+def test_rotta_analyze_passa_l_interruttore(
+    acceso: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#346: senza questo inoltro l'ordine ISTAT non comparirebbe mai in produzione."""
+    from crime_risk_analyzer import main
+    from crime_risk_analyzer.config import Settings, get_settings
+
+    _patch_io(monkeypatch)
+    visti: list[bool] = []
+
+    async def _spia(*args: object, **kwargs: object) -> object:
+        visti.append(cast(bool, kwargs["istat_context_enabled"]))
+        return await run_analysis_fast(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(main, "run_analysis_fast", _spia)
+    app = create_app()
+    app.dependency_overrides[get_executor] = lambda: _FakeProfiler()
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        istat_context_enabled=acceso
+    )
+    resp = cast(
+        httpx.Response,
+        TestClient(app, raise_server_exceptions=False).post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze",
+            json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0},
+        ),
+    )
+    assert resp.status_code == 200
+    assert visti == [acceso]
+
+
 def test_analyze_zone_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
     """Un errore alla risoluzione dell'etichetta (reverse geocode) propaga a 422.
 

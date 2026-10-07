@@ -65,6 +65,7 @@ async def run_analysis_fast(
     poi_source: PoiSource | None = None,
     geo_source: GeoSource | None = None,
     radius_m: float | None = None,
+    istat_context_enabled: bool = False,
 ) -> AnalyzeResponse:
     """Fase 1 (#259): dati strutturati subito, ``narrativa=None``.
 
@@ -80,6 +81,10 @@ async def run_analysis_fast(
     ``run_baseline``: applicato PRIMA del grounding, cosi' la cache di zona
     scalda col contesto GIA' filtrato. ``None`` = nessun filtro per raggio
     (comportamento invariato).
+
+    ``istat_context_enabled`` (#346): decide se ``poi[].istat`` arriva al client
+    (ordine dei rischi nelle schede). Il deposito in cache non ne dipende: il
+    grounding calcola sempre l'``IstatPoi``.
     """
     start = time.perf_counter()
     retrieval_ctx = await retrieve(
@@ -93,7 +98,9 @@ async def run_analysis_fast(
         citta, zona, ZoneContext(retrieval=retrieval_ctx, grounded=grounded)
     )
     contesto_hash = fingerprint(retrieval_ctx["pois"])
-    poi_out = _build_poi_list(retrieval_ctx, grounded)
+    poi_out = _build_poi_list(
+        retrieval_ctx, grounded, istat_context_enabled=istat_context_enabled
+    )
     return _structured_response(
         citta,
         zona,
