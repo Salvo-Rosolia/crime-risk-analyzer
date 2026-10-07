@@ -1,6 +1,7 @@
 import { confMeta } from '@core/confidence';
 import {
   Confidence,
+  IstatPoi,
   NarrativeSourceTag,
   OntologyItem,
   Poi,
@@ -150,6 +151,53 @@ export function orderGroupsByTag(groups: Record<string, RiskItem[]>): TagGroup[]
       ordered.push({ tag, risks: groups[tag] });
   }
   return ordered;
+}
+
+/**
+ * Peso ISTAT di un rischio (#346): tasso del luogo del POI diviso tasso nazionale, stesso anno.
+ * È l'unica misura confrontabile fra voci diverse (i furti sono sempre molti più delle rapine).
+ * La corrispondenza della voce non pesa: lo dirà l'indicatore della #347. `null` = nessun dato
+ * (rischio senza voce, tasso o tasso nazionale assenti, tasso nazionale 0); il «meno di 0,1»
+ * pubblicato da ISTAT vale 0, perché il dato c'è. Mai mostrato a schermo (D9).
+ */
+export function istatWeight(hazard: string, istat: IstatPoi | null | undefined): number | null {
+  const riga = istat?.righe.find((r) => r.collegamenti.some((c) => c.hazard === hazard));
+  if (!riga) return null;
+  if (riga.tasso_sotto_soglia) return 0;
+  if (riga.tasso == null || riga.tasso_italia == null || riga.tasso_italia === 0) return null;
+  return riga.tasso / riga.tasso_italia;
+}
+
+export interface IstatOrdering {
+  risks: RiskItem[];
+  /** Vero se almeno un rischio ha un dato ISTAT: il gruppo è stato ordinato e porta la nota. */
+  byIstat: boolean;
+}
+
+/**
+ * Ordina i rischi di un gruppo-fonte col dato ISTAT del luogo del POI (#346): prima quelli con
+ * dato per peso decrescente, poi gli altri nell'ordine di arrivo. Stabile: a pari peso (rischi
+ * sulla stessa voce) resta l'ordine di arrivo. Non muta l'array in ingresso.
+ */
+export function orderRisksByIstat(
+  risks: RiskItem[],
+  istat: IstatPoi | null | undefined,
+): IstatOrdering {
+  const withData: { risk: RiskItem; index: number; weight: number }[] = [];
+  const withoutData: RiskItem[] = [];
+  risks.forEach((risk, index) => {
+    const weight = istatWeight(risk.hazard, istat);
+    if (weight === null) withoutData.push(risk);
+    else withData.push({ risk, index, weight });
+  });
+  if (withData.length === 0) return { risks, byIstat: false };
+  withData.sort((a, b) => b.weight - a.weight || a.index - b.index);
+  return { risks: [...withData.map((w) => w.risk), ...withoutData], byIstat: true };
+}
+
+/** Nota dei gruppi ordinati col dato ISTAT (#346): luogo e anno, nessuna cifra (D9). */
+export function istatOrderNote(istat: IstatPoi): string {
+  return `Ordinati in base ai delitti denunciati rispetto alla media italiana (ISTAT ${istat.cornice.anno}, ${istat.cornice.luogo_nome}).`;
 }
 
 export interface BaseRow {
