@@ -1,5 +1,7 @@
 """Test del modulo di configurazione centralizzata."""
 
+from pathlib import Path
+
 import pytest
 from pydantic import SecretStr, ValidationError
 
@@ -356,3 +358,29 @@ def test_istat_context_enabled_default_acceso(monkeypatch: pytest.MonkeyPatch) -
 def test_istat_context_enabled_da_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ISTAT_CONTEXT_ENABLED", "false")
     assert Settings(_env_file=None).istat_context_enabled is False  # pyright: ignore[reportCallIssue]
+
+
+def _valori_env_example() -> dict[str, str]:
+    """Coppie ``CHIAVE=valore`` attive (non commentate) di ``backend/.env.example``."""
+    testo = (Path(__file__).resolve().parents[1] / ".env.example").read_text(
+        encoding="utf-8"
+    )
+    valori: dict[str, str] = {}
+    for riga in testo.splitlines():
+        riga = riga.strip()
+        if riga and not riga.startswith("#") and "=" in riga:
+            chiave, valore = riga.split("=", 1)
+            valori[chiave.strip()] = valore.strip()
+    return valori
+
+
+def test_env_example_allineato_ai_default_di_budget_e_istat() -> None:
+    """R3 (review 2): il template non deve suggerire un budget oltre il TPM del
+    modello in uso ne' dimenticare l'interruttore ISTAT."""
+    valori = _valori_env_example()
+    default = Settings.model_fields
+    assert int(valori["LLM_REQUEST_TOKEN_BUDGET"]) == (
+        default["llm_request_token_budget"].default
+    )
+    assert valori["ISTAT_CONTEXT_ENABLED"] == "true"
+    assert default["istat_context_enabled"].default is True
