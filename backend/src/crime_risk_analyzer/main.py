@@ -16,6 +16,7 @@ from typing import Annotated, cast
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
 from rdflib import Graph
 
@@ -345,6 +346,11 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST"],
         allow_headers=["Content-Type"],
     )
+    # GZip (#346, O10): la fase 1 di /analyze porta un IstatPoi per POI (+50-55%
+    # di byte); nessuna rotta e' in streaming (niente StreamingResponse/SSE), quindi
+    # comprimere l'intero corpo e' sicuro. minimum_size evita l'overhead su risposte
+    # minuscole (es. /health).
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
     app.include_router(router)
     return app
 

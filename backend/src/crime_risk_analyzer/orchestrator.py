@@ -319,7 +319,10 @@ class PoiOut(BaseModel):
             "grounding (#345). Il frontend li usa per ordinare i rischi (#346) e "
             "per l'indicatore (#347). None con interruttore ISTAT spento, POI fuori "
             "da ogni poligono, nessuna voce collegata o dati assenti. Il dato e' "
-            "del comune o della provincia, mai del POI."
+            "del comune o della provincia, mai del POI. Sempre None in "
+            "POST /analyze/baseline (ablation) e nei bracci di valutazione che non "
+            "passano istat_context_enabled=True (run_no_ontology_prompt, e "
+            "run_analysis/run_analysis_fast col default)."
         ),
     )
 

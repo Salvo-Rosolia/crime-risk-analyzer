@@ -134,9 +134,12 @@ class ValidatedRisk(TypedDict):
     #: comune capoluogo o provincia ricavati dalle COORDINATE del POI, mai dal centro
     #: dell'area (in valutazione il ``geo`` e' un segnaposto). Calcolato SEMPRE: la
     #: cache di zona lo porta gia' e la ricostruzione a cache fredda e' deterministica;
-    #: l'interruttore agisce solo su prompt e controllo delle cifre. ``None`` fuori
-    #: da ogni poligono, senza voci collegate o senza dati. ``NotRequired``: i
-    #: contesti costruiti a mano (test, doppi) restano validi senza il campo.
+    #: l'interruttore agisce solo su prompt e controllo delle cifre. Da #346 decide
+    #: anche se ``poi[].istat`` arriva al client nella fase 1 di ``/analyze`` (il
+    #: filtro e' in ``orchestrator._build_poi_list``): cioe' l'ordine dei rischi
+    #: nel Dettaglio POI. ``None`` fuori da ogni poligono, senza voci collegate o
+    #: senza dati. ``NotRequired``: i contesti costruiti a mano (test, doppi)
+    #: restano validi senza il campo.
     istat: NotRequired[IstatPoi | None]
 
 

@@ -64,6 +64,9 @@ class Settings(BaseSettings):
     # cifre). Acceso, l'avvio fallisce se i dati del package mancano o non sono
     # validi (``main.lifespan``). La valutazione NON lo legge: usa
     # ``ExperimentConfig.istat`` (spento di default, confronto della tesi).
+    # Da #346 decide anche se ``poi[].istat`` arriva al client nella fase 1 di
+    # ``/analyze`` (``main.analyze``): e' il dato che il frontend usa per
+    # ordinare i rischi nel Dettaglio POI.
     istat_context_enabled: bool = True
     cache_enabled: bool = True
     # Geocoding hardening (#115). ``cache_enabled`` (sopra) gate la cache dei
