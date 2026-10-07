@@ -1,4 +1,5 @@
 import {
+  ISTAT_MIN_DELITTI,
   buildBaseRows,
   buildDetailModel,
   buildSourceTabs,
@@ -13,7 +14,8 @@ import {
   validateInputPanel,
 } from '@core/ui-helpers';
 import { CONF, DIM_COLOR } from '@core/confidence';
-import { IstatPoi, IstatRiga, Poi, RiskItem, RiskModel, SourceProse } from '@core/models/models';
+import { Poi, RiskItem, RiskModel, SourceProse } from '@core/models/models';
+import { istatPoi, istatRiga } from '@core/testing/istat-fixtures';
 
 describe('ui-helpers', () => {
   it('cityColorFor: città note e fallback', () => {
@@ -527,6 +529,103 @@ describe('ui-helpers', () => {
     };
     expect(poiNameDisplayLabel(poi)).toBe('Banca (senza nome su OSM)');
   });
+
+  describe('ordine dei rischi con i dati ISTAT (#346)', () => {
+    function risk(hazard: string): RiskItem {
+      return {
+        hazard,
+        confidence: 'verificato',
+        tag: 'ONTOLOGIA',
+        hazard_label_it: hazard,
+        hazard_label_en: hazard,
+      };
+    }
+
+    it('istatWeight: tasso del luogo diviso tasso Italia', () => {
+      const dati = istatPoi(istatRiga('THEFT', ['Theft'], { tasso: 300, tasso_italia: 100 }));
+      expect(istatWeight('Theft', dati)).toBe(3);
+    });
+
+    it('istatWeight: «meno di 0,1» vale 0 ma è un dato (al limite della soglia O8, 20 delitti)', () => {
+      const dati = istatPoi(
+        istatRiga('BANKROB', ['Bank_robbery'], {
+          tasso: null,
+          tasso_sotto_soglia: true,
+          delitti: ISTAT_MIN_DELITTI,
+        }),
+      );
+      expect(istatWeight('Bank_robbery', dati)).toBe(0);
+    });
+
+    it('istatWeight: senza voce, tasso assente o tasso Italia assente/0 → nessun dato', () => {
+      const dati = istatPoi(
+        istatRiga('A', ['senza_tasso'], { tasso: null }),
+        istatRiga('B', ['senza_italia'], { tasso_italia: null }),
+        istatRiga('C', ['italia_zero'], { tasso_italia: 0 }),
+      );
+      expect(istatWeight('non_collegato', dati)).toBeNull();
+      expect(istatWeight('senza_tasso', dati)).toBeNull();
+      expect(istatWeight('senza_italia', dati)).toBeNull();
+      expect(istatWeight('italia_zero', dati)).toBeNull();
+    });
+
+    it('istatWeight (O8): meno di 20 delitti nel luogo vale «senza dato»; 20 basta; conteggio assente vale «senza dato»', () => {
+      const pochi = istatPoi(
+        istatRiga('X', ['pochi'], { delitti: 19, tasso: 300, tasso_italia: 100 }),
+      );
+      const soglia = istatPoi(
+        istatRiga('Y', ['soglia'], { delitti: 20, tasso: 300, tasso_italia: 100 }),
+      );
+      const assente = istatPoi(
+        istatRiga('Z', ['assente'], { delitti: null, tasso: 300, tasso_italia: 100 }),
+      );
+      expect(istatWeight('pochi', pochi)).toBeNull();
+      expect(istatWeight('soglia', soglia)).toBe(3);
+      expect(istatWeight('assente', assente)).toBeNull();
+    });
+
+    it('orderRisksByIstat: prima i rischi con dato per rapporto decrescente, poi gli altri in ordine di arrivo', () => {
+      const dati = istatPoi(
+        istatRiga('LOW', ['basso'], { tasso: 50, tasso_italia: 100 }),
+        istatRiga('HIGH', ['alto'], { tasso: 400, tasso_italia: 100 }),
+        istatRiga('ZERO', ['soglia'], { tasso: null, tasso_sotto_soglia: true }),
+      );
+      const input = [risk('x'), risk('basso'), risk('y'), risk('soglia'), risk('alto')];
+      const out = orderRisksByIstat(input, dati);
+      expect(out.risks.map((r) => r.hazard)).toEqual(['alto', 'basso', 'soglia', 'x', 'y']);
+      expect(out.rankedCount).toBe(3);
+    });
+
+    it('orderRisksByIstat: a pari rapporto (stessa voce) resta l’ordine di arrivo', () => {
+      const dati = istatPoi(
+        istatRiga('DAMAGE', ['b', 'a', 'c'], { tasso: 200, tasso_italia: 100 }),
+      );
+      const out = orderRisksByIstat([risk('c'), risk('a'), risk('b')], dati);
+      expect(out.risks.map((r) => r.hazard)).toEqual(['c', 'a', 'b']);
+    });
+
+    it('orderRisksByIstat: istat null, undefined o senza rischi collegati → lista invariata, rankedCount 0', () => {
+      const input = [risk('b'), risk('a')];
+      for (const dati of [null, undefined, istatPoi(istatRiga('THEFT', ['altro']))]) {
+        const out = orderRisksByIstat(input, dati);
+        expect(out.risks).toEqual(input);
+        expect(out.rankedCount).toBe(0);
+      }
+    });
+
+    it('orderRisksByIstat: non muta l’array in ingresso', () => {
+      const dati = istatPoi(istatRiga('HIGH', ['alto'], { tasso: 400, tasso_italia: 100 }));
+      const input = [risk('x'), risk('alto')];
+      orderRisksByIstat(input, dati);
+      expect(input.map((r) => r.hazard)).toEqual(['x', 'alto']);
+    });
+
+    it('istatOrderNote: luogo e anno dalla cornice, nessun numero di tasso', () => {
+      expect(istatOrderNote(istatPoi())).toBe(
+        'Ordinati in base ai delitti denunciati rispetto alla media italiana (ISTAT 2024, Comune di Roma).',
+      );
+    });
+  });
 });
 
 describe('buildSourceTabs', () => {
@@ -590,113 +689,5 @@ describe('buildSourceTabs', () => {
 
   it('#345: senza il campo istat (backend precedente) nessuna scheda ISTAT', () => {
     expect(buildSourceTabs(FONTI).tabs.map((t) => t.tag)).not.toContain('ISTAT');
-  });
-
-  describe('ordine dei rischi con i dati ISTAT (#346)', () => {
-    function risk(hazard: string): RiskItem {
-      return {
-        hazard,
-        confidence: 'verificato',
-        tag: 'ONTOLOGIA',
-        hazard_label_it: hazard,
-        hazard_label_en: hazard,
-      };
-    }
-
-    function riga(voce: string, hazards: string[], over: Partial<IstatRiga> = {}): IstatRiga {
-      return {
-        luogo_codice: '058091',
-        luogo_nome: 'Comune di Roma',
-        luogo_breve: 'Roma',
-        luogo_tipo: 'comune',
-        voce,
-        voce_label: voce,
-        anno: 2024,
-        anno_confronto: 2014,
-        delitti: 100,
-        delitti_confronto: 100,
-        tasso: 100,
-        tasso_sotto_soglia: false,
-        tasso_italia: 100,
-        tasso_italia_sotto_soglia: false,
-        variazione_pct: 0,
-        motivo_senza_variazione: null,
-        rottura_2016: false,
-        collegamenti: hazards.map((h) => ({
-          hazard: h,
-          hazard_label_it: h,
-          corrispondenza: 'piu_larga' as const,
-        })),
-        ...over,
-      };
-    }
-
-    function istat(...righe: IstatRiga[]): IstatPoi {
-      return { cornice: riga('TOT', []), righe };
-    }
-
-    it('istatWeight: tasso del luogo diviso tasso Italia', () => {
-      const dati = istat(riga('THEFT', ['Theft'], { tasso: 300, tasso_italia: 100 }));
-      expect(istatWeight('Theft', dati)).toBe(3);
-    });
-
-    it('istatWeight: «meno di 0,1» vale 0 ma è un dato', () => {
-      const dati = istat(
-        riga('BANKROB', ['Bank_robbery'], { tasso: null, tasso_sotto_soglia: true }),
-      );
-      expect(istatWeight('Bank_robbery', dati)).toBe(0);
-    });
-
-    it('istatWeight: senza voce, tasso assente o tasso Italia assente/0 → nessun dato', () => {
-      const dati = istat(
-        riga('A', ['senza_tasso'], { tasso: null }),
-        riga('B', ['senza_italia'], { tasso_italia: null }),
-        riga('C', ['italia_zero'], { tasso_italia: 0 }),
-      );
-      expect(istatWeight('non_collegato', dati)).toBeNull();
-      expect(istatWeight('senza_tasso', dati)).toBeNull();
-      expect(istatWeight('senza_italia', dati)).toBeNull();
-      expect(istatWeight('italia_zero', dati)).toBeNull();
-    });
-
-    it('orderRisksByIstat: prima i rischi con dato per rapporto decrescente, poi gli altri in ordine di arrivo', () => {
-      const dati = istat(
-        riga('LOW', ['basso'], { tasso: 50, tasso_italia: 100 }),
-        riga('HIGH', ['alto'], { tasso: 400, tasso_italia: 100 }),
-        riga('ZERO', ['soglia'], { tasso: null, tasso_sotto_soglia: true }),
-      );
-      const input = [risk('x'), risk('basso'), risk('y'), risk('soglia'), risk('alto')];
-      const out = orderRisksByIstat(input, dati);
-      expect(out.risks.map((r) => r.hazard)).toEqual(['alto', 'basso', 'soglia', 'x', 'y']);
-      expect(out.byIstat).toBe(true);
-    });
-
-    it('orderRisksByIstat: a pari rapporto (stessa voce) resta l’ordine di arrivo', () => {
-      const dati = istat(riga('DAMAGE', ['b', 'a', 'c'], { tasso: 200, tasso_italia: 100 }));
-      const out = orderRisksByIstat([risk('c'), risk('a'), risk('b')], dati);
-      expect(out.risks.map((r) => r.hazard)).toEqual(['c', 'a', 'b']);
-    });
-
-    it('orderRisksByIstat: istat null, undefined o senza rischi collegati → lista invariata, byIstat false', () => {
-      const input = [risk('b'), risk('a')];
-      for (const dati of [null, undefined, istat(riga('THEFT', ['altro']))]) {
-        const out = orderRisksByIstat(input, dati);
-        expect(out.risks).toEqual(input);
-        expect(out.byIstat).toBe(false);
-      }
-    });
-
-    it('orderRisksByIstat: non muta l’array in ingresso', () => {
-      const dati = istat(riga('HIGH', ['alto'], { tasso: 400, tasso_italia: 100 }));
-      const input = [risk('x'), risk('alto')];
-      orderRisksByIstat(input, dati);
-      expect(input.map((r) => r.hazard)).toEqual(['x', 'alto']);
-    });
-
-    it('istatOrderNote: luogo e anno dalla cornice, nessun numero di tasso', () => {
-      expect(istatOrderNote(istat())).toBe(
-        'Ordinati in base ai delitti denunciati rispetto alla media italiana (ISTAT 2024, Comune di Roma).',
-      );
-    });
   });
 });

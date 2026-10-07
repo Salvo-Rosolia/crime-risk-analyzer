@@ -48,7 +48,7 @@
             <p class="cra-istat-order-note">{{ group.istatNote }}</p>
           }
           <ul class="cra-factor-list">
-            @for (risk of group.risks; track risk.hazard) {
+            @for (risk of rankedRisks(group); track risk.hazard) {
               <li class="cra-factor-row">
                 <span class="cra-factor-label">{{ hazardLabel(risk) }}</span>
                 <span class="cra-badge-confidence" [style.color]="pinColor(risk.confidence)">
@@ -57,6 +57,19 @@
               </li>
             }
           </ul>
+          @if (hasIstatTail(group)) {
+            <p class="cra-istat-tail-label">Senza dato ISTAT</p>
+            <ul class="cra-factor-list">
+              @for (risk of tailRisks(group); track risk.hazard) {
+                <li class="cra-factor-row">
+                  <span class="cra-factor-label">{{ hazardLabel(risk) }}</span>
+                  <span class="cra-badge-confidence" [style.color]="pinColor(risk.confidence)">
+                    {{ confMeta(risk.confidence).dot }} {{ confMeta(risk.confidence).label }}
+                  </span>
+                </li>
+              }
+            </ul>
+          }
         }
       </div>
     }

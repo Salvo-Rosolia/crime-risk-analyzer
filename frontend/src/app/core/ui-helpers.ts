@@ -154,15 +154,27 @@ export function orderGroupsByTag(groups: Record<string, RiskItem[]>): TagGroup[]
 }
 
 /**
+ * Soglia minima di delitti nel luogo nell'ultimo anno perché una voce ISTAT valga come dato
+ * (#346, O8, dopo /code-review): stessa soglia `SOGLIA_TENDENZA` di
+ * `backend/src/crime_risk_analyzer/istat/righe.py`, sotto la quale il backend non calcola
+ * nemmeno la tendenza. Senza questa soglia 1-19 delitti in tutto il comune (es. una sola rapina
+ * in banca a Como, peso 12) metterebbero quel rischio in cima all'ordine.
+ */
+export const ISTAT_MIN_DELITTI = 20;
+
+/**
  * Peso ISTAT di un rischio (#346): tasso del luogo del POI diviso tasso nazionale, stesso anno.
  * È l'unica misura confrontabile fra voci diverse (i furti sono sempre molti più delle rapine).
- * La corrispondenza della voce non pesa: lo dirà l'indicatore della #347. `null` = nessun dato
- * (rischio senza voce, tasso o tasso nazionale assenti, tasso nazionale 0); il «meno di 0,1»
- * pubblicato da ISTAT vale 0, perché il dato c'è. Mai mostrato a schermo (D9).
+ * La corrispondenza della voce non pesa: lo dirà l'indicatore della #347. `null` = nessun dato:
+ * rischio senza voce, voce con meno di `ISTAT_MIN_DELITTI` delitti nel luogo (o conteggio
+ * assente, O8), oppure tasso/tasso nazionale assenti o tasso nazionale 0. Il «meno di 0,1»
+ * pubblicato da ISTAT vale 0 (non `null`): il dato c'è, purché sopra la soglia dei conteggi. Mai
+ * mostrato a schermo (D9).
  */
 export function istatWeight(hazard: string, istat: IstatPoi | null | undefined): number | null {
   const riga = istat?.righe.find((r) => r.collegamenti.some((c) => c.hazard === hazard));
   if (!riga) return null;
+  if (riga.delitti == null || riga.delitti < ISTAT_MIN_DELITTI) return null;
   if (riga.tasso_sotto_soglia) return 0;
   if (riga.tasso == null || riga.tasso_italia == null || riga.tasso_italia === 0) return null;
   return riga.tasso / riga.tasso_italia;
@@ -170,8 +182,12 @@ export function istatWeight(hazard: string, istat: IstatPoi | null | undefined):
 
 export interface IstatOrdering {
   risks: RiskItem[];
-  /** Vero se almeno un rischio ha un dato ISTAT: il gruppo è stato ordinato e porta la nota. */
-  byIstat: boolean;
+  /**
+   * Numero di rischi con dato ISTAT, in testa a `risks` (#346, O9): 0 se nessuno (ordine
+   * invariato, nessuna nota). `rankedCount > 0` sostituisce il vecchio flag `byIstat` — si
+   * deriva da qui invece di portare un bit ridondante.
+   */
+  rankedCount: number;
 }
 
 /**
@@ -190,9 +206,12 @@ export function orderRisksByIstat(
     if (weight === null) withoutData.push(risk);
     else withData.push({ risk, index, weight });
   });
-  if (withData.length === 0) return { risks, byIstat: false };
+  if (withData.length === 0) return { risks, rankedCount: 0 };
   withData.sort((a, b) => b.weight - a.weight || a.index - b.index);
-  return { risks: [...withData.map((w) => w.risk), ...withoutData], byIstat: true };
+  return {
+    risks: [...withData.map((w) => w.risk), ...withoutData],
+    rankedCount: withData.length,
+  };
 }
 
 /** Nota dei gruppi ordinati col dato ISTAT (#346): luogo e anno, nessuna cifra (D9). */

@@ -240,21 +240,40 @@
   color: var(--ink-2);
 }
 
-/* #270: precisazione mostrata solo sull'asse Stakeholder — dato citato, non operativo. */
-.cra-axis-note {
-  margin: 0 0 0.35rem;
+/*
+ * Note dei gruppi, stesso registro sobrio (#270 asse Stakeholder, #346 ordine ISTAT): solo il
+ * `margin` differisce, perché le due note vivono in punti diversi del layout (sotto il titolo
+ * asse la prima, sotto l'intestazione-fonte la seconda).
+ */
+.cra-axis-note,
+.cra-istat-order-note {
   font-size: 0.72rem;
   font-style: italic;
   color: var(--ink-2);
   opacity: 0.85;
 }
 
+/* #270: precisazione mostrata solo sull'asse Stakeholder — dato citato, non operativo. */
+.cra-axis-note {
+  margin: 0 0 0.35rem;
+}
+
 .cra-istat-order-note {
   margin: 0.25rem 0 0.35rem;
-  font-size: 0.72rem;
+}
+
+/*
+ * #346 (O9): separatore testuale fra i rischi con dato ISTAT e quelli senza, dentro un gruppo
+ * misto — senza, la coda si leggerebbe come il fondo di una classifica di pericolosità. Più
+ * piccolo e attenuato della nota d'ordine qui sopra: non è un'informazione nuova, è un confine
+ * dentro una lista già annunciata.
+ */
+.cra-istat-tail-label {
+  margin: 0.35rem 0 0.25rem;
+  font-size: 0.68rem;
   font-style: italic;
   color: var(--ink-2);
-  opacity: 0.85;
+  opacity: 0.7;
 }
 
 .cra-axis-list {
