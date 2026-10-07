@@ -12,10 +12,13 @@ import {
 import { confMeta, pinColor, srcTagMeta } from '@core/confidence';
 import { OntologyItem, Poi, RiskModel } from '@core/models/models';
 import {
+  TagGroup,
   buildDetailModel,
   hazardDisplayLabel,
+  istatOrderNote,
   ontologyDisplayLabel,
   orderGroupsByTag,
+  orderRisksByIstat,
   poiNameDisplayLabel,
 } from '@core/ui-helpers';
 
@@ -30,7 +33,8 @@ export const STAKEHOLDER_AXIS_NOTE =
 /**
  * Scheda "Dettaglio POI" (Stato C, spec-frontend.md §Stato C): citazione SPARQL lineare
  * (Classe → proprietà → entità) + fattori di rischio raggruppati per tag fonte, nell'ordine
- * ONTOLOGIA → CONTESTO → SPECULATIVO. Componente "thin": consuma gli helper puri già testati
+ * ONTOLOGIA → CONTESTO → SPECULATIVO; dentro ogni gruppo i rischi collegati a una voce ISTAT
+ * vengono prima (#346). Componente "thin": consuma gli helper puri già testati
  * (`buildDetailModel`, `orderGroupsByTag`) senza reimplementarne la logica.
  *
  * Focus management (a11y, richiesto da frontend-dev.md/reviewer-frontend.md — review #67,
@@ -76,7 +80,53 @@ export class DetailPanelComponent {
   protected readonly hazardLabel = hazardDisplayLabel;
 
   protected readonly detailModel = computed(() => buildDetailModel(this.poi(), this.riskModels()));
-  protected readonly orderedGroups = computed(() => orderGroupsByTag(this.detailModel().groups));
+
+  /**
+   * Gruppi-fonte nell'ordine canonico (`orderGroupsByTag`) e, dentro ciascuno, rischi ordinati col
+   * dato ISTAT del luogo del POI (#346): prima quelli con dato, per tasso locale rispetto alla
+   * media italiana, poi gli altri (`rankedCount` è il confine fra i due, #346 O9 — il template lo
+   * usa per separare le due liste con l'etichetta "Senza dato ISTAT" quando il gruppo è misto).
+   * `istatNote` è la riga che dichiara da dove viene l'ordine — senza, un ordine che cambia senza
+   * motivo si leggerebbe come una graduatoria di pericolosità del POI. `null` se il gruppo non ha
+   * rischi con dato o il POI non porta `istat` (interruttore spento). La nota è calcolata una sola
+   * volta (non dipende dal gruppo, solo dalla cornice del POI) e assegnata ai gruppi con dato.
+   */
+  protected readonly orderedGroups = computed<
+    (TagGroup & { istatNote: string | null; rankedCount: number })[]
+  >(() => {
+    const istat = this.poi().istat;
+    const note = istat ? istatOrderNote(istat) : null;
+    return orderGroupsByTag(this.detailModel().groups).map((group) => {
+      const ordering = orderRisksByIstat(group.risks, istat);
+      return {
+        tag: group.tag,
+        risks: ordering.risks,
+        rankedCount: ordering.rankedCount,
+        istatNote: ordering.rankedCount > 0 ? note : null,
+      };
+    });
+  });
+
+  /**
+   * Confine della coda ISTAT (#346, O9): un gruppo è "misto" solo se ha SIA rischi con dato SIA
+   * rischi senza — con tutti/nessuno la coda non esiste e resta la lista unica di oggi. Guida sia
+   * `rankedRisks`/`tailRisks` sotto sia la condizione nel template per l'etichetta "Senza dato
+   * ISTAT" e la seconda `<ul>`.
+   */
+  protected hasIstatTail(group: TagGroup & { rankedCount: number }): boolean {
+    return group.rankedCount > 0 && group.rankedCount < group.risks.length;
+  }
+
+  /** Rischi con dato ISTAT di un gruppo misto (#346, O9); l'intero gruppo se non è misto. */
+  protected rankedRisks(group: TagGroup & { rankedCount: number }) {
+    return this.hasIstatTail(group) ? group.risks.slice(0, group.rankedCount) : group.risks;
+  }
+
+  /** Rischi senza dato ISTAT di un gruppo misto (#346, O9); vuoto se non è misto. */
+  protected tailRisks(group: TagGroup & { rankedCount: number }) {
+    return this.hasIstatTail(group) ? group.risks.slice(group.rankedCount) : [];
+  }
+
   protected readonly srcMeta = srcTagMeta;
   /** Nome del POI con ripiego sulla classe se manca su OSM (#261). */
   protected readonly poiName = computed(() => poiNameDisplayLabel(this.poi()));

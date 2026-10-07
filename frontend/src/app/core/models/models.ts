@@ -33,6 +33,46 @@ export interface OntologyItem {
   label_en: string;
 }
 
+/** Corrispondenza fra hazard e voce ISTAT (#345, D3): la voce misura esattamente il rischio, lo
+ * comprende insieme ad altro, o ne copre solo una parte. */
+export type IstatCorrispondenza = 'esatta' | 'piu_larga' | 'piu_stretta';
+
+export interface IstatCollegamento {
+  hazard: string;
+  hazard_label_it: string;
+  corrispondenza: IstatCorrispondenza;
+}
+
+/** Valori di una voce ISTAT (o del totale) nel luogo del POI, già calcolati dal backend (#345). */
+export interface IstatRiga {
+  luogo_codice: string;
+  luogo_nome: string;
+  luogo_breve: string;
+  luogo_tipo: 'comune' | 'provincia';
+  voce: string;
+  voce_label: string;
+  anno: number;
+  anno_confronto: number;
+  delitti: number | null;
+  delitti_confronto: number | null;
+  tasso: number | null;
+  /** ISTAT pubblica «meno di 0,1»: `tasso` è null ma il dato c'è. */
+  tasso_sotto_soglia: boolean;
+  tasso_italia: number | null;
+  tasso_italia_sotto_soglia: boolean;
+  variazione_pct: number | null;
+  motivo_senza_variazione: string | null;
+  rottura_2016: boolean;
+  collegamenti: IstatCollegamento[];
+}
+
+/** Dati ISTAT di un POI (#345/#346): `cornice` è il totale dei delitti del luogo, `righe` le voci
+ * collegate ai suoi hazard. Il dato è del comune o della provincia, mai del POI. */
+export interface IstatPoi {
+  cornice: IstatRiga;
+  righe: IstatRiga[];
+}
+
 export interface Poi {
   id: string;
   name: string;
@@ -59,6 +99,11 @@ export interface Poi {
    * vedi la nota mostrata insieme a questo asse in `detail-panel.component.ts`.
    */
   stakeholders?: OntologyItem[];
+  /**
+   * Dati ISTAT del luogo del POI (#346). Opzionale: assente con backend precedenti e nei fixture,
+   * `null` con interruttore spento o senza dati. Senza, i rischi restano nell'ordine di oggi.
+   */
+  istat?: IstatPoi | null;
 }
 
 /** POI + il suo numero di visualizzazione (stesso ordine/numero del pin e della card accoppiati):

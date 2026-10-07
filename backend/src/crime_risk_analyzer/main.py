@@ -16,6 +16,7 @@ from typing import Annotated, cast
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
 from rdflib import Graph
 
@@ -144,6 +145,7 @@ async def geocode(
 async def analyze(
     request: AnalyzeRequest,
     executor: Annotated[RiskQueryExecutor, Depends(get_executor)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> AnalyzeResponse:
     """Fase 1 (#259/#292): area -> OSM -> SPARQL -> grounding -> JSON.
 
@@ -164,7 +166,9 @@ async def analyze(
 
     La ``domanda`` libera (#119) resta della fase 2, che e' l'unica a costruire
     un prompt. Per la stessa ragione questa rotta non dipende ne' dal client
-    LLM ne' dai tetti di token di ``Settings``: sono argomenti della fase 2.
+    LLM ne' dai tetti di token: sono argomenti della fase 2. Da ``Settings``
+    legge solo l'interruttore ISTAT (#346), che decide se ``poi[].istat`` arriva
+    al client.
     """
     citta, zona, geo_source = await _resolve_area(request)
     return await run_analysis_fast(
@@ -173,6 +177,7 @@ async def analyze(
         executor=executor,
         geo_source=geo_source,
         radius_m=request.radius_m,
+        istat_context_enabled=settings.istat_context_enabled,
     )
 
 
@@ -341,6 +346,11 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST"],
         allow_headers=["Content-Type"],
     )
+    # GZip (#346, O10): la fase 1 di /analyze porta un IstatPoi per POI (+50-55%
+    # di byte); nessuna rotta e' in streaming (niente StreamingResponse/SSE), quindi
+    # comprimere l'intero corpo e' sicuro. minimum_size evita l'overhead su risposte
+    # minuscole (es. /health).
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
     app.include_router(router)
     return app
 

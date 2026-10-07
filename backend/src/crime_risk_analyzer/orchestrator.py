@@ -28,6 +28,7 @@ from crime_risk_analyzer.geocoding import GeoResult
 from crime_risk_analyzer.i18n.terminus_labels import label_en, label_it
 from crime_risk_analyzer.istat.campi_risposta import CampiIstatRisposta
 from crime_risk_analyzer.istat.cifre import EsitoControllo
+from crime_risk_analyzer.istat.righe import IstatPoi
 from crime_risk_analyzer.llm.client import LLMError, LLMResponse
 from crime_risk_analyzer.models.geo import haversine_m
 from crime_risk_analyzer.models.risk import PoiRiskProfile
@@ -310,6 +311,20 @@ class PoiOut(BaseModel):
             "controllato copre anche questa categoria (#270)."
         ),
     )
+    istat: IstatPoi | None = Field(
+        default=None,
+        description=(
+            "Dati ISTAT del luogo del POI (comune capoluogo o provincia, dalle "
+            "coordinate del punto) collegati ai suoi hazard, gia' calcolati nel "
+            "grounding (#345). Il frontend li usa per ordinare i rischi (#346) e "
+            "per l'indicatore (#347). None con interruttore ISTAT spento, POI fuori "
+            "da ogni poligono, nessuna voce collegata o dati assenti. Il dato e' "
+            "del comune o della provincia, mai del POI. Sempre None in "
+            "POST /analyze/baseline (ablation) e nei bracci di valutazione che non "
+            "passano istat_context_enabled=True (run_no_ontology_prompt, e "
+            "run_analysis/run_analysis_fast col default)."
+        ),
+    )
 
     @model_validator(mode="after")
     def _fill_labels(self) -> PoiOut:
@@ -466,7 +481,10 @@ class AnalyzeResponse(CampiIstatRisposta):
 
 
 def _build_poi_list(
-    retrieval_ctx: RetrievalContext, grounded: GroundedContext
+    retrieval_ctx: RetrievalContext,
+    grounded: GroundedContext,
+    *,
+    istat_context_enabled: bool = False,
 ) -> list[PoiOut]:
     """Unisce coords (da retrieval) e confidence/path (da grounding) per POI.
 
@@ -478,6 +496,10 @@ def _build_poi_list(
 
     Invariante: ``grounded["validated_risks"]`` ha stesso ordine e lunghezza di
     ``retrieval_ctx["pois"]``. ``strict=True`` esplicita l'errore se si rompe.
+
+    ``istat_context_enabled`` (#346): l'``IstatPoi`` del grounding e' calcolato
+    sempre (la cache di zona lo porta), quindi e' qui che l'interruttore spento
+    lo tiene fuori dalla risposta — spento vuol dire spento anche nell'interfaccia.
     """
     out: list[PoiOut] = []
     for poi, vr in zip(retrieval_ctx["pois"], grounded["validated_risks"], strict=True):
@@ -517,6 +539,7 @@ def _build_poi_list(
                     OntologyItem(name=e["name"], source=e["source"])
                     for e in vr["stakeholders"]
                 ],
+                istat=vr.get("istat") if istat_context_enabled else None,
             )
         )
     return out
@@ -740,7 +763,9 @@ async def run_analysis(
     # confronta con quella del contesto che userebbe e rifiuta (409) se
     # divergono, invece di generare prosa su un intorno che a schermo non c'e'.
     contesto_hash = fingerprint(retrieval_ctx["pois"])
-    poi_out = _build_poi_list(retrieval_ctx, grounded)
+    poi_out = _build_poi_list(
+        retrieval_ctx, grounded, istat_context_enabled=istat_context_enabled
+    )
     try:
         gen = await generate_analysis(
             dict(grounded),

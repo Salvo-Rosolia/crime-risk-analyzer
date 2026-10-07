@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from crime_risk_analyzer.config import get_settings
 from crime_risk_analyzer.geocoding import GeoResult
+from crime_risk_analyzer.istat.righe import Collegamento, IstatPoi, RigaIstat
 from crime_risk_analyzer.llm.client import GROQ_MODEL, LLMError, LLMResponse
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.models.risk import PoiRiskProfile
@@ -34,6 +35,7 @@ from crime_risk_analyzer.rag.generation import (
     USER_INPUT_FENCE_OPEN,
     SourceProse,
 )
+from crime_risk_analyzer.rag.grounding import GroundedContext
 from crime_risk_analyzer.rag.no_ontology_generation import (
     LLM_SYNTHESIS_BLOCK_HEADER,
     NO_ONTOLOGY_SYSTEM_PROMPT,
@@ -42,6 +44,7 @@ from crime_risk_analyzer.rag.retrieval import RetrievalContext, RetrievalStats
 from tests.eval._doubles import FakeLLMClient as _FakeLLMClient
 from tests.eval._doubles import FakeProfiler as _FakeProfiler
 from tests.eval._doubles import default_llm_response as _llm_response
+from tests.istat._fattorie import BANKROB, istat_poi
 
 
 def _poi(poi_id: str, name: str, terminus_class: str) -> dict[str, object]:
@@ -231,6 +234,31 @@ def test_build_poi_list_strict_zip_mismatch() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("nel_grounding", "acceso"),
+    [(True, True), (True, False), (False, True)],
+    ids=["nel-grounding-acceso", "nel-grounding-spento", "non-nel-grounding"],
+)
+def test_build_poi_list_espone_istat_solo_se_nel_grounding_e_acceso(
+    nel_grounding: bool, acceso: bool
+) -> None:
+    """#346: l'``IstatPoi`` arriva al contratto solo se il grounding lo porta E
+    l'interruttore e' acceso. Spento vuol dire spento anche nell'interfaccia
+    (la cache di zona porta sempre l'``IstatPoi``: il filtro sta qui); un
+    grounding senza il campo (contesti di test, doppi, POI fuori poligono)
+    resta ``None`` qualunque sia l'interruttore."""
+    dati = istat_poi(BANKROB)
+    vr = _vr("Banca A", "Bank", ["Bank_robbery"], poi_id="1")
+    if nel_grounding:
+        vr["istat"] = dati
+    out = _build_poi_list(
+        {"pois": [_poi("1", "Banca A", "Bank")]},  # type: ignore[arg-type]
+        {"validated_risks": [vr]},  # type: ignore[arg-type]
+        istat_context_enabled=acceso,
+    )
+    assert out[0].istat == (dati if nel_grounding and acceso else None)
+
+
 def test_build_poi_list_espone_gli_assi_con_etichette_e_citazione() -> None:
     """I quattro assi TERMINUS arrivano tutti al contratto (#256/#270).
 
@@ -388,8 +416,6 @@ def test_structured_response_default_narrativa_is_empty_string() -> None:
     """Default invariato: chi non passa ``narrativa`` (``run_baseline``, fallback
     di ``run_analysis``) continua a ricevere ``""``, non ``None`` — nessuna
     regressione."""
-    from crime_risk_analyzer.rag.grounding import GroundedContext
-
     # Nessun await necessario: costruiamo un GroundedContext minimale a mano,
     # annotato esplicitamente (un dict letterale non annotato non passerebbe
     # pyright strict come argomento tipizzato GroundedContext).
@@ -416,8 +442,6 @@ def test_structured_response_messaggio_esplicito_quando_zero_poi() -> None:
     stata geocodificata ma la copertura OSM/TERMINUS non ha trovato punti — senza
     questo, zona sbagliata e zona-senza-copertura sono indistinguibili a schermo
     (in entrambi i casi la mappa non si sposta)."""
-    from crime_risk_analyzer.rag.grounding import GroundedContext
-
     grounded: GroundedContext = {
         "zona": "Colosseo",
         "validated_risks": [],
@@ -442,8 +466,6 @@ def test_structured_response_messaggio_esplicito_con_narrativa_di_soli_spazi() -
     reale — senza lo strip prima del controllo di verita', un tale valore (falsy
     solo se vuoto, ma ``"   "`` e' truthy) sopprimerebbe il messaggio esplicito
     lasciando l'utente senza alcuna spiegazione su una zona vuota."""
-    from crime_risk_analyzer.rag.grounding import GroundedContext
-
     grounded: GroundedContext = {
         "zona": "Colosseo",
         "validated_risks": [],
@@ -1278,6 +1300,37 @@ async def test_run_analysis_espone_i_campi_istat_e_nasconde_il_grezzo() -> None:
     assert "narrativa_grezza" not in corpo and "controllo_istat" not in corpo
 
 
+@pytest.mark.parametrize("acceso", [True, False], ids=["istat-acceso", "istat-spento"])
+async def test_run_analysis_inoltra_l_interruttore_a_build_poi_list(
+    acceso: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#346: ``run_analysis`` (braccio sincrono di valutazione) condivide
+    ``_build_poi_list`` con la fase 1 della rotta — senza l'inoltro dell'interruttore,
+    ``poi[].istat`` non comparirebbe mai in questo percorso."""
+    from crime_risk_analyzer import orchestrator
+    from crime_risk_analyzer.rag.grounding import ground as ground_reale
+
+    dati = istat_poi(BANKROB)
+
+    def _ground_con_istat(ctx: RetrievalContext) -> GroundedContext:
+        grounded = ground_reale(ctx)
+        for vr in grounded["validated_risks"]:
+            vr["istat"] = dati
+        return grounded
+
+    monkeypatch.setattr(orchestrator, "ground", _ground_con_istat)
+    out = await run_analysis(
+        "Roma",
+        "Colosseo",
+        executor=_FakeProfiler(),
+        llm_client=_FakeLLMClient(),
+        poi_source=_poi_source,
+        geo_source=_geo_source,
+        istat_context_enabled=acceso,
+    )
+    assert (out.poi[0].istat is not None) is acceso
+
+
 # --- contratto dell'area: cerchio (center/radius_m) OPPURE citta + zona ---
 
 
@@ -1532,7 +1585,52 @@ def test_poi_out_has_no_numeric_danger_scoring_field() -> None:
         "critical_events",
         "vulnerabilities",
         "stakeholders",
+        # #346: dati ISTAT gia' calcolati nel grounding (tassi/conteggi del comune
+        # o della provincia, mai del POI), non un punteggio derivato dal POI stesso.
+        # Il sottoalbero (IstatPoi/RigaIstat/Collegamento) ha la propria guardia
+        # exact-set in test_istat_subtree_has_no_numeric_danger_scoring_field.
+        "istat",
     }
+
+
+def test_istat_subtree_has_no_numeric_danger_scoring_field() -> None:
+    """Exact-set dei campi di ``IstatPoi``/``RigaIstat``/``Collegamento`` (#346).
+
+    Un campo ``rapporto``/``peso``/punteggio derivato aggiunto a uno di questi
+    modelli finirebbe in OGNI risposta di ``/analyze`` (via ``PoiOut.istat``),
+    contro D9/O6: il peso per l'ordine dei rischi resta calcolato dal FRONTEND
+    dai tassi gia' pubblicati (O10), mai serializzato qui. ``model_computed_fields``
+    vuoti: nessun ``@computed_field`` potrebbe aggirare l'exact-set sui
+    ``model_fields`` dichiarati."""
+    assert set(IstatPoi.model_fields) == {"cornice", "righe"}
+    assert IstatPoi.model_computed_fields == {}
+    assert set(RigaIstat.model_fields) == {
+        "luogo_codice",
+        "luogo_nome",
+        "luogo_breve",
+        "luogo_tipo",
+        "voce",
+        "voce_label",
+        "anno",
+        "anno_confronto",
+        "delitti",
+        "delitti_confronto",
+        "tasso",
+        "tasso_sotto_soglia",
+        "tasso_italia",
+        "tasso_italia_sotto_soglia",
+        "variazione_pct",
+        "motivo_senza_variazione",
+        "rottura_2016",
+        "collegamenti",
+    }
+    assert RigaIstat.model_computed_fields == {}
+    assert set(Collegamento.model_fields) == {
+        "hazard",
+        "hazard_label_it",
+        "corrispondenza",
+    }
+    assert Collegamento.model_computed_fields == {}
 
 
 def test_poi_out_ontology_axes_reject_numeric_value() -> None:

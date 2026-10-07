@@ -3,7 +3,12 @@ import { mockApi } from './support/mocking';
 import { S } from './support/selectors';
 import { drawSearchCircle } from './support/map';
 import analyzeFixture from './fixtures/analyze.happy.json';
-import { buildDetailModel, hazardDisplayLabel, orderGroupsByTag } from '../src/app/core/ui-helpers';
+import {
+  buildDetailModel,
+  hazardDisplayLabel,
+  orderGroupsByTag,
+  orderRisksByIstat,
+} from '../src/app/core/ui-helpers';
 import type { AnalyzeResponse, Poi, RiskModel } from '../src/app/core/models/models';
 
 /**
@@ -15,15 +20,19 @@ import type { AnalyzeResponse, Poi, RiskModel } from '../src/app/core/models/mod
  * slegato dal fixture: i conteggi/testi attesi derivano da `analyze.poi`/`analyze.risk_models`.
  *
  * L'ordine atteso dei fattori di rischio (`detailFactorLabels`) è derivato dalla STESSA logica di
- * rendering del componente (`buildDetailModel` + `orderGroupsByTag`, `core/ui-helpers.ts`), non
- * dall'ordine grezzo di `risk_models[].risks`: il DOM riordina i gruppi per tag fonte
- * (ONTOLOGIA → CONTESTO → SPECULATIVO), quindi l'atteso deve passare dalla stessa trasformazione
- * per restare corretto anche se l'ordine grezzo del fixture cambiasse (fix-review #69).
+ * rendering del componente (`buildDetailModel` + `orderGroupsByTag` + `orderRisksByIstat` dentro
+ * ogni gruppo, `core/ui-helpers.ts`), non dall'ordine grezzo di `risk_models[].risks`: il DOM
+ * riordina prima i gruppi per tag fonte (ONTOLOGIA → CONTESTO → SPECULATIVO) e poi, dentro
+ * ciascuno, i rischi col dato ISTAT del POI (#346) — quindi l'atteso deve passare dalla stessa
+ * trasformazione per restare corretto anche se l'ordine grezzo del fixture cambiasse (fix-review
+ * #69). Il fixture `analyze.happy.json` non porta `istat`, quindi qui `orderRisksByIstat` è un
+ * no-op (nessun rischio ha dato): l'applicazione resta comunque corretta anche quando il fixture
+ * lo guadagnerà.
  */
 function expectedFactorLabels(poi: Poi, riskModels: RiskModel[]): string[] {
   const detailModel = buildDetailModel(poi, riskModels);
   return orderGroupsByTag(detailModel.groups).flatMap((group) =>
-    group.risks.map(hazardDisplayLabel),
+    orderRisksByIstat(group.risks, poi.istat).risks.map(hazardDisplayLabel),
   );
 }
 const analyze = analyzeFixture as AnalyzeResponse;

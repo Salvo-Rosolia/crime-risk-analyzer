@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from crime_risk_analyzer import area_search, zone_context_cache
 from crime_risk_analyzer.analyze_narrative import run_analysis_fast
+from crime_risk_analyzer.config import Settings, get_settings
 from crime_risk_analyzer.context_fingerprint import fingerprint
 from crime_risk_analyzer.geocoding import GeoResult, ZoneNotFoundError
 from crime_risk_analyzer.llm.client import LLMResponse, get_llm_client
@@ -19,6 +20,8 @@ from crime_risk_analyzer.models.risk import PoiRiskProfile
 from crime_risk_analyzer.orchestrator import run_analysis, run_baseline
 from crime_risk_analyzer.overpass_client import OverpassError, Poi
 from crime_risk_analyzer.rag import retrieval
+from crime_risk_analyzer.rag.grounding import GroundedContext
+from crime_risk_analyzer.rag.retrieval import RetrievalContext
 from crime_risk_analyzer.sparql_module.query_executor import get_executor
 
 _BANK = PoiRiskProfile(
@@ -117,10 +120,12 @@ def _patch_io(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(retrieval, "fetch_pois", _fake_fetch)
 
 
-def _client(llm: object = None) -> TestClient:
+def _client(llm: object = None, *, settings: Settings | None = None) -> TestClient:
     app = create_app()
     app.dependency_overrides[get_executor] = lambda: _FakeProfiler()
     app.dependency_overrides[get_llm_client] = lambda: llm or _FakeLLMClient()
+    if settings is not None:
+        app.dependency_overrides[get_settings] = lambda: settings
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -147,6 +152,57 @@ def test_analyze_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     assert body["fallback"] is False
     assert body["narrativa"] is None
     assert [p["confidence"] for p in body["poi"]] == ["verificato", None]
+
+
+@pytest.mark.parametrize("acceso", [True, False], ids=["istat-acceso", "istat-spento"])
+def test_rotta_analyze_passa_l_interruttore(
+    acceso: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#346: senza l'inoltro ``istat_context_enabled=settings.istat_context_enabled``
+    in ``main.py``, ``poi[].istat`` non arriverebbe mai al client in produzione,
+    qualunque sia il valore di ``Settings.istat_context_enabled``."""
+    from crime_risk_analyzer import analyze_narrative
+    from crime_risk_analyzer.rag.grounding import ground as ground_reale
+    from tests.istat._fattorie import BANKROB, istat_poi
+
+    _patch_io(monkeypatch)
+    dati = istat_poi(BANKROB)
+
+    def _ground_con_istat(ctx: RetrievalContext) -> GroundedContext:
+        grounded = ground_reale(ctx)
+        for vr in grounded["validated_risks"]:
+            vr["istat"] = dati
+        return grounded
+
+    monkeypatch.setattr(analyze_narrative, "ground", _ground_con_istat)
+    resp = cast(
+        httpx.Response,
+        _client(settings=Settings(istat_context_enabled=acceso)).post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze",
+            json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0},
+        ),
+    )
+    assert resp.status_code == 200
+    assert (resp.json()["poi"][0]["istat"] is not None) is acceso
+
+
+def test_analyze_response_is_gzip_compressed_when_accepted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#346 (O10): l'``IstatPoi`` ripetuto per ogni POI alza il peso della
+    risposta del 50-55%; la compressione GZip lo compensa. ``TestClient``/httpx
+    decomprime il corpo da solo: qui si controlla solo l'header di trasporto."""
+    _patch_io(monkeypatch)
+    resp = cast(
+        httpx.Response,
+        _client().post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze",
+            json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0},
+            headers={"Accept-Encoding": "gzip"},
+        ),
+    )
+    assert resp.status_code == 200
+    assert resp.headers["content-encoding"] == "gzip"
 
 
 def test_analyze_zone_not_found(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1,6 +1,8 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { DetailPanelComponent, STAKEHOLDER_AXIS_NOTE } from './detail-panel.component';
 import type { Poi, RiskModel } from '@core/models/models';
+import { istatOrderNote } from '@core/ui-helpers';
+import { istatPoi, istatRiga } from '@core/testing/istat-fixtures';
 
 function makePoi(overrides: Partial<Poi> = {}): Poi {
   return {
@@ -492,5 +494,105 @@ describe('DetailPanelComponent', () => {
     expect(
       Array.from(fixture.nativeElement.querySelectorAll('.cra-source-header')).map(aria),
     ).toEqual(['true', 'false', 'false']);
+  });
+
+  const ontoModels: RiskModel[] = [
+    {
+      poi_id: '1',
+      poi: 'Colosseo',
+      risks: ['h-a', 'h-b', 'h-c'].map((hazard) => ({
+        hazard,
+        confidence: 'verificato' as const,
+        tag: 'ONTOLOGIA' as const,
+        hazard_label_it: hazard.toUpperCase(),
+        hazard_label_en: hazard,
+      })),
+    },
+  ];
+
+  function labels(): string[] {
+    return Array.from(
+      fixture.nativeElement.querySelectorAll('.cra-factor-label') as NodeListOf<HTMLElement>,
+    ).map((el) => el.textContent?.trim() ?? '');
+  }
+
+  /** Le due `<ul class="cra-factor-list">` del primo gruppo-fonte (#346, O9: con dato/senza dato). */
+  function factorLists(): HTMLUListElement[] {
+    return Array.from(
+      fixture.nativeElement.querySelectorAll(
+        '.cra-source-group .cra-factor-list',
+      ) as NodeListOf<HTMLUListElement>,
+    );
+  }
+
+  function listLabels(list: HTMLUListElement): string[] {
+    return Array.from(list.querySelectorAll('.cra-factor-label') as NodeListOf<HTMLElement>).map(
+      (el) => el.textContent?.trim() ?? '',
+    );
+  }
+
+  it('#346: ordina i rischi del gruppo col dato ISTAT e mostra la nota con luogo e anno', () => {
+    const dati = istatPoi(
+      istatRiga('LOW', ['h-b'], { tasso: 50 }),
+      istatRiga('HIGH', ['h-c'], { tasso: 300 }),
+    );
+    setup(makePoi({ istat: dati }), ontoModels);
+    expect(labels()).toEqual(['H-C', 'H-B', 'H-A']);
+    const nota = fixture.nativeElement.querySelector('.cra-istat-order-note');
+    expect(nota?.textContent?.trim()).toBe(istatOrderNote(dati));
+  });
+
+  it('#346: senza istat (assente o null) ordine di oggi e nessuna nota, nessuna coda ISTAT', () => {
+    for (const poi of [makePoi(), makePoi({ istat: null })]) {
+      setup(poi, ontoModels);
+      expect(labels()).toEqual(['H-A', 'H-B', 'H-C']);
+      expect(fixture.nativeElement.querySelector('.cra-istat-order-note')).toBeNull();
+      expect(fixture.nativeElement.querySelector('.cra-istat-tail-label')).toBeNull();
+      expect(factorLists().length).toBe(1); // ontoModels: un solo gruppo-fonte (ONTOLOGIA), non misto
+      fixture.nativeElement.remove();
+    }
+  });
+
+  it('#346: nota solo sui gruppi che hanno almeno un rischio con dato', () => {
+    setup(makePoi({ istat: istatPoi(istatRiga('HIGH', ['h-onto'], { tasso: 300 })) }), riskModels);
+    const gruppi = Array.from(
+      fixture.nativeElement.querySelectorAll('.cra-source-group') as NodeListOf<HTMLElement>,
+    );
+    const conNota = gruppi.map((g) => g.querySelector('.cra-istat-order-note') !== null);
+    // riskModels: un rischio per gruppo (ONTOLOGIA, CONTESTO, SPECULATIVO), solo h-onto ha dato.
+    expect(conNota).toEqual([true, false, false]);
+  });
+
+  it('#346 (O9): gruppo misto (dato + senza dato) mostra «Senza dato ISTAT» fra due liste distinte, la coda nell’ordine di arrivo', () => {
+    // Solo h-c ha una voce ISTAT: h-a e h-b restano "senza dato", nell'ordine in cui arrivano
+    // da ontoModels (h-a prima di h-b).
+    setup(makePoi({ istat: istatPoi(istatRiga('HIGH', ['h-c'], { tasso: 300 })) }), ontoModels);
+
+    const lists = factorLists();
+    expect(lists.length).toBe(2);
+    expect(listLabels(lists[0])).toEqual(['H-C']);
+    expect(listLabels(lists[1])).toEqual(['H-A', 'H-B']);
+
+    const tailLabel = fixture.nativeElement.querySelector('.cra-istat-tail-label');
+    expect(tailLabel?.textContent?.trim()).toBe('Senza dato ISTAT');
+    // L'etichetta sta FRA le due liste (struttura accessibile richiesta da O9).
+    expect(tailLabel.previousElementSibling).toBe(lists[0]);
+    expect(tailLabel.nextElementSibling).toBe(lists[1]);
+  });
+
+  it('#346 (O9): gruppo interamente con dato ISTAT → una sola lista, nessuna etichetta "Senza dato ISTAT"', () => {
+    setup(
+      makePoi({
+        istat: istatPoi(
+          istatRiga('A', ['h-a'], { tasso: 50 }),
+          istatRiga('B', ['h-b'], { tasso: 80 }),
+          istatRiga('C', ['h-c'], { tasso: 300 }),
+        ),
+      }),
+      ontoModels,
+    );
+
+    expect(factorLists().length).toBe(1);
+    expect(fixture.nativeElement.querySelector('.cra-istat-tail-label')).toBeNull();
   });
 });

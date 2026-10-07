@@ -28,6 +28,8 @@ from crime_risk_analyzer.rag.generation import (
     DEFAULT_MAX_TOKENS,
     DEFAULT_REQUEST_TOKEN_BUDGET,
 )
+from crime_risk_analyzer.rag.grounding import GroundedContext
+from crime_risk_analyzer.rag.retrieval import RetrievalContext
 from crime_risk_analyzer.sparql_module.query_executor import get_executor
 
 _BANK = PoiRiskProfile(
@@ -110,6 +112,37 @@ async def test_fast_response_has_no_narrativa_yet() -> None:
     assert out.poi[0].id == "node/1"
     assert (out.zona_geo.lat, out.zona_geo.lon) == (41.89, 12.49)
     assert out.messaggio is None
+
+
+@pytest.mark.parametrize("acceso", [True, False], ids=["istat-acceso", "istat-spento"])
+async def test_fast_response_espone_istat_solo_con_interruttore(
+    acceso: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#346: la fase 1 e' quella che popola le schede, quindi e' qui che
+    ``poi[].istat`` deve arrivare — e solo con l'interruttore acceso."""
+    zone_context_cache.clear()
+    from crime_risk_analyzer import analyze_narrative
+    from crime_risk_analyzer.rag.grounding import ground as ground_reale
+    from tests.istat._fattorie import BANKROB, istat_poi
+
+    dati = istat_poi(BANKROB)
+
+    def _ground_con_istat(ctx: RetrievalContext) -> GroundedContext:
+        grounded = ground_reale(ctx)
+        for vr in grounded["validated_risks"]:
+            vr["istat"] = dati
+        return grounded
+
+    monkeypatch.setattr(analyze_narrative, "ground", _ground_con_istat)
+    out = await analyze_narrative.run_analysis_fast(
+        "Roma",
+        "Colosseo",
+        executor=_FakeProfiler(),
+        poi_source=_poi_source,
+        geo_source=_geo_source,
+        istat_context_enabled=acceso,
+    )
+    assert out.poi[0].istat == (dati if acceso else None)
 
 
 async def test_fast_response_zero_poi_has_explicit_message() -> None:
