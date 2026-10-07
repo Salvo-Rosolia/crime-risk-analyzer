@@ -104,3 +104,19 @@ def test_lifespan_parte_senza_dati_istat_con_interruttore_spento(
             pass
     finally:
         svuota_cache()
+
+
+def test_lifespan_precarica_i_dati_istat_con_interruttore_spento(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R9 (review 2): spento, il grounding calcola comunque le righe ISTAT; i dati
+    si caricano all'avvio (senza fallire), non alla prima /analyze sull'event
+    loop."""
+    monkeypatch.setenv("ISTAT_CONTEXT_ENABLED", "false")
+    get_settings.cache_clear()
+    svuota_cache()
+    try:
+        with TestClient(app):
+            assert istat_dati._esito.cache_info().currsize == 1  # pyright: ignore[reportPrivateUsage]
+    finally:
+        svuota_cache()

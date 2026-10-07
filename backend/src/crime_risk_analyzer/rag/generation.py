@@ -673,7 +673,10 @@ DEFAULT_USER_CONTENT_BUDGET_TOKENS = (
 #: POI il blocco non avrebbe piu' spazio e sparirebbe sempre. Con ISTAT acceso si
 #: riserva al blocco la sua stima (al massimo questo tetto) PRIMA di scegliere i
 #: POI; poi il blocco si ricalcola sui POI inclusi e si taglia se serve. Prezzo
-#: dichiarato nel confronto: il braccio con ISTAT puo' ricevere meno POI.
+#: dichiarato nel confronto: il braccio con ISTAT puo' ricevere meno POI. Sulle
+#: zone dense la riserva circa dimezza i POI del prompt di zona (budget 8700: Roma
+#: 9->5, Milano 11->5, Napoli 10->5, Torino 12->6): compromesso di prodotto scelto
+#: consapevolmente il 2026-10-07, a favore dei dati ISTAT.
 ISTAT_RISERVA_MAX_TOKEN = 1200
 
 #: Margine fra la stima del blocco e quella del testo assemblato (riga vuota di
@@ -1095,7 +1098,11 @@ def build_context(
     blocco la sua stima (al massimo :data:`ISTAT_RISERVA_MAX_TOKEN`), sceglie i POI
     nel budget restante, ricalcola il blocco sui soli POI inclusi e lo taglia nel
     budget che avanza. ``testo_senza_istat`` e' lo stesso contesto senza blocco: al
-    controllo delle cifre serve sapere quali numeri il modello aveva fuori dai dati.
+    controllo delle cifre serve sapere quali numeri il modello aveva fuori dai dati
+    (il controllo ignora i numeri della domanda utente, input non fidato).
+
+    Sulle zone dense la riserva circa dimezza i POI inclusi (vedi
+    :data:`ISTAT_RISERVA_MAX_TOKEN`): compromesso di prodotto deciso il 2026-10-07.
     """
     zona = normalize_untrusted_line(str(context_dict.get("zona", "")))
     validated: list[dict[str, Any]] = list(context_dict.get("validated_risks", []))
