@@ -73,4 +73,29 @@ test.describe('narrativa di ZONA in due fasi (#259, #292)', () => {
       contesto_hash: fastAnalyze.contesto_hash,
     });
   });
+
+  test('#345: la narrativa di zona con dati ISTAT mostra la scheda [ISTAT] con la sua prosa', async ({
+    page,
+  }) => {
+    const conIstat: ZoneNarrativeResponse = {
+      ...zoneNarrative,
+      narrativa_fonti: {
+        ...zoneNarrative.narrativa_fonti,
+        istat:
+          'I furti nel Comune di Roma sono 134.169 nel 2024 (fonte ISTAT, Comune di Roma, 2024).',
+      },
+      istat_attivo: true,
+      istat_versione_dati: '2026-10-06',
+      istat_frasi_scartate: 0,
+    };
+    await mockApi(page, { analyze: fastAnalyze, zoneNarrative: conIstat });
+    await page.goto('/');
+    await drawSearchCircle(page);
+    await S.submitButton(page).click();
+
+    const scheda = S.narrativeTabs(page).filter({ hasText: 'ISTAT' });
+    await expect(scheda).toHaveCount(1);
+    await scheda.click();
+    await expect(S.narrativeTabPanels(page).filter({ hasText: 'fonte ISTAT' })).toBeVisible();
+  });
 });

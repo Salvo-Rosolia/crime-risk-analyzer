@@ -26,7 +26,7 @@ import math
 import re
 import time
 from collections.abc import Callable, Iterable
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, NamedTuple, Protocol
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -35,8 +35,24 @@ from crime_risk_analyzer.i18n.terminus_labels import (
     label_en,
     label_it,
 )
+from crime_risk_analyzer.istat.blocco import (
+    BloccoIstat,
+    blocco_istat_zona,
+    ha_righe_istat,
+)
+from crime_risk_analyzer.istat.cifre import (
+    EsitoControllo,
+    SpanBlocco,
+    applica_controllo,
+)
+from crime_risk_analyzer.istat.dati import versione_dati
 from crime_risk_analyzer.llm.client import LLMResponse
 from crime_risk_analyzer.models.vocab import Confidence, ConfidenceSummary, Tag
+from crime_risk_analyzer.rag.istat_rules import (
+    RULE_ISTAT_BLOCCO,
+    RULE_ISTAT_DIVIETI,
+    sostituisci_una_volta,
+)
 
 #: Divieto di valutazione di pericolosita' (vincolo legale non negoziabile,
 #: _project.md §Vincoli). Copre sia le scale NUMERICHE (percentuali/voti) sia
@@ -110,8 +126,13 @@ _SPECULATIVE_TOKEN = "[SPECULATIVO]"
 ONTOLOGY_BLOCK_HEADER = f"Rischi da ontologia {ONTOLOGY_TOKEN}"
 CONTEXT_BLOCK_HEADER = f"Rischi dal contesto {_CONTEXT_TOKEN}"
 
+#: Token e riga-etichetta del terzo blocco (#345): dati statistici ISTAT. Il modello
+#: li scrive solo quando il contesto porta il blocco DATI ISTAT.
+ISTAT_TOKEN = "[ISTAT]"
+ISTAT_BLOCK_HEADER = f"Dati statistici ISTAT {ISTAT_TOKEN}"
 
-def block_structure_rule(measured_header: str) -> str:
+
+def block_structure_rule(measured_header: str, *, with_istat: bool = False) -> str:
     """Regola 3 (struttura a blocchi) data la riga-etichetta del blocco MISURATO.
 
     Generatore invece di una costante perche' i prompt del sistema condividono la
@@ -120,7 +141,19 @@ def block_structure_rule(measured_header: str) -> str:
     a essa direbbe il falso. Cosi' l'unica differenza ammessa tra le due versioni
     della regola e' l'etichetta, e un test lo verifica byte per byte; il blocco
     ``[CONTESTO]`` e' identico in entrambe (stessa fonte, stessa regola 3b).
+
+    ``with_istat`` (#345) porta i blocchi a TRE aggiungendo
+    :data:`ISTAT_BLOCK_HEADER`; spento, il testo e' quello di sempre.
     """
+    if with_istat:
+        return (
+            "3. Struttura la risposta cosi': un breve paragrafo di sintesi iniziale "
+            "(senza intestazione), poi fino a TRE blocchi per fonte, ciascuno aperto "
+            f'da una riga-etichetta dedicata ed ESATTA: "{measured_header}", '
+            f'"{CONTEXT_BLOCK_HEADER}", "{ISTAT_BLOCK_HEADER}". Ometti un blocco se '
+            "non hai nulla da dire per quella fonte. Separa i blocchi con una riga "
+            "vuota."
+        )
     return (
         "3. Struttura la risposta cosi': un breve paragrafo di sintesi iniziale "
         "(senza intestazione), poi fino a DUE blocchi per fonte, ciascuno aperto "
@@ -249,6 +282,24 @@ REGOLE OBBLIGATORIE:
 
 {_CONFIDENCE_LEVELS}"""
 
+#: Variante del system prompt con i dati ISTAT (#345): usata SOLO quando lo
+#: user_content porta il blocco DATI ISTAT. Costruita per sostituzione verificata
+#: su :data:`SYSTEM_PROMPT`, che resta byte per byte quello di prima: regola 3 a TRE
+#: blocchi, regola 3c dopo la 3b, regola 7-bis dopo la 7.
+SYSTEM_PROMPT_ISTAT = sostituisci_una_volta(
+    sostituisci_una_volta(
+        sostituisci_una_volta(
+            SYSTEM_PROMPT,
+            _RULE_BLOCK_STRUCTURE,
+            block_structure_rule(ONTOLOGY_BLOCK_HEADER, with_istat=True),
+        ),
+        f"{_RULE_CONTEXT_INTERPRETATION}\n",
+        f"{_RULE_CONTEXT_INTERPRETATION}\n{RULE_ISTAT_BLOCCO}\n",
+    ),
+    f"{RULE_NO_DANGER_RATING}\n",
+    f"{RULE_NO_DANGER_RATING}\n{RULE_ISTAT_DIVIETI}\n",
+)
+
 
 def _source_tokens(measured_token: str) -> tuple[tuple[str, str], ...]:
     """Coppie ``(campo di SourceProse, token delimitatore)`` per il parser.
@@ -258,11 +309,15 @@ def _source_tokens(measured_token: str) -> tuple[tuple[str, str], ...]:
     braccio ablato (#236). Finisce nel campo ``ontologia`` in entrambi i casi: il
     campo nomina lo SLOT della risposta, non la provenienza del testo, che e'
     dichiarata dall'etichetta e dal ``mode`` della run.
+
+    ``istat`` (#345) esiste solo nelle narrative scritte col prompt ISTAT; nelle
+    altre il token non compare e il parsing e' quello di prima.
     """
     return (
         ("ontologia", measured_token),
         ("contesto", _CONTEXT_TOKEN),
         ("speculativo", _SPECULATIVE_TOKEN),
+        ("istat", ISTAT_TOKEN),
     )
 
 
@@ -324,6 +379,41 @@ class SourceProse(BaseModel):
     ontologia: str = ""
     contesto: str = ""
     speculativo: str = ""
+    #: Prosa del blocco ``[ISTAT]`` (#345): solo con i dati ISTAT nel prompt.
+    istat: str = ""
+
+
+def source_block_spans(
+    narrativa: str, *, measured_token: str = ONTOLOGY_TOKEN
+) -> list[SpanBlocco]:
+    """Blocchi per fonte della narrativa, in ordine di posizione (#345).
+
+    Stessa individuazione delle righe-etichetta di sempre
+    (:func:`_block_header_index`): estratta da :func:`parse_source_prose` perche'
+    il controllo delle cifre deve sapere in quale blocco sta ogni frase, e due
+    letture diverse dello stesso testo sarebbero due verita'. Ogni blocco va dalla
+    fine della sua riga-etichetta all'inizio della riga-etichetta successiva.
+    """
+    text = narrativa or ""
+    found: list[tuple[str, int, int]] = []
+    for field, token in _source_tokens(measured_token):
+        idx = _block_header_index(text, token)
+        if idx == -1:
+            continue
+        line_start = text.rfind("\n", 0, idx) + 1
+        nl = text.find("\n", idx)
+        content_start = len(text) if nl == -1 else nl + 1
+        found.append((field, line_start, content_start))
+    found.sort(key=lambda t: t[1])
+    return [
+        SpanBlocco(
+            campo=field,
+            inizio_riga=line_start,
+            inizio=content_start,
+            fine=found[i + 1][1] if i + 1 < len(found) else len(text),
+        )
+        for i, (field, line_start, content_start) in enumerate(found)
+    ]
 
 
 def parse_source_prose(
@@ -346,24 +436,16 @@ def parse_source_prose(
     ablazione non ha consultato alcuna ontologia e etichetta quel blocco per cio'
     che e', quindi chi lo misura deve cercare l'etichetta del suo braccio. Il
     default e' il braccio storico, cosi' i chiamanti di prodotto non cambiano.
+
+    Da #345 riconosce anche il blocco ``[ISTAT]`` (campo ``istat``).
     """
     text = narrativa or ""
-    found: list[tuple[str, int, int]] = []
-    for field, token in _source_tokens(measured_token):
-        idx = _block_header_index(text, token)
-        if idx == -1:
-            continue
-        line_start = text.rfind("\n", 0, idx) + 1
-        nl = text.find("\n", idx)
-        content_start = len(text) if nl == -1 else nl + 1
-        found.append((field, line_start, content_start))
-    if not found:
+    spans = source_block_spans(text, measured_token=measured_token)
+    if not spans:
         return SourceProse(overview=text.strip())
-    found.sort(key=lambda t: t[1])
-    values: dict[str, str] = {"overview": text[: found[0][1]].strip()}
-    for i, (field, _line_start, content_start) in enumerate(found):
-        end = found[i + 1][1] if i + 1 < len(found) else len(text)
-        values[field] = text[content_start:end].strip()
+    values: dict[str, str] = {"overview": text[: spans[0].inizio_riga].strip()}
+    for span in spans:
+        values[span.campo] = text[span.inizio : span.fine].strip()
     return SourceProse(**values)
 
 
@@ -474,6 +556,28 @@ class GenerationResult(BaseModel):
         description="True se la richiesta ha letto dal prompt cache."
     )
     repro: Repro = Field(description="Parametri per la riproducibilita' del run.")
+    narrativa_grezza: str | None = Field(
+        default=None,
+        description=(
+            "Testo del modello prima del controllo delle cifre (#345), per audit e "
+            "valutazione. None nei percorsi che non lo valorizzano: coincide con "
+            "``narrativa``."
+        ),
+    )
+    istat_attivo: bool = Field(
+        default=False, description="True se il prompt conteneva il blocco DATI ISTAT."
+    )
+    istat_versione_dati: str | None = Field(
+        default=None, description="Data di estrazione dei dati ISTAT usati (#345)."
+    )
+    istat_frasi_scartate: int = Field(
+        default=0, ge=0, description="Frasi tolte dal controllo delle cifre (#345)."
+    )
+    controllo_istat: EsitoControllo | None = Field(
+        default=None,
+        exclude=True,
+        description="Esito del controllo delle cifre: solo in memoria, per l'harness.",
+    )
 
 
 def normalize_untrusted_line(text: str) -> str:
@@ -514,11 +618,11 @@ def _normalize_user_question(domanda: str | None) -> str:
 #: Budget di DEFAULT (stima) di token dell'INTERA richiesta LLM (#210): copre
 #: system prompt + user_content + i ``max_tokens`` riservati all'output, NON solo
 #: lo user_content. DEVE combaciare con ``Settings.llm_request_token_budget``
-#: (config.py, default 10000): la config non puo' importare questo modulo (ciclo
+#: (config.py, default 8700): la config non puo' importare questo modulo (ciclo
 #: config <- llm.client <- generation), quindi il valore e' duplicato e tenuto in
 #: sync a mano. E' solo il fallback per le chiamate dirette/di test: a runtime il
 #: valore reale arriva da Settings via l'orchestrator (DI, nessuno stato globale).
-DEFAULT_REQUEST_TOKEN_BUDGET = 10000
+DEFAULT_REQUEST_TOKEN_BUDGET = 8700
 
 #: ``max_tokens`` di DEFAULT riservati all'output dentro il budget totale (#210).
 #: DEVE combaciare con ``Settings.llm_max_tokens`` (config.py) e
@@ -563,6 +667,30 @@ def _estimate_tokens(text: str) -> int:
 DEFAULT_USER_CONTENT_BUDGET_TOKENS = (
     DEFAULT_REQUEST_TOKEN_BUDGET - _estimate_tokens(SYSTEM_PROMPT) - DEFAULT_MAX_TOKENS
 )
+
+#: Tetto della RISERVA di budget per il blocco DATI ISTAT (#345, D14). Sulle zone di
+#: valutazione lo user_content e' gia' troncato a ISTAT spento: scegliendo prima i
+#: POI il blocco non avrebbe piu' spazio e sparirebbe sempre. Con ISTAT acceso si
+#: riserva al blocco la sua stima (al massimo questo tetto) PRIMA di scegliere i
+#: POI; poi il blocco si ricalcola sui POI inclusi e si taglia se serve. Prezzo
+#: dichiarato nel confronto: il braccio con ISTAT puo' ricevere meno POI. Sulle
+#: zone dense la riserva circa dimezza i POI del prompt di zona (budget 8700: Roma
+#: 9->5, Milano 11->5, Napoli 10->5, Torino 12->6): compromesso di prodotto scelto
+#: consapevolmente il 2026-10-07, a favore dei dati ISTAT.
+ISTAT_RISERVA_MAX_TOKEN = 1200
+
+#: Margine fra la stima del blocco e quella del testo assemblato (riga vuota di
+#: separazione e arrotondamenti di ``ceil``).
+_MARGINE_BLOCCO_TOKEN = 2
+
+
+class ContestoCostruito(NamedTuple):
+    """User_content assemblato e cio' che serve al controllo delle cifre (#345)."""
+
+    testo: str
+    testo_senza_istat: str
+    blocco_istat: BloccoIstat
+    poi_inclusi: int
 
 
 def _relevance_sort_key(poi: dict[str, Any]) -> tuple[int, int]:
@@ -838,6 +966,7 @@ def _assemble_context(
     domanda_norm: str,
     note: str | None,
     context_format: ContextFormat = DEFAULT_CONTEXT_FORMAT,
+    blocco_istat: str = "",
 ) -> str:
     """Serializza lo ``user_content`` per un dato insieme di POI.
 
@@ -872,6 +1001,9 @@ def _assemble_context(
         )
         lines.append("  " + "; ".join(vocab))
         lines.append("")
+    if blocco_istat:
+        lines.extend(blocco_istat.split("\n"))
+        lines.append("")
     if note:
         lines.append(note)
         lines.append("")
@@ -899,6 +1031,126 @@ def _assemble_context(
         lines.append(USER_INPUT_FENCE_CLOSE)
 
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _seleziona_poi(
+    zona: str,
+    validated: list[dict[str, Any]],
+    *,
+    domanda_norm: str,
+    budget: int,
+    context_format: ContextFormat,
+) -> tuple[list[dict[str, Any]], str | None]:
+    """POI che entrano nel prompt e nota di troncamento (#210, invariato).
+
+    Estratta da ``build_context_str`` (#345) perche' :func:`build_context` deve
+    poter scegliere i POI PRIMA di sapere quanto testo occupera' il blocco DATI
+    ISTAT sui soli POI inclusi: la logica di selezione resta quella di sempre,
+    parametrizzata sul ``budget`` che il chiamante decide (intero o ridotto della
+    riserva ISTAT).
+    """
+    m_total = len(validated)
+    full = _assemble_context(
+        zona,
+        validated,
+        domanda_norm=domanda_norm,
+        note=None,
+        context_format=context_format,
+    )
+    if m_total <= 1 or _estimate_tokens(full) <= budget:
+        return validated, None
+
+    # Troncamento: qui il set completo (senza nota) supera gia' il budget, quindi
+    # una nota ci sara' di sicuro (N < M sempre) e va CONTATA nella stima greedy.
+    ordered = sorted(validated, key=_relevance_sort_key)
+    selected: list[dict[str, Any]] = []
+    for poi in ordered:
+        candidate = [*selected, poi]
+        text = _assemble_context(
+            zona,
+            candidate,
+            domanda_norm=domanda_norm,
+            note=_truncation_note(len(candidate), m_total),
+            context_format=context_format,
+        )
+        if _estimate_tokens(text) <= budget:
+            selected = candidate
+        else:
+            break
+    # Config degenere (persino il solo POI piu' rilevante sfora il budget): meglio
+    # un contesto minimo di UN POI che uno vuoto (la nota resta veritiera).
+    if not selected:
+        selected = ordered[:1]
+    return selected, _truncation_note(len(selected), m_total)
+
+
+def build_context(
+    context_dict: dict[str, Any],
+    *,
+    domanda: str | None = None,
+    context_budget_tokens: int = DEFAULT_USER_CONTENT_BUDGET_TOKENS,
+    context_format: ContextFormat = DEFAULT_CONTEXT_FORMAT,
+    istat: bool = False,
+) -> ContestoCostruito:
+    """Assembla lo user_content; con ``istat`` aggiunge il blocco DATI ISTAT (#345).
+
+    ISTAT spento: identico a prima (stessi POI, stesso testo). Acceso: riserva al
+    blocco la sua stima (al massimo :data:`ISTAT_RISERVA_MAX_TOKEN`), sceglie i POI
+    nel budget restante, ricalcola il blocco sui soli POI inclusi e lo taglia nel
+    budget che avanza. ``testo_senza_istat`` e' lo stesso contesto senza blocco: al
+    controllo delle cifre serve sapere quali numeri il modello aveva fuori dai dati
+    (il controllo ignora i numeri della domanda utente, input non fidato).
+
+    Sulle zone dense la riserva circa dimezza i POI inclusi (vedi
+    :data:`ISTAT_RISERVA_MAX_TOKEN`): compromesso di prodotto deciso il 2026-10-07.
+    """
+    zona = normalize_untrusted_line(str(context_dict.get("zona", "")))
+    validated: list[dict[str, Any]] = list(context_dict.get("validated_risks", []))
+    domanda_norm = _normalize_user_question(domanda)
+    riserva = 0
+    if istat:
+        pieno = blocco_istat_zona(
+            validated, stima_token=_estimate_tokens, limite_token=None
+        )
+        if pieno.testo:
+            riserva = min(
+                _estimate_tokens(pieno.testo) + _MARGINE_BLOCCO_TOKEN,
+                ISTAT_RISERVA_MAX_TOKEN,
+            )
+    selected, note = _seleziona_poi(
+        zona,
+        validated,
+        domanda_norm=domanda_norm,
+        budget=context_budget_tokens - riserva,
+        context_format=context_format,
+    )
+    senza = _assemble_context(
+        zona,
+        selected,
+        domanda_norm=domanda_norm,
+        note=note,
+        context_format=context_format,
+    )
+    if not istat:
+        return ContestoCostruito(senza, senza, BloccoIstat(), len(selected))
+    blocco = blocco_istat_zona(
+        selected,
+        stima_token=_estimate_tokens,
+        limite_token=context_budget_tokens
+        - _estimate_tokens(senza)
+        - _MARGINE_BLOCCO_TOKEN,
+    )
+    if not blocco.testo:
+        return ContestoCostruito(senza, senza, blocco, len(selected))
+    testo = _assemble_context(
+        zona,
+        selected,
+        domanda_norm=domanda_norm,
+        note=note,
+        context_format=context_format,
+        blocco_istat=blocco.testo,
+    )
+    return ContestoCostruito(testo, senza, blocco, len(selected))
 
 
 def build_context_str(
@@ -945,54 +1197,17 @@ def build_context_str(
     troncamento sotto: ricalcolarla ad ogni iterazione sarebbe lavoro
     ripetuto che scala col numero di POI per nessun beneficio (l'input e' lo
     stesso).
+
+    Da #345 delega a :func:`build_context`, che aggiunge il blocco DATI ISTAT
+    quando ``istat=True``; qui ``istat`` e' sempre spento, quindi il testo resta
+    identico a prima.
     """
-    zona = normalize_untrusted_line(str(context_dict.get("zona", "")))
-    validated: list[dict[str, Any]] = list(context_dict.get("validated_risks", []))
-    domanda_norm = _normalize_user_question(domanda)
-    m_total = len(validated)
-
-    # Caso comune (contesto nel budget): include tutti i POI, nessuna nota ->
-    # comportamento invariato. Con <=1 POI non c'e' nulla da troncare.
-    full = _assemble_context(
-        zona,
-        validated,
-        domanda_norm=domanda_norm,
-        note=None,
+    return build_context(
+        context_dict,
+        domanda=domanda,
+        context_budget_tokens=context_budget_tokens,
         context_format=context_format,
-    )
-    if m_total <= 1 or _estimate_tokens(full) <= context_budget_tokens:
-        return full
-
-    # Troncamento: qui il set completo (senza nota) supera gia' il budget, quindi
-    # una nota ci sara' di sicuro (N < M sempre) e va CONTATA nella stima greedy.
-    ordered = sorted(validated, key=_relevance_sort_key)
-    selected: list[dict[str, Any]] = []
-    for poi in ordered:
-        candidate = [*selected, poi]
-        text = _assemble_context(
-            zona,
-            candidate,
-            domanda_norm=domanda_norm,
-            note=_truncation_note(len(candidate), m_total),
-            context_format=context_format,
-        )
-        if _estimate_tokens(text) <= context_budget_tokens:
-            selected = candidate
-        else:
-            break
-
-    # Config degenere (persino il solo POI piu' rilevante sfora il budget): meglio
-    # un contesto minimo di UN POI che uno vuoto (la nota resta veritiera).
-    if not selected:
-        selected = ordered[:1]
-
-    return _assemble_context(
-        zona,
-        selected,
-        domanda_norm=domanda_norm,
-        note=_truncation_note(len(selected), m_total),
-        context_format=context_format,
-    )
+    ).testo
 
 
 def _risk_models_from_context(context_dict: dict[str, Any]) -> list[RiskModel]:
@@ -1041,6 +1256,70 @@ def _prompt_hash_with_domanda(system_prompt_hash: str, domanda_norm: str) -> str
     return hashlib.sha256(combined).hexdigest()
 
 
+class RichiestaZona(NamedTuple):
+    """System prompt e contesto costruito della richiesta di zona (#345)."""
+
+    system_prompt: str
+    contesto: ContestoCostruito
+
+
+def prepara_richiesta_zona(
+    context_dict: dict[str, Any],
+    *,
+    domanda: str | None = None,
+    request_token_budget: int = DEFAULT_REQUEST_TOKEN_BUDGET,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+    context_format: ContextFormat = DEFAULT_CONTEXT_FORMAT,
+    istat: bool = False,
+) -> RichiestaZona:
+    """Prepara la richiesta di zona senza chiamare il modello (#345, F9).
+
+    UNICA costruzione della richiesta, usata da :func:`generate_analysis` e dallo
+    script di misura del budget (``scripts/istat_budget.py``): due copie della
+    stessa logica misurerebbero una richiesta diversa da quella inviata.
+
+    Il prompt effettivo e' lo stesso per budget e chiamata. Con ISTAT acceso ma
+    nessuna riga nella zona tutto resta come a interruttore spento. Fix round 1
+    (spec 4.10): le righe ISTAT possono esserci nel context ma non sopravvivere
+    alla selezione dei POI (troncate, o senza budget residuo per il blocco): in
+    quel caso il TENTATIVO va scartato per intero, non solo il blocco. Rifare la
+    selezione col budget di :data:`SYSTEM_PROMPT_ISTAT` e poi scoprire che il
+    blocco e' vuoto lascerebbe comunque MENO POI nel prompt di quanti ne avrebbe
+    scelti un run a interruttore spento.
+    """
+    istat_richiesto = istat and ha_righe_istat(context_dict.get("validated_risks", []))
+    user_allowance_senza = (
+        request_token_budget - _estimate_tokens(SYSTEM_PROMPT) - max_tokens
+    )
+    contesto: ContestoCostruito | None = None
+    if istat_richiesto:
+        user_allowance_con = (
+            request_token_budget - _estimate_tokens(SYSTEM_PROMPT_ISTAT) - max_tokens
+        )
+        contesto = build_context(
+            context_dict,
+            domanda=domanda,
+            context_budget_tokens=user_allowance_con,
+            context_format=context_format,
+            istat=True,
+        )
+    if contesto is None or not contesto.blocco_istat.testo:
+        # Spento, nessuna riga, o tentativo non materializzato: la selezione si fa
+        # da capo con l'allowance e l'interruttore di un run spento, cosi' il
+        # risultato e' byte-identico a ``istat=False``.
+        contesto = build_context(
+            context_dict,
+            domanda=domanda,
+            context_budget_tokens=user_allowance_senza,
+            context_format=context_format,
+            istat=False,
+        )
+    system_prompt = (
+        SYSTEM_PROMPT_ISTAT if contesto.blocco_istat.testo else SYSTEM_PROMPT
+    )
+    return RichiestaZona(system_prompt=system_prompt, contesto=contesto)
+
+
 async def generate_analysis(
     context_dict: dict[str, Any],
     llm_client: _LLMClientLike,
@@ -1049,6 +1328,7 @@ async def generate_analysis(
     request_token_budget: int = DEFAULT_REQUEST_TOKEN_BUDGET,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     context_format: ContextFormat = DEFAULT_CONTEXT_FORMAT,
+    istat: bool = False,
 ) -> GenerationResult:
     """Genera l'analisi del rischio dal context validato.
 
@@ -1072,18 +1352,44 @@ async def generate_analysis(
     complete). Cosi' l'intera richiesta, non solo lo user_content, resta sotto il
     TPM del provider. I valori reali arrivano da Settings via l'orchestrator; i
     default sono i fallback conservativi.
+
+    ``istat`` (#345): con righe ISTAT nella zona usa :data:`SYSTEM_PROMPT_ISTAT`
+    sia per il budget sia per la chiamata, aggiunge il blocco DATI ISTAT e passa
+    la risposta al controllo delle cifre (:func:`~crime_risk_analyzer.istat.cifre.
+    applica_controllo`); ``narrativa`` e' il testo filtrato, ``narrativa_grezza``
+    quello del modello. Senza righe, o spento, il comportamento e' quello di prima.
+
+    Fix round 1 (spec 4.10): le righe ISTAT possono esserci nel context ma non
+    sopravvivere alla selezione dei POI (troncate, o senza budget residuo per il
+    blocco): in quel caso il TENTATIVO va scartato per intero, non solo il
+    blocco. Rifare la selezione col budget di :data:`SYSTEM_PROMPT_ISTAT` e poi
+    scoprire che il blocco e' vuoto lascerebbe comunque MENO POI nel prompt di
+    quanti ne avrebbe scelti un run a interruttore spento (quel budget e' piu'
+    piccolo, e in piu' riserva spazio per un blocco che non si materializza mai):
+    ``istat_attivo=False`` da solo non basta a rendere il risultato uguale. La
+    costruzione sta in :func:`prepara_richiesta_zona`, condivisa con lo script di
+    misura del budget.
     """
-    user_allowance = request_token_budget - _estimate_tokens(SYSTEM_PROMPT) - max_tokens
-    user_content = build_context_str(
+    system_prompt, contesto = prepara_richiesta_zona(
         context_dict,
         domanda=domanda,
-        context_budget_tokens=user_allowance,
+        request_token_budget=request_token_budget,
+        max_tokens=max_tokens,
         context_format=context_format,
+        istat=istat,
     )
+    istat_attivo = bool(contesto.blocco_istat.testo)
 
     start = time.perf_counter()
-    response = await llm_client.generate(SYSTEM_PROMPT, user_content)
+    response = await llm_client.generate(system_prompt, contesto.testo)
     latenza_ms = int((time.perf_counter() - start) * 1000)
+
+    narrativa, controllo = applica_controllo(
+        response.text,
+        blocco=contesto.blocco_istat,
+        spans=source_block_spans(response.text),
+        contesto=contesto.testo_senza_istat,
+    )
 
     confidence_summary = ConfidenceSummary.model_validate(
         context_dict.get("confidence_summary", {})
@@ -1095,7 +1401,7 @@ async def generate_analysis(
         prompt_hash = _prompt_hash_with_domanda(response.prompt_hash, domanda_norm)
 
     return GenerationResult(
-        narrativa=response.text,
+        narrativa=narrativa,
         risk_models=_risk_models_from_context(context_dict),
         confidence_summary=confidence_summary,
         llm_used=response.llm_used,
@@ -1108,4 +1414,9 @@ async def generate_analysis(
             seed=response.seed,
             prompt_hash=prompt_hash,
         ),
+        narrativa_grezza=response.text,
+        istat_attivo=istat_attivo,
+        istat_versione_dati=versione_dati() if istat_attivo else None,
+        istat_frasi_scartate=controllo.frasi_scartate if controllo else 0,
+        controllo_istat=controllo,
     )

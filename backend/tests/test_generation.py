@@ -567,8 +567,9 @@ async def test_generate_analysis_dense_context_trims_within_user_allowance() -> 
     # contesto denso (50 POI x 9 hazard, verificato): lo user_content COMPLETO
     # sfora, quindi il trim deve tenerlo entro l'allowance calcolata al netto di
     # system prompt + output riservato (non piu' entro il solo budget grezzo).
-    # #229: usa i DEFAULT reali (budget 10000, max_tokens 1536) invece di valori
-    # hardcoded, cosi' il test resta rappresentativo del comportamento a runtime.
+    # #229: usa i DEFAULT reali (budget DEFAULT_REQUEST_TOKEN_BUDGET, oggi 8700;
+    # max_tokens DEFAULT_MAX_TOKENS, 1536) invece di valori hardcoded, cosi' il
+    # test resta rappresentativo del comportamento a runtime.
     ctx = _many_pois_context([_poi_entry(i, 9) for i in range(50)])
     client = _FakeLLMClient(_llm_response())
     request_budget = DEFAULT_REQUEST_TOKEN_BUDGET

@@ -71,3 +71,19 @@ def test_ablation_zones_anchored_to_c1_roster() -> None:
     for zona in zones:
         assert zona in roster_pairs, f"{zona} non è nel roster di validazione C1"
     assert zones == roster_pairs[:4]
+
+
+def test_braccio_istat_differisce_solo_per_istat() -> None:
+    """#345: confronto ontologia vs ontologia + ISTAT sulle stesse 4 zone e modello."""
+    istat = load_config(EXPERIMENTS_DIR / "istat-analyze-groq.json")
+    base = load_config(EXPERIMENTS_DIR / "ablation-analyze-groq.json")
+    assert (istat.name, istat.mode, istat.model, istat.istat) == (
+        "istat-analyze-groq",
+        "analyze",
+        "groq",
+        True,
+    )
+    assert base.istat is False
+    assert istat.model_dump(exclude={"name", "istat"}) == base.model_dump(
+        exclude={"name", "istat"}
+    )

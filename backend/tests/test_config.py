@@ -1,5 +1,7 @@
 """Test del modulo di configurazione centralizzata."""
 
+from pathlib import Path
+
 import pytest
 from pydantic import SecretStr, ValidationError
 
@@ -91,16 +93,15 @@ def test_valid_llm_timeout_and_max_tokens_from_env(
 
 
 def test_llm_request_token_budget_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Senza env il tetto totale di token della richiesta LLM ha il default (#210).
+    """8700 tiene la richiesta reale sotto il TPM 8.000 di gpt-oss-120b su Groq.
 
-    10000 sta sotto il TPM del provider (Groq free = 12000) e lascia ~2000 di
-    margine per l'errore di stima: la richiesta densa reale non sfora piu' il TPM.
+    #345, D14.
     """
     monkeypatch.delenv("LLM_REQUEST_TOKEN_BUDGET", raising=False)
 
     settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
 
-    assert settings.llm_request_token_budget == 10000
+    assert settings.llm_request_token_budget == 8700
 
 
 def test_llm_request_token_budget_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -347,3 +348,39 @@ def test_search_radius_min_ge_max_rejected() -> None:
             search_radius_min_m=3000.0,
             search_radius_max_m=150.0,
         )
+
+
+def test_istat_context_enabled_default_acceso(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ISTAT_CONTEXT_ENABLED", raising=False)
+    assert Settings(_env_file=None).istat_context_enabled is True  # pyright: ignore[reportCallIssue]
+
+
+def test_istat_context_enabled_da_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ISTAT_CONTEXT_ENABLED", "false")
+    assert Settings(_env_file=None).istat_context_enabled is False  # pyright: ignore[reportCallIssue]
+
+
+def _valori_env_example() -> dict[str, str]:
+    """Coppie ``CHIAVE=valore`` attive (non commentate) di ``backend/.env.example``."""
+    testo = (Path(__file__).resolve().parents[1] / ".env.example").read_text(
+        encoding="utf-8"
+    )
+    valori: dict[str, str] = {}
+    for riga in testo.splitlines():
+        riga = riga.strip()
+        if riga and not riga.startswith("#") and "=" in riga:
+            chiave, valore = riga.split("=", 1)
+            valori[chiave.strip()] = valore.strip()
+    return valori
+
+
+def test_env_example_allineato_ai_default_di_budget_e_istat() -> None:
+    """R3 (review 2): il template non deve suggerire un budget oltre il TPM del
+    modello in uso ne' dimenticare l'interruttore ISTAT."""
+    valori = _valori_env_example()
+    default = Settings.model_fields
+    assert int(valori["LLM_REQUEST_TOKEN_BUDGET"]) == (
+        default["llm_request_token_budget"].default
+    )
+    assert valori["ISTAT_CONTEXT_ENABLED"] == "true"
+    assert default["istat_context_enabled"].default is True

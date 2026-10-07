@@ -26,6 +26,8 @@ from crime_risk_analyzer.config import get_settings
 from crime_risk_analyzer.context_fingerprint import fingerprint
 from crime_risk_analyzer.geocoding import GeoResult
 from crime_risk_analyzer.i18n.terminus_labels import label_en, label_it
+from crime_risk_analyzer.istat.campi_risposta import CampiIstatRisposta
+from crime_risk_analyzer.istat.cifre import EsitoControllo
 from crime_risk_analyzer.llm.client import LLMError, LLMResponse
 from crime_risk_analyzer.models.geo import haversine_m
 from crime_risk_analyzer.models.risk import PoiRiskProfile
@@ -380,8 +382,13 @@ def _messaggio_zero_poi(n_poi: int, narrativa: str | None) -> str | None:
     return _MESSAGGIO_ZERO_POI
 
 
-class AnalyzeResponse(BaseModel):
-    """Schema canonico di ``/analyze`` (backend/orchestrator.md)."""
+class AnalyzeResponse(CampiIstatRisposta):
+    """Schema canonico di ``/analyze`` (backend/orchestrator.md).
+
+    ``istat_attivo``/``istat_versione_dati``/``istat_frasi_scartate`` arrivano da
+    :class:`~crime_risk_analyzer.istat.campi_risposta.CampiIstatRisposta`, la base
+    condivisa con ``ZoneNarrativeResponse``/``PoiNarrativeResponse`` (#345).
+    """
 
     citta: str
     zona_normalizzata: str
@@ -445,6 +452,16 @@ class AnalyzeResponse(BaseModel):
             "invece di lasciar intendere una zona indicata male. None quando "
             "``poi`` non e' vuoto o quando ``narrativa`` ha gia' del testo."
         ),
+    )
+    narrativa_grezza: str | None = Field(
+        default=None,
+        exclude=True,
+        description="Testo del modello prima del controllo (#345): solo per l'harness.",
+    )
+    controllo_istat: EsitoControllo | None = Field(
+        default=None,
+        exclude=True,
+        description="Esito del controllo delle cifre (#345): solo per l'harness.",
     )
 
 
@@ -631,6 +648,14 @@ def _generated_response(
         contesto_hash=contesto_hash,
         zona_geo=_zona_geo(geo),
         messaggio=_messaggio_zero_poi(len(poi_out), gen.narrativa),
+        istat_attivo=gen.istat_attivo,
+        istat_versione_dati=gen.istat_versione_dati,
+        istat_frasi_scartate=gen.istat_frasi_scartate,
+        # Il braccio senza ontologia non valorizza il grezzo: coincide col testo.
+        narrativa_grezza=(
+            gen.narrativa_grezza if gen.narrativa_grezza is not None else gen.narrativa
+        ),
+        controllo_istat=gen.controllo_istat,
     )
 
 
@@ -658,6 +683,7 @@ async def run_analysis(
     request_token_budget: int = DEFAULT_REQUEST_TOKEN_BUDGET,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     context_format: ContextFormat = DEFAULT_CONTEXT_FORMAT,
+    istat_context_enabled: bool = False,
 ) -> AnalyzeResponse:
     """Esegue la pipeline completa e assembla la response canonica.
 
@@ -692,6 +718,9 @@ async def run_analysis(
     ``geo_source`` (opzionale, #169) e' propagato a :func:`retrieve` per il replay
     del geo nell'harness di eval; ``None`` = geocoding live (prodotto invariato).
 
+    ``istat_context_enabled`` (#345): l'harness lo prende da
+    ``ExperimentConfig.istat``; default spento come il confronto della tesi (D6).
+
     NESSUN effetto collaterale su :mod:`~crime_risk_analyzer.zone_context_cache`
     (#292). Depositava il contesto per ``/analyze/poi`` (#197) quando era la
     funzione della rotta; ora la cache la scalda la fase 1
@@ -720,6 +749,7 @@ async def run_analysis(
             request_token_budget=request_token_budget,
             max_tokens=max_tokens,
             context_format=context_format,
+            istat=istat_context_enabled,
         )
     except LLMError as exc:
         logger.warning(

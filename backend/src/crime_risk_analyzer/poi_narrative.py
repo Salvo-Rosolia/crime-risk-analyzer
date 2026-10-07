@@ -27,6 +27,7 @@ from crime_risk_analyzer import zone_context_cache
 from crime_risk_analyzer.context_fingerprint import ContestoHash, fingerprint
 from crime_risk_analyzer.geocoding import ZoneNotFoundError
 from crime_risk_analyzer.i18n.terminus_labels import label_it
+from crime_risk_analyzer.istat.campi_risposta import CampiIstatRisposta
 from crime_risk_analyzer.llm.client import LLMError
 from crime_risk_analyzer.orchestrator import (
     GeoSource,
@@ -88,8 +89,13 @@ class PoiNarrativeRequest(BaseModel):
     contesto_hash: ContestoHash
 
 
-class PoiNarrativeResponse(BaseModel):
-    """Narrativa del singolo POI: prosa, fonti, rischi citabili, provenienza."""
+class PoiNarrativeResponse(CampiIstatRisposta):
+    """Narrativa del singolo POI: prosa, fonti, rischi citabili, provenienza.
+
+    I tre campi ``istat_*`` arrivano da
+    :class:`~crime_risk_analyzer.istat.campi_risposta.CampiIstatRisposta`, la
+    base condivisa con ``AnalyzeResponse``/``ZoneNarrativeResponse`` (#345).
+    """
 
     poi_id: str
     narrativa: str
@@ -138,6 +144,7 @@ async def run_poi_narrative(
     llm_client: _LLMClientLike,
     poi_source: PoiSource | None = None,
     geo_source: GeoSource | None = None,
+    istat_context_enabled: bool = False,
 ) -> PoiNarrativeResponse:
     """Genera la narrativa del POI ``poi_id`` nella zona indicata.
 
@@ -239,6 +246,7 @@ async def run_poi_narrative(
             neighbours=neighbours,
             zone_summary=zone_summary,
             llm_client=llm_client,
+            istat=vr.get("istat") if istat_context_enabled else None,
         )
     except LLMError as exc:
         logger.warning(
@@ -271,4 +279,7 @@ async def run_poi_narrative(
         latenza_ms=generated.latenza_ms,
         repro=generated.repro,
         fallback=False,
+        istat_attivo=generated.istat_attivo,
+        istat_versione_dati=generated.istat_versione_dati,
+        istat_frasi_scartate=generated.istat_frasi_scartate,
     )

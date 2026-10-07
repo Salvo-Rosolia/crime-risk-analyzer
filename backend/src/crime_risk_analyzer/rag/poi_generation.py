@@ -31,6 +31,10 @@ import time
 from pydantic import BaseModel, Field
 
 from crime_risk_analyzer.i18n.terminus_labels import controlled_vocab_for, label_it
+from crime_risk_analyzer.istat.blocco import blocco_istat_poi
+from crime_risk_analyzer.istat.cifre import applica_controllo
+from crime_risk_analyzer.istat.dati import versione_dati
+from crime_risk_analyzer.istat.righe import IstatPoi
 from crime_risk_analyzer.rag.generation import (
     RULE_NO_DANGER_RATING,
     RULE_NO_OPERATIONAL_DIRECTIVES,
@@ -40,12 +44,19 @@ from crime_risk_analyzer.rag.generation import (
     _LLMClientLike,  # pyright: ignore[reportPrivateUsage]
     normalize_untrusted_line,
     parse_source_prose,
+    source_block_spans,
 )
 from crime_risk_analyzer.rag.grounding import GroundedRisk
+from crime_risk_analyzer.rag.istat_rules import (
+    POI_ISTAT_SECTION,
+    RULE_ISTAT_DIVIETI,
+    sostituisci_una_volta,
+)
 from crime_risk_analyzer.rag.poi_context import NeighbourPoi
 
 __all__ = [
     "POI_SYSTEM_PROMPT",
+    "POI_SYSTEM_PROMPT_ISTAT",
     "PoiGenerationResult",
     "build_poi_context_str",
     "generate_poi_narrative",
@@ -90,6 +101,23 @@ Descrivi la funzione urbana del punto e del suo intorno, non la loro sicurezza.
 Non aggiungere altri blocchi oltre a questi due.
 """
 
+#: Variante con i dati ISTAT (#345): la frase strutturale passa da DUE a TRE
+#: blocchi, la 7-bis segue la 7 e la sezione [ISTAT] precede la chiusura.
+#: Sostituzioni verificate su :data:`POI_SYSTEM_PROMPT`, che non cambia.
+POI_SYSTEM_PROMPT_ISTAT = sostituisci_una_volta(
+    sostituisci_una_volta(
+        sostituisci_una_volta(
+            POI_SYSTEM_PROMPT,
+            f"{RULE_NO_DANGER_RATING}\n\n",
+            f"{RULE_NO_DANGER_RATING}\n\n{RULE_ISTAT_DIVIETI}\n\n",
+        ),
+        "Struttura la risposta in DUE blocchi",
+        "Struttura la risposta in TRE blocchi",
+    ),
+    "Non aggiungere altri blocchi oltre a questi due.",
+    f"[ISTAT]\n{POI_ISTAT_SECTION}\n\nNon aggiungere altri blocchi oltre a questi tre.",
+)
+
 
 def build_poi_context_str(
     *,
@@ -102,6 +130,7 @@ def build_poi_context_str(
     sparql_path: str | None,
     neighbours: list[NeighbourPoi],
     zone_summary: str,
+    istat: IstatPoi | None = None,
 ) -> str:
     """Serializza il contesto del POI per il prompt.
 
@@ -162,6 +191,14 @@ def build_poi_context_str(
             + "; ".join(f"{v} / {label_it(v)}" for v in vulnerabilities)
         )
     lines.append("")
+
+    # Dati ISTAT del luogo del punto (#345): cornice e voci dei suoi rischi, dopo i
+    # dati ontologici e prima del vicinato. Assenti, il testo e' quello di prima.
+    blocco = blocco_istat_poi(istat)
+    if blocco.testo:
+        lines.extend(blocco.testo.split("\n"))
+        lines.append("")
+
     lines.append("VICINATO (punti piu' prossimi, in ordine di distanza):")
     if neighbours:
         lines.extend(
@@ -186,6 +223,10 @@ class PoiGenerationResult(BaseModel):
     tokens_output: int = Field(ge=0)
     latenza_ms: int = Field(ge=0)
     repro: Repro
+    narrativa_grezza: str | None = None
+    istat_attivo: bool = False
+    istat_versione_dati: str | None = None
+    istat_frasi_scartate: int = Field(default=0, ge=0)
 
 
 async def generate_poi_narrative(
@@ -200,6 +241,7 @@ async def generate_poi_narrative(
     neighbours: list[NeighbourPoi],
     zone_summary: str,
     llm_client: _LLMClientLike,
+    istat: IstatPoi | None = None,
 ) -> PoiGenerationResult:
     """Genera la narrativa del POI: prompt POI + contesto -> client LLM.
 
@@ -207,24 +249,42 @@ async def generate_poi_narrative(
     grandezza piu' piccolo di quello di zona (un punto e cinque vicini contro
     fino a venti POI con tutti i loro rischi), quindi non c'e' nulla da
     troncare. ``max_tokens`` resta quello del client iniettato.
+
+    ``istat`` (#345): righe ISTAT del punto; presenti, il prompt e'
+    :data:`POI_SYSTEM_PROMPT_ISTAT` e la prosa passa dal controllo delle
+    cifre. Nessun budget nemmeno con ISTAT: cornice e poche voci di un solo
+    luogo.
     """
-    user_content = build_poi_context_str(
-        citta=citta,
-        zona=zona,
-        poi_name=poi_name,
-        poi_label_it=poi_label_it,
-        risks=risks,
-        vulnerabilities=vulnerabilities,
-        sparql_path=sparql_path,
-        neighbours=neighbours,
-        zone_summary=zone_summary,
-    )
+
+    def _contesto(dati_istat: IstatPoi | None) -> str:
+        return build_poi_context_str(
+            citta=citta,
+            zona=zona,
+            poi_name=poi_name,
+            poi_label_it=poi_label_it,
+            risks=risks,
+            vulnerabilities=vulnerabilities,
+            sparql_path=sparql_path,
+            neighbours=neighbours,
+            zone_summary=zone_summary,
+            istat=dati_istat,
+        )
+
+    blocco = blocco_istat_poi(istat)
+    istat_attivo = bool(blocco.testo)
+    system_prompt = POI_SYSTEM_PROMPT_ISTAT if istat_attivo else POI_SYSTEM_PROMPT
     start = time.perf_counter()
-    response = await llm_client.generate(POI_SYSTEM_PROMPT, user_content)
+    response = await llm_client.generate(system_prompt, _contesto(istat))
     latenza_ms = int((time.perf_counter() - start) * 1000)
+    narrativa, controllo = applica_controllo(
+        response.text,
+        blocco=blocco,
+        spans=source_block_spans(response.text),
+        contesto=_contesto(None),
+    )
     return PoiGenerationResult(
-        narrativa=response.text,
-        narrativa_fonti=parse_source_prose(response.text),
+        narrativa=narrativa,
+        narrativa_fonti=parse_source_prose(narrativa),
         llm_used=response.llm_used,
         tokens_input=response.tokens_input,
         tokens_output=response.tokens_output,
@@ -234,4 +294,8 @@ async def generate_poi_narrative(
             seed=response.seed,
             prompt_hash=response.prompt_hash,
         ),
+        narrativa_grezza=response.text,
+        istat_attivo=istat_attivo,
+        istat_versione_dati=versione_dati() if istat_attivo else None,
+        istat_frasi_scartate=controllo.frasi_scartate if controllo else 0,
     )

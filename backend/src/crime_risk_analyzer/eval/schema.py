@@ -97,6 +97,41 @@ class Provenance(BaseModel):
             "quella corrente."
         ),
     )
+    # #345: con o senza dati ISTAT richiesti. Default False: i record scritti
+    # prima restano validi e dicono il vero (allora ISTAT non esisteva).
+    istat: bool = Field(
+        default=False,
+        description=(
+            "ISTAT richiesto dalla configurazione (#345). Se i dati sono "
+            "arrivati davvero nel prompt lo dice istat_versione_dati (None = "
+            "nessuna riga ISTAT nel prompt)."
+        ),
+    )
+    istat_versione_dati: str | None = Field(
+        default=None,
+        description=(
+            "Data di estrazione dei dati ISTAT finiti nel prompt (#345); None se "
+            "il prompt non li portava."
+        ),
+    )
+    # #345 (F8 della review finale): il budget decide quanti POI entrano nel
+    # prompt, quindi due bracci con budget diversi non isolano nessuna
+    # variabile. ``None`` sui record vecchi (dato non registrato): non equivale
+    # a nessun valore, e il confronto lo tratta come diverso da ogni budget.
+    request_token_budget: int | None = Field(
+        default=None,
+        description=(
+            "Budget di token dell'intera richiesta LLM usato dalla run (#345); "
+            "None sui record vecchi e nel braccio baseline (nessuna chiamata LLM)."
+        ),
+    )
+    llm_max_tokens: int | None = Field(
+        default=None,
+        description=(
+            "Token riservati all'output nel budget della richiesta (#345); None "
+            "sui record vecchi e nel braccio baseline."
+        ),
+    )
 
 
 class Metrics(BaseModel):
@@ -118,6 +153,52 @@ class Metrics(BaseModel):
     )
     latency_ms: int = Field(ge=0, description="Latenza end-to-end della pipeline.")
     cost_usd: float = Field(ge=0.0, description="Costo stimato in USD.")
+
+
+class IstatMetrics(BaseModel):
+    """Metriche dei dati ISTAT nella narrativa (#345, spec 4.9).
+
+    Oggetto SEPARATO da :class:`Metrics`: aggregate e verdetto non le vedono, e
+    sulla coppia ontologia vs ontologia + ISTAT non c'e' vincitore (D12). Calcolate
+    sul testo GREZZO del modello, prima del filtro. Conteggi, cosi' che sommarli fra
+    ripetizioni resti corretto; la sola precisione e' un rapporto.
+    """
+
+    cifre_totali: int = Field(
+        ge=0, description="Numeri nella narrativa fuori dalla lista fissa."
+    )
+    cifre_istat_corrette: int = Field(
+        ge=0,
+        description="Cifre ISTAT nel blocco giusto, della voce giusta, col segno giusto.",  # noqa: E501
+    )
+    precisione_cifre: float | None = Field(
+        default=None, ge=0.0, le=1.0, description="corrette / totali; None senza cifre."
+    )
+    frasi_scartabili: int = Field(ge=0, description="Frasi che il filtro toglie.")
+    voci_fornite: int = Field(
+        ge=0, description="Voci ISTAT nel prompt (cornice esclusa)."
+    )
+    voci_citate: int = Field(ge=0, description="Voci con almeno una cifra corretta.")
+    frasi_istat: int = Field(
+        ge=0, description="Frasi del blocco [ISTAT] con cifre ISTAT."
+    )
+    frasi_istat_con_luogo: int = Field(
+        ge=0, description="Di queste, quante nominano il luogo."
+    )
+    direzioni_totali: int = Field(
+        ge=0, description="Frasi con parole di direzione su una voce."
+    )
+    direzioni_coerenti: int = Field(ge=0, description="Di queste, coerenti col segno.")
+    corrispondenze_non_dichiarate: int = Field(
+        ge=0,
+        description=(
+            "Frasi [ISTAT] su voci piu' ampie/strette del rischio senza dirlo "
+            "(euristica sul testo)."
+        ),
+    )
+    numeri_in_lettere: int = Field(
+        ge=0, description="Numeri scritti in lettere (non tolti)."
+    )
 
 
 class RunCase(BaseModel):
@@ -149,6 +230,9 @@ class ExperimentConfig(BaseModel):
         default=DEFAULT_CONTEXT_FORMAT,
         description="Formato del blocco POI dello user_content (#273).",
     )
+    # #345: braccio ontologia + ISTAT (spec 4.9). Spento di default: il confronto
+    # della tesi ontologia vs senza ontologia gira senza ISTAT (D6).
+    istat: bool = Field(default=False, description="Dati ISTAT nel prompt (#345).")
 
     @model_validator(mode="after")
     def _reject_grouping_without_ontology(self) -> ExperimentConfig:
@@ -168,6 +252,17 @@ class ExperimentConfig(BaseModel):
             )
         return self
 
+    @model_validator(mode="after")
+    def _reject_istat_without_full_arm(self) -> ExperimentConfig:
+        """ISTAT solo nel braccio completo: senza LLM non c'e' prompt, senza
+        ontologia non ci sono hazard a cui collegare le voci."""
+        if self.istat and self.mode != "analyze":
+            raise ValueError(
+                f"mode={self.mode!r} non ammette istat=True: i dati ISTAT si "
+                "collegano agli hazard dell'ontologia nel prompt del braccio completo"
+            )
+        return self
+
 
 class RunRecord(BaseModel):
     """Record completo di una run (sorgente di verità, un JSON per run)."""
@@ -180,7 +275,15 @@ class RunRecord(BaseModel):
     model_id: str
     status: RunStatus
     metrics: Metrics
-    narrativa: str = Field(description="Narrativa grezza, per audit.")
+    narrativa: str = Field(
+        description=(
+            "Narrativa mostrata all'operatore (filtrata dal controllo delle "
+            "cifre con ISTAT, #345). eval/gold.py (collect_kept_risks) e "
+            "eval/compare.py (has_narrativa / vacuity) leggono QUESTO campo, "
+            "non narrativa_grezza: coincide con il grezzo nel braccio analyze a "
+            "ISTAT spento."
+        )
+    )
     n_poi: int = Field(ge=0)
     risk_models: list[RiskModel] = Field(
         default_factory=list[RiskModel],
@@ -194,5 +297,16 @@ class RunRecord(BaseModel):
             "risposta strutturata da cui copiare); popolata anche su FALLBACK, "
             "perche' il set grounded e' costruito prima della chiamata LLM."
         ),
+    )
+    narrativa_grezza: str | None = Field(
+        default=None,
+        description="Testo del modello prima del controllo delle cifre (#345); None sui record vecchi.",  # noqa: E501
+    )
+    istat_frasi_scartate: int = Field(
+        default=0, ge=0, description="Frasi tolte (#345)."
+    )
+    istat_metrics: IstatMetrics | None = Field(
+        default=None,
+        description="Metriche ISTAT (#345); None senza dati ISTAT nel prompt.",
     )
     provenance: Provenance

@@ -12,6 +12,7 @@ import logging
 import re
 from pathlib import Path
 
+from crime_risk_analyzer.eval.istat_metrics import compute_istat_metrics
 from crime_risk_analyzer.eval.metrics import compute_metrics
 from crime_risk_analyzer.eval.schema import (
     ExperimentConfig,
@@ -36,9 +37,28 @@ from crime_risk_analyzer.orchestrator import (
     run_baseline,
     run_no_ontology_prompt,
 )
+from crime_risk_analyzer.rag.generation import (
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_REQUEST_TOKEN_BUDGET,
+)
 from crime_risk_analyzer.rag.retrieval import RiskProfiler
 
 logger = logging.getLogger(__name__)
+
+
+def _budget_della_run(config: ExperimentConfig) -> tuple[int | None, int | None]:
+    """``(budget della richiesta, max_tokens)`` con cui il braccio costruisce il prompt.
+
+    Sono i valori che l'harness passa a :func:`run_analysis` (#345, F8 della review
+    finale): finiscono nella provenienza perche' il budget decide quanti POI
+    entrano nel prompt, e due bracci con budget diversi non isolano una sola
+    variabile. Il braccio senza ontologia gira con la stessa configurazione (il suo
+    prompt non tronca, ma la run e' configurata cosi'); la baseline non chiama
+    l'LLM e non ha budget.
+    """
+    if config.mode == "baseline":
+        return None, None
+    return DEFAULT_REQUEST_TOKEN_BUDGET, DEFAULT_MAX_TOKENS
 
 
 def _slug(text: str) -> str:
@@ -149,7 +169,16 @@ def _record_from_response(
         # Il ``mode`` decide su quale blocco i proxy testuali si pronunciano
         # (#236): il braccio ablato etichetta il suo blocco per cio' che e', e
         # misurarlo sull'etichetta dell'altro lo darebbe per non attribuito.
-        metrics=compute_metrics(resp, mode=config.mode),
+        # ``narrativa_m1`` (#345): sui record con ISTAT, M1 grada il testo grezzo
+        # SENZA le frasi con cifre ISTAT (il filtro altrimenti cambierebbe anche
+        # le asserzioni misurate, non solo cio' che l'operatore vede).
+        metrics=compute_metrics(
+            resp,
+            mode=config.mode,
+            narrativa_m1=resp.controllo_istat.testo_senza_cifre_istat
+            if resp.controllo_istat
+            else None,
+        ),
         # ``resp.narrativa`` e' ``str | None`` da #259 (fase 1: narrativa non
         # ancora generata); l'harness gira solo su ``run_analysis``/``run_baseline``,
         # che oggi producono sempre una stringa (mai None) — la coercizione e'
@@ -157,6 +186,15 @@ def _record_from_response(
         narrativa=resp.narrativa or "",
         n_poi=len(resp.poi),
         risk_models=resp.risk_models,
+        # #345: grezzo/metriche ISTAT solo per l'harness (``AnalyzeResponse`` li
+        # esclude dalla response HTTP, ``exclude=True``).
+        narrativa_grezza=resp.narrativa_grezza,
+        istat_frasi_scartate=resp.istat_frasi_scartate,
+        istat_metrics=(
+            compute_istat_metrics(resp.controllo_istat)
+            if resp.controllo_istat
+            else None
+        ),
         provenance=Provenance(
             code_commit=code_commit,
             ontology_hash=ontology_hash,
@@ -169,6 +207,10 @@ def _record_from_response(
             context_format=config.context_format,
             snapshot_catturato_il=snapshot_catturato_il,
             snapshot_configurazione_canonica=snapshot_configurazione_canonica,
+            istat=config.istat,
+            istat_versione_dati=resp.istat_versione_dati,
+            request_token_budget=_budget_della_run(config)[0],
+            llm_max_tokens=_budget_della_run(config)[1],
         ),
     )
 
@@ -217,6 +259,9 @@ def _error_record(
             context_format=config.context_format,
             snapshot_catturato_il=snapshot_catturato_il,
             snapshot_configurazione_canonica=snapshot_configurazione_canonica,
+            istat=config.istat,
+            request_token_budget=_budget_della_run(config)[0],
+            llm_max_tokens=_budget_della_run(config)[1],
         ),
     )
 
@@ -345,6 +390,9 @@ async def run_case(
                 poi_source=source,
                 geo_source=geo_source,
                 context_format=config.context_format,
+                istat_context_enabled=config.istat,
+                request_token_budget=DEFAULT_REQUEST_TOKEN_BUDGET,
+                max_tokens=DEFAULT_MAX_TOKENS,
             )
     except Exception:  # noqa: BLE001 — un caso rotto non blocca l'esperimento
         return _error_record(

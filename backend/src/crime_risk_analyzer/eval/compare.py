@@ -31,7 +31,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from crime_risk_analyzer.eval.aggregate import load_runs
-from crime_risk_analyzer.eval.schema import Metrics, RunRecord, RunStatus
+from crime_risk_analyzer.eval.schema import IstatMetrics, Metrics, RunRecord, RunStatus
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +116,15 @@ class VacuousZone(BaseModel):
     arms: list[str]
 
 
+class IstatZoneMetrics(BaseModel):
+    """Metriche ISTAT (#345) dei due bracci su una zona, affiancate: nessun delta."""
+
+    citta: str
+    zona: str
+    a: IstatMetrics | None
+    b: IstatMetrics | None
+
+
 class QualityVerdict(BaseModel):
     """Risponde da sola: "il verdetto di qualità è applicabile?" (#238).
 
@@ -170,6 +179,9 @@ class Comparison(BaseModel):
     #: Derivato da ``vacuous_arms``/``vacuous_zones`` qui sopra, sempre in fase
     #: di costruzione (#238): vedi :class:`QualityVerdict`.
     quality_verdict: QualityVerdict
+    #: Metriche ISTAT per zona (#345), solo se almeno un braccio le ha. Affiancate
+    #: e mai mediate in un verdetto (D12).
+    istat_metrics: list[IstatZoneMetrics] = []
 
 
 @dataclass(frozen=True)
@@ -313,6 +325,23 @@ VACUOUS_DELTA_CLAIM = (
 #: ``compare_records`` (lo snapshot POI), non questa coppia.
 _ONTOLOGY_ISOLATING_MODES = frozenset({"analyze", "no_ontology_prompt"})
 
+#: Titolo della dichiarazione per la coppia ontologia vs ontologia + ISTAT (#345).
+ISTAT_ISOLATED_VARIABLE_HEAD = "> **Variabile isolata: ISTAT.**"
+
+#: Su questa coppia nessun vincitore automatico (D12).
+ISTAT_NO_WINNER_REASON = (
+    "confronto ontologia vs ontologia + ISTAT: nessun vincitore automatico (D12); "
+    "grounding/hallucination servono solo a verificare che ISTAT non peggiori "
+    "l'ancoraggio e le metriche ISTAT sono affiancate"
+)
+
+#: Effetto collaterale dichiarato: il blocco ISTAT occupa budget (#345, D14).
+ISTAT_BUDGET_SIDE_EFFECT = (
+    "Il blocco DATI ISTAT occupa parte del budget di token del prompt: su una zona "
+    "densa il braccio con ISTAT puo' ricevere meno POI di quello senza, e anche "
+    "questo e' un effetto della variabile, non un difetto del confronto."
+)
+
 #: Impostazioni che i due bracci devono CONDIVIDERE perché la coppia di modi
 #: isoli davvero il solo contributo ontologico del prompt: coppie ``(nome
 #: leggibile, accesso al record)``. Il ``mode`` dice cosa cambia nel prompt, non
@@ -330,6 +359,22 @@ _SHARED_SETTINGS: tuple[tuple[str, Callable[[RunRecord], object]], ...] = (
     ("temperatura", lambda rec: rec.provenance.temperature),
     ("formato del contesto", lambda rec: rec.provenance.context_format),
     ("seed di campionamento", lambda rec: rec.provenance.seed),
+    # #345: il budget decide quanti POI entrano nel prompt (F8 della review
+    # finale): un record vecchio (budget non registrato) contro uno nuovo non
+    # condivide l'impostazione, anche se modello e seed coincidono.
+    (
+        "budget di token della richiesta",
+        lambda rec: rec.provenance.request_token_budget,
+    ),
+    ("max_tokens della risposta", lambda rec: rec.provenance.llm_max_tokens),
+    # #345: il confronto della tesi gira a ISTAT spento (D6); se un braccio lo
+    # avesse acceso cambierebbe anche il prompt, e va detto.
+    ("dati ISTAT nel prompt", lambda rec: rec.provenance.istat),
+)
+
+#: Impostazioni condivise della coppia ISTAT: tutte tranne ISTAT, che e' la variabile.
+_SETTINGS_SENZA_ISTAT = tuple(
+    s for s in _SHARED_SETTINGS if s[0] != "dati ISTAT nel prompt"
 )
 
 
@@ -361,9 +406,14 @@ def _configured_records(records: list[RunRecord]) -> list[RunRecord]:
 
 
 def _setting_mismatch(
-    arm_a: list[RunRecord], arm_b: list[RunRecord], *, label_a: str, label_b: str
+    arm_a: list[RunRecord],
+    arm_b: list[RunRecord],
+    *,
+    label_a: str,
+    label_b: str,
+    settings: tuple[tuple[str, Callable[[RunRecord], object]], ...] = _SHARED_SETTINGS,
 ) -> str:
-    """Prima impostazione di :data:`_SHARED_SETTINGS` che i bracci NON condividono.
+    """Prima impostazione di ``settings`` che i bracci NON condividono.
 
     Ritorna una descrizione con i valori osservati per braccio, o ``""`` se
     l'impostazione è la stessa da entrambi i lati. Un braccio con valori MISTI
@@ -372,8 +422,12 @@ def _setting_mismatch(
     braccio i cui record sono TUTTI falliti (nessun valore osservabile): non c'è
     un'impostazione da dichiarare condivisa — ``compare_records`` solleva prima,
     su quel caso, perché non resterebbe alcuna zona da confrontare.
+
+    ``settings`` default a :data:`_SHARED_SETTINGS` (coppia ontologia vs senza
+    ontologia); la coppia ISTAT (#345) passa :data:`_SETTINGS_SENZA_ISTAT`, perché
+    lì ISTAT è la variabile e non un'impostazione da condividere.
     """
-    for name, get in _SHARED_SETTINGS:
+    for name, get in settings:
         seen_a = _observed(_configured_records(arm_a), get)
         seen_b = _observed(_configured_records(arm_b), get)
         if seen_a != seen_b or len(seen_a) != 1:
@@ -470,6 +524,50 @@ def isolated_variable_note(
     return f"{what_changes} {claim} {PROMPT_LENGTH_SIDE_EFFECT}"
 
 
+def _istat_di(records: list[RunRecord]) -> set[bool]:
+    return {rec.provenance.istat for rec in records}
+
+
+def is_istat_isolating_pair(arm_a: list[RunRecord], arm_b: list[RunRecord]) -> bool:
+    """True per la coppia ontologia vs ontologia + ISTAT (#345): due bracci
+    ``analyze``, ciascuno con un solo valore di ``istat``, diversi fra loro."""
+    if _single_mode(arm_a) != "analyze" or _single_mode(arm_b) != "analyze":
+        return False
+    a, b = _istat_di(arm_a), _istat_di(arm_b)
+    return len(a) == 1 and len(b) == 1 and a != b
+
+
+def istat_isolated_variable_note(
+    arm_a: list[RunRecord], arm_b: list[RunRecord], *, label_a: str, label_b: str
+) -> str:
+    """Dichiarazione della variabile per la coppia ISTAT (#345); ``""`` altrove."""
+    if not is_istat_isolating_pair(arm_a, arm_b):
+        return ""
+    con, senza = (label_a, label_b) if True in _istat_di(arm_a) else (label_b, label_a)
+    mismatch = _setting_mismatch(
+        arm_a, arm_b, label_a=label_a, label_b=label_b, settings=_SETTINGS_SENZA_ISTAT
+    )
+    if mismatch:
+        return (
+            f"{CONFOUNDED_VARIABLE_HEAD} Tra i due bracci cambia il blocco DATI ISTAT "
+            f"nel prompt (`{con}` lo riceve, `{senza}` no), ma non condividono la "
+            f"stessa impostazione: {mismatch}. Cambia quindi piu' di una variabile: "
+            "per isolare l'effetto dei dati ISTAT, rilanciare i due bracci con la "
+            f"stessa impostazione. {ISTAT_BUDGET_SIDE_EFFECT}"
+        )
+    return (
+        f"{ISTAT_ISOLATED_VARIABLE_HEAD} I due bracci condividono modello, "
+        "temperatura, formato del contesto, seed di campionamento, budget di token "
+        "della richiesta, snapshot POI e dati strutturati della risposta. "
+        "L'unica differenza e' il blocco DATI "
+        "ISTAT nel prompt, con le regole che lo accompagnano e il controllo delle "
+        f"cifre: `{con}` lo riceve, `{senza}` no. Nessun vincitore automatico (D12): "
+        "`grounding`/`hallucination` servono solo a verificare che ISTAT non "
+        "peggiori l'ancoraggio, le metriche ISTAT sono affiancate. "
+        f"{ISTAT_BUDGET_SIDE_EFFECT}"
+    )
+
+
 def _quote_arms(labels: list[str]) -> tuple[str, str]:
     """(label citate, verbo concordato) per i messaggi di vacuità."""
     quoted = " e ".join(f"`{label}`" for label in dict.fromkeys(labels))
@@ -512,7 +610,10 @@ def has_vacuous_quality_axes(
 
 
 def _quality_verdict(
-    vacuous_arms: list[str], vacuous_zones: list[VacuousZone]
+    vacuous_arms: list[str],
+    vacuous_zones: list[VacuousZone],
+    *,
+    istat_pair: bool = False,
 ) -> QualityVerdict:
     """Costruisce il :class:`QualityVerdict` di un confronto (#238).
 
@@ -521,8 +622,20 @@ def _quality_verdict(
     futuro lo eredita da ``to_json``/``model_dump`` senza ricostruirlo a mano
     (la duplicazione che questa funzione elimina — vedi il modulo
     ``repeated_comparison``, che prima aveva la sua propria copia).
+
+    ``istat_pair`` (#345): sulla coppia ontologia vs ontologia + ISTAT nessun
+    vincitore e' automatico (D12), anche quando nessuna zona e' vacua — e' una
+    seconda ragione per trattenere il verdetto, controllata solo se la vacuita'
+    non lo ha gia' trattenuto.
     """
     withheld = has_vacuous_quality_axes(vacuous_arms, vacuous_zones)
+    if not withheld and istat_pair:
+        return QualityVerdict(
+            applicable=False,
+            vacuous_arms=list(vacuous_arms),
+            vacuous_zones=list(vacuous_zones),
+            reason=ISTAT_NO_WINNER_REASON,
+        )
     return QualityVerdict(
         applicable=not withheld,
         vacuous_arms=list(vacuous_arms),
@@ -704,6 +817,7 @@ def compare_records(
     zones: list[ZoneComparison] = []
     failed: list[FailedZone] = []
     vacuous_zones: list[VacuousZone] = []
+    istat_zone: list[IstatZoneMetrics] = []
     for key in sorted(keys_a):
         rec_a = index_a[key]
         rec_b = index_b[key]
@@ -756,6 +870,15 @@ def compare_records(
                 delta=_delta(rec_a.metrics, rec_b.metrics),
             )
         )
+        if rec_a.istat_metrics is not None or rec_b.istat_metrics is not None:
+            istat_zone.append(
+                IstatZoneMetrics(
+                    citta=rec_a.citta,
+                    zona=rec_a.zona,
+                    a=rec_a.istat_metrics,
+                    b=rec_b.istat_metrics,
+                )
+            )
     if not zones:
         raise NoUsableOutputError(label_a, label_b, failed)
     vacuous = [
@@ -773,17 +896,26 @@ def compare_records(
         failed=failed,
         vacuous_arms=vacuous,
         vacuous_zones=vacuous_zones,
-        isolated_variable=isolated_variable_note(
-            arm_a,
-            arm_b,
-            label_a=label_a,
-            label_b=label_b,
-            # La nota è calcolata QUI, non nei renderer, perché la vacuità è nota
-            # solo dopo il join: così il campo (che finisce anche nel JSON) e
-            # l'avviso del Markdown non possono raccontare due storie diverse.
-            quality_axes_vacuous=has_vacuous_quality_axes(vacuous, vacuous_zones),
+        isolated_variable=(
+            isolated_variable_note(
+                arm_a,
+                arm_b,
+                label_a=label_a,
+                label_b=label_b,
+                # La nota è calcolata QUI, non nei renderer, perché la vacuità è
+                # nota solo dopo il join: così il campo (che finisce anche nel
+                # JSON) e l'avviso del Markdown non possono raccontare due storie
+                # diverse.
+                quality_axes_vacuous=has_vacuous_quality_axes(vacuous, vacuous_zones),
+            )
+            or istat_isolated_variable_note(
+                arm_a, arm_b, label_a=label_a, label_b=label_b
+            )
         ),
-        quality_verdict=_quality_verdict(vacuous, vacuous_zones),
+        quality_verdict=_quality_verdict(
+            vacuous, vacuous_zones, istat_pair=is_istat_isolating_pair(arm_a, arm_b)
+        ),
+        istat_metrics=istat_zone,
     )
 
 
@@ -966,6 +1098,46 @@ def operational_markdown(comparison: Comparison) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _cella_istat(m: IstatMetrics | None) -> list[str]:
+    if m is None:
+        return ["-"] * 6
+    precisione = "-" if m.precisione_cifre is None else f"{m.precisione_cifre:.2f}"
+    return [
+        precisione,
+        f"{m.voci_citate}/{m.voci_fornite}",
+        str(m.frasi_scartabili),
+        f"{m.direzioni_coerenti}/{m.direzioni_totali}",
+        str(m.corrispondenze_non_dichiarate),
+        str(m.numeri_in_lettere),
+    ]
+
+
+def istat_markdown(comparison: Comparison) -> str:
+    """Tabella delle metriche ISTAT affiancate (#345): nessun delta, nessun
+    vincitore."""
+    nomi = [
+        "precisione cifre",
+        "voci citate/fornite",
+        "frasi scartabili",
+        "direzioni coerenti",
+        "corrispondenze non dichiarate",
+        "numeri in lettere",
+    ]
+    cols = [
+        "citta",
+        "zona",
+        *(f"{n} ({comparison.label_a})" for n in nomi),
+        *(f"{n} ({comparison.label_b})" for n in nomi),
+    ]
+    righe = [
+        [z.citta, z.zona, *_cella_istat(z.a), *_cella_istat(z.b)]
+        for z in comparison.istat_metrics
+    ]
+    lines = ["### Metriche ISTAT (affiancate, nessun vincitore)", ""]
+    lines.extend(_markdown_table(cols, righe))
+    return "\n".join(lines) + "\n"
+
+
 def to_markdown(comparison: Comparison) -> str:
     """Report Markdown del confronto.
 
@@ -992,6 +1164,9 @@ def to_markdown(comparison: Comparison) -> str:
     # Vista operativa separata + caveat sui proxy di qualità (#33).
     lines.append("")
     lines.append(operational_markdown(comparison).rstrip("\n"))
+    if comparison.istat_metrics:
+        lines.append("")
+        lines.append(istat_markdown(comparison).rstrip("\n"))
     lines.append("")
     lines.append(PROXY_CAVEAT)
     if comparison.failed:

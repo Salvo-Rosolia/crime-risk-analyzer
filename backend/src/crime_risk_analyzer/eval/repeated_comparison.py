@@ -16,6 +16,7 @@ from pathlib import Path
 
 from crime_risk_analyzer.eval.aggregate import load_runs
 from crime_risk_analyzer.eval.compare import (
+    ISTAT_NO_WINNER_REASON,
     OPERATIONAL_AXES_NOTE,
     VACUOUS_REASON,
     Comparison,
@@ -24,6 +25,7 @@ from crime_risk_analyzer.eval.compare import (
     VacuousZone,
     compare_records,
     guard_no_overwrite,
+    has_vacuous_quality_axes,
     is_ontology_isolating_pair,
     to_json,
     to_markdown,
@@ -256,6 +258,20 @@ def verdict_na_markdown(
     )
 
 
+def istat_no_winner_markdown(k_label: str) -> str:
+    """Sezione esito della coppia ontologia vs ontologia + ISTAT (#345, D12).
+
+    Il verdetto e' trattenuto per disegno, non per vacuita': entrambi i bracci
+    possono aver scritto la narrativa, quindi il testo della vacuita' (con la sua
+    lista di zone mute) sarebbe falso. Stessa intestazione delle altre sezioni.
+    """
+    return (
+        f"### Esito del criterio proxy (esplorativo, K={k_label})\n"
+        "\n"
+        f"> **NESSUN VINCITORE AUTOMATICO.** {ISTAT_NO_WINNER_REASON}.\n"
+    )
+
+
 def build_repeated_report(
     results_dir: Path,
     experiment_a: str,
@@ -343,13 +359,18 @@ def build_repeated_report(
         else ""
     )
     k_label = f"{k_lo}" if k_hi == k_lo else f"{k_lo}..{k_hi}"
-    verdict_section = (
-        verdict_na_markdown(comparison.vacuous_arms, comparison.vacuous_zones, k_label)
-        if winner is None
-        else winner_markdown(
+    if winner is not None:
+        verdict_section = winner_markdown(
             winner, k_lo, folded_a=folded_a, folded_b=folded_b, k_hi=k_hi
         )
-    )
+    elif has_vacuous_quality_axes(comparison.vacuous_arms, comparison.vacuous_zones):
+        verdict_section = verdict_na_markdown(
+            comparison.vacuous_arms, comparison.vacuous_zones, k_label
+        )
+    else:
+        # Trattenuto senza vacuita': l'unico altro motivo e' la coppia ISTAT
+        # (compare._quality_verdict, D12), e il testo deve dire quello.
+        verdict_section = istat_no_winner_markdown(k_label)
     md = (
         "\n".join(
             [

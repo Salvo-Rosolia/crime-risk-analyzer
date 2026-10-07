@@ -534,7 +534,10 @@ def test_zone_narrative_response_has_no_numeric_danger_scoring_field() -> None:
 
     ``messaggio`` (#260) è testo esplicativo condizionato su POI/narrativa
     vuoti, non un punteggio: aggiunta legittima allo stesso titolo di
-    ``AnalyzeResponse.messaggio``."""
+    ``AnalyzeResponse.messaggio``.
+
+    ``istat_frasi_scartate`` (#345) conta le frasi tolte dal controllo delle
+    cifre: trasparenza sul filtro, non una misura del pericolo."""
     from crime_risk_analyzer.analyze_narrative import ZoneNarrativeResponse
 
     assert set(ZoneNarrativeResponse.model_fields) == {
@@ -547,6 +550,9 @@ def test_zone_narrative_response_has_no_numeric_danger_scoring_field() -> None:
         "repro",
         "fallback",
         "messaggio",
+        "istat_attivo",
+        "istat_versione_dati",
+        "istat_frasi_scartate",
     }
 
 
@@ -680,6 +686,22 @@ def _narrativa(
         httpx.Response,
         client.post("/analyze/narrativa", json=body),  # pyright: ignore[reportUnknownMemberType]
     )
+
+
+@pytest.mark.parametrize("acceso", [True, False], ids=["istat-acceso", "istat-spento"])
+def test_rotta_di_zona_segue_l_interruttore(
+    acceso: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from crime_risk_analyzer.rag.generation import SYSTEM_PROMPT, SYSTEM_PROMPT_ISTAT
+
+    _patch_io(monkeypatch)
+    llm = _RecordingLLMClient()
+    client = _client(llm=llm, settings=Settings(istat_context_enabled=acceso))
+    resp = _narrativa(client, _analizza(client))
+    assert resp.status_code == 200
+    assert llm.calls[0][0] == (SYSTEM_PROMPT_ISTAT if acceso else SYSTEM_PROMPT)
+    assert resp.json()["istat_attivo"] is acceso
+    assert (resp.json()["istat_versione_dati"] is not None) is acceso
 
 
 def test_endpoint_completa_la_narrativa_lasciata_aperta_dalla_fase_1(
@@ -1021,7 +1043,9 @@ _TETTI_DEFAULT: _Tetti = (DEFAULT_REQUEST_TOKEN_BUDGET, DEFAULT_MAX_TOKENS)
 _TETTI_STRETTI: _Tetti = (1, 900)
 
 
-async def _prompt_del_prodotto(domanda: str | None, tetti: _Tetti) -> tuple[str, str]:
+async def _prompt_del_prodotto(
+    domanda: str | None, tetti: _Tetti, *, istat: bool = False
+) -> tuple[str, str]:
     """Prompt che il PRODOTTO fa arrivare al modello: fase 1 + ``/analyze/narrativa``.
 
     Due POI (``_poi_source_divergente``) perche' e' il minimo in cui contano
@@ -1051,6 +1075,7 @@ async def _prompt_del_prodotto(domanda: str | None, tetti: _Tetti) -> tuple[str,
         domanda=domanda,
         request_token_budget=budget,
         max_tokens=max_tokens,
+        istat_context_enabled=istat,
     )
 
     assert len(spia.calls) == 1
@@ -1058,7 +1083,7 @@ async def _prompt_del_prodotto(domanda: str | None, tetti: _Tetti) -> tuple[str,
 
 
 async def _prompt_della_valutazione(
-    domanda: str | None, tetti: _Tetti
+    domanda: str | None, tetti: _Tetti, *, istat: bool = False
 ) -> tuple[str, str]:
     """Prompt che la VALUTAZIONE misura: ``run_analysis``, l'entry point di
     ``eval/harness``.
@@ -1081,6 +1106,7 @@ async def _prompt_della_valutazione(
         domanda=domanda,
         request_token_budget=budget,
         max_tokens=max_tokens,
+        istat_context_enabled=istat,
     )
 
     assert len(spia.calls) == 1
@@ -1123,6 +1149,18 @@ async def test_prompt_del_prodotto_identico_a_quello_della_valutazione(
     valutazione = await _prompt_della_valutazione(domanda, tetti)
 
     assert prodotto == valutazione
+
+
+@pytest.mark.parametrize("istat", [False, True], ids=["istat-spento", "istat-acceso"])
+async def test_prompt_del_prodotto_identico_a_quello_della_valutazione_con_istat(
+    istat: bool,
+) -> None:
+    """#345: la parita' #292 vale anche con i dati ISTAT (I POI di prova sono a
+    Roma)."""
+    prodotto = await _prompt_del_prodotto(None, _TETTI_DEFAULT, istat=istat)
+    valutazione = await _prompt_della_valutazione(None, _TETTI_DEFAULT, istat=istat)
+    assert prodotto == valutazione
+    assert ("DATI ISTAT" in prodotto[1]) is istat
 
 
 async def test_i_tetti_stretti_cambiano_davvero_il_prompt() -> None:
@@ -1185,6 +1223,11 @@ def test_i_due_percorsi_partono_dagli_stessi_tetti() -> None:
         == valutazione["max_tokens"].default
         == Settings.model_fields["llm_max_tokens"].default
         == DEFAULT_MAX_TOKENS
+    )
+    assert (
+        prodotto["istat_context_enabled"].default
+        is valutazione["istat_context_enabled"].default
+        is False
     )
 
 

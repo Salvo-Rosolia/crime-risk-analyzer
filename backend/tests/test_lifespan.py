@@ -14,11 +14,14 @@ non sono toccati dal warm-up.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from crime_risk_analyzer.config import get_settings
+from crime_risk_analyzer.istat import dati as istat_dati
+from crime_risk_analyzer.istat.dati import IstatDatiError, svuota_cache
 from crime_risk_analyzer.llm.client import LLMError, get_llm_client
 from crime_risk_analyzer.main import app
 from crime_risk_analyzer.ontology import get_ontology
@@ -71,3 +74,49 @@ def test_lifespan_fails_fast_without_llm_key(monkeypatch: pytest.MonkeyPatch) ->
             pass
 
     assert "ANTHROPIC_API_KEY" in str(exc_info.value)
+
+
+def test_lifespan_fallisce_senza_dati_istat_con_interruttore_acceso(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review Focus 5: acceso, i dati mancanti fermano l'avvio."""
+    monkeypatch.setenv("ISTAT_CONTEXT_ENABLED", "true")
+    monkeypatch.setattr(istat_dati, "_CARTELLA", tmp_path)
+    get_settings.cache_clear()
+    svuota_cache()
+    try:
+        with pytest.raises(IstatDatiError):
+            with TestClient(app):
+                pass
+    finally:
+        svuota_cache()
+
+
+def test_lifespan_parte_senza_dati_istat_con_interruttore_spento(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ISTAT_CONTEXT_ENABLED", "false")
+    monkeypatch.setattr(istat_dati, "_CARTELLA", tmp_path)
+    get_settings.cache_clear()
+    svuota_cache()
+    try:
+        with TestClient(app):
+            pass
+    finally:
+        svuota_cache()
+
+
+def test_lifespan_precarica_i_dati_istat_con_interruttore_spento(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R9 (review 2): spento, il grounding calcola comunque le righe ISTAT; i dati
+    si caricano all'avvio (senza fallire), non alla prima /analyze sull'event
+    loop."""
+    monkeypatch.setenv("ISTAT_CONTEXT_ENABLED", "false")
+    get_settings.cache_clear()
+    svuota_cache()
+    try:
+        with TestClient(app):
+            assert istat_dati._esito.cache_info().currsize == 1  # pyright: ignore[reportPrivateUsage]
+    finally:
+        svuota_cache()

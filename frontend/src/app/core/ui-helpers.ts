@@ -1,6 +1,7 @@
 import { confMeta } from '@core/confidence';
 import {
   Confidence,
+  NarrativeSourceTag,
   OntologyItem,
   Poi,
   RiskItem,
@@ -10,11 +11,23 @@ import {
 } from '@core/models/models';
 
 /**
- * Ordine canonico dei tag fonte (spec-frontend.md, cross-cutting: Stato B narrativa per fonte E
- * Stato C fattori di rischio per fonte). Unica costante condivisa da `buildSourceTabs` e
- * `orderGroupsByTag` — prima duplicata in due array locali identici (review #67, non-bloccante).
+ * Ordine canonico dei tag fonte (spec-frontend.md, cross-cutting: Stato C fattori di rischio per
+ * fonte). Condivisa da `orderGroupsByTag`; le schede della narrativa usano `NARRATIVE_TAG_ORDER`
+ * (include ISTAT, che un rischio non può mai avere).
  */
 const SOURCE_TAG_ORDER: readonly SourceTag[] = ['ONTOLOGIA', 'CONTESTO', 'SPECULATIVO'];
+
+/**
+ * Ordine delle schede della narrativa (#345): i blocchi nell'ordine in cui il modello li scrive
+ * (ONTOLOGIA, CONTESTO, ISTAT), poi SPECULATIVO. Separato da `SOURCE_TAG_ORDER`, che ordina i
+ * gruppi di rischi e non può contenere ISTAT.
+ */
+const NARRATIVE_TAG_ORDER: readonly NarrativeSourceTag[] = [
+  'ONTOLOGIA',
+  'CONTESTO',
+  'ISTAT',
+  'SPECULATIVO',
+];
 
 const CITY_COLOR_MAP: Readonly<Record<string, string>> = Object.freeze({
   Roma: '#0e7b80',
@@ -195,7 +208,7 @@ function escapeHtml(value: string): string {
 }
 
 export interface SourceTab {
-  tag: SourceTag;
+  tag: NarrativeSourceTag;
   prose: string;
 }
 export interface NarrativeTabsModel {
@@ -203,16 +216,18 @@ export interface NarrativeTabsModel {
   tabs: SourceTab[];
 }
 
-const SOURCE_PROSE_KEY: Readonly<Record<SourceTag, keyof Omit<SourceProse, 'overview'>>> = {
-  ONTOLOGIA: 'ontologia',
-  CONTESTO: 'contesto',
-  SPECULATIVO: 'speculativo',
-};
+const SOURCE_PROSE_KEY: Readonly<Record<NarrativeSourceTag, keyof Omit<SourceProse, 'overview'>>> =
+  {
+    ONTOLOGIA: 'ontologia',
+    CONTESTO: 'contesto',
+    SPECULATIVO: 'speculativo',
+    ISTAT: 'istat',
+  };
 
 /**
  * Costruisce il modello a tab della narrativa (Stato B) dalla sola prosa per fonte
  * (`narrativa_fonti`). Un tab è incluso solo se ha prosa non vuota; ordine canonico
- * ONTOLOGIA→CONTESTO→SPECULATIVO. `overview` è esposto a parte (mostrato sopra i tab).
+ * ONTOLOGIA→CONTESTO→ISTAT→SPECULATIVO. `overview` è esposto a parte (mostrato sopra i tab).
  *
  * #329: il pannello mostrava anche, sotto la prosa, l'elenco degli hazard per fonte — tutti i
  * rischi di tutti i POI della zona, appiattiti e non deduplicati. Su una zona da 20 punti erano
@@ -227,7 +242,7 @@ const SOURCE_PROSE_KEY: Readonly<Record<SourceTag, keyof Omit<SourceProse, 'over
  */
 export function buildSourceTabs(fonti: SourceProse | null | undefined): NarrativeTabsModel {
   const tabs: SourceTab[] = [];
-  for (const tag of SOURCE_TAG_ORDER) {
+  for (const tag of NARRATIVE_TAG_ORDER) {
     const prose = (fonti?.[SOURCE_PROSE_KEY[tag]] ?? '').trim();
     if (prose) tabs.push({ tag, prose });
   }

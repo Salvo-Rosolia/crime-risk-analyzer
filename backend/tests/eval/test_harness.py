@@ -30,7 +30,7 @@ from crime_risk_analyzer.models.vocab import ConfidenceSummary
 from crime_risk_analyzer.orchestrator import AnalyzeResponse, ZonaGeo
 from crime_risk_analyzer.overpass_client import Poi
 from crime_risk_analyzer.rag.generation import RiskModel
-from tests.eval._doubles import scrivi_snapshot
+from tests.eval._doubles import default_llm_response, scrivi_snapshot
 
 
 def _fake_geocode_fixture(zona: str, citta: str) -> dict[str, object]:
@@ -1318,3 +1318,202 @@ def test_record_from_response_copies_risk_models() -> None:
     # Verifica che il record porti i risk_models.
     assert len(record.risk_models) == 1
     assert record.risk_models[0].poi_id == "node/1"
+
+
+async def test_run_case_con_istat_scrive_provenienza_grezzo_e_metriche(
+    tmp_path: Path,
+) -> None:
+    from crime_risk_analyzer.istat.dati import dati_istat
+    from crime_risk_analyzer.models.risk import PoiRiskProfile
+    from tests.eval._doubles import FakeLLMClient, FakeProfiler
+
+    pois = [
+        Poi(
+            id="node/1",
+            name="Banca A",
+            lat=41.8902,
+            lon=12.4922,
+            osm_tags="amenity=bank",
+            terminus_class="Bank",
+            citta="Roma",
+        )
+    ]
+    scrivi_snapshot(
+        snapshot_path(tmp_path, make_snapshot_key("Roma", "Colosseo")), pois
+    )
+    dati = dati_istat()
+    rapine = dati.delitti.valore("058091", "BANKROB", dati.delitti.anno)
+    assert rapine is not None
+    testo = (
+        "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nBanca A: rapina in banca.\n\n"
+        "Dati statistici ISTAT [ISTAT]\n"
+        f"Le rapine in banca sono {rapine.delitti} nel 2024 "
+        "(fonte ISTAT, Comune di Roma, 2024).\nCirca 999 casi in piu'.\n"
+    )
+    cfg = ExperimentConfig(
+        name="istat",
+        mode="analyze",
+        model="groq",
+        cases=[RunCase(citta="Roma", zona="Colosseo")],
+        istat=True,
+    )
+    rec = await run_case(
+        cfg.cases[0],
+        cfg,
+        executor=FakeProfiler(
+            {
+                "Bank": PoiRiskProfile(
+                    terminus_class="Bank",
+                    hazards=["Bank_robbery"],
+                    sparql_paths=["Bank → havingHazard → Bank_robbery"],
+                )
+            }
+        ),
+        llm_client=FakeLLMClient(
+            default_llm_response().model_copy(update={"text": testo})
+        ),
+        results_dir=tmp_path,
+        code_commit="c",
+        ontology_hash="o",
+    )
+    assert rec.provenance.istat is True
+    assert rec.provenance.istat_versione_dati == dati.versione
+    assert rec.narrativa_grezza == testo
+    assert "999" not in rec.narrativa
+    assert rec.istat_frasi_scartate == 1
+    assert rec.istat_metrics is not None and rec.istat_metrics.voci_fornite == 1
+
+
+async def test_run_case_a_istat_spento_grezzo_uguale_alla_narrativa(
+    tmp_path: Path,
+) -> None:
+    from tests.eval._doubles import FakeLLMClient, FakeProfiler
+
+    scrivi_snapshot(
+        snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
+    )
+    cfg = ExperimentConfig(
+        name="exp",
+        mode="analyze",
+        model="groq",
+        cases=[RunCase(citta="Roma", zona="Centro")],
+    )
+    rec = await run_case(
+        cfg.cases[0],
+        cfg,
+        executor=FakeProfiler(),
+        llm_client=FakeLLMClient(),
+        results_dir=tmp_path,
+        code_commit="c",
+        ontology_hash="o",
+    )
+    assert rec.narrativa_grezza == rec.narrativa
+    assert (rec.provenance.istat, rec.istat_metrics, rec.istat_frasi_scartate) == (
+        False,
+        None,
+        0,
+    )
+
+
+async def test_m1_su_record_istat_grada_il_testo_senza_cifre_istat(
+    tmp_path: Path,
+) -> None:
+    """F10 (review finale): M1 su un record ISTAT e' calcolato su
+    ``testo_senza_cifre_istat``, non sul testo filtrato ne' sul grezzo.
+
+    Il blocco misurato ha tre frasi: una ancorata (Banca A), una con un numero
+    inventato senza ancoraggio (tolta dal filtro ma NON dal testo per M1) e una
+    con una cifra ISTAT fuori blocco (tolta da entrambi). Solo il testo senza
+    cifre ISTAT da' 1 ancorata su 2: il filtrato darebbe 1/1, il grezzo 1/3+.
+    """
+    from crime_risk_analyzer.istat.dati import dati_istat
+    from crime_risk_analyzer.models.risk import PoiRiskProfile
+    from crime_risk_analyzer.rag.generation import (
+        DEFAULT_MAX_TOKENS,
+        DEFAULT_REQUEST_TOKEN_BUDGET,
+    )
+    from tests.eval._doubles import FakeLLMClient, FakeProfiler
+
+    pois = [
+        Poi(
+            id="node/1",
+            name="Banca A",
+            lat=41.8902,
+            lon=12.4922,
+            osm_tags="amenity=bank",
+            terminus_class="Bank",
+            citta="Roma",
+        )
+    ]
+    scrivi_snapshot(
+        snapshot_path(tmp_path, make_snapshot_key("Roma", "Colosseo")), pois
+    )
+    dati = dati_istat()
+    totale = dati.delitti.valore("058091", "TOT", dati.delitti.anno)
+    assert totale is not None and totale.delitti is not None
+    cifra = f"{totale.delitti:,}".replace(",", ".")
+    testo = (
+        "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nBanca A: rapina in banca. "
+        "Si stimano 999 episodi l'anno. "
+        f"Nel Comune di Roma si contano {cifra} delitti denunciati nel 2024.\n"
+    )
+    cfg = ExperimentConfig(
+        name="istat",
+        mode="analyze",
+        model="groq",
+        cases=[RunCase(citta="Roma", zona="Colosseo")],
+        istat=True,
+    )
+    rec = await run_case(
+        cfg.cases[0],
+        cfg,
+        executor=FakeProfiler(
+            {
+                "Bank": PoiRiskProfile(
+                    terminus_class="Bank",
+                    hazards=["Bank_robbery"],
+                    sparql_paths=["Bank → havingHazard → Bank_robbery"],
+                )
+            }
+        ),
+        llm_client=FakeLLMClient(
+            default_llm_response().model_copy(update={"text": testo})
+        ),
+        results_dir=tmp_path,
+        code_commit="c",
+        ontology_hash="o",
+    )
+    assert rec.istat_frasi_scartate == 2
+    assert "999" not in rec.narrativa and cifra not in rec.narrativa
+    assert (rec.metrics.grounding, rec.metrics.hallucination) == (0.5, 0.5)
+    # F8: il record dice con quale budget la richiesta e' stata costruita.
+    assert rec.provenance.request_token_budget == DEFAULT_REQUEST_TOKEN_BUDGET
+    assert rec.provenance.llm_max_tokens == DEFAULT_MAX_TOKENS
+
+
+async def test_baseline_non_registra_un_budget_llm(tmp_path: Path) -> None:
+    """F8: il braccio baseline non chiama l'LLM, il budget resta None."""
+    from tests.eval._doubles import FakeProfiler
+
+    scrivi_snapshot(
+        snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
+    )
+    cfg = ExperimentConfig(
+        name="base",
+        mode="baseline",
+        model="claude",
+        cases=[RunCase(citta="Roma", zona="Centro")],
+    )
+    rec = await run_case(
+        cfg.cases[0],
+        cfg,
+        executor=FakeProfiler(),
+        llm_client=None,
+        results_dir=tmp_path,
+        code_commit="c",
+        ontology_hash="o",
+    )
+    assert (rec.provenance.request_token_budget, rec.provenance.llm_max_tokens) == (
+        None,
+        None,
+    )
