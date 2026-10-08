@@ -48,6 +48,7 @@ from crime_risk_analyzer.rag.retrieval import RetrievalContext, RetrievalStats
 from tests.eval._doubles import FakeLLMClient as _FakeLLMClient
 from tests.eval._doubles import FakeProfiler as _FakeProfiler
 from tests.eval._doubles import default_llm_response as _llm_response
+from tests.eval._doubles import righe_poi
 from tests.istat._fattorie import BANKROB, istat_poi
 
 
@@ -1102,10 +1103,6 @@ async def test_run_no_ontology_prompt_hides_the_ontology_from_the_model(
     assert "  POI: Banca A (Bank)" in user
 
 
-def _righe_poi(user_content: str) -> list[str]:
-    return [r for r in user_content.splitlines() if r.startswith("  POI: ")]
-
-
 def _banche_e_scuole(n: int) -> list[Poi]:
     """POI alternati: le scuole hanno piu' rischi delle banche, quindi il
     troncamento per rilevanza NON tiene semplicemente i primi della lista."""
@@ -1160,7 +1157,7 @@ async def test_i_due_bracci_vedono_gli_stessi_poi(
     )
     completo, ablato = _RecordingLLMClient(), _RecordingLLMClient()
 
-    await run_analysis(
+    resp_completo = await run_analysis(
         "Roma",
         "Centro",
         executor=profiler,
@@ -1177,8 +1174,8 @@ async def test_i_due_bracci_vedono_gli_stessi_poi(
         max_tokens=DEFAULT_MAX_TOKENS,
     )
 
-    righe_completo = _righe_poi(completo.calls[0][1])
-    righe_ablato = _righe_poi(ablato.calls[0][1])
+    righe_completo = righe_poi(completo.calls[0][1])
+    righe_ablato = righe_poi(ablato.calls[0][1])
     utente_ablato = ablato.calls[0][1]
     # Stesso INSIEME di punti, ma nell'ordine originale del recupero: l'ordine per
     # rilevanza viene dall'ontologia (piu' hazard prima) e non deve passare.
@@ -1186,6 +1183,15 @@ async def test_i_due_bracci_vedono_gli_stessi_poi(
     assert righe_ablato == sorted(righe_ablato)  # "Punto 00", "Punto 01", ...
     # Cambia solo il prompt: la response resta quella di tutti i punti.
     assert len(resp.poi) == len(resp.risk_models) == 12
+    # La parita' e' verificabile a valle: entrambe le response portano gli id dei
+    # POI entrati nel prompt, nell'ordine del rispettivo prompt.
+    assert resp_completo.poi_nel_prompt is not None
+    assert resp.poi_nel_prompt is not None
+    assert len(resp.poi_nel_prompt) == len(righe_ablato)
+    assert set(resp.poi_nel_prompt) == set(resp_completo.poi_nel_prompt)
+    assert resp.poi_nel_prompt == sorted(resp.poi_nel_prompt, key=int)
+    # Nessun "rilevant" nel prompt ablato, con o senza taglio (#349).
+    assert "rilevant" not in utente_ablato.lower()
     if tronca:
         assert 0 < len(righe_completo) < 12
         # Il completo sceglie per rilevanza (le scuole prima), non i primi N.
@@ -1195,9 +1201,9 @@ async def test_i_due_bracci_vedono_gli_stessi_poi(
         assert any("(Bank)" in r for r in righe_completo)
         assert righe_ablato != righe_completo
         # Nota neutra: dice quanti punti su quanti, non con quale criterio.
-        nota = f"sono elencati {len(righe_ablato)} POI su 12"
+        nota = f"sono analizzati {len(righe_ablato)} POI su 12"
         assert nota in utente_ablato
-        assert "rilevanti" not in utente_ablato.split("POI RILEVANTI:")[0]
+        assert len(resp.poi_nel_prompt) < 12
     else:
         assert len(righe_completo) == 12
         assert "NB:" not in utente_ablato
@@ -1403,6 +1409,9 @@ async def test_run_analysis_espone_i_campi_istat_e_nasconde_il_grezzo() -> None:
     assert resp.narrativa_grezza is not None
     corpo = resp.model_dump()
     assert "narrativa_grezza" not in corpo and "controllo_istat" not in corpo
+    # #349: anche i POI del prompt sono solo per l'harness.
+    assert resp.poi_nel_prompt is not None
+    assert "poi_nel_prompt" not in corpo
 
 
 @pytest.mark.parametrize("acceso", [True, False], ids=["istat-acceso", "istat-spento"])
@@ -1666,6 +1675,7 @@ def test_analyze_response_has_no_numeric_danger_scoring_field() -> None:
         "istat_frasi_scartate",
         "narrativa_grezza",
         "controllo_istat",
+        "poi_nel_prompt",
     }
 
 

@@ -117,12 +117,47 @@ def _representative_narrativa(group: list[RunRecord]) -> str:
     return next((rec.narrativa for rec in group if rec.narrativa.strip()), "")
 
 
+def _poi_nel_prompt_coerente(
+    citta: str, zona: str, valid: list[RunRecord]
+) -> list[str] | None:
+    """I POI nel prompt comuni alle ripetizioni valide di una zona (#349).
+
+    La selezione dei POI e' deterministica, quindi le K ripetizioni di uno stesso
+    esperimento hanno lo stesso insieme: se divergono, o se alcune hanno il campo
+    e altre no (record precedenti a #349 mescolati a record nuovi), l'esperimento
+    mescola versioni diverse del prompt. Solleva :class:`ValueError`, come
+    ``compare_records`` sull'input malformato (zone duplicate, ``snapshot_id``
+    divergente) e come l'harness sui record legacy (#165.4): un avviso
+    lascerebbe comunque una media che mescola una ripetizione con 9-12 POI e due
+    con 20, e a valle nessuno la distinguerebbe. Tutte senza campo = ``None``,
+    e il confronto dira' che la parita' non e' verificabile.
+    """
+    valori = [r.poi_nel_prompt for r in valid]
+    if all(v is None for v in valori):
+        return None
+    presenti = [v for v in valori if v is not None]
+    if len(presenti) < len(valori):
+        raise ValueError(
+            f"fold_arm: ripetizioni di {citta}/{zona} con e senza poi_nel_prompt "
+            "(record precedenti a #349 mescolati a record nuovi): non si mediano "
+            "prompt con insiemi di POI diversi; rigirare tutte le ripetizioni"
+        )
+    if len({frozenset(v) for v in presenti}) > 1:
+        raise ValueError(
+            f"fold_arm: ripetizioni di {citta}/{zona} con poi_nel_prompt diversi: "
+            "non si mediano prompt con insiemi di POI diversi; rigirare tutte le "
+            "ripetizioni con lo stesso codice"
+        )
+    return presenti[0]
+
+
 def _mean_record(
     source: RunRecord,
     metrics: Metrics,
     status: RunStatus,
     narrativa: str = "",
     istat_metrics: IstatMetrics | None = None,
+    poi_nel_prompt: list[str] | None = None,
 ) -> RunRecord:
     """Record-media di una zona; riusa la provenienza (snapshot_id) di ``source``.
 
@@ -136,6 +171,10 @@ def _mean_record(
     ``None``) sul record-media. Le frasi tolte sono gia' contate nella somma
     (``IstatMetrics.frasi_scartabili``), e il grezzo, come la narrativa, non si
     media; chi li vuole per ripetizione li legge sui record delle ripetizioni.
+
+    ``poi_nel_prompt`` (#349) e' quello, unico, delle ripetizioni valide
+    (:func:`_poi_nel_prompt_coerente`): serve a ``compare_records`` per
+    verificare la parita' dei POI fra i bracci anche sul percorso a K.
     """
     return RunRecord(
         run_id=f"{source.experiment}__{source.citta}__{source.zona}__mean".lower(),
@@ -148,6 +187,7 @@ def _mean_record(
         metrics=metrics,
         narrativa=narrativa,
         n_poi=source.n_poi,
+        poi_nel_prompt=poi_nel_prompt,
         istat_metrics=istat_metrics,
         provenance=source.provenance,
     )
@@ -156,7 +196,9 @@ def _mean_record(
 def fold_arm(records: list[RunRecord]) -> FoldedArm:
     """Ripiega le K ripetizioni per zona in record-media + varianza.
 
-    Solleva :class:`ValueError` se ``records`` e' vuoto.
+    Solleva :class:`ValueError` se ``records`` e' vuoto, o se le ripetizioni
+    valide di una zona hanno ``poi_nel_prompt`` diversi o misti presente/assente
+    (#349, :func:`_poi_nel_prompt_coerente`).
     """
     if not records:
         raise ValueError("fold_arm: nessun record da ripiegare")
@@ -197,6 +239,7 @@ def fold_arm(records: list[RunRecord]) -> FoldedArm:
                 RunStatus.OK,
                 _representative_narrativa(valid),
                 somma_istat_metrics(r.istat_metrics for r in valid),
+                _poi_nel_prompt_coerente(citta, zona, valid),
             )
         )
         variances.append(

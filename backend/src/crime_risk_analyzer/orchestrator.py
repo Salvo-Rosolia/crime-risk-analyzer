@@ -479,6 +479,14 @@ class AnalyzeResponse(CampiIstatRisposta):
         exclude=True,
         description="Esito del controllo delle cifre (#345): solo per l'harness.",
     )
+    poi_nel_prompt: list[str] | None = Field(
+        default=None,
+        exclude=True,
+        description=(
+            "Id dei POI entrati nel prompt (#349): solo per l'harness, che li salva "
+            "nel record perche' il confronto fra bracci verifichi la parita'."
+        ),
+    )
 
 
 def _build_poi_list(
@@ -680,6 +688,7 @@ def _generated_response(
             gen.narrativa_grezza if gen.narrativa_grezza is not None else gen.narrativa
         ),
         controllo_istat=gen.controllo_istat,
+        poi_nel_prompt=gen.poi_nel_prompt,
     )
 
 
@@ -856,9 +865,14 @@ async def run_no_ontology_prompt(
     nota sul taglio non dice il criterio, perche' l'ordine per rilevanza (piu'
     hazard prima) e' informazione ontologica. Resta, ed e' da dichiarare nella
     validita' del confronto, la SCELTA di quali punti tenere: anche lei usa
-    l'ontologia, e la parita' di insieme non si ottiene senza. Il verso e'
-    prudente: aiuta il braccio ablato, quindi semmai sottostima il contributo
-    dell'ontologia. La response resta completa come quella del braccio completo.
+    l'ontologia, e la parita' di insieme non si ottiene senza. Il verso del suo
+    effetto sul confronto NON e' determinato, ed e' da dichiarare: il taglio tiene
+    le classi con molti rischi (Polizia, Scuola, Ospedale) e scarta quelle con
+    pochi (farmacie, banche), i cui rischi sono vicini a cio' che un modello
+    senza ontologia scriverebbe comunque. La response resta completa come quella
+    del braccio completo; gli id dei punti elencati viaggiano in
+    ``poi_nel_prompt`` (solo per l'harness), che il confronto usa per verificare
+    la parita' invece di presumerla.
     """
     start = time.perf_counter()
     retrieval_ctx = await retrieve(

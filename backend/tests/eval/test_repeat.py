@@ -24,6 +24,7 @@ def _rec(
     latency_ms: int,
     cost_usd: float,
     status: RunStatus = RunStatus.OK,
+    poi_nel_prompt: list[str] | None = None,
 ) -> RunRecord:
     return RunRecord(
         run_id=f"exp__{citta}__{zona}__analyze__groq__rep{rep:02d}".lower(),
@@ -41,6 +42,7 @@ def _rec(
         ),
         narrativa="x",
         n_poi=1,
+        poi_nel_prompt=poi_nel_prompt,
         provenance=Provenance(
             code_commit="c",
             ontology_hash="o",
@@ -471,3 +473,57 @@ def test_fold_somma_le_metriche_istat_delle_ripetizioni() -> None:
         3,
         0.75,
     )
+
+
+# --- #349: i POI nel prompt non si mediano fra ripetizioni diverse ---
+
+
+def _rep(
+    rep: int, poi: list[str] | None, status: RunStatus = RunStatus.OK
+) -> RunRecord:
+    return _rec(
+        "Roma",
+        "Colosseo",
+        rep=rep,
+        grounding=0.5,
+        hallucination=0.5,
+        latency_ms=1000,
+        cost_usd=0.0,
+        status=status,
+        poi_nel_prompt=poi,
+    )
+
+
+def test_fold_carries_the_poi_in_prompt_of_consistent_repetitions() -> None:
+    """Stesso insieme in ogni ripetizione: il record-media lo porta, cosi'
+    ``compare_records`` puo' verificare la parita' anche sul percorso a K."""
+    folded = fold_arm([_rep(0, ["1", "2"]), _rep(1, ["2", "1"]), _rep(2, ["1", "2"])])
+    assert folded.mean_records[0].poi_nel_prompt == ["1", "2"]
+
+
+def test_fold_refuses_repetitions_mixing_present_and_missing_poi() -> None:
+    """Una ripetizione nuova (con ``poi_nel_prompt``) e due vecchie (senza):
+    mediarle mescolerebbe prompt con 9-12 POI e prompt con 20, senza avvisi."""
+    with pytest.raises(ValueError, match="Roma/Colosseo"):
+        fold_arm([_rep(0, ["1", "2"]), _rep(1, None), _rep(2, None)])
+
+
+def test_fold_refuses_repetitions_with_different_poi_sets() -> None:
+    with pytest.raises(ValueError, match="poi_nel_prompt"):
+        fold_arm([_rep(0, ["1", "2"]), _rep(1, ["1", "2", "3"])])
+
+
+def test_fold_ignores_the_poi_of_dropped_repetitions() -> None:
+    """Un FALLBACK non entra in media (nessuna generazione, ``poi_nel_prompt``
+    None): non conta nemmeno per la coerenza dei POI."""
+    folded = fold_arm(
+        [_rep(0, ["1"]), _rep(1, None, status=RunStatus.FALLBACK), _rep(2, ["1"])]
+    )
+    assert folded.mean_records[0].poi_nel_prompt == ["1"]
+
+
+def test_fold_keeps_legacy_repetitions_without_poi_as_none() -> None:
+    """Tutte vecchie: nessun errore, il record-media resta senza POI e il
+    confronto dira' che la parita' non e' verificabile."""
+    folded = fold_arm([_rep(0, None), _rep(1, None)])
+    assert folded.mean_records[0].poi_nel_prompt is None

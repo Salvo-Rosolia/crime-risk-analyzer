@@ -1,4 +1,5 @@
-"""Doppi di test condivisi tra test_orchestrator e test_harness (#34).
+"""Doppi e helper di test condivisi tra test_orchestrator, test_harness e
+test_no_ontology_generation (#34, #349).
 
 Non e' un file di test (nessuna funzione test_*): pytest non raccoglie nulla.
 Estratto da test_orchestrator.py per evitare duplicazione.
@@ -72,3 +73,12 @@ def default_llm_response() -> LLMResponse:
         seed=42,
         prompt_hash="abc123",
     )
+
+
+def righe_poi(user_content: str) -> list[str]:
+    """Righe d'intestazione dei punti (``  POI: ...``) di uno user_content.
+
+    Unico helper per entrambi i bracci (#349): le righe sono le stesse per
+    costruzione (``generation.poi_line``), quindi anche chi le estrae.
+    """
+    return [r for r in user_content.splitlines() if r.startswith("  POI: ")]

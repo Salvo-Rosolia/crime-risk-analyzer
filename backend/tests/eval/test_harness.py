@@ -17,6 +17,7 @@ from crime_risk_analyzer.eval.schema import (
     ExperimentConfig,
     Mode,
     RunCase,
+    RunRecord,
     RunStatus,
 )
 from crime_risk_analyzer.eval.snapshots import (
@@ -907,18 +908,42 @@ async def test_no_ontology_arm_replays_the_snapshot_of_the_complete_arm(
     assert "  POI: Banca A (Bank)" in client_ablato.calls[0][1]
 
 
+def _molti_pois(n: int) -> list[Poi]:
+    """Snapshot denso: abbastanza punti perche' un budget ridotto tagli."""
+    return [
+        Poi(
+            id=str(i),
+            name=f"Banca {i:02d}",
+            lat=41.0,
+            lon=12.0,
+            osm_tags="amenity=bank",
+            terminus_class="Bank",
+            citta="Roma",
+        )
+        for i in range(n)
+    ]
+
+
 async def test_no_ontology_arm_receives_the_complete_arm_prompt_settings(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """#349: l'harness passa al braccio ablato gli stessi parametri con cui il
     braccio completo costruisce il prompt (budget, max_tokens, formato,
-    interruttore ISTAT), cosi' l'ablato puo' elencare esattamente i suoi POI.
+    interruttore ISTAT), da un solo punto (``_budget_della_run``), e i due record
+    salvano gli STESSI POI nel prompt anche quando il budget taglia davvero.
 
-    Solo con ISTAT spento: ``ExperimentConfig`` non ammette ``istat=True`` fuori
-    da ``mode="analyze"`` (il confronto della tesi si misura a ISTAT spento, D6).
+    Il budget e' ridotto passando dall'harness (monkeypatch del suo unico punto di
+    calcolo): un letterale in una delle due chiamate farebbe divergere i bracci e
+    questo test lo vedrebbe. Solo con ISTAT spento: ``ExperimentConfig`` non
+    ammette ``istat=True`` fuori da ``mode="analyze"`` (D6).
     """
     from crime_risk_analyzer.eval import harness
     from crime_risk_analyzer.rag import retrieval
+    from crime_risk_analyzer.rag.generation import (
+        DEFAULT_MAX_TOKENS,
+        SYSTEM_PROMPT,
+        _estimate_tokens,  # pyright: ignore[reportPrivateUsage]
+    )
     from tests.eval._doubles import FakeLLMClient, FakeProfiler
 
     visti: dict[str, dict[str, object]] = {}
@@ -934,16 +959,25 @@ async def test_no_ontology_arm_receives_the_complete_arm_prompt_settings(
 
         return _f
 
+    budget_ridotto = _estimate_tokens(SYSTEM_PROMPT) + DEFAULT_MAX_TOKENS + 200
+
+    def _budget_ridotto(config: ExperimentConfig) -> tuple[int | None, int | None]:
+        if config.mode == "baseline":
+            return None, None
+        return budget_ridotto, DEFAULT_MAX_TOKENS
+
+    monkeypatch.setattr(harness, "_budget_della_run", _budget_ridotto)
     monkeypatch.setattr(harness, "run_analysis", _spia("run_analysis"))
     monkeypatch.setattr(
         harness, "run_no_ontology_prompt", _spia("run_no_ontology_prompt")
     )
     monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
     scrivi_snapshot(
-        snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
+        snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _molti_pois(12)
     )
+    records: dict[str, RunRecord] = {}
     for mode in ("analyze", "no_ontology_prompt"):
-        await run_experiment(
+        [records[mode]] = await run_experiment(
             ExperimentConfig(
                 name=f"iso-{mode}",
                 mode=mode,
@@ -960,7 +994,45 @@ async def test_no_ontology_arm_receives_the_complete_arm_prompt_settings(
     chiavi = ("request_token_budget", "max_tokens", "context_format")
     completo, ablato = visti["run_analysis"], visti["run_no_ontology_prompt"]
     assert {k: ablato[k] for k in chiavi} == {k: completo[k] for k in chiavi}
+    assert completo["request_token_budget"] == budget_ridotto
     assert ablato["istat_context_enabled"] is completo["istat_context_enabled"] is False
+    rec_completo, rec_ablato = records["analyze"], records["no_ontology_prompt"]
+    # Un braccio ablato in errore renderebbe il confronto sopra vacuo.
+    assert rec_completo.status is RunStatus.OK
+    assert rec_ablato.status is RunStatus.OK
+    assert rec_completo.poi_nel_prompt is not None
+    assert rec_ablato.poi_nel_prompt is not None
+    assert set(rec_ablato.poi_nel_prompt) == set(rec_completo.poi_nel_prompt)
+    assert 0 < len(rec_ablato.poi_nel_prompt) < rec_ablato.n_poi == 12
+    assert rec_completo.provenance.request_token_budget == budget_ridotto
+
+
+async def test_baseline_record_has_no_poi_in_prompt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#349: la baseline non costruisce un prompt, quindi ``poi_nel_prompt`` e'
+    ``None`` come sui record precedenti a #349."""
+    from crime_risk_analyzer.rag import retrieval
+    from tests.eval._doubles import FakeProfiler
+
+    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
+    scrivi_snapshot(
+        snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
+    )
+    [rec] = await run_experiment(
+        ExperimentConfig(
+            name="base",
+            mode="baseline",
+            model="groq",
+            cases=[RunCase(citta="Roma", zona="Centro")],
+        ),
+        executor=FakeProfiler(),
+        results_dir=tmp_path,
+        code_commit="abc",
+        ontology_hash="def",
+    )
+    assert rec.status is RunStatus.OK
+    assert rec.poi_nel_prompt is None
 
 
 async def test_no_ontology_arm_is_not_a_vacuous_arm(

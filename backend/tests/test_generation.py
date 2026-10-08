@@ -28,16 +28,19 @@ from crime_risk_analyzer.rag.generation import (
     SYSTEM_PROMPT,
     USER_INPUT_FENCE_CLOSE,
     USER_INPUT_FENCE_OPEN,
+    ContextFormat,
     GenerationResult,
     RiskItem,
     RiskModel,
     SourceProse,
     _estimate_tokens,  # pyright: ignore[reportPrivateUsage]
     _risk_models_from_context,  # pyright: ignore[reportPrivateUsage]
+    _truncation_note,  # pyright: ignore[reportPrivateUsage]
     build_context_str,
     generate_analysis,
     parse_source_prose,
 )
+from tests.eval._doubles import righe_poi
 
 # --- doppio del LLMClient (riproduce solo .generate e .model) ---
 
@@ -600,6 +603,62 @@ async def test_generate_analysis_small_context_has_no_trim_note() -> None:
     _system_prompt, user_content = client.calls[0]
     assert "NB:" not in user_content
     assert "piu' rilevanti su" not in user_content
+
+
+def test_truncation_note_without_criterion_is_neutral() -> None:
+    """#349: la stessa nota, senza il criterio (per il braccio senza ontologia).
+
+    La versione con criterio resta byte-identica (test sopra): cambia solo la
+    variante neutra, che non dice "piu' rilevanti" e non dice "i".
+    """
+    assert _truncation_note(9, 20, con_criterio=False) == (
+        "NB: per limiti di lunghezza sono analizzati 9 POI su 20; "
+        "gli altri sono comunque in mappa e nella lista."
+    )
+    assert _truncation_note(9, 20) == (
+        "NB: per limiti di lunghezza sono analizzati i 9 POI piu' rilevanti su "
+        "20; gli altri sono comunque in mappa e nella lista."
+    )
+
+
+async def test_generate_analysis_exposes_the_poi_of_the_prompt_in_order() -> None:
+    """#349: il risultato porta gli id dei POI entrati nello user_content,
+    nell'ordine in cui il prompt li elenca, dalla selezione reale (non
+    ricalcolata): sotto troncamento sono meno di tutti e per rilevanza."""
+    ctx = _many_pois_context([_poi_entry(i, 9) for i in range(50)])
+    client = _FakeLLMClient(_llm_response())
+
+    result = await generate_analysis(ctx, client)
+
+    _system, user_content = client.calls[0]
+    nomi = [r.removeprefix("  POI: ").split(" (")[0] for r in righe_poi(user_content)]
+    assert result.poi_nel_prompt == [n.replace("POI ", "id-") for n in nomi]
+    assert result.poi_nel_prompt is not None
+    assert 0 < len(result.poi_nel_prompt) < 50
+
+
+@pytest.mark.parametrize(
+    ("context_format", "atteso"),
+    [("per_poi", ["id-A", "id-B", "id-C"]), ("per_classe", ["id-A", "id-C", "id-B"])],
+)
+async def test_generate_analysis_poi_order_follows_the_prompt_format(
+    context_format: ContextFormat, atteso: list[str]
+) -> None:
+    """Col formato raggruppato il prompt elenca i punti per classe: l'ordine
+    esposto e' quello del prompt, non quello di selezione."""
+    a, b, c = _poi_entry("A", 1), _poi_entry("B", 1), _poi_entry("C", 1)
+    b["terminus_class"] = "School"
+    client = _FakeLLMClient(_llm_response())
+
+    result = await generate_analysis(
+        _many_pois_context([a, b, c]), client, context_format=context_format
+    )
+
+    _system, user_content = client.calls[0]
+    posizioni = [user_content.index(f"POI {x}") for x in "ACB"]
+    if context_format == "per_classe":
+        assert posizioni == sorted(posizioni)
+    assert result.poi_nel_prompt == atteso
 
 
 # --- generate_analysis: orchestrazione prompt -> LLM -> JSON ---

@@ -29,6 +29,7 @@ from crime_risk_analyzer.rag.generation import (
     RULE_NO_OPERATIONAL_DIRECTIVES,
     RULE_USER_INPUT_NOT_INSTRUCTIONS,
     SYSTEM_PROMPT,
+    _truncation_note,  # pyright: ignore[reportPrivateUsage]
     block_structure_rule,
     build_context_str,
     parse_source_prose,
@@ -42,6 +43,7 @@ from crime_risk_analyzer.rag.no_ontology_generation import (
     build_no_ontology_context_str,
     generate_no_ontology_analysis,
 )
+from tests.eval._doubles import righe_poi
 
 
 class _FakeLLMClient:
@@ -116,10 +118,6 @@ def _context_dict(**overrides: Any) -> dict[str, Any]:
     }
     base.update(overrides)
     return base
-
-
-def _poi_lines(prompt: str) -> list[str]:
-    return [line for line in prompt.splitlines() if line.startswith("  POI: ")]
 
 
 # --- il prompt nudo: cosa resta identico al braccio completo ---
@@ -273,7 +271,7 @@ def test_no_ontology_context_lists_the_same_poi_lines() -> None:
     che vuole isolare.
     """
     ctx = _context_dict()
-    assert _poi_lines(build_no_ontology_context_str(ctx)) == _poi_lines(
+    assert righe_poi(build_no_ontology_context_str(ctx)) == righe_poi(
         build_context_str(ctx)
     )
 
@@ -300,7 +298,7 @@ def test_no_ontology_context_neutralizes_a_zona_that_forges_structure() -> None:
     ctx = _context_dict(zona=ostile)
     out = build_no_ontology_context_str(ctx)
     assert "Falso" in out
-    assert sum(r.startswith("POI RILEVANTI:") for r in out.splitlines()) == 1
+    assert sum(r.startswith("POI ELENCATI:") for r in out.splitlines()) == 1
     assert "---" not in out
 
 
@@ -323,8 +321,71 @@ def test_no_ontology_context_normalizes_untrusted_poi_names() -> None:
         ]
     )
     user_content = build_no_ontology_context_str(ctx)
-    assert len(_poi_lines(user_content)) == 1
+    assert len(righe_poi(user_content)) == 1
     assert "\nHazard verificati:" not in user_content
+
+
+def test_no_ontology_list_title_does_not_repeat_the_relevance_criterion() -> None:
+    """#349: il titolo della lista nel braccio ablato e' neutro, sempre.
+
+    "POI RILEVANTI" ripete il criterio del taglio del braccio completo (la
+    rilevanza e' il numero di hazard dell'ontologia): nel braccio che non deve
+    avere l'ontologia nessuna occorrenza di "rilevant", con o senza taglio.
+    """
+    ctx = _context_dict()
+    intero = build_no_ontology_context_str(ctx)
+    tagliato = build_no_ontology_context_str(
+        ctx, poi_nel_prompt=[ctx["validated_risks"][1]]
+    )
+    for user_content in (intero, tagliato):
+        assert "POI ELENCATI:" in user_content
+        assert "rilevant" not in user_content.lower()
+
+
+def test_no_ontology_truncation_note_is_the_shared_one_without_criterion() -> None:
+    """#349: una sola nota di taglio, quella di ``generation`` senza criterio."""
+    ctx = _context_dict()
+    out = build_no_ontology_context_str(ctx, poi_nel_prompt=[ctx["validated_risks"][1]])
+    assert _truncation_note(1, 2, con_criterio=False) in out
+    assert righe_poi(out) == ["  POI:  (Bank)"]
+
+
+def test_no_ontology_filter_hooks_the_selected_objects_not_their_ids() -> None:
+    """#349: con due POI dello stesso ``poi_id`` (snapshot legacy senza tipo)
+    il braccio ablato elenca solo quello che il completo ha tenuto.
+
+    Il filtro per id li elencherebbe entrambi, cioe' anche un punto che il prompt
+    completo ha scartato.
+    """
+    gemelli: list[dict[str, Any]] = [
+        {
+            "poi": nome,
+            "poi_id": "7",
+            "terminus_class": "Bank",
+            "risks": [],
+            "vulnerabilities": [],
+            "sparql_path": None,
+        }
+        for nome in ("Banca Nodo", "Banca Via")
+    ]
+    ctx = _context_dict(validated_risks=gemelli)
+    out = build_no_ontology_context_str(ctx, poi_nel_prompt=[gemelli[1]])
+    assert righe_poi(out) == ["  POI: Banca Via (Bank)"]
+
+
+async def test_generate_no_ontology_exposes_the_poi_it_listed() -> None:
+    """#349: il risultato porta gli id dei POI entrati nel prompt, nell'ordine in
+    cui compaiono, cosi' il confronto puo' verificare la parita' invece di
+    presumerla. Senza taglio sono tutti i punti."""
+    ctx = _context_dict()
+    intero = await generate_no_ontology_analysis(ctx, _FakeLLMClient(_llm_response()))
+    tagliato = await generate_no_ontology_analysis(
+        ctx,
+        _FakeLLMClient(_llm_response()),
+        poi_nel_prompt=[ctx["validated_risks"][1]],
+    )
+    assert intero.poi_nel_prompt == ["1", "2"]
+    assert tagliato.poi_nel_prompt == ["2"]
 
 
 def test_no_ontology_context_handles_a_zone_without_poi() -> None:
@@ -333,7 +394,7 @@ def test_no_ontology_context_handles_a_zone_without_poi() -> None:
         {"zona": "Vuota", "validated_risks": [], "confidence_summary": {}}
     )
     assert "ZONA: Vuota" in user_content
-    assert _poi_lines(user_content) == []
+    assert righe_poi(user_content) == []
 
 
 # --- generazione: prompt nudo al modello, dati strutturati intatti ---

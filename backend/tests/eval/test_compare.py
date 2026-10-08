@@ -19,6 +19,7 @@ from crime_risk_analyzer.eval.compare import (
     ISOLATED_DELTA_CLAIM,
     ISOLATED_VARIABLE_HEAD,
     OPERATIONAL_AXES_NOTE,
+    POI_SUBSET_VALIDITY_HEAD,
     PROMPT_LENGTH_SIDE_EFFECT,
     VACUOUS_CAVEAT_HEAD,
     VACUOUS_DELTA_CLAIM,
@@ -64,8 +65,14 @@ def _rec(
     narrativa: str = "x",
     context_format: ContextFormat = "per_poi",
     quality_vacuous: bool | None = None,
+    poi_nel_prompt: tuple[str, ...] | None = ("1",),
+    n_poi: int = 1,
 ) -> RunRecord:
-    """RunRecord minimale con metriche controllate per i test di confronto."""
+    """RunRecord minimale con metriche controllate per i test di confronto.
+
+    ``poi_nel_prompt`` di default e' l'unico punto della zona (``n_poi=1``): la
+    condizione dei record prodotti dopo #349 senza taglio.
+    """
     return RunRecord(
         run_id=f"{experiment}__{citta}__{zona}__{mode}__{model}".lower(),
         experiment=experiment,
@@ -82,7 +89,8 @@ def _rec(
             cost_usd=cost_usd,
         ),
         narrativa=narrativa,
-        n_poi=1,
+        n_poi=n_poi,
+        poi_nel_prompt=None if poi_nel_prompt is None else list(poi_nel_prompt),
         provenance=Provenance(
             code_commit="c",
             ontology_hash="o",
@@ -951,6 +959,8 @@ def _analyze_rec(
     temperature: float = 0.0,
     seed: int = 0,
     status: RunStatus = RunStatus.OK,
+    poi_nel_prompt: tuple[str, ...] | None = ("1",),
+    n_poi: int = 1,
 ) -> RunRecord:
     return _rec(
         "analyze-exp",
@@ -965,6 +975,8 @@ def _analyze_rec(
         temperature=temperature,
         seed=seed,
         status=status,
+        poi_nel_prompt=poi_nel_prompt,
+        n_poi=n_poi,
     )
 
 
@@ -1167,6 +1179,9 @@ def _no_ontology_rec(
     temperature: float = 0.0,
     seed: int = 0,
     narrativa: str = "prosa senza ancoraggi",
+    poi_nel_prompt: tuple[str, ...] | None = ("1",),
+    n_poi: int = 1,
+    status: RunStatus = RunStatus.OK,
 ) -> RunRecord:
     """Record del braccio ablato: con LLM, prompt senza contributo ontologico.
 
@@ -1189,6 +1204,9 @@ def _no_ontology_rec(
         temperature=temperature,
         seed=seed,
         narrativa=narrativa,
+        poi_nel_prompt=poi_nel_prompt,
+        n_poi=n_poi,
+        status=status,
     )
 
 
@@ -1568,6 +1586,117 @@ def test_isolation_keeps_claiming_the_measured_delta_without_vacuity() -> None:
     assert ISOLATED_DELTA_CLAIM in md
     assert VACUOUS_DELTA_CLAIM not in md
     assert VACUOUS_CAVEAT_HEAD not in md
+
+
+# --- #349: la parita' di POI nel prompt e' verificata, non presunta ---
+
+
+def _c3(a: list[RunRecord], b: list[RunRecord]) -> Comparison:
+    return compare_records(a, b, label_a="con-ontologia", label_b="senza-ontologia")
+
+
+def test_isolation_is_not_claimed_on_records_without_poi_in_prompt() -> None:
+    """Record precedenti a #349 (``poi_nel_prompt`` assente): la parita' non e'
+    verificabile, quindi la variabile NON e' dichiarata isolata e il report dice
+    perche', caso per caso."""
+    note = _c3(
+        [_analyze_rec("Roma", "Colosseo", poi_nel_prompt=None)],
+        [_no_ontology_rec("Roma", "Colosseo", poi_nel_prompt=None)],
+    ).isolated_variable
+    assert ISOLATED_VARIABLE_HEAD not in note
+    assert CONFOUNDED_VARIABLE_HEAD in note
+    assert "Roma/Colosseo" in note
+    assert "precedenti a #349" in note
+
+
+def test_isolation_is_not_claimed_when_one_arm_lacks_poi_in_prompt() -> None:
+    note = _c3(
+        [_analyze_rec("Roma", "Colosseo")],
+        [_no_ontology_rec("Roma", "Colosseo", poi_nel_prompt=None)],
+    ).isolated_variable
+    assert CONFOUNDED_VARIABLE_HEAD in note
+    assert "`senza-ontologia`" in note
+    assert "precedenti a #349" in note
+
+
+def test_isolation_is_not_claimed_when_the_poi_sets_differ() -> None:
+    """Il caso che #349 chiude: 20 POI contro 9-12. Insiemi diversi = due variabili."""
+    note = _c3(
+        [
+            _analyze_rec("Roma", "Colosseo", poi_nel_prompt=("1", "2"), n_poi=3),
+            _analyze_rec("Milano", "Duomo"),
+        ],
+        [
+            _no_ontology_rec(
+                "Roma", "Colosseo", poi_nel_prompt=("1", "2", "3"), n_poi=3
+            ),
+            _no_ontology_rec("Milano", "Duomo"),
+        ],
+    ).isolated_variable
+    assert CONFOUNDED_VARIABLE_HEAD in note
+    assert "Roma/Colosseo" in note
+    assert "insiemi diversi" in note
+    assert "Milano/Duomo" not in note
+
+
+def test_isolation_holds_when_the_sets_match_in_a_different_order() -> None:
+    """L'ordine diverge per costruzione (il completo per rilevanza, l'ablato
+    nell'ordine del recupero): conta l'INSIEME."""
+    note = _c3(
+        [_analyze_rec("Roma", "Colosseo", poi_nel_prompt=("2", "1"), n_poi=2)],
+        [_no_ontology_rec("Roma", "Colosseo", poi_nel_prompt=("1", "2"), n_poi=2)],
+    ).isolated_variable
+    assert ISOLATED_VARIABLE_HEAD in note
+    assert POI_SUBSET_VALIDITY_HEAD not in note
+
+
+def test_isolation_ignores_zones_excluded_from_the_comparison() -> None:
+    """Un FALLBACK non ha generato prosa (``poi_nel_prompt`` None) ed e' gia'
+    escluso da medie e delta: non rende confusa la variabile sulle altre zone."""
+    note = _c3(
+        [_analyze_rec("Roma", "Colosseo"), _analyze_rec("Milano", "Duomo")],
+        [
+            _no_ontology_rec("Roma", "Colosseo"),
+            _no_ontology_rec(
+                "Milano", "Duomo", poi_nel_prompt=None, status=RunStatus.FALLBACK
+            ),
+        ],
+    ).isolated_variable
+    assert ISOLATED_VARIABLE_HEAD in note
+
+
+def test_isolation_with_a_cut_declares_the_subset_and_an_undetermined_direction() -> (
+    None
+):
+    """Stessi POI ma non tutti: il report lo dice, con N su M per caso, chi li ha
+    scelti e che il verso dell'effetto non e' determinato."""
+    comparison = _c3(
+        [
+            _analyze_rec("Roma", "Colosseo", poi_nel_prompt=("3", "1"), n_poi=5),
+            _analyze_rec("Milano", "Duomo"),
+        ],
+        [
+            _no_ontology_rec("Roma", "Colosseo", poi_nel_prompt=("1", "3"), n_poi=5),
+            _no_ontology_rec("Milano", "Duomo"),
+        ],
+    )
+    note = comparison.isolated_variable
+    assert ISOLATED_VARIABLE_HEAD in note
+    assert POI_SUBSET_VALIDITY_HEAD in note
+    assert "Roma/Colosseo 2 su 5" in note
+    assert "Milano/Duomo" not in note
+    assert "NON è determinato" in note
+    assert ISOLATED_DELTA_CLAIM in to_markdown(comparison)
+
+
+def test_isolated_note_says_the_points_are_the_same_and_verified() -> None:
+    """La nota diceva che l'unica differenza era il PROMPT e che l'ablato riceve
+    "solo nome e classe dei punti": resta vero solo dicendo che sono gli STESSI
+    punti, verificati sui record."""
+    note = _c3(
+        [_analyze_rec("Roma", "Colosseo")], [_no_ontology_rec("Roma", "Colosseo")]
+    ).isolated_variable
+    assert "stessi POI nel prompt" in note
 
 
 def test_compare_experiments_writes_the_vacuity_warning_to_disk(tmp_path: Path) -> None:

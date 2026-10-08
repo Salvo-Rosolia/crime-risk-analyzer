@@ -578,6 +578,15 @@ class GenerationResult(BaseModel):
         exclude=True,
         description="Esito del controllo delle cifre: solo in memoria, per l'harness.",
     )
+    poi_nel_prompt: list[str] | None = Field(
+        default=None,
+        description=(
+            "Id (``poi_id``) dei POI entrati nello user_content, nell'ordine in cui "
+            "il prompt li elenca (#349): per l'harness, che li salva nel record "
+            "perche' il confronto verifichi che i due bracci abbiano visto gli "
+            "stessi punti. None nei percorsi che non lo valorizzano."
+        ),
+    )
 
 
 def normalize_untrusted_line(text: str) -> str:
@@ -690,11 +699,16 @@ class ContestoCostruito(NamedTuple):
     testo: str
     testo_senza_istat: str
     blocco_istat: BloccoIstat
-    poi_inclusi: int
     #: I POI entrati nel prompt, nell'ordine di selezione (che e' l'ordine del
     #: prompt col formato ``per_poi``) (#349): il braccio senza ontologia elenca lo
-    #: stesso insieme, non tutti i punti.
-    poi_selezionati: tuple[dict[str, Any], ...] = ()
+    #: stesso insieme, non tutti i punti. Obbligatorio: con un default vuoto una
+    #: costruzione che lo dimentica direbbe in silenzio "nessun POI".
+    poi_selezionati: tuple[dict[str, Any], ...]
+
+    @property
+    def poi_inclusi(self) -> int:
+        """Quanti POI sono entrati nel prompt: derivato, quindi sempre coerente."""
+        return len(self.poi_selezionati)
 
 
 def _relevance_sort_key(poi: dict[str, Any]) -> tuple[int, int]:
@@ -718,13 +732,26 @@ def _relevance_sort_key(poi: dict[str, Any]) -> tuple[int, int]:
     return (-len(risks), best_anchor)
 
 
-def _truncation_note(n_included: int, n_total: int) -> str:
+def _truncation_note(
+    n_included: int, n_total: int, *, con_criterio: bool = True
+) -> str:
     """Riga di trasparenza quando il contesto e' troncato per budget (#210).
 
     Dichiara che all'LLM sono passati i primi ``n_included`` POI (i piu' rilevanti)
     su ``n_total`` totali, ricordando che gli altri restano comunque in mappa e in
     lista: cosi' il modello puo' dichiararlo nella narrativa.
+
+    ``con_criterio=False`` (#349) e' la variante del braccio senza ontologia:
+    stessa nota senza "i ... piu' rilevanti". La rilevanza e' il numero di hazard
+    TERMINUS di un punto, quindi detta li' sarebbe un'informazione ontologica. Una
+    sola funzione per le due varianti, perche' due testi scritti a mano in due
+    moduli finiscono per differire anche dove non dovrebbero.
     """
+    if not con_criterio:
+        return (
+            f"NB: per limiti di lunghezza sono analizzati {n_included} POI su "
+            f"{n_total}; gli altri sono comunque in mappa e nella lista."
+        )
     return (
         f"NB: per limiti di lunghezza sono analizzati i {n_included} POI piu' "
         f"rilevanti su {n_total}; gli altri sono comunque in mappa e nella lista."
@@ -1136,9 +1163,7 @@ def build_context(
         context_format=context_format,
     )
     if not istat:
-        return ContestoCostruito(
-            senza, senza, BloccoIstat(), len(selected), tuple(selected)
-        )
+        return ContestoCostruito(senza, senza, BloccoIstat(), tuple(selected))
     blocco = blocco_istat_zona(
         selected,
         stima_token=_estimate_tokens,
@@ -1147,7 +1172,7 @@ def build_context(
         - _MARGINE_BLOCCO_TOKEN,
     )
     if not blocco.testo:
-        return ContestoCostruito(senza, senza, blocco, len(selected), tuple(selected))
+        return ContestoCostruito(senza, senza, blocco, tuple(selected))
     testo = _assemble_context(
         zona,
         selected,
@@ -1156,7 +1181,7 @@ def build_context(
         context_format=context_format,
         blocco_istat=blocco.testo,
     )
-    return ContestoCostruito(testo, senza, blocco, len(selected), tuple(selected))
+    return ContestoCostruito(testo, senza, blocco, tuple(selected))
 
 
 def build_context_str(
@@ -1326,9 +1351,25 @@ def prepara_richiesta_zona(
     return RichiestaZona(system_prompt=system_prompt, contesto=contesto)
 
 
+def poi_nel_prompt_ids(
+    pois: Iterable[dict[str, Any]], *, context_format: ContextFormat
+) -> list[str]:
+    """Id dei POI nell'ordine in cui il prompt di zona li elenca (#349).
+
+    Col formato ``per_poi`` e' l'ordine dato; con ``per_classe`` il prompt li
+    raggruppa per classe (:func:`_group_by_class`, la stessa funzione che scrive
+    il prompt), quindi l'ordine e' quello dei gruppi.
+    """
+    ordinati = list(pois)
+    if context_format == "per_classe":
+        ordinati = [p for g in _group_by_class(ordinati).values() for p in g]
+    return [str(p.get("poi_id", "")) for p in ordinati]
+
+
 def poi_del_prompt_zona(
     context_dict: dict[str, Any],
     *,
+    domanda: str | None = None,
     request_token_budget: int = DEFAULT_REQUEST_TOKEN_BUDGET,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     context_format: ContextFormat = DEFAULT_CONTEXT_FORMAT,
@@ -1344,11 +1385,14 @@ def poi_del_prompt_zona(
     zona e' troncata: chi lo usa per il braccio ablato non deve propagarlo, perche'
     la rilevanza viene dall'ontologia. La selezione e' la
     stessa di :func:`prepara_richiesta_zona`, coi parametri della run del braccio
-    completo, quindi non ne esiste una seconda copia. La domanda libera non entra:
-    il braccio di valutazione non ne ha.
+    completo, quindi non ne esiste una seconda copia. Prende TUTTI i parametri che
+    decidono la selezione, ``domanda`` compresa (il suo testo occupa budget): il
+    braccio di valutazione non ne passa, ma una funzione che ricostruisce la
+    selezione con un parametro in meno sarebbe giusta solo per caso.
     """
     richiesta = prepara_richiesta_zona(
         context_dict,
+        domanda=domanda,
         request_token_budget=request_token_budget,
         max_tokens=max_tokens,
         context_format=context_format,
@@ -1456,4 +1500,9 @@ async def generate_analysis(
         istat_versione_dati=versione_dati() if istat_attivo else None,
         istat_frasi_scartate=controllo.frasi_scartate if controllo else 0,
         controllo_istat=controllo,
+        # #349: dalla selezione che ha davvero costruito questo prompt, non
+        # ricalcolata.
+        poi_nel_prompt=poi_nel_prompt_ids(
+            contesto.poi_selezionati, context_format=context_format
+        ),
     )
