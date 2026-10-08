@@ -1,6 +1,7 @@
 import { confMeta } from '@core/confidence';
 import {
   Confidence,
+  IstatCollegamento,
   IstatCorrispondenza,
   IstatPoi,
   IstatRiga,
@@ -164,22 +165,40 @@ export function orderGroupsByTag(groups: Record<string, RiskItem[]>): TagGroup[]
  */
 export const ISTAT_MIN_DELITTI = 20;
 
+/** Riga ISTAT agganciata a un rischio, con il collegamento che la lega e il peso (#346/#347). */
+interface IstatMatch {
+  riga: IstatRiga;
+  collegamento: IstatCollegamento;
+  weight: number;
+}
+
+/**
+ * Unica logica di aggancio rischio → voce ISTAT (#346/#347): la usano sia il peso dell'ordine
+ * (`istatWeight`) sia l'indicatore (`withIstatIndicators`), così ordine e indicatore non possono
+ * divergere. `null` = nessun dato: rischio senza voce, voce con meno di `ISTAT_MIN_DELITTI`
+ * delitti nel luogo (o conteggio assente, O8), oppure tasso/tasso nazionale assenti o tasso
+ * nazionale 0. Il «meno di 0,1» pubblicato da ISTAT pesa 0 (non `null`): il dato c'è.
+ */
+function istatMatch(hazard: string, istat: IstatPoi | null | undefined): IstatMatch | null {
+  for (const riga of istat?.righe ?? []) {
+    const collegamento = riga.collegamenti.find((c) => c.hazard === hazard);
+    if (!collegamento) continue;
+    if (riga.delitti == null || riga.delitti < ISTAT_MIN_DELITTI) return null;
+    if (riga.tasso_sotto_soglia) return { riga, collegamento, weight: 0 };
+    if (riga.tasso == null || riga.tasso_italia == null || riga.tasso_italia === 0) return null;
+    return { riga, collegamento, weight: riga.tasso / riga.tasso_italia };
+  }
+  return null;
+}
+
 /**
  * Peso ISTAT di un rischio (#346): tasso del luogo del POI diviso tasso nazionale, stesso anno.
  * È l'unica misura confrontabile fra voci diverse (i furti sono sempre molti più delle rapine).
- * La corrispondenza della voce non pesa: lo dirà l'indicatore della #347. `null` = nessun dato:
- * rischio senza voce, voce con meno di `ISTAT_MIN_DELITTI` delitti nel luogo (o conteggio
- * assente, O8), oppure tasso/tasso nazionale assenti o tasso nazionale 0. Il «meno di 0,1»
- * pubblicato da ISTAT vale 0 (non `null`): il dato c'è, purché sopra la soglia dei conteggi. Mai
- * mostrato a schermo (D9).
+ * La corrispondenza della voce non pesa: la dice l'indicatore (#347). `null` = nessun dato (vedi
+ * `istatMatch`). Mai mostrato a schermo (D9).
  */
 export function istatWeight(hazard: string, istat: IstatPoi | null | undefined): number | null {
-  const riga = istat?.righe.find((r) => r.collegamenti.some((c) => c.hazard === hazard));
-  if (!riga) return null;
-  if (riga.delitti == null || riga.delitti < ISTAT_MIN_DELITTI) return null;
-  if (riga.tasso_sotto_soglia) return 0;
-  if (riga.tasso == null || riga.tasso_italia == null || riga.tasso_italia === 0) return null;
-  return riga.tasso / riga.tasso_italia;
+  return istatMatch(hazard, istat)?.weight ?? null;
 }
 
 export interface IstatOrdering {
@@ -217,23 +236,54 @@ export function orderRisksByIstat(
 }
 
 /**
- * Banda della tendenza «stabile» (#347): variazione 10 anni entro ±5%, estremi compresi. Su un
- * decennio un +2% non è una crescita; oltre la banda si dice «in crescita» o «in calo».
+ * Avviso quando la voce ISTAT non coincide col rischio (#345, D3): l'esatta non ne ha. Un valore
+ * fuori contratto (dato legacy, mismatch di versione) riceve un avviso generico invece di
+ * nessuno: tacere farebbe passare la voce per coincidente.
  */
-export const ISTAT_STABLE_BAND_PCT = 5;
-
-/** Avviso quando la voce ISTAT non coincide col rischio (#345, D3): l'esatta non ne ha. */
-const ISTAT_CORRISPONDENZA_NOTE: Record<IstatCorrispondenza, string | null> = {
-  esatta: null,
-  piu_larga: 'voce ISTAT più ampia del rischio',
-  piu_stretta: 'voce ISTAT che copre solo una parte del rischio',
-};
-
-/** Intero col punto delle migliaia sempre (3.016), come le righe ISTAT del backend e la narrativa. */
-function formatIstatCount(n: number): string {
-  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+function istatCorrispondenzaNote(corrispondenza: IstatCorrispondenza): string | null {
+  switch (corrispondenza) {
+    case 'esatta':
+      return null;
+    case 'piu_larga':
+      return 'voce ISTAT più ampia del rischio';
+    case 'piu_stretta':
+      return 'voce ISTAT che copre solo una parte del rischio';
+    default:
+      return 'voce ISTAT non coincidente col rischio';
+  }
 }
 
+/** Punto delle migliaia sulla parte intera (134169 → 134.169). */
+function withThousandsDots(intero: string): string {
+  return intero.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+/** Intero col punto delle migliaia (134.169), come `formatta_intero` del backend. */
+function formatIstatCount(n: number): string {
+  return withThousandsDots(String(n));
+}
+
+/**
+ * Un decimale, virgola decimale e punto delle migliaia (1.162,7), come `formatta_decimale` del
+ * backend (`istat/righe.py`).
+ */
+function formatIstatDecimal(x: number): string {
+  const [intero, decimale] = x.toFixed(1).split('.');
+  return `${withThousandsDots(intero)},${decimale}`;
+}
+
+/** Tasso pubblicato ogni 100.000 abitanti: «meno di 0,1» se ISTAT lo pubblica così (`_tasso`). */
+function formatIstatRate(valore: number | null, sottoSoglia: boolean): string {
+  if (valore != null) return formatIstatDecimal(valore);
+  return sottoSoglia ? 'meno di 0,1' : 'non disponibile';
+}
+
+/**
+ * Tendenza 10 anni col solo segno della variazione, senza banda «stabile»: lo stesso criterio del
+ * controllo cifre della narrativa (`istat/cifre.py`), che accetta «in aumento/in calo» per
+ * qualunque variazione col segno giusto. Riporta anche i delitti dell'anno base (valori assoluti
+ * di entrambi gli anni), così una percentuale enorme su pochi casi si legge per quello che è.
+ */
 function istatTrend(riga: IstatRiga): Pick<IstatIndicator, 'freccia' | 'tendenza'> {
   const v = riga.variazione_pct;
   if (v == null) {
@@ -241,61 +291,74 @@ function istatTrend(riga: IstatRiga): Pick<IstatIndicator, 'freccia' | 'tendenza
     const tendenza = motivo ? `tendenza non calcolabile: ${motivo}` : 'tendenza non calcolabile';
     return { freccia: null, tendenza };
   }
-  const pct = `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v)}% dal ${riga.anno_confronto}`;
-  if (v > ISTAT_STABLE_BAND_PCT) return { freccia: '▲', tendenza: `in crescita (${pct})` };
-  if (v < -ISTAT_STABLE_BAND_PCT) return { freccia: '▼', tendenza: `in calo (${pct})` };
+  const erano =
+    riga.delitti_confronto != null ? `, erano ${formatIstatCount(riga.delitti_confronto)}` : '';
+  const segno = v > 0 ? '+' : v < 0 ? '−' : '';
+  const pct = `${segno}${Math.abs(v)}% dal ${riga.anno_confronto}${erano}`;
+  if (v > 0) return { freccia: '▲', tendenza: `in crescita (${pct})` };
+  if (v < 0) return { freccia: '▼', tendenza: `in calo (${pct})` };
   return { freccia: null, tendenza: `stabile (${pct})` };
 }
 
 /**
- * Indicatore ISTAT accanto a un rischio (#347), in parti: la `freccia` è decorativa (il template la
- * rende `aria-hidden`, la `tendenza` dice già «in crescita»/«in calo»), così i lettori di schermo
- * non leggono «triangolo nero».
+ * Indicatore ISTAT accanto a un rischio (#347), in parti: `dati` è il testo prima della tendenza;
+ * la `freccia` è decorativa (il template la rende `aria-hidden`, la `tendenza` dice già «in
+ * crescita»/«in calo»), così i lettori di schermo non leggono «triangolo nero». Su una voce già
+ * mostrata da un rischio precedente dello stesso gruppo `dati` è «stessa voce ISTAT: …» e
+ * `tendenza` è `null`.
  */
 export interface IstatIndicator {
-  /** Etichetta della voce, con l'avviso se non coincide col rischio. */
-  voce: string;
-  /** Delitti denunciati dell'ultimo anno col punto delle migliaia, e l'anno. */
-  delitti: string;
+  dati: string;
   freccia: '▲' | '▼' | null;
-  tendenza: string;
+  tendenza: string | null;
+}
+
+/** Un rischio del Dettaglio col suo indicatore ISTAT (`null` se il rischio non ha dato). */
+export interface IstatEntry {
+  risk: RiskItem;
+  indicator: IstatIndicator | null;
 }
 
 /**
- * Indicatore ISTAT accanto a un rischio nel Dettaglio (#347): voce (con l'avviso se non coincide
- * col rischio), delitti denunciati dell'ultimo anno e tendenza 10 anni. Il luogo sta nella nota del
- * gruppo. `null` esattamente quando `istatWeight` è `null`, così indicatore e ordine non divergono:
- * niente indicatore sotto `ISTAT_MIN_DELITTI`, senza voce o senza tassi. Cifre così come le manda
- * il backend, nessun valore derivato e nessun giudizio sul luogo (D9).
+ * Indicatori ISTAT dei rischi di un gruppo nel Dettaglio (#347), nell'ordine dato. Riga completa:
+ * voce (con l'avviso se non coincide col rischio), delitti denunciati dell'ultimo anno, tasso del
+ * luogo e tasso italiano così come pubblicati (mai il loro rapporto, D9) e tendenza 10 anni. Il
+ * luogo sta nella nota del gruppo. `null` esattamente quando `istatWeight` è `null` (stesso
+ * `istatMatch`), così indicatore e ordine non divergono. Quando più rischi condividono la stessa
+ * voce solo la prima occorrenza (in ordine, non per adiacenza) è completa: le altre dicono
+ * «stessa voce ISTAT: …» col proprio avviso, perché la corrispondenza è per rischio.
  */
-export function istatIndicator(
-  hazard: string,
+export function withIstatIndicators(
+  risks: RiskItem[],
   istat: IstatPoi | null | undefined,
-): IstatIndicator | null {
-  if (istatWeight(hazard, istat) === null) return null;
-  const riga = istat?.righe.find((r) => r.collegamenti.some((c) => c.hazard === hazard));
-  // Già esclusi da `istatWeight`: il controllo serve solo a restringere i tipi.
-  if (!riga || riga.delitti == null) return null;
-  const corrispondenza = riga.collegamenti.find((c) => c.hazard === hazard)?.corrispondenza;
-  const nota = corrispondenza ? ISTAT_CORRISPONDENZA_NOTE[corrispondenza] : null;
-  return {
-    voce: nota ? `${riga.voce_label} (${nota})` : riga.voce_label,
-    delitti: `${formatIstatCount(riga.delitti)} delitti nel ${riga.anno}`,
-    ...istatTrend(riga),
-  };
+): IstatEntry[] {
+  const seen = new Set<string>();
+  return risks.map((risk) => {
+    const match = istatMatch(risk.hazard, istat);
+    if (!match) return { risk, indicator: null };
+    const { riga, collegamento } = match;
+    const nota = istatCorrispondenzaNote(collegamento.corrispondenza);
+    const voce = nota ? `${riga.voce_label} (${nota})` : riga.voce_label;
+    if (seen.has(riga.voce)) {
+      const dati = `stessa voce ISTAT: ${voce}`;
+      return { risk, indicator: { dati, freccia: null, tendenza: null } };
+    }
+    seen.add(riga.voce);
+    // `istatMatch` esclude già i conteggi assenti: `delitti` qui è sempre un numero.
+    const delitti = `${formatIstatCount(riga.delitti ?? 0)} delitti denunciati nel ${riga.anno}`;
+    const tasso = formatIstatRate(riga.tasso, riga.tasso_sotto_soglia);
+    const italia = formatIstatRate(riga.tasso_italia, riga.tasso_italia_sotto_soglia);
+    const dati = `${voce} · ${delitti} · ${tasso} ogni 100.000 ab. (Italia: ${italia})`;
+    return { risk, indicator: { dati, ...istatTrend(riga) } };
+  });
 }
 
-/** Testo dell'indicatore come appare a schermo, freccia compresa (per test e oracoli). */
-export function istatIndicatorText(indicator: IstatIndicator): string {
-  const tendenza = indicator.freccia
-    ? `${indicator.freccia} ${indicator.tendenza}`
-    : indicator.tendenza;
-  return `${indicator.voce} · ${indicator.delitti} · ${tendenza}`;
-}
-
-/** Nota dei gruppi ordinati col dato ISTAT (#346): luogo e anno, nessuna cifra (D9). */
+/**
+ * Nota dei gruppi ordinati col dato ISTAT (#346): dice cosa si confronta (tassi del luogo e
+ * italiano, non il numero di delitti), con luogo e anno; nessun valore (D9).
+ */
 export function istatOrderNote(istat: IstatPoi): string {
-  return `Ordinati in base a quanto i delitti denunciati superano la media italiana, non in base al loro numero (ISTAT ${istat.cornice.anno}, ${istat.cornice.luogo_nome}).`;
+  return `Ordinati confrontando il tasso per 100.000 abitanti del luogo con quello italiano, non in base al numero di delitti (ISTAT ${istat.cornice.anno}, ${istat.cornice.luogo_nome}).`;
 }
 
 export interface BaseRow {

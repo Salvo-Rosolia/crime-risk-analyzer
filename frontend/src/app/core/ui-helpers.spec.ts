@@ -4,8 +4,7 @@ import {
   buildDetailModel,
   buildSourceTabs,
   cityColorFor,
-  istatIndicator,
-  istatIndicatorText,
+  withIstatIndicators,
   istatOrderNote,
   istatWeight,
   matchesFilter,
@@ -15,6 +14,7 @@ import {
   poiPopupHTML,
   validateInputPanel,
 } from '@core/ui-helpers';
+import type { IstatIndicator } from '@core/ui-helpers';
 import { CONF, DIM_COLOR } from '@core/confidence';
 import { IstatPoi, IstatRiga, Poi, RiskItem, RiskModel, SourceProse } from '@core/models/models';
 import { istatPoi, istatRiga } from '@core/testing/istat-fixtures';
@@ -622,38 +622,67 @@ describe('ui-helpers', () => {
       expect(input.map((r) => r.hazard)).toEqual(['x', 'alto']);
     });
 
-    it('istatOrderNote: luogo e anno dalla cornice, nessun numero di tasso', () => {
+    it('istatOrderNote: dichiara il confronto fra tassi del luogo e italiano, con luogo e anno, nessun valore', () => {
       expect(istatOrderNote(istatPoi())).toBe(
-        'Ordinati in base a quanto i delitti denunciati superano la media italiana, non in base al loro numero (ISTAT 2024, Comune di Roma).',
+        'Ordinati confrontando il tasso per 100.000 abitanti del luogo con quello italiano, non in base al numero di delitti (ISTAT 2024, Comune di Roma).',
       );
     });
   });
 
   describe('indicatore ISTAT accanto al rischio (#347)', () => {
-    function testo(hazard: string, dati: IstatPoi): string | null {
-      const ind = istatIndicator(hazard, dati);
-      return ind ? istatIndicatorText(ind) : null;
+    function risk(hazard: string): RiskItem {
+      return {
+        hazard,
+        confidence: 'verificato',
+        tag: 'ONTOLOGIA',
+        hazard_label_it: hazard,
+        hazard_label_en: hazard,
+      };
+    }
+
+    /** Testo dell'indicatore come appare a schermo, freccia compresa (oracolo dei soli test). */
+    function testoIndicatore(ind: IstatIndicator | null): string | null {
+      if (!ind) return null;
+      if (ind.tendenza === null) return ind.dati;
+      const tendenza = ind.freccia ? `${ind.freccia} ${ind.tendenza}` : ind.tendenza;
+      return `${ind.dati} · ${tendenza}`;
+    }
+
+    function testi(hazards: string[], dati: IstatPoi | null | undefined): (string | null)[] {
+      return withIstatIndicators(hazards.map(risk), dati).map((e) => testoIndicatore(e.indicator));
     }
 
     function indicatore(over: Partial<IstatRiga> = {}): string | null {
-      return testo('Theft', istatPoi(istatRiga('THEFT', ['Theft'], over)));
+      return testi(['Theft'], istatPoi(istatRiga('THEFT', ['Theft'], over)))[0];
     }
 
-    it('voce più ampia, delitti col punto delle migliaia, calo oltre il 5%', () => {
-      expect(indicatore({ voce_label: 'furti', delitti: 134169, variazione_pct: -10 })).toBe(
-        'furti (voce ISTAT più ampia del rischio) · 134.169 delitti nel 2024 · ▼ in calo (−10% dal 2014)',
+    it('riga completa: voce più ampia, delitti denunciati, tassi del luogo e dell’Italia, calo con il conteggio dell’anno base', () => {
+      expect(
+        indicatore({
+          voce_label: 'furti',
+          delitti: 134169,
+          delitti_confronto: 149077,
+          tasso: 4876.4,
+          tasso_italia: 1673.26,
+          variazione_pct: -10,
+        }),
+      ).toBe(
+        'furti (voce ISTAT più ampia del rischio) · 134.169 delitti denunciati nel 2024 · 4.876,4 ogni 100.000 ab. (Italia: 1.673,3) · ▼ in calo (−10% dal 2014, erano 149.077)',
       );
     });
 
-    it('corrispondenza esatta: nessun avviso; crescita oltre il 5%; 4 cifre col punto', () => {
+    it('corrispondenza esatta: nessun avviso; crescita con +; tassi a un decimale', () => {
       const riga = istatRiga('PICKTHEF', ['Theft'], {
         voce_label: 'scippi',
         delitti: 3016,
-        variazione_pct: 15,
+        delitti_confronto: 22,
+        tasso: 108,
+        tasso_italia: 12.04,
+        variazione_pct: 2114,
         collegamenti: [{ hazard: 'Theft', hazard_label_it: 'Furto', corrispondenza: 'esatta' }],
       });
-      expect(testo('Theft', istatPoi(riga))).toBe(
-        'scippi · 3.016 delitti nel 2024 · ▲ in crescita (+15% dal 2014)',
+      expect(testi(['Theft'], istatPoi(riga))[0]).toBe(
+        'scippi · 3.016 delitti denunciati nel 2024 · 108,0 ogni 100.000 ab. (Italia: 12,0) · ▲ in crescita (+2114% dal 2014, erano 22)',
       );
     });
 
@@ -668,17 +697,53 @@ describe('ui-helpers', () => {
           },
         ],
       });
-      expect(testo('Vehicle_Theft', istatPoi(riga))).toContain(
-        'furti di autovetture (voce ISTAT che copre solo una parte del rischio)',
+      expect(testi(['Vehicle_Theft'], istatPoi(riga))[0]).toMatch(
+        /^furti di autovetture \(voce ISTAT che copre solo una parte del rischio\) · /,
       );
     });
 
-    it('stabile entro ±5%, estremi compresi', () => {
-      expect(indicatore({ variazione_pct: 5 })).toContain('· stabile (+5% dal 2014)');
-      expect(indicatore({ variazione_pct: -5 })).toContain('· stabile (−5% dal 2014)');
-      expect(indicatore({ variazione_pct: 0 })).toContain('· stabile (0% dal 2014)');
-      expect(indicatore({ variazione_pct: 6 })).toContain('▲ in crescita (+6% dal 2014)');
-      expect(indicatore({ variazione_pct: -6 })).toContain('▼ in calo (−6% dal 2014)');
+    it('corrispondenza sconosciuta (fuori contratto o chiave ereditata): avviso generico, non nessun avviso', () => {
+      for (const corrispondenza of ['boh', 'constructor', 'toString']) {
+        const riga = istatRiga('THEFT', ['Theft'], {
+          voce_label: 'furti',
+          collegamenti: [
+            { hazard: 'Theft', hazard_label_it: 'Furto', corrispondenza: corrispondenza as never },
+          ],
+        });
+        expect(testi(['Theft'], istatPoi(riga))[0]).toMatch(
+          /^furti \(voce ISTAT non coincidente col rischio\) · /,
+        );
+      }
+    });
+
+    it('«meno di 0,1» per il tasso del luogo e per quello italiano', () => {
+      expect(indicatore({ tasso: null, tasso_sotto_soglia: true })).toContain(
+        '· meno di 0,1 ogni 100.000 ab. (Italia: 100,0) ·',
+      );
+      expect(
+        indicatore({
+          tasso: null,
+          tasso_sotto_soglia: true,
+          tasso_italia: null,
+          tasso_italia_sotto_soglia: true,
+        }),
+      ).toContain('· meno di 0,1 ogni 100.000 ab. (Italia: meno di 0,1) ·');
+    });
+
+    it('tendenza: segno della variazione, nessuna banda «stabile» (come il controllo cifre della narrativa)', () => {
+      expect(indicatore({ variazione_pct: 2 })).toMatch(
+        /· ▲ in crescita \(\+2% dal 2014, erano 100\)$/,
+      );
+      expect(indicatore({ variazione_pct: -1 })).toMatch(
+        /· ▼ in calo \(−1% dal 2014, erano 100\)$/,
+      );
+      expect(indicatore({ variazione_pct: 0 })).toMatch(/· stabile \(0% dal 2014, erano 100\)$/);
+    });
+
+    it('conteggio dell’anno base assente: niente «erano»', () => {
+      expect(indicatore({ variazione_pct: 5, delitti_confronto: null })).toMatch(
+        /· ▲ in crescita \(\+5% dal 2014\)$/,
+      );
     });
 
     it('tendenza non calcolabile: riporta il motivo del backend', () => {
@@ -688,8 +753,8 @@ describe('ui-helpers', () => {
           motivo_senza_variazione:
             'serie interrotta dalla depenalizzazione del 2016 (d.lgs. 7/2016)',
         }),
-      ).toContain(
-        '· tendenza non calcolabile: serie interrotta dalla depenalizzazione del 2016 (d.lgs. 7/2016)',
+      ).toMatch(
+        /· tendenza non calcolabile: serie interrotta dalla depenalizzazione del 2016 \(d\.lgs\. 7\/2016\)$/,
       );
       expect(indicatore({ variazione_pct: null, motivo_senza_variazione: null })).toMatch(
         /· tendenza non calcolabile$/,
@@ -699,28 +764,64 @@ describe('ui-helpers', () => {
     it('nessun indicatore dove non c’è peso: sotto soglia, senza voce, senza istat', () => {
       expect(indicatore({ delitti: ISTAT_MIN_DELITTI - 1 })).toBeNull();
       expect(indicatore({ tasso_italia: null })).toBeNull();
-      expect(istatIndicator('Altro', istatPoi(istatRiga('THEFT', ['Theft'])))).toBeNull();
-      expect(istatIndicator('Theft', null)).toBeNull();
-      expect(istatIndicator('Theft', undefined)).toBeNull();
+      expect(testi(['Altro'], istatPoi(istatRiga('THEFT', ['Theft'])))).toEqual([null]);
+      expect(testi(['Theft'], null)).toEqual([null]);
+      expect(testi(['Theft'], undefined)).toEqual([null]);
     });
 
     it('indicatore presente al confine: 20 delitti, e tasso «meno di 0,1» (peso 0 ma ordinato)', () => {
-      expect(indicatore({ delitti: ISTAT_MIN_DELITTI })).toContain('20 delitti nel 2024');
+      expect(indicatore({ delitti: ISTAT_MIN_DELITTI })).toContain(
+        '20 delitti denunciati nel 2024',
+      );
       expect(indicatore({ tasso: null, tasso_sotto_soglia: true })).not.toBeNull();
     });
 
+    it('stessa voce su più rischi: solo la prima occorrenza è completa, anche se non adiacenti', () => {
+      const riga = istatRiga('DAMAGE', ['a', 'c'], {
+        voce_label: 'danneggiamenti',
+        collegamenti: [
+          { hazard: 'a', hazard_label_it: 'A', corrispondenza: 'esatta' },
+          { hazard: 'c', hazard_label_it: 'C', corrispondenza: 'piu_larga' },
+        ],
+      });
+      const altra = istatRiga('THEFT', ['b'], { voce_label: 'furti' });
+      const out = testi(['a', 'b', 'c', 'x'], istatPoi(riga, altra));
+      expect(out[0]).toMatch(/^danneggiamenti · 100 delitti denunciati nel 2024 · /);
+      expect(out[1]).toMatch(/^furti \(voce ISTAT più ampia del rischio\) · 100 delitti/);
+      expect(out[2]).toBe('stessa voce ISTAT: danneggiamenti (voce ISTAT più ampia del rischio)');
+      expect(out[3]).toBeNull();
+    });
+
+    it('ripetizione senza avviso quando la corrispondenza della ripetuta è esatta', () => {
+      const riga = istatRiga('DAMAGE', ['a', 'b'], {
+        voce_label: 'danneggiamenti',
+        collegamenti: [
+          { hazard: 'a', hazard_label_it: 'A', corrispondenza: 'piu_larga' },
+          { hazard: 'b', hazard_label_it: 'B', corrispondenza: 'esatta' },
+        ],
+      });
+      expect(testi(['a', 'b'], istatPoi(riga))[1]).toBe('stessa voce ISTAT: danneggiamenti');
+    });
+
     it('la freccia è una parte separata (decorativa), la tendenza si legge da sola', () => {
-      const su = istatIndicator(
-        'Theft',
+      const [su] = withIstatIndicators(
+        [risk('Theft')],
         istatPoi(istatRiga('THEFT', ['Theft'], { variazione_pct: 20 })),
       );
-      expect(su?.freccia).toBe('▲');
-      expect(su?.tendenza).toBe('in crescita (+20% dal 2014)');
-      const stabile = istatIndicator(
-        'Theft',
-        istatPoi(istatRiga('THEFT', ['Theft'], { variazione_pct: 2 })),
+      expect(su.indicator?.freccia).toBe('▲');
+      expect(su.indicator?.tendenza).toBe('in crescita (+20% dal 2014, erano 100)');
+      const [stabile] = withIstatIndicators(
+        [risk('Theft')],
+        istatPoi(istatRiga('THEFT', ['Theft'], { variazione_pct: 0 })),
       );
-      expect(stabile?.freccia).toBeNull();
+      expect(stabile.indicator?.freccia).toBeNull();
+    });
+
+    it('conserva l’ordine e il riferimento dei rischi in ingresso', () => {
+      const rischi = [risk('b'), risk('a')];
+      const out = withIstatIndicators(rischi, istatPoi(istatRiga('A', ['a'])));
+      expect(out.map((e) => e.risk)).toEqual(rischi);
+      expect(out[0].risk).toBe(rischi[0]);
     });
   });
 });
