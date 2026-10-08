@@ -77,6 +77,15 @@ def build_parser() -> argparse.ArgumentParser:
                 help="K ripetizioni per stimare la varianza (#157); default 1",
             )
             p.add_argument(
+                "--pausa",
+                type=float,
+                default=0.0,
+                help=(
+                    "secondi di attesa fra una chiamata al modello e la successiva "
+                    "(#357), per il tetto di token al minuto del provider; default 0"
+                ),
+            )
+            p.add_argument(
                 "--clean-stale",
                 action="store_true",
                 help="rimuove le run legacy pre-#157 (senza __rep) prima di eseguire",

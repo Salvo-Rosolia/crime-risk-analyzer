@@ -249,7 +249,12 @@ async def _capture(
 
 
 async def _run(
-    config_path: Path, results_dir: Path, *, repeat: int = 1, clean_stale: bool = False
+    config_path: Path,
+    results_dir: Path,
+    *,
+    repeat: int = 1,
+    clean_stale: bool = False,
+    pausa_secondi: float = 0.0,
 ) -> None:
     config = load_config(config_path)
     # Build the client only when mode requires it (fix T9), using config.model (fix I1).
@@ -263,6 +268,7 @@ async def _run(
         ontology_hash=ontology_hash(),
         repeat=repeat,
         clean_stale=clean_stale,
+        pausa_secondi=pausa_secondi,
     )
 
 
@@ -282,6 +288,7 @@ def main() -> int:
                 results_dir,
                 repeat=ns.repeat,
                 clean_stale=ns.clean_stale,
+                pausa_secondi=ns.pausa,
             )
         )
     elif ns.command == "aggregate":

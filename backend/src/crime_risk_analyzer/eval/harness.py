@@ -8,8 +8,10 @@ stesso esperimento sono rilevati e rifiutati da ``run`` (o rimossi con
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from crime_risk_analyzer.eval.istat_metrics import compute_istat_metrics
@@ -466,6 +468,8 @@ async def run_experiment(
     ontology_hash: str,
     repeat: int = 1,
     clean_stale: bool = False,
+    pausa_secondi: float = 0.0,
+    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> list[RunRecord]:
     """Esegue tutti i casi ``repeat`` volte, scrive i JSON, ritorna i record.
 
@@ -489,14 +493,27 @@ async def run_experiment(
 
     Solleva :class:`ValueError` se ``repeat < 1`` (niente esperimento vuoto
     in silenzio: senza guardia ``range(repeat)`` ritornerebbe ``[]``).
+
+    ``pausa_secondi`` (#357): attesa fra una chiamata al modello e la successiva,
+    mai prima della prima e mai per la baseline (che non chiama il modello). Sul
+    provider gratuito una chiamata del braccio con ontologia vale quasi tutto il
+    tetto di token al minuto: due chiamate di fila facevano andare la seconda in
+    timeout, cioe' in una risposta di ripiego scartata dal confronto. L'attesa sta
+    fuori da ``run_case``, quindi non entra nella latenza misurata. Default 0 =
+    comportamento di prima. ``sleep`` e' iniettabile per i test.
     """
     if repeat < 1:
         raise ValueError(f"repeat deve essere >= 1, ricevuto {repeat}")
+    if pausa_secondi < 0:
+        raise ValueError(f"pausa_secondi deve essere >= 0, ricevuto {pausa_secondi}")
+    aspetta = pausa_secondi > 0 and config.mode != "baseline"
     _require_llm_client(config, llm_client)
     guard_no_legacy_runs(results_dir, config.name, clean_stale=clean_stale)
     records: list[RunRecord] = []
     for rep in range(repeat):
         for case in config.cases:
+            if aspetta and records:
+                await sleep(pausa_secondi)
             try:
                 record = await run_case(
                     case,

@@ -257,3 +257,10 @@ def test_parser_rejects_old_gold_verb() -> None:
     parser = build_parser()
     with pytest.raises(SystemExit):
         parser.parse_args(["gold", "--results", "r"])
+
+
+def test_parser_run_pausa() -> None:
+    """#357: --pausa (secondi fra le chiamate LLM), default 0."""
+    ns = build_parser().parse_args(["run", "--config", "exp.json", "--pausa", "65"])
+    assert ns.pausa == 65.0
+    assert build_parser().parse_args(["run", "--config", "exp.json"]).pausa == 0.0

@@ -1645,3 +1645,93 @@ async def test_baseline_non_registra_un_budget_llm(tmp_path: Path) -> None:
         None,
         None,
     )
+
+
+async def _run_con_pausa(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    mode: Mode,
+    pausa_secondi: float,
+    repeat: int = 2,
+) -> list[float]:
+    """Esegue due casi ``repeat`` volte con un ``sleep`` finto e ritorna le pause."""
+    from crime_risk_analyzer.rag import retrieval
+    from tests.eval._doubles import FakeLLMClient, FakeProfiler
+
+    casi = [RunCase(citta="Roma", zona="Centro"), RunCase(citta="Roma", zona="Prati")]
+    for caso in casi:
+        scrivi_snapshot(
+            snapshot_path(tmp_path, make_snapshot_key(caso.citta, caso.zona)),
+            _sample_pois(),
+        )
+    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
+    pause: list[float] = []
+
+    async def _sleep(secondi: float) -> None:
+        pause.append(secondi)
+
+    await run_experiment(
+        ExperimentConfig(name="p", mode=mode, model="groq", cases=casi),
+        executor=FakeProfiler(),
+        llm_client=None if mode == "baseline" else FakeLLMClient(),
+        results_dir=tmp_path,
+        code_commit="abc",
+        ontology_hash="def",
+        repeat=repeat,
+        pausa_secondi=pausa_secondi,
+        sleep=_sleep,
+    )
+    return pause
+
+
+async def test_run_experiment_pausa_fra_le_chiamate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#357: con la pausa, si aspetta fra una chiamata LLM e la successiva —
+    non prima della prima — cosi' il tetto di token al minuto del provider
+    gratuito non trasforma le chiamate in risposte di ripiego. 2 casi x 2 rep =
+    4 chiamate, quindi 3 pause."""
+    pause = await _run_con_pausa(
+        tmp_path, monkeypatch, mode="analyze", pausa_secondi=65
+    )
+    assert pause == [65, 65, 65]
+
+
+async def test_run_experiment_senza_pausa_di_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Default 0: nessuna attesa, comportamento di prima."""
+    assert (
+        await _run_con_pausa(tmp_path, monkeypatch, mode="analyze", pausa_secondi=0)
+        == []
+    )
+
+
+async def test_run_experiment_baseline_non_aspetta(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """La baseline non chiama il modello: la pausa non ha motivo di esistere."""
+    pause = await _run_con_pausa(
+        tmp_path, monkeypatch, mode="baseline", pausa_secondi=65
+    )
+    assert pause == []
+
+
+async def test_run_experiment_rifiuta_pausa_negativa(tmp_path: Path) -> None:
+    from tests.eval._doubles import FakeProfiler
+
+    with pytest.raises(ValueError):
+        await run_experiment(
+            ExperimentConfig(
+                name="x",
+                mode="baseline",
+                model="claude",
+                cases=[RunCase(citta="Roma", zona="Centro")],
+            ),
+            executor=FakeProfiler(),
+            results_dir=tmp_path,
+            code_commit="abc",
+            ontology_hash="def",
+            pausa_secondi=-1,
+        )
