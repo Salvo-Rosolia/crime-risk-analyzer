@@ -206,28 +206,30 @@
   gap: var(--space-2);
 }
 
-/* Riga fattore come le card della lista: etichetta a sinistra (info primaria), badge di
-   confidence a destra allineato a colonna. */
+/*
+ * Riga fattore come le card della lista: etichetta a sinistra (info primaria), badge di
+ * confidence a destra allineato a colonna e, se c'è, l'indicatore ISTAT (#347) sotto, a tutta
+ * larghezza. Grid ad aree invece di un wrapper: nel DOM l'ordine resta etichetta → badge →
+ * indicatore, lo stesso dell'ordine di lettura (a11y), senza `order:` che separi DOM e vista.
+ */
 .cra-factor-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'label badge'
+    'indicator indicator';
   align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-3);
+  column-gap: var(--space-3);
   font-size: 0.78rem;
   line-height: 1.4;
 }
 
 .cra-factor-label {
-  flex: 1 1 auto;
-  min-width: 0;
+  grid-area: label;
 }
 
-/* #347: etichetta + indicatore ISTAT impilati a sinistra, il badge di confidenza resta a destra. */
-.cra-factor-main {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  min-width: 0;
+.cra-factor-row > .cra-badge-confidence {
+  grid-area: badge;
 }
 
 /*
@@ -236,6 +238,7 @@
  * testo, che dice già «in crescita»/«in calo».
  */
 .cra-istat-indicator {
+  grid-area: indicator;
   font-size: 0.7rem;
   line-height: 1.35;
   color: var(--ink-2);
@@ -283,9 +286,9 @@
 
 /*
  * #346 (O9): separatore testuale fra i rischi con dato ISTAT e quelli senza, dentro un gruppo
- * misto — senza, la coda si leggerebbe come il fondo di una classifica di pericolosità. Più
- * piccolo e attenuato della nota d'ordine qui sopra: non è un'informazione nuova, è un confine
- * dentro una lista già annunciata.
+ * misto («Dato ISTAT assente o troppo esiguo») — senza, la coda si leggerebbe come il fondo di
+ * una classifica di pericolosità. Più piccolo e attenuato della nota d'ordine qui sopra: non è
+ * un'informazione nuova, è un confine dentro una lista già annunciata.
  */
 .cra-istat-tail-label {
   margin: 0.35rem 0 0.25rem;

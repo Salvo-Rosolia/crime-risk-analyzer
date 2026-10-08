@@ -10,18 +10,18 @@ import {
   output,
 } from '@angular/core';
 import { confMeta, pinColor, srcTagMeta } from '@core/confidence';
-import { OntologyItem, Poi, RiskItem, RiskModel } from '@core/models/models';
+import { OntologyItem, Poi, RiskModel } from '@core/models/models';
 import {
-  IstatIndicator,
+  IstatEntry,
   TagGroup,
   buildDetailModel,
   hazardDisplayLabel,
-  istatIndicator,
   istatOrderNote,
   ontologyDisplayLabel,
   orderGroupsByTag,
   orderRisksByIstat,
   poiNameDisplayLabel,
+  withIstatIndicators,
 } from '@core/ui-helpers';
 
 /**
@@ -86,57 +86,35 @@ export class DetailPanelComponent {
   /**
    * Gruppi-fonte nell'ordine canonico (`orderGroupsByTag`) e, dentro ciascuno, rischi ordinati col
    * dato ISTAT del luogo del POI (#346): prima quelli con dato, per tasso locale rispetto alla
-   * media italiana, poi gli altri (`rankedCount` è il confine fra i due, #346 O9 — il template lo
-   * usa per separare le due liste con l'etichetta "Senza dato ISTAT" quando il gruppo è misto).
-   * `istatNote` è la riga che dichiara da dove viene l'ordine — senza, un ordine che cambia senza
-   * motivo si leggerebbe come una graduatoria di pericolosità del POI. `null` se il gruppo non ha
-   * rischi con dato o il POI non porta `istat` (interruttore spento). La nota è calcolata una sola
-   * volta (non dipende dal gruppo, solo dalla cornice del POI) e assegnata ai gruppi con dato.
+   * media italiana, poi gli altri. Ordine e indicatori ISTAT (#347) escono dallo stesso passaggio
+   * (`orderRisksByIstat` + `withIstatIndicators`, stesso aggancio), una volta per POI e non a ogni
+   * refresh del template; la prima occorrenza di una voce si decide qui, sull'ordine finale.
+   *
+   * `lists` sono le liste di righe del gruppo: una sola, oppure due quando il gruppo è misto (#346
+   * O9: rischi con dato, poi la coda senza; con tutti/nessuno la coda non esiste) — il template
+   * le rende con lo stesso markup di riga e mette l'etichetta «Dato ISTAT assente o troppo
+   * esiguo» prima della seconda. `istatNote` dichiara
+   * da dove viene l'ordine — senza, un ordine che cambia senza motivo si leggerebbe come una
+   * graduatoria di pericolosità del POI. `null` se il gruppo non ha rischi con dato o il POI non
+   * porta `istat` (interruttore spento).
    */
   protected readonly orderedGroups = computed<
-    (TagGroup & { istatNote: string | null; rankedCount: number })[]
+    (TagGroup & { istatNote: string | null; lists: IstatEntry[][] })[]
   >(() => {
     const istat = this.poi().istat;
     const note = istat ? istatOrderNote(istat) : null;
     return orderGroupsByTag(this.detailModel().groups).map((group) => {
-      const ordering = orderRisksByIstat(group.risks, istat);
+      const { risks, rankedCount } = orderRisksByIstat(group.risks, istat);
+      const entries = withIstatIndicators(risks, istat);
+      const mixed = rankedCount > 0 && rankedCount < risks.length;
       return {
         tag: group.tag,
-        risks: ordering.risks,
-        rankedCount: ordering.rankedCount,
-        istatNote: ordering.rankedCount > 0 ? note : null,
+        risks,
+        lists: mixed ? [entries.slice(0, rankedCount), entries.slice(rankedCount)] : [entries],
+        istatNote: rankedCount > 0 ? note : null,
       };
     });
   });
-
-  /**
-   * Confine della coda ISTAT (#346, O9): un gruppo è "misto" solo se ha SIA rischi con dato SIA
-   * rischi senza — con tutti/nessuno la coda non esiste e resta la lista unica di oggi. Guida sia
-   * `rankedRisks`/`tailRisks` sotto sia la condizione nel template per l'etichetta "Senza dato
-   * ISTAT" e la seconda `<ul>`.
-   */
-  protected hasIstatTail(group: TagGroup & { rankedCount: number }): boolean {
-    return group.rankedCount > 0 && group.rankedCount < group.risks.length;
-  }
-
-  /** Rischi con dato ISTAT di un gruppo misto (#346, O9); l'intero gruppo se non è misto. */
-  protected rankedRisks(group: TagGroup & { rankedCount: number }) {
-    return this.hasIstatTail(group) ? group.risks.slice(0, group.rankedCount) : group.risks;
-  }
-
-  /**
-   * Indicatore ISTAT di un rischio (#347): voce, delitti dell'ultimo anno e tendenza, sotto
-   * l'etichetta. `null` per i rischi senza peso ISTAT, quindi mai nella coda «Senza dato ISTAT» né
-   * con interruttore spento (`poi.istat` assente).
-   */
-  protected indicatorFor(risk: RiskItem): IstatIndicator | null {
-    return istatIndicator(risk.hazard, this.poi().istat);
-  }
-
-  /** Rischi senza dato ISTAT di un gruppo misto (#346, O9); vuoto se non è misto. */
-  protected tailRisks(group: TagGroup & { rankedCount: number }) {
-    return this.hasIstatTail(group) ? group.risks.slice(group.rankedCount) : [];
-  }
 
   protected readonly srcMeta = srcTagMeta;
   /** Nome del POI con ripiego sulla classe se manca su OSM (#261). */

@@ -47,36 +47,33 @@
           @if (group.istatNote) {
             <p class="cra-istat-order-note">{{ group.istatNote }}</p>
           }
-          <ul class="cra-factor-list">
-            @for (risk of rankedRisks(group); track risk.hazard) {
-              <li class="cra-factor-row">
-                <span class="cra-factor-main">
-                  <span class="cra-factor-label">{{ hazardLabel(risk) }}</span>
-                  @if (indicatorFor(risk); as indicator) {
-                    <span class="cra-istat-indicator"
-                      >{{ indicator.voce }} · {{ indicator.delitti }} ·
-                      @if (indicator.freccia) {
-                        <span aria-hidden="true">{{ indicator.freccia }}</span>
-                      }
-                      {{ indicator.tendenza }}</span
-                    >
-                  }
-                </span>
-                <span class="cra-badge-confidence" [style.color]="pinColor(risk.confidence)">
-                  {{ confMeta(risk.confidence).dot }} {{ confMeta(risk.confidence).label }}
-                </span>
-              </li>
+          @for (list of group.lists; track $index) {
+            @if (!$first) {
+              <p class="cra-istat-tail-label">Dato ISTAT assente o troppo esiguo</p>
             }
-          </ul>
-          @if (hasIstatTail(group)) {
-            <p class="cra-istat-tail-label">Senza dato ISTAT</p>
             <ul class="cra-factor-list">
-              @for (risk of tailRisks(group); track risk.hazard) {
+              @for (entry of list; track entry.risk.hazard) {
                 <li class="cra-factor-row">
-                  <span class="cra-factor-label">{{ hazardLabel(risk) }}</span>
-                  <span class="cra-badge-confidence" [style.color]="pinColor(risk.confidence)">
-                    {{ confMeta(risk.confidence).dot }} {{ confMeta(risk.confidence).label }}
+                  <span class="cra-factor-label">{{ hazardLabel(entry.risk) }}</span>
+                  <span
+                    class="cra-badge-confidence"
+                    [style.color]="pinColor(entry.risk.confidence)"
+                  >
+                    {{ confMeta(entry.risk.confidence).dot }}
+                    {{ confMeta(entry.risk.confidence).label }}
                   </span>
+                  @if (entry.indicator; as indicator) {
+                    <span class="cra-istat-indicator"
+                      >{{ indicator.dati }}
+                      @if (indicator.tendenza) {
+                        ·
+                        @if (indicator.freccia) {
+                          <span aria-hidden="true">{{ indicator.freccia }}</span>
+                        }
+                        {{ indicator.tendenza }}
+                      }
+                    </span>
+                  }
                 </li>
               }
             </ul>

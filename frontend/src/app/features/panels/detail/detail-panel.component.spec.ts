@@ -563,7 +563,7 @@ describe('DetailPanelComponent', () => {
     expect(conNota).toEqual([true, false, false]);
   });
 
-  it('#346 (O9): gruppo misto (dato + senza dato) mostra «Senza dato ISTAT» fra due liste distinte, la coda nell’ordine di arrivo', () => {
+  it('#346 (O9): gruppo misto (dato + senza dato) mostra «Dato ISTAT assente o troppo esiguo» fra due liste distinte, la coda nell’ordine di arrivo', () => {
     // Solo h-c ha una voce ISTAT: h-a e h-b restano "senza dato", nell'ordine in cui arrivano
     // da ontoModels (h-a prima di h-b).
     setup(makePoi({ istat: istatPoi(istatRiga('HIGH', ['h-c'], { tasso: 300 })) }), ontoModels);
@@ -574,13 +574,13 @@ describe('DetailPanelComponent', () => {
     expect(listLabels(lists[1])).toEqual(['H-A', 'H-B']);
 
     const tailLabel = fixture.nativeElement.querySelector('.cra-istat-tail-label');
-    expect(tailLabel?.textContent?.trim()).toBe('Senza dato ISTAT');
+    expect(tailLabel?.textContent?.trim()).toBe('Dato ISTAT assente o troppo esiguo');
     // L'etichetta sta FRA le due liste (struttura accessibile richiesta da O9).
     expect(tailLabel.previousElementSibling).toBe(lists[0]);
     expect(tailLabel.nextElementSibling).toBe(lists[1]);
   });
 
-  it('#346 (O9): gruppo interamente con dato ISTAT → una sola lista, nessuna etichetta "Senza dato ISTAT"', () => {
+  it('#346 (O9): gruppo interamente con dato ISTAT → una sola lista, nessuna etichetta "Dato ISTAT assente o troppo esiguo"', () => {
     setup(
       makePoi({
         istat: istatPoi(
@@ -605,16 +605,79 @@ describe('DetailPanelComponent', () => {
     );
   }
 
-  it('#347: indicatore ISTAT sotto i rischi ordinati, assente nella coda «Senza dato ISTAT»', () => {
-    const dati = istatPoi(istatRiga('HIGH', ['h-c'], { tasso: 300, variazione_pct: 12 }));
+  /** Classi dei figli diretti di una riga, nell'ordine del DOM (ordine di lettura). */
+  function rowStructure(row: Element): string[] {
+    return Array.from(row.children).map((el) => el.className.split(' ')[0]);
+  }
+
+  it('#347: riga completa — testo intero dell’indicatore, freccia decorativa', () => {
+    const dati = istatPoi(
+      istatRiga('THEFT', ['h-c'], {
+        voce_label: 'furti',
+        delitti: 134169,
+        delitti_confronto: 22,
+        tasso: 4876.4,
+        tasso_italia: 1673.26,
+        variazione_pct: 2114,
+      }),
+    );
     setup(makePoi({ istat: dati }), ontoModels);
 
     const lists = factorLists();
-    expect(indicators(lists[0])[0]).toContain('▲ in crescita (+12% dal 2014)');
-    expect(indicators(lists[1])).toEqual([null, null]);
-    // La freccia è decorativa: nascosta ai lettori di schermo.
+    expect(indicators(lists[0])).toEqual([
+      'furti (voce ISTAT più ampia del rischio) · 134.169 delitti denunciati nel 2024 · 4.876,4 ogni 100.000 ab. (Italia: 1.673,3) · ▲ in crescita (+2114% dal 2014, erano 22)',
+    ]);
     const freccia = lists[0].querySelector('.cra-istat-indicator [aria-hidden="true"]');
     expect(freccia?.textContent?.trim()).toBe('▲');
+  });
+
+  it('#347 (a11y): nel DOM il badge viene subito dopo l’etichetta e prima dell’indicatore; la coda ha la stessa struttura senza indicatore', () => {
+    setup(makePoi({ istat: istatPoi(istatRiga('HIGH', ['h-c'], { tasso: 300 })) }), ontoModels);
+
+    const [ranked, tail] = factorLists();
+    expect(rowStructure(ranked.querySelector('.cra-factor-row')!)).toEqual([
+      'cra-factor-label',
+      'cra-badge-confidence',
+      'cra-istat-indicator',
+    ]);
+    for (const row of Array.from(tail.querySelectorAll('.cra-factor-row'))) {
+      expect(rowStructure(row)).toEqual(['cra-factor-label', 'cra-badge-confidence']);
+    }
+  });
+
+  it('#347: due rischi sulla stessa voce ISTAT → il primo completo, il secondo «stessa voce ISTAT: …»', () => {
+    const dati = istatPoi(
+      istatRiga('DAMAGE', ['h-a', 'h-b'], {
+        voce_label: 'danneggiamenti',
+        collegamenti: [
+          { hazard: 'h-a', hazard_label_it: 'A', corrispondenza: 'esatta' },
+          { hazard: 'h-b', hazard_label_it: 'B', corrispondenza: 'piu_larga' },
+        ],
+      }),
+    );
+    setup(makePoi({ istat: dati }), ontoModels);
+
+    const [ranked] = factorLists();
+    expect(listLabels(ranked)).toEqual(['H-A', 'H-B']);
+    const [primo, secondo] = indicators(ranked);
+    expect(primo).toBe(
+      'danneggiamenti · 100 delitti denunciati nel 2024 · 100,0 ogni 100.000 ab. (Italia: 100,0) · stabile (0% dal 2014, erano 100)',
+    );
+    expect(secondo).toBe('stessa voce ISTAT: danneggiamenti (voce ISTAT più ampia del rischio)');
+  });
+
+  it('#347: istat presente ma nessun rischio con peso (tutte le voci sotto 20 delitti) → niente indicatore, nota né coda', () => {
+    const dati = istatPoi(
+      istatRiga('A', ['h-a'], { delitti: 19 }),
+      istatRiga('C', ['h-c'], { delitti: 3 }),
+    );
+    setup(makePoi({ istat: dati }), ontoModels);
+
+    expect(labels()).toEqual(['H-A', 'H-B', 'H-C']);
+    expect(factorLists().length).toBe(1);
+    expect(fixture.nativeElement.querySelector('.cra-istat-indicator')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.cra-istat-order-note')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.cra-istat-tail-label')).toBeNull();
   });
 
   it('#347: senza istat nessun indicatore', () => {
