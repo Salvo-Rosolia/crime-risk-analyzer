@@ -196,6 +196,41 @@ def test_main_run_analyze_builds_and_passes_llm_client(
     # default del parser: una ripetizione, nessuna pulizia legacy.
     assert captured["repeat"] == 1
     assert captured["clean_stale"] is False
+    # #357: nessuna pausa di default.
+    assert captured["pausa_secondi"] == 0.0
+
+
+def test_main_run_inoltra_la_pausa(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#357: ``--pausa`` arriva fino a run_experiment come ``pausa_secondi``."""
+    captured: dict[str, object] = {}
+
+    async def fake_run_experiment(config: ExperimentConfig, **kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(eval_main, "run_experiment", fake_run_experiment)
+    monkeypatch.setattr(eval_main, "get_executor", lambda: object())
+
+    def fake_build_client(config: ExperimentConfig) -> object:
+        return object()
+
+    monkeypatch.setattr(eval_main, "build_llm_eval_client", fake_build_client)
+
+    cfg = _write_config(tmp_path, mode="analyze")
+    _set_argv(
+        monkeypatch,
+        "run",
+        "--config",
+        str(cfg),
+        "--results",
+        str(tmp_path),
+        "--pausa",
+        "65",
+    )
+
+    assert eval_main.main() == 0
+    assert captured["pausa_secondi"] == 65.0
 
 
 def test_main_run_no_ontology_builds_and_passes_llm_client(
