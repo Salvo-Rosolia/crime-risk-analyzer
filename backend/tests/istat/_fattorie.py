@@ -5,6 +5,7 @@ from __future__ import annotations
 from crime_risk_analyzer.istat.dati import TipoLuogo
 from crime_risk_analyzer.istat.mappatura import Corrispondenza
 from crime_risk_analyzer.istat.righe import (
+    MOTIVO_ROTTURA_2016,
     MOTIVO_SOTTO_SOGLIA,
     Collegamento,
     IstatPoi,
@@ -37,6 +38,7 @@ def riga(
     italia: float | None = 1788.7,
     variazione: int | None = -10,
     motivo: str | None = None,
+    rottura_2016: bool = False,
     collegamenti: tuple[Collegamento, ...] | None = None,
 ) -> RigaIstat:
     return RigaIstat(
@@ -55,6 +57,7 @@ def riga(
         tasso_italia=italia,
         variazione_pct=variazione,
         motivo_senza_variazione=motivo,
+        rottura_2016=rottura_2016,
         collegamenti=(collegamento(),) if collegamenti is None else collegamenti,
     )
 
@@ -77,7 +80,10 @@ def cornice(
         confronto=216750,
         tasso=7906.3,
         italia=4069.6,
-        variazione=0,
+        # Il totale comprende fatti depenalizzati nel 2016: niente variazione (#353).
+        variazione=None,
+        motivo=MOTIVO_ROTTURA_2016,
+        rottura_2016=True,
         collegamenti=(),
     )
 

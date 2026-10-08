@@ -630,3 +630,31 @@ def test_spazio_normale_fra_due_numeri_ammessi(frase: str) -> None:
     """R8 (review 2): "10 340" sono due numeri ammessi, non 10.340."""
     testo = f"Sintesi.\n\nDati statistici ISTAT [ISTAT]\n{frase}\n"
     assert _frasi_istat(_controlla_con(testo, _CON_STRAPPO)) == [(frase, None)]
+
+
+def test_la_variazione_del_totale_non_e_piu_una_cifra_ammessa() -> None:
+    """#353: la cornice non calcola piu' la variazione (rottura 2016), quindi la
+    vecchia percentuale del totale non e' nel blocco e una frase che la cita va
+    tolta. Dati reali del Comune di Milano (totale 162.177 -> 140.974)."""
+    from crime_risk_analyzer.istat.righe import istat_per_poi
+
+    istat = istat_per_poi(45.4642, 9.19, ["Property_theft"])
+    assert istat is not None
+    blocco = blocco_istat_poi(istat)
+    assert "-13%" not in blocco.testo
+    testo = (
+        "Sintesi.\n\nDati statistici ISTAT [ISTAT]\n"
+        "Nel Comune di Milano il totale dei delitti denunciati e' in calo del -13% "
+        "(fonte ISTAT, Comune di Milano, 2024).\n"
+    )
+    esito = controlla_cifre(
+        testo,
+        blocchi=_spans(testo),
+        blocco_istat=blocco.testo,
+        contesto_senza_istat=_CONTESTO,
+        righe=blocco.righe,
+    )
+    assert "-13%" not in esito.testo_filtrato
+    citanti = [f for f in esito.frasi if "-13%" in testo[f.inizio : f.fine]]
+    assert len(citanti) == 1
+    assert citanti[0].motivo is not None

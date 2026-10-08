@@ -10,11 +10,17 @@ rispetto al rischio:
 - ``piu_stretta``: la voce copre solo una parte del rischio.
 
 ``rottura_2016``: la voce e' toccata dalla depenalizzazione del d.lgs. 7/2016, quindi
-la variazione decennale non si calcola. Nessuna somma di voci.
+la variazione decennale non si calcola. Ripete il campo della voce nel catalogo
+(:mod:`~crime_risk_analyzer.istat.catalogo`, #353), che e' la sorgente di
+``VOCI_ROTTURA_2016``; un test vincola i due a coincidere. Nessuna somma di voci.
 
 Trascritta dalla bozza revisionata (foglio "Mappatura"), stile
-``sparql_module/osm_mapping.py``: ogni modifica fa fallire il conteggio fissato in
-``tests/istat/test_mappatura.py`` e forza una revisione. **Da verificare
+``sparql_module/osm_mapping.py``. I conteggi fissati in
+``tests/istat/test_mappatura.py`` (righe mappate, corrispondenze, voci distinte)
+non bastano: spostare un hazard fra due voci con la stessa corrispondenza li
+lascia invariati. Per questo lo stesso file fissa anche gli hazard per voce, che
+coglie lo spostamento; resta invisibile ai conteggi solo lo scambio di due
+hazard fra due voci, coperto dove serve da test puntuali. **Da verificare
 dall'utente prima del merge (D3).**
 """
 
@@ -23,7 +29,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-__all__ = ["MAPPATURA", "VOCI_ROTTURA_2016", "Corrispondenza", "Mappatura"]
+__all__ = ["MAPPATURA", "Corrispondenza", "Mappatura"]
 
 #: Rapporto fra la voce ISTAT e il rischio (D3).
 Corrispondenza = Literal["esatta", "piu_larga", "piu_stretta"]
@@ -432,10 +438,10 @@ MAPPATURA: dict[str, Mappatura] = {
         nota="Rapina ai clienti: luogo non specificato, si usa il totale rapine.",
     ),
     "Pharmacy_robbery": Mappatura(
-        voce_istat="SHOPROB",
+        voce_istat="ROBBER",
         corrispondenza="piu_larga",
         rottura_2016=False,
-        nota="Rapine in esercizi commerciali, non solo farmacie.",
+        nota="Totale rapine: nello SDI le farmacie sono un luogo separato dagli esercizi commerciali.",  # noqa: E501 — nota con la fonte
     ),
     "Robbery_at_the_jewelry_store": Mappatura(
         voce_istat="SHOPROB",
@@ -450,16 +456,16 @@ MAPPATURA: dict[str, Mappatura] = {
         nota="",
     ),
     "Robbery_in_the_cinema": Mappatura(
-        voce_istat="SHOPROB",
+        voce_istat="ROBBER",
         corrispondenza="piu_larga",
         rottura_2016=False,
-        nota="",
+        nota="Totale rapine: nello SDI locali ed esercizi pubblici sono un luogo separato dagli esercizi commerciali.",  # noqa: E501 — nota con la fonte
     ),
     "Tobacconist's_shop_robbery": Mappatura(
-        voce_istat="SHOPROB",
+        voce_istat="ROBBER",
         corrispondenza="piu_larga",
         rottura_2016=False,
-        nota="",
+        nota="Totale rapine per prudenza: non e' provato che lo SDI conti le tabaccherie fra gli esercizi commerciali.",  # noqa: E501 — nota con la fonte
     ),
     "Jewelry_theft": Mappatura(
         voce_istat="SHOPTHEF",
@@ -972,9 +978,3 @@ MAPPATURA: dict[str, Mappatura] = {
         nota="",
     ),
 }
-
-#: Voci toccate dalla depenalizzazione del 2016, derivate dalla tabella: la regola
-#: vive in un posto solo.
-VOCI_ROTTURA_2016: frozenset[str] = frozenset(
-    m.voce_istat for m in MAPPATURA.values() if m.voce_istat and m.rottura_2016
-)

@@ -23,7 +23,7 @@ from typing import Protocol
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from crime_risk_analyzer.config import get_settings
-from crime_risk_analyzer.context_fingerprint import fingerprint
+from crime_risk_analyzer.context_fingerprint import fingerprint, istat_versione_per
 from crime_risk_analyzer.geocoding import GeoResult
 from crime_risk_analyzer.i18n.terminus_labels import label_en, label_it
 from crime_risk_analyzer.istat.campi_risposta import CampiIstatRisposta
@@ -772,7 +772,9 @@ async def run_analysis(
     # Impronta della lista POI di QUESTA cattura (#242): /analyze/poi la
     # confronta con quella del contesto che userebbe e rifiuta (409) se
     # divergono, invece di generare prosa su un intorno che a schermo non c'e'.
-    contesto_hash = fingerprint(retrieval_ctx["pois"])
+    contesto_hash = fingerprint(
+        retrieval_ctx["pois"], istat_versione=istat_versione_per(istat_context_enabled)
+    )
     poi_out = _build_poi_list(
         retrieval_ctx, grounded, istat_context_enabled=istat_context_enabled
     )
@@ -879,7 +881,9 @@ async def run_no_ontology_prompt(
         citta, zona, executor=executor, poi_source=poi_source, geo_source=geo_source
     )
     grounded = ground(retrieval_ctx)
-    contesto_hash = fingerprint(retrieval_ctx["pois"])
+    contesto_hash = fingerprint(
+        retrieval_ctx["pois"], istat_versione=istat_versione_per(istat_context_enabled)
+    )
     poi_out = _build_poi_list(retrieval_ctx, grounded)
     nel_prompt = poi_del_prompt_zona(
         dict(grounded),
@@ -1012,6 +1016,8 @@ async def run_baseline(
     poi_out = _build_poi_list(retrieval_ctx, grounded)
     # Impronta calcolata DOPO l'eventuale filtro per ``tipo_poi`` (#119): deve
     # identificare la lista effettivamente restituita, non quella pre-filtro.
+    # Senza versione ISTAT (#354): la baseline non alimenta mai /analyze/poi, il
+    # frontend clicca solo con il contesto_hash dell'analisi completa.
     return _structured_response(
         citta,
         zona,

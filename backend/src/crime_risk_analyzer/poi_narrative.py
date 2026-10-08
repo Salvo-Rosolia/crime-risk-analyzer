@@ -24,7 +24,11 @@ import logging
 from pydantic import BaseModel, Field
 
 from crime_risk_analyzer import zone_context_cache
-from crime_risk_analyzer.context_fingerprint import ContestoHash, fingerprint
+from crime_risk_analyzer.context_fingerprint import (
+    ContestoHash,
+    fingerprint,
+    istat_versione_per,
+)
 from crime_risk_analyzer.geocoding import ZoneNotFoundError
 from crime_risk_analyzer.i18n.terminus_labels import label_it
 from crime_risk_analyzer.istat.campi_risposta import CampiIstatRisposta
@@ -203,7 +207,10 @@ async def run_poi_narrative(
     # lookup del POI e prima di qualunque generazione: se l'impronta non
     # combacia il POI presente e' irrilevante, e un rifiuto non deve costare
     # token. L'impronta e' solo confrontata: non entra nel prompt.
-    if fingerprint(pois) != contesto_hash:
+    if (
+        fingerprint(pois, istat_versione=istat_versione_per(istat_context_enabled))
+        != contesto_hash
+    ):
         raise ContextMismatchError(
             f"il contesto di {citta}/{zona} non e' quello dell'analisi che hai "
             "davanti: rilancia l'analisi di zona"

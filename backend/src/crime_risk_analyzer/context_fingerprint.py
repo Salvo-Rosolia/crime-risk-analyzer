@@ -7,8 +7,14 @@ catture. L'impronta da' un'identita' confrontabile a una lista di POI, cosi'
 l'endpoint puo' rifiutare (409) invece di generare prosa su un intorno che a
 schermo non c'e'.
 
+Con l'interruttore ISTAT acceso (#354) l'impronta copre anche la versione dei
+dati ISTAT che alimentano il prompt: un aggiornamento dei dati fra la fase 1 e il
+clic e' un contesto diverso quanto un cambio dei POI, e da' lo stesso 409. La
+versione la passa il chiamante (:func:`istat_versione_per`), cosi' calcolo e
+confronto la leggono dalla stessa fonte.
+
 Non e' una misura di nulla: e' un digest opaco di identita' (nessuno scoring,
-_project.md §Vincoli). Funzione PURA: nessuna I/O, nessuno stato.
+_project.md §Vincoli). :func:`fingerprint` e' PURA: nessuna I/O, nessuno stato.
 
 Qui vive anche :data:`ContestoHash`, il tipo con cui le richieste ACCETTANO
 un'impronta: la sua forma e' una proprieta' del digest prodotto da
@@ -23,9 +29,10 @@ from typing import Annotated
 
 from pydantic import Field
 
+from crime_risk_analyzer.istat.dati import versione_dati
 from crime_risk_analyzer.overpass_client import Poi
 
-__all__ = ["ContestoHash", "fingerprint"]
+__all__ = ["ContestoHash", "fingerprint", "istat_versione_per"]
 
 #: Lunghezza esatta di un'impronta: l'hexdigest sha256 che :func:`fingerprint`
 #: restituisce (32 byte, due caratteri per byte). Ancorata al digest reale da
@@ -58,7 +65,7 @@ ContestoHash = Annotated[
 ]
 
 
-def fingerprint(pois: list[Poi]) -> str:
+def fingerprint(pois: list[Poi], *, istat_versione: str | None = None) -> str:
     """Hexdigest sha256 della lista di POI del contesto di zona.
 
     Entrano nel digest i soli campi che alimentano il prompt del POI: ``id``,
@@ -78,13 +85,34 @@ def fingerprint(pois: list[Poi]) -> str:
     nomi. Il digest e' calcolato solo lato server (``/analyze`` e
     ``/analyze/poi``): il client lo rimanda opaco e non lo ricalcola, quindi la
     formattazione dei float non deve accordarsi fra Python e TypeScript.
+
+    ``istat_versione`` (#354): versione dei dati ISTAT nel prompt, ``None`` con
+    l'interruttore spento (o senza dati). Con ``None`` la serializzazione e' la
+    lista dei POI di prima, quindi il digest e' byte-identico a quello pre-#354.
+    Con una versione (anche vuota) il testo canonico e' un oggetto JSON
+    ``{"istat_versione": ..., "pois": [...]}``: un oggetto non coincide mai con
+    una lista, quindi le due forme non possono collidere per costruzione.
     """
-    canonico = json.dumps(
-        [
-            [poi["id"], poi["name"], poi["terminus_class"], poi["lat"], poi["lon"]]
-            for poi in pois
-        ],
-        separators=(",", ":"),
-        ensure_ascii=False,
+    righe = [
+        [poi["id"], poi["name"], poi["terminus_class"], poi["lat"], poi["lon"]]
+        for poi in pois
+    ]
+    dati: object = (
+        righe
+        if istat_versione is None
+        else {"istat_versione": istat_versione, "pois": righe}
     )
+    canonico = json.dumps(dati, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(canonico.encode("utf-8")).hexdigest()
+
+
+def istat_versione_per(istat_context_enabled: bool) -> str | None:
+    """Versione dei dati ISTAT da mettere nell'impronta (#354).
+
+    Unica sorgente per tutti i punti che CALCOLANO o CONFRONTANO un'impronta:
+    interruttore spento -> ``None`` (impronta invariata); acceso -> la versione
+    dei dati in uso (``None`` se i dati non sono disponibili, come il prompt, che
+    in quel caso non porta il blocco ISTAT). Legge la cache dei dati: non e'
+    pura come :func:`fingerprint`, per questo e' una funzione a parte.
+    """
+    return versione_dati() if istat_context_enabled else None

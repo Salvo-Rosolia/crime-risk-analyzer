@@ -19,7 +19,11 @@ import time
 from pydantic import BaseModel, Field
 
 from crime_risk_analyzer import zone_context_cache
-from crime_risk_analyzer.context_fingerprint import ContestoHash, fingerprint
+from crime_risk_analyzer.context_fingerprint import (
+    ContestoHash,
+    fingerprint,
+    istat_versione_per,
+)
 from crime_risk_analyzer.geocoding import ZoneNotFoundError
 from crime_risk_analyzer.istat.campi_risposta import CampiIstatRisposta
 from crime_risk_analyzer.llm.client import LLMError
@@ -84,7 +88,10 @@ async def run_analysis_fast(
 
     ``istat_context_enabled`` (#346): decide se ``poi[].istat`` arriva al client
     (ordine dei rischi nelle schede). Il deposito in cache non ne dipende: il
-    grounding calcola sempre l'``IstatPoi``.
+    grounding calcola sempre l'``IstatPoi``. Acceso, la versione dei dati ISTAT
+    entra anche in ``contesto_hash`` (#354): la fase 2 e ``/analyze/poi`` la
+    confrontano con lo stesso interruttore, e un aggiornamento dei dati nel
+    frattempo da' 409.
     """
     start = time.perf_counter()
     retrieval_ctx = await retrieve(
@@ -97,7 +104,9 @@ async def run_analysis_fast(
     zone_context_cache.put(
         citta, zona, ZoneContext(retrieval=retrieval_ctx, grounded=grounded)
     )
-    contesto_hash = fingerprint(retrieval_ctx["pois"])
+    contesto_hash = fingerprint(
+        retrieval_ctx["pois"], istat_versione=istat_versione_per(istat_context_enabled)
+    )
     poi_out = _build_poi_list(
         retrieval_ctx, grounded, istat_context_enabled=istat_context_enabled
     )
@@ -252,7 +261,11 @@ async def run_zone_narrative(
         grounded = ground(retrieval_ctx)
         cached = ZoneContext(retrieval=retrieval_ctx, grounded=grounded)
 
-    if fingerprint(cached["retrieval"]["pois"]) != contesto_hash:
+    impronta = fingerprint(
+        cached["retrieval"]["pois"],
+        istat_versione=istat_versione_per(istat_context_enabled),
+    )
+    if impronta != contesto_hash:
         raise ContextMismatchError(
             f"il contesto di {citta}/{zona} non e' quello dell'analisi che hai "
             "davanti: rilancia l'analisi di zona"

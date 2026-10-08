@@ -7,70 +7,8 @@ from collections import Counter
 from pathlib import Path
 
 import crime_risk_analyzer.i18n.terminus_labels as _labels
-from crime_risk_analyzer.istat.mappatura import MAPPATURA, VOCI_ROTTURA_2016
-
-#: Le 56 voci del dataset ISTAT 73_67 (codelist CL_REATI_PS, verificata il
-#: 2026-10-06), totale compreso.
-_VOCI_DATASET = frozenset(
-    {
-        "OTHCRIM",
-        "MAFIASS",
-        "CRIMASS",
-        "ATTACK",
-        "RAPEUN18",
-        "SMUGGL",
-        "COUNTER",
-        "CORRUPUN18",
-        "DAMAGE",
-        "DAMARS",
-        "CYBERCRIM",
-        "EXTORT",
-        "THEFT",
-        "PICKTHEF",
-        "BAGTHEF",
-        "TRUCKTHEF",
-        "CARTHEF",
-        "MOPETHEF",
-        "MOTORTHEF",
-        "ARTTHEF",
-        "BURGTHEF",
-        "VEHITHEF",
-        "SHOPTHEF",
-        "ARSON",
-        "FOREARS",
-        "INFANTHOM",
-        "OFFENCE",
-        "CULPINJU",
-        "MENACE",
-        "DRUG",
-        "UNINTHOM",
-        "ROADHOM",
-        "MANSHOM",
-        "INTENHOM",
-        "ROBBHOM",
-        "TERRORHOM",
-        "MAFIAHOM",
-        "BLOWS",
-        "PORNO",
-        "ROBBER",
-        "HOUSEROB",
-        "BANKROB",
-        "SHOPROB",
-        "STREETROB",
-        "POSTROB",
-        "RECEIV",
-        "MONEYLAU",
-        "KIDNAPP",
-        "PROSTI",
-        "MASSMURD",
-        "ATTEMPHOM",
-        "TOT",
-        "SWINCYB",
-        "USURY",
-        "INTPROP",
-        "RAPE",
-    }
-)
+from crime_risk_analyzer.istat.catalogo import CATALOGO, VOCI_ROTTURA_2016
+from crime_risk_analyzer.istat.mappatura import MAPPATURA
 
 
 def _hazard_dell_ontologia() -> set[str]:
@@ -83,24 +21,47 @@ def _hazard_dell_ontologia() -> set[str]:
 
 
 def test_ogni_hazard_dell_ontologia_ha_una_riga() -> None:
-    assert len(_VOCI_DATASET) == 56
     assert set(MAPPATURA) == _hazard_dell_ontologia()
     assert len(MAPPATURA) == 155
 
 
 def test_conteggio_fissato_forza_una_revisione() -> None:
-    """Cambiare anche una sola riga fa fallire questo test: la tabella e' D3."""
+    """Conteggi della tabella D3: un cambio di voce o di corrispondenza li sposta.
+    Gli hazard per voce colgono anche lo spostamento fra voci con la stessa
+    corrispondenza, che lascerebbe invariati i totali."""
     mappati = [m for m in MAPPATURA.values() if m.voce_istat]
     assert len(mappati) == 100
     assert Counter(m.corrispondenza for m in mappati) == Counter(
         {"piu_larga": 89, "esatta": 8, "piu_stretta": 3}
     )
     assert len({m.voce_istat for m in mappati}) == 18
+    assert Counter(m.voce_istat for m in mappati) == Counter(
+        {
+            "ARSON": 1,
+            "ARTTHEF": 2,
+            "ATTACK": 2,
+            "BAGTHEF": 1,
+            "BANKROB": 1,
+            "CARTHEF": 1,
+            "CULPINJU": 2,
+            "CYBERCRIM": 3,
+            "DAMAGE": 45,
+            "DAMARS": 1,
+            "FOREARS": 1,
+            "KIDNAPP": 1,
+            "POSTROB": 1,
+            "ROBBER": 4,
+            "SHOPROB": 3,
+            "SHOPTHEF": 1,
+            "STREETROB": 2,
+            "THEFT": 28,
+        }
+    )
 
 
 def test_ogni_voce_esiste_nel_dataset_e_non_e_il_totale() -> None:
     voci = {m.voce_istat for m in MAPPATURA.values() if m.voce_istat}
-    assert voci <= _VOCI_DATASET
+    assert voci <= set(CATALOGO)  # le 56 voci sono fissate in test_catalogo
     assert "TOT" not in voci  # D10: il totale e' solo cornice
 
 
@@ -132,4 +93,33 @@ def test_rottura_2016_coerente_per_voce() -> None:
         if m.voce_istat:
             per_voce.setdefault(m.voce_istat, set()).add(m.rottura_2016)
     assert all(len(flag) == 1 for flag in per_voce.values())
-    assert VOCI_ROTTURA_2016 == frozenset({"DAMAGE"})
+    usate_in_rottura = {v for v in per_voce if v in VOCI_ROTTURA_2016}
+    assert usate_in_rottura == {"DAMAGE"}
+
+
+def test_rapine_in_luoghi_separati_dagli_esercizi_commerciali() -> None:
+    """D3, review #353: nello SDI (Ministero dell'Interno, Rapporto intersettoriale
+    sulla criminalita' predatoria 2024) farmacie e locali ed esercizi pubblici sono
+    categorie di luogo SEPARATE dagli esercizi commerciali, e per le tabaccherie
+    il contenimento in SHOPROB non e' provato: queste rapine vanno sul totale
+    rapine, non su SHOPROB."""
+    for hazard in (
+        "Pharmacy_robbery",
+        "Robbery_in_the_cinema",
+        "Tobacconist's_shop_robbery",
+    ):
+        assert MAPPATURA[hazard].voce_istat == "ROBBER", hazard
+        assert MAPPATURA[hazard].corrispondenza == "piu_larga", hazard
+        assert "SDI" in MAPPATURA[hazard].nota, hazard
+    for hazard in (
+        "Store_robbery",
+        "Robbery_at_the_jewelry_store",
+        "Robbery_at_the_mall",
+    ):
+        assert MAPPATURA[hazard].voce_istat == "SHOPROB", hazard
+    per_voce = Counter(m.voce_istat for m in MAPPATURA.values() if m.voce_istat)
+    assert per_voce["SHOPROB"] == 3
+    assert per_voce["ROBBER"] == 4
+    assert (
+        per_voce["SHOPTHEF"] == 1
+    )  # Jewelry_theft: gioielleria = esercizio commerciale
