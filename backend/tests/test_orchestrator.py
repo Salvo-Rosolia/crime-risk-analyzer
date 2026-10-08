@@ -32,8 +32,12 @@ from crime_risk_analyzer.orchestrator import (
 )
 from crime_risk_analyzer.overpass_client import Poi
 from crime_risk_analyzer.rag.generation import (
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_REQUEST_TOKEN_BUDGET,
+    SYSTEM_PROMPT,
     USER_INPUT_FENCE_OPEN,
     SourceProse,
+    _estimate_tokens,  # pyright: ignore[reportPrivateUsage]
 )
 from crime_risk_analyzer.rag.grounding import GroundedContext
 from crime_risk_analyzer.rag.no_ontology_generation import (
@@ -1096,6 +1100,107 @@ async def test_run_no_ontology_prompt_hides_the_ontology_from_the_model(
     assert "Bank_robbery" not in user
     assert "Hazard verificati" not in user
     assert "  POI: Banca A (Bank)" in user
+
+
+def _righe_poi(user_content: str) -> list[str]:
+    return [r for r in user_content.splitlines() if r.startswith("  POI: ")]
+
+
+def _banche_e_scuole(n: int) -> list[Poi]:
+    """POI alternati: le scuole hanno piu' rischi delle banche, quindi il
+    troncamento per rilevanza NON tiene semplicemente i primi della lista."""
+    pois: list[Poi] = []
+    for i in range(n):
+        classe = "School" if i % 2 else "Bank"
+        pois.append(
+            {
+                "id": str(i),
+                "name": f"Punto {i:02d}",
+                "lat": 41.89,
+                "lon": 12.49,
+                "osm_tags": "amenity=x",
+                "terminus_class": classe,
+                "citta": "Roma",
+            }
+        )
+    return pois
+
+
+_SCHOOL_PROFILE_RICCO = PoiRiskProfile(
+    terminus_class="School",
+    hazards=["Vandalism", "School_theft", "Damage_in_the_school"],
+    sparql_paths=[
+        "School → havingHazard → Vandalism",
+        "School → havingHazard → School_theft",
+        "School → havingHazard → Damage_in_the_school",
+    ],
+)
+
+
+@pytest.mark.parametrize("tronca", [True, False], ids=["troncato", "intero"])
+async def test_i_due_bracci_vedono_gli_stessi_poi(
+    tronca: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#349: il braccio senza ontologia elenca lo STESSO INSIEME di POI che il
+    braccio completo ha tenuto dopo il troncamento per budget, ma nell'ordine
+    originale e con una nota sul taglio che non dice il criterio.
+
+    Prima mandava sempre tutti i punti (20 sulle zone di valutazione) mentre il
+    completo ne teneva circa la meta': il confronto non era a parita' di input e
+    una differenza nelle metriche poteva venire dal numero di POI, non
+    dall'ontologia. L'ordine per rilevanza e la parola "piu' rilevanti" restano
+    fuori perche' vengono dall'ontologia (piu' hazard = piu' rilevante).
+    """
+    _patch_io(monkeypatch, pois=_banche_e_scuole(12))
+    profiler = _FakeProfiler({"Bank": _BANK_PROFILE, "School": _SCHOOL_PROFILE_RICCO})
+    budget = (
+        _estimate_tokens(SYSTEM_PROMPT) + DEFAULT_MAX_TOKENS + 900
+        if tronca
+        else DEFAULT_REQUEST_TOKEN_BUDGET
+    )
+    completo, ablato = _RecordingLLMClient(), _RecordingLLMClient()
+
+    await run_analysis(
+        "Roma",
+        "Centro",
+        executor=profiler,
+        llm_client=completo,
+        request_token_budget=budget,
+        max_tokens=DEFAULT_MAX_TOKENS,
+    )
+    resp = await run_no_ontology_prompt(
+        "Roma",
+        "Centro",
+        executor=profiler,
+        llm_client=ablato,
+        request_token_budget=budget,
+        max_tokens=DEFAULT_MAX_TOKENS,
+    )
+
+    righe_completo = _righe_poi(completo.calls[0][1])
+    righe_ablato = _righe_poi(ablato.calls[0][1])
+    utente_ablato = ablato.calls[0][1]
+    # Stesso INSIEME di punti, ma nell'ordine originale del recupero: l'ordine per
+    # rilevanza viene dall'ontologia (piu' hazard prima) e non deve passare.
+    assert sorted(righe_ablato) == sorted(righe_completo)
+    assert righe_ablato == sorted(righe_ablato)  # "Punto 00", "Punto 01", ...
+    # Cambia solo il prompt: la response resta quella di tutti i punti.
+    assert len(resp.poi) == len(resp.risk_models) == 12
+    if tronca:
+        assert 0 < len(righe_completo) < 12
+        # Il completo sceglie per rilevanza (le scuole prima), non i primi N.
+        assert righe_completo[0].startswith("  POI: Punto 01")
+        # Il taglio tiene scuole E banche: solo cosi' l'ordine per rilevanza
+        # (scuole prima) si distingue dall'ordine originale (alternato).
+        assert any("(Bank)" in r for r in righe_completo)
+        assert righe_ablato != righe_completo
+        # Nota neutra: dice quanti punti su quanti, non con quale criterio.
+        nota = f"sono elencati {len(righe_ablato)} POI su 12"
+        assert nota in utente_ablato
+        assert "rilevanti" not in utente_ablato.split("POI RILEVANTI:")[0]
+    else:
+        assert len(righe_completo) == 12
+        assert "NB:" not in utente_ablato
 
 
 async def test_run_no_ontology_prompt_keeps_the_structured_contract(

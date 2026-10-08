@@ -52,9 +52,10 @@ def _budget_della_run(config: ExperimentConfig) -> tuple[int | None, int | None]
     Sono i valori che l'harness passa a :func:`run_analysis` (#345, F8 della review
     finale): finiscono nella provenienza perche' il budget decide quanti POI
     entrano nel prompt, e due bracci con budget diversi non isolano una sola
-    variabile. Il braccio senza ontologia gira con la stessa configurazione (il suo
-    prompt non tronca, ma la run e' configurata cosi'); la baseline non chiama
-    l'LLM e non ha budget.
+    variabile. Il braccio senza ontologia gira con la stessa configurazione: il suo
+    prompt non tronca, ma con questi valori ricostruisce quali POI ha tenuto quello
+    completo e elenca solo quelli (#349); la baseline non chiama l'LLM e non ha
+    budget.
     """
     if config.mode == "baseline":
         return None, None
@@ -369,9 +370,15 @@ async def run_case(
         elif config.mode == "no_ontology_prompt":
             assert llm_client is not None  # narrowing per pyright strict
             # Braccio di ablazione (#236): stesse ``source``/``geo_source`` del
-            # braccio completo — cioe' lo STESSO snapshot POI, che e' il punto —
-            # e nessun ``context_format``, che nel prompt ablato non ha effetto
-            # (lo schema lo rifiuta a monte se qualcuno prova a impostarlo).
+            # braccio completo — cioe' lo STESSO snapshot POI, che e' il punto.
+            # #349: anche gli stessi parametri del prompt del braccio completo
+            # (budget, max_tokens, formato, interruttore), con cui l'ablato
+            # ricostruisce quali POI quel prompt ha tenuto e li elenca tutti e soli.
+            # Il formato qui e' sempre ``per_poi`` (lo schema rifiuta gli altri per
+            # questo mode) e l'interruttore sempre spento (D6): l'iso-input vale
+            # quindi contro un braccio completo lanciato con quei valori, cioe' la
+            # coppia ``ablation-*-groq`` della tesi; un completo ``per_classe``
+            # sceglierebbe altri POI.
             resp = await run_no_ontology_prompt(
                 case.citta,
                 case.zona,
@@ -379,6 +386,10 @@ async def run_case(
                 llm_client=llm_client,
                 poi_source=source,
                 geo_source=geo_source,
+                context_format=config.context_format,
+                istat_context_enabled=config.istat,
+                request_token_budget=DEFAULT_REQUEST_TOKEN_BUDGET,
+                max_tokens=DEFAULT_MAX_TOKENS,
             )
         else:
             assert llm_client is not None  # narrowing per pyright strict

@@ -691,6 +691,10 @@ class ContestoCostruito(NamedTuple):
     testo_senza_istat: str
     blocco_istat: BloccoIstat
     poi_inclusi: int
+    #: I POI entrati nel prompt, nell'ordine di selezione (che e' l'ordine del
+    #: prompt col formato ``per_poi``) (#349): il braccio senza ontologia elenca lo
+    #: stesso insieme, non tutti i punti.
+    poi_selezionati: tuple[dict[str, Any], ...] = ()
 
 
 def _relevance_sort_key(poi: dict[str, Any]) -> tuple[int, int]:
@@ -1132,7 +1136,9 @@ def build_context(
         context_format=context_format,
     )
     if not istat:
-        return ContestoCostruito(senza, senza, BloccoIstat(), len(selected))
+        return ContestoCostruito(
+            senza, senza, BloccoIstat(), len(selected), tuple(selected)
+        )
     blocco = blocco_istat_zona(
         selected,
         stima_token=_estimate_tokens,
@@ -1141,7 +1147,7 @@ def build_context(
         - _MARGINE_BLOCCO_TOKEN,
     )
     if not blocco.testo:
-        return ContestoCostruito(senza, senza, blocco, len(selected))
+        return ContestoCostruito(senza, senza, blocco, len(selected), tuple(selected))
     testo = _assemble_context(
         zona,
         selected,
@@ -1150,7 +1156,7 @@ def build_context(
         context_format=context_format,
         blocco_istat=blocco.testo,
     )
-    return ContestoCostruito(testo, senza, blocco, len(selected))
+    return ContestoCostruito(testo, senza, blocco, len(selected), tuple(selected))
 
 
 def build_context_str(
@@ -1318,6 +1324,37 @@ def prepara_richiesta_zona(
         SYSTEM_PROMPT_ISTAT if contesto.blocco_istat.testo else SYSTEM_PROMPT
     )
     return RichiestaZona(system_prompt=system_prompt, contesto=contesto)
+
+
+def poi_del_prompt_zona(
+    context_dict: dict[str, Any],
+    *,
+    request_token_budget: int = DEFAULT_REQUEST_TOKEN_BUDGET,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+    context_format: ContextFormat = DEFAULT_CONTEXT_FORMAT,
+    istat: bool = False,
+) -> list[dict[str, Any]]:
+    """I POI che il prompt di zona del braccio completo elenca (#349).
+
+    Il braccio senza ontologia li usa al posto di tutti i punti: il suo prompt (una
+    riga per punto) non sfora mai il budget, mentre quello completo sulle zone dense
+    viene troncato per rilevanza, e senza questo i due bracci vedevano insiemi di
+    POI diversi (20 contro 9-12 sulle zone di valutazione, al budget di 8700
+    token). L'ordine restituito e' quello di selezione, cioe' per rilevanza se la
+    zona e' troncata: chi lo usa per il braccio ablato non deve propagarlo, perche'
+    la rilevanza viene dall'ontologia. La selezione e' la
+    stessa di :func:`prepara_richiesta_zona`, coi parametri della run del braccio
+    completo, quindi non ne esiste una seconda copia. La domanda libera non entra:
+    il braccio di valutazione non ne ha.
+    """
+    richiesta = prepara_richiesta_zona(
+        context_dict,
+        request_token_budget=request_token_budget,
+        max_tokens=max_tokens,
+        context_format=context_format,
+        istat=istat,
+    )
+    return list(richiesta.contesto.poi_selezionati)
 
 
 async def generate_analysis(

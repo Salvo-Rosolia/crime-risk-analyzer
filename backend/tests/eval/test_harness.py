@@ -907,6 +907,62 @@ async def test_no_ontology_arm_replays_the_snapshot_of_the_complete_arm(
     assert "  POI: Banca A (Bank)" in client_ablato.calls[0][1]
 
 
+async def test_no_ontology_arm_receives_the_complete_arm_prompt_settings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#349: l'harness passa al braccio ablato gli stessi parametri con cui il
+    braccio completo costruisce il prompt (budget, max_tokens, formato,
+    interruttore ISTAT), cosi' l'ablato puo' elencare esattamente i suoi POI.
+
+    Solo con ISTAT spento: ``ExperimentConfig`` non ammette ``istat=True`` fuori
+    da ``mode="analyze"`` (il confronto della tesi si misura a ISTAT spento, D6).
+    """
+    from crime_risk_analyzer.eval import harness
+    from crime_risk_analyzer.rag import retrieval
+    from tests.eval._doubles import FakeLLMClient, FakeProfiler
+
+    visti: dict[str, dict[str, object]] = {}
+    veri = {
+        "run_analysis": harness.run_analysis,
+        "run_no_ontology_prompt": harness.run_no_ontology_prompt,
+    }
+
+    def _spia(nome: str):  # noqa: ANN202 — wrapper di test
+        async def _f(*args: object, **kwargs: object) -> object:
+            visti[nome] = kwargs
+            return await veri[nome](*args, **kwargs)  # type: ignore[arg-type]
+
+        return _f
+
+    monkeypatch.setattr(harness, "run_analysis", _spia("run_analysis"))
+    monkeypatch.setattr(
+        harness, "run_no_ontology_prompt", _spia("run_no_ontology_prompt")
+    )
+    monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
+    scrivi_snapshot(
+        snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
+    )
+    for mode in ("analyze", "no_ontology_prompt"):
+        await run_experiment(
+            ExperimentConfig(
+                name=f"iso-{mode}",
+                mode=mode,
+                model="groq",
+                cases=[RunCase(citta="Roma", zona="Centro")],
+            ),
+            executor=FakeProfiler(),
+            llm_client=FakeLLMClient(),
+            results_dir=tmp_path,
+            code_commit="abc",
+            ontology_hash="def",
+        )
+
+    chiavi = ("request_token_budget", "max_tokens", "context_format")
+    completo, ablato = visti["run_analysis"], visti["run_no_ontology_prompt"]
+    assert {k: ablato[k] for k in chiavi} == {k: completo[k] for k in chiavi}
+    assert ablato["istat_context_enabled"] is completo["istat_context_enabled"] is False
+
+
 async def test_no_ontology_arm_is_not_a_vacuous_arm(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

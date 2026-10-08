@@ -186,7 +186,21 @@ REGOLE OBBLIGATORIE:
 {RULE_USER_INPUT_NOT_INSTRUCTIONS}"""
 
 
-def build_no_ontology_context_str(context_dict: dict[str, Any]) -> str:
+def _nota_taglio_neutra(n_elencati: int, n_totali: int) -> str:
+    """Nota sul taglio del braccio ablato (#349): quanti punti su quanti, senza il
+    criterio. Quella del completo dice "piu' rilevanti", e la rilevanza e' il numero
+    di hazard TERMINUS: detta qui, rivelerebbe un'informazione ontologica."""
+    return (
+        f"NB: per limiti di lunghezza sono elencati {n_elencati} POI su "
+        f"{n_totali}; gli altri sono comunque in mappa e nella lista."
+    )
+
+
+def build_no_ontology_context_str(
+    context_dict: dict[str, Any],
+    *,
+    poi_nel_prompt: list[dict[str, Any]] | None = None,
+) -> str:
     """Assembla lo ``user_content`` del braccio ablato: zona + soli punti.
 
     La riga di ogni punto e' IDENTICA a quella del braccio completo: non e' riscritta
@@ -200,20 +214,29 @@ def build_no_ontology_context_str(context_dict: dict[str, Any]) -> str:
     ``_poi_display_name``): arriva da OpenStreetMap, cioe' da testo che chiunque
     puo' editare, e un modulo con un ramo sicuro e uno no e' una trappola.
 
-    Nessun troncamento per budget di token, a differenza di
-    :func:`~crime_risk_analyzer.rag.generation.build_context_str`: qui un punto
-    occupa UNA riga invece di un blocco di hazard, e i punti di una zona sono
-    limitati a monte dalla selezione del retrieval, quindi il contesto e' un
-    ordine di grandezza sotto l'allowance e non c'e' nulla da tagliare. Confine
-    dichiarato: se un giorno il braccio completo trimasse davvero, i due prompt
-    elencherebbero insiemi di punti diversi — da verificare prima di leggere un
-    confronto, perche' sarebbe una seconda differenza tra i bracci.
+    Nessun troncamento PROPRIO per budget di token: qui un punto occupa UNA riga
+    invece di un blocco di hazard, quindi il contesto resta sotto l'allowance. Il
+    braccio completo invece sulle zone dense tronca davvero (circa la meta' dei
+    punti nelle zone di valutazione): con ``poi_nel_prompt`` chi chiama passa i
+    soli punti che il prompt completo ha tenuto (#349,
+    :func:`~crime_risk_analyzer.rag.generation.poi_del_prompt_zona`), e i due
+    prompt elencano lo stesso insieme. L'ordine resta quello originale del
+    recupero e la nota sul taglio non dice il criterio: l'ordine per rilevanza
+    del completo (piu' hazard prima) e la parola "piu' rilevanti" sono
+    informazione ontologica, e passerebbero al braccio che non deve averla.
     """
     # ``zona`` viene dalla richiesta dell'utente: stessa superficie e stessa
     # difesa dei nomi OSM (#119), estesa qui da #244.
     zona = normalize_untrusted_line(str(context_dict.get("zona", "")))
-    validated: list[dict[str, Any]] = list(context_dict.get("validated_risks", []))
-    lines: list[str] = [f"ZONA: {zona}", "", "POI RILEVANTI:"]
+    tutti: list[dict[str, Any]] = list(context_dict.get("validated_risks", []))
+    validated = tutti
+    lines: list[str] = [f"ZONA: {zona}", ""]
+    if poi_nel_prompt is not None:
+        tenuti = {str(poi.get("poi_id", "")) for poi in poi_nel_prompt}
+        validated = [poi for poi in tutti if str(poi.get("poi_id", "")) in tenuti]
+        if len(validated) < len(tutti):
+            lines.extend([_nota_taglio_neutra(len(validated), len(tutti)), ""])
+    lines.append("POI RILEVANTI:")
     # Riga condivisa col braccio completo (``generation.poi_line``), non riscritta qui:
     # e' l'unico modo perche' "le righe POI sono identiche" resti vero per costruzione
     # invece che per disciplina di chi tocca i due moduli.
@@ -222,7 +245,10 @@ def build_no_ontology_context_str(context_dict: dict[str, Any]) -> str:
 
 
 async def generate_no_ontology_analysis(
-    context_dict: dict[str, Any], llm_client: _LLMClientLike
+    context_dict: dict[str, Any],
+    llm_client: _LLMClientLike,
+    *,
+    poi_nel_prompt: list[dict[str, Any]] | None = None,
 ) -> GenerationResult:
     """Genera la narrativa del braccio ablato dal context validato.
 
@@ -240,8 +266,15 @@ async def generate_no_ontology_analysis(
     Nessuna ``domanda`` utente: l'harness di valutazione non ne passa e questo
     percorso non e' esposto da alcuna rotta. La regola 9 resta comunque nel prompt
     (i nomi OSM sono testo non fidato che entra nel contesto).
+
+    ``poi_nel_prompt`` (#349): i punti da elencare nel prompt, cioe' quelli che il
+    prompt del braccio completo ha tenuto dopo il troncamento per budget. Cambia
+    solo lo ``user_content``: ``risk_models`` restano quelli di tutti i punti, come
+    nella response del braccio completo. ``None`` = tutti i punti.
     """
-    user_content = build_no_ontology_context_str(context_dict)
+    user_content = build_no_ontology_context_str(
+        context_dict, poi_nel_prompt=poi_nel_prompt
+    )
 
     start = time.perf_counter()
     response = await llm_client.generate(NO_ONTOLOGY_SYSTEM_PROMPT, user_content)
