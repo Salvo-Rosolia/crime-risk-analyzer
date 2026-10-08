@@ -47,6 +47,7 @@ from crime_risk_analyzer.rag.generation import (
     SourceProse,
     generate_analysis,
     parse_source_prose,
+    poi_del_prompt_zona,
 )
 from crime_risk_analyzer.rag.grounding import (
     GroundedContext,
@@ -478,6 +479,14 @@ class AnalyzeResponse(CampiIstatRisposta):
         exclude=True,
         description="Esito del controllo delle cifre (#345): solo per l'harness.",
     )
+    poi_nel_prompt: list[str] | None = Field(
+        default=None,
+        exclude=True,
+        description=(
+            "Id dei POI entrati nel prompt (#349): solo per l'harness, che li salva "
+            "nel record perche' il confronto fra bracci verifichi la parita'."
+        ),
+    )
 
 
 def _build_poi_list(
@@ -679,6 +688,7 @@ def _generated_response(
             gen.narrativa_grezza if gen.narrativa_grezza is not None else gen.narrativa
         ),
         controllo_istat=gen.controllo_istat,
+        poi_nel_prompt=gen.poi_nel_prompt,
     )
 
 
@@ -817,6 +827,10 @@ async def run_no_ontology_prompt(
     llm_client: _LLMClientLike,
     poi_source: PoiSource | None = None,
     geo_source: GeoSource | None = None,
+    request_token_budget: int = DEFAULT_REQUEST_TOKEN_BUDGET,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+    context_format: ContextFormat = DEFAULT_CONTEXT_FORMAT,
+    istat_context_enabled: bool = False,
 ) -> AnalyzeResponse:
     """Pipeline del braccio di ablazione: stesso LLM, prompt SENZA ontologia (#236).
 
@@ -840,6 +854,25 @@ async def run_no_ontology_prompt(
     Su :class:`LLMError` ritorna i soli dati strutturati (``fallback=True``) con
     lo stesso warning diagnosticabile del braccio completo (#210): un braccio muto
     va visto, perche' a valle rende vacui i proxy di qualita' (#231).
+
+    Stessi POI del braccio completo (#349): ``request_token_budget``,
+    ``max_tokens``, ``context_format`` e ``istat_context_enabled`` sono quelli
+    della run di :func:`run_analysis` e servono SOLO a ricostruire quali punti il
+    suo prompt ha tenuto dopo il troncamento per budget
+    (:func:`~crime_risk_analyzer.rag.generation.poi_del_prompt_zona`). Il prompt
+    ablato elenca lo stesso insieme di punti: prima mandava sempre tutti i punti, e
+    il confronto non era a parita' di input. L'ordine resta quello del recupero e la
+    nota sul taglio non dice il criterio, perche' l'ordine per rilevanza (piu'
+    hazard prima) e' informazione ontologica. Resta, ed e' da dichiarare nella
+    validita' del confronto, la SCELTA di quali punti tenere: anche lei usa
+    l'ontologia, e la parita' di insieme non si ottiene senza. Il verso del suo
+    effetto sul confronto NON e' determinato, ed e' da dichiarare: il taglio tiene
+    le classi con molti rischi (Polizia, Scuola, Ospedale) e scarta quelle con
+    pochi (farmacie, banche), i cui rischi sono vicini a cio' che un modello
+    senza ontologia scriverebbe comunque. La response resta completa come quella
+    del braccio completo; gli id dei punti elencati viaggiano in
+    ``poi_nel_prompt`` (solo per l'harness), che il confronto usa per verificare
+    la parita' invece di presumerla.
     """
     start = time.perf_counter()
     retrieval_ctx = await retrieve(
@@ -848,8 +881,17 @@ async def run_no_ontology_prompt(
     grounded = ground(retrieval_ctx)
     contesto_hash = fingerprint(retrieval_ctx["pois"])
     poi_out = _build_poi_list(retrieval_ctx, grounded)
+    nel_prompt = poi_del_prompt_zona(
+        dict(grounded),
+        request_token_budget=request_token_budget,
+        max_tokens=max_tokens,
+        context_format=context_format,
+        istat=istat_context_enabled,
+    )
     try:
-        gen = await generate_no_ontology_analysis(dict(grounded), llm_client)
+        gen = await generate_no_ontology_analysis(
+            dict(grounded), llm_client, poi_nel_prompt=nel_prompt
+        )
     except LLMError as exc:
         logger.warning(
             "Generazione LLM (braccio senza ontologia) fallita per %s/%s: "

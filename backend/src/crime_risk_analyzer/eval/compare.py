@@ -296,9 +296,29 @@ PROMPT_LENGTH_SIDE_EFFECT = (
 #: deve poterla SOSTITUIRE, non affiancare (vedi :data:`VACUOUS_DELTA_CLAIM`).
 ISOLATED_DELTA_CLAIM = (
     "Il delta su `grounding`/`hallucination` misura quindi l'effetto "
-    "dell'ancoraggio ontologico su quanto la prosa nomina dati verificabili — "
-    "non la qualità complessiva dell'analisi, e non con la forza di un giudizio "
-    "umano (vedi la nota metodologica)."
+    "dell'ancoraggio ontologico nel prompt, a parità di punti, su quanto la prosa "
+    "nomina dati verificabili — non la qualità complessiva dell'analisi, e non "
+    "con la forza di un giudizio umano (vedi la nota metodologica)."
+)
+
+#: Titolo dell'avviso di validità quando i due bracci vedono gli stessi POI ma
+#: non tutti quelli della zona (#349): il braccio completo tronca per budget e
+#: l'ablato elenca lo stesso sottoinsieme. La parità è verificata; la SCELTA dei
+#: punti però viene dal taglio del completo, cioè dall'ontologia, e va detta.
+POI_SUBSET_VALIDITY_HEAD = "**Validità: stessi POI, ma non tutti quelli della zona.**"
+
+#: Corpo dell'avviso (#349). Il verso NON è determinato: il taglio tiene le classi
+#: con molti rischi (Polizia, Scuola, Ospedale) e scarta quelle con pochi
+#: (farmacie, banche), i cui rischi sono vicini a ciò che un modello senza
+#: ontologia scriverebbe comunque — quindi non si può dire che la scelta aiuti uno
+#: dei due bracci, e non va scritto.
+POI_SUBSET_VALIDITY_BODY = (
+    "li ha scelti il taglio per budget del braccio completo, per rilevanza "
+    "(numero di rischi dell'ontologia), e l'altro braccio elenca gli stessi. Il "
+    "verso dell'effetto di questa scelta sul confronto NON è determinato: il "
+    "taglio tiene le classi con molti rischi e scarta quelle con pochi, i cui "
+    "rischi sono vicini a ciò che un modello senza ontologia scriverebbe "
+    "comunque. Va dichiarato nella lettura del delta."
 )
 
 #: Sostituisce :data:`ISOLATED_DELTA_CLAIM` quando il confronto ha assi di qualità
@@ -438,6 +458,82 @@ def _setting_mismatch(
     return ""
 
 
+def _paired_configured(
+    arm_a: list[RunRecord], arm_b: list[RunRecord]
+) -> list[tuple[str, RunRecord, RunRecord]]:
+    """Casi ``(citta, zona)`` presenti in entrambi i bracci fra i record che
+    descrivono l'impostazione reale (:func:`_configured_records`), ordinati.
+
+    Sono le zone che ``compare_records`` confronta davvero: una zona in
+    ERROR/FALLBACK e' gia' esclusa da medie e delta, e un fallback non ha
+    generato prosa (quindi nemmeno ``poi_nel_prompt``).
+    """
+    index_b = {(r.citta, r.zona): r for r in _configured_records(arm_b)}
+    return [
+        (f"{rec_a.citta}/{rec_a.zona}", rec_a, index_b[(rec_a.citta, rec_a.zona)])
+        for rec_a in sorted(_configured_records(arm_a), key=lambda r: (r.citta, r.zona))
+        if (rec_a.citta, rec_a.zona) in index_b
+    ]
+
+
+def _poi_nel_prompt_mismatch(
+    arm_a: list[RunRecord],
+    arm_b: list[RunRecord],
+    *,
+    label_a: str,
+    label_b: str,
+) -> str:
+    """Casi in cui la parita' dei POI nel prompt NON e' verificata (#349).
+
+    Gemello di :func:`_setting_mismatch` per un'impostazione che vive per caso e
+    non per braccio: quali punti il prompt ha elencato. Il confronto la VERIFICA
+    sui record invece di presumerla: per ogni caso confrontato ``poi_nel_prompt``
+    deve esserci in entrambi i record e gli INSIEMI devono coincidere (l'ordine
+    diverge per costruzione: il completo per rilevanza, l'ablato in quello del
+    recupero). Ritorna ``""`` se tutto torna, altrimenti una descrizione caso per
+    caso: insiemi diversi, o record senza il campo, cioe' precedenti a #349.
+    """
+    problemi: list[str] = []
+    for caso, rec_a, rec_b in _paired_configured(arm_a, arm_b):
+        poi_a, poi_b = rec_a.poi_nel_prompt, rec_b.poi_nel_prompt
+        if poi_a is None or poi_b is None:
+            senza = [
+                f"`{label}`"
+                for label, poi in ((label_a, poi_a), (label_b, poi_b))
+                if poi is None
+            ]
+            problemi.append(
+                f"{caso}: record senza `poi_nel_prompt` in {' e '.join(senza)}, "
+                "cioè precedenti a #349, quindi la parità non è verificabile"
+            )
+        elif set(poi_a) != set(poi_b):
+            problemi.append(
+                f"{caso}: insiemi diversi (`{label_a}` {len(poi_a)} POI, "
+                f"`{label_b}` {len(poi_b)} POI)"
+            )
+    return f"POI nel prompt ({'; '.join(problemi)})" if problemi else ""
+
+
+def _poi_subset_note(arm_a: list[RunRecord], arm_b: list[RunRecord]) -> str:
+    """Avviso di validita' quando gli stessi POI sono un sottoinsieme della zona.
+
+    Chiamata solo a parita' verificata (:func:`_poi_nel_prompt_mismatch` vuoto):
+    elenca i casi in cui i punti nel prompt sono meno di quelli della zona
+    (``n_poi``), con N su M. ``""`` se nessun caso e' tagliato.
+    """
+    tagliati = [
+        f"{caso} {len(rec_a.poi_nel_prompt)} su {rec_a.n_poi}"
+        for caso, rec_a, _rec_b in _paired_configured(arm_a, arm_b)
+        if rec_a.poi_nel_prompt is not None and len(rec_a.poi_nel_prompt) < rec_a.n_poi
+    ]
+    if not tagliati:
+        return ""
+    return (
+        f"{POI_SUBSET_VALIDITY_HEAD} Zona per zona, i due bracci vedono N POI su "
+        f"M ({'; '.join(tagliati)}): {POI_SUBSET_VALIDITY_BODY}"
+    )
+
+
 def is_ontology_isolating_pair(arm_a: list[RunRecord], arm_b: list[RunRecord]) -> bool:
     """True se i modi dei due bracci sono la coppia che manipola l'ontologia (#236).
 
@@ -475,7 +571,12 @@ def isolated_variable_note(
     non dedotto dai modi: due run con generatori diversi cambiano prompt e modello
     insieme, e su quella coppia la funzione dichiara che la variabile NON è
     isolata invece di prometterlo. Il controllo guarda i soli record che
-    descrivono l'impostazione reale (:func:`_configured_records`).
+    descrivono l'impostazione reale (:func:`_configured_records`). Lo stesso vale
+    per i POI elencati nel prompt (#349, :func:`_poi_nel_prompt_mismatch`): il
+    braccio completo tronca per budget, e la variabile è isolata solo se, caso
+    per caso, i due record salvano lo stesso insieme. Se è lo stesso ma non è
+    tutta la zona, la nota aggiunge l'avviso di validità
+    (:data:`POI_SUBSET_VALIDITY_HEAD`).
 
     Il testo dice cosa cambia e cosa NON cambia tra i bracci, e si ferma lì: la
     lettura dei delta di qualità resta quella del :data:`PROXY_CAVEAT` (proxy
@@ -500,7 +601,9 @@ def isolated_variable_note(
     con, senza = (
         (label_a, label_b) if _single_mode(arm_a) == "analyze" else (label_b, label_a)
     )
-    mismatch = _setting_mismatch(arm_a, arm_b, label_a=label_a, label_b=label_b)
+    mismatch = _setting_mismatch(
+        arm_a, arm_b, label_a=label_a, label_b=label_b
+    ) or _poi_nel_prompt_mismatch(arm_a, arm_b, label_a=label_a, label_b=label_b)
     if mismatch:
         return (
             f"{CONFOUNDED_VARIABLE_HEAD} Tra i due bracci cambia il PROMPT "
@@ -513,15 +616,23 @@ def isolated_variable_note(
         )
     what_changes = (
         f"{ISOLATED_VARIABLE_HEAD} I due bracci condividono modello, "
-        "temperatura, formato del contesto, seed di campionamento, snapshot POI "
-        "e dati strutturati della risposta "
+        "temperatura, formato del contesto, seed di campionamento, snapshot POI, "
+        "gli stessi POI nel prompt (verificato sui record, zona per zona) e dati "
+        "strutturati della risposta "
         "(`poi[]`, `risk_models`, confidence, quindi gli stessi ancoraggi su cui "
-        f"i proxy si calcolano). L'unica differenza è il PROMPT: `{con}` riceve "
-        f"gli hazard che l'ontologia associa alle classi dei punti, `{senza}` "
-        "riceve solo nome e classe dei punti."
+        "i proxy si calcolano). L'unica differenza è il PROMPT: sugli stessi "
+        f"punti, `{con}` riceve gli hazard che l'ontologia associa alle loro "
+        f"classi, `{senza}` riceve solo nome e classe."
     )
     claim = VACUOUS_DELTA_CLAIM if quality_axes_vacuous else ISOLATED_DELTA_CLAIM
-    return f"{what_changes} {claim} {PROMPT_LENGTH_SIDE_EFFECT}"
+    subset = _poi_subset_note(arm_a, arm_b)
+    parti = [
+        what_changes,
+        claim,
+        *([subset] if subset else []),
+        PROMPT_LENGTH_SIDE_EFFECT,
+    ]
+    return " ".join(parti)
 
 
 def _istat_di(records: list[RunRecord]) -> set[bool]:

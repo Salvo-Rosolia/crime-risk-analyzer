@@ -32,8 +32,12 @@ from crime_risk_analyzer.orchestrator import (
 )
 from crime_risk_analyzer.overpass_client import Poi
 from crime_risk_analyzer.rag.generation import (
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_REQUEST_TOKEN_BUDGET,
+    SYSTEM_PROMPT,
     USER_INPUT_FENCE_OPEN,
     SourceProse,
+    _estimate_tokens,  # pyright: ignore[reportPrivateUsage]
 )
 from crime_risk_analyzer.rag.grounding import GroundedContext
 from crime_risk_analyzer.rag.no_ontology_generation import (
@@ -44,6 +48,7 @@ from crime_risk_analyzer.rag.retrieval import RetrievalContext, RetrievalStats
 from tests.eval._doubles import FakeLLMClient as _FakeLLMClient
 from tests.eval._doubles import FakeProfiler as _FakeProfiler
 from tests.eval._doubles import default_llm_response as _llm_response
+from tests.eval._doubles import righe_poi
 from tests.istat._fattorie import BANKROB, istat_poi
 
 
@@ -1098,6 +1103,112 @@ async def test_run_no_ontology_prompt_hides_the_ontology_from_the_model(
     assert "  POI: Banca A (Bank)" in user
 
 
+def _banche_e_scuole(n: int) -> list[Poi]:
+    """POI alternati: le scuole hanno piu' rischi delle banche, quindi il
+    troncamento per rilevanza NON tiene semplicemente i primi della lista."""
+    pois: list[Poi] = []
+    for i in range(n):
+        classe = "School" if i % 2 else "Bank"
+        pois.append(
+            {
+                "id": str(i),
+                "name": f"Punto {i:02d}",
+                "lat": 41.89,
+                "lon": 12.49,
+                "osm_tags": "amenity=x",
+                "terminus_class": classe,
+                "citta": "Roma",
+            }
+        )
+    return pois
+
+
+_SCHOOL_PROFILE_RICCO = PoiRiskProfile(
+    terminus_class="School",
+    hazards=["Vandalism", "School_theft", "Damage_in_the_school"],
+    sparql_paths=[
+        "School → havingHazard → Vandalism",
+        "School → havingHazard → School_theft",
+        "School → havingHazard → Damage_in_the_school",
+    ],
+)
+
+
+@pytest.mark.parametrize("tronca", [True, False], ids=["troncato", "intero"])
+async def test_i_due_bracci_vedono_gli_stessi_poi(
+    tronca: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#349: il braccio senza ontologia elenca lo STESSO INSIEME di POI che il
+    braccio completo ha tenuto dopo il troncamento per budget, ma nell'ordine
+    originale e con una nota sul taglio che non dice il criterio.
+
+    Prima mandava sempre tutti i punti (20 sulle zone di valutazione) mentre il
+    completo ne teneva circa la meta': il confronto non era a parita' di input e
+    una differenza nelle metriche poteva venire dal numero di POI, non
+    dall'ontologia. L'ordine per rilevanza e la parola "piu' rilevanti" restano
+    fuori perche' vengono dall'ontologia (piu' hazard = piu' rilevante).
+    """
+    _patch_io(monkeypatch, pois=_banche_e_scuole(12))
+    profiler = _FakeProfiler({"Bank": _BANK_PROFILE, "School": _SCHOOL_PROFILE_RICCO})
+    budget = (
+        _estimate_tokens(SYSTEM_PROMPT) + DEFAULT_MAX_TOKENS + 900
+        if tronca
+        else DEFAULT_REQUEST_TOKEN_BUDGET
+    )
+    completo, ablato = _RecordingLLMClient(), _RecordingLLMClient()
+
+    resp_completo = await run_analysis(
+        "Roma",
+        "Centro",
+        executor=profiler,
+        llm_client=completo,
+        request_token_budget=budget,
+        max_tokens=DEFAULT_MAX_TOKENS,
+    )
+    resp = await run_no_ontology_prompt(
+        "Roma",
+        "Centro",
+        executor=profiler,
+        llm_client=ablato,
+        request_token_budget=budget,
+        max_tokens=DEFAULT_MAX_TOKENS,
+    )
+
+    righe_completo = righe_poi(completo.calls[0][1])
+    righe_ablato = righe_poi(ablato.calls[0][1])
+    utente_ablato = ablato.calls[0][1]
+    # Stesso INSIEME di punti, ma nell'ordine originale del recupero: l'ordine per
+    # rilevanza viene dall'ontologia (piu' hazard prima) e non deve passare.
+    assert sorted(righe_ablato) == sorted(righe_completo)
+    assert righe_ablato == sorted(righe_ablato)  # "Punto 00", "Punto 01", ...
+    # Cambia solo il prompt: la response resta quella di tutti i punti.
+    assert len(resp.poi) == len(resp.risk_models) == 12
+    # La parita' e' verificabile a valle: entrambe le response portano gli id dei
+    # POI entrati nel prompt, nell'ordine del rispettivo prompt.
+    assert resp_completo.poi_nel_prompt is not None
+    assert resp.poi_nel_prompt is not None
+    assert len(resp.poi_nel_prompt) == len(righe_ablato)
+    assert set(resp.poi_nel_prompt) == set(resp_completo.poi_nel_prompt)
+    assert resp.poi_nel_prompt == sorted(resp.poi_nel_prompt, key=int)
+    # Nessun "rilevant" nel prompt ablato, con o senza taglio (#349).
+    assert "rilevant" not in utente_ablato.lower()
+    if tronca:
+        assert 0 < len(righe_completo) < 12
+        # Il completo sceglie per rilevanza (le scuole prima), non i primi N.
+        assert righe_completo[0].startswith("  POI: Punto 01")
+        # Il taglio tiene scuole E banche: solo cosi' l'ordine per rilevanza
+        # (scuole prima) si distingue dall'ordine originale (alternato).
+        assert any("(Bank)" in r for r in righe_completo)
+        assert righe_ablato != righe_completo
+        # Nota neutra: dice quanti punti su quanti, non con quale criterio.
+        nota = f"sono analizzati {len(righe_ablato)} POI su 12"
+        assert nota in utente_ablato
+        assert len(resp.poi_nel_prompt) < 12
+    else:
+        assert len(righe_completo) == 12
+        assert "NB:" not in utente_ablato
+
+
 async def test_run_no_ontology_prompt_keeps_the_structured_contract(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1298,6 +1409,9 @@ async def test_run_analysis_espone_i_campi_istat_e_nasconde_il_grezzo() -> None:
     assert resp.narrativa_grezza is not None
     corpo = resp.model_dump()
     assert "narrativa_grezza" not in corpo and "controllo_istat" not in corpo
+    # #349: anche i POI del prompt sono solo per l'harness.
+    assert resp.poi_nel_prompt is not None
+    assert "poi_nel_prompt" not in corpo
 
 
 @pytest.mark.parametrize("acceso", [True, False], ids=["istat-acceso", "istat-spento"])
@@ -1561,6 +1675,7 @@ def test_analyze_response_has_no_numeric_danger_scoring_field() -> None:
         "istat_frasi_scartate",
         "narrativa_grezza",
         "controllo_istat",
+        "poi_nel_prompt",
     }
 
 

@@ -63,6 +63,8 @@ def _rec(
         ),
         narrativa="testo",
         n_poi=1,
+        # #349: record con i POI nel prompt, come quelli che l'harness scrive oggi.
+        poi_nel_prompt=["1"],
         istat_metrics=_metriche_istat() if istat else None,
         provenance=Provenance(
             code_commit="c",

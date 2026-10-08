@@ -30,8 +30,17 @@ Cosa resta identico al braccio completo (e perche'):
   continuano ad arrivare dal grounding. Sono il dato ancorato da cui
   ``eval/metrics.py`` ricava gli ancoraggi, quindi devono essere identici nei due
   bracci perche' il denominatore del proxy sia lo stesso.
+- i PUNTI elencati (#349): lo stesso insieme che il prompt completo ha tenuto
+  dopo il troncamento per budget, non tutti quelli della zona. L'ordine resta
+  quello del recupero e ne' la nota sul taglio ne' il titolo della lista dicono
+  il criterio. La SCELTA di quei punti viene pero' dal taglio del completo, che
+  ordina per numero di hazard: e' un residuo ontologico che il braccio ablato
+  eredita (senza vederlo) e che la parita' di insieme non puo' evitare. Il verso
+  del suo effetto sul confronto non e' determinato, ed e' da dichiarare (il
+  report del confronto lo fa quando il taglio c'e').
 
-Cosa viene tolto (il contributo ontologico, tutto e solo lui):
+Cosa viene tolto (il contributo ontologico che il PROMPT porta esplicitamente;
+la scelta dei punti, sopra, resta condivisa):
 
 - hazard, vulnerabilita' e citazione SPARQL dal blocco POI del contesto;
 - il VOCABOLARIO CONTROLLATO e la regola 6 che lo impone: i termini italiani
@@ -98,9 +107,11 @@ from crime_risk_analyzer.rag.generation import (
     Repro,
     _LLMClientLike,  # pyright: ignore[reportPrivateUsage]
     _risk_models_from_context,  # pyright: ignore[reportPrivateUsage]
+    _truncation_note,  # pyright: ignore[reportPrivateUsage]
     block_structure_rule,
     normalize_untrusted_line,
     poi_line,
+    poi_nel_prompt_ids,
 )
 
 __all__ = [
@@ -186,7 +197,39 @@ REGOLE OBBLIGATORIE:
 {RULE_USER_INPUT_NOT_INSTRUCTIONS}"""
 
 
-def build_no_ontology_context_str(context_dict: dict[str, Any]) -> str:
+#: Titolo della lista dei punti nel prompt ablato (#349). Il braccio completo
+#: scrive "POI RILEVANTI", e nel braccio ablato quella parola ripeterebbe il
+#: criterio del taglio (la rilevanza e' il numero di hazard dell'ontologia): qui
+#: il titolo e' neutro, con o senza taglio.
+_TITOLO_LISTA_POI = "POI ELENCATI:"
+
+
+def _poi_elencati(
+    context_dict: dict[str, Any],
+    poi_nel_prompt: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """I punti che il prompt ablato elenca, nell'ordine originale del recupero.
+
+    ``None`` = tutti. Altrimenti i soli punti tenuti dal prompt completo,
+    agganciati per IDENTITA' dell'oggetto e non per ``poi_id`` (#349): gli
+    snapshot legacy senza tipo possono avere due punti con lo stesso id, e il
+    filtro per id elencherebbe anche quello che il completo ha scartato. Gli
+    oggetti sono gli stessi lungo tutto il percorso: la selezione restituisce i
+    dict di ``validated_risks`` (``dict(grounded)`` e ``list(...)`` copiano i
+    contenitori, non i dict).
+    """
+    tutti: list[dict[str, Any]] = list(context_dict.get("validated_risks", []))
+    if poi_nel_prompt is None:
+        return tutti
+    tenuti = {id(poi) for poi in poi_nel_prompt}
+    return [poi for poi in tutti if id(poi) in tenuti]
+
+
+def build_no_ontology_context_str(
+    context_dict: dict[str, Any],
+    *,
+    poi_nel_prompt: list[dict[str, Any]] | None = None,
+) -> str:
     """Assembla lo ``user_content`` del braccio ablato: zona + soli punti.
 
     La riga di ogni punto e' IDENTICA a quella del braccio completo: non e' riscritta
@@ -200,20 +243,30 @@ def build_no_ontology_context_str(context_dict: dict[str, Any]) -> str:
     ``_poi_display_name``): arriva da OpenStreetMap, cioe' da testo che chiunque
     puo' editare, e un modulo con un ramo sicuro e uno no e' una trappola.
 
-    Nessun troncamento per budget di token, a differenza di
-    :func:`~crime_risk_analyzer.rag.generation.build_context_str`: qui un punto
-    occupa UNA riga invece di un blocco di hazard, e i punti di una zona sono
-    limitati a monte dalla selezione del retrieval, quindi il contesto e' un
-    ordine di grandezza sotto l'allowance e non c'e' nulla da tagliare. Confine
-    dichiarato: se un giorno il braccio completo trimasse davvero, i due prompt
-    elencherebbero insiemi di punti diversi — da verificare prima di leggere un
-    confronto, perche' sarebbe una seconda differenza tra i bracci.
+    Nessun troncamento PROPRIO per budget di token: qui un punto occupa UNA riga
+    invece di un blocco di hazard, quindi il contesto resta sotto l'allowance. Il
+    braccio completo invece sulle zone dense tronca davvero (circa la meta' dei
+    punti nelle zone di valutazione): con ``poi_nel_prompt`` chi chiama passa i
+    soli punti che il prompt completo ha tenuto (#349,
+    :func:`~crime_risk_analyzer.rag.generation.poi_del_prompt_zona`), e i due
+    prompt elencano lo stesso insieme. L'ordine resta quello originale del
+    recupero, e ne' la nota sul taglio (la stessa del completo,
+    :func:`~crime_risk_analyzer.rag.generation._truncation_note`, senza criterio)
+    ne' il titolo della lista dicono il criterio: l'ordine per rilevanza del
+    completo (piu' hazard prima) e la parola "rilevanti" sono informazione
+    ontologica, e passerebbero al braccio che non deve averla.
     """
     # ``zona`` viene dalla richiesta dell'utente: stessa superficie e stessa
     # difesa dei nomi OSM (#119), estesa qui da #244.
     zona = normalize_untrusted_line(str(context_dict.get("zona", "")))
-    validated: list[dict[str, Any]] = list(context_dict.get("validated_risks", []))
-    lines: list[str] = [f"ZONA: {zona}", "", "POI RILEVANTI:"]
+    n_totali = len(context_dict.get("validated_risks", []))
+    validated = _poi_elencati(context_dict, poi_nel_prompt)
+    lines: list[str] = [f"ZONA: {zona}", ""]
+    if len(validated) < n_totali:
+        lines.extend(
+            [_truncation_note(len(validated), n_totali, con_criterio=False), ""]
+        )
+    lines.append(_TITOLO_LISTA_POI)
     # Riga condivisa col braccio completo (``generation.poi_line``), non riscritta qui:
     # e' l'unico modo perche' "le righe POI sono identiche" resti vero per costruzione
     # invece che per disciplina di chi tocca i due moduli.
@@ -222,7 +275,10 @@ def build_no_ontology_context_str(context_dict: dict[str, Any]) -> str:
 
 
 async def generate_no_ontology_analysis(
-    context_dict: dict[str, Any], llm_client: _LLMClientLike
+    context_dict: dict[str, Any],
+    llm_client: _LLMClientLike,
+    *,
+    poi_nel_prompt: list[dict[str, Any]] | None = None,
 ) -> GenerationResult:
     """Genera la narrativa del braccio ablato dal context validato.
 
@@ -240,8 +296,18 @@ async def generate_no_ontology_analysis(
     Nessuna ``domanda`` utente: l'harness di valutazione non ne passa e questo
     percorso non e' esposto da alcuna rotta. La regola 9 resta comunque nel prompt
     (i nomi OSM sono testo non fidato che entra nel contesto).
+
+    ``poi_nel_prompt`` (#349): i punti da elencare nel prompt, cioe' quelli che il
+    prompt del braccio completo ha tenuto dopo il troncamento per budget. Cambia
+    solo lo ``user_content``: ``risk_models`` restano quelli di tutti i punti, come
+    nella response del braccio completo. ``None`` = tutti i punti. Gli id dei
+    punti effettivamente elencati tornano in ``GenerationResult.poi_nel_prompt``,
+    cosi' il confronto verifica la parita' coi POI del completo invece di
+    presumerla.
     """
-    user_content = build_no_ontology_context_str(context_dict)
+    user_content = build_no_ontology_context_str(
+        context_dict, poi_nel_prompt=poi_nel_prompt
+    )
 
     start = time.perf_counter()
     response = await llm_client.generate(NO_ONTOLOGY_SYSTEM_PROMPT, user_content)
@@ -262,5 +328,8 @@ async def generate_no_ontology_analysis(
             temperature=response.temperature,
             seed=response.seed,
             prompt_hash=response.prompt_hash,
+        ),
+        poi_nel_prompt=poi_nel_prompt_ids(
+            _poi_elencati(context_dict, poi_nel_prompt), context_format="per_poi"
         ),
     )

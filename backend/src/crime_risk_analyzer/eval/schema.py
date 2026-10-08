@@ -238,17 +238,22 @@ class ExperimentConfig(BaseModel):
     def _reject_grouping_without_ontology(self) -> ExperimentConfig:
         """``per_classe`` non esiste nel braccio ablato (#236).
 
-        Raggruppare per classe TERMINUS serve a non ripetere l'insieme di hazard
-        per ogni punto: nel prompt senza ontologia quell'insieme non c'e', quindi
-        il formato non avrebbe alcun effetto. Accettarlo in silenzio scriverebbe
-        una ``Provenance`` che descrive un prompt mai costruito — l'esatto difetto
-        che il campo era stato aggiunto per chiudere.
+        Il prompt ablato e' sempre una riga per punto: non porta hazard, quindi
+        non ha un insieme da raggruppare per classe. Il formato non e' pero'
+        senza effetto (#349): il braccio ablato lo passa alla selezione
+        ricostruita dei POI del completo, e con ``per_classe`` sceglierebbe i
+        punti di un braccio completo ``per_classe``. Il vincolo resta perche' la
+        coppia della tesi e' ``per_poi`` contro ``per_poi``: un ablato
+        ``per_classe`` dichiarerebbe nella ``Provenance`` un formato del blocco
+        POI che il suo prompt non ha, e la parita' di POI andrebbe cercata contro
+        un completo diverso da quello del confronto.
         """
         if self.mode == "no_ontology_prompt" and self.context_format != "per_poi":
             raise ValueError(
                 "mode='no_ontology_prompt' non ammette "
                 f"context_format={self.context_format!r}: il prompt ablato non "
-                "porta hazard, quindi non c'e' nulla da raggruppare per classe"
+                "porta hazard, quindi non c'e' nulla da raggruppare per classe "
+                "(la coppia del confronto e' per_poi contro per_poi)"
             )
         return self
 
@@ -301,6 +306,16 @@ class RunRecord(BaseModel):
     narrativa_grezza: str | None = Field(
         default=None,
         description="Testo del modello prima del controllo delle cifre (#345); None sui record vecchi.",  # noqa: E501
+    )
+    poi_nel_prompt: list[str] | None = Field(
+        default=None,
+        description=(
+            "Id (``poi_id``) dei POI entrati nel prompt del braccio LLM, nell'ordine "
+            "in cui il prompt li elenca (#349). Il confronto analyze vs "
+            "no_ontology_prompt dichiara la variabile isolata solo se, zona per "
+            "zona, i due INSIEMI coincidono. None sulla baseline (nessun prompt), "
+            "sui fallback e sui record precedenti a #349."
+        ),
     )
     istat_frasi_scartate: int = Field(
         default=0, ge=0, description="Frasi tolte (#345)."

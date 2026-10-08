@@ -47,6 +47,7 @@ def _rec(
     status: RunStatus = RunStatus.OK,
     narrativa: str = "x",
     mode: Mode = "analyze",
+    poi_nel_prompt: list[str] | None = None,
 ) -> RunRecord:
     return RunRecord(
         run_id=make_run_id(experiment, citta, zona, mode, "groq", rep),
@@ -64,6 +65,8 @@ def _rec(
         ),
         narrativa=narrativa,
         n_poi=1,
+        # #349: senza ``poi_nel_prompt`` la coppia C3 non si dichiara isolata.
+        poi_nel_prompt=poi_nel_prompt if poi_nel_prompt is not None else ["1"],
         provenance=Provenance(
             code_commit="c",
             ontology_hash="o",
