@@ -168,7 +168,7 @@ async def analyze(
     un prompt. Per la stessa ragione questa rotta non dipende ne' dal client
     LLM ne' dai tetti di token: sono argomenti della fase 2. Da ``Settings``
     legge solo l'interruttore ISTAT (#346), che decide se ``poi[].istat`` arriva
-    al client.
+    al client e se la versione dei dati ISTAT entra in ``contesto_hash`` (#354).
     """
     citta, zona, geo_source = await _resolve_area(request)
     return await run_analysis_fast(

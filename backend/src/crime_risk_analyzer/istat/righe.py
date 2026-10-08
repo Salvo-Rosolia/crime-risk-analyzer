@@ -18,6 +18,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from pydantic import BaseModel, ConfigDict
 
 from crime_risk_analyzer.i18n.terminus_labels import label_it
+from crime_risk_analyzer.istat.catalogo import VOCI_ROTTURA_2016
 from crime_risk_analyzer.istat.dati import (
     CODICE_ITALIA,
     VOCE_TOTALE,
@@ -27,11 +28,7 @@ from crime_risk_analyzer.istat.dati import (
     dati_istat_o_none,
 )
 from crime_risk_analyzer.istat.luoghi import luogo_di
-from crime_risk_analyzer.istat.mappatura import (
-    MAPPATURA,
-    VOCI_ROTTURA_2016,
-    Corrispondenza,
-)
+from crime_risk_analyzer.istat.mappatura import MAPPATURA, Corrispondenza
 
 __all__ = [
     "MOTIVO_ANNO_MANCANTE",

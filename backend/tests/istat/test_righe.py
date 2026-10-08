@@ -67,7 +67,8 @@ def test_formato_della_cornice() -> None:
         "- [Comune di Roma, 2024] totale dei delitti denunciati (contesto "
         "generale, non legato a un rischio): 217.536 delitti denunciati (2014: "
         "216.750), 7.906,3 ogni 100.000 abitanti (Italia: 4.069,6); variazione "
-        "2014-2024: 0%."
+        "2014-2024 non calcolata (serie interrotta dalla depenalizzazione del 2016 "
+        "(d.lgs. 7/2016))."
     )
 
 
@@ -166,3 +167,30 @@ def test_nessuna_riga_fuori_dai_poligoni_o_senza_voci() -> None:
 def test_nessuna_riga_senza_dati(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(righe_mod, "dati_istat_o_none", lambda: None)
     assert istat_per_poi(41.8902, 12.4922, ["Bank_robbery"]) is None
+
+
+def test_la_cornice_non_calcola_la_variazione_per_la_rottura_2016() -> None:
+    """Il totale comprende fatti depenalizzati dal d.lgs. 7/2016 (ingiurie,
+    danneggiamento semplice, ...): come per i danneggiamenti la variazione
+    decennale non si calcola e la riga dice perche' (#353). La regola viene dal
+    catalogo, non da un elenco a parte."""
+    dati = dati_istat()
+    milano = luogo_di(45.4642, 9.19, dati=dati)
+    assert milano is not None
+    totale = riga_istat(dati, milano, "TOT")
+    # Il caso non e' vacuo: senza rottura la variazione sarebbe calcolabile.
+    assert variazione(totale.delitti, totale.delitti_confronto, rottura_2016=False) == (
+        -13,
+        None,
+    )
+    assert totale.rottura_2016
+    assert totale.variazione_pct is None
+    assert totale.motivo_senza_variazione == MOTIVO_ROTTURA_2016
+    assert (
+        f"variazione 2014-2024 non calcolata ({MOTIVO_ROTTURA_2016})"
+        in formatta_riga(totale)
+    )
+    istat = istat_per_poi(45.4642, 9.19, ["Property_theft"])
+    assert istat is not None
+    assert istat.cornice.variazione_pct is None
+    assert istat.cornice.motivo_senza_variazione == MOTIVO_ROTTURA_2016

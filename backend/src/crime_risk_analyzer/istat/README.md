@@ -10,6 +10,7 @@
 - `delitti.json`: per le 106 province, i 108 comuni capoluogo e l'Italia, per ogni voce collegata a un hazard (`mappatura.py`) più `TOT`: delitti e tasso di `anno` (2024) e di `anno_confronto` (2014). `tasso: null` con `tasso_sotto_soglia: true` corrisponde al flag ISTAT "il dato non raggiunge la metà della cifra minima considerata" e si mostra come "meno di 0,1 ogni 100.000 abitanti".
 - `luoghi.json`: un `MultiPolygon` semplificato (coordinate `lon, lat`) per luogo, con codice del dataset, nome, tipo, riquadro, punto interno e, per i comuni, la provincia del dataset.
 - `mappatura.py`: tabella hazard → voce ISTAT (D3).
+- `catalogo.py`: le 56 voci del dataset 73_67 (codelist CL_REATI_PS v1.0) con etichetta, voce madre, voci legate al luogo e rottura 2016; per le voci che nessun hazard usa, lo stato (`usabile`/`esclusa`, `cornice` per il totale) e il motivo. L'uso è derivato da `mappatura.py`.
 
 ## Conversione dei codici
 - Comuni capoluogo: codice comune ISTAT a 6 cifre (`PRO_COM_T`), uguale nel dataset e nei confini 2024.

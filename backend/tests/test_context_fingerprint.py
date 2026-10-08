@@ -138,3 +138,46 @@ def test_le_due_richieste_descrivono_l_impronta_allo_stesso_modo() -> None:
     assert zona.description is not None
     assert zona.description == poi.description
     assert zona.metadata == poi.metadata
+
+
+# --- Versione dei dati ISTAT nell'impronta (#354) ---
+# Con l'interruttore ISTAT acceso il prompt dipende anche dai dati ISTAT: un
+# aggiornamento dei dati fra la fase 1 e il clic deve dare 409 come un cambio dei
+# POI. Spento, l'impronta resta quella di prima, byte per byte.
+
+#: Lista con un POI con nome e uno anonimo, e il suo digest calcolato su main
+#: (35acc46) PRIMA di #354: la serializzazione senza versione non deve cambiare.
+_POI_FISSATI: list[Poi] = [
+    _poi(),
+    _poi("way/2", "", "School", 41.8905, 12.4931),
+]
+_DIGEST_DI_MAIN = "15d9ca577fa82f386a3e2192991e326e017f61eba9c0c734dda0e6aa4f4d08c2"
+
+
+def test_senza_versione_istat_il_digest_e_quello_di_prima() -> None:
+    assert fingerprint(_POI_FISSATI) == _DIGEST_DI_MAIN
+    assert fingerprint(_POI_FISSATI, istat_versione=None) == _DIGEST_DI_MAIN
+
+
+def test_la_versione_istat_cambia_il_digest() -> None:
+    con = fingerprint(_POI_FISSATI, istat_versione="2024@2026-10-06")
+    assert con != _DIGEST_DI_MAIN
+    assert len(con) == 64
+
+
+def test_versioni_istat_diverse_danno_digest_diversi() -> None:
+    a = fingerprint(_POI_FISSATI, istat_versione="2024@2026-10-06")
+    b = fingerprint(_POI_FISSATI, istat_versione="2024@2026-10-08")
+    assert a != b
+    assert a == fingerprint(list(_POI_FISSATI), istat_versione="2024@2026-10-06")
+
+
+def test_versione_vuota_non_si_confonde_con_l_assenza() -> None:
+    """Serializzazione non ambigua: anche la stringa vuota e' una versione."""
+    assert fingerprint(_POI_FISSATI, istat_versione="") != _DIGEST_DI_MAIN
+
+
+def test_la_versione_non_si_confonde_con_un_poi() -> None:
+    """La versione non e' un elemento in coda alla lista: una lista di POI non
+    puo' produrre lo stesso testo canonico di lista + versione."""
+    assert fingerprint([], istat_versione="x") != fingerprint([])

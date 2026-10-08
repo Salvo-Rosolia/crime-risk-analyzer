@@ -1097,6 +1097,9 @@ async def _prompt_del_prodotto(
         executor=_FakeProfiler(),
         poi_source=_poi_source_divergente,
         geo_source=_geo_source,
+        # Stesso interruttore delle due fasi, come nella rotta (Settings): da
+        # #354 l'impronta acceso copre la versione dei dati ISTAT.
+        istat_context_enabled=istat,
     )
     spia = _RecordingLLMClient()
     await run_zone_narrative(
