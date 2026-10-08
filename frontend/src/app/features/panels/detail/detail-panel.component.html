@@ -50,7 +50,18 @@
           <ul class="cra-factor-list">
             @for (risk of rankedRisks(group); track risk.hazard) {
               <li class="cra-factor-row">
-                <span class="cra-factor-label">{{ hazardLabel(risk) }}</span>
+                <span class="cra-factor-main">
+                  <span class="cra-factor-label">{{ hazardLabel(risk) }}</span>
+                  @if (indicatorFor(risk); as indicator) {
+                    <span class="cra-istat-indicator"
+                      >{{ indicator.voce }} · {{ indicator.delitti }} ·
+                      @if (indicator.freccia) {
+                        <span aria-hidden="true">{{ indicator.freccia }}</span>
+                      }
+                      {{ indicator.tendenza }}</span
+                    >
+                  }
+                </span>
                 <span class="cra-badge-confidence" [style.color]="pinColor(risk.confidence)">
                   {{ confMeta(risk.confidence).dot }} {{ confMeta(risk.confidence).label }}
                 </span>

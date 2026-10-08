@@ -1,7 +1,9 @@
 import { confMeta } from '@core/confidence';
 import {
   Confidence,
+  IstatCorrispondenza,
   IstatPoi,
+  IstatRiga,
   NarrativeSourceTag,
   OntologyItem,
   Poi,
@@ -214,9 +216,86 @@ export function orderRisksByIstat(
   };
 }
 
+/**
+ * Banda della tendenza «stabile» (#347): variazione 10 anni entro ±5%, estremi compresi. Su un
+ * decennio un +2% non è una crescita; oltre la banda si dice «in crescita» o «in calo».
+ */
+export const ISTAT_STABLE_BAND_PCT = 5;
+
+/** Avviso quando la voce ISTAT non coincide col rischio (#345, D3): l'esatta non ne ha. */
+const ISTAT_CORRISPONDENZA_NOTE: Record<IstatCorrispondenza, string | null> = {
+  esatta: null,
+  piu_larga: 'voce ISTAT più ampia del rischio',
+  piu_stretta: 'voce ISTAT che copre solo una parte del rischio',
+};
+
+/** Intero col punto delle migliaia sempre (3.016), come le righe ISTAT del backend e la narrativa. */
+function formatIstatCount(n: number): string {
+  return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+function istatTrend(riga: IstatRiga): Pick<IstatIndicator, 'freccia' | 'tendenza'> {
+  const v = riga.variazione_pct;
+  if (v == null) {
+    const motivo = riga.motivo_senza_variazione;
+    const tendenza = motivo ? `tendenza non calcolabile: ${motivo}` : 'tendenza non calcolabile';
+    return { freccia: null, tendenza };
+  }
+  const pct = `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v)}% dal ${riga.anno_confronto}`;
+  if (v > ISTAT_STABLE_BAND_PCT) return { freccia: '▲', tendenza: `in crescita (${pct})` };
+  if (v < -ISTAT_STABLE_BAND_PCT) return { freccia: '▼', tendenza: `in calo (${pct})` };
+  return { freccia: null, tendenza: `stabile (${pct})` };
+}
+
+/**
+ * Indicatore ISTAT accanto a un rischio (#347), in parti: la `freccia` è decorativa (il template la
+ * rende `aria-hidden`, la `tendenza` dice già «in crescita»/«in calo»), così i lettori di schermo
+ * non leggono «triangolo nero».
+ */
+export interface IstatIndicator {
+  /** Etichetta della voce, con l'avviso se non coincide col rischio. */
+  voce: string;
+  /** Delitti denunciati dell'ultimo anno col punto delle migliaia, e l'anno. */
+  delitti: string;
+  freccia: '▲' | '▼' | null;
+  tendenza: string;
+}
+
+/**
+ * Indicatore ISTAT accanto a un rischio nel Dettaglio (#347): voce (con l'avviso se non coincide
+ * col rischio), delitti denunciati dell'ultimo anno e tendenza 10 anni. Il luogo sta nella nota del
+ * gruppo. `null` esattamente quando `istatWeight` è `null`, così indicatore e ordine non divergono:
+ * niente indicatore sotto `ISTAT_MIN_DELITTI`, senza voce o senza tassi. Cifre così come le manda
+ * il backend, nessun valore derivato e nessun giudizio sul luogo (D9).
+ */
+export function istatIndicator(
+  hazard: string,
+  istat: IstatPoi | null | undefined,
+): IstatIndicator | null {
+  if (istatWeight(hazard, istat) === null) return null;
+  const riga = istat?.righe.find((r) => r.collegamenti.some((c) => c.hazard === hazard));
+  // Già esclusi da `istatWeight`: il controllo serve solo a restringere i tipi.
+  if (!riga || riga.delitti == null) return null;
+  const corrispondenza = riga.collegamenti.find((c) => c.hazard === hazard)?.corrispondenza;
+  const nota = corrispondenza ? ISTAT_CORRISPONDENZA_NOTE[corrispondenza] : null;
+  return {
+    voce: nota ? `${riga.voce_label} (${nota})` : riga.voce_label,
+    delitti: `${formatIstatCount(riga.delitti)} delitti nel ${riga.anno}`,
+    ...istatTrend(riga),
+  };
+}
+
+/** Testo dell'indicatore come appare a schermo, freccia compresa (per test e oracoli). */
+export function istatIndicatorText(indicator: IstatIndicator): string {
+  const tendenza = indicator.freccia
+    ? `${indicator.freccia} ${indicator.tendenza}`
+    : indicator.tendenza;
+  return `${indicator.voce} · ${indicator.delitti} · ${tendenza}`;
+}
+
 /** Nota dei gruppi ordinati col dato ISTAT (#346): luogo e anno, nessuna cifra (D9). */
 export function istatOrderNote(istat: IstatPoi): string {
-  return `Ordinati in base ai delitti denunciati rispetto alla media italiana (ISTAT ${istat.cornice.anno}, ${istat.cornice.luogo_nome}).`;
+  return `Ordinati in base a quanto i delitti denunciati superano la media italiana, non in base al loro numero (ISTAT ${istat.cornice.anno}, ${istat.cornice.luogo_nome}).`;
 }
 
 export interface BaseRow {

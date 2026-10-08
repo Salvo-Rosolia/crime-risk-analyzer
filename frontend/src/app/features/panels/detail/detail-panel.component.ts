@@ -10,11 +10,13 @@ import {
   output,
 } from '@angular/core';
 import { confMeta, pinColor, srcTagMeta } from '@core/confidence';
-import { OntologyItem, Poi, RiskModel } from '@core/models/models';
+import { OntologyItem, Poi, RiskItem, RiskModel } from '@core/models/models';
 import {
+  IstatIndicator,
   TagGroup,
   buildDetailModel,
   hazardDisplayLabel,
+  istatIndicator,
   istatOrderNote,
   ontologyDisplayLabel,
   orderGroupsByTag,
@@ -120,6 +122,15 @@ export class DetailPanelComponent {
   /** Rischi con dato ISTAT di un gruppo misto (#346, O9); l'intero gruppo se non è misto. */
   protected rankedRisks(group: TagGroup & { rankedCount: number }) {
     return this.hasIstatTail(group) ? group.risks.slice(0, group.rankedCount) : group.risks;
+  }
+
+  /**
+   * Indicatore ISTAT di un rischio (#347): voce, delitti dell'ultimo anno e tendenza, sotto
+   * l'etichetta. `null` per i rischi senza peso ISTAT, quindi mai nella coda «Senza dato ISTAT» né
+   * con interruttore spento (`poi.istat` assente).
+   */
+  protected indicatorFor(risk: RiskItem): IstatIndicator | null {
+    return istatIndicator(risk.hazard, this.poi().istat);
   }
 
   /** Rischi senza dato ISTAT di un gruppo misto (#346, O9); vuoto se non è misto. */
