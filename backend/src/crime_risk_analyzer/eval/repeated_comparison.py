@@ -27,6 +27,7 @@ from crime_risk_analyzer.eval.compare import (
     guard_no_overwrite,
     has_vacuous_quality_axes,
     is_ontology_isolating_pair,
+    risk_anchoring_pointer,
     to_json,
     to_markdown,
     vacuity_subject,
@@ -306,12 +307,20 @@ def build_repeated_report(
     """
     la = label_a or experiment_a
     lb = label_b or experiment_b
-    folded_a = fold_arm(load_runs(results_dir, experiment=experiment_a))
-    folded_b = fold_arm(load_runs(results_dir, experiment=experiment_b))
+    runs_a = load_runs(results_dir, experiment=experiment_a)
+    runs_b = load_runs(results_dir, experiment=experiment_b)
+    folded_a = fold_arm(runs_a)
+    folded_b = fold_arm(runs_b)
     resolved = stem or f"{experiment_a}_vs_{experiment_b}_repeated"
     try:
+        # #359: l'ancoraggio ai rischi si calcola sulle ripetizioni, non sul
+        # record-media (che non porta la narrativa di ognuna ne' i risk_models).
         comparison = compare_records(
-            folded_a.mean_records, folded_b.mean_records, label_a=la, label_b=lb
+            folded_a.mean_records,
+            folded_b.mean_records,
+            label_a=la,
+            label_b=lb,
+            anchoring_records=(runs_a, runs_b),
         )
     except NoUsableOutputError as exc:
         try:
@@ -371,10 +380,15 @@ def build_repeated_report(
         # Trattenuto senza vacuita': l'unico altro motivo e' la coppia ISTAT
         # (compare._quality_verdict, D12), e il testo deve dire quello.
         verdict_section = istat_no_winner_markdown(k_label)
+    # #359: il rimando alla sezione sull'ancoraggio ai rischi sta vicino al
+    # verdetto, non sopra la tabella; il verdetto non usa quelle misure.
+    pointer = risk_anchoring_pointer(comparison)
+    if pointer:
+        verdict_section = verdict_section.rstrip("\n") + "\n\n" + pointer + "\n"
     md = (
         "\n".join(
             [
-                to_markdown(comparison).rstrip("\n"),
+                to_markdown(comparison, anchoring_pointer=False).rstrip("\n"),
                 "",
                 variance_markdown(
                     comparison, folded_a, folded_b, k_lo, k_hi=k_hi
