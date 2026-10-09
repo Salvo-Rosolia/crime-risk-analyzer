@@ -260,7 +260,16 @@ def test_parser_rejects_old_gold_verb() -> None:
 
 
 def test_parser_run_pausa() -> None:
-    """#357: --pausa (secondi fra le chiamate LLM), default 0."""
-    ns = build_parser().parse_args(["run", "--config", "exp.json", "--pausa", "65"])
-    assert ns.pausa == 65.0
+    """#357: --pausa accetta secondi decimali, default 0."""
+    ns = build_parser().parse_args(["run", "--config", "exp.json", "--pausa", "0.5"])
+    assert ns.pausa == 0.5
+    assert isinstance(ns.pausa, float)
     assert build_parser().parse_args(["run", "--config", "exp.json"]).pausa == 0.0
+
+
+@pytest.mark.parametrize("valore", ["-5", "nan", "inf", "boh"])
+def test_parser_run_pausa_rifiuta_valori_non_validi(valore: str) -> None:
+    """Errore d'uso subito (exit 2), prima di caricare ontologia e client."""
+    with pytest.raises(SystemExit) as exc:
+        build_parser().parse_args(["run", "--config", "exp.json", "--pausa", valore])
+    assert exc.value.code == 2

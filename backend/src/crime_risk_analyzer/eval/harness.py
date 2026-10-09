@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import re
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -48,6 +49,16 @@ from crime_risk_analyzer.rag.retrieval import RiskProfiler
 logger = logging.getLogger(__name__)
 
 
+def usa_modello(config: ExperimentConfig) -> bool:
+    """Vero se il braccio chiama il modello: tutti tranne la baseline.
+
+    Un solo punto per questa domanda (#357): prima ogni funzione la ripeteva col
+    proprio confronto su ``config.mode``, e un braccio nuovo senza modello avrebbe
+    dovuto essere aggiunto a mano in ognuno.
+    """
+    return config.mode != "baseline"
+
+
 def _budget_della_run(config: ExperimentConfig) -> tuple[int | None, int | None]:
     """``(budget della richiesta, max_tokens)`` con cui il braccio costruisce il prompt.
 
@@ -59,7 +70,7 @@ def _budget_della_run(config: ExperimentConfig) -> tuple[int | None, int | None]
     completo e elenca solo quelli (#349); la baseline non chiama l'LLM e non ha
     budget.
     """
-    if config.mode == "baseline":
+    if not usa_modello(config):
         return None, None
     return DEFAULT_REQUEST_TOKEN_BUDGET, DEFAULT_MAX_TOKENS
 
@@ -282,7 +293,7 @@ def _model_id_of(llm_client: _LLMClientLike | None, config: ExperimentConfig) ->
     Il rifiuto di un braccio con modello ma senza client sta altrove, in
     :func:`_require_llm_client`, dove serve: prima di eseguire.
     """
-    if config.mode == "baseline":
+    if not usa_modello(config):
         return "baseline"
     model = getattr(llm_client, "model", None)
     if isinstance(model, str):
@@ -302,7 +313,7 @@ def _require_llm_client(
     confronto a valle — per un errore noto prima di partire, in cui non c'e'
     proprio nulla da salvare proseguendo.
     """
-    if config.mode != "baseline" and llm_client is None:
+    if usa_modello(config) and llm_client is None:
         raise ValueError(f"llm_client required for mode={config.mode}")
 
 
@@ -494,25 +505,42 @@ async def run_experiment(
     Solleva :class:`ValueError` se ``repeat < 1`` (niente esperimento vuoto
     in silenzio: senza guardia ``range(repeat)`` ritornerebbe ``[]``).
 
-    ``pausa_secondi`` (#357): attesa fra una chiamata al modello e la successiva,
-    mai prima della prima e mai per la baseline (che non chiama il modello). Sul
-    provider gratuito una chiamata del braccio con ontologia vale quasi tutto il
-    tetto di token al minuto: due chiamate di fila facevano andare la seconda in
-    timeout, cioe' in una risposta di ripiego scartata dal confronto. L'attesa sta
-    fuori da ``run_case``, quindi non entra nella latenza misurata. Default 0 =
-    comportamento di prima. ``sleep`` e' iniettabile per i test.
+    ``pausa_secondi`` (#357): attesa PRIMA di ogni caso dei bracci che chiamano il
+    modello, prima chiamata compresa. Sul provider gratuito una chiamata del
+    braccio con ontologia vale quasi tutto il tetto di token al minuto: due
+    chiamate di fila facevano andare la seconda in timeout, cioe' in una risposta
+    di ripiego scartata dal confronto. Si aspetta anche prima della prima perche' i
+    due bracci girano come due comandi lanciati uno dopo l'altro: senza, la prima
+    chiamata del secondo cadrebbe nello stesso minuto dell'ultima del primo. Ogni
+    attesa e' annunciata nel log (WARNING), cosi' una run lunga non si confonde con
+    un blocco. Limiti dichiarati: si aspetta anche prima di un caso che poi fallisce
+    senza arrivare al modello (non si sa in anticipo); il ``sleep`` non entra nella
+    latenza misurata, ma dopo pause lunghe la chiamata riapre la connessione e il
+    suo tempo (decine di millisecondi) entra nella latenza. Default 0 =
+    comportamento di prima; valori negativi o non finiti sono rifiutati. ``sleep``
+    e' iniettabile per i test.
     """
     if repeat < 1:
         raise ValueError(f"repeat deve essere >= 1, ricevuto {repeat}")
-    if pausa_secondi < 0:
-        raise ValueError(f"pausa_secondi deve essere >= 0, ricevuto {pausa_secondi}")
-    aspetta = pausa_secondi > 0 and config.mode != "baseline"
+    if not math.isfinite(pausa_secondi) or pausa_secondi < 0:
+        raise ValueError(
+            f"pausa_secondi deve essere un numero finito >= 0, ricevuto {pausa_secondi}"
+        )
+    aspetta = pausa_secondi > 0 and usa_modello(config)
     _require_llm_client(config, llm_client)
     guard_no_legacy_runs(results_dir, config.name, clean_stale=clean_stale)
     records: list[RunRecord] = []
     for rep in range(repeat):
         for case in config.cases:
-            if aspetta and records:
+            if aspetta:
+                logger.warning(
+                    "pausa di %s s prima di (%s, %s) rep %d: tetto di token al minuto "
+                    "del provider (#357)",
+                    pausa_secondi,
+                    case.citta,
+                    case.zona,
+                    rep,
+                )
                 await sleep(pausa_secondi)
             try:
                 record = await run_case(

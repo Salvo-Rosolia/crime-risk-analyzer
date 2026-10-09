@@ -25,7 +25,11 @@ from crime_risk_analyzer.eval.gold import (
     write_gold_worksheet,
     write_precision_report,
 )
-from crime_risk_analyzer.eval.harness import make_snapshot_key, run_experiment
+from crime_risk_analyzer.eval.harness import (
+    make_snapshot_key,
+    run_experiment,
+    usa_modello,
+)
 from crime_risk_analyzer.eval.repeated_comparison import build_repeated_report
 from crime_risk_analyzer.eval.snapshots import (
     PoiSourceConTaglio,
@@ -258,7 +262,7 @@ async def _run(
 ) -> None:
     config = load_config(config_path)
     # Build the client only when mode requires it (fix T9), using config.model (fix I1).
-    client = build_llm_eval_client(config) if config.mode != "baseline" else None
+    client = build_llm_eval_client(config) if usa_modello(config) else None
     await run_experiment(
         config,
         executor=get_executor(),
