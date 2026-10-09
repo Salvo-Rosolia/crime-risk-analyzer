@@ -1645,3 +1645,104 @@ async def test_baseline_non_registra_un_budget_llm(tmp_path: Path) -> None:
         None,
         None,
     )
+
+
+def _scrivi_snapshot_casi(tmp_path: Path, casi: list[RunCase]) -> None:
+    for caso in casi:
+        scrivi_snapshot(
+            snapshot_path(tmp_path, make_snapshot_key(caso.citta, caso.zona)),
+            _sample_pois(),
+        )
+
+
+async def _eventi_con_pausa(
+    tmp_path: Path, *, mode: Mode, **kwargs: object
+) -> tuple[list[str], list[RunRecord]]:
+    """Due casi x 2 ripetizioni; modello finto e ``sleep`` finto scrivono nella
+    STESSA lista, cosi' si vede l'ordine reale di pause e chiamate."""
+    from crime_risk_analyzer.llm.client import LLMResponse
+    from tests.eval._doubles import FakeProfiler, default_llm_response
+
+    eventi: list[str] = []
+
+    class _ModelloCheRegistra:
+        async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
+            eventi.append("modello")
+            return default_llm_response()
+
+    async def _sleep(secondi: float) -> None:
+        eventi.append(f"pausa {secondi}")
+
+    casi = [RunCase(citta="Roma", zona="Centro"), RunCase(citta="Roma", zona="Prati")]
+    _scrivi_snapshot_casi(tmp_path, casi)
+    records = await run_experiment(
+        ExperimentConfig(name="p", mode=mode, model="groq", cases=casi),
+        executor=FakeProfiler(),
+        llm_client=None if mode == "baseline" else _ModelloCheRegistra(),
+        results_dir=tmp_path,
+        code_commit="abc",
+        ontology_hash="def",
+        repeat=2,
+        sleep=_sleep,
+        **kwargs,  # type: ignore[arg-type]
+    )
+    return eventi, records
+
+
+@pytest.mark.parametrize("mode", ["analyze", "no_ontology_prompt"])
+async def test_run_experiment_pausa_prima_di_ogni_chiamata(
+    mode: Mode, tmp_path: Path
+) -> None:
+    """#357: con la pausa si aspetta prima di OGNI chiamata al modello, prima
+    compresa (i due bracci girano come due comandi in fila), in entrambi i bracci
+    che chiamano il modello, e tutte le chiamate arrivano davvero al modello."""
+    eventi, records = await _eventi_con_pausa(tmp_path, mode=mode, pausa_secondi=0.5)
+    assert eventi == ["pausa 0.5", "modello"] * 4
+    assert [r.status for r in records] == [RunStatus.OK] * 4
+
+
+async def test_run_experiment_nessuna_pausa_di_default(tmp_path: Path) -> None:
+    """Senza il parametro (default 0): nessuna attesa, comportamento di prima."""
+    eventi, _ = await _eventi_con_pausa(tmp_path, mode="analyze")
+    assert eventi == ["modello"] * 4
+
+
+async def test_run_experiment_baseline_non_aspetta(tmp_path: Path) -> None:
+    """La baseline non chiama il modello: la pausa non ha motivo di esistere."""
+    eventi, _ = await _eventi_con_pausa(tmp_path, mode="baseline", pausa_secondi=65)
+    assert eventi == []
+
+
+@pytest.mark.parametrize("pausa", [-1.0, float("nan"), float("inf")])
+async def test_run_experiment_rifiuta_pausa_non_valida(
+    pausa: float, tmp_path: Path
+) -> None:
+    """Negativa o non finita: ``nan`` spegnerebbe la pausa senza avvisi, ``inf``
+    bloccherebbe la run dopo il primo caso."""
+    from tests.eval._doubles import FakeProfiler
+
+    cfg = ExperimentConfig(
+        name="x",
+        mode="baseline",
+        model="claude",
+        cases=[RunCase(citta="Roma", zona="Centro")],
+    )
+    with pytest.raises(ValueError, match="pausa_secondi"):
+        await run_experiment(
+            cfg,
+            executor=FakeProfiler(),
+            results_dir=tmp_path,
+            code_commit="abc",
+            ontology_hash="def",
+            pausa_secondi=pausa,
+        )
+
+
+async def test_run_experiment_annuncia_ogni_pausa(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Ogni attesa e' nel log: una run lunga non si confonde con un blocco."""
+    with caplog.at_level("WARNING", logger="crime_risk_analyzer.eval.harness"):
+        await _eventi_con_pausa(tmp_path, mode="analyze", pausa_secondi=0.5)
+    annunci = [r for r in caplog.records if "pausa di 0.5 s" in r.getMessage()]
+    assert len(annunci) == 4

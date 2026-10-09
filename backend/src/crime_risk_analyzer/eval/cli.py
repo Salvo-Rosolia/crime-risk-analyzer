@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import math
 import subprocess
 from pathlib import Path
 
@@ -54,6 +55,24 @@ def build_llm_eval_client(config: ExperimentConfig) -> LLMClient:
     )
 
 
+def _secondi(testo: str) -> float:
+    """Secondi di ``--pausa``: numero finito e non negativo (#357).
+
+    ``float`` da solo accetta ``nan`` (che spegnerebbe la pausa senza avvisi) e
+    ``inf`` (che bloccherebbe la run dopo il primo caso): qui escono come errore
+    d'uso, prima di caricare ontologia e client.
+    """
+    try:
+        valore = float(testo)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"non e' un numero: {testo!r}") from exc
+    if not math.isfinite(valore) or valore < 0:
+        raise argparse.ArgumentTypeError(
+            f"deve essere un numero finito >= 0, ricevuto {testo!r}"
+        )
+    return valore
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Parser per tutti i sottocomandi di valutazione."""
     parser = argparse.ArgumentParser(prog="crime_risk_analyzer.eval")
@@ -75,6 +94,16 @@ def build_parser() -> argparse.ArgumentParser:
                 type=int,
                 default=1,
                 help="K ripetizioni per stimare la varianza (#157); default 1",
+            )
+            p.add_argument(
+                "--pausa",
+                type=_secondi,
+                default=0.0,
+                help=(
+                    "secondi di attesa prima di ogni chiamata al modello, prima "
+                    "compresa (#357), per il tetto di token al minuto del provider; "
+                    "default 0"
+                ),
             )
             p.add_argument(
                 "--clean-stale",

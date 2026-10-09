@@ -196,6 +196,8 @@ def test_main_run_analyze_builds_and_passes_llm_client(
     # default del parser: una ripetizione, nessuna pulizia legacy.
     assert captured["repeat"] == 1
     assert captured["clean_stale"] is False
+    # #357: nessuna pausa di default.
+    assert captured["pausa_secondi"] == 0.0
 
 
 def test_main_run_no_ontology_builds_and_passes_llm_client(
@@ -221,10 +223,21 @@ def test_main_run_no_ontology_builds_and_passes_llm_client(
     monkeypatch.setattr(eval_main, "build_llm_eval_client", fake_build_client)
 
     cfg = _write_config(tmp_path, mode="no_ontology_prompt")
-    _set_argv(monkeypatch, "run", "--config", str(cfg), "--results", str(tmp_path))
+    _set_argv(
+        monkeypatch,
+        "run",
+        "--config",
+        str(cfg),
+        "--results",
+        str(tmp_path),
+        "--pausa",
+        "0.5",
+    )
 
     assert eval_main.main() == 0
     assert captured["llm_client"] is sentinel
+    # #357: --pausa arriva fino a run_experiment.
+    assert captured["pausa_secondi"] == 0.5
 
 
 # --- aggregate ---------------------------------------------------------------
