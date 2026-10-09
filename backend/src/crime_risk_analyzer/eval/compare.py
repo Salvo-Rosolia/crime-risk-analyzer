@@ -31,6 +31,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from crime_risk_analyzer.eval.aggregate import load_runs
+from crime_risk_analyzer.eval.metrics import RiskAnchoring, risk_anchoring
 from crime_risk_analyzer.eval.schema import IstatMetrics, Metrics, RunRecord, RunStatus
 
 logger = logging.getLogger(__name__)
@@ -125,6 +126,56 @@ class IstatZoneMetrics(BaseModel):
     b: IstatMetrics | None
 
 
+class RiskAnchoringArm(BaseModel):
+    """Ancoraggio ai rischi di un braccio, su una zona o sull'intero braccio (#359).
+
+    Esplorativo e affiancato a M1: il verdetto non lo usa. Contano solo le
+    narrative gradabili (:func:`~crime_risk_analyzer.eval.metrics.risk_anchoring`
+    diverso da ``None``) delle run ``OK`` senza dati ISTAT nel prompt; queste
+    ultime sono contate in ``run_istat_escluse`` (vedi :func:`_record_anchoring`).
+    I totali sono somme di frasi; le ``quota_*`` sono frazioni sulle frasi
+    misurate (``None`` se nessuna frase); ``frasi_misurate_media``,
+    ``ancoraggio_rischi`` e ``ancoraggio_rischi_conformi`` sono medie per
+    narrativa sulla zona e, per il braccio intero, medie delle zone (come le
+    medie M1 del confronto). ``ancoraggio_rischi`` conta le narrative non conformi
+    come 0; ``ancoraggio_rischi_conformi`` le esclude. ``None`` dove non c'e'
+    nessuna narrativa da mediare.
+    """
+
+    narrative_gradabili: int
+    non_conformi: int
+    frasi_misurate: int
+    frasi_ancorate_rischio: int
+    frasi_ancorate_solo_poi: int
+    frasi_misurate_media: float | None
+    quota_rischio: float | None
+    quota_solo_poi: float | None
+    ancoraggio_rischi: float | None
+    ancoraggio_rischi_conformi: float | None
+    run_istat_escluse: int = 0
+
+
+class RiskAnchoringZone(BaseModel):
+    """Ancoraggio ai rischi dei due bracci su una zona (#359)."""
+
+    citta: str
+    zona: str
+    a: RiskAnchoringArm
+    b: RiskAnchoringArm
+
+
+class RiskAnchoringSection(BaseModel):
+    """Sezione «Ancoraggio ai rischi (esplorativo)» del confronto (#359)."""
+
+    zones: list[RiskAnchoringZone]
+    a: RiskAnchoringArm
+    b: RiskAnchoringArm
+    #: Label dei bracci in cui le frasi ancorate solo da nomi di POI sono piu'
+    #: di quelle ancorate da un rischio (:func:`solo_poi_prevale`): fa comparire
+    #: il rimando alla sezione vicino al verdetto.
+    solo_poi_prevale: list[str]
+
+
 class QualityVerdict(BaseModel):
     """Risponde da sola: "il verdetto di qualità è applicabile?" (#238).
 
@@ -182,6 +233,10 @@ class Comparison(BaseModel):
     #: Metriche ISTAT per zona (#345), solo se almeno un braccio le ha. Affiancate
     #: e mai mediate in un verdetto (D12).
     istat_metrics: list[IstatZoneMetrics] = []
+    #: Ancoraggio ai rischi separato da quello ai nomi dei POI (#359), calcolato
+    #: dai record al momento del report. ``None`` se nessun braccio ha una
+    #: narrativa gradabile (es. baseline contro baseline). Non entra nel verdetto.
+    ancoraggio_rischi: RiskAnchoringSection | None = None
 
 
 @dataclass(frozen=True)
@@ -231,6 +286,42 @@ PROXY_CAVEAT = (
     "dirette. Un accordo proxy-vs-annotazione umana su queste metriche "
     "aggregate non è oggi validato: `eval/gold.py` (#152) annota a un'altra "
     "grana, per-singolo-rischio citato in narrativa."
+)
+
+
+#: Titolo della sezione esplorativa sull'ancoraggio ai rischi (#359).
+RISK_ANCHORING_HEAD = "### Ancoraggio ai rischi (esplorativo)"
+
+#: Nota fissa della sezione (#359): cosa separa, perche' e' in parte circolare e
+#: cosa non puo' dire.
+RISK_ANCHORING_NOTE = (
+    "> **Come leggere questa sezione.** Il `grounding` della tabella principale "
+    "conta come ancorata anche una frase che nomina soltanto un punto: i nomi dei "
+    "POI bastano. Qui le due cose sono separate. Una frase è «da rischio» se "
+    "nomina almeno un rischio della base di conoscenza (identificativo o "
+    "etichetta italiana o inglese), «solo POI» se non nomina rischi ma nomina un "
+    "punto (gli stessi nomi e rischi che usa il `grounding`). Una narrativa è "
+    "non conforme al formato quando manca il blocco misurato. La colonna "
+    "«narrative» conta le narrative gradabili, comprese le non conformi. "
+    "% = frasi del braccio messe insieme, narrative non conformi escluse; "
+    "`ancoraggio_rischi` = quota di frasi da rischio di ogni narrativa, media "
+    "per narrativa, poi media delle zone, narrative non conformi contate come 0 "
+    "(la colonna «solo conformi» le esclude).\n"
+    ">\n"
+    "> La misura è in parte circolare: il braccio senza ontologia non conosce le "
+    "etichette esatte e può dire lo stesso rischio con altre parole («minacce "
+    "terroristiche» invece di «Attacco terroristico»). Misura quindi quanto i "
+    "rischi nominati seguono il vocabolario della base di conoscenza, non se "
+    "sono corretti: per la correttezza serve l'annotazione umana. Il verdetto "
+    "non usa queste misure."
+)
+
+
+#: Frase della sezione quando delle run sono escluse perche' portavano dati
+#: ISTAT (#359): su quelle M1 grada un testo diverso da ``RunRecord.narrativa``.
+RISK_ANCHORING_ISTAT_EXCLUDED = (
+    "Sezione non calcolata per le run con dati ISTAT: la metrica attuale misura "
+    "un testo diverso"
 )
 
 
@@ -890,8 +981,14 @@ def compare_records(
     *,
     label_a: str,
     label_b: str,
+    anchoring_records: tuple[list[RunRecord], list[RunRecord]] | None = None,
 ) -> Comparison:
     """Unisce due bracci per ``(citta, zona)`` e calcola i delta A - B.
+
+    ``anchoring_records`` (#359): record da cui calcolare la sezione
+    sull'ancoraggio ai rischi, se diversi da ``arm_a``/``arm_b``. Il report a K
+    ripetizioni passa le ripetizioni, perche' il record-media non porta ne' la
+    narrativa di ogni ripetizione ne' i ``risk_models``.
 
     Le zone in cui un braccio è in ``ERROR`` (metriche azzerate) o ``FALLBACK``
     (narrativa vuota → metriche non di qualità) sono escluse da zone comparate e
@@ -997,6 +1094,7 @@ def compare_records(
         for label, arm in ((label_a, arm_a), (label_b, arm_b))
         if is_vacuous_arm(arm)
     ]
+    source_a, source_b = anchoring_records or (arm_a, arm_b)
     return Comparison(
         label_a=label_a,
         label_b=label_b,
@@ -1027,6 +1125,154 @@ def compare_records(
             vacuous, vacuous_zones, istat_pair=is_istat_isolating_pair(arm_a, arm_b)
         ),
         istat_metrics=istat_zone,
+        ancoraggio_rischi=_risk_anchoring_section(
+            source_a,
+            source_b,
+            [(z.citta, z.zona) for z in zones],
+            label_a=label_a,
+            label_b=label_b,
+        ),
+    )
+
+
+def _record_anchoring(record: RunRecord) -> RiskAnchoring | None:
+    """Ancoraggio ai rischi di un record, dai soli dati salvati (#359).
+
+    I nomi dei POI vengono da ``risk_models[].poi``: ``risk_models`` ha una voce
+    per ogni POI, anche fuori ontologia (``risks=[]``), nello stesso ordine di
+    ``resp.poi`` (invariante dell'orchestrator), quindi sono gli stessi nomi che
+    M1 usa.
+
+    Va chiamata solo sui record senza dati ISTAT (:func:`_has_istat`): su quelli
+    M1 grada ``testo_senza_cifre_istat``, che il record non salva, e
+    ``RunRecord.narrativa`` e' un testo diverso.
+    """
+    return risk_anchoring(
+        record.narrativa,
+        mode=record.mode,
+        poi_names=[m.poi for m in record.risk_models],
+        risk_models=record.risk_models,
+    )
+
+
+def _has_istat(record: RunRecord) -> bool:
+    """True se M1 di questo record e' stato gradato su un testo diverso (#359).
+
+    ``istat_metrics`` e' scritto dall'harness esattamente quando la risposta
+    porta il controllo delle cifre ISTAT, cioe' quando M1 grada
+    ``testo_senza_cifre_istat`` invece della narrativa: e' lo stesso segnale,
+    piu' preciso di ``provenance.istat`` (ISTAT richiesto ma magari senza dati
+    nel prompt).
+    """
+    return record.istat_metrics is not None
+
+
+def _share(part: int, whole: int) -> float | None:
+    return part / whole if whole else None
+
+
+def _mean_or_none(values: list[float]) -> float | None:
+    return sum(values) / len(values) if values else None
+
+
+def _zone_anchoring(records: list[RunRecord]) -> RiskAnchoringArm:
+    """Aggrega le narrative gradabili delle run ``OK`` di una zona (#359)."""
+    ok = [r for r in records if r.status is RunStatus.OK]
+    computed = (_record_anchoring(r) for r in ok if not _has_istat(r))
+    graded = [r for r in computed if r is not None]
+    conformi = [r.ancoraggio_rischi for r in graded if r.conforme]
+    misurate = sum(r.frasi_misurate for r in graded)
+    rischio = sum(r.frasi_ancorate_rischio for r in graded)
+    solo_poi = sum(r.frasi_ancorate_solo_poi for r in graded)
+    return RiskAnchoringArm(
+        narrative_gradabili=len(graded),
+        non_conformi=sum(1 for r in graded if not r.conforme),
+        frasi_misurate=misurate,
+        frasi_ancorate_rischio=rischio,
+        frasi_ancorate_solo_poi=solo_poi,
+        frasi_misurate_media=_mean_or_none([float(r.frasi_misurate) for r in graded]),
+        quota_rischio=_share(rischio, misurate),
+        quota_solo_poi=_share(solo_poi, misurate),
+        ancoraggio_rischi=_mean_or_none([r.ancoraggio_rischi for r in graded]),
+        ancoraggio_rischi_conformi=_mean_or_none(conformi),
+        run_istat_escluse=sum(1 for r in ok if _has_istat(r)),
+    )
+
+
+def _arm_anchoring(zones: list[RiskAnchoringArm]) -> RiskAnchoringArm:
+    """Braccio intero: somme dei totali, medie delle zone gradabili (#359)."""
+    misurate = sum(z.frasi_misurate for z in zones)
+    rischio = sum(z.frasi_ancorate_rischio for z in zones)
+    solo_poi = sum(z.frasi_ancorate_solo_poi for z in zones)
+    medie_frasi = [
+        z.frasi_misurate_media for z in zones if z.frasi_misurate_media is not None
+    ]
+    medie_ancoraggio = [
+        z.ancoraggio_rischi for z in zones if z.ancoraggio_rischi is not None
+    ]
+    medie_conformi = [
+        z.ancoraggio_rischi_conformi
+        for z in zones
+        if z.ancoraggio_rischi_conformi is not None
+    ]
+    return RiskAnchoringArm(
+        narrative_gradabili=sum(z.narrative_gradabili for z in zones),
+        non_conformi=sum(z.non_conformi for z in zones),
+        frasi_misurate=misurate,
+        frasi_ancorate_rischio=rischio,
+        frasi_ancorate_solo_poi=solo_poi,
+        frasi_misurate_media=_mean_or_none(medie_frasi),
+        quota_rischio=_share(rischio, misurate),
+        quota_solo_poi=_share(solo_poi, misurate),
+        ancoraggio_rischi=_mean_or_none(medie_ancoraggio),
+        ancoraggio_rischi_conformi=_mean_or_none(medie_conformi),
+        run_istat_escluse=sum(z.run_istat_escluse for z in zones),
+    )
+
+
+def solo_poi_prevale(arm: RiskAnchoringArm) -> bool:
+    """True se nel braccio le frasi ancorate solo da POI superano quelle da rischio.
+
+    Confronto stretto fra i due totali di frasi del braccio (#359): a parita'
+    il rimando non compare.
+    """
+    return arm.frasi_ancorate_solo_poi > arm.frasi_ancorate_rischio
+
+
+def _risk_anchoring_section(
+    arm_a: list[RunRecord],
+    arm_b: list[RunRecord],
+    keys: list[tuple[str, str]],
+    *,
+    label_a: str,
+    label_b: str,
+) -> RiskAnchoringSection | None:
+    """Sezione sull'ancoraggio ai rischi, sulle sole zone confrontate (#359)."""
+
+    def of_zone(arm: list[RunRecord], key: tuple[str, str]) -> RiskAnchoringArm:
+        return _zone_anchoring([r for r in arm if (r.citta, r.zona) == key])
+
+    zones = [
+        RiskAnchoringZone(
+            citta=key[0], zona=key[1], a=of_zone(arm_a, key), b=of_zone(arm_b, key)
+        )
+        for key in keys
+    ]
+    total_a = _arm_anchoring([z.a for z in zones])
+    total_b = _arm_anchoring([z.b for z in zones])
+    if not any(
+        t.narrative_gradabili or t.run_istat_escluse for t in (total_a, total_b)
+    ):
+        return None
+    return RiskAnchoringSection(
+        zones=zones,
+        a=total_a,
+        b=total_b,
+        solo_poi_prevale=[
+            label
+            for label, arm in ((label_a, total_a), (label_b, total_b))
+            if solo_poi_prevale(arm)
+        ],
     )
 
 
@@ -1249,7 +1495,98 @@ def istat_markdown(comparison: Comparison) -> str:
     return "\n".join(lines) + "\n"
 
 
-def to_markdown(comparison: Comparison) -> str:
+def _pct(value: float | None) -> str:
+    return "n/d" if value is None else f"{value * 100:.1f}%"
+
+
+def _num(value: float | None, fmt: str) -> str:
+    return "n/d" if value is None else fmt.format(value)
+
+
+def _anchoring_row(
+    citta: str, zona: str, label: str, arm: RiskAnchoringArm
+) -> list[str]:
+    return [
+        citta,
+        zona,
+        label,
+        str(arm.narrative_gradabili),
+        _num(arm.frasi_misurate_media, "{:.1f}"),
+        _pct(arm.quota_rischio),
+        _pct(arm.quota_solo_poi),
+        _num(arm.ancoraggio_rischi, "{:.3f}"),
+        _num(arm.ancoraggio_rischi_conformi, "{:.3f}"),
+        str(arm.non_conformi),
+    ]
+
+
+def risk_anchoring_markdown(comparison: Comparison) -> str:
+    """Sezione «Ancoraggio ai rischi (esplorativo)» (#359); vuota se assente."""
+    sez = comparison.ancoraggio_rischi
+    if sez is None:
+        return ""
+    cols = [
+        "citta",
+        "zona",
+        "braccio",
+        "narrative",
+        "frasi misurate (media)",
+        "% da rischio",
+        "% solo POI",
+        "ancoraggio_rischi",
+        "ancoraggio_rischi solo conformi",
+        "non conformi al formato",
+    ]
+    la, lb = comparison.label_a, comparison.label_b
+    rows: list[list[str]] = []
+    for z in sez.zones:
+        rows.append(_anchoring_row(z.citta, z.zona, la, z.a))
+        rows.append(_anchoring_row(z.citta, z.zona, lb, z.b))
+    rows.append(_anchoring_row(_MEAN_LABEL, "", la, sez.a))
+    rows.append(_anchoring_row(_MEAN_LABEL, "", lb, sez.b))
+    lines = [RISK_ANCHORING_HEAD, ""]
+    lines.extend(_markdown_table(cols, rows))
+    lines.append("")
+    lines.append(
+        f"> Frasi del braccio — `{la}`: {sez.a.frasi_misurate} misurate, "
+        f"{sez.a.frasi_ancorate_rischio} da rischio, "
+        f"{sez.a.frasi_ancorate_solo_poi} solo POI; `{lb}`: "
+        f"{sez.b.frasi_misurate} misurate, {sez.b.frasi_ancorate_rischio} da "
+        f"rischio, {sez.b.frasi_ancorate_solo_poi} solo POI."
+    )
+    escluse = [
+        f"`{label}`: {arm.run_istat_escluse}"
+        for label, arm in ((la, sez.a), (lb, sez.b))
+        if arm.run_istat_escluse
+    ]
+    if escluse:
+        lines.append("")
+        lines.append(
+            f"> {RISK_ANCHORING_ISTAT_EXCLUDED} (run escluse — {', '.join(escluse)})."
+        )
+    lines.append("")
+    lines.append(RISK_ANCHORING_NOTE)
+    return "\n".join(lines) + "\n"
+
+
+def risk_anchoring_pointer(comparison: Comparison) -> str:
+    """Righe che rimandano alla sezione (#359), una per braccio; vuota se nessuna.
+
+    Una riga per ogni braccio in cui le frasi ancorate solo da nomi di POI sono
+    piu' di quelle ancorate da un rischio (:func:`solo_poi_prevale`).
+    """
+    sez = comparison.ancoraggio_rischi
+    if sez is None:
+        return ""
+    titolo = RISK_ANCHORING_HEAD.removeprefix("### ")
+    return "\n\n".join(
+        f"> Per «{label}» il grounding poggia soprattutto sui nomi dei punti e "
+        f"non sui rischi della base di conoscenza: vedi la sezione «{titolo}»."
+        for label in sez.solo_poi_prevale
+    )
+
+
+def to_markdown(comparison: Comparison, *, anchoring_pointer: bool = True) -> str:
     """Report Markdown del confronto.
 
     Compone: la dichiarazione della variabile isolata quando è derivabile (#236),
@@ -1257,6 +1594,11 @@ def to_markdown(comparison: Comparison) -> str:
     tabella costo/latenza separata (#33), l'avviso sui bracci vacui quando
     presenti (#231), caveat metodologico sui proxy testuali, e — se presenti — la
     sezione delle zone escluse (run in errore).
+
+    La sezione sull'ancoraggio ai rischi (#359) sta prima del caveat; il rimando
+    (:func:`risk_anchoring_pointer`) segue la tabella principale.
+    ``anchoring_pointer=False`` lo omette: il report a K ripetizioni lo mette
+    vicino al verdetto.
     """
     cols = _columns(comparison.label_a, comparison.label_b)
     lines: list[str] = []
@@ -1272,12 +1614,20 @@ def to_markdown(comparison: Comparison) -> str:
         lines.append(_vacuous_caveat(comparison.vacuous_arms, comparison.vacuous_zones))
         lines.append("")
     lines.extend(_markdown_table(cols, _rows(comparison)))
+    pointer = risk_anchoring_pointer(comparison) if anchoring_pointer else ""
+    if pointer:
+        lines.append("")
+        lines.append(pointer)
     # Vista operativa separata + caveat sui proxy di qualità (#33).
     lines.append("")
     lines.append(operational_markdown(comparison).rstrip("\n"))
     if comparison.istat_metrics:
         lines.append("")
         lines.append(istat_markdown(comparison).rstrip("\n"))
+    anchoring = risk_anchoring_markdown(comparison)
+    if anchoring:
+        lines.append("")
+        lines.append(anchoring.rstrip("\n"))
     lines.append("")
     lines.append(PROXY_CAVEAT)
     if comparison.failed:

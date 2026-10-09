@@ -35,11 +35,17 @@ altrimenti il confronto tra i bracci misurerebbe l'etichetta invece dell'ancorag
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
+from dataclasses import dataclass
 
 from crime_risk_analyzer.eval.pricing import cost_usd
 from crime_risk_analyzer.eval.schema import Metrics, Mode
 from crime_risk_analyzer.orchestrator import AnalyzeResponse
-from crime_risk_analyzer.rag.generation import ONTOLOGY_TOKEN, parse_source_prose
+from crime_risk_analyzer.rag.generation import (
+    ONTOLOGY_TOKEN,
+    RiskModel,
+    parse_source_prose,
+)
 from crime_risk_analyzer.rag.no_ontology_generation import LLM_SYNTHESIS_TOKEN
 
 #: Generazione della SEMANTICA del proxy grounding/hallucination (#229). ``1`` era il
@@ -76,26 +82,44 @@ def _sentences(text: str) -> list[str]:
     return [s.strip() for s in re.split(r"[.\n]", text) if s.strip()]
 
 
+def _non_empty_lower(tokens: Iterable[str]) -> set[str]:
+    """Token lowercase senza i vuoti/whitespace.
+
+    Un POI OSM senza tag `name` arriva con name="" e, poiché `"" in s` è sempre
+    vero, renderebbe OGNI frase "ancorata" neutralizzando la discriminazione
+    (riaprirebbe cat.2 e vanificherebbe l'esclusione del filler). Cfr. review
+    #163 I1.
+    """
+    return {t.lower() for t in tokens if t.strip()}
+
+
+def _poi_anchors(poi_names: Iterable[str]) -> set[str]:
+    """Ancoraggi-POI: i nomi dei punti, lowercase, senza i nomi vuoti."""
+    return _non_empty_lower(poi_names)
+
+
+def _hazard_anchors(risk_models: Iterable[RiskModel]) -> set[str]:
+    """Ancoraggi-hazard: identifier + etichette EN/IT (#77), lowercase."""
+    tokens: list[str] = []
+    for model in risk_models:
+        for risk in model.risks:
+            tokens.append(risk.hazard)
+            if risk.hazard_label_it:
+                tokens.append(risk.hazard_label_it)
+            if risk.hazard_label_en:
+                tokens.append(risk.hazard_label_en)
+    return _non_empty_lower(tokens)
+
+
 def _anchors(resp: AnalyzeResponse) -> set[str]:
     """Token ancorati: nomi POI + hazard (identifier + etichette EN/IT), lowercase.
 
     Include le etichette italiane controllate (#77) così il match regge quando la
     narrativa cita l'hazard in italiano (chiude il caveat EN/IT delle metriche).
     I token vuoti (es. POI senza nome) sono scartati: non devono ancorare tutto.
+    Unione delle due famiglie che :func:`risk_anchoring` tiene separate (#359).
     """
-    anchors = {p.name.lower() for p in resp.poi}
-    for model in resp.risk_models:
-        for risk in model.risks:
-            anchors.add(risk.hazard.lower())
-            if risk.hazard_label_it:
-                anchors.add(risk.hazard_label_it.lower())
-            if risk.hazard_label_en:
-                anchors.add(risk.hazard_label_en.lower())
-    # Scarta i token vuoti/whitespace: un POI OSM senza tag `name` arriva con
-    # name="" e, poiché `"" in s` è sempre vero, renderebbe OGNI frase "ancorata"
-    # neutralizzando la discriminazione (riaprirebbe cat.2 e vanificherebbe
-    # l'esclusione del filler). Cfr. review #163 I1.
-    return {a for a in anchors if a.strip()}
+    return _poi_anchors(p.name for p in resp.poi) | _hazard_anchors(resp.risk_models)
 
 
 def hazards_cited_in(narrativa: str, mode: Mode) -> str:
@@ -140,15 +164,26 @@ def _ontology_assertions(
     la usa per gradare M1 sul testo grezzo senza le frasi con cifre ISTAT.
     """
     testo = resp.narrativa if narrativa is None else narrativa
+    return _measured_sentences(testo, mode)
+
+
+def _measured_sentences(narrativa: str | None, mode: Mode) -> list[str]:
+    """Frasi del blocco misurato del braccio ``mode``; ``[]`` se il blocco manca."""
     prose = parse_source_prose(
-        testo or "", measured_token=_MEASURED_TOKEN_BY_MODE[mode]
+        narrativa or "", measured_token=_MEASURED_TOKEN_BY_MODE[mode]
     ).ontologia
     return _sentences(prose)
 
 
+def _names_any(sentence: str, anchors: set[str]) -> bool:
+    """True se la frase nomina almeno un ancoraggio (match per sottostringa)."""
+    low = sentence.lower()
+    return any(a in low for a in anchors)
+
+
 def _grounded(assertions: list[str], anchors: set[str]) -> list[str]:
     """Asserzioni ontologiche ancorate: nominano un dato reale (POI/hazard, label)."""
-    return [s for s in assertions if any(a in s.lower() for a in anchors)]
+    return [s for s in assertions if _names_any(s, anchors)]
 
 
 def _grade(
@@ -231,6 +266,80 @@ def hallucination(resp: AnalyzeResponse, *, mode: Mode = _DEFAULT_MODE) -> float
         return 0.0
     grounded, assertions = graded
     return (assertions - grounded) / assertions
+
+
+@dataclass(frozen=True)
+class RiskAnchoring:
+    """Scomposizione delle frasi del blocco misurato per tipo di ancoraggio (#359).
+
+    Affiancata a M1, mai al suo posto: a parita' di narrativa, nomi dei POI e
+    ``risk_models``, stesso blocco e stesse frasi di :func:`_grade`, ma le frasi
+    ancorate sono divise fra quelle che nominano un rischio e quelle che nominano
+    soltanto un punto. Sui record con dati ISTAT la condizione non vale (M1
+    grada ``testo_senza_cifre_istat``, che il record non salva): il report di
+    confronto li esclude. ``conforme`` e' ``False``
+    quando la narrativa e' piena ma il blocco misurato manca o e' vuoto (formato
+    non rispettato): in quel caso tutti i conteggi sono zero.
+    """
+
+    frasi_misurate: int
+    frasi_ancorate_rischio: int
+    frasi_ancorate_solo_poi: int
+    conforme: bool
+
+    @property
+    def ancoraggio_rischi(self) -> float:
+        """``frasi_ancorate_rischio / frasi_misurate``; 0.0 senza frasi misurate.
+
+        Lo zero sul formato non rispettato segue M1, che sullo stesso caso da'
+        grounding 0.0 (non-attribuzione): ometterlo non deve convenire.
+        """
+        if not self.frasi_misurate:
+            return 0.0
+        return self.frasi_ancorate_rischio / self.frasi_misurate
+
+
+def risk_anchoring(
+    narrativa: str | None,
+    *,
+    mode: Mode,
+    poi_names: Iterable[str],
+    risk_models: Iterable[RiskModel],
+) -> RiskAnchoring | None:
+    """Quante frasi del blocco misurato nominano un rischio, e quante solo un POI.
+
+    Il proxy M1 (:func:`grounding`) conta ancorata una frase che nomina un
+    ancoraggio QUALSIASI: un nome di POI basta. Qui le due famiglie restano
+    separate: una frase che nomina almeno un hazard (identifier o etichetta
+    EN/IT) e' ancorata dal rischio, anche se nomina pure un punto; una che non
+    nomina hazard ma nomina un punto e' ancorata solo dal POI.
+
+    Prende i dati e non una ``AnalyzeResponse`` perche' si calcola anche sui
+    record gia' scritti (``RunRecord``), senza rifare run. Sui record precedenti
+    a #77 le etichette EN/IT sono ricostruite dal vocabolario di oggi alla
+    lettura (``RiskItem``) e possono differire da quelle usate allora da M1.
+    Stessi rami di
+    :func:`_grade`: ``None`` (non gradabile) su narrativa vuota o senza alcun
+    ancoraggio; narrativa piena senza blocco misurato -> ``conforme=False`` e
+    conteggi a zero.
+    """
+    if not (narrativa or "").strip():
+        return None
+    poi = _poi_anchors(poi_names)
+    hazards = _hazard_anchors(risk_models)
+    if not (poi | hazards):
+        return None
+    frasi = _measured_sentences(narrativa, mode)
+    if not frasi:
+        return RiskAnchoring(0, 0, 0, conforme=False)
+    da_rischio = [f for f in frasi if _names_any(f, hazards)]
+    solo_poi = [f for f in frasi if not _names_any(f, hazards) and _names_any(f, poi)]
+    return RiskAnchoring(
+        frasi_misurate=len(frasi),
+        frasi_ancorate_rischio=len(da_rischio),
+        frasi_ancorate_solo_poi=len(solo_poi),
+        conforme=True,
+    )
 
 
 def latency_ms(resp: AnalyzeResponse) -> int:
