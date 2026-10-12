@@ -34,7 +34,7 @@ from crime_risk_analyzer.sparql_module.query_executor import get_executor
 
 _BANK = PoiRiskProfile(
     terminus_class="Bank",
-    hazards=["Bank_robbery"],
+    hazards=["Bank_robbery", "Property_theft"],
     vulnerabilities=["Accesso non controllato"],
     sparql_paths=["Bank → havingHazard → Bank_robbery"],
 )

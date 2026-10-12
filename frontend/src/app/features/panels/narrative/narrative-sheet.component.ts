@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import {
   ChangeDetectionStrategy,
   Component,
@@ -8,9 +9,31 @@ import {
   signal,
   viewChildren,
 } from '@angular/core';
-import { srcTagMeta } from '@core/confidence';
+import { ISTAT_TAG_COLOR, srcTagMeta } from '@core/confidence';
+import { parseInlineMarkdownWithSlots } from '@core/inline-markdown';
 import { NarrativeSourceTag, SourceProse } from '@core/models/models';
-import { SourceTab, buildSourceTabs } from '@core/ui-helpers';
+import {
+  IstatHazardOccurrence,
+  IstatProseIndicator,
+  ProseSegment,
+  SourceTab,
+  buildIstatProseCandidates,
+  buildSourceTabs,
+  withIstatProseIndicators,
+} from '@core/ui-helpers';
+
+/** Nodo di prosa reso dal template: testo stilato (markdown inline) o indicatore ISTAT. */
+export type ProseNode =
+  | { kind: 'text'; text: string; bold: boolean; italic: boolean }
+  | { kind: 'istat'; indicator: IstatProseIndicator };
+
+/** Markdown inline → nodi (niente innerHTML); gli indicatori ISTAT sono slot dentro il testo. */
+function toNodes(segments: ProseSegment[]): ProseNode[] {
+  const parts = segments.map((s) => (s.kind === 'text' ? s.text : { slot: s.indicator }));
+  return parseInlineMarkdownWithSlots(parts).map((p) =>
+    'slot' in p ? { kind: 'istat', indicator: p.slot } : { kind: 'text', ...p },
+  );
+}
 
 /**
  * "Narrativa generata" (Stato B): a layout largo è un PANNELLO A DESTRA a tutta altezza (#218),
@@ -24,6 +47,7 @@ import { SourceTab, buildSourceTabs } from '@core/ui-helpers';
  */
 @Component({
   selector: 'cra-narrative-sheet',
+  imports: [NgTemplateOutlet],
   changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './narrative-sheet.component.html',
   styleUrl: './narrative-sheet.component.css',
@@ -51,6 +75,12 @@ export class NarrativeSheetComponent {
   /** L'LLM è caduto sul punto mostrato (#197): restano i soli dati strutturati. */
   readonly fallback = input<boolean>(false);
 
+  /**
+   * Rischi dello scope mostrato col dato ISTAT del loro POI (#365): zona → tutti i POI, punto → il
+   * POI selezionato. Alimenta gli indicatori in linea del tab ONTOLOGIA.
+   */
+  readonly istatOccurrences = input<IstatHazardOccurrence[]>([]);
+
   readonly toggleNarrative = output<void>();
   readonly regenerate = output<void>();
 
@@ -71,7 +101,33 @@ export class NarrativeSheetComponent {
     const m = this.model();
     return m.overview || (m.tabs.length === 0 ? this.narrativa() : '');
   });
+  /** Lead a nodi (markdown inline). */
+  protected readonly leadNodes = computed(() => toNodes([{ kind: 'text', text: this.leadText() }]));
+  /**
+   * Prosa di ogni tab a nodi: markdown inline ovunque; nel tab ONTOLOGIA anche gli indicatori
+   * ISTAT in linea (#365). L'indicatore si inserisce PRIMA sul testo coi marcatori (dopo i `**`/`*`
+   * di chiusura) e il markdown è interpretato sull'intero testo con gli indicatori come slot: una
+   * coppia `**…**` non viene mai spezzata.
+   */
+  protected readonly tabNodes = computed(() => {
+    const occurrences = this.istatOccurrences();
+    return this.model().tabs.map((t) => {
+      const segments: ProseSegment[] =
+        t.tag === 'ONTOLOGIA'
+          ? withIstatProseIndicators(
+              t.prose,
+              buildIstatProseCandidates(occurrences),
+              occurrences.map((o) => o.hazardLabel),
+            )
+          : [{ kind: 'text', text: t.prose }];
+      return { tag: t.tag, nodes: toNodes(segments) };
+    });
+  });
+  protected readonly hasIstatIndicator = computed(() =>
+    this.tabNodes().some((t) => t.tag === 'ONTOLOGIA' && t.nodes.some((n) => n.kind === 'istat')),
+  );
   protected readonly srcMeta = srcTagMeta;
+  protected readonly istatColor = ISTAT_TAG_COLOR;
   private readonly tabButtons = viewChildren<ElementRef<HTMLButtonElement>>('tabBtn');
 
   protected selectTab(tag: NarrativeSourceTag): void {

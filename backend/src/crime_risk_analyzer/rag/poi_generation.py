@@ -101,21 +101,18 @@ Descrivi la funzione urbana del punto e del suo intorno, non la loro sicurezza.
 Non aggiungere altri blocchi oltre a questi due.
 """
 
-#: Variante con i dati ISTAT (#345): la frase strutturale passa da DUE a TRE
-#: blocchi, la 7-bis segue la 7 e la sezione [ISTAT] precede la chiusura.
-#: Sostituzioni verificate su :data:`POI_SYSTEM_PROMPT`, che non cambia.
+#: Variante con i dati ISTAT (#345, #365): restano DUE blocchi, la 7-bis segue la 7
+#: e la sezione ISTAT chiude la descrizione del blocco [ONTOLOGIA] (i dati si usano
+#: a parole li', senza cifre). Sostituzioni verificate su
+#: :data:`POI_SYSTEM_PROMPT`, che non cambia.
 POI_SYSTEM_PROMPT_ISTAT = sostituisci_una_volta(
     sostituisci_una_volta(
-        sostituisci_una_volta(
-            POI_SYSTEM_PROMPT,
-            f"{RULE_NO_DANGER_RATING}\n\n",
-            f"{RULE_NO_DANGER_RATING}\n\n{RULE_ISTAT_DIVIETI}\n\n",
-        ),
-        "Struttura la risposta in DUE blocchi",
-        "Struttura la risposta in TRE blocchi",
+        POI_SYSTEM_PROMPT,
+        f"{RULE_NO_DANGER_RATING}\n\n",
+        f"{RULE_NO_DANGER_RATING}\n\n{RULE_ISTAT_DIVIETI}\n\n",
     ),
-    "Non aggiungere altri blocchi oltre a questi due.",
-    f"[ISTAT]\n{POI_ISTAT_SECTION}\n\nNon aggiungere altri blocchi oltre a questi tre.",
+    "tema e cita quelli caratterizzanti.\n",
+    f"tema e cita quelli caratterizzanti.\n{POI_ISTAT_SECTION}\n",
 )
 
 

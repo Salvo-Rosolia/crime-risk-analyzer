@@ -2,7 +2,11 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import { ApiService } from '@core/api/api.service';
 import { Action, AppState, BaselineParams, SearchArea } from '@core/models/models';
 import { initialState, transition } from '@core/state/transition';
-import { poiNameDisplayLabel } from '@core/ui-helpers';
+import {
+  IstatHazardOccurrence,
+  flattenIstatOccurrences,
+  poiNameDisplayLabel,
+} from '@core/ui-helpers';
 
 /** Esportata (fix reperto review): riusata da `App.onGoToPlace` per lo stesso spacchettamento
  * dell'errore backend, invece di duplicare qui la stessa logica in due file. */
@@ -86,6 +90,21 @@ export class StateStore {
   readonly currentNarrativaFonti = computed(
     () => this.currentPoiNarrative()?.fonti ?? this._state().completoData?.narrativa_fonti ?? null,
   );
+  /**
+   * Rischi dello SCOPE mostrato col dato ISTAT del loro POI (#365), per gli indicatori in linea
+   * della narrativa: col punto mostrato solo quel POI (il suo `istat` sta su `completoData.poi`,
+   * i suoi rischi nella risposta della narrativa); altrimenti tutti i POI della zona.
+   */
+  readonly currentNarrativeIstatOccurrences = computed<IstatHazardOccurrence[]>(() => {
+    const s = this._state();
+    const data = s.completoData;
+    const narrative = this.currentPoiNarrative();
+    if (narrative) {
+      const poi = data?.poi.find((p) => p.id === s.selectedPoiId);
+      return poi ? flattenIstatOccurrences([poi], narrative.riskModels) : [];
+    }
+    return flattenIstatOccurrences(data?.poi, data?.risk_models);
+  });
   /**
    * Nome del punto CHE IL PANNELLO STA MOSTRANDO (#197), `null` in scope zona. Deriva dalla
    * stessa risposta della prosa (`riskModels[0].poi`, sempre presente lato BE), non dalla lista
