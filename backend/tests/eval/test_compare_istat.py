@@ -22,9 +22,11 @@ from crime_risk_analyzer.eval.schema import (
 
 def _metriche_istat() -> IstatMetrics:
     return IstatMetrics(
+        versione=2,
         cifre_totali=4,
-        cifre_istat_corrette=3,
-        precisione_cifre=0.75,
+        cifre_istat=1,
+        confronti_totali=2,
+        confronti_coerenti=1,
         frasi_scartabili=1,
         voci_fornite=3,
         voci_citate=2,
@@ -142,8 +144,8 @@ def test_metriche_istat_affiancate_nel_report() -> None:
     md = to_markdown(confronto)
     assert "### Metriche ISTAT (affiancate, nessun vincitore)" in md
     assert (
-        "| Roma | Colosseo | 0.75 | 2/3 | 1 | 1/1 | 0 | 0 | - | - | - | - | - | - |"
-        in md
+        "| Roma | Colosseo | 2 | 1 | 2/3 | 2/2 | 0 | 1 | 1/1 | 1/2 | 0 | 0 | 0 "
+        "| - | - | - | - | - | - | - | - | - | - | - |" in md
     )
 
 
@@ -226,3 +228,33 @@ def test_budget_diverso_rende_la_coppia_ontologica_non_isolata() -> None:
         _con_budget(a, 8700), _con_budget(b, 8700), label_a="con", label_b="senza"
     )
     assert not isolato.isolated_variable.startswith(CONFOUNDED_VARIABLE_HEAD)
+
+
+def test_record_di_versione_1_senza_i_campi_nuovi() -> None:
+    """#365: sui record scritti con #345 i campi della versione 2 sono n/d."""
+    a, b = _bracci()
+    vecchi = [
+        r.model_copy(
+            update={
+                "istat_metrics": IstatMetrics.model_validate(
+                    {
+                        k: v
+                        for k, v in _metriche_istat().model_dump().items()
+                        if k
+                        not in {
+                            "versione",
+                            "cifre_istat",
+                            "confronti_totali",
+                            "confronti_coerenti",
+                        }
+                    }
+                )
+            }
+        )
+        for r in a
+    ]
+    md = to_markdown(compare_records(vecchi, b, label_a="istat", label_b="base"))
+    assert (
+        "| Roma | Colosseo | 1 | n/d | 2/3 | 2/2 | n/d | 1 | 1/1 | n/d | 0 | 0 | n/d "
+        in md
+    )

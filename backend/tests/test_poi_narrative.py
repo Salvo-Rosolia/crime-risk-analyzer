@@ -31,7 +31,7 @@ _POI_ID = "node/1"
 
 _BANK = PoiRiskProfile(
     terminus_class="Bank",
-    hazards=["Bank_robbery"],
+    hazards=["Bank_robbery", "Property_theft"],
     vulnerabilities=["Accesso non controllato"],
     sparql_paths=["Bank → havingHazard → Bank_robbery"],
 )

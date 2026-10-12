@@ -50,8 +50,9 @@ _POINTER_MARK = "il grounding poggia soprattutto sui nomi dei punti"
 
 
 _ISTAT = IstatMetrics(
+    versione=2,
     cifre_totali=0,
-    cifre_istat_corrette=0,
+    cifre_istat=0,
     frasi_scartabili=0,
     voci_fornite=1,
     voci_citate=0,

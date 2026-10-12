@@ -196,6 +196,30 @@
   white-space: pre-wrap;
 }
 
+/* #365: riga sotto la descrizione della fonte, stesso registro della descrizione. */
+.cra-narr-istat-note {
+  font-size: 0.72rem;
+  font-style: italic;
+  color: var(--ink-2);
+  margin: 0 0 var(--space-2);
+}
+
+/*
+ * #365: indicatore ISTAT in linea nella prosa. Resta nel flusso del testo (inline, può andare a
+ * capo): corpo più piccolo, filetto a sinistra nel colore della fonte ISTAT, colore del testo
+ * neutro — nessun rosso/verde sulla tendenza (D9: non è un giudizio di pericolosità).
+ */
+.cra-narr-istat {
+  margin: 0 0.25em;
+  padding: 0 0.4em;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: var(--ink-2);
+  border-left: 2px solid var(--istat-color);
+  background: color-mix(in srgb, var(--istat-color) 8%, transparent);
+  border-radius: 2px;
+}
+
 /*
  * Fallback bottom-sheet sotto 1100px (#218): su finestre strette il pannello destro strozzerebbe
  * la mappa, quindi la narrativa torna in basso a tutta larghezza (layout storico), col dock che
@@ -218,4 +242,14 @@
   .cra-eyebrow {
     white-space: nowrap;
   }
+}
+
+/* Testo solo per i lettori di schermo (#365): prefisso e chiusura dell'indicatore in linea. */
+.cra-vh {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

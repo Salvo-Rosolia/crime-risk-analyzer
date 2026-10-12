@@ -6,7 +6,16 @@ della voce, poi del luogo). Se il blocco non sta nel limite si tolgono voci
 partendo da quelle con MENO POI coinvolti; le cornici restano per ultime (cadono
 con l'ultima voce del loro luogo) e una nota dice quante voci sono rimaste fuori.
 
-POI: cornice e voci di quel punto, senza "POI coinvolti".
+POI: cornice e voci di quel punto.
+
+Le righe sono a parole (#365 D7, :func:`~crime_risk_analyzer.istat.righe.
+formatta_riga`): il numero di POI coinvolti decide solo l'ordine e il taglio, non
+compare nel testo.
+
+In entrambi i blocchi entrano solo le voci con almeno :data:`SOGLIA_TENDENZA`
+delitti nell'ultimo anno (#365 D2, stessa soglia del Dettaglio): su 3 rapine in
+banca o un conteggio assente la narrativa non ha niente da pesare. Se non resta
+nessuna voce non c'e' blocco (la cornice da sola non entra).
 
 La stima dei token arriva dal chiamante (``generation._estimate_tokens``): questo
 modulo non importa ``rag`` per non creare cicli.
@@ -19,7 +28,12 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from crime_risk_analyzer.istat.righe import IstatPoi, RigaIstat, formatta_riga
+from crime_risk_analyzer.istat.righe import (
+    SOGLIA_TENDENZA,
+    IstatPoi,
+    RigaIstat,
+    formatta_riga,
+)
 
 __all__ = [
     "INTESTAZIONE_DATI_ISTAT",
@@ -33,8 +47,8 @@ __all__ = [
 #: Prima riga del blocco: dice al modello che cosa sono i dati e di chi sono.
 INTESTAZIONE_DATI_ISTAT = (
     "DATI ISTAT (delitti denunciati dalle forze di polizia all'autorita' "
-    "giudiziaria; dati del comune capoluogo o della provincia indicati tra "
-    "parentesi quadre, non della zona ne' dei singoli POI):"
+    "giudiziaria; dati del comune capoluogo o della provincia indicati a inizio "
+    "riga, non della zona ne' dei singoli POI):"
 )
 
 
@@ -53,6 +67,11 @@ def nota_taglio(n: int) -> str:
     if n == 1:
         return "NB: per limiti di lunghezza 1 voce ISTAT non e' riportata."
     return f"NB: per limiti di lunghezza {n} voci ISTAT non sono riportate."
+
+
+def _nel_blocco(riga: RigaIstat) -> bool:
+    """La voce ha abbastanza delitti nell'ultimo anno per entrare nel blocco."""
+    return riga.delitti is not None and riga.delitti >= SOGLIA_TENDENZA
 
 
 def _istat(poi: Mapping[str, Any]) -> IstatPoi | None:
@@ -76,7 +95,7 @@ def _aggrega(
         if istat is None:
             continue
         cornici.setdefault(istat.cornice.luogo_codice, istat.cornice)
-        for riga in istat.righe:
+        for riga in filter(_nel_blocco, istat.righe):
             chiave = (riga.luogo_codice, riga.voce)
             esistente = voci.get(chiave)
             if esistente is None:
@@ -99,7 +118,7 @@ def _rendi(
     cornici_rese = [c for c in cornici if c.luogo_codice in luoghi]
     linee = [INTESTAZIONE_DATI_ISTAT]
     linee.extend(formatta_riga(c) for c in cornici_rese)
-    linee.extend(formatta_riga(riga, poi_coinvolti=n) for riga, n in voci)
+    linee.extend(formatta_riga(riga) for riga, _ in voci)
     if tagliate:
         linee.append(nota_taglio(tagliate))
     return "\n".join(linee), (*cornici_rese, *(riga for riga, _ in voci))
@@ -126,8 +145,9 @@ def blocco_istat_zona(
 
 def blocco_istat_poi(istat: IstatPoi | None) -> BloccoIstat:
     """Blocco del singolo POI: cornice e voci, senza conteggio di POI."""
-    if istat is None or not istat.righe:
+    voci = tuple(filter(_nel_blocco, istat.righe)) if istat is not None else ()
+    if istat is None or not voci:
         return BloccoIstat()
-    righe = (istat.cornice, *istat.righe)
+    righe = (istat.cornice, *voci)
     testo = "\n".join([INTESTAZIONE_DATI_ISTAT, *(formatta_riga(r) for r in righe)])
     return BloccoIstat(testo=testo, righe=righe)

@@ -1455,31 +1455,47 @@ def operational_markdown(comparison: Comparison) -> str:
     return "\n".join(lines) + "\n"
 
 
+#: Colonne della tabella ISTAT, una cella ciascuna in :func:`_cella_istat`.
+_COLONNE_ISTAT = (
+    "versione",
+    "cifre ISTAT scritte",
+    "voci citate/fornite",
+    "frasi ISTAT con luogo",
+    "luogo ereditato",
+    "frasi scartabili",
+    "direzioni coerenti",
+    "confronti coerenti",
+    "corrispondenze non dichiarate",
+    "numeri in lettere",
+    "codici voce",
+)
+
+
 def _cella_istat(m: IstatMetrics | None) -> list[str]:
+    """Celle di un braccio; sui record di versione 1 (#345) i campi nati con la
+    versione 2 (#365) non esistevano e valgono ``n/d``."""
     if m is None:
-        return ["-"] * 6
-    precisione = "-" if m.precisione_cifre is None else f"{m.precisione_cifre:.2f}"
+        return ["-"] * len(_COLONNE_ISTAT)
+    v1 = m.versione < 2
     return [
-        precisione,
+        str(m.versione),
+        "n/d" if v1 else str(m.cifre_istat),
         f"{m.voci_citate}/{m.voci_fornite}",
+        f"{m.frasi_istat_con_luogo}/{m.frasi_istat}",
+        "n/d" if v1 else str(m.frasi_istat_con_luogo_ereditato),
         str(m.frasi_scartabili),
         f"{m.direzioni_coerenti}/{m.direzioni_totali}",
+        "n/d" if v1 else f"{m.confronti_coerenti}/{m.confronti_totali}",
         str(m.corrispondenze_non_dichiarate),
         str(m.numeri_in_lettere),
+        "n/d" if v1 else str(m.codici_voce),
     ]
 
 
 def istat_markdown(comparison: Comparison) -> str:
     """Tabella delle metriche ISTAT affiancate (#345): nessun delta, nessun
     vincitore."""
-    nomi = [
-        "precisione cifre",
-        "voci citate/fornite",
-        "frasi scartabili",
-        "direzioni coerenti",
-        "corrispondenze non dichiarate",
-        "numeri in lettere",
-    ]
+    nomi = _COLONNE_ISTAT
     cols = [
         "citta",
         "zona",

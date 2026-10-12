@@ -2,8 +2,11 @@ import { TestBed } from '@angular/core/testing';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ApiService } from '@core/api/api.service';
 import { StateStore } from '@core/state/state.store';
+import { istatPoi, istatRiga } from '@core/testing/istat-fixtures';
 import {
   AnalyzeResponse,
+  IstatPoi,
+  Poi,
   PoiNarrativeResponse,
   SearchArea,
   ZoneNarrativeResponse,
@@ -566,6 +569,73 @@ describe('StateStore', () => {
 
       store.dispatch({ type: 'DESELECT_POI' });
       expect(store.currentScopePoiName()).toBeNull();
+    });
+
+    it('#365: le occorrenze ISTAT seguono lo scope: zona → tutti i POI, punto → solo il POI', async () => {
+      const istat = istatPoi(istatRiga('BANKROB', ['Bank_robbery']));
+      const mk = (id: string, i?: IstatPoi): Poi => ({
+        id,
+        name: id,
+        terminus_class: 'Bank',
+        lat: 0,
+        lon: 0,
+        confidence: 'verificato',
+        sparql_path: null,
+        terminus_label_it: 'Banca',
+        terminus_label_en: 'Bank',
+        istat: i,
+      });
+      const risks = poiResp.risk_models[0].risks;
+      api.analyze.mockResolvedValue({
+        ...data,
+        poi: [mk('node/1', istat), mk('node/2', istat)],
+        risk_models: [
+          { poi_id: 'node/1', poi: 'A', risks },
+          { poi_id: 'node/2', poi: 'B', risks },
+        ],
+      });
+      await store.startAnalysis(AREA, null);
+      expect(store.currentNarrativeIstatOccurrences()).toHaveLength(2);
+
+      await store.loadPoiNarrative('node/1');
+      store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
+      const punto = store.currentNarrativeIstatOccurrences();
+      expect(punto).toHaveLength(1);
+      expect(punto[0]).toEqual({
+        hazardLabel: 'Rapina in banca',
+        hazard: 'Bank_robbery',
+        istat,
+      });
+    });
+
+    it('#365: se i riskModels della narrativa del punto sono di un altro poi_id, nessuna occorrenza ISTAT', async () => {
+      const istat = istatPoi(istatRiga('BANKROB', ['Bank_robbery']));
+      api.analyze.mockResolvedValue({
+        ...data,
+        poi: [
+          {
+            id: 'node/1',
+            name: 'A',
+            terminus_class: 'Bank',
+            lat: 0,
+            lon: 0,
+            confidence: 'verificato',
+            sparql_path: null,
+            terminus_label_it: 'Banca',
+            terminus_label_en: 'Bank',
+            istat,
+          },
+        ],
+      });
+      await store.startAnalysis(AREA, null);
+      api.poiNarrative.mockResolvedValue({
+        ...poiResp,
+        risk_models: [{ ...poiResp.risk_models[0], poi_id: 'node/ALTRO' }],
+      });
+      store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
+      await store.loadPoiNarrative('node/1');
+      // l'aggancio è per poi_id: un modello di un altro punto non produce indicatori
+      expect(store.currentNarrativeIstatOccurrences()).toEqual([]);
     });
 
     it('#261: un POI senza nome (feature OSM anonima) nomina lo scope col ripiego sulla classe, non con una stringa vuota', async () => {

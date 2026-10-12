@@ -112,3 +112,15 @@ BANKROB = riga(
     motivo=MOTIVO_SOTTO_SOGLIA,
     collegamenti=(collegamento("Bank_robbery", "Rapina in banca", "esatta"),),
 )
+
+#: Stessa voce sopra la soglia di 20 delitti (#365 D2): entra nel blocco.
+RAPINE_IN_BANCA = riga(
+    "BANKROB",
+    label="rapine in banca",
+    delitti=46,
+    confronto=120,
+    tasso=1.7,
+    italia=0.5,
+    variazione=-62,
+    collegamenti=(collegamento("Bank_robbery", "Rapina in banca", "esatta"),),
+)

@@ -156,48 +156,86 @@ class Metrics(BaseModel):
 
 
 class IstatMetrics(BaseModel):
-    """Metriche dei dati ISTAT nella narrativa (#345, spec 4.9).
+    """Metriche dei dati ISTAT nella narrativa (#345, spec 4.9; versione 2 da #365).
 
     Oggetto SEPARATO da :class:`Metrics`: aggregate e verdetto non le vedono, e
     sulla coppia ontologia vs ontologia + ISTAT non c'e' vincitore (D12). Calcolate
-    sul testo GREZZO del modello, prima del filtro. Conteggi, cosi' che sommarli fra
-    ripetizioni resti corretto; la sola precisione e' un rapporto.
+    sul testo GREZZO del modello, prima del filtro. Solo conteggi, cosi' che
+    sommarli fra ripetizioni resti corretto.
+
+    Versione 2 (#365): il modello usa i dati ISTAT a parole nel blocco
+    [ONTOLOGIA], senza cifre. Cambiano significato ``frasi_istat`` (frasi di
+    QUALUNQUE blocco che parlano del dato, non piu' le frasi [ISTAT] con cifre),
+    ``frasi_istat_con_luogo``, ``voci_citate`` e ``corrispondenze_non_dichiarate``;
+    spariscono ``cifre_istat_corrette`` e ``precisione_cifre`` (ogni cifra ISTAT si
+    toglie: ``cifre_istat`` le conta, attese 0); arrivano i confronti col dato
+    italiano. I record scritti prima non hanno ``versione`` e valgono 1: i loro
+    campi nuovi restano a 0 e non vanno letti.
     """
 
+    versione: int = Field(
+        default=1,
+        ge=1,
+        description="Versione delle metriche ISTAT (1 = #345, 2 = #365).",
+    )
     cifre_totali: int = Field(
         ge=0, description="Numeri nella narrativa fuori dalla lista fissa."
     )
-    cifre_istat_corrette: int = Field(
+    cifre_istat: int = Field(
+        default=0,
         ge=0,
-        description="Cifre ISTAT nel blocco giusto, della voce giusta, col segno giusto.",  # noqa: E501
-    )
-    precisione_cifre: float | None = Field(
-        default=None, ge=0.0, le=1.0, description="corrette / totali; None senza cifre."
+        description="Cifre ISTAT scritte dal modello, in qualunque blocco (attese 0).",
     )
     frasi_scartabili: int = Field(ge=0, description="Frasi che il filtro toglie.")
     voci_fornite: int = Field(
         ge=0, description="Voci ISTAT nel prompt (cornice esclusa)."
     )
-    voci_citate: int = Field(ge=0, description="Voci con almeno una cifra corretta.")
+    voci_citate: int = Field(
+        ge=0, description="Voci nominate in frasi ISTAT che il filtro tiene."
+    )
     frasi_istat: int = Field(
-        ge=0, description="Frasi del blocco [ISTAT] con cifre ISTAT."
+        ge=0, description="Frasi di qualunque blocco che parlano del dato ISTAT."
     )
     frasi_istat_con_luogo: int = Field(
-        ge=0, description="Di queste, quante nominano il luogo."
+        ge=0, description="Di queste, quante nominano il luogo del dato."
+    )
+    frasi_istat_con_luogo_ereditato: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Frasi ISTAT senza luogo che usano quello detto prima nello stesso "
+            "paragrafo (non contate in frasi_istat_con_luogo)."
+        ),
     )
     direzioni_totali: int = Field(
-        ge=0, description="Frasi con parole di direzione su una voce."
+        ge=0, description="Frasi ISTAT con parole di tendenza su una voce."
     )
     direzioni_coerenti: int = Field(ge=0, description="Di queste, coerenti col segno.")
+    confronti_totali: int = Field(
+        default=0,
+        ge=0,
+        description="Frasi ISTAT che confrontano col dato italiano una voce classificata.",  # noqa: E501
+    )
+    confronti_coerenti: int = Field(
+        default=0, ge=0, description="Di queste, coerenti col confronto della riga."
+    )
     corrispondenze_non_dichiarate: int = Field(
         ge=0,
         description=(
-            "Frasi [ISTAT] su voci piu' ampie/strette del rischio senza dirlo "
+            "Frasi ISTAT su voci piu' ampie/strette del rischio senza dirlo "
             "(euristica sul testo)."
         ),
     )
     numeri_in_lettere: int = Field(
         ge=0, description="Numeri scritti in lettere (non tolti)."
+    )
+    codici_voce: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Codici delle voci ISTAT (es. THEFT) scritti dal modello, a parola "
+            "intera e in maiuscolo (attesi 0; non tolgono la frase)."
+        ),
     )
 
 
