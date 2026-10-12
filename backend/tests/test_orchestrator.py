@@ -1376,7 +1376,7 @@ async def test_run_analysis_espone_i_campi_istat_e_nasconde_il_grezzo() -> None:
         def profile(self, terminus_class: str) -> PoiRiskProfile:
             return PoiRiskProfile(
                 terminus_class="Bank",
-                hazards=["Bank_robbery"],
+                hazards=["Bank_robbery", "Property_theft"],
                 sparql_paths=["Bank → havingHazard → Bank_robbery"],
             )
 

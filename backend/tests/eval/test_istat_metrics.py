@@ -1,8 +1,11 @@
-"""Metriche ISTAT (#345, spec 4.9): deterministiche, sul testo grezzo."""
+"""Metriche ISTAT (#345, versione 2 da #365): deterministiche, sul testo grezzo."""
 
 from __future__ import annotations
 
+import pytest
+
 from crime_risk_analyzer.eval.istat_metrics import (
+    ISTAT_METRICS_VERSION,
     compute_istat_metrics,
     somma_istat_metrics,
 )
@@ -10,9 +13,9 @@ from crime_risk_analyzer.eval.schema import IstatMetrics
 from crime_risk_analyzer.istat.blocco import blocco_istat_poi
 from crime_risk_analyzer.istat.cifre import controlla_cifre
 from crime_risk_analyzer.rag.generation import source_block_spans
-from tests.istat._fattorie import BANKROB, istat_poi, riga
+from tests.istat._fattorie import RAPINE_IN_BANCA, istat_poi, riga
 
-_BLOCCO = blocco_istat_poi(istat_poi(riga(), BANKROB))
+_BLOCCO = blocco_istat_poi(istat_poi(riga(), RAPINE_IN_BANCA))
 
 
 def _metriche(testo: str) -> IstatMetrics:
@@ -26,55 +29,119 @@ def _metriche(testo: str) -> IstatMetrics:
     return compute_istat_metrics(esito)
 
 
+def test_versione_2_dal_365() -> None:
+    """Frasi ISTAT, voci citate e corrispondenze cambiano significato con #365."""
+    assert ISTAT_METRICS_VERSION == 2
+    m = _metriche("Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nRapina.\n")
+    assert m.versione == 2
+
+
+def test_i_record_scritti_prima_sono_versione_1() -> None:
+    vecchio = {
+        "cifre_totali": 4,
+        "cifre_istat_corrette": 3,
+        "precisione_cifre": 0.75,
+        "frasi_scartabili": 1,
+        "voci_fornite": 3,
+        "voci_citate": 2,
+        "frasi_istat": 2,
+        "frasi_istat_con_luogo": 2,
+        "direzioni_totali": 1,
+        "direzioni_coerenti": 1,
+        "corrispondenze_non_dichiarate": 0,
+        "numeri_in_lettere": 0,
+    }
+    m = IstatMetrics.model_validate(vecchio)
+    assert (m.versione, m.cifre_istat, m.confronti_totali) == (1, 0, 0)
+
+
 def test_metriche_su_una_narrativa_tipica() -> None:
     testo = (
         "Sintesi con 134.169 furti.\n\n"
-        "Rischi da ontologia [ONTOLOGIA]\nRapina in banca.\n\n"
-        "Dati statistici ISTAT [ISTAT]\n"
-        "Nel Comune di Roma i furti sono 134.169, in calo del -10% (fonte ISTAT, "
-        "Comune di Roma, 2024), e la voce ISTAT non coincide con il rischio.\n"
-        "I furti sono il doppio di quanto si pensi.\n"
+        "Rischi da ontologia [ONTOLOGIA]\n"
+        "Secondo i dati ISTAT del Comune di Roma i furti hanno un tasso piu' alto "
+        "di quello italiano e sono in calo, ma la voce ISTAT non coincide con il "
+        "rischio. "
+        "Secondo l'ISTAT le rapine in banca sono sotto la media italiana. "
+        "Per l'ISTAT a Roma i furti sono il doppio di quanto si pensi. "
+        "Rapina in banca per la Banca A.\n"
     )
     m = _metriche(testo)
-    assert (m.cifre_totali, m.cifre_istat_corrette) == (3, 2)
-    assert m.precisione_cifre == 2 / 3
-    assert m.frasi_scartabili == 1
+    assert m.cifre_totali == 1
+    assert m.cifre_istat == 1  # "134.169" nella sintesi: scritta, quindi tolta
+    # tolte: la sintesi (cifra) e le rapine in banca (luogo mancante)
+    assert m.frasi_scartabili == 2
+    # frasi che parlano del dato ISTAT, in qualunque blocco
+    assert (m.frasi_istat, m.frasi_istat_con_luogo) == (4, 2)
+    # voci nominate in frasi ISTAT TENUTE dal filtro: solo i furti
     assert (m.voci_fornite, m.voci_citate) == (2, 1)
-    assert (m.frasi_istat, m.frasi_istat_con_luogo) == (1, 1)
     assert (m.direzioni_totali, m.direzioni_coerenti) == (1, 1)
-    # "il doppio": furti piu' ampia, nessuna dichiarazione
-    assert m.corrispondenze_non_dichiarate == 1
+    # "piu' alto" sui furti (coerente), "sotto la media" sulle rapine (contrario:
+    # 1,7 contro 0,5 e' piu' alto)
+    assert (m.confronti_totali, m.confronti_coerenti) == (2, 1)
+    # furti: voce piu' ampia del rischio; dichiarato solo in [ONTOLOGIA] alla
+    # prima frase, non nella sintesi ne' nella frase del "doppio" (testo grezzo:
+    # contano anche le frasi tolte)
+    assert m.corrispondenze_non_dichiarate == 2
     assert m.numeri_in_lettere == 1
 
 
-def test_senza_cifre_la_precisione_non_e_definita() -> None:
-    m = _metriche("Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nRapina.\n")
-    assert m.cifre_totali == 0 and m.precisione_cifre is None
-
-
-def test_somma_fra_ripetizioni() -> None:
-    a = _metriche("Dati statistici ISTAT [ISTAT]\nI furti sono 134.169.\n")
-    b = _metriche("Dati statistici ISTAT [ISTAT]\nI furti sono 134.000.\n")
-    s = somma_istat_metrics([a, None, b])
-    assert s is not None
-    assert (s.cifre_totali, s.cifre_istat_corrette) == (2, 1)
-    assert s.precisione_cifre == 0.5
-    assert somma_istat_metrics([None, None]) is None
-
-
-def test_voce_citata_solo_se_c_e_una_sua_cifra() -> None:
-    """R7 (review 2): nominare una voce accanto alla cifra di un'altra non la cita."""
+def test_frasi_istat_anche_in_un_blocco_istat_residuo() -> None:
     m = _metriche(
-        "Dati statistici ISTAT [ISTAT]\n"
-        "I furti sono 134.169, mentre le rapine in banca restano rare.\n"
+        "Sintesi.\n\nDati statistici ISTAT [ISTAT]\n"
+        "Nel Comune di Roma, secondo l'ISTAT, i furti sono in calo.\n"
     )
-    assert m.cifre_istat_corrette == 1
-    assert m.voci_citate == 1
+    assert (m.frasi_istat, m.frasi_istat_con_luogo, m.frasi_scartabili) == (1, 1, 0)
 
 
 def test_luogo_della_frase_a_parola_intera() -> None:
     """R7 (review 2): "romano" non nomina "Roma"."""
     m = _metriche(
-        "Dati statistici ISTAT [ISTAT]\nI furti nel territorio romano sono 134.169.\n"
+        "Rischi da ontologia [ONTOLOGIA]\nSecondo l'ISTAT nel territorio romano i "
+        "furti sono in calo.\n"
     )
     assert (m.frasi_istat, m.frasi_istat_con_luogo) == (1, 0)
+
+
+def test_somma_fra_ripetizioni() -> None:
+    a = _metriche("Rischi da ontologia [ONTOLOGIA]\nI furti sono 134.169.\n")
+    b = _metriche(
+        "Rischi da ontologia [ONTOLOGIA]\nSecondo l'ISTAT a Roma i furti sono "
+        "sopra la media italiana.\n"
+    )
+    s = somma_istat_metrics([a, None, b])
+    assert s is not None
+    assert (s.versione, s.cifre_totali, s.cifre_istat) == (2, 1, 1)
+    assert (s.frasi_istat, s.confronti_totali, s.confronti_coerenti) == (2, 1, 1)
+    assert somma_istat_metrics([None, None]) is None
+
+
+def test_somma_rifiuta_versioni_diverse() -> None:
+    a = _metriche("Rischi da ontologia [ONTOLOGIA]\nRapina.\n")
+    with pytest.raises(ValueError, match="versioni"):
+        somma_istat_metrics([a, a.model_copy(update={"versione": 1})])
+
+
+def test_luogo_esplicito_e_ereditato_contati_a_parte() -> None:
+    """Fix 3: la frase dell'elenco che eredita il luogo non conta come con luogo."""
+    m = _metriche(
+        "Rischi da ontologia [ONTOLOGIA]\nSecondo l'ISTAT nel Comune di Roma i "
+        "furti sono in calo. I furti hanno un tasso piu' alto dal 2014.\n"
+    )
+    assert (m.frasi_istat, m.frasi_istat_con_luogo) == (2, 1)
+    assert m.frasi_istat_con_luogo_ereditato == 1
+    assert m.frasi_scartabili == 0
+
+
+def test_codici_voce_scritti_dal_modello() -> None:
+    """Domanda 2 della review: i codici delle righe si contano (attesi 0)."""
+    m = _metriche(
+        "Rischi da ontologia [ONTOLOGIA]\nSecondo l'ISTAT nel Comune di Roma la "
+        "voce THEFT e' in calo; BANKROB pure.\n"
+    )
+    assert m.codici_voce == 2
+    assert _metriche("Rischi da ontologia [ONTOLOGIA]\nRapina.\n").codici_voce == 0
+    vecchio = IstatMetrics.model_validate(
+        {k: v for k, v in m.model_dump().items() if k != "codici_voce"}
+    )
+    assert vecchio.codici_voce == 0
