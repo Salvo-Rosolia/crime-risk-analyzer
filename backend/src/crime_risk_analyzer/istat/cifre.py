@@ -1,19 +1,21 @@
-"""Controllo delle cifre della narrativa con i dati ISTAT nel prompt (#345, spec 4.7).
+"""Controllo delle frasi della narrativa con i dati ISTAT nel prompt (#345, #365).
 
-Meccanismo NUOVO: per la prima volta una frase generata puo' essere tolta dopo la
-generazione. Gira solo quando il prompt conteneva il blocco DATI ISTAT.
+Meccanismo NUOVO di #345: per la prima volta una frase generata puo' essere tolta
+dopo la generazione. Gira solo quando il prompt conteneva il blocco DATI ISTAT. Da
+#365 il modello usa i dati ISTAT a parole dentro il blocco [ONTOLOGIA] e non
+scrive cifre (le mostra l'interfaccia): nessun blocco e' piu' il posto delle cifre
+ISTAT, e il controllo verifica cio' che la frase dice del dato.
 
 1. Divisione in frasi che non spezza i numeri ("3.016", "1.162,7"): si spezza dopo
-   ``.!?`` seguiti da spazio e a ogni a-capo; il ``;`` NON chiude la frase (la
-   citazione "(fonte ISTAT, ...); variazione 2014-2024: -10%" resta una frase sola,
-   con la voce che la regge); i marcatori d'elenco a inizio riga ("1.", "-", "*")
-   non fanno parte della frase. (``eval.metrics._sentences`` spezza a ogni punto e
-   non va riusata.) La prosa scritta sulla stessa riga dell'etichetta, dopo il
-   token (``Dati statistici ISTAT [ISTAT]: nel Comune ...``), appartiene al blocco
-   che l'etichetta apre: solo il controllo delle cifre la sposta, il parser dei
-   blocchi (che alimenta M1) resta com'e'. Le abbreviazioni comuni (``d.lgs.``,
-   ``art.``, ``n.``, ``es.``, ``ecc.``, ``cfr.``) non chiudono la frase: le righe
-   DATI ISTAT stesse scrivono "(d.lgs. 7/2016)" (R4, review 2).
+   ``.!?`` seguiti da spazio e a ogni a-capo; il ``;`` NON chiude la frase; i
+   marcatori d'elenco a inizio riga ("1.", "-", "*") non fanno parte della frase.
+   (``eval.metrics._sentences`` spezza a ogni punto e non va riusata.) La prosa
+   scritta sulla stessa riga dell'etichetta, dopo il token (``Dati statistici
+   ISTAT [ISTAT]: nel Comune ...``), appartiene al blocco che l'etichetta apre:
+   solo il controllo la sposta, il parser dei blocchi (che alimenta M1) resta
+   com'e'. Le abbreviazioni comuni (``d.lgs.``, ``art.``, ``n.``, ``es.``,
+   ``ecc.``, ``cfr.``) non chiudono la frase: le righe DATI ISTAT stesse scrivono
+   "(d.lgs. 7/2016)" (R4, review 2).
 2. Numeri normalizzati all'italiana: ``.`` seguito da gruppi di tre cifre e' il
    separatore delle migliaia (come l'NBSP e lo spazio stretto NNBSP), altrimenti
    e' decimale; ``,`` e' decimale; ``−`` e ``–`` (trattino medio) valgono ``-``;
@@ -23,44 +25,97 @@ generazione. Gira solo quando il prompt conteneva il blocco DATI ISTAT.
    o se le sue parti non lo sono tutte: "134 169" resta 134.169, ma "negli ultimi
    10 340 furti" sono 10 e 340 (R8, review 2). Un riferimento ``N/AAAA``
    ("d.lgs. 7/2016") non e' un numero da controllare.
-3. Ammessi: fuori dal blocco ``[ISTAT]``, tutti i numeri dello user_content
-   (blocco DATI ISTAT compreso) TRANNE quelli della domanda dell'utente (input non
-   fidato: non deve mai mettere in lista una cifra, R2 review 2); dentro
-   ``[ISTAT]`` solo i numeri del blocco DATI ISTAT (i numeri che stanno solo nel
-   resto del contesto — POI totali, nomi dei POI e dei vicini — li' non sono
-   ammessi). In entrambi i casi piu' la
-   lista fissa (100.000, ``Y``, ``Y-10``, 0,1, i POI coinvolti) e l'ampiezza del
-   periodo ``Y - Y_confronto`` ("negli ultimi 10 anni"), che senza ``%`` e' un
-   numero qualunque e mai una cifra ISTAT. Cifre ISTAT:
-   conteggi, tassi, tasso nazionale delle righe, piu' le variazioni ma SOLO quando
-   scritte con ``%`` (un numero senza ``%`` puo' coincidere per caso col valore
-   assoluto di una variazione — es. "10" in "negli ultimi 10 anni" — e non va
-   scambiato per una cifra ISTAT); in ogni caso tranne quelli che compaiono anche
-   nel contesto fuori dal blocco o nella lista fissa (non si puo' dire a cosa si
-   riferiscano).
-4. Regole, nell'ordine: numero non ammesso; cifra ISTAT fuori dal blocco
-   ``[ISTAT]`` (il blocco ``[SPECULATIVO]`` non e' il blocco ISTAT: una cifra
-   ISTAT li' dentro e' trattata come fuori blocco); nel blocco, ogni cifra ISTAT
-   deve appartenere a una voce nominata nella stessa frase (etichetta o codice) e
-   il segno esplicito di una variazione deve essere quello giusto; parole di
-   direzione contrarie al segno della variazione della voce nominata — dentro
-   ``[ISTAT]`` sempre; fuori (overview, ``[ONTOLOGIA]``/``[CONTESTO]``/
-   ``[SPECULATIVO]``) solo quando la frase si riferisce ESPLICITAMENTE ai dati
-   ISTAT: nomina "ISTAT" o i "delitti denunciati", o contiene una cifra ISTAT. Il
-   solo nome del luogo non basta (R1, review 2): "A Roma la folla aumenta le
-   occasioni di furti" in ``[ONTOLOGIA]`` parla del rischio, non della statistica,
-   e resta. Le parole di direzione sono solo di tendenza ("in aumento",
-   "aumentati", "in calo", "scesi"...): forme causali o aggettivali ("aumenta le
-   occasioni", "ridotta", "riduzione", le "sale" giochi) non contano. Se la frase
-   nomina un luogo delle righe (per esteso, "Comune di Roma", o per nome breve),
-   attribuzione, segno e direzione usano i valori di QUEL luogo per la voce; se
-   non ne nomina nessuno valgono quelli della voce in qualunque luogo (R6, review
-   2). Se la voce nominata non ha
-   nessuna tendenza calcolata (serie interrotta, anno mancante, sotto soglia), una
-   parola di direzione su di essa non e' verificabile e la frase si toglie lo
-   stesso, con lo stesso motivo ``direzione_contraria`` (scelta di
-   implementazione: non si introduce un settimo motivo solo per questo caso).
-5. I numeri in lettere ("il doppio") si contano per la valutazione, non si tolgono.
+3. Ammessi: tutti i numeri dello user_content (blocco DATI ISTAT compreso) TRANNE
+   quelli della domanda dell'utente (input non fidato: non deve mai mettere in
+   lista una cifra, R2 review 2), piu' la lista fissa (100.000, ``Y``, ``Y-10``,
+   0,1), l'ampiezza del periodo ``Y - Y_confronto`` ("negli ultimi 10 anni"), che
+   senza ``%`` e' un numero qualunque e mai una cifra ISTAT, e le cifre ISTAT
+   delle righe: il blocco a parole (#365 D7) non le porta piu', ma una cifra ISTAT
+   scritta dal modello va riconosciuta come tale e non come numero inventato.
+   Cifre ISTAT: conteggi, tassi, tasso nazionale delle righe (le
+   :class:`~crime_risk_analyzer.istat.righe.RigaIstat`, non il testo del blocco),
+   piu' le variazioni ma SOLO quando scritte con ``%`` (un numero senza ``%`` puo'
+   coincidere per caso col valore assoluto di una variazione — es. "10" in "negli
+   ultimi 10 anni" — e non va scambiato per una cifra ISTAT); in ogni caso tranne
+   quelli che compaiono anche nel contesto fuori dal blocco o nella lista fissa
+   (non si puo' dire a cosa si riferiscano).
+4. Una frase "parla del dato ISTAT" se nomina "ISTAT", i "delitti denunciati", la
+   media, il dato o il tasso italiano o nazionale, "quello italiano", "rispetto
+   all'Italia", oppure contiene una cifra ISTAT ("a livello nazionale" no, B1).
+   Ne parla anche se nomina una voce delle righe (o un rischio collegato, come
+   in C1) insieme a "tasso", "voce" o "dal <anno di confronto>": "I furti hanno
+   un tasso piu' alto e sono in calo dal 2014". "tasso" conta solo seguito a
+   breve da un confronto o come "tasso di/dei <voce>", "voce" solo come "la/questa
+   voce", "voce piu' ampia/stretta", "voce ... coincide/corrisponde"
+   (fix 4: "Area ad alto tasso di criminalita'" e' una vulnerabilita'
+   dell'ontologia, non un dato ISTAT). Il markdown (``**``, ``_``) si
+   toglie prima di cercare etichette e luoghi.
+   Il solo nome del luogo non basta (R1, review 2): "A Roma la folla aumenta le
+   occasioni di furti" parla del rischio, non della statistica, e resta. Una
+   frase dentro un ``[ISTAT]`` residuo ne parla sempre (C3); la sua riga-etichetta
+   mai (nomina ISTAT ma non dice nulla del dato). Dentro un paragrafo che ha gia'
+   nominato il luogo del dato, ne parla anche una frase con una voce (o un rischio
+   collegato) e una parola di tendenza o di confronto: "- furti: in crescita;"
+   nell'elenco dopo "I dati ISTAT del Comune di Roma (2024) indicano:" (C-2).
+5. Regole, nell'ordine (la prima che scatta e' il motivo):
+
+   - ``numero_non_ammesso``: un numero fuori dagli ammessi;
+   - ``cifra_istat_fuori_blocco``: una cifra ISTAT, in QUALUNQUE blocco (#365:
+     anche dentro un ``[ISTAT]`` scritto per errore; il nome del motivo e' quello
+     di #345);
+   - ``luogo_mancante`` (#365): una frase che parla del dato ISTAT non nomina un
+     luogo delle righe (per esteso, "Comune di Roma", o per nome breve) e non ne
+     eredita uno. Eredita il luogo della frase ISTAT precedente, tenuta, dello
+     stesso paragrafo (elenco compreso): "I dati ISTAT del Comune di Roma ...:"
+     seguito dalle voci. Un nuovo luogo sostituisce quello ereditato; non si
+     eredita oltre una riga vuota, a un cambio di blocco ne' da una frase tolta;
+     un'introduzione che finisce con ":" passa pero' il luogo all'elenco che la
+     segue anche oltre righe vuote, finche' l'elenco continua (fix 6).
+     Il campo ``luogo`` dice solo se il luogo e' esplicito, ``luogo_ereditato``
+     se e' ereditato;
+   - ``direzione_contraria``: in una frase che parla del dato ISTAT, parole di
+     tendenza ("in aumento", "in calo", "scesi", "si sono ridotti", "stabile"...)
+     contrarie al segno della variazione di una qualunque delle voci nominate
+     (C-1); "stabile" e' giusto solo con variazione 0, come scrive il blocco
+     (C-3). Le forme causali o aggettivali ("aumenta le occasioni", "ridotta",
+     "riduzione", le "sale" giochi) non contano. Se non c'e' una voce o una voce
+     non ha una tendenza calcolata (serie interrotta, anno mancante, sotto soglia)
+     la direzione non e' verificabile e la frase si toglie lo stesso, con questo
+     motivo;
+   - ``confronto_contrario`` (#365): in una frase che parla del dato ISTAT, una
+     parola di confronto col dato italiano ("sopra/sotto la media", "al di
+     sopra/sotto", "piu' alto/basso/elevato/contenuto/frequente/diffuso", "meno
+     alto/elevato/frequente/diffuso" (= piu' basso), "meno basso" (= piu' alto),
+     "superiore/inferiore", "maggiore/minore", "supera", "simile", "in linea",
+     "pari a") che non concorda, per una qualunque delle voci nominate (C-1), con
+     la classificazione della riga
+     (:func:`~crime_risk_analyzer.istat.righe.confronto_italia`, la stessa che
+     scrive il confronto nel blocco DATI ISTAT). La parola conta solo se seguita a
+     breve, nella stessa proposizione, dal termine di paragone (B2, C-4): la
+     media, (dato|tasso|valore|livello|quello) italiano o nazionale, l'Italia;
+     non l'aggettivo da solo ("una minore presenza di turisti italiani"),
+     oppure se poco prima c'e' "tasso" ("un tasso piu' alto": il termine
+     implicito e' l'Italia): "reati simili", "piano superiore", "in linea con
+     l'ontologia" non sono confronti. Si toglie con lo stesso motivo una frase
+     senza voce, su una voce senza classificazione (un tasso mancante, il
+     nazionale a 0) o con confronti di classi diverse.
+
+   La voce e' quella nominata con l'etichetta (o il codice); se la frase ha una
+   tendenza o un confronto ma nessuna etichetta, si cerca il nome italiano dei
+   rischi collegati alle voci (C1: "il furto di beni ha un tasso piu' alto...");
+   se ancora nessuna, "delitti denunciati" vale come il totale dei delitti.
+   Direzione e confronto devono valere per TUTTE le voci nominate (C-1, anche
+   quelle risolte da un rischio collegato a piu' voci) e usano i valori del luogo
+   nominato: se la frase nomina un luogo per esteso valgono quelli di QUEL luogo
+   per la voce; il nome breve ("Roma") vale per tutti i luoghi delle righe che si
+   chiamano cosi' (comune e provincia) e per una voce basta che uno concordi (R6,
+   review 2). Una frase con parole di tendenze diverse non si verifica su
+   quell'asse.
+6. I numeri in lettere ("il doppio") e i codici delle voci scritti dal modello
+   ("THEFT") si contano per la valutazione, non si tolgono.
+7. Testo filtrato (C5): se tutte le frasi di un ``[ISTAT]`` residuo sono tolte si
+   toglie anche la sua riga-etichetta, che resterebbe orfana; niente righe vuote
+   in testa ne' buchi di piu' righe vuote lasciati dai tagli.
 
 Il testo grezzo resta disponibile: l'esito porta il testo filtrato (cio' che vede
 l'operatore) e quello senza le frasi con cifre ISTAT (per la metrica M1).
@@ -69,7 +124,7 @@ l'operatore) e quello senza le frasi con cifre ISTAT (per la metrica M1).
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from decimal import Decimal
 from typing import Literal, NamedTuple
 
@@ -77,16 +132,18 @@ from pydantic import BaseModel, ConfigDict
 
 from crime_risk_analyzer.istat.blocco import BloccoIstat
 from crime_risk_analyzer.istat.dati import VOCE_TOTALE
-from crime_risk_analyzer.istat.righe import RigaIstat
+from crime_risk_analyzer.istat.righe import ConfrontoItalia, RigaIstat, confronto_italia
 
 __all__ = [
     "Blocco",
+    "Confronto",
     "EsitoControllo",
     "FraseControllata",
     "Motivo",
     "Numero",
     "SpanBlocco",
     "applica_controllo",
+    "confronto_di",
     "controlla_cifre",
     "direzione_di",
     "dividi_frasi",
@@ -101,12 +158,14 @@ Blocco = Literal[
 Motivo = Literal[
     "numero_non_ammesso",
     "cifra_istat_fuori_blocco",
-    "voce_mancante",
-    "voce_errata",
-    "segno_errato",
+    "luogo_mancante",
     "direzione_contraria",
+    "confronto_contrario",
 ]
-Direzione = Literal["su", "giu", ""]
+Direzione = Literal["su", "giu", "stabile", ""]
+#: Confronto col dato italiano scritto nella frase: ``""`` se nessuno, ``"misto"``
+#: se la frase ne usa di classi diverse (non verificabile, B2).
+Confronto = ConfrontoItalia | Literal["", "misto"]
 
 _BLOCCHI_DI_FONTE: frozenset[str] = frozenset(
     {"ontologia", "contesto", "speculativo", "istat"}
@@ -133,7 +192,7 @@ class Numero(NamedTuple):
 _NUMERO = re.compile(
     r"(?<![\w.,])"
     r"(?P<segno>[+\-−–])?"
-    r"(?P<corpo>\d{1,3}(?:[.\xa0\u202f ]\d{3})+(?:,\d+)?|\d+(?:[.,]\d+)?)"
+    r"(?P<corpo>\d{1,3}(?:[.\xa0  ]\d{3})+(?:,\d+)?|\d+(?:[.,]\d+)?)"
     r"(?!\w)"
     r"(?P<pct>\s?%|\s+[Pp]er\s?cento\b)?"
 )
@@ -167,14 +226,64 @@ _SU = re.compile(
 _GIU = re.compile(
     r"\b(?:calo|cali|calat[oaie]|cala|calano|diminuzione|diminuzioni|diminuit[oaie]"
     r"|diminuisce|diminuiscono|flessione|discesa|ribasso"
-    r"|scende|scendono|sces[oaie])\b"
+    r"|scende|scendono|sces[oaie]|si sono ridott[ie])\b"
+)
+#: "stabile" (C-3): il blocco lo scrive solo con variazione 0.
+_STABILE = re.compile(r"\bstabil[ei]\b")
+#: "piu'" come lo scrivono i modelli: accentato, con apostrofo dritto o tipografico.
+_PIU = r"pi(?:ù|u['’]?)"
+#: Separatore fra due parole della stessa proposizione: non attraversa
+#: ``, ; : . ( )``. Unico per termine di paragone, ancora "tasso" e marcatori.
+_SEP = r"[^\w,;:.()]+"
+#: Termine di paragone a breve distanza (B2, C-4): fino a 6 parole nella stessa
+#: proposizione, poi la media, (dato|tasso|valore|livello|quello) italiano o
+#: nazionale, oppure l'Italia. Non l'aggettivo da solo ("turisti italiani"). Senza
+#: un termine, "reati simili", "piano superiore" o "in linea con l'ontologia"
+#: sarebbero confronti.
+_PARAGONE = (
+    rf"(?:{_SEP}\w+){{0,6}}?{_SEP}"
+    r"(?:media\b|(?:dato|tasso|valore|livello|quell[oaie])\s+"
+    r"(?:italian[oaie]|nazional[ei])\b|italia\b)"
+)
+#: Ancora del confronto implicito: "un tasso piu' alto" senza dire di cosa vuol
+#: dire rispetto all'Italia (l'unico confronto delle righe). "tasso" deve stare
+#: poco prima (al massimo 3 parole) nella stessa proposizione. Lo stesso pezzo fa
+#: da marcatore ISTAT (fix 4, :func:`_marcatori`).
+_TASSO_PRIMA = rf"\btasso(?:{_SEP}\w+){{0,3}}?{_SEP}"
+_PAROLE_CONFRONTO: dict[ConfrontoItalia, str] = {
+    "piu_alto": (
+        rf"al di sopra|sopra|{_PIU}\s+(?:alt|elevat|frequent|diffus)[oaie]"
+        r"|meno\s+bass[oaie]|superior[ei]|maggior[ei]|supera|superano"
+    ),
+    "piu_basso": (
+        rf"al di sotto|sotto|{_PIU}\s+(?:bass|contenut)[oaie]"
+        r"|meno\s+(?:alt|elevat|frequent|diffus)[oaie]|inferior[ei]|minor[ei]"
+    ),
+    "simile": r"simil[ei]|in linea|pari a",
+}
+_TUTTI_I_CONFRONTI = "|".join(f"(?:{p})" for p in _PAROLE_CONFRONTO.values())
+#: Parole di confronto col dato italiano (#365 D3): le tre classi della riga.
+#: Contano seguite dal termine di paragone (B2) o precedute da "tasso".
+_CONFRONTI: dict[ConfrontoItalia, re.Pattern[str]] = {
+    classe: re.compile(rf"\b(?:{parole})\b{_PARAGONE}|{_TASSO_PRIMA}(?:{parole})\b")
+    for classe, parole in _PAROLE_CONFRONTO.items()
+}
+_DELITTI_DENUNCIATI = r"\bdelitti denunciati\b"
+#: Il totale nominato come "delitti denunciati" (senza un'altra voce).
+_TOTALE_IMPLICITO = re.compile(_DELITTI_DENUNCIATI)
+#: Quando una frase parla del dato ISTAT (#365 D3; R1: il solo luogo non basta;
+#: B1: "livello"/"valore" nazionale no, "di interesse a livello nazionale").
+_PARLA_DI_ISTAT = re.compile(
+    rf"\bistat\b|{_DELITTI_DENUNCIATI}"
+    r"|\b(?:media|dato|dati|tasso)\s+(?:italian[oai]|nazional[ei])\b"
+    r"|\bquell[oa]\s+italian[oa]\b"
+    r"|\brispetto all'\s?italia\b"
 )
 _IN_LETTERE = re.compile(
     r"\b(?:mille|duemila|tremila|quattromila|cinquemila|diecimila|centomila"
     r"|milion[ei]|miliard[oi]|doppio|triplo|met[aà]|raddoppiat\w*|triplicat\w*"
     r"|dimezzat\w*)\b"
 )
-_POI_COINVOLTI = re.compile(r"POI coinvolti: (\d+)")
 #: Come il modello nomina la cornice: "totale dei delitti" (denunciati o no).
 _ETICHETTA_TOTALE = "totale dei delitti"
 
@@ -192,15 +301,25 @@ class FraseControllata(BaseModel):
     motivo: Motivo | None = None
     #: Numeri fuori dalla lista fissa.
     cifre: int = 0
+    #: Cifre ISTAT scritte dal modello (#365: sempre tolte, attese 0).
     cifre_istat: int = 0
-    #: Cifre ISTAT nel blocco giusto, attribuite alla voce giusta, col segno giusto.
-    cifre_istat_corrette: int = 0
     voci: tuple[str, ...] = ()
-    #: Voci nominate a cui appartiene almeno una delle cifre ISTAT corrette (R7).
-    voci_cifre: tuple[str, ...] = ()
+    #: La frase parla del dato ISTAT (punto 4 del modulo).
+    parla_di_istat: bool = False
+    #: La frase nomina ESPLICITAMENTE almeno un luogo delle righe.
+    luogo: bool = False
+    #: La frase parla del dato senza nominare un luogo e usa quello detto prima
+    #: nello stesso paragrafo (fix 3).
+    luogo_ereditato: bool = False
+    #: Codici dei luoghi con cui la frase e' stata verificata (espliciti o
+    #: ereditati); vuoto se nessuno.
+    luoghi: tuple[str, ...] = ()
     direzione: Direzione = ""
     #: ``None`` se la frase non usa parole di direzione su una voce con variazione.
     direzione_coerente: bool | None = None
+    confronto: Confronto = ""
+    #: ``None`` se la frase non confronta col dato italiano una voce classificata.
+    confronto_coerente: bool | None = None
 
 
 class EsitoControllo(BaseModel):
@@ -213,6 +332,9 @@ class EsitoControllo(BaseModel):
     testo_senza_cifre_istat: str
     numeri_in_lettere: int
     righe: tuple[RigaIstat, ...]
+    #: Codici delle voci delle righe scritti dal modello (maiuscolo, a parola
+    #: intera): si contano per la valutazione, non tolgono la frase.
+    codici_voce: int = 0
 
     @property
     def frasi_scartate(self) -> int:
@@ -297,41 +419,33 @@ def _blocco_di(pos: int, blocchi: Sequence[SpanBlocco]) -> Blocco:
     return "overview"
 
 
-#: Una cifra o una tendenza appartiene a una voce IN un luogo (R6, review 2).
+#: Una tendenza o un confronto appartiene a una voce IN un luogo (R6, review 2).
 _Chiave = tuple[str, str]
 
 
-def _figure(
-    righe: Sequence[RigaIstat], escluse: set[Decimal]
-) -> dict[Decimal, set[_Chiave]]:
+def _cifre_istat(righe: Sequence[RigaIstat], escluse: set[Decimal]) -> set[Decimal]:
     """Conteggi e tassi delle righe: cifre ISTAT sempre, col ``%`` o senza."""
-    figure: dict[Decimal, set[_Chiave]] = {}
-    for r in righe:
-        valori: list[float | int] = [
-            v
-            for v in (r.delitti, r.delitti_confronto, r.tasso, r.tasso_italia)
-            if v is not None
-        ]
-        for v in valori:
-            d = Decimal(str(v))
-            if d not in escluse:
-                figure.setdefault(d, set()).add((r.luogo_codice, r.voce))
-    return figure
+    return {
+        d
+        for r in righe
+        for v in (r.delitti, r.delitti_confronto, r.tasso, r.tasso_italia)
+        if v is not None
+        for d in (Decimal(str(v)),)
+        if d not in escluse
+    }
 
 
-def _variazioni(
-    righe: Sequence[RigaIstat], escluse: set[Decimal]
-) -> dict[Decimal, set[_Chiave]]:
+def _variazioni(righe: Sequence[RigaIstat], escluse: set[Decimal]) -> set[Decimal]:
     """Valore assoluto delle variazioni: cifra ISTAT solo se scritto con ``%``
     (altrimenti un numero come "10" in "negli ultimi 10 anni" non e' una cifra
     ISTAT solo perche' coincide col valore assoluto di una variazione)."""
-    variazioni: dict[Decimal, set[_Chiave]] = {}
-    for r in righe:
-        if r.variazione_pct is not None:
-            d = Decimal(str(abs(r.variazione_pct)))
-            if d not in escluse:
-                variazioni.setdefault(d, set()).add((r.luogo_codice, r.voce))
-    return variazioni
+    return {
+        d
+        for r in righe
+        if r.variazione_pct is not None
+        for d in (Decimal(str(abs(r.variazione_pct))),)
+        if d not in escluse
+    }
 
 
 def _tendenze(righe: Sequence[RigaIstat]) -> dict[_Chiave, set[int]]:
@@ -340,6 +454,11 @@ def _tendenze(righe: Sequence[RigaIstat]) -> dict[_Chiave, set[int]]:
         if r.variazione_pct is not None:
             tendenze.setdefault((r.luogo_codice, r.voce), set()).add(r.variazione_pct)
     return tendenze
+
+
+def _classi(righe: Sequence[RigaIstat]) -> dict[_Chiave, ConfrontoItalia | None]:
+    """Confronto col tasso italiano di ogni (luogo, voce), come nel blocco."""
+    return {(r.luogo_codice, r.voce): confronto_italia(r) for r in righe}
 
 
 def _luoghi(righe: Sequence[RigaIstat]) -> list[tuple[str, str, str]]:
@@ -358,14 +477,36 @@ def _etichette(righe: Sequence[RigaIstat]) -> list[tuple[str, str]]:
     return sorted(coppie, key=lambda c: (-len(c[1]), c[0]))
 
 
+def _rischi(righe: Sequence[RigaIstat]) -> list[tuple[str, str]]:
+    """``(voce, etichetta italiana del rischio collegato)`` per risolvere la voce di
+    una frase che nomina il rischio invece della voce (C1)."""
+    coppie = {
+        (r.voce, _normalizza(c.hazard_label_it)) for r in righe for c in r.collegamenti
+    }
+    return sorted(coppie, key=lambda c: (-len(c[1]), c[0]))
+
+
+def _normalizza(testo: str) -> str:
+    """Minuscolo, apostrofo tipografico come quello dritto, senza il markdown
+    (``**furti**``, ``_furti_``) che separerebbe le parole dalle etichette."""
+    return re.sub(r"[*_]", "", testo.lower().replace("’", "'"))
+
+
 def voci_nominate(testo: str, etichette: Sequence[tuple[str, str]]) -> set[str]:
-    """Voci nominate in ``testo`` per etichetta (esatta) o per codice ISTAT."""
+    """Voci nominate in ``testo`` per etichetta (esatta) o per codice ISTAT.
+
+    Un'etichetta riconosciuta si toglie dal testo, cosi' "furti con strappo" non
+    nomina anche "furti"; la stessa etichetta vale pero' per tutte le voci che la
+    portano (un rischio collegato a piu' voci, C1)."""
     trovate: set[str] = set()
-    resto = testo.lower()
+    resto = _normalizza(testo)
+    riconosciute: set[str] = set()
     for voce, etichetta in etichette:
+        etichetta = _normalizza(etichetta)
         modello = re.compile(rf"\b{re.escape(etichetta)}\b")
-        if modello.search(resto):
+        if etichetta in riconosciute or modello.search(resto):
             trovate.add(voce)
+            riconosciute.add(etichetta)
             resto = modello.sub(" ", resto)
         if re.search(rf"\b{re.escape(voce)}\b", testo):
             trovate.add(voce)
@@ -380,7 +521,7 @@ def _luoghi_nominati(
     Prima i nomi per esteso ("comune di roma"), poi i nomi brevi nel testo che
     resta: "Roma" da sola vale per tutti i luoghi delle righe che si chiamano cosi'
     (comune e provincia), quindi non restringe nulla fra i due."""
-    resto = testo.lower()
+    resto = _normalizza(testo)
     trovati: set[str] = set()
     for codice, nome, _ in luoghi:
         modello = re.compile(rf"\b{re.escape(nome)}\b")
@@ -394,48 +535,48 @@ def _luoghi_nominati(
 
 
 def direzione_di(testo: str) -> Direzione:
-    """``su``/``giu`` se la frase ha parole di una sola direzione, altrimenti ``""``."""
-    minuscolo = testo.lower()
-    su = bool(_SU.search(minuscolo))
-    giu = bool(_GIU.search(minuscolo))
-    if su == giu:
+    """``su``/``giu``/``stabile`` se la frase ha parole di una sola tendenza,
+    altrimenti ``""``."""
+    minuscolo = _normalizza(testo)
+    tendenze: tuple[tuple[Direzione, re.Pattern[str]], ...] = (
+        ("su", _SU),
+        ("giu", _GIU),
+        ("stabile", _STABILE),
+    )
+    trovate: list[Direzione] = [
+        d for d, modello in tendenze if modello.search(minuscolo)
+    ]
+    if len(trovate) != 1:
         return ""
-    return "su" if su else "giu"
+    return trovate[0]
+
+
+def confronto_di(testo: str) -> Confronto:
+    """Classe di confronto col dato italiano scritta nella frase (#365): una parola
+    di confronto conta solo se seguita a breve dal termine di paragone (B2);
+    ``"misto"`` se la frase ne usa di classi diverse."""
+    minuscolo = _normalizza(testo)
+    trovati: list[ConfrontoItalia] = [
+        c for c, modello in _CONFRONTI.items() if modello.search(minuscolo)
+    ]
+    if not trovati:
+        return ""
+    if len(trovati) > 1:
+        return "misto"
+    return trovati[0]
 
 
 def _coerente(direzione: Direzione, tendenza: int) -> bool:
+    if direzione == "stabile":
+        return tendenza == 0
     return tendenza > 0 if direzione == "su" else tendenza < 0
 
 
-def _nel_luogo(chiavi: Iterable[_Chiave], luoghi: set[str] | None) -> set[str]:
-    """Voci delle ``chiavi`` nei ``luoghi`` nominati (tutti se ``None``)."""
-    return {voce for luogo, voce in chiavi if luoghi is None or luogo in luoghi}
-
-
-def _segni(
-    voci: set[str], luoghi: set[str] | None, tendenze: dict[_Chiave, set[int]]
-) -> list[int]:
-    """Tendenze delle ``voci`` nei ``luoghi`` nominati (tutti se ``None``)."""
-    return [
-        t
-        for (luogo, voce), valori in tendenze.items()
-        if voce in voci and (luoghi is None or luogo in luoghi)
-        for t in valori
-    ]
-
-
-def _segno_coerente(
-    n: Numero,
-    voci: set[str],
-    luoghi: set[str] | None,
-    tendenze: dict[_Chiave, set[int]],
-) -> bool:
-    if not n.segno:
-        return True
-    candidate = [t for t in _segni(voci, luoghi, tendenze) if abs(t) == n.valore]
-    if not candidate:
-        return True
-    return any(t == 0 or (t > 0) == (n.segno == "+") for t in candidate)
+def _nel_luogo(chiave: _Chiave, voci: set[str], luoghi: set[str] | None) -> bool:
+    """La (luogo, voce) e' di una voce nominata in un luogo nominato (tutti se
+    ``None``)."""
+    luogo, voce = chiave
+    return voce in voci and (luoghi is None or luogo in luoghi)
 
 
 class _Regole(NamedTuple):
@@ -444,51 +585,120 @@ class _Regole(NamedTuple):
     intervalli: set[Decimal]
     #: ``(codice, nome, nome breve)`` dei luoghi delle righe, in minuscolo.
     luoghi: list[tuple[str, str, str]]
-    #: Ammessi fuori da ``[ISTAT]``: contesto (senza domanda utente) e blocco.
+    #: Contesto (senza domanda utente), blocco DATI ISTAT, lista fissa, periodo.
     ammessi: set[Decimal]
-    #: Ammessi dentro ``[ISTAT]``: solo il blocco DATI ISTAT e la lista fissa (R2).
-    ammessi_istat: set[Decimal]
-    figure: dict[Decimal, set[_Chiave]]
-    variazioni: dict[Decimal, set[_Chiave]]
+    #: Conteggi e tassi delle righe.
+    figure: set[Decimal]
+    #: Valori assoluti delle variazioni (cifre ISTAT solo col ``%``).
+    variazioni: set[Decimal]
     tendenze: dict[_Chiave, set[int]]
+    classi: dict[_Chiave, ConfrontoItalia | None]
     etichette: list[tuple[str, str]]
+    #: ``(voce, etichetta del rischio collegato)``, per la C1.
+    rischi: list[tuple[str, str]]
+    #: "tasso", "voce", "dal <anno di confronto>": con una voce nominata fanno
+    #: parlare del dato ISTAT una frase senza altri marcatori.
+    marcatori: re.Pattern[str]
 
 
 def _e_cifra_istat(n: Numero, regole: _Regole) -> bool:
     """``True`` se ``n`` e' una cifra ISTAT: conteggio/tasso sempre, variazione
     solo se scritta con ``%`` (ruling minore b). L'ampiezza del periodo senza ``%``
-    non e' mai una cifra ISTAT (F2 della review finale)."""
-    if not n.percentuale and n.valore in regole.intervalli:
-        return False
+    non arriva qui: :func:`_valuta` la esclude prima (F2 della review finale)."""
     if n.valore in regole.figure:
         return True
     return n.percentuale and n.valore in regole.variazioni
 
 
-def _voci_di(n: Numero, regole: _Regole, luoghi: set[str] | None) -> set[str]:
-    """Voci a cui ``n`` puo' riferirsi nei ``luoghi`` nominati (conteggi/tassi
-    sempre, variazioni solo se ``n`` e' scritto con ``%``)."""
-    voci = _nel_luogo(regole.figure.get(n.valore, ()), luoghi)
-    if n.percentuale:
-        voci |= _nel_luogo(regole.variazioni.get(n.valore, ()), luoghi)
-    return voci
+def _marcatori(righe: Sequence[RigaIstat]) -> re.Pattern[str]:
+    anni = "|".join(sorted({str(r.anno_confronto) for r in righe})) or r"\d{4}"
+    # "tasso" in senso ISTAT (fix 4): seguito a breve da un confronto ("un tasso
+    # piu' alto") o "tasso di/dei <voce>". "Area ad alto tasso di criminalita'"
+    # (una vulnerabilita' dell'ontologia) non lo e'.
+    tasso = rf"{_TASSO_PRIMA}(?:{_TUTTI_I_CONFRONTI})\b"
+    etichette = sorted(
+        {_normalizza(r.voce_label) for r in righe if r.voce != VOCE_TOTALE},
+        key=lambda e: (-len(e), e),
+    )
+    if etichette:
+        voci = "|".join(re.escape(e) for e in etichette)
+        tasso += rf"|\btasso (?:di|del|dei|delle|degli) (?:{voci})\b"
+    # "voce" in senso ISTAT: "la/questa voce", "voce piu' ampia/stretta", "voce ...
+    # coincide/corrisponde"; non "dare voce al disagio". ("voce ISTAT" e' gia'
+    # coperta dalla parola ISTAT.)
+    voce = (
+        r"\b(?:la|questa|quella) voce\b"
+        rf"|\bvoce(?:{_SEP}\w+){{0,2}}?{_SEP}(?:ampi[ao]|strett[ao])\b"
+        rf"|\bvoce(?:{_SEP}\w+){{0,4}}?{_SEP}(?:corrispond|coincid)\w*"
+    )
+    return re.compile(rf"{tasso}|{voce}|\bdal (?:{anni})\b")
 
 
-def _parla_di_istat(testo: str, cifre_istat: bool) -> bool:
-    """``True`` se la frase si riferisce esplicitamente ai dati ISTAT (F5 della
-    review finale, ristretto da R1 della review 2: il solo nome del luogo non
-    basta)."""
-    if cifre_istat:
+def _parla_di_istat(
+    testo: str, blocco: Blocco, cifre_istat: bool, voce_e_marcatore: bool
+) -> bool:
+    """``True`` se la frase si riferisce ai dati ISTAT (punto 4).
+
+    La riga-etichetta ("Dati statistici ISTAT [ISTAT]") nomina ISTAT ma non dice
+    nulla del dato. Una frase dentro un ``[ISTAT]`` residuo invece ne parla sempre
+    (C3): il blocco esiste solo per quello. Ne parla anche una frase che nomina una
+    voce delle righe (o un rischio collegato) insieme a "tasso", "voce" o "dal
+    2014": "i furti hanno un tasso piu' alto e sono in calo dal 2014"."""
+    if blocco == "intestazione":
+        return False
+    if blocco == "istat" or cifre_istat or voce_e_marcatore:
         return True
-    minuscolo = testo.lower()
-    return "istat" in minuscolo or "delitti denunciati" in minuscolo
+    return bool(_PARLA_DI_ISTAT.search(_normalizza(testo)))
+
+
+def _verifica_direzione(
+    direzione: Direzione, voci: set[str], luoghi: set[str] | None, regole: _Regole
+) -> bool | None:
+    """Coerenza della tendenza scritta per TUTTE le voci nominate (C-1); per una
+    voce basta un luogo concorde (R6). ``None`` se una voce non ha tendenza
+    calcolata nei luoghi: la frase non e' verificabile."""
+    esiti: list[bool] = []
+    for voce in voci:
+        segni = [
+            t
+            for chiave, valori in regole.tendenze.items()
+            if _nel_luogo(chiave, {voce}, luoghi)
+            for t in valori
+        ]
+        if not segni:
+            return None
+        esiti.append(any(_coerente(direzione, t) for t in segni))
+    return all(esiti) if esiti else None
+
+
+def _verifica_confronto(
+    confronto: Confronto, voci: set[str], luoghi: set[str] | None, regole: _Regole
+) -> bool | None:
+    """Coerenza del confronto scritto per TUTTE le voci nominate (C-1); per una
+    voce basta un luogo concorde (R6). ``None`` se una voce non ha
+    classificazione nei luoghi: la frase non e' verificabile."""
+    esiti: list[bool] = []
+    for voce in voci:
+        classi = {
+            c
+            for chiave, c in regole.classi.items()
+            if c is not None and _nel_luogo(chiave, {voce}, luoghi)
+        }
+        if not classi:
+            return None
+        esiti.append(confronto in classi)
+    return all(esiti) if esiti else None
 
 
 def _valuta(
-    testo: str, blocco: Blocco, inizio: int, fine: int, regole: _Regole
+    testo: str,
+    blocco: Blocco,
+    inizio: int,
+    fine: int,
+    regole: _Regole,
+    luoghi_ereditati: set[str] | None = None,
 ) -> FraseControllata:
-    ammessi = regole.ammessi_istat if blocco == "istat" else regole.ammessi
-    numeri = estrai_numeri(testo, ammessi)
+    numeri = estrai_numeri(testo, regole.ammessi)
     non_fissi = [
         n
         for n in numeri
@@ -497,44 +707,58 @@ def _valuta(
     ]
     istat = [n for n in non_fissi if _e_cifra_istat(n, regole)]
     voci = voci_nominate(testo, regole.etichette)
-    luoghi = _luoghi_nominati(testo, regole.luoghi)
-    # Il controllo di direzione vale in [ISTAT] e, fuori, nelle frasi che si
-    # riferiscono esplicitamente ai dati ISTAT (F5, ristretto da R1 della review
-    # 2): "a Roma la folla aumenta le occasioni di furti" parla del rischio.
+    # C1: "il furto di beni ha un tasso piu' basso di quello italiano" nomina il
+    # rischio, non la voce: la voce si risolve dai rischi collegati.
+    voci_rischio: set[str] = set() if voci else voci_nominate(testo, regole.rischi)
+    luoghi_espliciti = _luoghi_nominati(testo, regole.luoghi)
+    marcatore = bool(regole.marcatori.search(_normalizza(testo)))
     direzione = direzione_di(testo)
-    verifica = blocco == "istat" or _parla_di_istat(testo, bool(istat))
+    confronto = confronto_di(testo)
+    # C-2: dentro un paragrafo che ha gia' nominato il luogo del dato, una voce con
+    # una tendenza o un confronto ("- furti: in crescita;") parla del dato.
+    if luoghi_ereditati is not None and (direzione or confronto):
+        marcatore = True
+    parla = _parla_di_istat(
+        testo, blocco, bool(istat), bool(voci or voci_rischio) and marcatore
+    )
+    # Il luogo detto prima nello stesso paragrafo vale anche qui (fix 3): "I dati
+    # ISTAT del Comune di Roma ...:" seguito da un elenco di voci.
+    ereditato = parla and luoghi_espliciti is None and luoghi_ereditati is not None
+    luoghi = luoghi_ereditati if ereditato else luoghi_espliciti
+    if parla and (direzione or confronto) and not voci:
+        voci = voci_rischio
+        if not voci and _TOTALE_IMPLICITO.search(_normalizza(testo)):
+            # "i delitti denunciati hanno un tasso piu' alto": senza un'altra voce
+            # e' il totale.
+            voci = {VOCE_TOTALE}
+    # Tendenza e confronto si verificano solo nelle frasi che parlano del dato
+    # ISTAT (R1): "a Roma la folla aumenta le occasioni di furti" parla del rischio.
+    direzione_coerente = (
+        _verifica_direzione(direzione, voci, luoghi, regole)
+        if direzione and voci and parla
+        else None
+    )
+    # "misto" non e' mai una classe della riga: risulta non coerente (B2).
+    confronto_coerente = (
+        _verifica_confronto(confronto, voci, luoghi, regole)
+        if confronto and voci and parla
+        else None
+    )
     motivo: Motivo | None = None
-    corrette = 0
-    voci_cifre: set[str] = set()
-    if any(n.valore not in ammessi for n in numeri):
+    if any(n.valore not in regole.ammessi for n in numeri):
         motivo = "numero_non_ammesso"
-    elif istat and blocco != "istat":
-        motivo = "cifra_istat_fuori_blocco"
     elif istat:
-        if not voci:
-            motivo = "voce_mancante"
-        elif any(not (_voci_di(n, regole, luoghi) & voci) for n in istat):
-            motivo = "voce_errata"
-        elif any(not _segno_coerente(n, voci, luoghi, regole.tendenze) for n in istat):
-            motivo = "segno_errato"
-        else:
-            corrette = len(istat)
-            voci_cifre = {v for n in istat for v in _voci_di(n, regole, luoghi) & voci}
-    coerente: bool | None = None
-    if direzione and voci and verifica:
-        segni = _segni(voci, luoghi, regole.tendenze)
-        if segni:
-            coerente = any(_coerente(direzione, t) for t in segni)
-            if not coerente and motivo is None:
-                motivo = "direzione_contraria"
-        elif motivo is None:
-            # Voce nominata con una parola di direzione ma senza tendenza
-            # calcolata (serie interrotta, anno mancante, sotto soglia), o senza
-            # tendenza nel luogo nominato: non si puo' verificare la direzione,
-            # quindi la frase si toglie comunque (ruling minore a).
-            # ``direzione_coerente`` resta ``None`` perche' non c'e' una
-            # tendenza con cui confrontarsi.
-            motivo = "direzione_contraria"
+        motivo = "cifra_istat_fuori_blocco"
+    elif parla and luoghi is None:
+        motivo = "luogo_mancante"
+    elif direzione and parla and not direzione_coerente:
+        # ``None`` (nessuna voce, o voce senza tendenza calcolata) non e'
+        # verificabile: si toglie comunque, con lo stesso motivo (ruling minore a).
+        motivo = "direzione_contraria"
+    elif confronto and parla and not confronto_coerente:
+        # Idem per un confronto senza voce, su una voce senza classificazione o
+        # con classi diverse nella stessa frase (#365 D3, B2, C1).
+        motivo = "confronto_contrario"
     return FraseControllata(
         testo=testo,
         blocco=blocco,
@@ -543,12 +767,70 @@ def _valuta(
         motivo=motivo,
         cifre=len(non_fissi),
         cifre_istat=len(istat),
-        cifre_istat_corrette=corrette,
         voci=tuple(sorted(voci)),
-        voci_cifre=tuple(sorted(voci_cifre)),
+        parla_di_istat=parla,
+        luogo=luoghi_espliciti is not None,
+        luogo_ereditato=ereditato,
+        luoghi=tuple(sorted(luoghi)) if luoghi else (),
         direzione=direzione,
-        direzione_coerente=coerente,
+        direzione_coerente=direzione_coerente,
+        confronto=confronto,
+        confronto_coerente=confronto_coerente,
     )
+
+
+#: Fine paragrafo: una riga vuota fra due frasi.
+_RIGA_VUOTA = re.compile(r"\n[ \t]*\n")
+
+
+def _valuta_paragrafi(
+    narrativa: str,
+    spans: Sequence[tuple[int, int]],
+    blocchi: Sequence[SpanBlocco],
+    regole: _Regole,
+) -> tuple[FraseControllata, ...]:
+    """:func:`_valuta` frase per frase, col luogo ereditato (fix 3).
+
+    Il luogo di una frase che parla del dato ISTAT e che il controllo TIENE vale
+    per le frasi successive dello stesso paragrafo (elenco compreso); un nuovo
+    luogo lo sostituisce. Niente eredita' oltre una riga vuota, a un cambio di
+    blocco (la sintesi non passa il luogo a un blocco) ne' da una frase tolta.
+
+    Eccezione (fix 6): una frase che passa il luogo e finisce con ":" introduce
+    un elenco. Il luogo arriva alla prima voce anche oltre le righe vuote che la
+    separano dall'introduzione, e vale per tutte le voci successive (righe che
+    cominciano con -, *, • o "N."), anche separate da righe vuote. L'elenco
+    finisce alla prima riga che non e' una voce: li' l'eredita' si ferma.
+    """
+    frasi: list[FraseControllata] = []
+    ereditati: set[str] | None = None
+    aspetta_elenco = False
+    in_elenco = False
+    blocco_prima: Blocco | None = None
+    fine_prima = 0
+    for a, b in spans:
+        blocco = _blocco_di(a, blocchi)
+        prefisso = narrativa[narrativa.rfind("\n", 0, a) + 1 : a]
+        voce_elenco = bool(_MARCATORE_ELENCO.fullmatch(prefisso))
+        a_capo = voce_elenco or not prefisso.strip()
+        elenco = (aspetta_elenco or in_elenco) and voce_elenco
+        if (
+            blocco != blocco_prima
+            or (in_elenco and a_capo and not voce_elenco)
+            or (_RIGA_VUOTA.search(narrativa, fine_prima, a) and not elenco)
+        ):
+            ereditati, in_elenco = None, False
+        elif elenco:
+            in_elenco = True
+        aspetta_elenco = False
+        frase = _valuta(narrativa[a:b], blocco, a, b, regole, ereditati)
+        if frase.motivo is None and frase.parla_di_istat and frase.luoghi:
+            ereditati = set(frase.luoghi)
+            if frase.testo.rstrip().endswith(":"):
+                aspetta_elenco, in_elenco = True, False
+        frasi.append(frase)
+        blocco_prima, fine_prima = blocco, b
+    return tuple(frasi)
 
 
 def _senza(testo: str, tagli: Sequence[tuple[int, int]]) -> str:
@@ -570,10 +852,42 @@ def _senza(testo: str, tagli: Sequence[tuple[int, int]]) -> str:
                 cursore = b
             pezzi.append(riga[cursore:])
             nuova = re.sub(r"[ \t]{2,}", " ", "".join(pezzi)).strip()
-            if nuova and not _MARCATORE_ELENCO.fullmatch(nuova + " "):
+            # Resti di sola decorazione (":" fra un'etichetta tolta e la sua prosa
+            # tolta) o del solo marcatore d'elenco non sono testo.
+            if nuova.strip(_DOPO_TOKEN) and not _MARCATORE_ELENCO.fullmatch(
+                nuova + " "
+            ):
                 righe.append(nuova)
         pos = fine_riga + 1
     return "\n".join(righe)
+
+
+def _ripulisci(testo: str) -> str:
+    """Niente righe vuote in testa, al massimo una riga vuota fra i paragrafi e in
+    coda solo l'a-capo finale (C5): i tagli possono lasciare buchi."""
+    pulito = re.sub(r"\n{3,}", "\n\n", testo).lstrip("\n")
+    return pulito.rstrip("\n") + "\n" if pulito.endswith("\n") else pulito
+
+
+def _etichette_orfane(
+    frasi: Sequence[FraseControllata], blocchi: Sequence[SpanBlocco]
+) -> list[tuple[int, int]]:
+    """Righe-etichetta dei blocchi ``[ISTAT]`` residui le cui frasi sono tutte
+    tolte (C5): restate da sole, annuncerebbero un blocco vuoto."""
+    tagli: list[tuple[int, int]] = []
+    for b in blocchi:
+        if b.campo != "istat":
+            continue
+        corpo = [
+            f for f in frasi if f.blocco == "istat" and b.inizio <= f.inizio < b.fine
+        ]
+        if corpo and all(f.motivo for f in corpo):
+            tagli += [
+                (f.inizio, f.fine)
+                for f in frasi
+                if f.blocco == "intestazione" and b.inizio_riga <= f.inizio < b.inizio
+            ]
+    return tagli
 
 
 def _prosa_in_intestazione(
@@ -627,39 +941,50 @@ def controlla_cifre(
     fissi |= {Decimal(r.anno) for r in righe} | {
         Decimal(r.anno_confronto) for r in righe
     }
-    fissi |= {Decimal(n) for n in _POI_COINVOLTI.findall(blocco_istat)}
     intervalli = {Decimal(r.anno - r.anno_confronto) for r in righe}
     # La domanda dell'utente e' input non fidato: i suoi numeri non sono ne'
     # ammessi ne' esclusi dalle cifre ISTAT (R2, review 2).
     nel_contesto = valori_del_testo(_DOMANDA_UTENTE.sub(" ", contesto_senza_istat))
     nel_blocco = valori_del_testo(blocco_istat)
     escluse = fissi | nel_contesto
+    figure = _cifre_istat(righe, escluse)
+    variazioni = _variazioni(righe, escluse)
     regole = _Regole(
         fissi=fissi,
         intervalli=intervalli,
         luoghi=_luoghi(righe),
-        ammessi=fissi | intervalli | nel_contesto | nel_blocco,
-        ammessi_istat=fissi | intervalli | nel_blocco,
-        figure=_figure(righe, escluse),
-        variazioni=_variazioni(righe, escluse),
+        # Il blocco a parole (D7) non porta piu' le cifre: quelle delle righe sono
+        # ammesse come numeri, cosi' una cifra ISTAT scritta dal modello si toglie
+        # come tale e non come numero inventato.
+        ammessi=fissi | intervalli | nel_contesto | nel_blocco | figure | variazioni,
+        figure=figure,
+        variazioni=variazioni,
         tendenze=_tendenze(righe),
+        classi=_classi(righe),
         etichette=_etichette(righe),
+        rischi=_rischi(righe),
+        marcatori=_marcatori(righe),
     )
     blocchi, tagli = _prosa_in_intestazione(narrativa, blocchi)
-    frasi = tuple(
-        _valuta(narrativa[a:b], _blocco_di(a, blocchi), a, b, regole)
-        for a, b in _frasi(narrativa, tagli)
+    frasi = _valuta_paragrafi(narrativa, _frasi(narrativa, tagli), blocchi, regole)
+    tolte = [(f.inizio, f.fine) for f in frasi if f.motivo]
+    filtrato = (
+        _ripulisci(_senza(narrativa, tolte + _etichette_orfane(frasi, blocchi)))
+        if tolte
+        else narrativa
     )
     return EsitoControllo(
         frasi=frasi,
-        testo_filtrato=_senza(
-            narrativa, [(f.inizio, f.fine) for f in frasi if f.motivo]
-        ),
+        testo_filtrato=filtrato,
         testo_senza_cifre_istat=_senza(
             narrativa, [(f.inizio, f.fine) for f in frasi if f.cifre_istat]
         ),
         numeri_in_lettere=len(_IN_LETTERE.findall(narrativa.lower())),
         righe=tuple(righe),
+        codici_voce=sum(
+            len(re.findall(rf"\b{re.escape(codice)}\b", narrativa))
+            for codice in {r.voce for r in righe}
+        ),
     )
 
 

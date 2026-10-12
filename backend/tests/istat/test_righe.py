@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from crime_risk_analyzer.istat import righe as righe_mod
@@ -11,8 +13,9 @@ from crime_risk_analyzer.istat.righe import (
     MOTIVO_ANNO_MANCANTE,
     MOTIVO_ROTTURA_2016,
     MOTIVO_SOTTO_SOGLIA,
-    formatta_decimale,
-    formatta_intero,
+    ConfrontoItalia,
+    RigaIstat,
+    confronto_italia,
     formatta_riga,
     istat_per_poi,
     riga_istat,
@@ -45,31 +48,59 @@ def test_variazione_sui_conteggi(
     assert variazione(attuale, passato, rottura_2016=rottura) == atteso
 
 
-def test_formati_numerici_italiani() -> None:
-    assert formatta_intero(134169) == "134.169"
-    assert formatta_intero(17) == "17"
-    assert formatta_decimale(1162.7) == "1.162,7"
-    assert formatta_decimale(7829.0) == "7.829,0"
-    assert formatta_decimale(0.6) == "0,6"
-
-
 def test_formato_della_riga_di_una_voce() -> None:
-    assert formatta_riga(riga(), poi_coinvolti=7) == (
-        "- [Comune di Roma, 2024] furti (voce ISTAT THEFT): 134.169 delitti "
-        "denunciati (2014: 148.910), 4.876,4 ogni 100.000 abitanti (Italia: "
-        "1.788,7); variazione 2014-2024: -10%. Collegata a: Furto di beni (voce "
-        "più ampia del rischio). POI coinvolti: 7."
+    """#365 D7: a parole, niente cifre, codici, parentesi quadre, POI coinvolti."""
+    assert formatta_riga(riga()) == (
+        "- Comune di Roma, 2024: furti: tasso più alto di quello italiano; in calo "
+        "dal 2014. Collegata a: Furto di beni (voce più ampia del rischio)."
     )
 
 
 def test_formato_della_cornice() -> None:
     assert formatta_riga(cornice()) == (
-        "- [Comune di Roma, 2024] totale dei delitti denunciati (contesto "
-        "generale, non legato a un rischio): 217.536 delitti denunciati (2014: "
-        "216.750), 7.906,3 ogni 100.000 abitanti (Italia: 4.069,6); variazione "
-        "2014-2024 non calcolata (serie interrotta dalla depenalizzazione del 2016 "
-        "(d.lgs. 7/2016))."
+        "- Comune di Roma, 2024: totale dei delitti denunciati: tasso più alto di "
+        "quello italiano; contesto generale, non legato a un rischio."
     )
+
+
+@pytest.mark.parametrize(
+    ("variazione_pct", "motivo", "atteso"),
+    [
+        (-10, None, "; in calo dal 2014."),
+        (16, None, "; in crescita dal 2014."),
+        (0, None, "; stabile dal 2014."),
+        (
+            None,
+            MOTIVO_SOTTO_SOGLIA,
+            f"; tendenza non calcolata: {MOTIVO_SOTTO_SOGLIA}.",
+        ),
+        (None, None, "; tendenza non calcolata."),
+    ],
+)
+def test_tendenza_a_parole(
+    variazione_pct: int | None, motivo: str | None, atteso: str
+) -> None:
+    assert atteso in formatta_riga(riga(variazione=variazione_pct, motivo=motivo))
+
+
+@pytest.mark.parametrize(
+    "r",
+    [
+        riga(),
+        riga(variazione=16),
+        riga(
+            tasso=None, sotto_soglia=True, variazione=None, motivo=MOTIVO_ANNO_MANCANTE
+        ),
+        cornice(),
+    ],
+)
+def test_nessuna_cifra_ne_codice_nella_riga(r: RigaIstat) -> None:
+    """Il modello non puo' riportare cifre che non vede (D7): restano solo gli anni
+    (e il riferimento di legge nel motivo della serie interrotta)."""
+    testo = formatta_riga(r).replace("d.lgs. 7/2016", "")
+    assert set(re.findall(r"\d+", testo)) <= {"2014", "2016", "2024"}
+    assert r.voce not in testo and "[" not in testo and "%" not in testo
+    assert "POI coinvolti" not in testo
 
 
 def test_collegamenti_raggruppati_per_corrispondenza() -> None:
@@ -89,26 +120,10 @@ def test_collegamenti_raggruppati_per_corrispondenza() -> None:
     assert atteso in formatta_riga(r)
 
 
-def test_formato_con_valori_mancanti_e_sotto_soglia() -> None:
-    r = riga(
-        delitti=None,
-        confronto=None,
-        tasso=None,
-        sotto_soglia=False,
-        italia=None,
-        variazione=None,
-        motivo=MOTIVO_ANNO_MANCANTE,
+def test_formato_senza_confronto() -> None:
+    assert "confronto con il tasso italiano non disponibile" in formatta_riga(
+        riga(tasso=None, italia=None)
     )
-    testo = formatta_riga(r)
-    assert (
-        "delitti denunciati nel 2024 non disponibili (2014: non disponibile)" in testo
-    )
-    assert (
-        "tasso ogni 100.000 abitanti non disponibile (Italia: non disponibile)" in testo
-    )
-    assert f"variazione 2014-2024 non calcolata ({MOTIVO_ANNO_MANCANTE})" in testo
-    sotto = formatta_riga(riga(tasso=None, sotto_soglia=True))
-    assert "meno di 0,1 ogni 100.000 abitanti" in sotto
 
 
 def test_riga_reale_furti_comune_di_roma() -> None:
@@ -125,7 +140,7 @@ def test_riga_reale_furti_comune_di_roma() -> None:
         1788.7,
         -10,
     )
-    assert formatta_riga(r, poi_coinvolti=7) == formatta_riga(riga(), poi_coinvolti=7)
+    assert formatta_riga(r) == formatta_riga(riga())
 
 
 def test_riga_reale_tasso_sotto_soglia_e_rottura() -> None:
@@ -186,11 +201,58 @@ def test_la_cornice_non_calcola_la_variazione_per_la_rottura_2016() -> None:
     assert totale.rottura_2016
     assert totale.variazione_pct is None
     assert totale.motivo_senza_variazione == MOTIVO_ROTTURA_2016
-    assert (
-        f"variazione 2014-2024 non calcolata ({MOTIVO_ROTTURA_2016})"
-        in formatta_riga(totale)
-    )
+
     istat = istat_per_poi(45.4642, 9.19, ["Property_theft"])
     assert istat is not None
     assert istat.cornice.variazione_pct is None
     assert istat.cornice.motivo_senza_variazione == MOTIVO_ROTTURA_2016
+
+
+@pytest.mark.parametrize(
+    ("tasso", "sotto_soglia", "italia", "italia_sotto_soglia", "atteso"),
+    [
+        (110.0, False, 100.0, False, "piu_alto"),  # bordo 1,10 compreso
+        (109.9, False, 100.0, False, "simile"),
+        (3.3, False, 3.0, False, "piu_alto"),  # 1,1 esatto anche se in float no
+        (90.0, False, 100.0, False, "piu_basso"),  # bordo 0,90 compreso
+        (90.1, False, 100.0, False, "simile"),
+        (100.0, False, 100.0, False, "simile"),
+        (None, False, 100.0, False, None),  # tasso mancante
+        (100.0, False, None, False, None),  # nazionale mancante
+        (100.0, False, 0.0, False, None),  # nazionale 0
+        (None, True, 100.0, False, "piu_basso"),  # "meno di 0,1" vale 0
+        (100.0, False, None, True, None),  # nazionale "meno di 0,1" vale 0
+        (None, True, None, True, None),
+    ],
+)
+def test_confronto_col_tasso_italiano(
+    tasso: float | None,
+    sotto_soglia: bool,
+    italia: float | None,
+    italia_sotto_soglia: bool,
+    atteso: ConfrontoItalia | None,
+) -> None:
+    """#365 D2: una sola classificazione, riusata dal blocco e dal controllo."""
+    r = riga(tasso=tasso, sotto_soglia=sotto_soglia, italia=italia).model_copy(
+        update={"tasso_italia_sotto_soglia": italia_sotto_soglia}
+    )
+    assert confronto_italia(r) == atteso
+
+
+@pytest.mark.parametrize(
+    ("tasso", "italia", "frase"),
+    [
+        (4876.4, 1788.7, ": tasso più alto di quello italiano;"),
+        (100.0, 200.0, ": tasso più basso di quello italiano;"),
+        (100.0, 105.0, ": tasso simile a quello italiano;"),
+    ],
+)
+def test_la_riga_della_voce_porta_il_confronto(
+    tasso: float, italia: float, frase: str
+) -> None:
+    assert frase in formatta_riga(riga(tasso=tasso, italia=italia))
+
+
+def test_anche_il_totale_ha_il_confronto() -> None:
+    """D7: la riga del totale dice il confronto, quindi il controllo lo verifica."""
+    assert confronto_italia(cornice()) == "piu_alto"

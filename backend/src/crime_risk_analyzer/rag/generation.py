@@ -49,7 +49,7 @@ from crime_risk_analyzer.istat.dati import versione_dati
 from crime_risk_analyzer.llm.client import LLMResponse
 from crime_risk_analyzer.models.vocab import Confidence, ConfidenceSummary, Tag
 from crime_risk_analyzer.rag.istat_rules import (
-    RULE_ISTAT_BLOCCO,
+    RULE_ISTAT_A_PAROLE,
     RULE_ISTAT_DIVIETI,
     sostituisci_una_volta,
 )
@@ -126,13 +126,17 @@ _SPECULATIVE_TOKEN = "[SPECULATIVO]"
 ONTOLOGY_BLOCK_HEADER = f"Rischi da ontologia {ONTOLOGY_TOKEN}"
 CONTEXT_BLOCK_HEADER = f"Rischi dal contesto {_CONTEXT_TOKEN}"
 
-#: Token e riga-etichetta del terzo blocco (#345): dati statistici ISTAT. Il modello
-#: li scrive solo quando il contesto porta il blocco DATI ISTAT.
+#: Token e riga-etichetta del terzo blocco di #345 (dati statistici ISTAT). Da #365
+#: il prompt non lo chiede piu' (i dati ISTAT stanno a parole in [ONTOLOGIA]): il
+#: parser lo riconosce ancora per le narrative scritte prima e il controllo delle
+#: frasi per un blocco scritto per errore.
 ISTAT_TOKEN = "[ISTAT]"
+#: Riga-etichetta del blocco [ISTAT] di #345: nessun prompt la usa piu'. Resta
+#: per i record vecchi (e per i test che ne ricostruiscono la forma).
 ISTAT_BLOCK_HEADER = f"Dati statistici ISTAT {ISTAT_TOKEN}"
 
 
-def block_structure_rule(measured_header: str, *, with_istat: bool = False) -> str:
+def block_structure_rule(measured_header: str) -> str:
     """Regola 3 (struttura a blocchi) data la riga-etichetta del blocco MISURATO.
 
     Generatore invece di una costante perche' i prompt del sistema condividono la
@@ -142,18 +146,8 @@ def block_structure_rule(measured_header: str, *, with_istat: bool = False) -> s
     della regola e' l'etichetta, e un test lo verifica byte per byte; il blocco
     ``[CONTESTO]`` e' identico in entrambe (stessa fonte, stessa regola 3b).
 
-    ``with_istat`` (#345) porta i blocchi a TRE aggiungendo
-    :data:`ISTAT_BLOCK_HEADER`; spento, il testo e' quello di sempre.
+    Vale anche con i dati ISTAT nel prompt (#365): non aprono un terzo blocco.
     """
-    if with_istat:
-        return (
-            "3. Struttura la risposta cosi': un breve paragrafo di sintesi iniziale "
-            "(senza intestazione), poi fino a TRE blocchi per fonte, ciascuno aperto "
-            f'da una riga-etichetta dedicata ed ESATTA: "{measured_header}", '
-            f'"{CONTEXT_BLOCK_HEADER}", "{ISTAT_BLOCK_HEADER}". Ometti un blocco se '
-            "non hai nulla da dire per quella fonte. Separa i blocchi con una riga "
-            "vuota."
-        )
     return (
         "3. Struttura la risposta cosi': un breve paragrafo di sintesi iniziale "
         "(senza intestazione), poi fino a DUE blocchi per fonte, ciascuno aperto "
@@ -282,19 +276,16 @@ REGOLE OBBLIGATORIE:
 
 {_CONFIDENCE_LEVELS}"""
 
-#: Variante del system prompt con i dati ISTAT (#345): usata SOLO quando lo
+#: Variante del system prompt con i dati ISTAT (#345, #365): usata SOLO quando lo
 #: user_content porta il blocco DATI ISTAT. Costruita per sostituzione verificata
-#: su :data:`SYSTEM_PROMPT`, che resta byte per byte quello di prima: regola 3 a TRE
-#: blocchi, regola 3c dopo la 3b, regola 7-bis dopo la 7.
+#: su :data:`SYSTEM_PROMPT`, che resta byte per byte quello di prima: stessa
+#: struttura a DUE blocchi, regola 3c (dati ISTAT a parole in [ONTOLOGIA]) dopo la
+#: 3b, regola 7-bis dopo la 7.
 SYSTEM_PROMPT_ISTAT = sostituisci_una_volta(
     sostituisci_una_volta(
-        sostituisci_una_volta(
-            SYSTEM_PROMPT,
-            _RULE_BLOCK_STRUCTURE,
-            block_structure_rule(ONTOLOGY_BLOCK_HEADER, with_istat=True),
-        ),
+        SYSTEM_PROMPT,
         f"{_RULE_CONTEXT_INTERPRETATION}\n",
-        f"{_RULE_CONTEXT_INTERPRETATION}\n{RULE_ISTAT_BLOCCO}\n",
+        f"{_RULE_CONTEXT_INTERPRETATION}\n{RULE_ISTAT_A_PAROLE}\n",
     ),
     f"{RULE_NO_DANGER_RATING}\n",
     f"{RULE_NO_DANGER_RATING}\n{RULE_ISTAT_DIVIETI}\n",
@@ -310,8 +301,9 @@ def _source_tokens(measured_token: str) -> tuple[tuple[str, str], ...]:
     campo nomina lo SLOT della risposta, non la provenienza del testo, che e'
     dichiarata dall'etichetta e dal ``mode`` della run.
 
-    ``istat`` (#345) esiste solo nelle narrative scritte col prompt ISTAT; nelle
-    altre il token non compare e il parsing e' quello di prima.
+    ``istat`` (#345) esiste solo nelle narrative scritte col prompt ISTAT di #345
+    (da #365 il prompt non lo chiede piu'); nelle altre il token non compare e il
+    parsing e' quello di prima.
     """
     return (
         ("ontologia", measured_token),
@@ -379,7 +371,8 @@ class SourceProse(BaseModel):
     ontologia: str = ""
     contesto: str = ""
     speculativo: str = ""
-    #: Prosa del blocco ``[ISTAT]`` (#345): solo con i dati ISTAT nel prompt.
+    #: Prosa del blocco ``[ISTAT]`` (#345). Da #365 il prompt non lo chiede piu':
+    #: resta vuoto, e pieno solo nelle narrative scritte prima (D4).
     istat: str = ""
 
 
