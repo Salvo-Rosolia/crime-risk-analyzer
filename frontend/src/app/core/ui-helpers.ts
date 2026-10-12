@@ -334,23 +334,219 @@ export function withIstatIndicators(
 ): IstatEntry[] {
   const seen = new Set<string>();
   return risks.map((risk) => {
-    const match = istatMatch(risk.hazard, istat);
-    if (!match) return { risk, indicator: null };
-    const { riga, collegamento } = match;
-    const nota = istatCorrispondenzaNote(collegamento.corrispondenza);
-    const voce = nota ? `${riga.voce_label} (${nota})` : riga.voce_label;
-    if (seen.has(riga.voce)) {
-      const dati = `stessa voce ISTAT: ${voce}`;
+    const found = istatIndicatorFor(risk.hazard, istat);
+    if (!found) return { risk, indicator: null };
+    if (seen.has(found.voce)) {
+      const dati = `stessa voce ISTAT: ${found.voceLabel}`;
       return { risk, indicator: { dati, freccia: null, tendenza: null } };
     }
-    seen.add(riga.voce);
-    // `istatMatch` esclude già i conteggi assenti: `delitti` qui è sempre un numero.
-    const delitti = `${formatIstatCount(riga.delitti ?? 0)} delitti denunciati nel ${riga.anno}`;
-    const tasso = formatIstatRate(riga.tasso, riga.tasso_sotto_soglia);
-    const italia = formatIstatRate(riga.tasso_italia, riga.tasso_italia_sotto_soglia);
-    const dati = `${voce} · ${delitti} · ${tasso} ogni 100.000 ab. (Italia: ${italia})`;
-    return { risk, indicator: { dati, ...istatTrend(riga) } };
+    seen.add(found.voce);
+    return { risk, indicator: found.indicator };
   });
+}
+
+/**
+ * Indicatore ISTAT compatto per la prosa (#365): luogo e anno, voce, tassi (stessi formattatori del
+ * Dettaglio), tendenza breve e, solo se la voce non coincide col rischio, l'avviso in coda. Niente
+ * conteggi dei delitti né «erano …»: dentro una frase deve restare corto. Il luogo è quello della
+ * riga usata (comune o provincia).
+ */
+export interface IstatProseIndicator {
+  dati: string;
+  freccia: '▲' | '▼' | null;
+  tendenza: string;
+  nota: string | null;
+}
+
+function istatProseIndicator(
+  riga: IstatRiga,
+  corrispondenzaNote: string | null,
+): IstatProseIndicator {
+  const tasso = formatIstatRate(riga.tasso, riga.tasso_sotto_soglia);
+  const italia = formatIstatRate(riga.tasso_italia, riga.tasso_italia_sotto_soglia);
+  const dati = `ISTAT · ${riga.luogo_nome} ${riga.anno} · ${riga.voce_label}: ${tasso} ogni 100.000 ab. (Italia ${italia})`;
+  const v = riga.variazione_pct;
+  let freccia: '▲' | '▼' | null = null;
+  let tendenza = 'tendenza n.d.';
+  if (v != null) {
+    const segno = v > 0 ? '+' : v < 0 ? '−' : '';
+    tendenza = `${segno}${Math.abs(v)}% dal ${riga.anno_confronto}`;
+    freccia = v > 0 ? '▲' : v < 0 ? '▼' : null;
+  }
+  // Le note del Dettaglio iniziano tutte con «voce ISTAT»: qui «ISTAT» è già in testa all'indicatore.
+  const nota = corrispondenzaNote ? corrispondenzaNote.replace(/^voce ISTAT /, 'voce ') : null;
+  return { dati, freccia, tendenza, nota };
+}
+
+/**
+ * Indicatore completo di un hazard (#347, riusato dalla narrativa #365): unico punto che traduce
+ * un `istatMatch` nel testo mostrato, così Dettaglio e prosa non possono divergere nei formati.
+ * `voce` è il codice della voce (chiave di deduplica), `voceLabel` l'etichetta con l'eventuale
+ * avviso di corrispondenza. `null` esattamente quando `istatMatch` è `null`.
+ */
+function istatIndicatorFor(
+  hazard: string,
+  istat: IstatPoi | null | undefined,
+): {
+  voce: string;
+  voceLabel: string;
+  indicator: IstatIndicator;
+  prose: IstatProseIndicator;
+} | null {
+  const match = istatMatch(hazard, istat);
+  if (!match) return null;
+  const { riga, collegamento } = match;
+  const nota = istatCorrispondenzaNote(collegamento.corrispondenza);
+  const voceLabel = nota ? `${riga.voce_label} (${nota})` : riga.voce_label;
+  // `istatMatch` esclude già i conteggi assenti: `delitti` qui è sempre un numero.
+  const delitti = `${formatIstatCount(riga.delitti ?? 0)} delitti denunciati nel ${riga.anno}`;
+  const tasso = formatIstatRate(riga.tasso, riga.tasso_sotto_soglia);
+  const italia = formatIstatRate(riga.tasso_italia, riga.tasso_italia_sotto_soglia);
+  const dati = `${voceLabel} · ${delitti} · ${tasso} ogni 100.000 ab. (Italia: ${italia})`;
+  return {
+    voce: riga.voce,
+    voceLabel,
+    indicator: { dati, ...istatTrend(riga) },
+    prose: istatProseIndicator(riga, nota),
+  };
+}
+
+/** Un rischio (con la sua etichetta italiana) visto su un POI, col dato ISTAT di quel POI (#365). */
+export interface IstatHazardOccurrence {
+  hazardLabel: string;
+  hazard: string;
+  istat: IstatPoi | null | undefined;
+}
+
+/** Rischio con dato ISTAT valido, pronto per essere cercato nella prosa (#365). */
+export interface IstatProseCandidate {
+  /** Etichetta italiana esatta del rischio, cercata nel testo. */
+  hazardLabel: string;
+  /** Codice della voce ISTAT: un solo indicatore per voce. */
+  voce: string;
+  indicator: IstatProseIndicator;
+}
+
+/** Pezzo di prosa: testo semplice oppure indicatore ISTAT in linea (#365). */
+export type ProseSegment =
+  { kind: 'text'; text: string } | { kind: 'istat'; indicator: IstatProseIndicator };
+
+/**
+ * Appiattisce POI + modelli di rischio nell'ordine dei POI (aggancio per `poi_id`, come
+ * `buildDetailModel`): ogni voce porta l'`istat` del proprio POI. Vale per la zona (tutti i POI)
+ * e per il punto (un POI e il suo modello).
+ */
+export function flattenIstatOccurrences(
+  poi: Poi[] | null | undefined,
+  riskModels: RiskModel[] | null | undefined,
+): IstatHazardOccurrence[] {
+  const out: IstatHazardOccurrence[] = [];
+  for (const p of poi ?? []) {
+    const model = (riskModels ?? []).find((r) => r.poi_id === p.id);
+    for (const risk of model?.risks ?? []) {
+      out.push({ hazardLabel: hazardDisplayLabel(risk), hazard: risk.hazard, istat: p.istat });
+    }
+  }
+  return out;
+}
+
+/**
+ * Candidati per la prosa (#365): per ogni rischio, il primo POI (in ordine) che lo ha con un dato
+ * ISTAT valido (`istatMatch` non nullo, quindi soglia `ISTAT_MIN_DELITTI` compresa). I rischi senza
+ * dato in nessun POI non producono candidati.
+ */
+export function buildIstatProseCandidates(
+  occurrences: IstatHazardOccurrence[],
+): IstatProseCandidate[] {
+  const found = new Set<string>();
+  const out: IstatProseCandidate[] = [];
+  for (const occ of occurrences) {
+    if (found.has(occ.hazard)) continue;
+    const hit = istatIndicatorFor(occ.hazard, occ.istat);
+    if (!hit) continue;
+    found.add(occ.hazard);
+    out.push({ hazardLabel: occ.hazardLabel, voce: hit.voce, indicator: hit.prose });
+  }
+  return out;
+}
+
+/** Caratteri che chiudono una citazione o una formattazione markdown dopo la menzione (#365). */
+const CLOSERS = new Set(['\u201D', '"', '\u00BB', '\u2019', '\u2018', '*', '_']);
+const SINGLE_QUOTES = new Set(['’', '‘']);
+/** Un solo segno di punteggiatura subito dopo la menzione: l'indicatore lo segue, non lo precede. */
+const TRAILING_PUNCTUATION = new Set([',', '.', ';', ':', ')']);
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Apostrofi tipografici → dritto, un carattere per uno: gli indici restano quelli della prosa. */
+function normalizeApostrophes(value: string): string {
+  return value.replace(/[\u2018\u2019]/g, "'");
+}
+
+/**
+ * Prosa a segmenti (#365, D6): dopo la PRIMA menzione dell'etichetta italiana esatta di un
+ * rischio con dato ISTAT si inserisce l'indicatore. Confronto case-insensitive e apostrofo dritto
+ * o tipografico equivalenti; confini di parola con lettere/cifre Unicode (le virgolette e il
+ * markdown non sono parola, quindi non impediscono il match). Le etichette più lunghe vengono
+ * provate per prime. `blocks` sono le etichette di TUTTI i rischi dello scope, anche senza dato:
+ * consumano il match senza indicatore, così «Furto con strappo» (senza dato) non viene letto come
+ * «Furto» (con dato). Con la stessa etichetta su più candidati vince il primo (ordine di POI).
+ * Limite noto: l'attribuzione è per PAROLA ESATTA dell'etichetta nel testo. Se un rischio con dato
+ * ("Furto") compare dentro una frase più lunga che non è un rischio dello scope ("Aggressione a
+ * scopo di furto"), l'indicatore si aggancia lì.
+ * Un solo indicatore per voce ISTAT. Dopo la menzione l'indicatore salta le virgolette di chiusura
+ * e i marcatori markdown di chiusura (`**`, `*`, `_`). Niente HTML: il template rende i segmenti.
+ */
+export function withIstatProseIndicators(
+  prose: string,
+  candidates: IstatProseCandidate[],
+  blocks: string[] = [],
+): ProseSegment[] {
+  if (!prose) return [];
+  const byLabel = new Map<string, IstatProseCandidate | null>();
+  for (const c of candidates) {
+    const key = normalizeApostrophes(c.hazardLabel).toLowerCase();
+    if (c.hazardLabel && !byLabel.get(key)) byLabel.set(key, c);
+  }
+  if (byLabel.size === 0) return [{ kind: 'text', text: prose }];
+  for (const label of blocks) {
+    const key = normalizeApostrophes(label).toLowerCase();
+    if (label && !byLabel.has(key)) byLabel.set(key, null);
+  }
+  const alternation = [...byLabel.keys()]
+    .sort((a, b) => b.length - a.length)
+    .map(escapeRegExp)
+    .join('|');
+  const re = new RegExp(`(?<![\\p{L}\\p{N}])(?:${alternation})(?![\\p{L}\\p{N}])`, 'giu');
+  const haystack = normalizeApostrophes(prose);
+
+  const segments: ProseSegment[] = [];
+  const seenLabels = new Set<string>();
+  const shownVoci = new Set<string>();
+  let cursor = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(haystack)) !== null) {
+    const label = m[0].toLowerCase();
+    if (seenLabels.has(label)) continue;
+    seenLabels.add(label);
+    const candidate = byLabel.get(label);
+    if (!candidate || shownVoci.has(candidate.voce)) continue;
+    shownVoci.add(candidate.voce);
+    let end = m.index + m[0].length;
+    while (end < prose.length && CLOSERS.has(prose[end])) {
+      // ’ e ‘ chiudono solo se non sono l'apostrofo di una parola (dell’area): niente lettera dopo.
+      if (SINGLE_QUOTES.has(prose[end]) && /[\p{L}\p{N}]/u.test(prose[end + 1] ?? '')) break;
+      end += 1;
+    }
+    if (end < prose.length && TRAILING_PUNCTUATION.has(prose[end])) end += 1;
+    segments.push({ kind: 'text', text: prose.slice(cursor, end) });
+    segments.push({ kind: 'istat', indicator: candidate.indicator });
+    cursor = end;
+  }
+  if (cursor < prose.length) segments.push({ kind: 'text', text: prose.slice(cursor) });
+  return segments;
 }
 
 /**

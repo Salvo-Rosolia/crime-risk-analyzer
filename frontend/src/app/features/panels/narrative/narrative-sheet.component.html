@@ -41,7 +41,12 @@
       </p>
     }
     @if (leadText()) {
-      <p class="cra-narr-lead">{{ leadText() }}</p>
+      <p class="cra-narr-lead">
+        <ng-container
+          [ngTemplateOutlet]="nodesTpl"
+          [ngTemplateOutletContext]="{ $implicit: leadNodes() }"
+        />
+      </p>
     }
     @if (model().tabs.length) {
       <div class="cra-narr-tablist" role="tablist" aria-label="Fonti dell'analisi">
@@ -63,7 +68,7 @@
           </button>
         }
       </div>
-      @for (t of model().tabs; track t.tag) {
+      @for (t of tabNodes(); track t.tag) {
         <div
           class="cra-narr-panel"
           role="tabpanel"
@@ -77,9 +82,47 @@
             <span class="cra-source-tag" [style.color]="srcMeta(t.tag).color">[{{ t.tag }}]</span>
             {{ srcMeta(t.tag).description }}
           </p>
-          <p class="cra-narr-prose">{{ t.prose }}</p>
+          @if (t.tag === 'ONTOLOGIA' && hasIstatIndicator()) {
+            <p class="cra-narr-istat-note">
+              I riquadri ISTAT sono calcolati dall'app dai dati ufficiali, non scritti dal modello.
+            </p>
+          }
+          <p class="cra-narr-prose">
+            <ng-container
+              [ngTemplateOutlet]="nodesTpl"
+              [ngTemplateOutletContext]="{ $implicit: t.nodes }"
+            />
+          </p>
         </div>
       }
     }
   </div>
 }
+
+<ng-template #nodesTpl let-nodes>
+  @for (n of nodes; track $index) {
+    @if (n.kind === 'istat') {
+      <span class="cra-narr-istat" [style.--istat-color]="istatColor"
+        >{{ n.indicator.dati }} ·
+        @if (n.indicator.freccia) {
+          <span aria-hidden="true">{{ n.indicator.freccia }}&nbsp;</span>
+        }
+        <span>{{ n.indicator.tendenza }}</span>
+        @if (n.indicator.nota) {
+          · <span>{{ n.indicator.nota }}</span>
+        }
+        <span class="cra-vh">. Fine dato ISTAT.</span>
+      </span>
+    } @else if (n.bold && n.italic) {
+      <strong
+        ><em>{{ n.text }}</em></strong
+      >
+    } @else if (n.bold) {
+      <strong>{{ n.text }}</strong>
+    } @else if (n.italic) {
+      <em>{{ n.text }}</em>
+    } @else {
+      <span>{{ n.text }}</span>
+    }
+  }
+</ng-template>
