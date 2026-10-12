@@ -1470,13 +1470,12 @@ async def test_run_case_con_istat_scrive_provenienza_grezzo_e_metriche(
         snapshot_path(tmp_path, make_snapshot_key("Roma", "Colosseo")), pois
     )
     dati = dati_istat()
-    rapine = dati.delitti.valore("058091", "BANKROB", dati.delitti.anno)
-    assert rapine is not None
+    # #365: le rapine in banca del Comune di Roma restano sotto la soglia di 20
+    # delitti e non entrano nel blocco; i furti (Property_theft) si'.
     testo = (
-        "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nBanca A: rapina in banca.\n\n"
-        "Dati statistici ISTAT [ISTAT]\n"
-        f"Le rapine in banca sono {rapine.delitti} nel 2024 "
-        "(fonte ISTAT, Comune di Roma, 2024).\nCirca 999 casi in piu'.\n"
+        "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nBanca A: rapina in banca. "
+        "Secondo i dati ISTAT del Comune di Roma i furti hanno un tasso piu' alto "
+        "di quello italiano e sono in calo.\nCirca 999 casi in piu'.\n"
     )
     cfg = ExperimentConfig(
         name="istat",
@@ -1492,7 +1491,7 @@ async def test_run_case_con_istat_scrive_provenienza_grezzo_e_metriche(
             {
                 "Bank": PoiRiskProfile(
                     terminus_class="Bank",
-                    hazards=["Bank_robbery"],
+                    hazards=["Bank_robbery", "Property_theft"],
                     sparql_paths=["Bank → havingHazard → Bank_robbery"],
                 )
             }
@@ -1509,7 +1508,9 @@ async def test_run_case_con_istat_scrive_provenienza_grezzo_e_metriche(
     assert rec.narrativa_grezza == testo
     assert "999" not in rec.narrativa
     assert rec.istat_frasi_scartate == 1
-    assert rec.istat_metrics is not None and rec.istat_metrics.voci_fornite == 1
+    assert rec.istat_metrics is not None
+    assert (rec.istat_metrics.versione, rec.istat_metrics.voci_fornite) == (2, 1)
+    assert (rec.istat_metrics.frasi_istat, rec.istat_metrics.voci_citate) == (1, 1)
 
 
 async def test_run_case_a_istat_spento_grezzo_uguale_alla_narrativa(
@@ -1599,7 +1600,7 @@ async def test_m1_su_record_istat_grada_il_testo_senza_cifre_istat(
             {
                 "Bank": PoiRiskProfile(
                     terminus_class="Bank",
-                    hazards=["Bank_robbery"],
+                    hazards=["Bank_robbery", "Property_theft"],
                     sparql_paths=["Bank → havingHazard → Bank_robbery"],
                 )
             }

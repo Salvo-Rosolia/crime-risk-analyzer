@@ -426,11 +426,13 @@ def test_fold_counts_error_and_fallback_separately() -> None:
 def test_fold_somma_le_metriche_istat_delle_ripetizioni() -> None:
     from crime_risk_analyzer.eval.schema import IstatMetrics
 
-    def _m(corrette: int) -> IstatMetrics:
+    def _m(confronti_coerenti: int) -> IstatMetrics:
         return IstatMetrics(
+            versione=2,
             cifre_totali=2,
-            cifre_istat_corrette=corrette,
-            precisione_cifre=corrette / 2,
+            cifre_istat=1,
+            confronti_totali=2,
+            confronti_coerenti=confronti_coerenti,
             frasi_scartabili=0,
             voci_fornite=1,
             voci_citate=1,
@@ -468,11 +470,13 @@ def test_fold_somma_le_metriche_istat_delle_ripetizioni() -> None:
     )
     somma = folded.mean_records[0].istat_metrics
     assert somma is not None
-    assert (somma.cifre_totali, somma.cifre_istat_corrette, somma.precisione_cifre) == (
-        4,
-        3,
-        0.75,
-    )
+    assert (
+        somma.versione,
+        somma.cifre_totali,
+        somma.cifre_istat,
+        somma.confronti_totali,
+        somma.confronti_coerenti,
+    ) == (2, 4, 2, 4, 3)
 
 
 # --- #349: i POI nel prompt non si mediano fra ripetizioni diverse ---

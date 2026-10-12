@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NarrativeSheetComponent } from './narrative-sheet.component';
 import type { SourceProse } from '@core/models/models';
+import { istatPoi, istatRiga } from '@core/testing/istat-fixtures';
 
 const narrativaFonti: SourceProse = {
   overview: 'Sintesi generale della zona.',
@@ -292,6 +293,127 @@ describe('NarrativeSheetComponent', () => {
     );
     expect(attivo.textContent).toContain('[ISTAT]');
     expect(attivo.textContent).toContain('fonte ISTAT, Comune di Roma, 2024');
+  });
+
+  describe('#365: indicatori ISTAT in linea nel tab ONTOLOGIA', () => {
+    const NOTA =
+      "I riquadri ISTAT sono calcolati dall'app dai dati ufficiali, non scritti dal modello.";
+    const fonti = (ontologia: string, contesto = 'Il Furto di contesto.'): SourceProse => ({
+      overview: '',
+      ontologia,
+      contesto,
+      speculativo: '',
+    });
+    const dati = istatPoi(
+      istatRiga('THEFT', ['Theft'], { voce_label: 'furti', variazione_pct: 5 }),
+    );
+    const occ = [{ hazardLabel: 'Furto', hazard: 'Theft', istat: dati }];
+
+    function conIstat(f: SourceProse, occorrenze = occ): void {
+      setup({ narrativaFonti: f });
+      fixture.componentRef.setInput('istatOccurrences', occorrenze);
+      fixture.detectChanges();
+    }
+
+    function pannello(tag: string): HTMLElement {
+      return fixture.nativeElement.querySelector(`#cra-narr-panel-${tag}`);
+    }
+
+    it('dopo la prima menzione del rischio compare l’indicatore, con la freccia aria-hidden', () => {
+      conIstat(fonti('Il Furto è alto. Il furto cala.'));
+      const ind = pannello('ONTOLOGIA').querySelectorAll('.cra-narr-istat');
+      expect(ind.length).toBe(1);
+      expect(ind[0].textContent?.replace(/\s+/g, ' ').trim()).toContain(
+        'ISTAT · Comune di Roma 2024 · furti: 100,0 ogni 100.000 ab. (Italia 100,0) · ▲ +5% dal 2014 · voce più ampia del rischio',
+      );
+      expect(ind[0].querySelector('[aria-hidden="true"]')?.textContent?.trim()).toBe('▲');
+      expect(pannello('ONTOLOGIA').querySelector('.cra-narr-prose')?.textContent).toContain(
+        'Il Furto',
+      );
+    });
+
+    it('l’indicatore sta subito dopo la parola giusta e il testo (senza marcatori) resta intatto', () => {
+      conIstat(fonti('Il **Furto** è alto e il furto cala.'));
+      const p = pannello('ONTOLOGIA').querySelector('.cra-narr-prose') as HTMLElement;
+      const figli = Array.from(p.children) as HTMLElement[];
+      const i = figli.findIndex((f) => f.classList.contains('cra-narr-istat'));
+      expect(figli[i - 1].tagName).toBe('STRONG');
+      expect(figli[i - 1].textContent).toBe('Furto');
+      expect(figli[i - 2].textContent).toBe('Il ');
+      expect(figli[i + 1].textContent).toBe(' è alto e il furto cala.');
+      const testoOriginale = figli
+        .filter((f) => !f.classList.contains('cra-narr-istat'))
+        .map((f) => f.textContent)
+        .join('');
+      expect(testoOriginale).toBe('Il Furto è alto e il furto cala.');
+    });
+
+    it('markdown: nessun asterisco visibile in nessun tab né nel lead; strong ed em presenti', () => {
+      setup({
+        narrativaFonti: {
+          overview: 'Sintesi con **grassetto** e *corsivo*.',
+          ontologia: 'L’**impennata** e *Aggressione* con **il furto cala** e furto.',
+          contesto: '* **Luce** – scarsa\n* *Strade* buie',
+          speculativo: '***x*** e __y__ e _z_',
+          istat: '## Titolo\n**dato** ISTAT',
+        },
+      });
+      fixture.componentRef.setInput('istatOccurrences', occ);
+      fixture.detectChanges();
+      const corpo = fixture.nativeElement.querySelector('.cra-narr-body') as HTMLElement;
+      expect(corpo.textContent).not.toMatch(/[*_#]/);
+      expect(corpo.querySelectorAll('strong').length).toBeGreaterThan(3);
+      expect(corpo.querySelectorAll('em').length).toBeGreaterThan(2);
+      expect(pannello('CONTESTO').textContent).toContain('• Luce');
+    });
+
+    it('un indicatore dentro una coppia ** non la spezza', () => {
+      conIstat(fonti('Il **furto cala** ancora.'));
+      const p = pannello('ONTOLOGIA').querySelector('.cra-narr-prose') as HTMLElement;
+      expect(p.textContent).not.toContain('*');
+      expect(p.querySelectorAll('.cra-narr-istat')).toHaveLength(1);
+    });
+
+    it('a11y: «ISTAT» visibile in testa fa da prefisso, separatore finale leggibile e nascosto', () => {
+      conIstat(fonti('Il Furto è alto.'));
+      const ind = pannello('ONTOLOGIA').querySelector('.cra-narr-istat') as HTMLElement;
+      const nascosti = ind.querySelectorAll('.cra-vh');
+      expect(ind.textContent?.trim().startsWith('ISTAT ·')).toBe(true);
+      expect(nascosti).toHaveLength(1);
+      expect(nascosti[0].textContent).toContain('Fine dato ISTAT');
+      expect(ind.lastElementChild).toBe(nascosti[0]);
+    });
+
+    it('gli altri tab non hanno indicatori anche se citano il rischio', () => {
+      conIstat(fonti('Il Furto è alto.'));
+      expect(pannello('CONTESTO').querySelector('.cra-narr-istat')).toBeNull();
+    });
+
+    it('la riga di nota c’è solo con almeno un indicatore', () => {
+      conIstat(fonti('Il Furto è alto.'));
+      expect(pannello('ONTOLOGIA').querySelector('.cra-narr-istat-note')?.textContent?.trim()).toBe(
+        NOTA,
+      );
+      expect(pannello('CONTESTO').querySelector('.cra-narr-istat-note')).toBeNull();
+    });
+
+    it('senza dati ISTAT o senza menzione: testo intatto e nessuna nota', () => {
+      conIstat(fonti('Il Furto è alto.'), []);
+      expect(fixture.nativeElement.querySelector('.cra-narr-istat')).toBeNull();
+      expect(fixture.nativeElement.querySelector('.cra-narr-istat-note')).toBeNull();
+      expect(pannello('ONTOLOGIA').querySelector('.cra-narr-prose')?.textContent).toContain(
+        'Il Furto è alto.',
+      );
+      conIstat(fonti('Nessuna menzione.'));
+      expect(fixture.nativeElement.querySelector('.cra-narr-istat-note')).toBeNull();
+    });
+
+    it('il tab ISTAT resta mostrato solo se ha prosa (narrative vecchie)', () => {
+      conIstat(fonti('Il Furto.'));
+      expect(fixture.nativeElement.querySelector('#cra-narr-tab-ISTAT')).toBeNull();
+      conIstat({ ...fonti('Il Furto.'), istat: 'Vecchia prosa ISTAT.' });
+      expect(fixture.nativeElement.querySelector('#cra-narr-tab-ISTAT')).not.toBeNull();
+    });
   });
 
   describe('#292: i tre stati del dato (narrativa in arrivo / arrivata / errore-fallback)', () => {
