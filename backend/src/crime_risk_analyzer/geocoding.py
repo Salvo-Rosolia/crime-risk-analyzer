@@ -7,9 +7,10 @@ lon_max)`` consumata a valle dal client Overpass.
 Le eccezioni di dominio (:class:`ZoneNotFoundError`, :class:`GeocodingError`)
 sono progettate per essere mappate dall'orchestrator a risposte HTTP esplicite
 (zona non geocodificabile -> 422, servizio non raggiungibile -> 503), alimentando
-lo Stato Errore del frontend. Nominatim e' un servizio HTTP sincrono: l'unica
-funzione pubblica e' percio' sincrona e va invocata via ``run_in_threadpool`` da
-un handler async.
+lo Stato Errore del frontend. Nominatim e' un servizio HTTP sincrono: le funzioni
+pubbliche (:func:`geocode_zone`, :func:`geocode_freeform`,
+:func:`reverse_geocode_label`) sono percio' sincrone e vanno invocate via
+``run_in_threadpool`` da un handler async.
 
 Nota (decisione 3B): il PRODOTTO filtra i POI col ``bbox`` Nominatim *by design*;
 il filtro poligonale reale e' riservato al gate di valutazione (eval/city_agnostic).
@@ -22,9 +23,10 @@ eval, non un difetto qui.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from functools import lru_cache
-from typing import Protocol, TypedDict, cast
+from typing import Protocol, TypedDict, TypeVar, cast
 
 from geopy.exc import GeocoderServiceError  # pyright: ignore[reportMissingTypeStubs]
 from geopy.extra.rate_limiter import (  # pyright: ignore[reportMissingTypeStubs]
@@ -118,12 +120,60 @@ _CACHE: dict[tuple[str, str], GeoResult] = {}
 #: illimitato crescerebbe senza freno in un processo longevo. Al riempimento si
 #: evince la entry piu' vecchia (FIFO: i ``dict`` 3.7+ preservano l'ordine di
 #: inserimento). 1024 chiavi (zona, citta') sono ampie per l'uso reale e tengono
-#: la memoria trascurabile.
+#: la memoria trascurabile. Dal #344 il tetto vale per CIASCUNO dei due store
+#: (``_CACHE`` e ``_FREEFORM_CACHE``): in totale fino a 2 x 1024 voci.
 _CACHE_MAXSIZE = 1024
+
+#: Cache dei punti di :func:`geocode_freeform` (#344, casella "vai a un luogo"):
+#: stesso gate (``cache_enabled``), stesso tetto e stessa eviction FIFO di
+#: ``_CACHE``, ma store separato perche' chiave e valore sono diversi. Il valore
+#: e' una tupla immutabile: niente copia difensiva.
+_FREEFORM_CACHE: dict[str, tuple[float, float]] = {}
+
+#: Le funzioni pubbliche girano in ``run_in_threadpool``, quindi su piu' thread
+#: insieme. Le singole operazioni sui ``dict`` sono atomiche, la sequenza
+#: "pieno? sfratta la piu' vecchia, poi inserisci" no: due thread potrebbero
+#: sfrattare la stessa chiave (``KeyError``) o iterare mentre l'altro scrive.
+#: Il lock copre solo le operazioni sugli store, mai la chiamata a Nominatim.
+_CACHE_LOCK = threading.Lock()
+
+_K = TypeVar("_K")
+_V = TypeVar("_V")
+
+
+def _cache_get(store: dict[_K, _V], key: _K) -> _V | None:
+    with _CACHE_LOCK:
+        return store.get(key)
+
+
+def _cache_put(store: dict[_K, _V], key: _K, value: _V) -> None:
+    """Inserisce con tetto ``_CACHE_MAXSIZE`` ed eviction FIFO (#170).
+
+    Al riempimento si rimuove la entry piu' vecchia (i ``dict`` preservano
+    l'ordine di inserimento); aggiornare una chiave gia' presente non fa
+    crescere lo store, quindi non sfratta nulla.
+    """
+    with _CACHE_LOCK:
+        if len(store) >= _CACHE_MAXSIZE and key not in store:
+            store.pop(next(iter(store)))
+        store[key] = value
 
 
 def _cache_key(zona: str, citta: str) -> tuple[str, str]:
     return (zona.strip().lower(), citta.strip().lower())
+
+
+def _freeform_key(query: str) -> str:
+    """Chiave di :data:`_FREEFORM_CACHE` (#344).
+
+    Toglie solo le differenze che Nominatim ignora comunque: maiuscole e
+    varianti equivalenti nel confronto senza maiuscole di Unicode (``casefold``,
+    piu' ampio di ``lower``: anche "ß" -> "ss" e legature come "ﬁ" -> "fi") e
+    spazi (ai bordi, multipli o tab interni ridotti a uno).
+    Cifre e punteggiatura restano: "Via Roma 1" e "Via Roma, 10" sono luoghi
+    diversi.
+    """
+    return " ".join(query.split()).casefold()
 
 
 def _copy_result(result: GeoResult) -> GeoResult:
@@ -272,8 +322,10 @@ def geocode_zone(zona: str, citta: str) -> GeoResult:
     """
     settings = get_settings()
     key = _cache_key(zona, citta)
-    if settings.cache_enabled and key in _CACHE:
-        return _copy_result(_CACHE[key])
+    if settings.cache_enabled:
+        cached = _cache_get(_CACHE, key)
+        if cached is not None:
+            return _copy_result(cached)
 
     query = f"{zona}, {citta}"
     try:
@@ -302,12 +354,7 @@ def geocode_zone(zona: str, citta: str) -> GeoResult:
 
     result = GeoResult(lat=location.latitude, lon=location.longitude, bbox=bbox)
     if settings.cache_enabled:
-        # Bound FIFO (#170): al riempimento rimuovi la entry piu' vecchia prima di
-        # inserirne una nuova (aggiornare una chiave gia' presente non fa crescere
-        # la cache, quindi non deve sfrattare nulla).
-        if len(_CACHE) >= _CACHE_MAXSIZE and key not in _CACHE:
-            _CACHE.pop(next(iter(_CACHE)))
-        _CACHE[key] = result
+        _cache_put(_CACHE, key, result)
     # Copia difensiva anche sul miss (#170): la entry appena memorizzata e' la
     # stessa istanza, quindi ritornare ``result`` per riferimento la esporrebbe.
     return _copy_result(result)
@@ -355,7 +402,23 @@ def geocode_freeform(query: str) -> tuple[float, float] | None:
 
     A differenza di :func:`geocode_zone`: nessuna concatenazione "zona, citta",
     nessun floor di bbox (qui serve solo un punto per centrare la mappa).
+
+    Con ``Settings.cache_enabled`` i successi sono memorizzati per chiave
+    normalizzata (#344): ripetere lo stesso luogo non rimette in coda una
+    richiesta sul rate limiter condiviso con ``/analyze``. A Nominatim va
+    comunque il testo cosi' come digitato. Non si memorizzano gli errori di
+    servizio (sollevano prima) ne' "nessun risultato", come per la zona non
+    trovata di :func:`geocode_zone`: un ``None`` resterebbe in cache per tutta
+    la vita del processo. Due miss concorrenti sulla stessa chiave interrogano
+    entrambi Nominatim (nessuna deduplica delle richieste in volo).
     """
+    settings = get_settings()
+    key = _freeform_key(query)
+    if settings.cache_enabled:
+        cached = _cache_get(_FREEFORM_CACHE, key)
+        if cached is not None:
+            return cached
+
     try:
         location = _get_rate_limited_call()("geocode", query)
     except GeocoderServiceError as exc:
@@ -364,4 +427,7 @@ def geocode_freeform(query: str) -> tuple[float, float] | None:
         ) from exc
     if location is None:
         return None
-    return (location.latitude, location.longitude)
+    point = (location.latitude, location.longitude)
+    if settings.cache_enabled:
+        _cache_put(_FREEFORM_CACHE, key, point)
+    return point
