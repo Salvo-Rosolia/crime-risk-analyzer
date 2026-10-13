@@ -1144,7 +1144,7 @@ def _record_anchoring(record: RunRecord) -> RiskAnchoring | None:
     M1 usa.
 
     Va chiamata solo sui record senza dati ISTAT (:func:`_has_istat`): su quelli
-    M1 grada ``testo_senza_cifre_istat``, che il record non salva, e
+    M1 grada ``testo_senza_frasi_istat``, che il record non salva, e
     ``RunRecord.narrativa`` e' un testo diverso.
     """
     return risk_anchoring(
@@ -1160,7 +1160,7 @@ def _has_istat(record: RunRecord) -> bool:
 
     ``istat_metrics`` e' scritto dall'harness esattamente quando la risposta
     porta il controllo delle cifre ISTAT, cioe' quando M1 grada
-    ``testo_senza_cifre_istat`` invece della narrativa: e' lo stesso segnale,
+    ``testo_senza_frasi_istat`` invece della narrativa: e' lo stesso segnale,
     piu' preciso di ``provenance.istat`` (ISTAT richiesto ma magari senza dati
     nel prompt).
     """

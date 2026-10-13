@@ -403,16 +403,47 @@ def test_filtro_toglie_righe_rimaste_col_solo_marcatore() -> None:
     )
 
 
-def test_testo_grezzo_senza_frasi_con_cifre_istat_per_m1() -> None:
+def test_testo_per_m1_senza_le_frasi_che_parlano_del_dato_istat() -> None:
     testo = (
         "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nIl Colosseo concentra 134.169 "
         "furti. Bar 2000 e' esposto a rapina.\n\nDati statistici ISTAT [ISTAT]\n"
         "I furti sono 134.169 nel 2024.\n"
     )
     esito = _controlla(testo)
-    assert esito.testo_senza_cifre_istat == (
+    assert esito.testo_senza_frasi_istat == (
         "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nBar 2000 e' esposto a rapina.\n\n"
         "Dati statistici ISTAT [ISTAT]\n"
+    )
+
+
+def test_m1_non_conta_le_frasi_istat_senza_cifre_nel_blocco_ontologia() -> None:
+    """#368: i dati ISTAT stanno dentro [ONTOLOGIA] e a parole, quindi le loro
+    frasi non hanno cifre da togliere. Quando non nominano un POI ne' un rischio,
+    se restassero nel testo di M1 conterebbero come asserzioni non ancorate."""
+    testo = (
+        "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nBar 2000 e' esposto a rapina. "
+        "Secondo l'ISTAT a Roma i furti sono in calo.\n"
+    )
+    esito = _controlla(testo)
+    istat = [f for f in esito.frasi if f.parla_di_istat]
+    assert [(f.luogo, f.motivo) for f in istat] == [(True, None)]
+    assert esito.testo_filtrato == testo
+    assert esito.testo_senza_frasi_istat == (
+        "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nBar 2000 e' esposto a rapina.\n"
+    )
+
+
+def test_m1_non_conta_nemmeno_le_frasi_istat_che_il_filtro_toglie() -> None:
+    """Una frase ISTAT senza luogo, tolta dal filtro, resta comunque fuori dalle
+    asserzioni misurate. Non vale in generale: il luogo ereditato dipende dal
+    filtro (#369)."""
+    testo = (
+        "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nBar 2000 e' esposto a rapina. "
+        "Secondo l'ISTAT i furti sono in calo.\n"
+    )
+    esito = _controlla(testo)
+    assert esito.testo_senza_frasi_istat == (
+        "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nBar 2000 e' esposto a rapina.\n"
     )
 
 
