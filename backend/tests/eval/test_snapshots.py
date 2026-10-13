@@ -225,6 +225,38 @@ def test_mismatch_segnala_configurazione_divergente(tmp_path: Path) -> None:
     assert str(PER_CLASS_CAP + 100) in msg
 
 
+def test_provenienza_registra_i_tipi_di_elemento_interrogati(tmp_path: Path) -> None:
+    """#314: i tipi OSM interrogati fanno parte di cosa ha prodotto il file.
+
+    Con le relation il bacino di candidati si allarga e il campione di una zona
+    puo' cambiare (il Colosseo entra a Roma). Senza questo campo uno snapshot
+    catturato con la sola query node+way sarebbe indistinguibile da uno nuovo.
+    """
+    p = tmp_path / "snap.json"
+    save_snapshot(p, _POIS, bbox=_BBOX, citta="Roma")  # type: ignore[arg-type]
+
+    conf = json.loads(p.read_text(encoding="utf-8"))["provenienza"][
+        "configurazione_canonica"
+    ]
+    assert conf["tipi_elemento"] == ["node", "way", "relation"]
+
+
+def test_mismatch_segnala_snapshot_catturato_senza_relation(tmp_path: Path) -> None:
+    """Uno snapshot in envelope scritto prima di #314 non ha ``tipi_elemento``:
+    il riuso deve avvisare invece di trattarlo come catturato con la query nuova."""
+    p = tmp_path / "snap.json"
+    save_snapshot(p, _POIS, bbox=_BBOX, citta="Roma")  # type: ignore[arg-type]
+    # Il file come l'avrebbe scritto il codice pre-#314: stessa provenienza,
+    # senza la chiave nuova.
+    grezzo = json.loads(p.read_text(encoding="utf-8"))
+    del grezzo["provenienza"]["configurazione_canonica"]["tipi_elemento"]
+    p.write_text(json.dumps(grezzo), encoding="utf-8")
+
+    msg = describe_configurazione_mismatch(snapshot_provenance(p))
+    assert msg is not None
+    assert "tipi_elemento" in msg
+
+
 def test_mismatch_segnala_configurazione_canonica_assente_nella_provenienza() -> None:
     msg = describe_configurazione_mismatch({"catturato_il": "x"})  # type: ignore[typeddict-item]
     assert msg is not None

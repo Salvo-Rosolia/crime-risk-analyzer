@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
@@ -726,9 +727,241 @@ async def test_fetch_pois_query_uses_key_value_selectors_and_caps() -> None:
     assert 'way["tourism"="museum"]' in body
     assert f"out center {PER_SELECTOR_CAP}" in body
     assert "[out:json][timeout:25]" in body
-    # un 'out center' per selettore: con 2 selettori devono essere
-    # esattamente 2 blocchi.
-    assert body.count(f"out center {PER_SELECTOR_CAP}") == 2
+    # due 'out center' per selettore (unione node+way e relation, #314): con 2
+    # selettori devono essere esattamente 4 blocchi.
+    assert body.count(f"out center {PER_SELECTOR_CAP}") == 4
+
+
+# --- #314: le relation (multipoligoni) entrano nel bacino di candidati ---
+# Molti monumenti iconici sono mappati come relation: il Colosseo e' relation/1834818
+# a 9 m dal centro del bbox di Roma, il Duomo di Milano relation/18017026. Con una
+# query solo node+way non entravano mai nel campione, per quanto vicini fossero.
+
+
+@respx.mock
+async def test_query_interroga_anche_le_relation_per_ogni_selettore() -> None:
+    """Ogni selettore interroga anche le relation, con ``out center``: senza
+    ``center`` una relation non ha coordinate e verrebbe scartata dal parsing."""
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json={"elements": []})
+    )
+
+    await fetch_pois(_BBOX, "Roma", ["historic=archaeological_site", "tourism=museum"])
+
+    body = route.calls.last.request.content.decode()
+    bbox_str = "41.88,12.48,41.9,12.5"
+    for key, value in (("historic", "archaeological_site"), ("tourism", "museum")):
+        assert (
+            f'relation["{key}"="{value}"]({bbox_str});\nout center {PER_SELECTOR_CAP};'
+        ) in body
+    # Ogni tipo dichiarato come interrogato compare davvero nella query: la
+    # costante registrata nella provenienza degli snapshot non puo' divergere.
+    for tipo in overpass_client.TIPI_ELEMENTO:
+        assert f"{tipo}[" in body
+
+
+@respx.mock
+async def test_relation_con_tetto_proprio_e_blocco_node_way_invariato() -> None:
+    """Le relation hanno un ``out`` separato, il blocco node+way resta identico.
+
+    Due motivi. Overpass stampa un set in ordine di tipo (node, way, relation):
+    dentro l'unione col tetto ``out center N`` un selettore denso come
+    ``tourism=attraction`` esaurirebbe i posti con node e way prima di arrivare al
+    Colosseo, cioe' il difetto che #314 chiude. E il blocco node+way invariato al
+    byte vuol dire che il bacino node+way di prima resta lo stesso: il cambio
+    AGGIUNGE candidati, non ne sostituisce.
+    """
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json={"elements": []})
+    )
+
+    await fetch_pois(_BBOX, "Roma", ["amenity=bank", "tourism=museum"])
+
+    body = route.calls.last.request.content.decode()
+    bbox_str = "41.88,12.48,41.9,12.5"
+    assert (
+        f'(\n  node["amenity"="bank"]({bbox_str});\n'
+        f'  way["amenity"="bank"]({bbox_str});\n);\n'
+        f"out center {PER_SELECTOR_CAP};"
+    ) in body
+    # Un out per l'unione node+way e uno per le relation, per ciascun selettore.
+    assert body.count(f"out center {PER_SELECTOR_CAP};") == 4
+    # Le relation NON stanno dentro l'unione col tetto condiviso.
+    assert "  relation[" not in body
+
+
+def _relation(
+    rel_id: int, lat: float, lon: float, tags: dict[str, str]
+) -> dict[str, object]:
+    """Elemento relation come lo restituisce Overpass con ``out center``."""
+    return {
+        "type": "relation",
+        "id": rel_id,
+        "center": {"lat": lat, "lon": lon},
+        "tags": tags,
+    }
+
+
+def _overpass_che_rispetta_la_query(
+    altri: list[dict[str, object]], relations: list[dict[str, object]]
+) -> Callable[[httpx.Request], httpx.Response]:
+    """``side_effect`` respx: le relation arrivano SOLO se la query le chiede.
+
+    Un mock che restituisce le relation qualunque sia la query verifica il
+    parsing, non #314: resterebbe verde anche togliendo il blocco relation da
+    ``_build_query``. Cosi' invece il test diventa rosso, come farebbe Overpass.
+    """
+
+    def _rispondi(request: httpx.Request) -> httpx.Response:
+        chiede_relation = "relation[" in request.content.decode()
+        elementi = altri + (relations if chiede_relation else [])
+        return httpx.Response(200, json={"elements": elementi})
+
+    return _rispondi
+
+
+@respx.mock
+async def test_relation_diventa_poi_con_id_tipizzato_e_coordinate_dal_center() -> None:
+    """Una relation chiesta dalla query passa dal parsing come un way: coordinate
+    da ``center``, id ``relation/<n>``, classe TERMINUS dagli stessi selettori e
+    priorita'."""
+    duomo = _relation(
+        18017026,
+        45.4641844,
+        9.1916105,
+        {
+            "type": "multipolygon",
+            "amenity": "place_of_worship",
+            "building": "cathedral",
+            "tourism": "attraction",
+            "name": "Duomo di Milano",
+        },
+    )
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=_overpass_che_rispetta_la_query([], [duomo])
+    )
+
+    pois = await fetch_pois(Bbox(45.46, 9.18, 45.47, 9.20), "Milano")
+
+    assert pois == [
+        {
+            "id": "relation/18017026",
+            "name": "Duomo di Milano",
+            "lat": pytest.approx(45.4641844),
+            "lon": pytest.approx(9.1916105),
+            "osm_tags": "amenity=place_of_worship",
+            "terminus_class": "Place_of_worship",
+            "citta": "Milano",
+        }
+    ]
+
+
+@respx.mock
+async def test_relation_vicina_al_centro_entra_nel_campione() -> None:
+    """Il caso dell'issue: la relation a pochi metri dal centro entra per prima,
+    anche con il bacino pieno di node piu' lontani.
+
+    Overpass finto che restituisce il Colosseo solo se la query chiede le
+    relation: senza il blocco relation in ``_build_query`` il campione sarebbe
+    fatto dei soli node, cioe' il difetto di #314.
+    """
+    lat, lon = _BBOX.center()
+    nodi: list[dict[str, object]] = [
+        {
+            "type": "node",
+            "id": 5000 + i,
+            "lat": lat + 0.005,
+            "lon": lon,
+            "tags": {"tourism": "attraction", "name": f"Attrazione {i}"},
+        }
+        for i in range(MAX_POIS)
+    ]
+    colosseo = _relation(
+        1834818,
+        lat + 0.00008,
+        lon,
+        {
+            "type": "multipolygon",
+            "historic": "archaeological_site",
+            "tourism": "attraction",
+            "name": "Colosseo",
+        },
+    )
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=_overpass_che_rispetta_la_query(nodi, [colosseo])
+    )
+
+    pois = await fetch_pois(_BBOX, "Roma")
+
+    assert pois[0]["id"] == "relation/1834818"
+    assert pois[0]["name"] == "Colosseo"
+
+
+@respx.mock
+async def test_relation_emessa_da_piu_blocchi_entra_una_volta() -> None:
+    """Il Colosseo porta sia ``tourism=attraction`` sia
+    ``historic=archaeological_site``: arriva dal blocco di ciascun selettore e
+    deve contare una volta sola, come gia' per node e way."""
+    lat, lon = _BBOX.center()
+    colosseo = _relation(
+        1834818,
+        lat,
+        lon,
+        {
+            "historic": "archaeological_site",
+            "tourism": "attraction",
+            "name": "Colosseo",
+        },
+    )
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=_overpass_che_rispetta_la_query([], [colosseo, dict(colosseo)])
+    )
+
+    pois = await fetch_pois(_BBOX, "Roma")
+
+    assert [p["id"] for p in pois] == ["relation/1834818"]
+
+
+@respx.mock
+async def test_relation_e_way_con_lo_stesso_numero_non_collidono() -> None:
+    """Le relation hanno un namespace OSM proprio, come node e way (#265)."""
+    lat, lon = _BBOX.center()
+    via: dict[str, object] = {
+        "type": "way",
+        "id": 77,
+        "center": {"lat": lat, "lon": lon},
+        "tags": {"tourism": "museum", "name": "Museo (way)"},
+    }
+    rel = _relation(77, lat, lon, {"amenity": "place_of_worship", "name": "Chiesa"})
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=_overpass_che_rispetta_la_query([via], [rel])
+    )
+
+    pois = await fetch_pois(_BBOX, "Roma")
+
+    assert {p["id"] for p in pois} == {"way/77", "relation/77"}
+
+
+@respx.mock
+async def test_parsing_scarta_una_relation_senza_center() -> None:
+    """Non-regressione del parsing, non verifica di #314: una relation senza
+    ``center`` (es. ``out`` senza center) non ha coordinate utilizzabili e va
+    scartata, non piazzata a caso. Passa a prescindere dalla query, di proposito:
+    la presenza del blocco relation la verificano i test qui sopra."""
+    payload = {
+        "elements": [
+            {
+                "type": "relation",
+                "id": 1834818,
+                "tags": {"historic": "archaeological_site", "name": "Colosseo"},
+            }
+        ]
+    }
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json=payload)
+    )
+
+    assert await fetch_pois(_BBOX, "Roma") == []
 
 
 @respx.mock
