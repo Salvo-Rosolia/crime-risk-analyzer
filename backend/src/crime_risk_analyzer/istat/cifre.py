@@ -118,7 +118,7 @@ ISTAT, e il controllo verifica cio' che la frase dice del dato.
    in testa ne' buchi di piu' righe vuote lasciati dai tagli.
 
 Il testo grezzo resta disponibile: l'esito porta il testo filtrato (cio' che vede
-l'operatore) e quello senza le frasi con cifre ISTAT (per la metrica M1).
+l'operatore) e quello senza le frasi ISTAT (per la metrica M1, #368).
 """
 
 from __future__ import annotations
@@ -329,7 +329,11 @@ class EsitoControllo(BaseModel):
 
     frasi: tuple[FraseControllata, ...]
     testo_filtrato: str
-    testo_senza_cifre_istat: str
+    #: Testo grezzo senza le frasi che il controllo riconosce come ISTAT (#368): e'
+    #: quello su cui M1 misura le asserzioni. Limiti noti (#369): taglia anche frasi
+    #: che nominano un POI o un rischio, e il luogo che il controllo eredita passa
+    #: solo dalle frasi che il filtro tiene, quindi dipende dal filtro.
+    testo_senza_frasi_istat: str
     numeri_in_lettere: int
     righe: tuple[RigaIstat, ...]
     #: Codici delle voci delle righe scritti dal modello (maiuscolo, a parola
@@ -976,8 +980,9 @@ def controlla_cifre(
     return EsitoControllo(
         frasi=frasi,
         testo_filtrato=filtrato,
-        testo_senza_cifre_istat=_senza(
-            narrativa, [(f.inizio, f.fine) for f in frasi if f.cifre_istat]
+        testo_senza_frasi_istat=_senza(
+            narrativa,
+            [(f.inizio, f.fine) for f in frasi if f.parla_di_istat or f.cifre_istat],
         ),
         numeri_in_lettere=len(_IN_LETTERE.findall(narrativa.lower())),
         righe=tuple(righe),

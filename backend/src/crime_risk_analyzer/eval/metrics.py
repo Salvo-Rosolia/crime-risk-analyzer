@@ -161,7 +161,7 @@ def _ontology_assertions(
     davvero, ``[SINTESI-LLM]`` nel braccio ablato (#236).
 
     ``narrativa`` (#345) sostituisce ``resp.narrativa`` quando fornita: l'harness
-    la usa per gradare M1 sul testo grezzo senza le frasi con cifre ISTAT.
+    la usa per gradare M1 sul testo grezzo senza le frasi ISTAT (#368).
     """
     testo = resp.narrativa if narrativa is None else narrativa
     return _measured_sentences(testo, mode)
@@ -276,7 +276,7 @@ class RiskAnchoring:
     ``risk_models``, stesso blocco e stesse frasi di :func:`_grade`, ma le frasi
     ancorate sono divise fra quelle che nominano un rischio e quelle che nominano
     soltanto un punto. Sui record con dati ISTAT la condizione non vale (M1
-    grada ``testo_senza_cifre_istat``, che il record non salva): il report di
+    grada ``testo_senza_frasi_istat``, che il record non salva): il report di
     confronto li esclude. ``conforme`` e' ``False``
     quando la narrativa e' piena ma il blocco misurato manca o e' vuoto (formato
     non rispettato): in quel caso tutti i conteggi sono zero.
@@ -366,10 +366,12 @@ def compute_metrics(
     si pronunciano (#236). L'harness lo passa dal ``ExperimentConfig``, unico
     posto che lo conosce.
 
-    ``narrativa_m1`` (#345): testo su cui gradare M1 al posto di ``resp.narrativa``.
-    Sui record con ISTAT l'harness passa il testo grezzo senza le frasi con cifre
-    ISTAT: M1 resta un controllo di non peggioramento dell'ancoraggio, formula e
-    ``METRICS_VERSION`` invariate.
+    ``narrativa_m1`` (#345, #368): testo su cui gradare M1 al posto di
+    ``resp.narrativa``. Sui record con ISTAT l'harness passa il testo grezzo senza
+    le frasi che parlano del dato ISTAT: M1 resta un controllo di non peggioramento
+    dell'ancoraggio, formula e ``METRICS_VERSION`` invariate. Cambia il testo
+    misurato, quindi i record ISTAT scritti prima (``IstatMetrics.versione`` < 3)
+    non sono confrontabili.
 
     ``quality_vacuous`` (#240) espone se questo record e' caduto nel ramo VACUO di
     :func:`_grade` (narrativa vuota o nessun ancoraggio da citare): grounding/

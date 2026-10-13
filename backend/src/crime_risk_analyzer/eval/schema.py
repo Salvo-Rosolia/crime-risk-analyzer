@@ -171,12 +171,17 @@ class IstatMetrics(BaseModel):
     toglie: ``cifre_istat`` le conta, attese 0); arrivano i confronti col dato
     italiano. I record scritti prima non hanno ``versione`` e valgono 1: i loro
     campi nuovi restano a 0 e non vanno letti.
+
+    Versione 3 (#368): i conteggi sono gli stessi, ma M1 dei record con ISTAT
+    grada il testo senza le frasi che parlano del dato. Grounding e hallucination
+    dei record di versione 2 sono gradati sul testo con quelle frasi dentro e non
+    si confrontano con questi.
     """
 
     versione: int = Field(
         default=1,
         ge=1,
-        description="Versione delle metriche ISTAT (1 = #345, 2 = #365).",
+        description="Versione delle metriche ISTAT (1 = #345, 2 = #365, 3 = #368).",
     )
     cifre_totali: int = Field(
         ge=0, description="Numeri nella narrativa fuori dalla lista fissa."

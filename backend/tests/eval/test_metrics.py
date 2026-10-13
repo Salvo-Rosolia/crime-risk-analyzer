@@ -379,7 +379,7 @@ def test_cost_usd_of_zero_when_no_llm() -> None:
 
 
 def test_m1_con_testo_alternativo_esclude_le_frasi_istat() -> None:
-    """#345: sulla coppia ISTAT M1 si calcola sul grezzo senza le frasi con cifre."""
+    """#345: sulla coppia ISTAT M1 si calcola sul grezzo senza le frasi ISTAT."""
     corpo_pulito = "Banca A: rapina in banca."
     con_cifre = _narrativa(f"{corpo_pulito} Nel comune i furti sono 134.169.")
     pulita = _narrativa(corpo_pulito)
