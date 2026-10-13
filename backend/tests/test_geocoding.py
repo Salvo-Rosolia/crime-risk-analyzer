@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+import threading
 from collections.abc import Iterator
 from typing import Any, cast
 
@@ -32,10 +34,12 @@ def _reset_geocoding_state() -> Iterator[None]:  # pyright: ignore[reportUnusedF
     get_settings.cache_clear()
     _geo_mod._get_rate_limited_call.cache_clear()  # pyright: ignore[reportPrivateUsage]
     _geo_mod._CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+    _geo_mod._FREEFORM_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
     yield
     get_settings.cache_clear()
     _geo_mod._get_rate_limited_call.cache_clear()  # pyright: ignore[reportPrivateUsage]
     _geo_mod._CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+    _geo_mod._FREEFORM_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
 
 
 class _FakeLocation:
@@ -705,6 +709,222 @@ def test_geocode_freeform_nessun_risultato(
 
     monkeypatch.setattr(geocoding, "_get_rate_limited_call", lambda: _none_dispatch)
     assert geocoding.geocode_freeform("xyzxyz") is None
+
+
+# --- #344: cache limitata di geocode_freeform (casella "vai a un luogo") ---
+
+
+def _fast_limiter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """min_delay minimo (gt=0) + limiter ricostruito: niente sleep reali."""
+    monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.001")
+    get_settings.cache_clear()
+    _geo_mod._get_rate_limited_call.cache_clear()  # pyright: ignore[reportPrivateUsage]
+
+
+def test_geocode_freeform_caches_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Con cache_enabled, la stessa query ripetuta NON interroga di nuovo Nominatim."""
+    fake = _FakeGeocoder(_FakeLocation(45.464, 9.19, None))
+    _patch_geocoder(monkeypatch, fake)
+
+    first = geocoding.geocode_freeform("Duomo di Milano")
+    second = geocoding.geocode_freeform("Duomo di Milano")
+
+    assert first == second == (45.464, 9.19)
+    assert fake.queries == ["Duomo di Milano"]  # seconda risposta dalla cache
+
+
+def test_geocode_freeform_cache_key_normalizes_case_and_spaces(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Maiuscole, spazi ai bordi e spazi multipli interni colpiscono la stessa entry."""
+    fake = _FakeGeocoder(_FakeLocation(45.464, 9.19, None))
+    _patch_geocoder(monkeypatch, fake)
+
+    geocoding.geocode_freeform("Duomo di Milano")
+    geocoding.geocode_freeform("  duomo   DI\tmilano ")
+
+    assert len(fake.queries) == 1
+
+
+def test_geocode_freeform_cache_key_uses_casefold_not_lower(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Con ``casefold`` "Straße" e "STRASSE" condividono la entry, ``lower`` no."""
+    fake = _FakeGeocoder(_FakeLocation(46.5, 11.35, None))
+    _patch_geocoder(monkeypatch, fake)
+
+    geocoding.geocode_freeform("Hauptstraße")
+    geocoding.geocode_freeform("HAUPTSTRASSE")
+
+    assert len(fake.queries) == 1
+
+
+def test_geocode_freeform_cache_distinguishes_different_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Testi davvero diversi (cifre, punteggiatura) NON collidono in cache."""
+    _fast_limiter(monkeypatch)
+    fake = _FakeGeocoder(_FakeLocation(41.9, 12.5, None))
+    _patch_geocoder(monkeypatch, fake)
+
+    for query in ("Via Roma 1", "Via Roma 10", "Via Roma, 1", "Via Roma"):
+        geocoding.geocode_freeform(query)
+
+    assert len(fake.queries) == 4
+
+
+def test_geocode_freeform_sends_raw_query_to_nominatim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """La normalizzazione vale solo per la chiave: a Nominatim va il testo digitato."""
+    fake = _FakeGeocoder(_FakeLocation(41.9, 12.5, None))
+    _patch_geocoder(monkeypatch, fake)
+
+    geocoding.geocode_freeform("Piazza  Navona, Roma")
+
+    assert fake.queries == ["Piazza  Navona, Roma"]
+
+
+def test_geocode_freeform_cache_disabled_queries_twice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Con CACHE_ENABLED=false ogni chiamata va a Nominatim e lo store resta vuoto."""
+    monkeypatch.setenv("CACHE_ENABLED", "false")
+    _fast_limiter(monkeypatch)
+    fake = _FakeGeocoder(_FakeLocation(41.9, 12.5, None))
+    _patch_geocoder(monkeypatch, fake)
+
+    geocoding.geocode_freeform("Colosseo")
+    geocoding.geocode_freeform("Colosseo")
+
+    assert len(fake.queries) == 2
+    assert len(_geo_mod._FREEFORM_CACHE) == 0  # pyright: ignore[reportPrivateUsage]
+
+
+def test_geocode_freeform_does_not_cache_service_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Un errore di servizio non popola la cache: la ripetizione riprova davvero."""
+    _fast_limiter(monkeypatch)
+    _patch_geocoder(monkeypatch, _FakeGeocoder(exc=GeocoderServiceError("boom")))
+    with pytest.raises(GeocodingError):
+        geocoding.geocode_freeform("Colosseo")
+
+    ok = _FakeGeocoder(_FakeLocation(41.89, 12.49, None))
+    _patch_geocoder(monkeypatch, ok)
+
+    assert geocoding.geocode_freeform("Colosseo") == (41.89, 12.49)
+    assert len(ok.queries) == 1
+
+
+def test_geocode_freeform_does_not_cache_no_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Il "nessun risultato" non e' memorizzato, come la zona non trovata (#115 M2)."""
+    _fast_limiter(monkeypatch)
+    _patch_geocoder(monkeypatch, _FakeGeocoder(location=None))
+    assert geocoding.geocode_freeform("Colosseo") is None
+    # ``_cache_get`` usa ``None`` come miss: un ``None`` salvato nello store non
+    # si vedrebbe dalla seconda chiamata, quindi si guarda lo store direttamente.
+    assert len(_geo_mod._FREEFORM_CACHE) == 0  # pyright: ignore[reportPrivateUsage]
+
+    ok = _FakeGeocoder(_FakeLocation(41.89, 12.49, None))
+    _patch_geocoder(monkeypatch, ok)
+
+    assert geocoding.geocode_freeform("Colosseo") == (41.89, 12.49)
+    assert len(ok.queries) == 1
+    assert len(_geo_mod._FREEFORM_CACHE) == 1  # pyright: ignore[reportPrivateUsage]
+
+
+def test_geocode_freeform_cache_evicts_oldest_when_full(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stesso tetto: oltre _CACHE_MAXSIZE si sfratta la entry piu' vecchia."""
+    monkeypatch.setattr(_geo_mod, "_CACHE_MAXSIZE", 3)
+    _fast_limiter(monkeypatch)
+    fake = _FakeGeocoder(_FakeLocation(41.9, 12.5, None))
+    _patch_geocoder(monkeypatch, fake)
+
+    for query in ("A", "B", "C", "D"):
+        geocoding.geocode_freeform(query)
+
+    cache = _geo_mod._FREEFORM_CACHE  # pyright: ignore[reportPrivateUsage]
+    assert list(cache) == ["b", "c", "d"]
+
+    geocoding.geocode_freeform("A")  # sfrattata: torna a Nominatim
+    assert len(fake.queries) == 5
+
+
+def test_geocode_freeform_cache_is_separate_from_zone_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Le due cache non si mescolano: la freeform non riempie ne' svuota quella zona."""
+    _fast_limiter(monkeypatch)
+    fake = _FakeGeocoder(
+        _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
+    )
+    _patch_geocoder(monkeypatch, fake)
+
+    geocode_zone("Colosseo", "Roma")
+    geocoding.geocode_freeform("Colosseo, Roma")
+
+    assert len(fake.queries) == 2
+    assert len(_geo_mod._CACHE) == 1  # pyright: ignore[reportPrivateUsage]
+    assert len(_geo_mod._FREEFORM_CACHE) == 1  # pyright: ignore[reportPrivateUsage]
+
+
+def test_cache_put_existing_key_on_full_store_evicts_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Store pieno + chiave gia' presente: si aggiorna il valore, nessuno sfratto."""
+    monkeypatch.setattr(_geo_mod, "_CACHE_MAXSIZE", 3)
+    store: dict[str, int] = {"a": 1, "b": 2, "c": 3}
+
+    _geo_mod._cache_put(store, "b", 20)  # pyright: ignore[reportPrivateUsage]
+
+    assert store == {"a": 1, "b": 20, "c": 3}
+
+
+def test_cache_put_and_get_are_thread_safe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Molti thread su uno store piccolo: nessuna eccezione, tetto mai superato.
+
+    Senza lock la sequenza "pieno? sfratta, poi inserisci" si interleava: due
+    thread sfrattano la stessa chiave (``KeyError``), uno itera mentre l'altro
+    scrive (``RuntimeError``) o entrambi inseriscono oltre il tetto. Uno switch
+    interval minuscolo forza i cambi di thread a meta' sequenza.
+    """
+    maxsize = 4
+    monkeypatch.setattr(_geo_mod, "_CACHE_MAXSIZE", maxsize)
+    store: dict[str, int] = {}
+    errors: list[BaseException] = []
+    sizes: list[int] = []
+    n_threads, n_ops = 12, 1500
+    barrier = threading.Barrier(n_threads)
+
+    def worker(tid: int) -> None:
+        barrier.wait()
+        try:
+            for i in range(n_ops):
+                _geo_mod._cache_put(store, f"{tid}-{i}", i)  # pyright: ignore[reportPrivateUsage]
+                _geo_mod._cache_get(store, f"{tid}-{i - 1}")  # pyright: ignore[reportPrivateUsage]
+                sizes.append(len(store))
+        except BaseException as exc:  # noqa: BLE001 - raccolte e verificate sotto
+            errors.append(exc)
+
+    old_interval = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+    try:
+        threads = [threading.Thread(target=worker, args=(t,)) for t in range(n_threads)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+    finally:
+        sys.setswitchinterval(old_interval)
+
+    assert errors == []
+    assert max(sizes) <= maxsize
+    assert len(store) <= maxsize
 
 
 def test_reverse_geocode_label_passa_per_nominatim_dispatch_reale(

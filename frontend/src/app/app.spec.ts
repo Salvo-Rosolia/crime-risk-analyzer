@@ -1605,6 +1605,170 @@ describe('App shell', () => {
       expect(api.geocodePlace).not.toHaveBeenCalled();
     });
 
+    describe('#344: niente richieste ridondanti a /geocode', () => {
+      async function setup() {
+        const f = TestBed.createComponent(App);
+        f.detectChanges();
+        await f.whenStable();
+        const flyToSpy = jest.spyOn(
+          f.debugElement.query(By.directive(MapComponent)).componentInstance,
+          'flyTo',
+        );
+        const input: HTMLInputElement = f.nativeElement.querySelector('.cra-place-search input');
+        const type = (value: string) => {
+          input.value = value;
+          input.dispatchEvent(new Event('input'));
+          f.detectChanges();
+        };
+        const enter = (repeat = false) =>
+          input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', repeat }));
+        return { f, flyToSpy, type, enter };
+      }
+
+      it('la ripetizione del tasto (event.repeat) è ignorata: tenere premuto Invio non rilancia nulla', async () => {
+        const { f, type, enter } = await setup();
+        api.geocodePlace.mockResolvedValue({ lat: 45.4642, lon: 9.19 });
+        type('Duomo di Milano');
+
+        enter();
+        await f.whenStable();
+        enter(true);
+        enter(true);
+
+        expect(api.geocodePlace).toHaveBeenCalledTimes(1);
+      });
+
+      it('un Invio con repeat=true come PRIMO evento non lancia la richiesta', async () => {
+        const { type, enter } = await setup();
+        type('Duomo di Milano');
+
+        enter(true);
+
+        expect(api.geocodePlace).not.toHaveBeenCalled();
+      });
+
+      it('Invio ripetuto sullo stesso testo mentre la richiesta è in corso → una sola chiamata, un solo flyTo', async () => {
+        const { f, flyToSpy, type, enter } = await setup();
+        let resolve!: (v: { lat: number; lon: number }) => void;
+        api.geocodePlace.mockImplementationOnce(() => new Promise((res) => (resolve = res)));
+        type('Duomo di Milano');
+
+        enter();
+        enter();
+        enter();
+
+        expect(api.geocodePlace).toHaveBeenCalledTimes(1);
+        resolve({ lat: 45.4642, lon: 9.19 });
+        await f.whenStable();
+
+        expect(flyToSpy).toHaveBeenCalledTimes(1);
+        expect(flyToSpy).toHaveBeenCalledWith(45.4642, 9.19);
+      });
+
+      it('il confronto è sul testo normalizzato (trim): spazi ai bordi non creano una richiesta nuova', async () => {
+        const { f, type, enter } = await setup();
+        let resolve!: (v: { lat: number; lon: number }) => void;
+        api.geocodePlace.mockImplementationOnce(() => new Promise((res) => (resolve = res)));
+        type('Duomo di Milano');
+        enter();
+
+        type('  Duomo di Milano  ');
+        enter();
+
+        expect(api.geocodePlace).toHaveBeenCalledTimes(1);
+        resolve({ lat: 45.4642, lon: 9.19 });
+        await f.whenStable();
+      });
+
+      it('a richiesta conclusa lo stesso testo può essere ricercato di nuovo (nessuna cache: è solo dedup in-flight)', async () => {
+        const { f, type, enter } = await setup();
+        api.geocodePlace.mockResolvedValue({ lat: 45.4642, lon: 9.19 });
+        type('Duomo di Milano');
+
+        enter();
+        await f.whenStable();
+        enter();
+        await f.whenStable();
+
+        expect(api.geocodePlace).toHaveBeenCalledTimes(2);
+      });
+
+      it('dopo un errore lo stesso testo può essere ritentato', async () => {
+        const { f, type, enter } = await setup();
+        api.geocodePlace
+          .mockRejectedValueOnce(new HttpErrorResponse({ status: 503, error: {} }))
+          .mockResolvedValueOnce({ lat: 45.4642, lon: 9.19 });
+        type('Duomo di Milano');
+
+        enter();
+        await f.whenStable();
+        enter();
+        await f.whenStable();
+
+        expect(api.geocodePlace).toHaveBeenCalledTimes(2);
+      });
+
+      it('testo diverso mentre una richiesta è in corso → nuova richiesta (la guardia sulle risposte obsolete resta)', async () => {
+        const { f, flyToSpy, type, enter } = await setup();
+        let resolveA!: (v: { lat: number; lon: number }) => void;
+        let resolveB!: (v: { lat: number; lon: number }) => void;
+        api.geocodePlace
+          .mockImplementationOnce(() => new Promise((res) => (resolveA = res)))
+          .mockImplementationOnce(() => new Promise((res) => (resolveB = res)));
+        type('Luogo A');
+        enter();
+        type('Luogo B');
+        enter();
+
+        expect(api.geocodePlace).toHaveBeenCalledTimes(2);
+        resolveB({ lat: 45.4642, lon: 9.19 });
+        await f.whenStable();
+        resolveA({ lat: 41.9, lon: 12.5 });
+        await f.whenStable();
+
+        expect(flyToSpy).toHaveBeenCalledTimes(1);
+        expect(flyToSpy).toHaveBeenCalledWith(45.4642, 9.19);
+      });
+
+      it('la conclusione di una richiesta superata (A) non azzera il dedup di quella più recente ancora in volo (B)', async () => {
+        const { f, type, enter } = await setup();
+        let resolveA!: (v: { lat: number; lon: number }) => void;
+        api.geocodePlace
+          .mockImplementationOnce(() => new Promise((res) => (resolveA = res)))
+          .mockImplementationOnce(() => new Promise(() => undefined));
+        type('Luogo A');
+        enter();
+        type('Luogo B');
+        enter();
+
+        resolveA({ lat: 41.9, lon: 12.5 });
+        await f.whenStable();
+        enter();
+
+        expect(api.geocodePlace).toHaveBeenCalledTimes(2);
+      });
+
+      it('A, poi B, poi di nuovo A mentre B è ancora in corso → A viene rilanciata (la richiesta A originale è già superata)', async () => {
+        const { f, flyToSpy, type, enter } = await setup();
+        let resolveA2!: (v: { lat: number; lon: number }) => void;
+        api.geocodePlace
+          .mockImplementationOnce(() => new Promise(() => undefined))
+          .mockImplementationOnce(() => new Promise(() => undefined))
+          .mockImplementationOnce(() => new Promise((res) => (resolveA2 = res)));
+        type('Luogo A');
+        enter();
+        type('Luogo B');
+        enter();
+        type('Luogo A');
+        enter();
+
+        expect(api.geocodePlace).toHaveBeenCalledTimes(3);
+        resolveA2({ lat: 41.9, lon: 12.5 });
+        await f.whenStable();
+        expect(flyToSpy).toHaveBeenCalledWith(41.9, 12.5);
+      });
+    });
+
     it('"vai a un luogo": race condition (fix reperto review) — submit rapido A poi B con A che risolve DOPO B → lo stato finale riflette SOLO B', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();

@@ -13,7 +13,7 @@
       maxlength="200"
       [value]="placeQuery()"
       (input)="onPlaceQueryInput($event)"
-      (keydown.enter)="onGoToPlace()"
+      (keydown.enter)="onGoToPlace($event)"
     />
     @if (placeError(); as msg) {
       <span class="cra-place-error" role="alert">{{ msg }}</span>

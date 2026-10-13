@@ -118,6 +118,11 @@ export class App {
    * applicare i propri effetti (`flyTo`/`placeError`) se arriva dopo — altrimenti una risposta A
    * arrivata in ritardo sovrascriverebbe silenziosamente la mappa/l'errore che B ha già impostato. */
   private placeRequestSeq = 0;
+  /** Testo normalizzato (trim) della richiesta `/geocode` più recente ANCORA in volo (#344), `null`
+   * a richiesta conclusa (successo o errore). Un Invio sullo stesso testo mentre è valorizzato non
+   * lancia una richiesta nuova: quella in corso applicherà già gli stessi effetti. Dedup solo
+   * in-flight, nessuna cache dei risultati (quella sta nel backend). */
+  private placeInFlightQuery: string | null = null;
 
   /**
    * POI selezionato + il suo numero (stesso ordine/numero del pin e della card accoppiati), per
@@ -198,11 +203,21 @@ export class App {
    * altrimenti. Prima di questo fix il letterale "Luogo non trovato." compariva per QUALUNQUE
    * errore senza `detail.messaggio`, nascondendo guasti reali (fu così che l'assenza di `/geocode`
    * in `proxy.config.json` passò inosservata).
+   *
+   * Niente richieste ridondanti (#344): la guardia di sequenza scarta le risposte obsolete ma non
+   * evita le richieste. Quindi (1) la ripetizione automatica del tasto (`event.repeat`, Invio tenuto
+   * premuto) è ignorata e (2) un Invio sullo stesso testo normalizzato (trim) della richiesta più
+   * recente ancora in volo riusa quella, senza lanciarne un'altra (né incrementare `seq`: la
+   * richiesta in corso resta la più recente e applica i propri effetti). Un testo diverso lancia
+   * una richiesta nuova, che rende obsolete le precedenti come prima.
    */
-  protected async onGoToPlace(): Promise<void> {
+  protected async onGoToPlace(event: Event): Promise<void> {
+    if (event instanceof KeyboardEvent && event.repeat) return;
     const q = this.placeQuery().trim();
     if (!q) return;
+    if (q === this.placeInFlightQuery) return;
     const seq = ++this.placeRequestSeq;
+    this.placeInFlightQuery = q;
     try {
       const { lat, lon } = await this.api.geocodePlace(q);
       if (seq !== this.placeRequestSeq) return;
@@ -211,6 +226,8 @@ export class App {
     } catch (err) {
       if (seq !== this.placeRequestSeq) return;
       this.placeError.set(placeSearchErrorMessage(err));
+    } finally {
+      if (seq === this.placeRequestSeq) this.placeInFlightQuery = null;
     }
   }
 
