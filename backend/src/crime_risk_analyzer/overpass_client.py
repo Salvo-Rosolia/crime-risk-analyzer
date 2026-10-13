@@ -44,6 +44,7 @@ __all__ = [
     "OFFLINE_RETRY",
     "PER_CLASS_CAP",
     "PER_SELECTOR_CAP",
+    "TIPI_ELEMENTO",
     "Bbox",
     "OverpassError",
     "Poi",
@@ -63,7 +64,9 @@ MAX_POIS = 20
 
 #: Cap di elementi restituiti da Overpass PER selettore: dimensiona il BACINO di
 #: CANDIDATI, non il risultato. La scelta dei ``MAX_POIS`` che escono e' di
-#: :func:`select_pois` (#254).
+#: :func:`select_pois` (#254). Da #314 vale per ciascuno dei due blocchi del
+#: selettore (unione node+way e relation, vedi :func:`_build_query`), quindi un
+#: selettore porta al massimo ``2 * PER_SELECTOR_CAP`` candidati.
 #: #212 l'aveva ridotto a 3 quando il taglio era «i primi che arrivano»; con la
 #: selezione per prossimita' un bacino cosi' stretto renderebbe l'ordinamento poco
 #: significativo (si ordinerebbero 3 elementi per selettore scelti da Overpass).
@@ -79,6 +82,12 @@ PER_SELECTOR_CAP = 10
 #: vicini fra gli scartati, quindi il tetto non riduce mai il numero di POI
 #: restituiti: cambia solo la loro composizione.
 PER_CLASS_CAP = 3
+
+#: Tipi di elemento OSM interrogati da :func:`_build_query` (#314). Prima di #314
+#: erano solo node e way, e i monumenti mappati come multipoligono (Colosseo,
+#: Duomo di Milano) non entravano mai nel bacino. Registrato nella provenienza
+#: degli snapshot: cambia il bacino di candidati quanto ``PER_SELECTOR_CAP``.
+TIPI_ELEMENTO: tuple[str, ...] = ("node", "way", "relation")
 
 logger = logging.getLogger(__name__)
 
@@ -153,9 +162,10 @@ _USER_AGENT = (
 class Poi(TypedDict):
     """POI nel contratto di retrieval (pre-grounding)."""
 
-    #: ``"{type}/{id}"`` dell'elemento OSM (es. ``"node/123"``, ``"way/123"``):
-    #: node e way vivono in namespace separati, quindi il tipo e' necessario
-    #: per evitare che due oggetti diversi collassino sullo stesso id (#265).
+    #: ``"{type}/{id}"`` dell'elemento OSM (es. ``"node/123"``, ``"way/123"``,
+    #: ``"relation/123"`` da #314): node, way e relation vivono in namespace
+    #: separati, quindi il tipo e' necessario per evitare che due oggetti
+    #: diversi collassino sullo stesso id (#265).
     #: E' la chiave con cui i rischi vengono attribuiti al POI (#255) ed entra
     #: in ``context_fingerprint.fingerprint()`` — cambiarne il formato altera
     #: ogni ``contesto_hash`` prodotto da quel momento in poi.
@@ -190,9 +200,28 @@ class OverpassError(RuntimeError):
 def _build_query(bbox: Bbox, osm_selectors: Sequence[str]) -> str:
     """Costruisce la query Overpass QL per i selettori ``key=value`` dentro ``bbox``.
 
-    Ogni selettore ``k=v`` emette un blocco unione node+way seguito da un
-    ``out center PER_SELECTOR_CAP`` locale: cosi' nessun selettore denso satura il
-    risultato. Bbox nell'ordine ``(south, west, north, east)``.
+    Ogni selettore ``k=v`` emette due blocchi, ciascuno col proprio
+    ``out center PER_SELECTOR_CAP`` locale (cosi' nessun selettore denso satura il
+    risultato): l'unione node+way, e le relation da sole (#314). Bbox nell'ordine
+    ``(south, west, north, east)``.
+
+    Le relation NON entrano nell'unione perche' Overpass stampa un set per tipo
+    (node, poi way, poi relation): col tetto condiviso un selettore denso come
+    ``tourism=attraction`` esaurirebbe i posti con node e way prima di arrivare
+    alle relation, e il Colosseo (relation/1834818) resterebbe fuori proprio come
+    prima. Con un ``out`` proprio il blocco node+way resta identico a quello
+    pre-#314, quindi le relation si AGGIUNGONO al bacino senza togliere nulla.
+    ``out center`` da' anche alle relation il campo ``center``, senza il quale
+    :func:`_coords` le scarterebbe. NON e' il centroide: e' il centro del
+    riquadro (bounding box) dell'oggetto, quindi su una forma irregolare puo'
+    cadere anche fuori dalla sua geometria.
+
+    Il filtro bbox su una relation la seleziona se almeno un membro cade nel bbox:
+    per le relation grandi il ``center`` puo' quindi stare fuori dall'area
+    interrogata, come gia' per un way lungo (osservato a Roma: 13 relation su 39
+    a 401-598 m fuori bbox, nessuna entrata nel campione). La selezione per
+    prossimita' (:func:`select_pois`) le penalizza in proporzione alla distanza,
+    senza un filtro dedicato.
     """
     lat_min, lon_min, lat_max, lon_max = bbox
     bbox_str = f"{lat_min},{lon_min},{lat_max},{lon_max}"
@@ -203,6 +232,9 @@ def _build_query(bbox: Bbox, osm_selectors: Sequence[str]) -> str:
             f'(\n  node["{key}"="{value}"]({bbox_str});\n'
             f'  way["{key}"="{value}"]({bbox_str});\n);\n'
             f"out center {PER_SELECTOR_CAP};"
+        )
+        blocks.append(
+            f'relation["{key}"="{value}"]({bbox_str});\nout center {PER_SELECTOR_CAP};'
         )
     return "[out:json][timeout:25];\n" + "\n".join(blocks)
 
@@ -227,8 +259,10 @@ def _extract_osm_tag(tags: Mapping[str, object]) -> str:
 def _coords(element: Mapping[str, object]) -> tuple[float, float] | None:
     """Estrae ``(lat, lon)`` da un elemento, o ``None`` se non utilizzabili.
 
-    I ``node`` hanno ``lat``/``lon`` diretti; i ``way`` espongono il centroide
-    in ``center``.
+    I ``node`` hanno ``lat``/``lon`` diretti; ``way`` e ``relation`` espongono in
+    ``center`` il centro del loro riquadro (bounding box), non il centroide
+    (richiesto da ``out center`` nella query, #314). Per una relation grande quel
+    punto puo' cadere fuori dal bbox interrogato.
     """
     lat = element.get("lat")
     lon = element.get("lon")
@@ -305,9 +339,11 @@ def _parse_elements(payload: object, citta: str) -> list[Poi]:
         # Identita' OSM = (type, id): la query ha un blocco per selettore e ogni
         # ``out`` stampa il proprio set, quindi un oggetto con piu' tag mappati
         # arriva una volta per blocco (verificato dal vivo: l'Arco di Costantino,
-        # ``tourism=attraction`` + ``historic=monument``, arriva due volte). Il
-        # ``type`` entra nella chiave perche' node e way vivono in namespace
-        # separati e lo stesso numero identifica due oggetti diversi (#265).
+        # ``tourism=attraction`` + ``historic=monument``, arriva due volte; da
+        # #314 anche il Colosseo, relation con ``tourism=attraction`` +
+        # ``historic=archaeological_site``). Il ``type`` entra nella chiave
+        # perche' node, way e relation vivono in namespace separati e lo stesso
+        # numero identifica oggetti diversi (#265).
         chiave = (str(element_map.get("type", "")), str(element_map.get("id", "")))
         if chiave in visti:
             continue
