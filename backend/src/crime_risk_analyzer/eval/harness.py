@@ -16,7 +16,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from crime_risk_analyzer.eval.istat_metrics import compute_istat_metrics
-from crime_risk_analyzer.eval.metrics import compute_metrics
+from crime_risk_analyzer.eval.metrics import compute_metrics, frasi_escluse_m1
 from crime_risk_analyzer.eval.schema import (
     ExperimentConfig,
     Metrics,
@@ -172,6 +172,8 @@ def _record_from_response(
     snapshot_configurazione_canonica: dict[str, object] | None,
 ) -> RunRecord:
     status = RunStatus.FALLBACK if resp.fallback else RunStatus.OK
+    # #369: con ISTAT, le frasi che M1 non misura (None senza ISTAT).
+    escluse = frasi_escluse_m1(resp, mode=config.mode)
     return RunRecord(
         run_id=run_id,
         experiment=config.name,
@@ -183,18 +185,10 @@ def _record_from_response(
         # Il ``mode`` decide su quale blocco i proxy testuali si pronunciano
         # (#236): il braccio ablato etichetta il suo blocco per cio' che e', e
         # misurarlo sull'etichetta dell'altro lo darebbe per non attribuito.
-        # ``narrativa_m1`` (#345, #368): sui record con ISTAT, M1 grada il testo
-        # grezzo SENZA le frasi che parlano del dato ISTAT. Il filtro altrimenti
-        # cambierebbe le asserzioni misurate, e di norma quelle frasi non nominano
-        # un POI ne' un rischio, quindi contano come non ancorate. Non sempre: la
-        # regola taglia anche frasi ancorate (limite noto, #369).
-        metrics=compute_metrics(
-            resp,
-            mode=config.mode,
-            narrativa_m1=resp.controllo_istat.testo_senza_frasi_istat
-            if resp.controllo_istat
-            else None,
-        ),
+        # Sui record con ISTAT (#345, #369) M1 grada il grezzo senza le frasi
+        # che parlano del dato ISTAT e non nominano un POI ne' un rischio: lo
+        # decide ``compute_metrics`` dal controllo che la risposta porta.
+        metrics=compute_metrics(resp, mode=config.mode),
         # ``resp.narrativa`` e' ``str | None`` da #259 (fase 1: narrativa non
         # ancora generata); l'harness gira solo su ``run_analysis``/``run_baseline``,
         # che oggi producono sempre una stringa (mai None) — la coercizione e'
@@ -211,10 +205,13 @@ def _record_from_response(
         poi_nel_prompt=resp.poi_nel_prompt,
         istat_frasi_scartate=resp.istat_frasi_scartate,
         istat_metrics=(
-            compute_istat_metrics(resp.controllo_istat)
+            compute_istat_metrics(
+                resp.controllo_istat, frasi_escluse_m1=len(escluse or [])
+            )
             if resp.controllo_istat
             else None
         ),
+        frasi_escluse_m1=escluse,
         provenance=Provenance(
             code_commit=code_commit,
             ontology_hash=ontology_hash,

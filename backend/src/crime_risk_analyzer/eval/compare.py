@@ -233,6 +233,11 @@ class Comparison(BaseModel):
     #: Metriche ISTAT per zona (#345), solo se almeno un braccio le ha. Affiancate
     #: e mai mediate in un verdetto (D12).
     istat_metrics: list[IstatZoneMetrics] = []
+    #: Avviso quando i due bracci hanno metriche ISTAT di versioni diverse (#369):
+    #: M1 e' gradato con regole diverse. Campo del modello, come
+    #: ``isolated_variable``, cosi' JSON e Markdown dicono la stessa cosa; vuoto
+    #: altrimenti.
+    avviso_versioni_istat: str = ""
     #: Ancoraggio ai rischi separato da quello ai nomi dei POI (#359), calcolato
     #: dai record al momento del report. ``None`` se nessun braccio ha una
     #: narrativa gradabile (es. baseline contro baseline). Non entra nel verdetto.
@@ -445,6 +450,33 @@ ISTAT_NO_WINNER_REASON = (
     "grounding/hallucination servono solo a verificare che ISTAT non peggiori "
     "l'ancoraggio e le metriche ISTAT sono affiancate"
 )
+
+#: Limite dello splitter di M1 sulle frasi ISTAT (#369, C1), parte della nota.
+ISTAT_M1_SPLITTER_LIMIT = (
+    "Limite: M1 spezza le frasi a ogni punto, quindi una frase ISTAT con "
+    "«d.lgs. 7/2016» o «134.169» diventa più pezzi, e un pezzo senza le parole del "
+    "dato ISTAT resta misurato come non ancorato."
+)
+
+#: Nota sotto la tabella ISTAT (#369): su cosa e' gradato M1 nel braccio con ISTAT
+#: e quali limiti ne discendono.
+ISTAT_M1_REDUCED_TEXT = (
+    "> **M1 su un testo ridotto.** Nel braccio con i dati ISTAT `grounding` e "
+    "`hallucination` sono calcolati sul testo del modello prima del filtro, senza "
+    "le frasi che parlano del dato ISTAT e non nominano un POI né un rischio, che "
+    "escono dal denominatore. Le frasi escluse sono contate nella colonna «frasi "
+    "escluse da M1» ed elencate nel "
+    "record di ogni run (`frasi_escluse_m1`). Limite: un rischio che non è nella "
+    "base di conoscenza, scritto con le parole del dato ISTAT, esce dal "
+    "denominatore invece di contare come non ancorato, e va cercato fra le frasi "
+    f"escluse. {ISTAT_M1_SPLITTER_LIMIT} Nei record di versione 3 erano escluse "
+    "tutte le frasi che parlano del dato, nelle versioni 1 e 2 quelle con cifre "
+    "ISTAT."
+)
+
+#: Titolo dell'avviso quando i due bracci hanno metriche ISTAT di versioni
+#: diverse (#369, D2): M1 e' gradato con regole diverse nei due bracci.
+ISTAT_VERSIONS_DIFFER_HEAD = "> ⚠️ **Metriche ISTAT di versioni diverse.**"
 
 #: Effetto collaterale dichiarato: il blocco ISTAT occupa budget (#345, D14).
 ISTAT_BUDGET_SIDE_EFFECT = (
@@ -947,6 +979,25 @@ def _index_by_zone(records: list[RunRecord]) -> dict[tuple[str, str], RunRecord]
     return index
 
 
+def _rifiuta_versioni_istat_miste(records: list[RunRecord], label: str) -> None:
+    """Solleva :class:`ValueError` se il braccio mescola versioni delle metriche
+    ISTAT (#369).
+
+    M1 dei record con ISTAT e' gradato su un testo che dipende dalla versione,
+    quindi la media del braccio mescolerebbe misure diverse. Come per i POI nel
+    prompt (#349), meglio rifiutare che lasciare una media che nessuno distingue a
+    valle. I record senza metriche ISTAT (nessuna riga nel prompt) non contano.
+    """
+    versioni = {r.istat_metrics.versione for r in records if r.istat_metrics}
+    if len(versioni) > 1:
+        raise ValueError(
+            f"il braccio `{label}` mescola metriche ISTAT di versioni diverse "
+            f"{sorted(versioni)}: M1 dei record con ISTAT e' gradato su testi "
+            "diversi a seconda della versione; rigirare il braccio con lo stesso "
+            "codice"
+        )
+
+
 class NoUsableOutputError(ValueError):
     """Nessuna zona valida da confrontare: tutti i record sono ERROR/FALLBACK (#239).
 
@@ -1004,13 +1055,17 @@ def compare_records(
 
     Solleva :class:`ValueError` se: un braccio ha record duplicati per una zona;
     i due bracci coprono zone diverse (iso-input violato); una zona appaiata ha
-    ``snapshot_id`` divergente tra i bracci (iso-input a livello di record).
+    ``snapshot_id`` divergente tra i bracci (iso-input a livello di record); un
+    braccio mescola metriche ISTAT di versioni diverse (#369, M1 gradato su testi
+    diversi: :func:`_rifiuta_versioni_istat_miste`).
     Solleva :class:`NoUsableOutputError` (sottoclasse di ``ValueError``, #239) se
     non resta alcuna zona valida da confrontare — l'input è valido, è l'esito ad
     essere degenere.
     """
     index_a = _index_by_zone(arm_a)
     index_b = _index_by_zone(arm_b)
+    _rifiuta_versioni_istat_miste(arm_a, label_a)
+    _rifiuta_versioni_istat_miste(arm_b, label_b)
     keys_a = set(index_a)
     keys_b = set(index_b)
     if keys_a != keys_b:
@@ -1125,6 +1180,7 @@ def compare_records(
             vacuous, vacuous_zones, istat_pair=is_istat_isolating_pair(arm_a, arm_b)
         ),
         istat_metrics=istat_zone,
+        avviso_versioni_istat=_avviso_versioni_istat(istat_zone, label_a, label_b),
         ancoraggio_rischi=_risk_anchoring_section(
             source_a,
             source_b,
@@ -1144,7 +1200,7 @@ def _record_anchoring(record: RunRecord) -> RiskAnchoring | None:
     M1 usa.
 
     Va chiamata solo sui record senza dati ISTAT (:func:`_has_istat`): su quelli
-    M1 grada ``testo_senza_frasi_istat``, che il record non salva, e
+    M1 grada il grezzo senza le frasi ISTAT escluse (``frasi_escluse_m1``), e
     ``RunRecord.narrativa`` e' un testo diverso.
     """
     return risk_anchoring(
@@ -1159,8 +1215,8 @@ def _has_istat(record: RunRecord) -> bool:
     """True se M1 di questo record e' stato gradato su un testo diverso (#359).
 
     ``istat_metrics`` e' scritto dall'harness esattamente quando la risposta
-    porta il controllo delle cifre ISTAT, cioe' quando M1 grada
-    ``testo_senza_frasi_istat`` invece della narrativa: e' lo stesso segnale,
+    porta il controllo delle cifre ISTAT, cioe' quando M1 grada il grezzo senza
+    le frasi ISTAT escluse invece della narrativa: e' lo stesso segnale,
     piu' preciso di ``provenance.istat`` (ISTAT richiesto ma magari senza dati
     nel prompt).
     """
@@ -1468,12 +1524,14 @@ _COLONNE_ISTAT = (
     "corrispondenze non dichiarate",
     "numeri in lettere",
     "codici voce",
+    "frasi escluse da M1",
 )
 
 
 def _cella_istat(m: IstatMetrics | None) -> list[str]:
     """Celle di un braccio; sui record di versione 1 (#345) i campi nati con la
-    versione 2 (#365) non esistevano e valgono ``n/d``."""
+    versione 2 (#365) non esistevano e valgono ``n/d``, come le frasi escluse da
+    M1 (#369) prima della versione 4."""
     if m is None:
         return ["-"] * len(_COLONNE_ISTAT)
     v1 = m.versione < 2
@@ -1489,12 +1547,46 @@ def _cella_istat(m: IstatMetrics | None) -> list[str]:
         str(m.corrispondenze_non_dichiarate),
         str(m.numeri_in_lettere),
         "n/d" if v1 else str(m.codici_voce),
+        "n/d" if m.versione < 4 else str(m.frasi_escluse_m1),
     ]
+
+
+def _avviso_versioni_istat(
+    zone: list[IstatZoneMetrics], label_a: str, label_b: str
+) -> str:
+    """Avviso se i due bracci hanno metriche ISTAT di versioni diverse (#369, D2).
+
+    Dentro un braccio le versioni miste sono rifiutate
+    (:func:`_rifiuta_versioni_istat_miste`); fra due bracci con ISTAT (es. due
+    modelli, o una run vecchia contro una nuova) il confronto resta possibile, ma
+    M1 dei due bracci e' gradato con regole diverse e il report lo dice prima
+    delle tabelle. ``""`` se le versioni coincidono o un braccio non ha ISTAT.
+    """
+    versioni_a = {z.a.versione for z in zone if z.a}
+    versioni_b = {z.b.versione for z in zone if z.b}
+    if not versioni_a or not versioni_b or versioni_a == versioni_b:
+        return ""
+    return (
+        f"{ISTAT_VERSIONS_DIFFER_HEAD} `{label_a}`: versione "
+        f"{', '.join(map(str, sorted(versioni_a)))}; `{label_b}`: "
+        f"versione {', '.join(map(str, sorted(versioni_b)))}. Nei due bracci "
+        "`grounding`/`hallucination` escludono le frasi ISTAT con regole diverse: "
+        "il delta su quegli assi mescola l'effetto dei bracci con quello della "
+        "regola. Per un confronto pulito, rigirare i bracci con lo stesso codice."
+    )
+
+
+def _frasi_escluse_del_braccio(metriche: list[IstatMetrics]) -> str:
+    """Totale delle frasi escluse da M1 nelle zone di un braccio (#369)."""
+    if any(m.versione < 4 for m in metriche):
+        return "n/d (record precedenti alla versione 4)"
+    return f"{sum(m.frasi_escluse_m1 for m in metriche)} frasi escluse"
 
 
 def istat_markdown(comparison: Comparison) -> str:
     """Tabella delle metriche ISTAT affiancate (#345): nessun delta, nessun
-    vincitore."""
+    vincitore. Sotto, la nota sul testo ridotto su cui M1 e' gradato (#369) con
+    il totale delle frasi escluse per braccio."""
     nomi = _COLONNE_ISTAT
     cols = [
         "citta",
@@ -1508,6 +1600,24 @@ def istat_markdown(comparison: Comparison) -> str:
     ]
     lines = ["### Metriche ISTAT (affiancate, nessun vincitore)", ""]
     lines.extend(_markdown_table(cols, righe))
+    bracci = [
+        (label, [m for m in metriche if m is not None])
+        for label, metriche in (
+            (comparison.label_a, [z.a for z in comparison.istat_metrics]),
+            (comparison.label_b, [z.b for z in comparison.istat_metrics]),
+        )
+    ]
+    totali = [
+        f"`{label}`: {_frasi_escluse_del_braccio(metriche)}"
+        for label, metriche in bracci
+        if metriche
+    ]
+    lines += [
+        "",
+        ISTAT_M1_REDUCED_TEXT,
+        ">",
+        f"> Frasi escluse da M1 — {'; '.join(totali)}.",
+    ]
     return "\n".join(lines) + "\n"
 
 
@@ -1622,6 +1732,10 @@ def to_markdown(comparison: Comparison, *, anchoring_pointer: bool = True) -> st
     # di vacuità — dice come vanno letti i delta, quindi va letta prima di essi.
     if comparison.isolated_variable:
         lines.append(comparison.isolated_variable)
+        lines.append("")
+    # Versioni ISTAT diverse fra i bracci (#369): cambia il testo che M1 grada.
+    if comparison.avviso_versioni_istat:
+        lines.append(comparison.avviso_versioni_istat)
         lines.append("")
     # Vacuità (#231): l'avviso apre il report, PRIMA della tabella. Al contrario
     # chi legge incontrerebbe un delta di qualità e solo dopo la nota che lo

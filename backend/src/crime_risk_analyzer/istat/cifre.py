@@ -9,7 +9,8 @@ ISTAT, e il controllo verifica cio' che la frase dice del dato.
 1. Divisione in frasi che non spezza i numeri ("3.016", "1.162,7"): si spezza dopo
    ``.!?`` seguiti da spazio e a ogni a-capo; il ``;`` NON chiude la frase; i
    marcatori d'elenco a inizio riga ("1.", "-", "*") non fanno parte della frase.
-   (``eval.metrics._sentences`` spezza a ogni punto e non va riusata.) La prosa
+   (Lo splitter di M1, :func:`dividi_frasi_m1`, spezza a ogni punto e per il
+   filtro non va riusato; serve solo al punto 8.) La prosa
    scritta sulla stessa riga dell'etichetta, dopo il token (``Dati statistici
    ISTAT [ISTAT]: nel Comune ...``), appartiene al blocco che l'etichetta apre:
    solo il controllo la sposta, il parser dei blocchi (che alimenta M1) resta
@@ -68,7 +69,8 @@ ISTAT, e il controllo verifica cio' che la frase dice del dato.
      eredita uno. Eredita il luogo della frase ISTAT precedente, tenuta, dello
      stesso paragrafo (elenco compreso): "I dati ISTAT del Comune di Roma ...:"
      seguito dalle voci. Un nuovo luogo sostituisce quello ereditato; non si
-     eredita oltre una riga vuota, a un cambio di blocco ne' da una frase tolta;
+     eredita oltre una riga vuota, a un cambio di blocco ne' da una frase tolta
+     (per le frasi ISTAT di M1 invece si', punto 8);
      un'introduzione che finisce con ":" passa pero' il luogo all'elenco che la
      segue anche oltre righe vuote, finche' l'elenco continua (fix 6).
      Il campo ``luogo`` dice solo se il luogo e' esplicito, ``luogo_ereditato``
@@ -116,9 +118,20 @@ ISTAT, e il controllo verifica cio' che la frase dice del dato.
 7. Testo filtrato (C5): se tutte le frasi di un ``[ISTAT]`` residuo sono tolte si
    toglie anche la sua riga-etichetta, che resterebbe orfana; niente righe vuote
    in testa ne' buchi di piu' righe vuote lasciati dai tagli.
+8. Frasi ISTAT per M1 (#369): il blocco misurato si divide nelle frasi di M1
+   (:func:`dividi_frasi_m1`, non quelle del punto 1) e si segnano quelle che
+   parlano del dato (punto 4). Il luogo si eredita come al punto 5 ma anche da
+   una frase che il filtro toglie: cosi' l'esito non dipende dal filtro. Lo
+   passa anche la prosa scritta sulla riga-etichetta, che M1 non misura; il
+   numero di un marcatore "1.", che M1 stacca dalla voce, non conta come frase e
+   segue la voce: e' una frase ISTAT se lo e' la voce. M1
+   (``eval.metrics``) esclude dal denominatore quelle che non nominano un POI ne'
+   un rischio; le altre le misura come sempre. Le frasi di M1 spezzano i numeri
+   ("3.016") e le abbreviazioni ("d.lgs."): un pezzo senza le parole del punto 4
+   non parla del dato e resta misurato, come in ogni braccio.
 
 Il testo grezzo resta disponibile: l'esito porta il testo filtrato (cio' che vede
-l'operatore) e quello senza le frasi ISTAT (per la metrica M1, #368).
+l'operatore) e gli offset nel grezzo delle frasi ISTAT per M1.
 """
 
 from __future__ import annotations
@@ -143,10 +156,12 @@ __all__ = [
     "Numero",
     "SpanBlocco",
     "applica_controllo",
+    "blocco_misurato",
     "confronto_di",
     "controlla_cifre",
     "direzione_di",
     "dividi_frasi",
+    "dividi_frasi_m1",
     "estrai_numeri",
     "valori_del_testo",
     "voci_nominate",
@@ -329,11 +344,11 @@ class EsitoControllo(BaseModel):
 
     frasi: tuple[FraseControllata, ...]
     testo_filtrato: str
-    #: Testo grezzo senza le frasi che il controllo riconosce come ISTAT (#368): e'
-    #: quello su cui M1 misura le asserzioni. Limiti noti (#369): taglia anche frasi
-    #: che nominano un POI o un rischio, e il luogo che il controllo eredita passa
-    #: solo dalle frasi che il filtro tiene, quindi dipende dal filtro.
-    testo_senza_frasi_istat: str
+    #: Offset nel testo grezzo delle frasi del blocco misurato da M1 che parlano
+    #: del dato ISTAT (#369, punto 8 del modulo). Sono frasi di M1
+    #: (:func:`dividi_frasi_m1`), non del filtro; M1 esclude quelle che non nominano
+    #: un POI ne' un rischio.
+    frasi_istat_m1: tuple[tuple[int, int], ...]
     numeri_in_lettere: int
     righe: tuple[RigaIstat, ...]
     #: Codici delle voci delle righe scritti dal modello (maiuscolo, a parola
@@ -412,6 +427,50 @@ def dividi_frasi(testo: str) -> list[tuple[int, int]]:
             spans.append((pos + inizio, pos + len(riga)))
         pos += len(riga) + 1
     return spans
+
+
+#: Confine di frase di M1 (#229): ogni punto e ogni a-capo.
+_CONFINE_M1 = re.compile(r"[.\n]")
+
+
+def _senza_bordi(testo: str, a: int, b: int) -> tuple[int, int]:
+    """``(a, b)`` senza gli spazi ai bordi, come ``str.strip()``."""
+    while a < b and testo[a].isspace():
+        a += 1
+    while b > a and testo[b - 1].isspace():
+        b -= 1
+    return a, b
+
+
+def dividi_frasi_m1(
+    testo: str, inizio: int = 0, fine: int | None = None
+) -> list[tuple[int, int]]:
+    """Offset ``(inizio, fine)`` delle frasi come le divide M1 (#229, #369).
+
+    E' lo splitter della metrica M1 (``eval.metrics``): sta qui perche' anche il
+    controllo divide il blocco misurato nelle stesse frasi (punto 8 del modulo).
+    Si spezza a ogni punto e a ogni a-capo; le frasi non hanno spazi ai bordi e
+    quelle vuote non contano. Spezza anche "3.016", "d.lgs." e i marcatori "1.":
+    e' il righello di M1 in tutti i bracci e cambiarlo cambierebbe
+    ``METRICS_VERSION``. Il filtro usa :func:`dividi_frasi`.
+    """
+    fine = len(testo) if fine is None else fine
+    spans: list[tuple[int, int]] = []
+    pos = inizio
+    for m in _CONFINE_M1.finditer(testo, inizio, fine):
+        spans.append(_senza_bordi(testo, pos, m.start()))
+        pos = m.end()
+    spans.append(_senza_bordi(testo, pos, fine))
+    return [(a, b) for a, b in spans if a < b]
+
+
+def blocco_misurato(blocchi: Sequence[SpanBlocco]) -> SpanBlocco | None:
+    """Il blocco che M1 misura, o ``None`` se la narrativa non lo ha.
+
+    E' il campo ``ontologia``: lo slot del primo blocco, con l'etichetta del
+    braccio (``[ONTOLOGIA]``, o ``[SINTESI-LLM]`` nel braccio ablato, #236).
+    """
+    return next((b for b in blocchi if b.campo == "ontologia"), None)
 
 
 def _blocco_di(pos: int, blocchi: Sequence[SpanBlocco]) -> Blocco:
@@ -783,8 +842,8 @@ def _valuta(
     )
 
 
-#: Fine paragrafo: una riga vuota fra due frasi.
-_RIGA_VUOTA = re.compile(r"\n[ \t]*\n")
+#: Fine paragrafo: una riga vuota fra due frasi (anche con a-capo CRLF, #369).
+_RIGA_VUOTA = re.compile(r"\n[ \t\r]*\n")
 
 
 def _valuta_paragrafi(
@@ -792,6 +851,8 @@ def _valuta_paragrafi(
     spans: Sequence[tuple[int, int]],
     blocchi: Sequence[SpanBlocco],
     regole: _Regole,
+    *,
+    eredita_da_tolte: bool = False,
 ) -> tuple[FraseControllata, ...]:
     """:func:`_valuta` frase per frase, col luogo ereditato (fix 3).
 
@@ -799,6 +860,8 @@ def _valuta_paragrafi(
     per le frasi successive dello stesso paragrafo (elenco compreso); un nuovo
     luogo lo sostituisce. Niente eredita' oltre una riga vuota, a un cambio di
     blocco (la sintesi non passa il luogo a un blocco) ne' da una frase tolta.
+    ``eredita_da_tolte`` (#369) fa passare il luogo anche dalle frasi tolte: serve
+    alle frasi ISTAT di M1, che non devono dipendere dal filtro.
 
     Eccezione (fix 6): una frase che passa il luogo e finisce con ":" introduce
     un elenco. Il luogo arriva alla prima voce anche oltre le righe vuote che la
@@ -828,13 +891,108 @@ def _valuta_paragrafi(
             in_elenco = True
         aspetta_elenco = False
         frase = _valuta(narrativa[a:b], blocco, a, b, regole, ereditati)
-        if frase.motivo is None and frase.parla_di_istat and frase.luoghi:
+        tenuta = frase.motivo is None or eredita_da_tolte
+        if tenuta and frase.parla_di_istat and frase.luoghi:
             ereditati = set(frase.luoghi)
             if frase.testo.rstrip().endswith(":"):
                 aspetta_elenco, in_elenco = True, False
         frasi.append(frase)
         blocco_prima, fine_prima = blocco, b
     return tuple(frasi)
+
+
+def _apre_la_riga(testo: str, a: int) -> bool:
+    """``a`` e' all'inizio della sua riga, a meno dei rientri."""
+    return not testo[testo.rfind("\n", 0, a) + 1 : a].strip()
+
+
+def _dopo_marcatore(testo: str, a: int, b: int) -> int:
+    """Inizio della frase ``(a, b)`` dopo il marcatore d'elenco, se ne apre una
+    riga: M1 lo tiene nella frase, ma e' cio' che fa riconoscere l'elenco (fix 6)."""
+    if not _apre_la_riga(testo, a):
+        return a
+    marcatore = _MARCATORE_ELENCO.match(testo[a:b])
+    return a + marcatore.end() if marcatore else a
+
+
+def _numero_di_elenco(testo: str, a: int, b: int) -> bool:
+    """La frase ``(a, b)`` e' solo il numero di un marcatore "1." che M1 ha
+    staccato dalla sua voce: non e' una frase del paragrafo (#369, B1)."""
+    if not _apre_la_riga(testo, a):
+        return False
+    fine_riga = testo.find("\n", a)
+    marcatore = _MARCATORE_ELENCO.match(
+        testo[a : len(testo) if fine_riga == -1 else fine_riga]
+    )
+    return marcatore is not None and a + marcatore.end() >= b
+
+
+def _frasi_istat_m1(
+    narrativa: str,
+    blocchi: Sequence[SpanBlocco],
+    adattati: Sequence[SpanBlocco],
+    regole: _Regole,
+) -> tuple[tuple[int, int], ...]:
+    """Frasi di M1 del blocco misurato che parlano del dato ISTAT (punto 8).
+
+    ``blocchi`` sono quelli che legge M1 (il blocco misurato comincia dalla riga
+    dopo l'etichetta), ``adattati`` quelli del filtro, con la prosa scritta sulla
+    riga-etichetta dentro il blocco: M1 non la misura, ma puo' passare il luogo
+    alle frasi che la seguono ("... [ONTOLOGIA] I dati ISTAT del Comune di Roma
+    indicano:" e poi l'elenco). Il numero di un marcatore "1.", che M1 stacca
+    dalla voce, non si valuta: e' parte della voce, non una frase che interrompe
+    l'elenco. Per la stessa ragione segue la voce (B-1): se la voce e' una frase
+    ISTAT lo e' anche il suo numero, che altrimenti M1 conterebbe come
+    un'asserzione non ancorata solo nell'elenco numerato.
+    """
+    misurato = blocco_misurato(blocchi)
+    adattato = blocco_misurato(adattati)
+    if misurato is None or adattato is None:
+        return ()
+    tutte = dividi_frasi_m1(narrativa, misurato.inizio, misurato.fine)
+    frasi = [(a, b) for a, b in tutte if not _numero_di_elenco(narrativa, a, b)]
+    prosa = dividi_frasi_m1(narrativa, adattato.inizio, misurato.inizio)
+    valutate = _valuta_paragrafi(
+        narrativa,
+        [(_dopo_marcatore(narrativa, a, b), b) for a, b in prosa + frasi],
+        adattati,
+        regole,
+        eredita_da_tolte=True,
+    )
+    istat = {
+        f
+        for f, v in zip(frasi, valutate[len(prosa) :], strict=True)
+        if v.parla_di_istat
+    }
+    return tuple(
+        f
+        for i, f in enumerate(tutte)
+        if f in istat
+        or (
+            i + 1 < len(tutte)
+            and tutte[i + 1] in istat
+            and _numero_di_voce(narrativa, f, tutte[i + 1])
+        )
+    )
+
+
+#: Una frase di M1 fatta solo dal numero di una voce, con o senza un marcatore
+#: davanti ("1", "10", "- 1"): il resto della voce e' la frase dopo il punto.
+_SOLO_NUMERO_DI_VOCE = re.compile(r"(?:[-*•]\s+)?\d{1,2}")
+
+
+def _numero_di_voce(testo: str, frase: tuple[int, int], dopo: tuple[int, int]) -> bool:
+    """``frase`` e' il numero della voce che continua in ``dopo``: apre la riga,
+    e' solo un numero (col marcatore, se c'e'), e' seguita da ". " e ``dopo`` sta
+    sulla stessa riga (#369, B-1). "2024 e' stato un anno ..." non lo e'."""
+    a, b = frase
+    return (
+        _apre_la_riga(testo, a)
+        and _SOLO_NUMERO_DI_VOCE.fullmatch(testo[a:b]) is not None
+        and testo[b : b + 1] == "."
+        and testo[b + 1 : b + 2].isspace()
+        and "\n" not in testo[b : dopo[0]]
+    )
 
 
 def _senza(testo: str, tagli: Sequence[tuple[int, int]]) -> str:
@@ -969,21 +1127,18 @@ def controlla_cifre(
         rischi=_rischi(righe),
         marcatori=_marcatori(righe),
     )
-    blocchi, tagli = _prosa_in_intestazione(narrativa, blocchi)
-    frasi = _valuta_paragrafi(narrativa, _frasi(narrativa, tagli), blocchi, regole)
+    adattati, tagli = _prosa_in_intestazione(narrativa, blocchi)
+    frasi = _valuta_paragrafi(narrativa, _frasi(narrativa, tagli), adattati, regole)
     tolte = [(f.inizio, f.fine) for f in frasi if f.motivo]
     filtrato = (
-        _ripulisci(_senza(narrativa, tolte + _etichette_orfane(frasi, blocchi)))
+        _ripulisci(_senza(narrativa, tolte + _etichette_orfane(frasi, adattati)))
         if tolte
         else narrativa
     )
     return EsitoControllo(
         frasi=frasi,
         testo_filtrato=filtrato,
-        testo_senza_frasi_istat=_senza(
-            narrativa,
-            [(f.inizio, f.fine) for f in frasi if f.parla_di_istat or f.cifre_istat],
-        ),
+        frasi_istat_m1=_frasi_istat_m1(narrativa, blocchi, adattati, regole),
         numeri_in_lettere=len(_IN_LETTERE.findall(narrativa.lower())),
         righe=tuple(righe),
         codici_voce=sum(

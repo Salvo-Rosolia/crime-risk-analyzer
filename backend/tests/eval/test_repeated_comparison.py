@@ -11,6 +11,7 @@ from pytest import MonkeyPatch
 from crime_risk_analyzer.eval.compare import (
     ISOLATED_VARIABLE_HEAD,
     ISTAT_NO_WINNER_REASON,
+    ISTAT_VERSIONS_DIFFER_HEAD,
     VACUOUS_CAVEAT_HEAD,
     NoUsableOutputError,
     compare_records,
@@ -23,6 +24,7 @@ from crime_risk_analyzer.eval.repeated_comparison import (
     winner_markdown,
 )
 from crime_risk_analyzer.eval.schema import (
+    IstatMetrics,
     Metrics,
     Mode,
     Provenance,
@@ -1126,3 +1128,102 @@ def test_repeated_report_of_the_istat_pair_gives_the_d12_reason(
     payload = json.loads(json_path.read_text(encoding="utf-8"))
     assert payload["winner"] is None
     assert payload["quality_verdict"]["reason"] == ISTAT_NO_WINNER_REASON
+
+
+def _metriche_istat(versione: int) -> IstatMetrics:
+    return IstatMetrics(
+        versione=versione,
+        cifre_totali=0,
+        frasi_scartabili=0,
+        voci_fornite=1,
+        voci_citate=1,
+        frasi_istat=1,
+        frasi_istat_con_luogo=1,
+        direzioni_totali=0,
+        direzioni_coerenti=0,
+        corrispondenze_non_dichiarate=0,
+        numeri_in_lettere=0,
+    )
+
+
+@pytest.mark.parametrize(
+    "versioni",
+    [
+        # fra le ripetizioni della stessa zona: la somma del fold le rifiuta
+        {("Colosseo", 0): 3, ("Colosseo", 1): 4, ("Termini", 0): 4, ("Termini", 1): 4},
+        # fra le zone: ogni zona e' omogenea, il braccio no
+        {("Colosseo", 0): 3, ("Colosseo", 1): 3, ("Termini", 0): 4, ("Termini", 1): 4},
+    ],
+)
+def test_repeated_report_refuses_an_arm_with_mixed_istat_versions(
+    tmp_path: Path, versioni: dict[tuple[str, int], int]
+) -> None:
+    """#369: il confronto ripetuto (e quindi il vincitore) rifiuta un braccio i
+    cui record ISTAT hanno versioni diverse: M1 e' gradato su testi diversi."""
+
+    def rec(esperimento: str, zona: str, rep: int) -> RunRecord:
+        return _rec(
+            esperimento,
+            "Roma",
+            zona,
+            rep=rep,
+            model_id=GROQ_MODEL,
+            grounding=0.8,
+            hallucination=0.2,
+            latency_ms=1000,
+            cost_usd=0.0006,
+        )
+
+    base = [rec("base-exp", zona, rep) for zona, rep in versioni]
+    con = [
+        rec("istat-exp", zona, rep).model_copy(
+            update={"istat_metrics": _metriche_istat(v)}
+        )
+        for (zona, rep), v in versioni.items()
+    ]
+    _write_arm(tmp_path, base)
+    _write_arm(tmp_path, con)
+    with pytest.raises(ValueError, match="versioni"):
+        build_repeated_report(tmp_path, "istat-exp", "base-exp", stem="misto")
+    assert not (tmp_path / "misto.md").exists()
+
+
+@pytest.mark.parametrize(("versione_b", "avviso"), [(4, True), (3, False)])
+def test_repeated_report_warns_when_istat_arms_have_different_versions(
+    tmp_path: Path, versione_b: int, avviso: bool
+) -> None:
+    """#369, D2: due bracci entrambi con ISTAT ma di versioni diverse si
+    confrontano anche a K ripetizioni, e il report (Markdown e JSON) lo avvisa;
+    con la stessa versione nessun avviso."""
+
+    def braccio(esperimento: str, versione: int) -> list[RunRecord]:
+        return [
+            _rec(
+                esperimento,
+                "Roma",
+                "Colosseo",
+                rep=rep,
+                model_id=GROQ_MODEL,
+                grounding=0.8,
+                hallucination=0.2,
+                latency_ms=1000,
+                cost_usd=0.0006,
+            ).model_copy(update={"istat_metrics": _metriche_istat(versione)})
+            for rep in range(2)
+        ]
+
+    _write_arm(tmp_path, braccio("v3-exp", 3))
+    _write_arm(tmp_path, braccio("altro-exp", versione_b))
+    md_path, json_path = build_repeated_report(
+        tmp_path, "v3-exp", "altro-exp", label_a="v3", label_b="altro", stem="vers"
+    )
+    md = md_path.read_text(encoding="utf-8")
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    campo = payload["comparison"]["avviso_versioni_istat"]
+    if avviso:
+        assert md.index(ISTAT_VERSIONS_DIFFER_HEAD) < md.index("| citta |")
+        assert f"`v3`: versione 3; `altro`: versione {versione_b}" in md
+        assert campo.startswith(ISTAT_VERSIONS_DIFFER_HEAD)
+    else:
+        assert ISTAT_VERSIONS_DIFFER_HEAD not in md
+        assert campo == ""

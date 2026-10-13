@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 
 import pytest
@@ -22,6 +23,7 @@ from crime_risk_analyzer.istat.cifre import (
     controlla_cifre,
     direzione_di,
     dividi_frasi,
+    dividi_frasi_m1,
     estrai_numeri,
 )
 from crime_risk_analyzer.istat.righe import MOTIVO_ROTTURA_2016, IstatPoi, RigaIstat
@@ -403,47 +405,188 @@ def test_filtro_toglie_righe_rimaste_col_solo_marcatore() -> None:
     )
 
 
-def test_testo_per_m1_senza_le_frasi_che_parlano_del_dato_istat() -> None:
-    testo = (
-        "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nIl Colosseo concentra 134.169 "
-        "furti. Bar 2000 e' esposto a rapina.\n\nDati statistici ISTAT [ISTAT]\n"
-        "I furti sono 134.169 nel 2024.\n"
-    )
-    esito = _controlla(testo)
-    assert esito.testo_senza_frasi_istat == (
-        "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nBar 2000 e' esposto a rapina.\n\n"
-        "Dati statistici ISTAT [ISTAT]\n"
-    )
+@pytest.mark.parametrize(
+    "testo",
+    [
+        "  Bar 2000: rapina, scippi ecc. Secondo l'ISTAT!\r\n- furti.** In calo.)\n\n",
+        "Nessun punto",
+        "",
+        " . \n.\t\n",
+        "1. Prima voce.\n2. Seconda (d.lgs. 7/2016) e 3.016 furti.",
+    ],
+)
+def test_dividi_frasi_m1_e_lo_splitter_di_m1(testo: str) -> None:
+    """#369: le frasi di M1 (#229) con gli offset: si spezza a ogni punto e a ogni
+    a-capo, senza spazi ai bordi e senza frasi vuote, come faceva M1."""
+    attese = [s.strip() for s in re.split(r"[.\n]", testo) if s.strip()]
+    assert [testo[a:b] for a, b in dividi_frasi_m1(testo)] == attese
 
 
-def test_m1_non_conta_le_frasi_istat_senza_cifre_nel_blocco_ontologia() -> None:
-    """#368: i dati ISTAT stanno dentro [ONTOLOGIA] e a parole, quindi le loro
-    frasi non hanno cifre da togliere. Quando non nominano un POI ne' un rischio,
-    se restassero nel testo di M1 conterebbero come asserzioni non ancorate."""
+def test_dividi_frasi_m1_dentro_un_intervallo() -> None:
+    testo = "Sintesi. Altro.\nBar 2000: rapina. Scippi.\nCoda."
+    inizio = testo.index("Bar")
+    fine = testo.index("Coda")
+    assert [testo[a:b] for a, b in dividi_frasi_m1(testo, inizio, fine)] == [
+        "Bar 2000: rapina",
+        "Scippi",
+    ]
+
+
+def _frasi_istat_m1(testo: str, esito: EsitoControllo) -> list[str]:
+    return [testo[a:b] for a, b in esito.frasi_istat_m1]
+
+
+def test_frasi_istat_m1_sono_frasi_di_m1_del_blocco_misurato() -> None:
+    """#369: le frasi ISTAT per M1 sono divise come le divide M1, non come il
+    filtro: "ecc." non chiude la frase per il filtro ma per M1 si'. Solo il blocco
+    misurato conta (non la sintesi, non [CONTESTO], non le righe-etichetta)."""
     testo = (
-        "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nBar 2000 e' esposto a rapina. "
+        "Secondo l'ISTAT a Roma i furti sono in calo.\n\n"
+        "Rischi da ontologia [ONTOLOGIA]\n"
+        "Bar 2000 e' esposto a rapina, scippi ecc. Secondo l'ISTAT a Roma i furti "
+        "sono in calo.\n\nRischi dal contesto [CONTESTO]\n"
         "Secondo l'ISTAT a Roma i furti sono in calo.\n"
     )
     esito = _controlla(testo)
-    istat = [f for f in esito.frasi if f.parla_di_istat]
-    assert [(f.luogo, f.motivo) for f in istat] == [(True, None)]
-    assert esito.testo_filtrato == testo
-    assert esito.testo_senza_frasi_istat == (
-        "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nBar 2000 e' esposto a rapina.\n"
-    )
+    ontologia = [f for f in esito.frasi if f.blocco == "ontologia"]
+    assert len(ontologia) == 1 and ontologia[0].parla_di_istat
+    assert _frasi_istat_m1(testo, esito) == [
+        "Secondo l'ISTAT a Roma i furti sono in calo"
+    ]
 
 
-def test_m1_non_conta_nemmeno_le_frasi_istat_che_il_filtro_toglie() -> None:
-    """Una frase ISTAT senza luogo, tolta dal filtro, resta comunque fuori dalle
-    asserzioni misurate. Non vale in generale: il luogo ereditato dipende dal
-    filtro (#369)."""
+def test_frasi_istat_m1_senza_blocco_misurato_sono_nessuna() -> None:
+    testo = "Secondo l'ISTAT a Roma i furti sono in calo.\n"
+    assert _controlla(testo).frasi_istat_m1 == ()
+
+
+def test_frasi_istat_m1_anche_se_il_blocco_misurato_non_e_il_primo() -> None:
     testo = (
-        "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nBar 2000 e' esposto a rapina. "
-        "Secondo l'ISTAT i furti sono in calo.\n"
+        "Sintesi.\n\nRischi dal contesto [CONTESTO]\n"
+        "Secondo l'ISTAT a Roma i furti sono in calo.\n\n"
+        "Rischi da ontologia [ONTOLOGIA]\n"
+        "Bar 2000 e' esposto a rapina. Per l'ISTAT a Roma i furti sono in calo.\n"
     )
+    assert _frasi_istat_m1(testo, _controlla(testo)) == [
+        "Per l'ISTAT a Roma i furti sono in calo"
+    ]
+
+
+def test_frasi_istat_m1_riconoscono_l_elenco_dopo_righe_vuote() -> None:
+    """Fix 6 anche sulle frasi di M1, che tengono il marcatore d'elenco: dopo
+    un'introduzione con ":" la voce eredita il luogo oltre la riga vuota."""
+    introduzione = "I dati ISTAT del Comune di Roma (2024) indicano:"
+    testo = _ontologia(
+        f"{introduzione}\n\n- furti: in calo;\n\n* danneggiamenti: stabili"
+    )
+    assert _frasi_istat_m1(testo, _controlla(testo)) == [
+        introduzione,
+        "- furti: in calo;",
+        "* danneggiamenti: stabili",
+    ]
+
+
+def test_frasi_istat_m1_ereditano_il_luogo_anche_da_una_frase_tolta() -> None:
+    """#369: per M1 il luogo passa anche dalle frasi che il filtro toglie, cosi' la
+    misura non dipende dal filtro. Qui l'introduzione e' tolta (i furti sono in
+    calo): per il filtro la riga d'elenco non eredita il luogo e non parla del dato,
+    per M1 si'. Con l'introduzione giusta le frasi ISTAT per M1 sono le stesse."""
+    voce = "- furti: in calo;"
+    giusta = "I dati ISTAT del Comune di Roma (2024) indicano:"
+    sbagliata = "I dati ISTAT del Comune di Roma (2024) indicano furti in aumento:"
+    testo = _ontologia(f"{sbagliata}\n{voce}")
     esito = _controlla(testo)
-    assert esito.testo_senza_frasi_istat == (
-        "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nBar 2000 e' esposto a rapina.\n"
+    assert [(f.motivo, f.parla_di_istat) for f in esito.frasi[-2:]] == [
+        ("direzione_contraria", True),
+        (None, False),
+    ]
+    assert _frasi_istat_m1(testo, esito) == [sbagliata, voce]
+    testo_giusto = _ontologia(f"{giusta}\n{voce}")
+    assert _frasi_istat_m1(testo_giusto, _controlla(testo_giusto)) == [giusta, voce]
+
+
+def test_frasi_istat_m1_marcatore_solo_a_inizio_riga() -> None:
+    """Un trattino dopo il numero di una voce ("1. - furti") non e' un secondo
+    marcatore: la frase resta la voce numerata, che eredita il luogo oltre la riga
+    vuota (fix 6). Togliendo anche il trattino la voce non si riconoscerebbe."""
+    introduzione = "I dati ISTAT del Comune di Roma (2024) indicano:"
+    testo = _ontologia(f"{introduzione}\n\n1. - furti: in calo;")
+    assert _frasi_istat_m1(testo, _controlla(testo)) == [
+        introduzione,
+        "1",
+        "- furti: in calo;",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("voce", "attese"),
+    [
+        ("1. furti: in calo;", ["1", "furti: in calo;"]),
+        ("10. furti: in calo;", ["10", "furti: in calo;"]),
+        # M1 non spezza "1)": la voce e' una frase sola
+        ("1) furti: in calo;", ["1) furti: in calo;"]),
+        ("- 1. furti: in calo;", ["- 1", "furti: in calo;"]),
+        ("   1. furti: in calo;", ["1", "furti: in calo;"]),
+        # voce che non parla del dato: il suo numero resta fuori
+        ("1. Bar 2000 e' esposto a rapina;", []),
+        # un anno a inizio riga non e' il numero di una voce
+        (
+            "2024 e' stato un anno di furti in calo;",
+            ["2024 e' stato un anno di furti in calo;"],
+        ),
+        ("2024. I furti sono in calo;", ["I furti sono in calo;"]),
+        # il punto di "3.016" non e' quello di un marcatore
+        ("3.016 furti in calo;", ["016 furti in calo;"]),
+    ],
+)
+def test_frasi_istat_m1_il_numero_segue_la_voce(voce: str, attese: list[str]) -> None:
+    """#369, B-1: il numero che M1 stacca da una voce ISTAT numerata e' una frase
+    ISTAT come la voce, cosi' M1 non lo conta come asserzione non ancorata. Anche
+    con a capo CRLF."""
+    introduzione = "I dati ISTAT del Comune di Roma (2024) indicano:"
+    testo = _ontologia(f"{introduzione}\n{voce}")
+    crlf = testo.replace("\n", "\r\n")
+    for t in (testo, crlf):
+        assert _frasi_istat_m1(t, _controlla(t)) == [introduzione, *attese]
+
+
+def test_frasi_istat_m1_numero_a_fine_riga_non_segue_la_riga_dopo() -> None:
+    """Un numero seguito dal punto e dall'a capo non e' l'inizio della voce della
+    riga dopo."""
+    introduzione = "I dati ISTAT del Comune di Roma (2024) indicano:"
+    testo = _ontologia(f"{introduzione}\n1.\nfurti: in calo;")
+    assert _frasi_istat_m1(testo, _controlla(testo)) == [
+        introduzione,
+        "furti: in calo;",
+    ]
+
+
+def test_filtro_con_a_capo_crlf_interrompe_l_eredita_alla_riga_vuota() -> None:
+    """#369: con CRLF la riga vuota interrompe il luogo ereditato anche nel
+    filtro, come con LF. Prima la frase dopo la riga vuota ereditava il luogo e
+    restava; ora si toglie per luogo mancante."""
+    lf = _ontologia(
+        "Secondo l'ISTAT, nel Comune di Roma i furti sono in calo.\n\n"
+        "Le rapine in pubblica via hanno un tasso più alto dal 2014."
+    )
+    crlf = lf.replace("\n", "\r\n")
+    esito = _controlla_con(crlf, _ZONA_REALE)
+    assert _motivi(esito) == _motivi(_controlla_con(lf, _ZONA_REALE))
+    assert _motivi(esito) == [None, "luogo_mancante"]
+    assert "Le rapine" not in esito.testo_filtrato
+    assert "i furti sono in calo" in esito.testo_filtrato
+
+
+def test_frasi_istat_m1_uguali_con_a_capo_crlf() -> None:
+    """#369: con CRLF la riga vuota interrompe l'eredita' come con LF."""
+    lf = _ontologia(
+        "Secondo l'ISTAT, nel Comune di Roma i furti sono in calo.\n\n- furti: in calo;"
+    )
+    crlf = lf.replace("\n", "\r\n")
+    assert (
+        _frasi_istat_m1(crlf, _controlla(crlf))
+        == _frasi_istat_m1(lf, _controlla(lf))
+        == ["Secondo l'ISTAT, nel Comune di Roma i furti sono in calo"]
     )
 
 

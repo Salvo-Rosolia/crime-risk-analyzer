@@ -173,15 +173,24 @@ class IstatMetrics(BaseModel):
     campi nuovi restano a 0 e non vanno letti.
 
     Versione 3 (#368): i conteggi sono gli stessi, ma M1 dei record con ISTAT
-    grada il testo senza le frasi che parlano del dato. Grounding e hallucination
-    dei record di versione 2 sono gradati sul testo con quelle frasi dentro e non
-    si confrontano con questi.
+    grada il testo senza tutte le frasi che parlano del dato (divise come le
+    divide il filtro). Grounding e hallucination dei record di versione 2 sono
+    gradati sul testo con quelle frasi dentro e non si confrontano con questi.
+
+    Versione 4 (#369): M1 esclude solo le frasi che parlano del dato senza
+    nominare un POI ne' un rischio, divise come le divide M1 e con il luogo
+    ereditato anche dalle frasi tolte dal filtro; le conta
+    ``frasi_escluse_m1`` (0 e non da leggere nelle versioni precedenti). Cambia
+    di nuovo il testo gradato: i record di versione 3 non si confrontano con
+    questi, e i confronti rifiutano un braccio che mescola versioni.
     """
 
     versione: int = Field(
         default=1,
         ge=1,
-        description="Versione delle metriche ISTAT (1 = #345, 2 = #365, 3 = #368).",
+        description=(
+            "Versione delle metriche ISTAT (1 = #345, 2 = #365, 3 = #368, 4 = #369)."
+        ),
     )
     cifre_totali: int = Field(
         ge=0, description="Numeri nella narrativa fuori dalla lista fissa."
@@ -240,6 +249,14 @@ class IstatMetrics(BaseModel):
         description=(
             "Codici delle voci ISTAT (es. THEFT) scritti dal modello, a parola "
             "intera e in maiuscolo (attesi 0; non tolgono la frase)."
+        ),
+    )
+    frasi_escluse_m1: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Frasi che parlano del dato ISTAT senza nominare un POI ne' un rischio, "
+            "escluse dal denominatore di M1 (#369; 0 prima della versione 4)."
         ),
     )
 
@@ -366,5 +383,14 @@ class RunRecord(BaseModel):
     istat_metrics: IstatMetrics | None = Field(
         default=None,
         description="Metriche ISTAT (#345); None senza dati ISTAT nel prompt.",
+    )
+    frasi_escluse_m1: list[str] | None = Field(
+        default=None,
+        description=(
+            "Frasi del grezzo escluse dal denominatore di M1 perche' parlano del "
+            "dato ISTAT senza nominare un POI ne' un rischio (#369): con "
+            "narrativa_grezza ricostruiscono il testo misurato. None senza dati "
+            "ISTAT nel prompt, sui record precedenti a #369 e sui record-media."
+        ),
     )
     provenance: Provenance
