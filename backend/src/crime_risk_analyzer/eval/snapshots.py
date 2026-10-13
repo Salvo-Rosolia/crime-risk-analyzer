@@ -35,6 +35,7 @@ from crime_risk_analyzer.overpass_client import (
     OFFLINE_RETRY,
     PER_CLASS_CAP,
     PER_SELECTOR_CAP,
+    TIPI_ELEMENTO,
     Poi,
     TaglioOsm,
     fetch_pois_with_cut,
@@ -64,6 +65,12 @@ class ConfigurazioneCanonica(TypedDict):
     #: prodotto il file quanto i cap della query: la sua assenza identifica uno
     #: snapshot catturato prima della selezione per prossimita'.
     per_class_cap: int
+    #: Tipi di elemento OSM interrogati (#314): con le relation il bacino di
+    #: candidati si allarga e il campione di una zona puo' cambiare (il Colosseo
+    #: entra a Roma). La sua assenza identifica uno snapshot catturato con la
+    #: sola query node+way. Lista, non tupla: deve uguagliare il valore riletto
+    #: dal JSON nel confronto di :func:`describe_configurazione_mismatch`.
+    tipi_elemento: list[str]
 
 
 class SnapshotProvenance(TypedDict):
@@ -131,6 +138,7 @@ def _configurazione_canonica_corrente() -> ConfigurazioneCanonica:
         "max_pois": MAX_POIS,
         "per_selector_cap": PER_SELECTOR_CAP,
         "per_class_cap": PER_CLASS_CAP,
+        "tipi_elemento": list(TIPI_ELEMENTO),
     }
 
 
