@@ -5,18 +5,28 @@ import pytest
 from crime_risk_analyzer.eval.metrics import (
     _MEASURED_TOKEN_BY_MODE,  # pyright: ignore[reportPrivateUsage]
     METRICS_VERSION,
+    _measured_spans,  # pyright: ignore[reportPrivateUsage]
     compute_metrics,
     cost_usd_of,
+    frasi_escluse_m1,
     grounding,
     hallucination,
     hazards_cited_in,
     latency_ms,
 )
 from crime_risk_analyzer.eval.schema import Mode
+from crime_risk_analyzer.istat.blocco import blocco_istat_poi
+from crime_risk_analyzer.istat.cifre import controlla_cifre
 from crime_risk_analyzer.models.vocab import ConfidenceSummary
 from crime_risk_analyzer.orchestrator import AnalyzeResponse, PoiOut, ZonaGeo
-from crime_risk_analyzer.rag.generation import Repro, RiskItem, RiskModel
+from crime_risk_analyzer.rag.generation import (
+    Repro,
+    RiskItem,
+    RiskModel,
+    source_block_spans,
+)
 from crime_risk_analyzer.rag.no_ontology_generation import LLM_SYNTHESIS_BLOCK_HEADER
+from tests.istat._fattorie import RAPINE_IN_BANCA, istat_poi, riga
 
 
 def _resp(
@@ -378,11 +388,339 @@ def test_cost_usd_of_zero_when_no_llm() -> None:
     assert cost_usd_of(r) == 0.0
 
 
-def test_m1_con_testo_alternativo_esclude_le_frasi_istat() -> None:
-    """#345: sulla coppia ISTAT M1 si calcola sul grezzo senza le frasi ISTAT."""
-    corpo_pulito = "Banca A: rapina in banca."
-    con_cifre = _narrativa(f"{corpo_pulito} Nel comune i furti sono 134.169.")
-    pulita = _narrativa(corpo_pulito)
-    resp = _resp(con_cifre)
-    assert compute_metrics(resp, narrativa_m1=pulita) == compute_metrics(_resp(pulita))
-    assert compute_metrics(resp) == compute_metrics(resp, narrativa_m1=None)
+# --- M1 con i dati ISTAT nel prompt (#345, #368, #369) ---------------------------
+
+_BLOCCO_ISTAT = blocco_istat_poi(istat_poi(riga(), RAPINE_IN_BANCA))
+_ANCORATA = "Banca A: rapina in banca."
+_NON_ANCORATA = "La zona e' molto affollata."
+_ISTAT = "Secondo l'ISTAT nel Comune di Roma i furti sono in calo."
+
+
+def _resp_istat(grezzo: str, *, poi: str = "Banca A") -> AnalyzeResponse:
+    """Risposta con i dati ISTAT nel prompt: ``grezzo`` e' il testo del modello,
+    la narrativa quella filtrata dal controllo (come in ``generate_analysis``)."""
+    esito = controlla_cifre(
+        grezzo,
+        blocchi=source_block_spans(grezzo),
+        blocco_istat=_BLOCCO_ISTAT.testo,
+        contesto_senza_istat="ZONA: Colosseo",
+        righe=_BLOCCO_ISTAT.righe,
+    )
+    resp = _resp(esito.testo_filtrato)
+    return resp.model_copy(
+        update={
+            "narrativa_grezza": grezzo,
+            "controllo_istat": esito,
+            "poi": [resp.poi[0].model_copy(update={"name": poi})],
+            "risk_models": [resp.risk_models[0].model_copy(update={"poi": poi})],
+        }
+    )
+
+
+def _m1(resp: AnalyzeResponse) -> tuple[float, float, bool | None]:
+    m = compute_metrics(resp)
+    return (m.grounding, m.hallucination, m.quality_vacuous)
+
+
+def test_senza_istat_nessuna_frase_esclusa() -> None:
+    assert frasi_escluse_m1(_resp(_narrativa(f"{_ANCORATA} {_ISTAT}"))) is None
+
+
+def test_m1_istat_esclude_le_frasi_istat_senza_poi_ne_rischio() -> None:
+    """#369: la frase ISTAT che non nomina un POI ne' un rischio esce dal
+    denominatore; la frase non ancorata senza parole da ISTAT resta."""
+    resp = _resp_istat(_narrativa(f"{_ANCORATA} {_NON_ANCORATA} {_ISTAT}"))
+    assert _m1(resp) == (0.5, 0.5, False)
+    assert frasi_escluse_m1(resp) == [_ISTAT.rstrip(".")]
+
+
+@pytest.mark.parametrize(
+    "ancorata",
+    [
+        "Secondo l'ISTAT nel Comune di Roma i furti vicino a Banca A sono in calo.",
+        "Secondo l'ISTAT nel Comune di Roma la rapina in banca ha un tasso piu' alto.",
+    ],
+)
+def test_m1_istat_misura_la_frase_istat_che_nomina_un_poi_o_un_rischio(
+    ancorata: str,
+) -> None:
+    """#369: con un POI o un rischio la frase ISTAT si misura come le altre."""
+    resp = _resp_istat(_narrativa(f"{_ANCORATA} {_NON_ANCORATA} {ancorata}"))
+    assert compute_metrics(resp).grounding == pytest.approx(2 / 3)
+    assert frasi_escluse_m1(resp) == []
+
+
+def test_m1_istat_blocco_fatto_solo_di_frasi_istat_e_non_attribuzione() -> None:
+    """Nessuna frase misurata resta: il blocco non attribuisce rischi ai punti,
+    come un blocco vuoto (grounding 0, allucinazione 1), non un caso vuoto."""
+    resp = _resp_istat(_narrativa(f"{_ISTAT} Il tasso dei furti e' piu' alto."))
+    # ancoraggi presenti (Banca A, rapina in banca) e tutte le frasi escluse
+    assert frasi_escluse_m1(resp) == [
+        _ISTAT.rstrip("."),
+        "Il tasso dei furti e' piu' alto",
+    ]
+    assert _m1(resp) == (0.0, 1.0, False)
+
+
+def test_m1_istat_senza_poi_ne_rischi_e_vacuo_e_non_esclude_nulla() -> None:
+    """Review #369: senza ancoraggi M1 e' vacuo e non grada nulla, quindi non
+    esclude nulla. Prima ogni frase ISTAT risultava esclusa e il record lo
+    dichiarava per una zona non gradata."""
+    resp = _resp_istat(_narrativa(f"{_ANCORATA} {_ISTAT}")).model_copy(
+        update={"poi": [], "risk_models": []}
+    )
+    assert _m1(resp) == (1.0, 0.0, True)
+    assert frasi_escluse_m1(resp) == []
+
+
+def test_m1_istat_narrativa_vuota_e_vacua_e_non_esclude_nulla() -> None:
+    resp = _resp_istat("")
+    assert _m1(resp) == (1.0, 0.0, True)
+    assert frasi_escluse_m1(resp) == []
+
+
+def test_m1_istat_senza_intestazione_e_solo_frasi_istat_e_non_attribuzione() -> None:
+    """#369: prima il testo senza le frasi ISTAT restava vuoto e valeva come caso
+    vuoto, con punteggio perfetto. La narrativa c'e': e' non attribuzione."""
+    resp = _resp_istat(f"{_ISTAT}\n")
+    assert _m1(resp) == (0.0, 1.0, False)
+
+
+@pytest.mark.parametrize(
+    ("corpo", "esclusa"),
+    [
+        # "ecc." non chiude la frase per il filtro, per M1 si'
+        (f"Banca A: rapina in banca, scippi ecc. {_ISTAT}", _ISTAT.rstrip(".")),
+        # punto seguito da asterischi o da una parentesi: idem
+        (f"**Banca A**: rapina in banca.** {_ISTAT}", f"** {_ISTAT.rstrip('.')}"),
+        (f"Banca A (rapina in banca.) {_ISTAT}", f") {_ISTAT.rstrip('.')}"),
+        # il punto esclamativo chiude la frase per il filtro, per M1 no
+        (
+            f"{_ANCORATA} La zona e' affollata! {_ISTAT}",
+            f"La zona e' affollata! {_ISTAT.rstrip('.')}",
+        ),
+    ],
+)
+def test_m1_istat_esclude_frasi_di_m1(corpo: str, esclusa: str) -> None:
+    """#369: le frasi escluse sono quelle di M1, divise come M1 le divide."""
+    resp = _resp_istat(_narrativa(corpo))
+    assert frasi_escluse_m1(resp) == [esclusa]
+    assert _m1(resp) == (1.0, 0.0, False)
+
+
+@pytest.mark.parametrize(
+    "introduzione",
+    [
+        "I dati ISTAT del Comune di Roma (2024) indicano:",
+        # tolta dal filtro: i furti sono in calo
+        "I dati ISTAT del Comune di Roma (2024) indicano furti in aumento:",
+    ],
+)
+def test_m1_istat_il_luogo_ereditato_non_dipende_dal_filtro(introduzione: str) -> None:
+    """#369: la riga d'elenco eredita il luogo anche da un'introduzione tolta."""
+    resp = _resp_istat(_narrativa(f"{_ANCORATA}\n{introduzione}\n- furti: in calo;"))
+    assert frasi_escluse_m1(resp) == [introduzione, "- furti: in calo;"]
+    assert _m1(resp) == (1.0, 0.0, False)
+
+
+@pytest.mark.parametrize("tendenza", ["in calo", "in aumento"])
+def test_m1_istat_misura_la_frase_ancorata_dopo_qualunque_frase_istat(
+    tendenza: str,
+) -> None:
+    """#369, il caso della revisione: prima la frase ancorata dopo una frase ISTAT
+    giusta (che passa il luogo) era tagliata, dopo una sbagliata restava."""
+    istat = f"Secondo l'ISTAT nel Comune di Roma i furti sono {tendenza}."
+    resp = _resp_istat(_narrativa(f"{istat} Vicino a Banca A i furti sono in calo."))
+    assert frasi_escluse_m1(resp) == [istat.rstrip(".")]
+    assert _m1(resp) == (1.0, 0.0, False)
+
+
+def test_m1_istat_limite_un_rischio_inventato_a_parole_da_istat_e_escluso() -> None:
+    """Limite dichiarato (#369): un rischio che non e' nella base di conoscenza,
+    scritto con le parole del dato ISTAT, esce dal denominatore invece di contare
+    come non ancorato. Il record lo conserva fra le frasi escluse."""
+    inventato = (
+        "Secondo i dati ISTAT nel Comune di Roma i sequestri di persona crescono"
+    )
+    resp = _resp_istat(_narrativa(f"{_ANCORATA} {inventato}."))
+    assert frasi_escluse_m1(resp) == [inventato]
+    assert _m1(resp) == (1.0, 0.0, False)
+
+
+def test_m1_istat_misura_il_grezzo_senza_ritoccarlo() -> None:
+    """#369: le frasi misurate sono quelle del grezzo, non di un testo riscritto
+    (prima il taglio comprimeva gli spazi doppi e il nome del POI non si trovava
+    piu')."""
+    nome = "Bar  Centrale"
+    resp = _resp_istat(_narrativa(f"{nome}: borseggi. {_ISTAT}"), poi=nome)
+    assert _m1(resp) == (1.0, 0.0, False)
+
+
+def test_m1_istat_uguale_con_a_capo_crlf() -> None:
+    lf = _narrativa(f"{_ANCORATA}\n{_ISTAT}\n\n- furti: in calo;")
+    crlf = lf.replace("\n", "\r\n")
+    assert _m1(_resp_istat(crlf)) == _m1(_resp_istat(lf)) == (0.5, 0.5, False)
+    assert frasi_escluse_m1(_resp_istat(crlf)) == frasi_escluse_m1(_resp_istat(lf))
+
+
+def test_m1_istat_grada_il_grezzo_non_il_filtrato() -> None:
+    """Il filtro toglie la frase con un numero inventato, M1 la misura (#345)."""
+    resp = _resp_istat(_narrativa(f"{_ANCORATA} Si stimano 999 episodi l'anno."))
+    assert "999" not in (resp.narrativa or "")
+    assert _m1(resp) == (0.5, 0.5, False)
+    assert grounding(resp) == 0.5 and hallucination(resp) == 0.5
+
+
+def test_m1_istat_grezzo_svuotato_dal_filtro_e_non_attribuzione() -> None:
+    """Il filtro toglie l'unica frase (i furti sono in calo): la narrativa
+    mostrata e' vuota, ma il modello ha scritto. M1 guarda il grezzo, quindi e'
+    non attribuzione e non il caso vuoto con punteggio perfetto."""
+    resp = _resp_istat("Secondo l'ISTAT nel Comune di Roma i furti sono in aumento.\n")
+    assert (resp.narrativa or "").strip() == ""
+    assert _m1(resp) == (0.0, 1.0, False)
+
+
+def test_m1_istat_l_elenco_numerato_finisce_come_quello_a_trattini() -> None:
+    """#369, B1 e B-1: M1 stacca "1" da "1. furti: in calo;". Quel numero non
+    deve interrompere l'elenco ne' prolungarlo (la frase dopo l'elenco, che non
+    parla del dato, resta misurata) e segue la voce: escluso con lei, non contato
+    come asserzione non ancorata. Numerato e a trattini danno lo stesso M1."""
+    introduzione = "I dati ISTAT del Comune di Roma (2024) indicano:"
+    dopo = "La zona e' affollata e i furti sono in calo"
+
+    def resp(primo: str, secondo: str) -> AnalyzeResponse:
+        return _resp_istat(
+            _narrativa(
+                f"{_ANCORATA}\n{introduzione}\n{primo} furti: in calo;\n"
+                f"{secondo} furti: sopra la media italiana\n{dopo}."
+            )
+        )
+
+    numerato, trattini = resp("1.", "2."), resp("-", "-")
+    assert frasi_escluse_m1(numerato) == [
+        introduzione,
+        "1",
+        "furti: in calo;",
+        "2",
+        "furti: sopra la media italiana",
+    ]
+    assert frasi_escluse_m1(trattini) == [
+        introduzione,
+        "- furti: in calo;",
+        "- furti: sopra la media italiana",
+    ]
+    # misurate in entrambi: Banca A (ancorata) e la frase dopo l'elenco
+    assert _m1(numerato) == _m1(trattini) == (0.5, 0.5, False)
+
+
+def test_m1_istat_la_prosa_sulla_riga_etichetta_passa_il_luogo() -> None:
+    """#369, C2: M1 non misura la prosa scritta sulla riga-etichetta, ma il luogo
+    che nomina vale per l'elenco che segue, come per il filtro."""
+    grezzo = (
+        "Sintesi.\n\nRischi da ontologia [ONTOLOGIA] I dati ISTAT del Comune di "
+        f"Roma (2024) indicano:\n- furti: in calo;\n{_ANCORATA}\n"
+    )
+    resp = _resp_istat(grezzo)
+    assert frasi_escluse_m1(resp) == ["- furti: in calo;"]
+    assert _m1(resp) == (1.0, 0.0, False)
+
+
+def test_m1_istat_la_prosa_sulla_riga_etichetta_non_e_mai_esclusa() -> None:
+    """#369, C2: contratto di ``frasi_istat_m1``. La prosa sulla riga-etichetta
+    passa il luogo ma non e' una frase di M1: non compare fra gli intervalli del
+    controllo ne' fra le frasi escluse, anche quando parla del dato."""
+    prosa = "Secondo l'ISTAT nel Comune di Roma i furti sono in calo"
+    grezzo = (
+        f"Sintesi.\n\nRischi da ontologia [ONTOLOGIA] {prosa}. I dati ISTAT del "
+        f"Comune di Roma (2024) indicano:\n- furti: in calo;\n{_ANCORATA}\n"
+    )
+    resp = _resp_istat(grezzo)
+    assert resp.controllo_istat is not None
+    inizio_blocco = grezzo.index("\n", grezzo.index("[ONTOLOGIA]")) + 1
+    intervalli = resp.controllo_istat.frasi_istat_m1
+    assert intervalli and all(a >= inizio_blocco for a, _ in intervalli)
+    escluse = frasi_escluse_m1(resp)
+    assert escluse is not None
+    assert escluse == ["- furti: in calo;"]
+    assert not any(prosa in e or "indicano" in e for e in escluse)
+
+
+def test_m1_istat_senza_grezzo_solleva() -> None:
+    """#369, C3: gli offset delle frasi ISTAT sono quelli del grezzo; senza il
+    grezzo M1 non ripiega in silenzio sulla narrativa filtrata."""
+    resp = _resp_istat(_narrativa(f"{_ANCORATA} {_ISTAT}")).model_copy(
+        update={"narrativa_grezza": None}
+    )
+    with pytest.raises(ValueError, match="narrativa_grezza"):
+        compute_metrics(resp)
+    with pytest.raises(ValueError, match="narrativa_grezza"):
+        frasi_escluse_m1(resp)
+
+
+# --- Parita' fra le frasi di M1 e quelle del controllo ISTAT (#369) -------------
+#
+# M1 (``_measured_spans``) e il controllo (``EsitoControllo.frasi_istat_m1``)
+# devono dividere lo stesso blocco nelle stesse frasi: se divergessero, gli
+# intervalli del controllo non coinciderebbero con nessuna frase di M1 e nessuna
+# frase sarebbe esclusa, senza errore.
+
+#: Narrative in cui OGNI frase di M1 del blocco misurato nomina ISTAT: le frasi
+#: ISTAT del controllo devono essere esattamente le frasi di M1.
+_TUTTE_ISTAT = [
+    _narrativa("Per l'ISTAT a Roma i furti sono in calo."),
+    _narrativa("Secondo l'ISTAT scippi ecc. Per l'ISTAT a Roma i furti calano."),
+    _narrativa("**Per l'ISTAT a Roma furti in calo.** Per l'ISTAT anche rapine."),
+    _narrativa("Per l'ISTAT a Roma (furti in calo.) Per l'ISTAT rapine stabili."),
+    _narrativa("Per l'ISTAT a Roma furti in calo! Per l'ISTAT rapine. Ecco l'ISTAT"),
+    _narrativa(
+        "I dati ISTAT di Roma:\n- ISTAT, furti: in calo;\n\n1. ISTAT, rapine: ok"
+    ),
+    _narrativa("Per l'ISTAT a Roma furti in calo.\nPer l'ISTAT rapine.").replace(
+        "\n", "\r\n"
+    ),
+    "Sintesi.\n\n**Rischi da ontologia [ONTOLOGIA]**\nPer l'ISTAT a Roma furti.\n"
+    "\nRischi dal contesto [CONTESTO]\nPer l'ISTAT a Roma furti.\n",
+    "Sintesi.\n\nRischi dal contesto [CONTESTO]\nPer l'ISTAT a Roma furti.\n\n"
+    "Rischi da ontologia [ONTOLOGIA]\nPer l'ISTAT a Roma. Per l'ISTAT rapine.\n",
+    "Sintesi.\n\nRischi da ontologia [ONTOLOGIA] I dati ISTAT di Roma:\n"
+    "- per l'ISTAT, furti: in calo;\n",
+]
+
+#: Narrative dei test di questo modulo, con frasi ISTAT e non: le frasi ISTAT del
+#: controllo sono un sottoinsieme delle frasi di M1.
+_MISTE = [
+    _narrativa(f"{_ANCORATA} {_NON_ANCORATA} {_ISTAT}"),
+    _narrativa(f"Banca A: rapina in banca, scippi ecc. {_ISTAT}"),
+    _narrativa(f"**Banca A**: rapina in banca.** {_ISTAT}"),
+    _narrativa(f"Banca A (rapina in banca.) {_ISTAT}"),
+    _narrativa(f"{_ANCORATA} La zona e' affollata! {_ISTAT}"),
+    _narrativa(
+        f"{_ANCORATA}\nI dati ISTAT del Comune di Roma (2024) indicano:\n"
+        "1. furti: in calo;\n2. furti: sopra la media italiana\n"
+        "La zona e' affollata e i furti sono in calo."
+    ),
+    _narrativa(f"{_ANCORATA}\n{_ISTAT}\n\n- furti: in calo;").replace("\n", "\r\n"),
+    _narrativa(f"{_ANCORATA} Si stimano 999 episodi l'anno."),
+    f"{_ISTAT}\n",
+]
+
+
+def _frasi_m1_e_istat(
+    grezzo: str,
+) -> tuple[list[tuple[int, int]], tuple[tuple[int, int], ...]]:
+    resp = _resp_istat(grezzo)
+    assert resp.controllo_istat is not None
+    return _measured_spans(grezzo, "analyze"), resp.controllo_istat.frasi_istat_m1
+
+
+@pytest.mark.parametrize("grezzo", _TUTTE_ISTAT)
+def test_parita_frasi_di_m1_e_del_controllo(grezzo: str) -> None:
+    misurate, istat = _frasi_m1_e_istat(grezzo)
+    assert misurate, "il corpus deve avere un blocco misurato non vuoto"
+    assert list(istat) == misurate
+
+
+@pytest.mark.parametrize("grezzo", _MISTE)
+def test_frasi_istat_del_controllo_sono_frasi_di_m1(grezzo: str) -> None:
+    misurate, istat = _frasi_m1_e_istat(grezzo)
+    assert set(istat) <= set(misurate)

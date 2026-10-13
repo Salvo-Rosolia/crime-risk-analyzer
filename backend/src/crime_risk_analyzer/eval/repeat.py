@@ -167,10 +167,13 @@ def _mean_record(
     non media, cosi' sommarla fra ripetizioni resta corretto.
 
     Dei campi ISTAT del record si ripiega SOLO ``istat_metrics``:
-    ``istat_frasi_scartate`` e ``narrativa_grezza`` restano ai default (0 e
-    ``None``) sul record-media. Le frasi tolte sono gia' contate nella somma
-    (``IstatMetrics.frasi_scartabili``), e il grezzo, come la narrativa, non si
+    ``istat_frasi_scartate``, ``narrativa_grezza`` e ``frasi_escluse_m1`` restano
+    ai default (0 e ``None``) sul record-media. Le frasi tolte e quelle escluse da
+    M1 (#369) sono gia' contate nella somma (``IstatMetrics.frasi_scartabili``,
+    ``IstatMetrics.frasi_escluse_m1``), e il grezzo, come la narrativa, non si
     media; chi li vuole per ripetizione li legge sui record delle ripetizioni.
+    Una zona le cui ripetizioni hanno metriche ISTAT di versioni diverse non si
+    ripiega: la somma lo rifiuta.
 
     ``poi_nel_prompt`` (#349) e' quello, unico, delle ripetizioni valide
     (:func:`_poi_nel_prompt_coerente`): serve a ``compare_records`` per

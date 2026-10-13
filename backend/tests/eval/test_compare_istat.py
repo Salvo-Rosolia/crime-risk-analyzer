@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
+import json
+
+import pytest
+
 from crime_risk_analyzer.eval.compare import (
     CONFOUNDED_VARIABLE_HEAD,
     ISTAT_ISOLATED_VARIABLE_HEAD,
+    ISTAT_M1_REDUCED_TEXT,
+    ISTAT_M1_SPLITTER_LIMIT,
     ISTAT_NO_WINNER_REASON,
+    ISTAT_VERSIONS_DIFFER_HEAD,
+    Comparison,
     compare_records,
     is_istat_isolating_pair,
+    to_json,
     to_markdown,
 )
 from crime_risk_analyzer.eval.schema import (
@@ -20,9 +29,10 @@ from crime_risk_analyzer.eval.schema import (
 )
 
 
-def _metriche_istat() -> IstatMetrics:
+def _metriche_istat(versione: int = 2, frasi_escluse_m1: int = 0) -> IstatMetrics:
     return IstatMetrics(
-        versione=2,
+        versione=versione,
+        frasi_escluse_m1=frasi_escluse_m1,
         cifre_totali=4,
         cifre_istat=1,
         confronti_totali=2,
@@ -143,10 +153,117 @@ def test_metriche_istat_affiancate_nel_report() -> None:
     ]
     md = to_markdown(confronto)
     assert "### Metriche ISTAT (affiancate, nessun vincitore)" in md
+    # Versione 2: le frasi escluse da M1 (#369) non esistevano.
     assert (
-        "| Roma | Colosseo | 2 | 1 | 2/3 | 2/2 | 0 | 1 | 1/1 | 1/2 | 0 | 0 | 0 "
-        "| - | - | - | - | - | - | - | - | - | - | - |" in md
+        "| Roma | Colosseo | 2 | 1 | 2/3 | 2/2 | 0 | 1 | 1/1 | 1/2 | 0 | 0 | 0 | n/d "
+        "| - | - | - | - | - | - | - | - | - | - | - | - |" in md
     )
+
+
+def test_report_dice_che_m1_con_istat_e_su_un_testo_ridotto() -> None:
+    """#369: il braccio con ISTAT e' gradato su un testo ridotto; il report lo
+    dice, con quante frasi sono escluse e il limite del rischio inventato."""
+    a, b = _bracci()
+    a = [r.model_copy(update={"istat_metrics": _metriche_istat(4, 3)}) for r in a]
+    md = to_markdown(compare_records(a, b, label_a="istat", label_b="base"))
+    assert (
+        "| Roma | Colosseo | 4 | 1 | 2/3 | 2/2 | 0 | 1 | 1/1 | 1/2 | 0 | 0 | 0 | 3 |"
+        in md
+    )
+    assert ISTAT_M1_REDUCED_TEXT in md
+    assert "`istat`: 6 frasi escluse" in md
+    sezione = md.split("### Metriche ISTAT")[1]
+    assert sezione.index(ISTAT_M1_REDUCED_TEXT) < sezione.index("Nota metodologica")
+
+
+def test_la_nota_dichiara_i_pezzi_dello_splitter_di_m1() -> None:
+    """#369, C1: i pezzi che M1 ricava da "d.lgs. 7/2016" o "134.169" restano
+    misurati come non ancorati; la nota lo dice."""
+    assert ISTAT_M1_SPLITTER_LIMIT in ISTAT_M1_REDUCED_TEXT
+    a, b = _bracci()
+    md = to_markdown(compare_records(a, b, label_a="istat", label_b="base"))
+    assert "«d.lgs. 7/2016» o «134.169»" in md
+
+
+def test_bracci_con_istat_di_versioni_diverse_hanno_un_avviso() -> None:
+    """#369, D2: due bracci con ISTAT di versioni diverse si confrontano, ma il
+    report avvisa prima delle tabelle che M1 e' gradato con regole diverse."""
+    vecchio = [_rec("v3", z, istat=True) for z in ("Colosseo", "Termini")]
+    vecchio = [
+        r.model_copy(update={"istat_metrics": _metriche_istat(3)}) for r in vecchio
+    ]
+    nuovo = [
+        _rec("v4", z, istat=True).model_copy(
+            update={"istat_metrics": _metriche_istat(4, 1)}
+        )
+        for z in ("Colosseo", "Termini")
+    ]
+    confronto = compare_records(vecchio, nuovo, label_a="v3", label_b="v4")
+    avviso = confronto.avviso_versioni_istat
+    assert avviso.startswith(ISTAT_VERSIONS_DIFFER_HEAD)
+    assert "`v3`: versione 3; `v4`: versione 4" in avviso
+    md = to_markdown(confronto)
+    assert md.index(ISTAT_VERSIONS_DIFFER_HEAD) < md.index("| citta |")
+    # Campo del modello (punto 4 della review): il JSON porta lo stesso avviso.
+    assert json.loads(to_json(confronto))["avviso_versioni_istat"] == avviso
+    stessa = compare_records(nuovo, nuovo, label_a="x", label_b="y")
+    assert stessa.avviso_versioni_istat == ""
+    assert ISTAT_VERSIONS_DIFFER_HEAD not in to_markdown(stessa)
+    assert json.loads(to_json(stessa))["avviso_versioni_istat"] == ""
+
+
+def test_un_solo_braccio_con_istat_nessun_avviso_di_versione() -> None:
+    a, b = _bracci()
+    confronto = compare_records(a, b, label_a="istat", label_b="base")
+    assert confronto.avviso_versioni_istat == ""
+
+
+def test_json_vecchio_senza_avviso_si_legge() -> None:
+    """Il campo nuovo ha un default: un JSON di confronto scritto prima si legge."""
+    a, b = _bracci()
+    dati = json.loads(to_json(compare_records(a, b, label_a="istat", label_b="base")))
+    del dati["avviso_versioni_istat"]
+    assert Comparison.model_validate(dati).avviso_versioni_istat == ""
+
+
+def test_senza_istat_nessuna_nota_sul_testo_ridotto() -> None:
+    a = [_rec("x", z, istat=False) for z in ("Colosseo", "Termini")]
+    b = [_rec("y", z, istat=False) for z in ("Colosseo", "Termini")]
+    assert ISTAT_M1_REDUCED_TEXT not in to_markdown(
+        compare_records(a, b, label_a="x", label_b="y")
+    )
+
+
+@pytest.mark.parametrize("braccio", ["a", "b"])
+def test_un_braccio_con_metriche_istat_di_versioni_diverse_e_rifiutato(
+    braccio: str,
+) -> None:
+    """#369: M1 dei record ISTAT di versioni diverse e' gradato su testi diversi;
+    mediarli nello stesso braccio darebbe un numero che non misura nulla."""
+    con = [
+        _rec("istat", "Colosseo", istat=True),
+        _rec("istat", "Termini", istat=True).model_copy(
+            update={"istat_metrics": _metriche_istat(4)}
+        ),
+    ]
+    senza = [_rec("base", z, istat=False) for z in ("Colosseo", "Termini")]
+    a, b = (con, senza) if braccio == "a" else (senza, con)
+    with pytest.raises(ValueError, match=r"`istat`.*versioni.*\[2, 4\]"):
+        compare_records(
+            a,
+            b,
+            label_a="istat" if braccio == "a" else "base",
+            label_b="base" if braccio == "a" else "istat",
+        )
+
+
+def test_record_senza_metriche_istat_non_contano_come_una_versione() -> None:
+    """Una zona senza righe ISTAT nel prompt non ha metriche ISTAT: il braccio
+    resta di una sola versione."""
+    a, b = _bracci()
+    a[1] = a[1].model_copy(update={"istat_metrics": None})
+    confronto = compare_records(a, b, label_a="istat", label_b="base")
+    assert len(confronto.istat_metrics) == 1
 
 
 def test_confronti_senza_istat_restano_identici() -> None:
@@ -256,5 +373,5 @@ def test_record_di_versione_1_senza_i_campi_nuovi() -> None:
     md = to_markdown(compare_records(vecchi, b, label_a="istat", label_b="base"))
     assert (
         "| Roma | Colosseo | 1 | n/d | 2/3 | 2/2 | n/d | 1 | 1/1 | n/d | 0 | 0 | n/d "
-        in md
+        "| n/d " in md
     )

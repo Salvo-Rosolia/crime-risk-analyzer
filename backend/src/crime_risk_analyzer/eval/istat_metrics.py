@@ -4,7 +4,8 @@ Versione 2 (#365): i dati ISTAT si usano a parole nel blocco [ONTOLOGIA], senza
 cifre. Le "frasi ISTAT" sono quelle di qualunque blocco che parlano del dato
 (:attr:`~crime_risk_analyzer.istat.cifre.FraseControllata.parla_di_istat`); i
 campi che cambiano significato sono elencati in
-:class:`~crime_risk_analyzer.eval.schema.IstatMetrics`.
+:class:`~crime_risk_analyzer.eval.schema.IstatMetrics`. Versione 4 (#369): conta
+anche le frasi ISTAT escluse da M1.
 """
 
 from __future__ import annotations
@@ -20,8 +21,10 @@ __all__ = ["ISTAT_METRICS_VERSION", "compute_istat_metrics", "somma_istat_metric
 
 #: Versione delle metriche ISTAT scritte da :func:`compute_istat_metrics`. 1 =
 #: #345 (cifre nel blocco [ISTAT]), 2 = #365 (dati a parole, senza cifre), 3 =
-#: #368 (M1 non misura le frasi ISTAT: stessi conteggi, altro testo gradato).
-ISTAT_METRICS_VERSION = 3
+#: #368 (M1 non misura le frasi ISTAT: stessi conteggi, altro testo gradato), 4 =
+#: #369 (M1 esclude solo le frasi ISTAT senza POI ne' rischio, contate in
+#: ``frasi_escluse_m1``).
+ISTAT_METRICS_VERSION = 4
 
 #: Euristica: la frase dice che la voce non coincide col rischio.
 _DICHIARAZIONE = re.compile(
@@ -45,11 +48,19 @@ _CONTEGGI = (
     "corrispondenze_non_dichiarate",
     "numeri_in_lettere",
     "codici_voce",
+    "frasi_escluse_m1",
 )
 
 
-def compute_istat_metrics(esito: EsitoControllo) -> IstatMetrics:
-    """Metriche deterministiche sul testo grezzo esaminato dal controllo."""
+def compute_istat_metrics(
+    esito: EsitoControllo, *, frasi_escluse_m1: int
+) -> IstatMetrics:
+    """Metriche deterministiche sul testo grezzo esaminato dal controllo.
+
+    ``frasi_escluse_m1`` (#369) arriva da fuori: quali frasi ISTAT M1 esclude
+    dipende dai POI e dai rischi della risposta, che il controllo non conosce
+    (:func:`~crime_risk_analyzer.eval.metrics.frasi_escluse_m1`).
+    """
     frasi = esito.frasi
     fornite = {r.voce for r in esito.righe if r.voce != VOCE_TOTALE}
     frasi_istat = [f for f in frasi if f.parla_di_istat]
@@ -85,6 +96,7 @@ def compute_istat_metrics(esito: EsitoControllo) -> IstatMetrics:
         ),
         numeri_in_lettere=esito.numeri_in_lettere,
         codici_voce=esito.codici_voce,
+        frasi_escluse_m1=frasi_escluse_m1,
     )
 
 

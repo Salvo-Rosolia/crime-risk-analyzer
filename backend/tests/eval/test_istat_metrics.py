@@ -1,4 +1,4 @@
-"""Metriche ISTAT (#345, versione 2 da #365): deterministiche, sul testo grezzo."""
+"""Metriche ISTAT (#345, versione 4 da #369): deterministiche, sul testo grezzo."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from tests.istat._fattorie import RAPINE_IN_BANCA, istat_poi, riga
 _BLOCCO = blocco_istat_poi(istat_poi(riga(), RAPINE_IN_BANCA))
 
 
-def _metriche(testo: str) -> IstatMetrics:
+def _metriche(testo: str, frasi_escluse_m1: int = 0) -> IstatMetrics:
     esito = controlla_cifre(
         testo,
         blocchi=source_block_spans(testo),
@@ -26,15 +26,23 @@ def _metriche(testo: str) -> IstatMetrics:
         contesto_senza_istat="ZONA: Colosseo",
         righe=_BLOCCO.righe,
     )
-    return compute_istat_metrics(esito)
+    return compute_istat_metrics(esito, frasi_escluse_m1=frasi_escluse_m1)
 
 
-def test_versione_3_dal_368() -> None:
+def test_versione_4_dal_369() -> None:
     """Frasi ISTAT, voci citate e corrispondenze cambiano significato con #365;
-    con #368 M1 grada un altro testo, quindi la versione sale ancora."""
-    assert ISTAT_METRICS_VERSION == 3
-    m = _metriche("Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nRapina.\n")
-    assert m.versione == 3
+    con #368 e poi #369 M1 grada un altro testo, quindi la versione sale ancora."""
+    assert ISTAT_METRICS_VERSION == 4
+    m = _metriche("Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nRapina.\n", 2)
+    assert (m.versione, m.frasi_escluse_m1) == (4, 2)
+
+
+def test_i_record_prima_della_versione_4_non_hanno_le_frasi_escluse() -> None:
+    m = _metriche("Rischi da ontologia [ONTOLOGIA]\nRapina.\n")
+    vecchio = IstatMetrics.model_validate(
+        {k: v for k, v in m.model_dump().items() if k != "frasi_escluse_m1"}
+    )
+    assert vecchio.frasi_escluse_m1 == 0
 
 
 def test_i_record_scritti_prima_sono_versione_1() -> None:
@@ -108,12 +116,14 @@ def test_somma_fra_ripetizioni() -> None:
     a = _metriche("Rischi da ontologia [ONTOLOGIA]\nI furti sono 134.169.\n")
     b = _metriche(
         "Rischi da ontologia [ONTOLOGIA]\nSecondo l'ISTAT a Roma i furti sono "
-        "sopra la media italiana.\n"
+        "sopra la media italiana.\n",
+        frasi_escluse_m1=1,
     )
     s = somma_istat_metrics([a, None, b])
     assert s is not None
-    assert (s.versione, s.cifre_totali, s.cifre_istat) == (3, 1, 1)
+    assert (s.versione, s.cifre_totali, s.cifre_istat) == (4, 1, 1)
     assert (s.frasi_istat, s.confronti_totali, s.confronti_coerenti) == (2, 1, 1)
+    assert s.frasi_escluse_m1 == 1
     assert somma_istat_metrics([None, None]) is None
 
 

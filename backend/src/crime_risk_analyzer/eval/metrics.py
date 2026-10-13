@@ -30,21 +30,29 @@ diversa. Un claim forte su questi numeri resta quindi privo di un ancoraggio uma
 riga-etichetta da cercare (:data:`_MEASURED_TOKEN_BY_MODE`); la formula non cambia, e
 due narrative identiche sotto le due etichette prendono lo stesso punteggio —
 altrimenti il confronto tra i bracci misurerebbe l'etichetta invece dell'ancoraggio.
+
+**Con i dati ISTAT nel prompt (#345, #369).** Si grada il testo del modello prima del
+filtro, senza le frasi che parlano del dato ISTAT e non nominano un POI ne' un rischio
+(:func:`frasi_escluse_m1`). Le frasi sono le stesse di M1: il controllo ISTAT le
+divide con lo stesso splitter
+(:func:`~crime_risk_analyzer.istat.cifre.dividi_frasi_m1`). Le frasi ancorate si
+misurano come in ogni braccio, anche se citano ISTAT.
 """
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 
 from crime_risk_analyzer.eval.pricing import cost_usd
 from crime_risk_analyzer.eval.schema import Metrics, Mode
+from crime_risk_analyzer.istat.cifre import blocco_misurato, dividi_frasi_m1
 from crime_risk_analyzer.orchestrator import AnalyzeResponse
 from crime_risk_analyzer.rag.generation import (
     ONTOLOGY_TOKEN,
     RiskModel,
     parse_source_prose,
+    source_block_spans,
 )
 from crime_risk_analyzer.rag.no_ontology_generation import LLM_SYNTHESIS_TOKEN
 
@@ -76,10 +84,6 @@ _MEASURED_TOKEN_BY_MODE: dict[Mode, str] = {
 #: Braccio assunto quando il chiamante non lo dichiara: quello storico. Tiene
 #: invariato ogni punto di misura scritto prima di #236.
 _DEFAULT_MODE: Mode = "analyze"
-
-
-def _sentences(text: str) -> list[str]:
-    return [s.strip() for s in re.split(r"[.\n]", text) if s.strip()]
 
 
 def _non_empty_lower(tokens: Iterable[str]) -> set[str]:
@@ -135,44 +139,37 @@ def hazards_cited_in(narrativa: str, mode: Mode) -> str:
     Ritorna il testo intero (non un insieme di token pre-estratti) perche' il
     chiamante ha già in mano gli hazard candidati da testare (dal
     ``risk_models`` del record) — stessa idea di :func:`_grounded`, ma
-    sull'intero blocco invece che per-frase. Stesso ``parse_source_prose`` e
-    la stessa sottostringa per-braccio di :func:`_ontology_assertions`.
+    sull'intero blocco invece che per-frase. Stesso blocco e la stessa
+    sottostringa per-braccio di :func:`_measured_spans`.
     """
     return parse_source_prose(
         narrativa or "", measured_token=_MEASURED_TOKEN_BY_MODE[mode]
     ).ontologia.lower()
 
 
-def _ontology_assertions(
-    resp: AnalyzeResponse, mode: Mode, narrativa: str | None = None
-) -> list[str]:
-    """Asserzioni gradabili dal proxy (M1, #229): le frasi del blocco misurato.
+def _measured_spans(narrativa: str, mode: Mode) -> list[tuple[int, int]]:
+    """Offset delle frasi del blocco misurato del braccio ``mode`` (M1, #229).
 
-    :func:`~crime_risk_analyzer.rag.generation.parse_source_prose` isola il CORPO del
-    blocco dalla narrativa a blocchi (#196): l'header e' gia' escluso dal parser,
-    l'``overview`` e il blocco ``[CONTESTO]`` finiscono in campi separati e NON entrano
-    qui (interpretazione -> gold umano). Ogni frase-corpo del blocco e' una asserzione
-    del braccio: il denominatore di grounding/hallucination. Una narrativa senza il
-    blocco atteso (vuota o non compliant) ritorna ``[]``: la distinzione tra ramo VACUO
-    e NON-ATTRIBUZIONE e' fatta in :func:`_grade`.
-
-    Quale riga-etichetta apra quel blocco dipende dal braccio
+    Il blocco e' quello di
+    :func:`~crime_risk_analyzer.rag.generation.parse_source_prose` (#196): senza
+    l'header, l'``overview`` e il blocco ``[CONTESTO]``, che sono interpretazione
+    (-> gold umano). Quale riga-etichetta lo apra dipende dal braccio
     (:data:`_MEASURED_TOKEN_BY_MODE`): ``[ONTOLOGIA]`` dove l'ontologia c'e'
-    davvero, ``[SINTESI-LLM]`` nel braccio ablato (#236).
-
-    ``narrativa`` (#345) sostituisce ``resp.narrativa`` quando fornita: l'harness
-    la usa per gradare M1 sul testo grezzo senza le frasi ISTAT (#368).
+    davvero, ``[SINTESI-LLM]`` nel braccio ablato (#236). Le frasi sono divise da
+    :func:`~crime_risk_analyzer.istat.cifre.dividi_frasi_m1`, lo stesso splitter con
+    cui il controllo ISTAT segna le sue frasi (#369). ``[]`` se il blocco manca.
     """
-    testo = resp.narrativa if narrativa is None else narrativa
-    return _measured_sentences(testo, mode)
+    spans = source_block_spans(narrativa, measured_token=_MEASURED_TOKEN_BY_MODE[mode])
+    blocco = blocco_misurato(spans)
+    if blocco is None:
+        return []
+    return dividi_frasi_m1(narrativa, blocco.inizio, blocco.fine)
 
 
 def _measured_sentences(narrativa: str | None, mode: Mode) -> list[str]:
     """Frasi del blocco misurato del braccio ``mode``; ``[]`` se il blocco manca."""
-    prose = parse_source_prose(
-        narrativa or "", measured_token=_MEASURED_TOKEN_BY_MODE[mode]
-    ).ontologia
-    return _sentences(prose)
+    testo = narrativa or ""
+    return [testo[a:b] for a, b in _measured_spans(testo, mode)]
 
 
 def _names_any(sentence: str, anchors: set[str]) -> bool:
@@ -186,9 +183,85 @@ def _grounded(assertions: list[str], anchors: set[str]) -> list[str]:
     return [s for s in assertions if _names_any(s, anchors)]
 
 
-def _grade(
-    resp: AnalyzeResponse, mode: Mode, narrativa: str | None = None
-) -> tuple[int, int] | None:
+def _testo_m1(resp: AnalyzeResponse) -> str:
+    """Testo che M1 grada: il grezzo del modello se c'e' il controllo ISTAT.
+
+    Il filtro toglie frasi dopo la generazione (#345): misurare il testo filtrato
+    cambierebbe le asserzioni misurate. Le frasi ISTAT del controllo hanno gli
+    offset del grezzo: una risposta col controllo e senza grezzo non si puo'
+    misurare e solleva :class:`ValueError` (l'orchestrator scrive sempre il
+    grezzo, quindi e' un errore di chi ha costruito la risposta).
+    """
+    if resp.controllo_istat is None:
+        return resp.narrativa or ""
+    if resp.narrativa_grezza is None:
+        raise ValueError(
+            "risposta con il controllo ISTAT ma senza narrativa_grezza: le frasi "
+            "ISTAT di M1 hanno gli offset del grezzo"
+        )
+    return resp.narrativa_grezza
+
+
+def _asserzioni(
+    resp: AnalyzeResponse, mode: Mode, anchors: set[str]
+) -> tuple[list[str], list[str]]:
+    """``(misurate, escluse)``: le frasi del blocco misurato divise fra le
+    asserzioni di M1 e le frasi ISTAT escluse (#369).
+
+    E' esclusa una frase che il controllo ISTAT segna come frase che parla del
+    dato (``EsitoControllo.frasi_istat_m1``, stesse frasi e stesso testo di M1) e
+    che non nomina un ancoraggio: non attribuisce un rischio a un punto, quindi
+    contarla come non ancorata misurerebbe quanto il modello parla di ISTAT. Una
+    frase ISTAT che nomina un POI o un rischio resta un'asserzione come le altre.
+    Senza controllo ISTAT nessuna frase e' esclusa.
+    """
+    testo = _testo_m1(resp)
+    controllo = resp.controllo_istat
+    istat: set[tuple[int, int]] = (
+        set(controllo.frasi_istat_m1) if controllo is not None else set()
+    )
+    misurate: list[str] = []
+    escluse: list[str] = []
+    for a, b in _measured_spans(testo, mode):
+        frase = testo[a:b]
+        if (a, b) in istat and not _names_any(frase, anchors):
+            escluse.append(frase)
+        else:
+            misurate.append(frase)
+    return misurate, escluse
+
+
+def frasi_escluse_m1(
+    resp: AnalyzeResponse, *, mode: Mode = _DEFAULT_MODE
+) -> list[str] | None:
+    """Frasi ISTAT escluse dal denominatore di M1 (#369); ``None`` senza ISTAT.
+
+    Sono le frasi del grezzo che parlano del dato ISTAT senza nominare un POI ne'
+    un rischio. L'harness le salva nel record, cosi' il testo misurato si
+    ricostruisce dal grezzo e l'esclusione si controlla a mano. Limite: un rischio
+    fuori dalla base di conoscenza scritto con le parole del dato ("secondo i dati
+    ISTAT ... sequestri di persona") finisce qui invece di contare come non
+    ancorato.
+
+    Sul ramo VACUO di :func:`_grade` (grezzo vuoto o nessun ancoraggio) M1 non
+    grada nulla, quindi non esclude nulla: ``[]``. Senza ancoraggi ogni frase ISTAT
+    risulterebbe "non ancorata" e il record dichiarerebbe esclusioni da un
+    denominatore che non esiste.
+    """
+    if resp.controllo_istat is None:
+        return None
+    anchors = _anchors(resp)
+    if _vacuo(resp, anchors):
+        return []
+    return _asserzioni(resp, mode, anchors)[1]
+
+
+def _vacuo(resp: AnalyzeResponse, anchors: set[str]) -> bool:
+    """Ramo VACUO di :func:`_grade`: grezzo vuoto o nessun ancoraggio da citare."""
+    return not _testo_m1(resp).strip() or not anchors
+
+
+def _grade(resp: AnalyzeResponse, mode: Mode) -> tuple[int, int] | None:
     """``(grounded, assertions)`` del blocco misurato, o ``None`` se non gradabile.
 
     ``None`` = ramo VACUO (grounding 1.0 / hallucination 0.0), riservato ai casi in cui
@@ -208,16 +281,15 @@ def _grade(
     generata): una narrativa ``None`` e' trattata come vuota, stesso ramo VACUO —
     l'harness gira solo su pipeline che oggi producono sempre una stringa.
 
-    ``narrativa`` (#345): passata a :func:`_ontology_assertions` al posto di
-    ``resp.narrativa``.
+    Con i dati ISTAT nel prompt (#345, #369) si grada il grezzo (:func:`_testo_m1`)
+    senza le frasi ISTAT escluse (:func:`_asserzioni`). Il ramo VACUO guarda il
+    grezzo intero: una narrativa fatta solo di frasi ISTAT, senza blocco o con il
+    blocco tutto escluso, non attribuisce rischi ai punti ed e' NON-ATTRIBUZIONE.
     """
-    testo = resp.narrativa if narrativa is None else narrativa
-    if not (testo or "").strip():
-        return None
     anchors = _anchors(resp)
-    if not anchors:
+    if _vacuo(resp, anchors):
         return None
-    assertions = _ontology_assertions(resp, mode, testo)
+    assertions, _ = _asserzioni(resp, mode, anchors)
     if not assertions:
         return (0, 1)
     return (len(_grounded(assertions, anchors)), len(assertions))
@@ -226,7 +298,7 @@ def _grade(
 def grounding(resp: AnalyzeResponse, *, mode: Mode = _DEFAULT_MODE) -> float:
     """Frazione di ASSERZIONI del blocco misurato ancorate ai dati [0,1] (M1, #229).
 
-    Asserzione = frase del blocco misurato (:func:`_ontology_assertions`); grounded =
+    Asserzione = frase del blocco misurato (:func:`_asserzioni`); grounded =
     asserzione che nomina un ancoraggio (POI/hazard, label EN/IT #77). Rami vacui
     (:func:`_grade` -> ``None``: narrativa vuota o nessun ancoraggio da citare) → 1.0.
     Narrativa piena con dati da citare ma senza asserzioni nel blocco (header
@@ -276,8 +348,8 @@ class RiskAnchoring:
     ``risk_models``, stesso blocco e stesse frasi di :func:`_grade`, ma le frasi
     ancorate sono divise fra quelle che nominano un rischio e quelle che nominano
     soltanto un punto. Sui record con dati ISTAT la condizione non vale (M1
-    grada ``testo_senza_frasi_istat``, che il record non salva): il report di
-    confronto li esclude. ``conforme`` e' ``False``
+    grada il grezzo senza le frasi ISTAT escluse, non ``RunRecord.narrativa``): il
+    report di confronto li esclude. ``conforme`` e' ``False``
     quando la narrativa e' piena ma il blocco misurato manca o e' vuoto (formato
     non rispettato): in quel caso tutti i conteggi sono zero.
     """
@@ -358,7 +430,6 @@ def compute_metrics(
     resp: AnalyzeResponse,
     *,
     mode: Mode = _DEFAULT_MODE,
-    narrativa_m1: str | None = None,
 ) -> Metrics:
     """Assembla le quattro metriche dalla AnalyzeResponse.
 
@@ -366,12 +437,11 @@ def compute_metrics(
     si pronunciano (#236). L'harness lo passa dal ``ExperimentConfig``, unico
     posto che lo conosce.
 
-    ``narrativa_m1`` (#345, #368): testo su cui gradare M1 al posto di
-    ``resp.narrativa``. Sui record con ISTAT l'harness passa il testo grezzo senza
-    le frasi che parlano del dato ISTAT: M1 resta un controllo di non peggioramento
-    dell'ancoraggio, formula e ``METRICS_VERSION`` invariate. Cambia il testo
-    misurato, quindi i record ISTAT scritti prima (``IstatMetrics.versione`` < 3)
-    non sono confrontabili.
+    Con i dati ISTAT nel prompt (``resp.controllo_istat``, #345, #369) M1 grada il
+    grezzo del modello senza le frasi che parlano del dato ISTAT e non nominano un
+    POI ne' un rischio (:func:`frasi_escluse_m1`). Formula, splitter e
+    ``METRICS_VERSION`` sono gli stessi; cambia il testo misurato, quindi i record
+    ISTAT di versioni diverse (``IstatMetrics.versione``) non si confrontano.
 
     ``quality_vacuous`` (#240) espone se questo record e' caduto nel ramo VACUO di
     :func:`_grade` (narrativa vuota o nessun ancoraggio da citare): grounding/
@@ -385,7 +455,7 @@ def compute_metrics(
     deterministico quindi non era un bug, ma le tre invocazioni indipendenti di
     prima erano lavoro ripetuto senza motivo.
     """
-    graded = _grade(resp, mode, narrativa_m1)
+    graded = _grade(resp, mode)
     if graded is None:
         grounding_value, hallucination_value = 1.0, 0.0
     else:
