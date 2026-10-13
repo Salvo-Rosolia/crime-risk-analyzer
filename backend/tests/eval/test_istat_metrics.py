@@ -29,11 +29,12 @@ def _metriche(testo: str) -> IstatMetrics:
     return compute_istat_metrics(esito)
 
 
-def test_versione_2_dal_365() -> None:
-    """Frasi ISTAT, voci citate e corrispondenze cambiano significato con #365."""
-    assert ISTAT_METRICS_VERSION == 2
+def test_versione_3_dal_368() -> None:
+    """Frasi ISTAT, voci citate e corrispondenze cambiano significato con #365;
+    con #368 M1 grada un altro testo, quindi la versione sale ancora."""
+    assert ISTAT_METRICS_VERSION == 3
     m = _metriche("Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nRapina.\n")
-    assert m.versione == 2
+    assert m.versione == 3
 
 
 def test_i_record_scritti_prima_sono_versione_1() -> None:
@@ -111,7 +112,7 @@ def test_somma_fra_ripetizioni() -> None:
     )
     s = somma_istat_metrics([a, None, b])
     assert s is not None
-    assert (s.versione, s.cifre_totali, s.cifre_istat) == (2, 1, 1)
+    assert (s.versione, s.cifre_totali, s.cifre_istat) == (3, 1, 1)
     assert (s.frasi_istat, s.confronti_totali, s.confronti_coerenti) == (2, 1, 1)
     assert somma_istat_metrics([None, None]) is None
 

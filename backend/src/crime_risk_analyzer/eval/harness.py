@@ -183,13 +183,15 @@ def _record_from_response(
         # Il ``mode`` decide su quale blocco i proxy testuali si pronunciano
         # (#236): il braccio ablato etichetta il suo blocco per cio' che e', e
         # misurarlo sull'etichetta dell'altro lo darebbe per non attribuito.
-        # ``narrativa_m1`` (#345): sui record con ISTAT, M1 grada il testo grezzo
-        # SENZA le frasi con cifre ISTAT (il filtro altrimenti cambierebbe anche
-        # le asserzioni misurate, non solo cio' che l'operatore vede).
+        # ``narrativa_m1`` (#345, #368): sui record con ISTAT, M1 grada il testo
+        # grezzo SENZA le frasi che parlano del dato ISTAT. Il filtro altrimenti
+        # cambierebbe le asserzioni misurate, e di norma quelle frasi non nominano
+        # un POI ne' un rischio, quindi contano come non ancorate. Non sempre: la
+        # regola taglia anche frasi ancorate (limite noto, #369).
         metrics=compute_metrics(
             resp,
             mode=config.mode,
-            narrativa_m1=resp.controllo_istat.testo_senza_cifre_istat
+            narrativa_m1=resp.controllo_istat.testo_senza_frasi_istat
             if resp.controllo_istat
             else None,
         ),

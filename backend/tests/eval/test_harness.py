@@ -1509,7 +1509,7 @@ async def test_run_case_con_istat_scrive_provenienza_grezzo_e_metriche(
     assert "999" not in rec.narrativa
     assert rec.istat_frasi_scartate == 1
     assert rec.istat_metrics is not None
-    assert (rec.istat_metrics.versione, rec.istat_metrics.voci_fornite) == (2, 1)
+    assert (rec.istat_metrics.versione, rec.istat_metrics.voci_fornite) == (3, 1)
     assert (rec.istat_metrics.frasi_istat, rec.istat_metrics.voci_citate) == (1, 1)
 
 
@@ -1544,11 +1544,11 @@ async def test_run_case_a_istat_spento_grezzo_uguale_alla_narrativa(
     )
 
 
-async def test_m1_su_record_istat_grada_il_testo_senza_cifre_istat(
+async def test_m1_su_record_istat_grada_il_testo_senza_frasi_istat(
     tmp_path: Path,
 ) -> None:
     """F10 (review finale): M1 su un record ISTAT e' calcolato su
-    ``testo_senza_cifre_istat``, non sul testo filtrato ne' sul grezzo.
+    ``testo_senza_frasi_istat``, non sul testo filtrato ne' sul grezzo.
 
     Il blocco misurato ha tre frasi: una ancorata (Banca A), una con un numero
     inventato senza ancoraggio (tolta dal filtro ma NON dal testo per M1) e una
@@ -1618,6 +1618,66 @@ async def test_m1_su_record_istat_grada_il_testo_senza_cifre_istat(
     # F8: il record dice con quale budget la richiesta e' stata costruita.
     assert rec.provenance.request_token_budget == DEFAULT_REQUEST_TOKEN_BUDGET
     assert rec.provenance.llm_max_tokens == DEFAULT_MAX_TOKENS
+
+
+async def test_m1_su_record_istat_ignora_le_frasi_istat_senza_cifre(
+    tmp_path: Path,
+) -> None:
+    """#368: una frase ISTAT a parole che non nomina un POI ne' un rischio, nel
+    blocco misurato, non deve abbassare il grounding con ISTAT acceso: la stessa
+    narrativa, con e senza quella frase, ha le stesse metriche M1. Vale per le
+    frasi senza ancoraggi; quelle con POI o rischio sono il limite della #369."""
+    from crime_risk_analyzer.models.risk import PoiRiskProfile
+    from tests.eval._doubles import FakeLLMClient, FakeProfiler
+
+    pois = [
+        Poi(
+            id="node/1",
+            name="Banca A",
+            lat=41.8902,
+            lon=12.4922,
+            osm_tags="amenity=bank",
+            terminus_class="Bank",
+            citta="Roma",
+        )
+    ]
+    scrivi_snapshot(
+        snapshot_path(tmp_path, make_snapshot_key("Roma", "Colosseo")), pois
+    )
+    cfg = ExperimentConfig(
+        name="istat",
+        mode="analyze",
+        model="groq",
+        cases=[RunCase(citta="Roma", zona="Colosseo")],
+        istat=True,
+    )
+    profili = {
+        "Bank": PoiRiskProfile(
+            terminus_class="Bank",
+            hazards=["Bank_robbery", "Property_theft"],
+            sparql_paths=["Bank → havingHazard → Bank_robbery"],
+        )
+    }
+    base = (
+        "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nBanca A: rapina in banca. "
+        "Si stimano 999 episodi l'anno."
+    )
+    frase_istat = " Secondo l'ISTAT a Roma i furti sono in calo."
+    metriche: list[tuple[float, float]] = []
+    for testo in (base + "\n", base + frase_istat + "\n"):
+        rec = await run_case(
+            cfg.cases[0],
+            cfg,
+            executor=FakeProfiler(profili),
+            llm_client=FakeLLMClient(
+                default_llm_response().model_copy(update={"text": testo})
+            ),
+            results_dir=tmp_path,
+            code_commit="c",
+            ontology_hash="o",
+        )
+        metriche.append((rec.metrics.grounding, rec.metrics.hallucination))
+    assert metriche[0] == metriche[1] == (0.5, 0.5)
 
 
 async def test_baseline_non_registra_un_budget_llm(tmp_path: Path) -> None:

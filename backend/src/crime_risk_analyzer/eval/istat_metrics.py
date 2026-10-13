@@ -19,8 +19,9 @@ from crime_risk_analyzer.istat.dati import VOCE_TOTALE
 __all__ = ["ISTAT_METRICS_VERSION", "compute_istat_metrics", "somma_istat_metrics"]
 
 #: Versione delle metriche ISTAT scritte da :func:`compute_istat_metrics`. 1 =
-#: #345 (cifre nel blocco [ISTAT]), 2 = #365 (dati a parole, senza cifre).
-ISTAT_METRICS_VERSION = 2
+#: #345 (cifre nel blocco [ISTAT]), 2 = #365 (dati a parole, senza cifre), 3 =
+#: #368 (M1 non misura le frasi ISTAT: stessi conteggi, altro testo gradato).
+ISTAT_METRICS_VERSION = 3
 
 #: Euristica: la frase dice che la voce non coincide col rischio.
 _DICHIARAZIONE = re.compile(
