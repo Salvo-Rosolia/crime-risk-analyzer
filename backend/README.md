@@ -60,7 +60,8 @@ uv run uvicorn crime_risk_analyzer.main:app --reload
 L'app espone, tra gli altri, `GET /health` → `{"status": "ok", "ontology_triples": <n>}`,
 `GET /cities` (città suggerite per l'autocomplete del campo città, non un vincolo)
 e `GET /geocode?query=...` → `{"lat": <float>, "lon": <float>}` (forward-geocode di un
-luogo libero, per la casella "vai a un luogo" del frontend — 404 se non trovato).
+luogo libero, per la casella "vai a un luogo" del frontend — 404 se non trovato,
+422 se la query è vuota o di soli spazi).
 
 ## Test
 

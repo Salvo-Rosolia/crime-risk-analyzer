@@ -24,6 +24,8 @@ eval, non un difetto qui.
 from __future__ import annotations
 
 import threading
+import time
+import unicodedata
 from collections.abc import Callable
 from functools import lru_cache
 from typing import Protocol, TypedDict, TypeVar, cast
@@ -120,8 +122,9 @@ _CACHE: dict[tuple[str, str], GeoResult] = {}
 #: illimitato crescerebbe senza freno in un processo longevo. Al riempimento si
 #: evince la entry piu' vecchia (FIFO: i ``dict`` 3.7+ preservano l'ordine di
 #: inserimento). 1024 chiavi (zona, citta') sono ampie per l'uso reale e tengono
-#: la memoria trascurabile. Dal #344 il tetto vale per CIASCUNO dei due store
-#: (``_CACHE`` e ``_FREEFORM_CACHE``): in totale fino a 2 x 1024 voci.
+#: la memoria trascurabile. Il tetto vale per CIASCUNO degli store (``_CACHE``,
+#: ``_FREEFORM_CACHE`` dal #344, ``_FREEFORM_NEGATIVE_CACHE`` dal #376): in
+#: totale fino a 3 x 1024 voci.
 _CACHE_MAXSIZE = 1024
 
 #: Cache dei punti di :func:`geocode_freeform` (#344, casella "vai a un luogo"):
@@ -129,6 +132,23 @@ _CACHE_MAXSIZE = 1024
 #: ``_CACHE``, ma store separato perche' chiave e valore sono diversi. Il valore
 #: e' una tupla immutabile: niente copia difensiva.
 _FREEFORM_CACHE: dict[str, tuple[float, float]] = {}
+
+#: Cache negativa di :func:`geocode_freeform` (#376): i "nessun risultato".
+#: Senza, un luogo inesistente torna a Nominatim a ogni invio e si accoda sul
+#: rate limiter condiviso con ``/analyze``. Stesso gate, tetto, eviction FIFO e
+#: lock degli altri store; il valore e' l'istante di scadenza su
+#: :data:`_clock`. Gli errori di servizio non ci entrano mai.
+_FREEFORM_NEGATIVE_CACHE: dict[str, float] = {}
+
+#: Durata (secondi) di una voce negativa. Breve, a differenza dei successi che
+#: restano per tutta la vita del processo: un luogo appena aggiunto a OSM, o un
+#: "nessun risultato" dovuto a un problema transitorio di Nominatim, torna
+#: trovabile entro dieci minuti senza riavviare il backend.
+_FREEFORM_NEGATIVE_TTL_SECONDS = 600.0
+
+#: Orologio della scadenza: monotono, quindi immune ai cambi dell'ora di
+#: sistema. Variabile di modulo cosi' i test lo sostituiscono.
+_clock: Callable[[], float] = time.monotonic
 
 #: Le funzioni pubbliche girano in ``run_in_threadpool``, quindi su piu' thread
 #: insieme. Le singole operazioni sui ``dict`` sono atomiche, la sequenza
@@ -159,21 +179,51 @@ def _cache_put(store: dict[_K, _V], key: _K, value: _V) -> None:
         store[key] = value
 
 
+def _negative_cache_hit(key: str) -> bool:
+    """True se ``key`` ha un "nessun risultato" non ancora scaduto (#376).
+
+    Una voce scaduta si elimina qui, sotto lo stesso lock: non occupa piu' posto
+    nello store e un nuovo "nessun risultato" la reinserisce in coda.
+    """
+    with _CACHE_LOCK:
+        expires_at = _FREEFORM_NEGATIVE_CACHE.get(key)
+        if expires_at is None:
+            return False
+        if _clock() < expires_at:
+            return True
+        del _FREEFORM_NEGATIVE_CACHE[key]
+        return False
+
+
 def _cache_key(zona: str, citta: str) -> tuple[str, str]:
     return (zona.strip().lower(), citta.strip().lower())
 
 
 def _freeform_key(query: str) -> str:
-    """Chiave di :data:`_FREEFORM_CACHE` (#344).
+    """Chiave di :data:`_FREEFORM_CACHE` e :data:`_FREEFORM_NEGATIVE_CACHE`.
 
     Toglie solo le differenze che Nominatim ignora comunque: maiuscole e
     varianti equivalenti nel confronto senza maiuscole di Unicode (``casefold``,
-    piu' ampio di ``lower``: anche "ß" -> "ss" e legature come "ﬁ" -> "fi") e
-    spazi (ai bordi, multipli o tab interni ridotti a uno).
-    Cifre e punteggiatura restano: "Via Roma 1" e "Via Roma, 10" sono luoghi
-    diversi.
+    piu' ampio di ``lower``: anche "ß" -> "ss" e legature come "ﬁ" -> "fi"),
+    spazi (ai bordi, multipli o tab interni ridotti a uno, #344) e forma
+    Unicode (#376): "Città" con l'accento precomposto o scomposto e' lo stesso
+    testo.
+
+    La forma Unicode si fissa con NFC sia prima sia dopo ``casefold``: la
+    chiave rispetta l'equivalenza canonica e, per i testi realistici, coincide
+    con la forma di confronto canonica senza maiuscole di Unicode (NFD prima e
+    dopo ``casefold``). Differisce solo su sequenze greche patologiche con
+    doppio accento e ypogegrammeni. Prima: ``casefold`` non rispetta
+    l'equivalenza canonica, e due ordini equivalenti dei segni diacritici
+    darebbero chiavi diverse. Dopo: ``casefold`` puo' produrre testo non NFC
+    (U+0390 diventa tre code point).
+    NFC, non NFKC: le varianti di compatibilita' (apici, frazioni) restano
+    testo diverso. Cifre e punteggiatura restano: "Via Roma 1" e
+    "Via Roma, 10" sono luoghi diversi.
     """
-    return " ".join(query.split()).casefold()
+    collapsed = " ".join(query.split())
+    folded = unicodedata.normalize("NFC", collapsed).casefold()
+    return unicodedata.normalize("NFC", folded)
 
 
 def _copy_result(result: GeoResult) -> GeoResult:
@@ -406,11 +456,13 @@ def geocode_freeform(query: str) -> tuple[float, float] | None:
     Con ``Settings.cache_enabled`` i successi sono memorizzati per chiave
     normalizzata (#344): ripetere lo stesso luogo non rimette in coda una
     richiesta sul rate limiter condiviso con ``/analyze``. A Nominatim va
-    comunque il testo cosi' come digitato. Non si memorizzano gli errori di
-    servizio (sollevano prima) ne' "nessun risultato", come per la zona non
-    trovata di :func:`geocode_zone`: un ``None`` resterebbe in cache per tutta
-    la vita del processo. Due miss concorrenti sulla stessa chiave interrogano
-    entrambi Nominatim (nessuna deduplica delle richieste in volo).
+    comunque il testo cosi' come digitato. Anche il "nessun risultato" e'
+    memorizzato (#376), ma in uno store a parte e solo per
+    :data:`_FREEFORM_NEGATIVE_TTL_SECONDS`: un luogo inesistente ripetuto non
+    torna a Nominatim, uno appena comparso su OSM si ritrova dopo la scadenza.
+    Gli errori di servizio non si memorizzano mai (sollevano prima). Due miss
+    concorrenti sulla stessa chiave interrogano entrambi Nominatim (nessuna
+    deduplica delle richieste in volo).
     """
     settings = get_settings()
     key = _freeform_key(query)
@@ -418,6 +470,8 @@ def geocode_freeform(query: str) -> tuple[float, float] | None:
         cached = _cache_get(_FREEFORM_CACHE, key)
         if cached is not None:
             return cached
+        if _negative_cache_hit(key):
+            return None
 
     try:
         location = _get_rate_limited_call()("geocode", query)
@@ -426,6 +480,12 @@ def geocode_freeform(query: str) -> tuple[float, float] | None:
             f"Servizio di geocoding non raggiungibile per {query!r}"
         ) from exc
     if location is None:
+        if settings.cache_enabled:
+            _cache_put(
+                _FREEFORM_NEGATIVE_CACHE,
+                key,
+                _clock() + _FREEFORM_NEGATIVE_TTL_SECONDS,
+            )
         return None
     point = (location.latitude, location.longitude)
     if settings.cache_enabled:
