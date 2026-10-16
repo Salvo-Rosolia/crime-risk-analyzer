@@ -1952,3 +1952,339 @@ def test_un_nuovo_luogo_esplicito_chiude_l_elenco_istat() -> None:
         (None, True),
         (None, False),
     ]
+
+
+# --- #386: plurali, negazioni, forme mancanti, piu' luoghi per esteso ---
+# Caso di prova: furti nel Comune di Roma con tasso piu' alto di quello italiano e
+# in calo dal 2014; rapine in esercizi commerciali piu' alte e in crescita;
+# danneggiamenti senza tendenza (rottura del 2016).
+
+
+@pytest.mark.parametrize(
+    ("frase", "atteso"),
+    [
+        # plurali: "tassi", "quelli italiani", "valori nazionali", "livelli italiani"
+        ("Nel Comune di Roma i furti hanno tassi più bassi.", "confronto_contrario"),
+        ("I tassi dei furti sono inferiori a quelli italiani.", "luogo_mancante"),
+        (
+            "Nel Comune di Roma i tassi dei furti sono inferiori a quelli italiani.",
+            "confronto_contrario",
+        ),
+        (
+            "Nel Comune di Roma i furti hanno tassi inferiori ai valori nazionali.",
+            "confronto_contrario",
+        ),
+        (
+            "Nel Comune di Roma i furti sono sotto i livelli italiani.",
+            "confronto_contrario",
+        ),
+        # negazioni
+        (
+            "Nel Comune di Roma il tasso dei furti non è più alto di quello italiano.",
+            "confronto_contrario",
+        ),
+        (
+            "Nel Comune di Roma i furti non hanno un tasso più alto di quello italiano.",
+            "confronto_contrario",
+        ),
+        (
+            "Secondo l'ISTAT, nel Comune di Roma i furti non sono in calo.",
+            "direzione_contraria",
+        ),
+        (
+            "Secondo l'ISTAT, nel Comune di Roma i furti non sono più in calo.",
+            "direzione_contraria",
+        ),
+        (
+            "Secondo l'ISTAT, nel Comune di Roma non c'è nessun calo dei furti.",
+            "direzione_contraria",
+        ),
+        # negazione su una voce senza tendenza calcolata: non verificabile
+        (
+            "Secondo l'ISTAT, nel Comune di Roma i danneggiamenti non sono in calo.",
+            "direzione_contraria",
+        ),
+        # forme di confronto mancanti
+        (
+            "Secondo l'ISTAT, nel Comune di Roma i furti sono meno che nel resto d'Italia.",
+            "confronto_contrario",
+        ),
+        (
+            "Nel Comune di Roma i furti sono meno numerosi che in Italia.",
+            "confronto_contrario",
+        ),
+        (
+            "Nel Comune di Roma i furti sono più rari che in Italia.",
+            "confronto_contrario",
+        ),
+        (
+            "Nel Comune di Roma il tasso dei furti è più ridotto di quello italiano.",
+            "confronto_contrario",
+        ),
+        (
+            "Nel Comune di Roma i furti sono meno frequenti che nel resto d'Italia.",
+            "confronto_contrario",
+        ),
+        # forme di tendenza mancanti
+        (
+            "Nel Comune di Roma i furti sono in ripresa dal 2014.",
+            "direzione_contraria",
+        ),
+        (
+            "Nel Comune di Roma i furti sono raddoppiati dal 2014.",
+            "direzione_contraria",
+        ),
+    ],
+)
+def test_frasi_sbagliate_della_verifica_386_si_tolgono(
+    frase: str, atteso: Motivo
+) -> None:
+    """#386: frasi false che il controllo lasciava nel testo."""
+    testo = _ontologia(frase)
+    esito = _controlla(testo)
+    assert _motivi(esito) == [atteso]
+    assert frase not in esito.testo_filtrato
+
+
+@pytest.mark.parametrize(
+    "frase",
+    [
+        # la negazione inverte: giuste su una voce in crescita o piu' alta
+        "Secondo l'ISTAT, nel Comune di Roma le rapine in esercizi commerciali non "
+        "sono in calo.",
+        "Secondo l'ISTAT, nel Comune di Roma i furti non sono in crescita.",
+        "Nel Comune di Roma il tasso dei furti non è più basso di quello italiano.",
+        "Nel Comune di Roma il tasso dei furti non è simile a quello italiano.",
+        # la negazione in un'altra proposizione non conta
+        "Secondo l'ISTAT, nel Comune di Roma i furti, che non mancano, sono in calo.",
+        # "non" pleonastico dopo il confronto, "non solo": non negano
+        "Nel Comune di Roma il tasso dei furti è più alto di quanto non sia quello "
+        "italiano.",
+        "Secondo l'ISTAT, nel Comune di Roma i furti non solo sono in calo dal 2014.",
+        # plurali e forme nuove, giusti
+        "Nel Comune di Roma i furti hanno tassi più alti dell'italiano.",
+        "Nel Comune di Roma i furti hanno tassi più alti.",
+        "Nel Comune di Roma i tassi dei furti sono superiori a quelli italiani.",
+        "Nel Comune di Roma i furti sono più numerosi che in Italia.",
+        "Nel Comune di Roma i furti sono più che nel resto d'Italia.",
+        "Secondo l'ISTAT, nel Comune di Roma le rapine in esercizi commerciali sono "
+        "in ripresa dal 2014.",
+        "Nel Comune di Roma le rapine in esercizi commerciali sono raddoppiate dal "
+        "2014.",
+    ],
+)
+def test_frasi_giuste_della_verifica_386_restano(frase: str) -> None:
+    testo = _ontologia(frase)
+    esito = _controlla(testo)
+    assert _motivi(esito) == [None]
+    assert esito.frasi[-1].parla_di_istat
+    assert esito.testo_filtrato == testo
+
+
+@pytest.mark.parametrize(
+    "frase",
+    [
+        "Il quartiere non ha un'età media superiore alla media nazionale.",
+        "I tassi di affollamento della stazione non sono più alti la sera.",
+        "La ripresa delle telecamere non copre i furti nella stazione.",
+    ],
+)
+def test_frasi_senza_dato_istat_della_verifica_386_restano(frase: str) -> None:
+    """#386 non allarga cio' che parla del dato: niente voce, niente ISTAT (#385)."""
+    testo = _ontologia(frase)
+    esito = _controlla(testo)
+    assert [(f.motivo, f.parla_di_istat) for f in esito.frasi[-1:]] == [(None, False)]
+    assert esito.testo_filtrato == testo
+
+
+@pytest.mark.parametrize(
+    ("testo", "atteso"),
+    [
+        ("i furti hanno tassi più bassi", "piu_basso"),
+        ("sono inferiori a quelli italiani", "piu_basso"),
+        ("tassi inferiori ai valori nazionali", "piu_basso"),
+        ("sotto i livelli italiani", "piu_basso"),
+        ("sotto i dati nazionali", "piu_basso"),
+        ("meno che nel resto d'Italia", "piu_basso"),
+        ("meno numerosi che in Italia", "piu_basso"),
+        ("più rari che in Italia", "piu_basso"),
+        ("più ridotto di quello italiano", "piu_basso"),
+        ("meno frequenti che nel resto d'Italia", "piu_basso"),
+        ("più numerosi che in Italia", "piu_alto"),
+        ("meno rari che in Italia", "piu_alto"),
+        ("più che nel resto d'Italia", "piu_alto"),
+        ("tassi più alti dell'italiano", "piu_alto"),
+    ],
+)
+def test_parole_di_confronto_386(testo: str, atteso: str) -> None:
+    assert confronto_di(testo) == atteso
+
+
+@pytest.mark.parametrize(
+    ("testo", "atteso"),
+    [
+        ("i furti sono in ripresa", "su"),
+        ("i furti sono raddoppiati", "su"),
+        ("le rapine sono raddoppiate", "su"),
+        # "ripresa" senza "in" non e' una tendenza
+        ("la ripresa delle telecamere", ""),
+    ],
+)
+def test_parole_di_tendenza_386(testo: str, atteso: str) -> None:
+    assert direzione_di(testo) == atteso
+
+
+def test_la_negazione_e_nell_esito() -> None:
+    testo = _ontologia(
+        "Secondo l'ISTAT, nel Comune di Roma i furti non sono in crescita. Nel "
+        "Comune di Roma il tasso dei furti non è più basso di quello italiano."
+    )
+    direzione, confronto = _controlla(testo).frasi[-2:]
+    assert (direzione.direzione, direzione.direzione_negata) == ("su", True)
+    assert direzione.direzione_coerente is True
+    assert (confronto.confronto, confronto.confronto_negato) == ("piu_basso", True)
+    assert confronto.confronto_coerente is True
+
+
+@pytest.mark.parametrize(
+    ("corpo", "atteso"),
+    [
+        # (a) piu' luoghi per esteso: la frase deve valere per tutti
+        (
+            "Secondo l'ISTAT, nel Comune di Roma e nella Provincia di Roma i furti "
+            "sono in crescita.",
+            ["direzione_contraria"],
+        ),
+        (
+            "Secondo l'ISTAT, nella Provincia di Roma e nel Comune di Roma i furti "
+            "sono in calo.",
+            ["direzione_contraria"],
+        ),
+        (
+            "Secondo l'ISTAT, nel Comune di Roma e nella Provincia di Roma i furti "
+            "hanno un tasso più alto di quello italiano.",
+            [None],
+        ),
+        # i luoghi per esteso passano alla frase dopo, ancora tutti
+        (
+            "Secondo l'ISTAT, nel Comune di Roma e nella Provincia di Roma i furti "
+            "hanno un tasso più alto di quello italiano. I furti sono in crescita "
+            "dal 2014.",
+            [None, "direzione_contraria"],
+        ),
+    ],
+)
+def test_piu_luoghi_per_esteso_devono_concordare_tutti(
+    corpo: str, atteso: list[Motivo | None]
+) -> None:
+    assert _motivi(_controlla_con(_ontologia(corpo), _DUE_LUOGHI)) == atteso
+
+
+@pytest.mark.parametrize(
+    "corpo",
+    [
+        "Secondo l'ISTAT, a Roma i furti sono in crescita.",
+        "Secondo l'ISTAT, a Roma i furti sono in calo.",
+        # il nome breve passa il luogo alla frase dopo con la stessa regola
+        "Secondo l'ISTAT, a Roma i furti hanno un tasso più alto di quello "
+        "italiano. I furti sono in crescita dal 2014.",
+    ],
+)
+def test_limite_il_nome_breve_basta_che_concordi_un_luogo(corpo: str) -> None:
+    """Limite dichiarato (R6, #386 b): "Roma" vale per il comune e la provincia e
+    la frase resta se concorda con almeno uno. "A Roma i furti sono in crescita"
+    passa anche se nel comune sono in calo (in crescita nella provincia)."""
+    esito = _controlla_con(_ontologia(corpo), _DUE_LUOGHI)
+    assert _motivi(esito) == [None] * len(_motivi(esito))
+
+
+def test_limite_una_negazione_vicina_inverte_anche_se_non_regge_la_parola() -> None:
+    """Limite dichiarato (#386): "non" a meno di 4 parole dalla tendenza la nega
+    anche quando regge un'altra parola; la frase giusta si toglie."""
+    testo = _ontologia(
+        "Secondo l'ISTAT, nel Comune di Roma i furti non denunciati sono in calo."
+    )
+    assert _motivi(_controlla(testo)) == ["direzione_contraria"]
+
+
+@pytest.mark.parametrize(
+    ("frase", "atteso"),
+    [
+        # solo "quelli italiani" fa parlare del dato
+        (
+            "Nel Comune di Roma i furti sono inferiori a quelli italiani.",
+            "confronto_contrario",
+        ),
+        # solo "tassi dei <voce>" fa parlare del dato
+        ("I tassi dei furti preoccupano.", "luogo_mancante"),
+        # la negazione sta fra "tasso" e la parola di confronto
+        (
+            "Nel Comune di Roma il tasso non è più alto per i furti.",
+            "confronto_contrario",
+        ),
+        # lo stesso confronto negato e non negato e' misto
+        (
+            "Nel Comune di Roma il tasso dei furti è più alto di quello italiano, ma "
+            "non è più alto della media italiana.",
+            "confronto_contrario",
+        ),
+        # una negazione a piu' di 3 parole dalla tendenza non la nega
+        (
+            "Secondo l'ISTAT, nel Comune di Roma i furti che non vengono denunciati "
+            "sono in calo.",
+            None,
+        ),
+    ],
+)
+def test_marcatori_e_negazioni_386(frase: str, atteso: Motivo | None) -> None:
+    assert _motivi(_controlla(_ontologia(frase))) == [atteso]
+
+
+def test_tendenza_negata_e_non_negata_non_si_verifica() -> None:
+    """Come per tendenze diverse: la frase non si verifica su quell'asse."""
+    testo = _ontologia(
+        "Secondo l'ISTAT, nel Comune di Roma i furti sono in calo, non in calo."
+    )
+    frase = _controlla(testo).frasi[-1]
+    assert (frase.direzione, frase.direzione_negata, frase.motivo) == ("", False, None)
+
+
+_PROVINCIA_BASSA = riga(
+    luogo="ITE43",
+    nome="Provincia di Roma",
+    breve="Roma",
+    tipo="provincia",
+    tasso=1000.0,
+    italia=1788.7,
+    variazione=5,
+)
+_COMUNE_E_PROVINCIA_BASSA = blocco_istat_zona(
+    [
+        {"poi_id": "a", "istat": istat_poi(_COMUNE)},
+        {"poi_id": "b", "istat": istat_poi(_PROVINCIA_BASSA)},
+    ],
+    stima_token=len,
+    limite_token=None,
+)
+
+
+@pytest.mark.parametrize(
+    ("frase", "atteso"),
+    [
+        # (a) per esteso: piu' alto nel comune, piu' basso nella provincia
+        (
+            "Secondo l'ISTAT, nel Comune di Roma e nella Provincia di Roma i furti "
+            "hanno un tasso più alto di quello italiano.",
+            "confronto_contrario",
+        ),
+        # (b) limite dichiarato: col nome breve basta un luogo
+        (
+            "Secondo l'ISTAT, a Roma i furti hanno un tasso più alto di quello "
+            "italiano.",
+            None,
+        ),
+    ],
+)
+def test_confronto_con_piu_luoghi(frase: str, atteso: Motivo | None) -> None:
+    esito = _controlla_con(_ontologia(frase), _COMUNE_E_PROVINCIA_BASSA)
+    assert _motivi(esito) == [atteso]
