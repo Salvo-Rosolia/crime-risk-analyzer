@@ -35,6 +35,7 @@ from crime_risk_analyzer.sparql_module.osm_mapping import (
     ORDINE_FAMIGLIE,
     OSM_SELECTORS,
     OSM_TO_TERMINUS,
+    SELETTORI_CEDEVOLI,
     map_to_terminus,
 )
 
@@ -246,13 +247,29 @@ def _extract_osm_tag(tags: Mapping[str, object]) -> str:
     ``key=value`` che esiste nel binding :data:`OSM_TO_TERMINUS`. Cosi' un POI
     multi-tag e' classificato dal tag effettivamente mappato e non da un tag spurio
     a priorita' piu' alta. Ritorna stringa vuota se nessun tag noto e' presente.
+
+    Eccezione (#373): un selettore in :data:`SELETTORI_CEDEVOLI` cede alla famiglia
+    indicata se questa porta un tag mappato sullo stesso elemento
+    (``tourism=attraction`` + ``historic=archaeological_site`` ->
+    ``historic=archaeological_site``).
     """
     for family in ORDINE_FAMIGLIE:
-        value = tags.get(family)
-        if isinstance(value, str):
-            selector = f"{family}={value}"
-            if selector in OSM_TO_TERMINUS:
-                return selector
+        selector = _mapped_selector(tags, family)
+        if selector:
+            preferita = SELETTORI_CEDEVOLI.get(selector)
+            if preferita is not None:
+                return _mapped_selector(tags, preferita) or selector
+            return selector
+    return ""
+
+
+def _mapped_selector(tags: Mapping[str, object], family: str) -> str:
+    """``family=valore`` se ``tags`` lo porta ed e' nel binding, altrimenti ``""``."""
+    value = tags.get(family)
+    if isinstance(value, str):
+        selector = f"{family}={value}"
+        if selector in OSM_TO_TERMINUS:
+            return selector
     return ""
 
 

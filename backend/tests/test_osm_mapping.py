@@ -4,6 +4,7 @@ from crime_risk_analyzer.sparql_module.osm_mapping import (
     ORDINE_FAMIGLIE,
     OSM_SELECTORS,
     OSM_TO_TERMINUS,
+    SELETTORI_CEDEVOLI,
     map_to_terminus,
 )
 
@@ -158,3 +159,18 @@ def test_spec_bindings_present_real_attraction() -> None:
     """tourism=attraction -> Historical_monument (non Archaeological_site)."""
     assert OSM_TO_TERMINUS["tourism=attraction"] == "Historical_monument"
     assert OSM_TO_TERMINUS["historic=archaeological_site"] == "Archaeological_site"
+
+
+def test_selettori_cedevoli_cedono_a_una_famiglia_successiva_mappata() -> None:
+    """Ogni selettore generico e' nel binding e cede a una famiglia del mapping che
+    in ORDINE_FAMIGLIE viene DOPO la sua (altrimenti vincerebbe gia' per ordine)."""
+    for selettore, famiglia in SELETTORI_CEDEVOLI.items():
+        assert selettore in OSM_TO_TERMINUS
+        propria = selettore.split("=")[0]
+        assert ORDINE_FAMIGLIE.index(famiglia) > ORDINE_FAMIGLIE.index(propria)
+
+
+def test_tourism_attraction_cede_a_historic() -> None:
+    """#373: sullo stesso elemento ``historic=*`` mappato prevale su
+    ``tourism=attraction`` (Colosseo -> Archaeological_site)."""
+    assert SELETTORI_CEDEVOLI == {"tourism=attraction": "historic"}

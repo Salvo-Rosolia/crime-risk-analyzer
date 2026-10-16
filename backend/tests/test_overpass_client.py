@@ -1190,6 +1190,73 @@ async def test_fetch_pois_picks_first_mapped_selector_not_first_present() -> Non
 
 
 @respx.mock
+@pytest.mark.parametrize(
+    ("tags", "osm_tag", "terminus_class"),
+    [
+        pytest.param(
+            {
+                "historic": "archaeological_site",
+                "tourism": "attraction",
+                "name": "Colosseo",
+            },
+            "historic=archaeological_site",
+            "Archaeological_site",
+            id="colosseo-archaeological-site-prevale-su-attraction",
+        ),
+        pytest.param(
+            {"tourism": "attraction", "historic": "monument", "name": "Arco"},
+            "historic=monument",
+            "Historical_monument",
+            id="arco-monument-prevale-su-attraction",
+        ),
+        pytest.param(
+            {"tourism": "attraction", "historic": "wayside_cross", "name": "Croce"},
+            "tourism=attraction",
+            "Historical_monument",
+            id="historic-non-mappato-non-ruba-ad-attraction",
+        ),
+        pytest.param(
+            {"tourism": "museum", "historic": "castle", "name": "Castello"},
+            "tourism=museum",
+            "Museum",
+            id="museum-resta-davanti-a-historic",
+        ),
+        pytest.param(
+            {
+                "amenity": "place_of_worship",
+                "tourism": "attraction",
+                "historic": "monument",
+                "name": "Basilica",
+            },
+            "amenity=place_of_worship",
+            "Place_of_worship",
+            id="amenity-resta-davanti-a-tutto",
+        ),
+    ],
+)
+async def test_fetch_pois_historic_prevale_solo_su_tourism_attraction(
+    tags: dict[str, str], osm_tag: str, terminus_class: str
+) -> None:
+    """``tourism=attraction`` e' un tag generico: su un elemento che porta anche un
+    ``historic=*`` mappato vince il tag storico (#373, il Colosseo dev'essere
+    ``Archaeological_site``). Le altre precedenze non cambiano: ``tourism=museum``
+    resta davanti a ``historic`` e ``amenity`` davanti a entrambi."""
+    payload = {
+        "elements": [
+            {"type": "node", "id": 21, "lat": 41.89, "lon": 12.49, "tags": tags}
+        ]
+    }
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json=payload)
+    )
+
+    pois = await fetch_pois(_BBOX, "Roma")
+
+    assert pois[0]["osm_tags"] == osm_tag
+    assert pois[0]["terminus_class"] == terminus_class
+
+
+@respx.mock
 async def test_fetch_pois_unknown_tag_yields_generic() -> None:
     """Elemento con soli tag non mappati -> osm_tags vuoto e GenericUrbanPOI."""
     payload = {
