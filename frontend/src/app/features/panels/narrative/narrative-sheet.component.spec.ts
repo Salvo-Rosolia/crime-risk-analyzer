@@ -367,6 +367,30 @@ describe('NarrativeSheetComponent', () => {
       expect(pannello('CONTESTO').textContent).toContain('• Luce');
     });
 
+    it('un U+E000 scritto dal modello non rompe il pannello né sposta gli indicatori (#387)', () => {
+      const pua = String.fromCharCode(0xe000);
+      const dueRischi = [
+        ...occ,
+        {
+          hazardLabel: 'Danno',
+          hazard: 'Damage',
+          istat: istatPoi(istatRiga('DAMAGE', ['Damage'], { voce_label: 'danni' })),
+        },
+      ];
+      conIstat(fonti(`Il furto ${pua} qui e il${pua} danno cala.`), dueRischi);
+      const p = pannello('ONTOLOGIA').querySelector('.cra-narr-prose') as HTMLElement;
+      const figli = Array.from(p.children) as HTMLElement[];
+      const testo = figli
+        .filter((f) => !f.classList.contains('cra-narr-istat'))
+        .map((f) => f.textContent)
+        .join('');
+      expect(testo).toBe('Il furto  qui e il danno cala.');
+      expect(p.textContent).not.toContain(pua);
+      expect(
+        figli[figli.findIndex((f) => f.classList.contains('cra-narr-istat')) - 1].textContent,
+      ).toMatch(/furto$/);
+    });
+
     it('un indicatore dentro una coppia ** non la spezza', () => {
       conIstat(fonti('Il **furto cala** ancora.'));
       const p = pannello('ONTOLOGIA').querySelector('.cra-narr-prose') as HTMLElement;

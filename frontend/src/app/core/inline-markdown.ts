@@ -1,9 +1,10 @@
 /**
  * Markdown INLINE della prosa della narrativa, reso come segmenti (niente HTML, niente librerie):
- * `**x**`/`__x__` grassetto, `*x*`/`_x_` corsivo, `***x***` entrambi, annidamento base. Per riga:
- * elenchi («* », «- », «• », «1. ») con un pallino, titoli `#` in grassetto, spazi finali (hard
- * break markdown) tolti. Un marcatore non accoppiato resta testo; `_` dentro una parola
- * (snake_case) non è corsivo; apostrofi e virgolette non sono toccati.
+ * `**x**`/`__x__` grassetto, `*x*`/`_x_` corsivo, `***x***` entrambi, annidamento e terminatori
+ * combinati (`**a *b***`, `***a** b*`), con le regole di «apertura/chiusura» di CommonMark sulle
+ * sequenze di `*` e `_`. Per riga: elenchi («* », «- », «• », «1. ») con un pallino, titoli `#` in
+ * grassetto, spazi finali (hard break markdown) tolti. Un marcatore non accoppiato resta testo;
+ * `_` dentro una parola (snake_case) non è corsivo; apostrofi e virgolette non sono toccati.
  */
 export interface MdSegment {
   text: string;
@@ -11,25 +12,145 @@ export interface MdSegment {
   italic: boolean;
 }
 
-const isSpace = (c: string | undefined): boolean => c === undefined || /\s/.test(c);
-const isWordChar = (c: string | undefined): boolean => c !== undefined && /[\p{L}\p{N}]/u.test(c);
+/** Una sequenza di testo o di marcatori (`*`/`_` consecutivi) con lo stile che le si accumula. */
+interface Token {
+  /** Testo (se `delim` è falso) oppure il solo carattere del marcatore. */
+  text: string;
+  delim: boolean;
+  /** Marcatori ancora liberi; scende man mano che vengono accoppiati. */
+  len: number;
+  /** Lunghezza originale della sequenza (serve alla «regola del 3»). */
+  origLen: number;
+  canOpen: boolean;
+  canClose: boolean;
+  bold: boolean;
+  italic: boolean;
+}
 
-/** Indice del marcatore di chiusura valido a partire da `from`, o -1. */
-function findCloser(s: string, from: number, marker: string): number {
-  for (let j = from; j <= s.length - marker.length; j++) {
-    if (!s.startsWith(marker, j)) continue;
-    if (j === from || isSpace(s[j - 1])) continue; // contenuto vuoto o spazio prima della chiusura
-    const next = s[j + marker.length];
-    if (marker[0] === '*') {
-      // `*` singolo: non fa parte di un `**`; `**`: non è l'inizio di un `***` dentro il contenuto.
-      if (marker.length === 1 && (s[j - 1] === '*' || next === '*')) continue;
-      if (marker.length === 2 && next === '*' && s[j + 2] !== '*') continue;
-    } else if (isWordChar(next) || next === marker[0]) {
-      continue; // `_`/`__` chiudono solo a fine parola
+const isWhitespace = (c: string | undefined): boolean => c === undefined || /\s/u.test(c);
+const isPunctuation = (c: string | undefined): boolean =>
+  c !== undefined && /[\p{P}\p{S}]/u.test(c);
+
+/** Carattere (code point intero) che precede l'indice `i`, o `undefined` a inizio testo. */
+function charBefore(s: string, i: number): string | undefined {
+  if (i <= 0) return undefined;
+  const low = s.charCodeAt(i - 1);
+  return low >= 0xdc00 && low <= 0xdfff && i >= 2 ? s.slice(i - 2, i) : s[i - 1];
+}
+
+/** Carattere (code point intero) che inizia all'indice `i`, o `undefined` a fine testo. */
+function charAt(s: string, i: number): string | undefined {
+  const cp = s.codePointAt(i);
+  return cp === undefined ? undefined : String.fromCodePoint(cp);
+}
+
+/** Spezza la riga in testo e sequenze di marcatori, con chi può aprire/chiudere (CommonMark). */
+function tokenize(s: string, bold: boolean, italic: boolean): Token[] {
+  const toks: Token[] = [];
+  let buf = '';
+  const flush = (): void => {
+    if (buf) {
+      toks.push({
+        text: buf,
+        delim: false,
+        len: 0,
+        origLen: 0,
+        canOpen: false,
+        canClose: false,
+        bold,
+        italic,
+      });
     }
-    return j;
+    buf = '';
+  };
+  let i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (c !== '*' && c !== '_') {
+      buf += c;
+      i++;
+      continue;
+    }
+    let j = i;
+    while (s[j] === c) j++;
+    flush();
+    // Gli slot (indicatori ISTAT) seguono i marcatori di chiusura (`**“x”**<slot>`): per decidere
+    // chi apre/chiude sono trasparenti, come se non ci fossero.
+    let bi = i;
+    while (bi > 0 && s[bi - 1] === SLOT) bi--;
+    let aj = j;
+    while (s[aj] === SLOT) aj++;
+    const before = charBefore(s, bi);
+    const after = charAt(s, aj);
+    const leftFlanking =
+      !isWhitespace(after) &&
+      (!isPunctuation(after) || isWhitespace(before) || isPunctuation(before));
+    const rightFlanking =
+      !isWhitespace(before) &&
+      (!isPunctuation(before) || isWhitespace(after) || isPunctuation(after));
+    toks.push({
+      text: c,
+      delim: true,
+      len: j - i,
+      origLen: j - i,
+      // `_` non apre/chiude dentro una parola (snake_case): vale solo ai bordi o con punteggiatura.
+      canOpen: c === '*' ? leftFlanking : leftFlanking && (!rightFlanking || isPunctuation(before)),
+      canClose:
+        c === '*' ? rightFlanking : rightFlanking && (!leftFlanking || isPunctuation(after)),
+      bold,
+      italic,
+    });
+    i = j;
   }
-  return -1;
+  flush();
+  return toks;
+}
+
+/**
+ * Accoppia le sequenze di marcatori (algoritmo di CommonMark): per ogni chiusura cerca a ritroso
+ * l'apertura compatibile; ogni coppia consuma 2 marcatori (grassetto) se entrambe ne hanno almeno
+ * 2, altrimenti 1 (corsivo), e applica lo stile a tutto ciò che sta in mezzo. Quel che avanza di
+ * una sequenza continua a poter accoppiarsi (`***x***`, `**a *b***`). I marcatori mai accoppiati
+ * restano testo.
+ */
+function pairEmphasis(toks: Token[]): void {
+  // Come `openers_bottom` di CommonMark: per ogni classe di chiusura (carattere, può aprire, lunghezza
+  // mod 3) l'indice sotto cui si è già visto che non c'è alcuna apertura, per non riscansionare.
+  const floors = new Map<string, number>();
+  for (let c = 0; c < toks.length; c++) {
+    const closer = toks[c];
+    if (!closer.delim || !closer.canClose) continue;
+    while (closer.len > 0) {
+      const key = `${closer.text}${closer.canOpen ? 1 : 0}${closer.origLen % 3}`;
+      const floor = floors.get(key) ?? -1;
+      let o = c - 1;
+      for (; o > floor; o--) {
+        const cand = toks[o];
+        if (!cand.delim || cand.text !== closer.text || cand.len === 0 || !cand.canOpen) continue;
+        // Regola del 3: se uno dei due può anche fare l'altro ruolo, la somma delle lunghezze
+        // originali non può essere multipla di 3 (salvo lo siano entrambe).
+        const ambiguous = cand.canClose || closer.canOpen;
+        const sum = cand.origLen + closer.origLen;
+        if (ambiguous && sum % 3 === 0 && !(cand.origLen % 3 === 0 && closer.origLen % 3 === 0)) {
+          continue;
+        }
+        break;
+      }
+      if (o <= floor) {
+        floors.set(key, c - 1);
+        break;
+      }
+      const opener = toks[o];
+      const used = opener.len >= 2 && closer.len >= 2 ? 2 : 1;
+      for (let k = o + 1; k < c; k++) {
+        if (used === 2) toks[k].bold = true;
+        else toks[k].italic = true;
+        if (toks[k].delim) toks[k].canOpen = false; // dentro una coppia già chiusa: non apre più
+      }
+      opener.len -= used;
+      closer.len -= used;
+    }
+  }
 }
 
 function pushText(out: MdSegment[], text: string, bold: boolean, italic: boolean): void {
@@ -40,32 +161,11 @@ function pushText(out: MdSegment[], text: string, bold: boolean, italic: boolean
 }
 
 function parseInline(s: string, bold: boolean, italic: boolean, out: MdSegment[]): void {
-  let buf = '';
-  let i = 0;
-  while (i < s.length) {
-    const c = s[i];
-    if (c === '*' || c === '_') {
-      const run = s.startsWith(c.repeat(3), i) && c === '*' ? 3 : s.startsWith(c + c, i) ? 2 : 1;
-      const marker = c.repeat(run);
-      const after = s[i + run];
-      const canOpen = !isSpace(after) && after !== c && (c === '*' || !isWordChar(s[i - 1]));
-      const close = canOpen ? findCloser(s, i + run, marker) : -1;
-      if (close >= 0) {
-        pushText(out, buf, bold, italic);
-        buf = '';
-        const inner = s.slice(i + run, close);
-        parseInline(inner, bold || run >= 2, italic || run === 1 || run === 3, out);
-        i = close + run;
-        continue;
-      }
-      buf += marker; // non accoppiato: resta testo
-      i += run;
-      continue;
-    }
-    buf += c;
-    i++;
+  const toks = tokenize(s, bold, italic);
+  pairEmphasis(toks);
+  for (const t of toks) {
+    pushText(out, t.delim ? t.text.repeat(t.len) : t.text, t.bold, t.italic);
   }
-  pushText(out, buf, bold, italic);
 }
 
 const HEADING = /^\s{0,3}#{1,6}\s+(.*)$/;
@@ -96,7 +196,12 @@ export function parseInlineMarkdown(text: string): MdSegment[] {
 /** Segmento di una prosa con «slot» (es. gli indicatori ISTAT) inseriti fra i pezzi di testo. */
 export type MdPart<T> = MdSegment | { slot: T };
 
-const SLOT = '';
+/**
+ * Segnaposto interno di uno slot: un carattere dell'area privata Unicode, scritto come escape
+ * (un editor o un formatter non può perderlo, e `split('')` non spezzerebbe tutto). Il testo in
+ * ingresso viene ripulito dal carattere, così gli slot trovati corrispondono sempre a quelli dati.
+ */
+const SLOT = '\uE000';
 
 /**
  * Come `parseInlineMarkdown` ma su una sequenza di testi e slot: il markdown è interpretato
@@ -107,7 +212,7 @@ export function parseInlineMarkdownWithSlots<T>(parts: (string | { slot: T })[])
   const slots: T[] = [];
   const joined = parts
     .map((p) => {
-      if (typeof p === 'string') return p;
+      if (typeof p === 'string') return p.split(SLOT).join('');
       slots.push(p.slot);
       return SLOT;
     })
@@ -116,7 +221,7 @@ export function parseInlineMarkdownWithSlots<T>(parts: (string | { slot: T })[])
   let k = 0;
   for (const seg of parseInlineMarkdown(joined)) {
     seg.text.split(SLOT).forEach((piece, idx) => {
-      if (idx > 0) out.push({ slot: slots[k++] });
+      if (idx > 0 && k < slots.length) out.push({ slot: slots[k++] });
       if (piece) out.push({ text: piece, bold: seg.bold, italic: seg.italic });
     });
   }
