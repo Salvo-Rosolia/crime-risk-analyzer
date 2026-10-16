@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from pydantic import BaseModel
+from pydantic import AfterValidator, BaseModel
 from rdflib import Graph
 
 from crime_risk_analyzer import geocoding
@@ -120,9 +120,23 @@ async def list_poi_types() -> list[PoiType]:
     return list(poi_types())
 
 
+def _query_non_vuota(query: str) -> str:
+    """Respinge una query senza caratteri utili (#376); la valida torna intatta.
+
+    Il criterio e' ``str.split()``, lo stesso con cui
+    ``geocoding._freeform_key`` comprime gli spazi: una query passa solo se la
+    sua chiave di cache non e' vuota. Un ``pattern`` regex non basterebbe: il
+    suo ``\\s`` non conta i separatori U+001C-U+001F, che per ``split`` sono
+    spazi.
+    """
+    if not query.split():
+        raise ValueError("la query non puo' essere vuota o di soli spazi")
+    return query
+
+
 @router.get("/geocode")
 async def geocode(
-    query: Annotated[str, Query(max_length=200)],
+    query: Annotated[str, Query(max_length=200), AfterValidator(_query_non_vuota)],
 ) -> dict[str, float]:
     """Forward geocode di un luogo libero (#318): sposta solo la mappa, non fa
     parte dell'analisi.
@@ -133,6 +147,10 @@ async def geocode(
     (servizio non raggiungibile) e' gia' mappato centralmente -> 503 (#21); qui
     si gestisce solo l'esito "nessun risultato", che non e' un errore di
     servizio.
+
+    Una query vuota o di soli spazi (:func:`_query_non_vuota`, #376) e' un 422
+    di validazione, come quella oltre i 200 caratteri, e non arriva a
+    Nominatim. La query valida passa intatta, spazi ai bordi compresi.
     """
     result = await run_in_threadpool(geocoding.geocode_freeform, query)
     if result is None:

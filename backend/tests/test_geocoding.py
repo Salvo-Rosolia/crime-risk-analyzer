@@ -21,25 +21,29 @@ from crime_risk_analyzer.geocoding import (
 from crime_risk_analyzer.models.geo import Bbox
 
 
-@pytest.fixture(autouse=True)
-def _reset_geocoding_state() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]
-    """Resetta lo stato di modulo condiviso prima/dopo ogni test.
+def _clear_geocoding_state() -> None:
+    """Svuota lo stato di modulo condiviso: setting, RateLimiter e i tre store.
 
     ``get_settings`` e il RateLimiter singleton (``_get_rate_limited_call``,
     che porta lo stato di throttling ``_last_call``, condiviso da geocode e
     reverse dal #318) sono cacheati per processo: senza reset i test si
     contaminerebbero a vicenda (sleep residui, delay stale dai setting di un
-    altro test).
+    altro test). Lo stesso vale per le cache: una voce negativa lasciata da un
+    test (#376) farebbe tornare ``None`` a un altro senza toccare il fake.
     """
     get_settings.cache_clear()
     _geo_mod._get_rate_limited_call.cache_clear()  # pyright: ignore[reportPrivateUsage]
     _geo_mod._CACHE.clear()  # pyright: ignore[reportPrivateUsage]
     _geo_mod._FREEFORM_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+    _geo_mod._FREEFORM_NEGATIVE_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+
+
+@pytest.fixture(autouse=True)
+def _reset_geocoding_state() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]
+    """Resetta lo stato di modulo condiviso prima/dopo ogni test."""
+    _clear_geocoding_state()
     yield
-    get_settings.cache_clear()
-    _geo_mod._get_rate_limited_call.cache_clear()  # pyright: ignore[reportPrivateUsage]
-    _geo_mod._CACHE.clear()  # pyright: ignore[reportPrivateUsage]
-    _geo_mod._FREEFORM_CACHE.clear()  # pyright: ignore[reportPrivateUsage]
+    _clear_geocoding_state()
 
 
 class _FakeLocation:
@@ -817,23 +821,286 @@ def test_geocode_freeform_does_not_cache_service_errors(
     assert len(ok.queries) == 1
 
 
-def test_geocode_freeform_does_not_cache_no_result(
+# --- #376: cache negativa con scadenza per il "nessun risultato" ---
+
+
+def _fake_clock(monkeypatch: pytest.MonkeyPatch, start: float = 1000.0) -> list[float]:
+    """Orologio finto per la cache negativa: si avanza mutando ``now[0]``."""
+    now = [start]
+    monkeypatch.setattr(_geo_mod, "_clock", lambda: now[0])
+    return now
+
+
+def _ttl() -> float:
+    return _geo_mod._FREEFORM_NEGATIVE_TTL_SECONDS  # pyright: ignore[reportPrivateUsage]
+
+
+def _negative_store() -> dict[str, float]:
+    return _geo_mod._FREEFORM_NEGATIVE_CACHE  # pyright: ignore[reportPrivateUsage]
+
+
+def test_negative_ttl_is_ten_minutes() -> None:
+    """La scadenza e' breve: un luogo appena mappato su OSM torna trovabile presto."""
+    assert _ttl() == 600.0
+
+
+def test_negative_entry_expires_exactly_at_deadline(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Il "nessun risultato" non e' memorizzato, come la zona non trovata (#115 M2)."""
+    """Confine: un istante prima e' valida, a ``now == expires_at`` e' scaduta."""
+    now = _fake_clock(monkeypatch, start=1000.0 - 0.5)
+    _negative_store()["luogo"] = 1000.0
+    hit = _geo_mod._negative_cache_hit  # pyright: ignore[reportPrivateUsage]
+
+    assert hit("luogo") is True
+    assert "luogo" in _negative_store()
+
+    now[0] = 1000.0
+    assert hit("luogo") is False
+    assert "luogo" not in _negative_store()
+
+
+def test_geocode_freeform_positive_cache_wins_over_negative(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stessa chiave in entrambi gli store: vince il punto della cache positiva."""
+    _fake_clock(monkeypatch)
+    _geo_mod._FREEFORM_CACHE["colosseo"] = (41.89, 12.49)  # pyright: ignore[reportPrivateUsage]
+    _negative_store()["colosseo"] = 1e12
+    fake = _FakeGeocoder(location=None)
+    _patch_geocoder(monkeypatch, fake)
+
+    assert geocoding.geocode_freeform("Colosseo") == (41.89, 12.49)
+    assert fake.queries == []
+
+
+def test_negative_cache_hit_is_thread_safe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Molti thread su voci scadute reinserite di continuo: nessuna eccezione.
+
+    Senza lock due thread leggono la stessa voce scaduta ed entrambi la
+    cancellano: il secondo ``del`` solleva ``KeyError``. Uno switch interval
+    minuscolo forza i cambi di thread a meta' sequenza.
+    """
+    _fake_clock(monkeypatch)
+    keys = ["k0", "k1", "k2", "k3"]
+    errors: list[BaseException] = []
+    n_threads, n_ops = 16, 2000
+    barrier = threading.Barrier(n_threads)
+    hit = _geo_mod._negative_cache_hit  # pyright: ignore[reportPrivateUsage]
+    put = _geo_mod._cache_put  # pyright: ignore[reportPrivateUsage]
+
+    def worker(tid: int) -> None:
+        barrier.wait()
+        try:
+            for i in range(n_ops):
+                key = keys[(tid + i) % len(keys)]
+                put(_negative_store(), key, 0.0)  # gia' scaduta
+                hit(key)
+        except BaseException as exc:  # noqa: BLE001 - raccolte e verificate sotto
+            errors.append(exc)
+
+    old_interval = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+    try:
+        threads = [threading.Thread(target=worker, args=(t,)) for t in range(n_threads)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+    finally:
+        sys.setswitchinterval(old_interval)
+
+    assert errors == []
+
+
+def test_geocode_freeform_caches_no_result_within_ttl(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Entro la scadenza un luogo inesistente non torna a Nominatim."""
     _fast_limiter(monkeypatch)
+    now = _fake_clock(monkeypatch)
+    _patch_geocoder(monkeypatch, _FakeGeocoder(location=None))
+    assert geocoding.geocode_freeform("Luogo Inesistente") is None
+
+    later = _FakeGeocoder(_FakeLocation(41.89, 12.49, None))
+    _patch_geocoder(monkeypatch, later)
+    now[0] += _ttl() - 1
+
+    assert geocoding.geocode_freeform("  luogo   INESISTENTE ") is None
+    assert later.queries == []  # servito dalla cache negativa
+    assert len(_geo_mod._FREEFORM_CACHE) == 0  # pyright: ignore[reportPrivateUsage]
+
+
+def test_geocode_freeform_negative_entry_expires_and_is_removed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Scaduta la voce, si torna a Nominatim e la voce negativa sparisce."""
+    _fast_limiter(monkeypatch)
+    now = _fake_clock(monkeypatch)
     _patch_geocoder(monkeypatch, _FakeGeocoder(location=None))
     assert geocoding.geocode_freeform("Colosseo") is None
-    # ``_cache_get`` usa ``None`` come miss: un ``None`` salvato nello store non
-    # si vedrebbe dalla seconda chiamata, quindi si guarda lo store direttamente.
-    assert len(_geo_mod._FREEFORM_CACHE) == 0  # pyright: ignore[reportPrivateUsage]
+    assert "colosseo" in _negative_store()
+
+    ok = _FakeGeocoder(_FakeLocation(41.89, 12.49, None))
+    _patch_geocoder(monkeypatch, ok)
+    now[0] += _ttl() + 1
+
+    assert geocoding.geocode_freeform("Colosseo") == (41.89, 12.49)
+    assert ok.queries == ["Colosseo"]
+    assert "colosseo" not in _negative_store()
+    assert len(_geo_mod._FREEFORM_CACHE) == 1  # pyright: ignore[reportPrivateUsage]
+
+
+def test_geocode_freeform_expired_negative_entry_is_renewed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Scaduta e ancora senza risultato: nuova richiesta e nuova scadenza da adesso."""
+    _fast_limiter(monkeypatch)
+    now = _fake_clock(monkeypatch)
+    fake = _FakeGeocoder(location=None)
+    _patch_geocoder(monkeypatch, fake)
+
+    geocoding.geocode_freeform("xyzxyz")
+    now[0] += _ttl() + 1
+    geocoding.geocode_freeform("xyzxyz")
+
+    assert len(fake.queries) == 2
+    assert _negative_store() == {"xyzxyz": now[0] + _ttl()}
+
+
+def test_geocode_freeform_negative_cache_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Con CACHE_ENABLED=false anche il "nessun risultato" va sempre a Nominatim."""
+    monkeypatch.setenv("CACHE_ENABLED", "false")
+    _fast_limiter(monkeypatch)
+    fake = _FakeGeocoder(location=None)
+    _patch_geocoder(monkeypatch, fake)
+
+    assert geocoding.geocode_freeform("xyzxyz") is None
+    assert geocoding.geocode_freeform("xyzxyz") is None
+
+    assert len(fake.queries) == 2
+    assert _negative_store() == {}
+
+
+def test_geocode_freeform_service_error_not_in_negative_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Un errore di servizio non diventa un "nessun risultato" in cache."""
+    _fast_limiter(monkeypatch)
+    _patch_geocoder(monkeypatch, _FakeGeocoder(exc=GeocoderServiceError("boom")))
+    with pytest.raises(GeocodingError):
+        geocoding.geocode_freeform("Colosseo")
+    assert _negative_store() == {}
 
     ok = _FakeGeocoder(_FakeLocation(41.89, 12.49, None))
     _patch_geocoder(monkeypatch, ok)
 
     assert geocoding.geocode_freeform("Colosseo") == (41.89, 12.49)
     assert len(ok.queries) == 1
-    assert len(_geo_mod._FREEFORM_CACHE) == 1  # pyright: ignore[reportPrivateUsage]
+
+
+def test_geocode_freeform_negative_cache_evicts_oldest_when_full(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stesso tetto e stessa eviction FIFO degli altri store."""
+    monkeypatch.setattr(_geo_mod, "_CACHE_MAXSIZE", 3)
+    _fast_limiter(monkeypatch)
+    _fake_clock(monkeypatch)
+    fake = _FakeGeocoder(location=None)
+    _patch_geocoder(monkeypatch, fake)
+
+    for query in ("A", "B", "C", "D"):
+        geocoding.geocode_freeform(query)
+
+    assert list(_negative_store()) == ["b", "c", "d"]
+
+    geocoding.geocode_freeform("A")  # sfrattata: torna a Nominatim
+    assert len(fake.queries) == 5
+
+
+def test_geocode_freeform_negative_cache_is_separate_store(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """I tre store non si mescolano ne' si contendono il tetto."""
+    monkeypatch.setattr(_geo_mod, "_CACHE_MAXSIZE", 2)
+    _fast_limiter(monkeypatch)
+    _fake_clock(monkeypatch)
+
+    _patch_geocoder(monkeypatch, _FakeGeocoder(location=None))
+    geocoding.geocode_freeform("Nulla 1")
+    geocoding.geocode_freeform("Nulla 2")
+
+    _patch_geocoder(
+        monkeypatch,
+        _FakeGeocoder(
+            _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
+        ),
+    )
+    geocoding.geocode_freeform("Colosseo")
+    geocoding.geocode_freeform("Pantheon")
+    geocode_zone("Colosseo", "Roma")
+
+    assert list(_negative_store()) == ["nulla 1", "nulla 2"]
+    assert list(_geo_mod._FREEFORM_CACHE) == ["colosseo", "pantheon"]  # pyright: ignore[reportPrivateUsage]
+    assert len(_geo_mod._CACHE) == 1  # pyright: ignore[reportPrivateUsage]
+
+
+def test_clear_geocoding_state_empties_negative_store() -> None:
+    """Il reset della fixture autouse svuota anche la cache negativa."""
+    _negative_store()["fantasma"] = 1e12
+
+    _clear_geocoding_state()
+
+    assert _negative_store() == {}
+
+
+# --- #376: chiave normalizzata anche per forma Unicode (NFC) ---
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        # "Citta'" con accento precomposto (U+00E0) e scomposto (a + U+0300).
+        ("Città", "Città"),
+        ("CITTÀ", "città"),
+        # Accento scomposto e "ß" insieme: NFC e casefold devono combinarsi.
+        ("Müllerstraße", "MÜLLERSTRASSE"),
+        # NFC prima di casefold: due ordini canonicamente equivalenti dei segni
+        # diacritici. Senza NFC iniziale casefold trasforma la ypogegrammeni
+        # (U+0345) in "ι" prima che i segni vengano riordinati, e i due testi
+        # restano diversi.
+        ("ᾴ", "ᾴ"),
+        # NFC dopo casefold: casefold di U+0390 da' tre code point, quello di
+        # "Ϊ" + U+0301 due (U+03CA + U+0301). Equivalenti, ma diversi senza
+        # una NFC finale.
+        ("Ϊ́", "ΐ"),
+    ],
+)
+def test_freeform_key_is_canonical_caseless(first: str, second: str) -> None:
+    """Chiave = NFC(casefold(NFC(testo))): la forma di confronto di Unicode."""
+    key = _geo_mod._freeform_key  # pyright: ignore[reportPrivateUsage]
+    assert key(first) == key(second)
+
+
+def test_freeform_key_keeps_accents() -> None:
+    """NFC non toglie gli accenti: "Citta" e "Città" restano luoghi diversi."""
+    key = _geo_mod._freeform_key  # pyright: ignore[reportPrivateUsage]
+    assert key("Citta") != key("Città")
+
+
+def test_geocode_freeform_nfc_variants_share_entry_raw_text_to_nominatim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Composto e scomposto: stessa voce di cache, a Nominatim il testo grezzo."""
+    fake = _FakeGeocoder(_FakeLocation(43.77, 11.25, None))
+    _patch_geocoder(monkeypatch, fake)
+
+    geocoding.geocode_freeform("Città di Castello")
+    geocoding.geocode_freeform("Città di Castello")
+
+    assert fake.queries == ["Città di Castello"]
 
 
 def test_geocode_freeform_cache_evicts_oldest_when_full(
