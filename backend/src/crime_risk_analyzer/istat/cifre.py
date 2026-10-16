@@ -58,6 +58,18 @@ ISTAT, e il controllo verifica cio' che la frase dice del dato.
    (fix 4: "Area ad alto tasso di criminalita'" e' una vulnerabilita'
    dell'ontologia, non un dato ISTAT). Il markdown (``**``, ``_``) si
    toglie prima di cercare etichette e luoghi.
+   Le etichette di voci e rischi collegati si riconoscono a meno della
+   flessione (#392): in ogni parola di almeno 4 lettere l'ultima vocale (con la
+   "i" di -io/-ia/-ie e la "h" di -chi/-che) non conta, cosi' "i danneggiamenti
+   seguiti da incendio" nomina la voce "danneggiamento seguito da incendio" e
+   "il furto" la voce "furti". L'etichetta piu' lunga (a parita' la voce prima
+   del rischio) consuma il suo pezzo di testo: li' non
+   si cerca piu' un'etichetta piu' corta che vi e' contenuta ("danneggiamenti",
+   "incendi"), che resta nominata solo se la frase la scrive anche altrove; "il
+   furto in gioielleria" nomina il rischio, non la voce "furti". Limiti: le
+   forme irregolari ("uomo/uomini") e le desinenze accentate non si
+   riconoscono; due etichette con le stesse radici si confondono (nel catalogo
+   reale solo "rapina in banca" e "rapine in banca", rischio e voce BANKROB).
    Il solo nome del luogo non basta (R1, review 2): "A Roma la folla aumenta le
    occasioni di furti" parla del rischio, non della statistica, e resta. Una
    frase dentro un ``[ISTAT]`` residuo ne parla sempre (C3); la sua riga-etichetta
@@ -169,6 +181,7 @@ l'operatore) e gli offset nel grezzo delle frasi ISTAT per M1.
 
 from __future__ import annotations
 
+import functools
 import re
 from collections.abc import Sequence
 from decimal import Decimal
@@ -614,25 +627,76 @@ def _normalizza(testo: str) -> str:
     return re.sub(r"[*_]", "", testo.lower().replace("’", "'"))
 
 
-def voci_nominate(testo: str, etichette: Sequence[tuple[str, str]]) -> set[str]:
-    """Voci nominate in ``testo`` per etichetta (esatta) o per codice ISTAT.
+#: Desinenza di una parola (#392): l'ultima vocale, con la "i" di -io/-ia/-ie e
+#: la "h" di -chi/-che/-ghi/-ghe ("furto/furti", "lesione/lesioni",
+#: "incendio/incendi", "pubblica/pubbliche").
+_DESINENZA = r"(?:(?<=[cg])h)?i?[aeio]"
+_FLESSIONE = re.compile(rf"{_DESINENZA}$")
+#: Solo le parole di almeno 4 lettere si flettono: "da", "di", "via" restano.
+_LETTERE_FLESSE = 4
+_PEZZO = re.compile(r"(?P<parola>\w+)|\W+")
 
-    Un'etichetta riconosciuta si toglie dal testo, cosi' "furti con strappo" non
-    nomina anche "furti"; la stessa etichetta vale pero' per tutte le voci che la
-    portano (un rischio collegato a piu' voci, C1)."""
-    trovate: set[str] = set()
+
+@functools.cache
+def _modello_etichetta(etichetta: str) -> str:
+    """Regex di un'etichetta che ignora singolare/plurale e maschile/femminile
+    (#392), da cercare nel testo :func:`_normalizza`-to: ogni parola di almeno 4
+    lettere che finisce per vocale vale con qualunque :data:`_DESINENZA`
+    ("danneggiamenti seguiti da incendio" nomina "danneggiamento seguito da
+    incendio"), il resto cosi' com'e'. Unico punto per tutti i confronti con le
+    etichette di voci e rischi collegati."""
+
+    def pezzo(m: re.Match[str]) -> str:
+        testo = m.group()
+        if m["parola"] is None or len(testo) < _LETTERE_FLESSE:
+            return re.escape(testo)
+        radice = _FLESSIONE.sub("", testo)
+        if radice == testo:
+            return re.escape(testo)
+        return f"{re.escape(radice)}{_DESINENZA}"
+
+    corpo = "".join(pezzo(m) for m in _PEZZO.finditer(_normalizza(etichetta)))
+    return rf"\b{corpo}\b"
+
+
+def _nominate(
+    testo: str,
+    etichette: Sequence[tuple[str, str]],
+    rischi: Sequence[tuple[str, str]] = (),
+) -> tuple[set[str], set[str]]:
+    """Voci nominate in ``testo`` per etichetta di voce (o codice ISTAT) e per
+    etichetta di rischio collegato (C1), a meno della flessione (#392).
+
+    Un'etichetta riconosciuta si toglie dal testo, partendo dalle piu' lunghe (a
+    parita' la voce prima del rischio, BANKROB "rapine/rapina in banca"): "furti con
+    strappo" non nomina anche "furti", "danneggiamenti seguiti da incendio" non
+    nomina anche "danneggiamenti", "il furto in gioielleria" (rischio) non nomina
+    anche la voce "furti". La stessa etichetta vale pero' per tutte le voci che
+    la portano (un rischio collegato a piu' voci, C1)."""
+    candidate = sorted(
+        [(0, voce, e) for voce, e in etichette] + [(1, voce, e) for voce, e in rischi],
+        key=lambda c: (-len(_normalizza(c[2])), c[0]),
+    )
+    trovate: tuple[set[str], set[str]] = (set(), set())
     resto = _normalizza(testo)
-    riconosciute: set[str] = set()
-    for voce, etichetta in etichette:
-        etichetta = _normalizza(etichetta)
-        modello = re.compile(rf"\b{re.escape(etichetta)}\b")
-        if etichetta in riconosciute or modello.search(resto):
-            trovate.add(voce)
-            riconosciute.add(etichetta)
-            resto = modello.sub(" ", resto)
-        if re.search(rf"\b{re.escape(voce)}\b", testo):
-            trovate.add(voce)
+    riconosciute: set[tuple[int, str]] = set()
+    for tipo, voce, etichetta in candidate:
+        modello = _modello_etichetta(etichetta)
+        if (tipo, modello) in riconosciute or re.search(modello, resto):
+            trovate[tipo].add(voce)
+            riconosciute.add((tipo, modello))
+            resto = re.sub(modello, " ", resto)
+    trovate[0].update(
+        voce for voce, _ in etichette if re.search(rf"\b{re.escape(voce)}\b", testo)
+    )
     return trovate
+
+
+def voci_nominate(testo: str, etichette: Sequence[tuple[str, str]]) -> set[str]:
+    """Voci nominate in ``testo`` per etichetta (a meno della flessione, #392) o
+    per codice ISTAT; l'etichetta piu' lunga consuma il suo pezzo di testo
+    (:func:`_nominate`)."""
+    return _nominate(testo, etichette)[0]
 
 
 def _luoghi_nominati(
@@ -778,7 +842,7 @@ def _marcatori(righe: Sequence[RigaIstat]) -> re.Pattern[str]:
         key=lambda e: (-len(e), e),
     )
     if etichette:
-        voci = "|".join(re.escape(e) for e in etichette)
+        voci = "|".join(_modello_etichetta(e) for e in etichette)
         tasso += rf"|\btass[oi] (?:di|del|dei|delle|degli) (?:{voci})\b"
     # "voce" in senso ISTAT: "la/questa voce", "voce piu' ampia/stretta", "voce ...
     # coincide/corrisponde"; non "dare voce al disagio". ("voce ISTAT" e' gia'
@@ -903,10 +967,11 @@ def _valuta(
         and (n.percentuale or n.valore not in regole.intervalli)
     ]
     istat = [n for n in non_fissi if _e_cifra_istat(n, regole)]
-    voci = voci_nominate(testo, regole.etichette)
+    voci, voci_rischio = _nominate(testo, regole.etichette, regole.rischi)
     # C1: "il furto di beni ha un tasso piu' basso di quello italiano" nomina il
     # rischio, non la voce: la voce si risolve dai rischi collegati.
-    voci_rischio: set[str] = set() if voci else voci_nominate(testo, regole.rischi)
+    if voci:
+        voci_rischio = set[str]()
     luoghi_espliciti = _luoghi_nominati(testo, regole.luoghi)
     marcatore = bool(regole.marcatori.search(_normalizza(testo)))
     direzione, direzione_negata = _direzione(testo)
