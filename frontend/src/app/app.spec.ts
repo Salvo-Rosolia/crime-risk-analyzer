@@ -1769,6 +1769,158 @@ describe('App shell', () => {
       });
     });
 
+    describe('#375: Invio durante la composizione e geocoding in volo al reset', () => {
+      async function setup() {
+        const f = TestBed.createComponent(App);
+        f.detectChanges();
+        await f.whenStable();
+        store.dispatch({ type: 'LOAD_SUCCESS', data: emptyResp, pipeline: 'completo' });
+        f.detectChanges();
+        const flyToSpy = jest.spyOn(
+          f.debugElement.query(By.directive(MapComponent)).componentInstance,
+          'flyTo',
+        );
+        const input: HTMLInputElement = f.nativeElement.querySelector('.cra-place-search input');
+        const type = (value: string) => {
+          input.value = value;
+          input.dispatchEvent(new Event('input'));
+          f.detectChanges();
+        };
+        const enter = (init: KeyboardEventInit = {}) =>
+          input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ...init }));
+        const newRequest = () => {
+          (f.nativeElement.querySelector('.cra-btn-new-request') as HTMLElement).click();
+          f.detectChanges();
+          (f.nativeElement.querySelector('.cra-btn-confirm-yes') as HTMLElement).click();
+          f.detectChanges();
+        };
+        return { f, flyToSpy, input, type, enter, newRequest };
+      }
+
+      it("l'Invio che conferma una composizione (isComposing) non lancia la richiesta", async () => {
+        const { type, enter } = await setup();
+        type('Citt');
+
+        enter({ isComposing: true });
+
+        expect(api.geocodePlace).not.toHaveBeenCalled();
+      });
+
+      it("l'Invio con key 'Enter', keyCode 229 e isComposing false (Safari, fine composizione) non lancia la richiesta", async () => {
+        const { type, enter } = await setup();
+        type('Citt');
+
+        // Compromesso noto (vedi `isCompositionEnter`): vale anche per un eventuale secondo Invio
+        // di alcune tastiere Android con composizione attiva, non verificato su dispositivo reale.
+        enter({ key: 'Enter', keyCode: 229, isComposing: false });
+
+        expect(api.geocodePlace).not.toHaveBeenCalled();
+      });
+
+      it("un Invio normale subito dopo l'Invio di composizione lancia la richiesta sul testo completo", async () => {
+        const { f, type, enter } = await setup();
+        api.geocodePlace.mockResolvedValue({ lat: 45.4642, lon: 9.19 });
+        type('Citt');
+        enter({ isComposing: true });
+        enter({ keyCode: 229 });
+
+        type('Città di Milano');
+        enter();
+        await f.whenStable();
+
+        expect(api.geocodePlace).toHaveBeenCalledTimes(1);
+        expect(api.geocodePlace).toHaveBeenCalledWith('Città di Milano');
+      });
+
+      it('reset con richiesta in volo: la risoluzione tardiva non fa flyTo', async () => {
+        const { f, flyToSpy, type, enter, newRequest } = await setup();
+        let resolve!: (v: { lat: number; lon: number }) => void;
+        api.geocodePlace.mockImplementationOnce(() => new Promise((res) => (resolve = res)));
+        type('Duomo di Milano');
+        enter();
+
+        newRequest();
+        resolve({ lat: 45.4642, lon: 9.19 });
+        await f.whenStable();
+        f.detectChanges();
+
+        expect(flyToSpy).not.toHaveBeenCalled();
+      });
+
+      it('reset con richiesta in volo: il rifiuto tardivo non mostra errore', async () => {
+        const { f, flyToSpy, type, enter, newRequest } = await setup();
+        let reject!: (e: unknown) => void;
+        api.geocodePlace.mockImplementationOnce(() => new Promise((_res, rej) => (reject = rej)));
+        type('Duomo di Milano');
+        enter();
+
+        newRequest();
+        reject(new HttpErrorResponse({ status: 404, error: {} }));
+        await f.whenStable();
+        f.detectChanges();
+
+        expect(f.nativeElement.querySelector('.cra-place-error')).toBeNull();
+        expect(flyToSpy).not.toHaveBeenCalled();
+      });
+
+      it('il reset elimina un errore di ricerca già mostrato (404 -> reset -> nessun .cra-place-error)', async () => {
+        const { f, type, enter, newRequest } = await setup();
+        api.geocodePlace.mockRejectedValueOnce(new HttpErrorResponse({ status: 404, error: {} }));
+        type('Atlantide');
+        enter();
+        await f.whenStable();
+        f.detectChanges();
+        expect(f.nativeElement.querySelector('.cra-place-error')).not.toBeNull();
+
+        newRequest();
+
+        expect(f.nativeElement.querySelector('.cra-place-error')).toBeNull();
+      });
+
+      it('dopo il reset lo stesso testo riscritto lancia una richiesta nuova (il dedup in-flight è azzerato)', async () => {
+        const { f, flyToSpy, type, enter, newRequest } = await setup();
+        let resolveOld!: (v: { lat: number; lon: number }) => void;
+        api.geocodePlace
+          .mockImplementationOnce(() => new Promise((res) => (resolveOld = res)))
+          .mockResolvedValueOnce({ lat: 41.9, lon: 12.5 });
+        type('Duomo di Milano');
+        enter();
+
+        newRequest();
+        type('Duomo di Milano');
+        enter();
+        await f.whenStable();
+
+        expect(api.geocodePlace).toHaveBeenCalledTimes(2);
+        expect(flyToSpy).toHaveBeenCalledTimes(1);
+        expect(flyToSpy).toHaveBeenCalledWith(41.9, 12.5);
+
+        // La vecchia richiesta, risolta dopo, resta scartata.
+        resolveOld({ lat: 45.4642, lon: 9.19 });
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+        expect(flyToSpy).toHaveBeenCalledTimes(1);
+      });
+
+      it('la conclusione della richiesta pre-reset non cancella il dedup di quella post-reset ancora in volo', async () => {
+        const { f, type, enter, newRequest } = await setup();
+        let resolveOld!: (v: { lat: number; lon: number }) => void;
+        api.geocodePlace
+          .mockImplementationOnce(() => new Promise((res) => (resolveOld = res)))
+          .mockImplementationOnce(() => new Promise(() => undefined));
+        type('Duomo di Milano');
+        enter();
+        newRequest();
+        type('Duomo di Milano');
+        enter();
+
+        resolveOld({ lat: 45.4642, lon: 9.19 });
+        await f.whenStable();
+        enter();
+
+        expect(api.geocodePlace).toHaveBeenCalledTimes(2);
+      });
+    });
+
     it('"vai a un luogo": race condition (fix reperto review) — submit rapido A poi B con A che risolve DOPO B → lo stato finale riflette SOLO B', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
