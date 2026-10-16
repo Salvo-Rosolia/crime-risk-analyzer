@@ -160,6 +160,53 @@ describe('indicatore ISTAT in linea nella prosa (#365)', () => {
       ]);
     });
 
+    it('i confini di parola trattano _ come carattere di parola (identificatori snake_case)', () => {
+      const c = [cand('Furto', 'T')];
+      expect(forma(withIstatProseIndicators('Il furto_di_rame cala.', c))).toEqual([
+        'Il furto_di_rame cala.',
+      ]);
+      expect(forma(withIstatProseIndicators('Il tipo_furto cala.', c))).toEqual([
+        'Il tipo_furto cala.',
+      ]);
+      expect(forma(withIstatProseIndicators('Il _furto_ cala.', c))).toEqual([
+        'Il _furto_',
+        ['dati T'],
+        ' cala.',
+      ]);
+      expect(forma(withIstatProseIndicators('_furto_ cala.', c))).toEqual([
+        '_furto_',
+        ['dati T'],
+        ' cala.',
+      ]);
+      expect(forma(withIstatProseIndicators('Il __furto__ cala.', c))).toEqual([
+        'Il __furto__',
+        ['dati T'],
+        ' cala.',
+      ]);
+    });
+
+    it('confini: inizio di testo, a capo, lettere accentate e menzioni consecutive', () => {
+      const c = [cand('Furto', 'T'), cand('Danno', 'D')];
+      expect(forma(withIstatProseIndicators('Furto cala.', c))).toEqual([
+        'Furto',
+        ['dati T'],
+        ' cala.',
+      ]);
+      expect(forma(withIstatProseIndicators('x\nfurto\ndanno', c))).toEqual([
+        'x\nfurto',
+        ['dati T'],
+        '\ndanno',
+        ['dati D'],
+      ]);
+      expect(forma(withIstatProseIndicators('èfurto e furtò', c))).toEqual(['èfurto e furtò']);
+      expect(forma(withIstatProseIndicators('furto,danno', c))).toEqual([
+        'furto,',
+        ['dati T'],
+        'danno',
+        ['dati D'],
+      ]);
+    });
+
     it('due rischi con la stessa etichetta: vince il primo candidato (primo POI con dato)', () => {
       const out = withIstatProseIndicators('Il furto.', [
         cand('Furto', 'PRIMO'),
