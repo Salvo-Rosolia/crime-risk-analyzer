@@ -488,8 +488,9 @@ function normalizeApostrophes(value: string): string {
 /**
  * Prosa a segmenti (#365, D6): dopo la PRIMA menzione dell'etichetta italiana esatta di un
  * rischio con dato ISTAT si inserisce l'indicatore. Confronto case-insensitive e apostrofo dritto
- * o tipografico equivalenti; confini di parola con lettere/cifre Unicode (le virgolette e il
- * markdown non sono parola, quindi non impediscono il match). Le etichette più lunghe vengono
+ * o tipografico equivalenti; confini di parola con lettere/cifre Unicode e `_` (le virgolette e i
+ * marcatori markdown `*`/`_` di apertura e chiusura non sono parola, quindi non impediscono il
+ * match; `furto_di_rame` invece è una parola sola). Le etichette più lunghe vengono
  * provate per prime. `blocks` sono le etichette di TUTTI i rischi dello scope, anche senza dato:
  * consumano il match senza indicatore, così «Furto con strappo» (senza dato) non viene letto come
  * «Furto» (con dato). Con la stessa etichetta su più candidati vince il primo (ordine di POI).
@@ -519,7 +520,15 @@ export function withIstatProseIndicators(
     .sort((a, b) => b.length - a.length)
     .map(escapeRegExp)
     .join('|');
-  const re = new RegExp(`(?<![\\p{L}\\p{N}])(?:${alternation})(?![\\p{L}\\p{N}])`, 'giu');
+  // Niente lookbehind (Safari 16.0-16.3 non lo supporta, #387): il confine a sinistra è un gruppo
+  // di prefisso catturato (inizio testo, o un non-parola, più al più due `_` di apertura markdown)
+  // e la menzione parte a `m.index + m[1].length`. A destra un lookahead, che Safari conosce:
+  // `_` è carattere di parola (identificatori tipo `furto_di_rame`), ma un `_` di chiusura
+  // markdown (`_furto_`, `__furto__`) non lo è, cioè non vale se segue altra parola.
+  const re = new RegExp(
+    `((?:^|[^\\p{L}\\p{N}_])_{0,2})(?:${alternation})(?!_*[\\p{L}\\p{N}])`,
+    'giu',
+  );
   const haystack = normalizeApostrophes(prose);
 
   const segments: ProseSegment[] = [];
@@ -528,7 +537,8 @@ export function withIstatProseIndicators(
   let cursor = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(haystack)) !== null) {
-    const label = m[0].toLowerCase();
+    const mention = m[0].slice(m[1].length);
+    const label = mention.toLowerCase();
     if (seenLabels.has(label)) continue;
     seenLabels.add(label);
     const candidate = byLabel.get(label);
