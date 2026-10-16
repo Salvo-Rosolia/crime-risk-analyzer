@@ -45,6 +45,18 @@ function placeSearchErrorMessage(err: unknown): string {
   return errorMessage(err, 'Ricerca del luogo non disponibile, riprova.');
 }
 
+/** Invio di un tasto mentre una composizione è attiva o la sta concludendo (#375): tasti morti degli
+ * accenti, IME. `isComposing` copre i browser che lo valorizzano; `keyCode 229` ("Process") copre
+ * Safari, che emette il `keydown` di conferma DOPO `compositionend` con `isComposing` già false.
+ *
+ * Compromesso noto, non verificato su dispositivo reale: `(keydown.enter)` scatta solo con
+ * `key === 'Enter'`, quindi le tastiere che emettono `key: 'Unidentified'` non arrivano qui. Il
+ * rischio residuo è un `key: 'Enter'` con `keyCode 229` a composizione attiva (possibile secondo
+ * Invio su alcune tastiere Android): viene ignorato, e l'utente ripreme Invio a composizione chiusa. */
+function isCompositionEnter(event: KeyboardEvent): boolean {
+  return event.isComposing || event.keyCode === 229;
+}
+
 @Component({
   selector: 'cra-root',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -210,9 +222,13 @@ export class App {
    * recente ancora in volo riusa quella, senza lanciarne un'altra (né incrementare `seq`: la
    * richiesta in corso resta la più recente e applica i propri effetti). Un testo diverso lancia
    * una richiesta nuova, che rende obsolete le precedenti come prima.
+   *
+   * Composizione (#375): l'Invio che CONFERMA una composizione (tasti morti degli accenti, IME) non
+   * è una richiesta dell'utente — il testo è ancora parziale — quindi si ignora (`isCompositionEnter`).
+   * "+ Nuova richiesta" invalida la richiesta in volo (vedi `onResetConfirmed`).
    */
   protected async onGoToPlace(event: Event): Promise<void> {
-    if (event instanceof KeyboardEvent && event.repeat) return;
+    if (event instanceof KeyboardEvent && (event.repeat || isCompositionEnter(event))) return;
     const q = this.placeQuery().trim();
     if (!q) return;
     if (q === this.placeInFlightQuery) return;
@@ -278,6 +294,14 @@ export class App {
     this.zona.set('');
     this.tipoPoi.set('');
     this.placeQuery.set('');
+    // #375: un geocoding in volo non deve sopravvivere al reset. Incrementare `placeRequestSeq` fa
+    // scartare la sua risposta (successo o errore) ai controlli `seq !== placeRequestSeq` di
+    // `onGoToPlace`; azzerare il marker di dedup fa partire come richiesta nuova lo stesso testo
+    // riscritto dopo il reset (il `finally` della richiesta superata non lo tocca: guardia su `seq`).
+    this.placeRequestSeq++;
+    this.placeInFlightQuery = null;
+    // L'errore di una ricerca già conclusa non deve restare a video a casella svuotata.
+    this.placeError.set(null);
     // Azzerare il segnale locale non basta (reperto review I5): MapComponent tiene il proprio
     // circleLayer disegnato sulla mappa indipendentemente da questo segnale, quindi senza
     // clearCircle() il cerchio vecchio resterebbe visibile e cliccabile mentre il resto della UI
