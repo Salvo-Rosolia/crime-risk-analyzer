@@ -26,7 +26,12 @@ from crime_risk_analyzer.istat.cifre import (
     dividi_frasi_m1,
     estrai_numeri,
 )
-from crime_risk_analyzer.istat.righe import MOTIVO_ROTTURA_2016, IstatPoi, RigaIstat
+from crime_risk_analyzer.istat.righe import (
+    MOTIVO_ROTTURA_2016,
+    MOTIVO_SOTTO_SOGLIA,
+    IstatPoi,
+    RigaIstat,
+)
 from crime_risk_analyzer.rag.generation import (
     USER_INPUT_FENCE_CLOSE,
     USER_INPUT_FENCE_OPEN,
@@ -529,14 +534,15 @@ def test_frasi_istat_m1_marcatore_solo_a_inizio_riga() -> None:
         ("   1. furti: in calo;", ["1", "furti: in calo;"]),
         # voce che non parla del dato: il suo numero resta fuori
         ("1. Bar 2000 e' esposto a rapina;", []),
-        # un anno a inizio riga non e' il numero di una voce
+        # un anno a inizio riga non e' il numero di una voce ("dal 2014": fuori
+        # dalla forma "furti: in calo" una tendenza non basta, #385)
         (
-            "2024 e' stato un anno di furti in calo;",
-            ["2024 e' stato un anno di furti in calo;"],
+            "2024 e' stato un anno di furti in calo dal 2014;",
+            ["2024 e' stato un anno di furti in calo dal 2014;"],
         ),
-        ("2024. I furti sono in calo;", ["I furti sono in calo;"]),
+        ("2024. I furti sono in calo dal 2014;", ["I furti sono in calo dal 2014;"]),
         # il punto di "3.016" non e' quello di un marcatore
-        ("3.016 furti in calo;", ["016 furti in calo;"]),
+        ("3.016 furti in calo dal 2014;", ["016 furti in calo dal 2014;"]),
     ],
 )
 def test_frasi_istat_m1_il_numero_segue_la_voce(voce: str, attese: list[str]) -> None:
@@ -1761,4 +1767,188 @@ def test_l_elenco_deve_seguire_subito_l_introduzione() -> None:
         None,
         None,
         "luogo_mancante",
+    ]
+
+
+# --- #385: il controllo toglie solo le frasi che parlano davvero del dato ---
+
+_INTRO_ROMA = (
+    "I dati ISTAT del Comune di Roma (2024) indicano per i furti un tasso più alto "
+    "di quello italiano, in calo dal 2014."
+)
+
+
+@pytest.mark.parametrize(
+    "frase",
+    [
+        "I furti sono favoriti dalla crescita del turismo nell'area.",
+        "Il furto di beni resta stabile come vulnerabilità tutto l'anno.",
+        "Le rapine in esercizi commerciali sono in calo nelle ore notturne...",
+        "I furti sono meno frequenti della media nelle ore notturne.",
+    ],
+)
+def test_luogo_ereditato_e_tendenza_non_bastano(frase: str) -> None:
+    """#385: col luogo ereditato una parola di tendenza o di confronto e il nome di
+    una voce (o di un rischio) non fanno parlare del dato una frase sul rischio."""
+    testo = _ontologia(f"{_INTRO_ROMA} {frase}")
+    esito = _controlla(testo)
+    assert [(f.motivo, f.parla_di_istat) for f in esito.frasi[-2:]] == [
+        (None, True),
+        (None, False),
+    ]
+    assert esito.testo_filtrato == testo
+
+
+@pytest.mark.parametrize(
+    "introduzione",
+    [
+        "Nel Comune di Roma, secondo l'ISTAT, i furti hanno un tasso più alto di "
+        "quello italiano. I rischi dell'ontologia sono:",
+        # l'introduzione ISTAT stessa apre l'elenco
+        "Nel Comune di Roma, secondo l'ISTAT, i furti hanno un tasso più alto di "
+        "quello italiano e i rischi dell'ontologia sono:",
+    ],
+)
+def test_elenco_di_rischi_dopo_una_frase_istat_resta(introduzione: str) -> None:
+    """#385, caso peggiore: le voci d'elenco sui rischi restano (prima restava
+    solo "sono:")."""
+    testo = _ontologia(
+        f"{introduzione}\n"
+        "- **Furto di beni**: la crescita dei flussi turistici aumenta i borseggi.\n"
+        "- Furto di beni stabile nelle ore di punta per la folla."
+    )
+    esito = _controlla(testo)
+    assert _motivi(esito) == [None] * len(_motivi(esito))
+    assert esito.testo_filtrato == testo
+
+
+@pytest.mark.parametrize(
+    ("blocco", "frase"),
+    [
+        (
+            "ontologia",
+            "Il dato italiano della sicurezza stradale è migliorato negli ultimi anni.",
+        ),
+        ("ontologia", "Il quartiere ha un'età media superiore alla media nazionale."),
+        ("contesto", "Il quartiere ha un'età media superiore alla media nazionale."),
+        ("ontologia", "Il tasso nazionale di disoccupazione giovanile è alto."),
+        (
+            "ontologia",
+            "Rispetto all'Italia del Nord, l'area ha più presenze turistiche.",
+        ),
+        ("contesto", "Quello italiano è un contesto turistico maturo."),
+    ],
+)
+def test_frase_nazionale_senza_voce_non_parla_di_istat(blocco: str, frase: str) -> None:
+    """#385: "media/dato/tasso nazionale", "quello italiano", "rispetto
+    all'Italia" contano solo con una voce, un rischio collegato, ISTAT o i
+    delitti denunciati."""
+    testo = f"Sintesi.\n\n{_INTESTAZIONI[blocco]}\n{frase}\n"
+    frasi = [f for f in _controlla(testo).frasi if f.blocco == blocco]
+    assert [(f.motivo, f.parla_di_istat) for f in frasi] == [(None, False)]
+
+
+@pytest.mark.parametrize(
+    "frase",
+    [
+        "Il furto di beni è sopra la media nazionale.",
+        "Rispetto all'Italia il furto di beni è in calo.",
+    ],
+)
+def test_frase_nazionale_con_rischio_collegato_parla_di_istat(frase: str) -> None:
+    """#385: con un rischio collegato la formula nazionale resta un marcatore."""
+    testo = f"Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\n{frase}\n"
+    assert _motivi(_controlla(testo)) == ["luogo_mancante"]
+
+
+_SCIPPI_SOTTO_SOGLIA = riga(
+    "SNATCH",
+    label="scippi",
+    delitti=25,
+    confronto=12,
+    tasso=20.0,
+    italia=30.0,
+    variazione=None,
+    motivo=MOTIVO_SOTTO_SOGLIA,
+)
+_DANNI_2016 = riga(
+    "DAMAGE",
+    label="danneggiamenti",
+    delitti=2016,
+    confronto=1800,
+    tasso=721.2,
+    italia=471.5,
+    variazione=None,
+    motivo=MOTIVO_ROTTURA_2016,
+    rottura_2016=True,
+)
+_SOGLIA_E_2016 = blocco_istat_poi(istat_poi(_COMUNE, _SCIPPI_SOTTO_SOGLIA, _DANNI_2016))
+
+
+@pytest.mark.parametrize(
+    ("frase", "atteso"),
+    [
+        ("Le voci con meno di 20 delitti in un anno non hanno tendenza.", None),
+        ("Dopo la depenalizzazione del 2016 alcuni danneggiamenti...", None),
+        # una cifra ISTAT che il blocco non scrive resta tolta
+        ("Nel 2024 si contano 25 scippi.", "cifra_istat_fuori_blocco"),
+    ],
+)
+def test_i_numeri_del_blocco_non_sono_cifre_istat(
+    frase: str, atteso: Motivo | None
+) -> None:
+    """#385: la soglia e l'anno della depenalizzazione che il blocco scrive non
+    valgono come cifre ISTAT, anche se coincidono con un tasso o un conteggio."""
+    assert "meno di 20 delitti" in _SOGLIA_E_2016.testo
+    assert "del 2016" in _SOGLIA_E_2016.testo
+    testo = _ontologia(frase)
+    # contesto senza numeri: "20" non vi coincide per caso (cfr. "su 20" di _CONTESTO)
+    esito = _controlla_con(testo, _SOGLIA_E_2016, contesto="ZONA: Colosseo")
+    assert _motivi(esito) == [atteso]
+
+
+@pytest.mark.parametrize(
+    ("corpo", "atteso"),
+    [
+        # il rischio collegato vale come voce in testa alla riga: furto di beni e'
+        # collegato anche alle rapine in crescita, "in calo" non vale per tutte
+        ("- Furto di beni: in calo;", ("direzione_contraria", True)),
+        ("- **Furto di beni**: più alto della media;", (None, True)),
+        # riga lunga: e' prosa sul rischio, non una riga di dati
+        (
+            "- furti: in crescita la sera, quando la folla riempie la piazza;",
+            (None, False),
+        ),
+        (
+            "- I furti nelle ore serali di punta della piazza: in crescita;",
+            (None, False),
+        ),
+        # dopo i due punti non c'e' una tendenza ne' un confronto
+        ("- furti: borseggi sui mezzi;", (None, False)),
+        # in testa alla riga non c'e' una voce ne' un rischio
+        ("- Turismo: in crescita;", (None, False)),
+        ("- Turismo: furti in crescita;", (None, False)),
+    ],
+)
+def test_riga_d_elenco_breve_dopo_introduzione_istat(
+    corpo: str, atteso: tuple[Motivo | None, bool]
+) -> None:
+    testo = _ontologia(f"I dati ISTAT del Comune di Roma (2024) indicano:\n{corpo}")
+    frasi = [f for f in _controlla(testo).frasi if f.blocco == "ontologia"]
+    assert [(f.motivo, f.parla_di_istat) for f in frasi] == [(None, True), atteso]
+
+
+def test_un_nuovo_luogo_esplicito_chiude_l_elenco_istat() -> None:
+    """#385: dopo una frase ISTAT con un luogo esplicito che non finisce con ":"
+    la forma "furti: in crescita" non basta piu', anche se il luogo resta."""
+    testo = _ontologia(
+        "I dati ISTAT del Comune di Roma (2024) indicano:\n"
+        "Secondo l'ISTAT nel Comune di Roma i furti sono in calo.\n"
+        "furti: in crescita;"
+    )
+    frasi = [f for f in _controlla(testo).frasi if f.blocco == "ontologia"]
+    assert [(f.motivo, f.parla_di_istat) for f in frasi] == [
+        (None, True),
+        (None, True),
+        (None, False),
     ]
