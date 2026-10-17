@@ -53,7 +53,7 @@
     "@angular/build": "^20.3.39",
     "@angular/cli": "^20.3.39",
     "@angular/compiler-cli": "^20.3.33",
-    "@playwright/test": "^1.63.0",
+    "@playwright/test": "^1.64.0",
     "@types/jest": "^30.0.0",
     "@types/leaflet": "^1.9.22",
     "angular-eslint": "21.0.1",
@@ -61,10 +61,10 @@
     "http-server": "^14.1.1",
     "jest": "^30.5.2",
     "jest-environment-jsdom": "^30.5.2",
-    "jest-preset-angular": "^17.0.2",
-    "prettier": "^3.9.9",
+    "jest-preset-angular": "^17.0.3",
+    "prettier": "^3.9.10",
     "typescript": "~5.9.2",
-    "typescript-eslint": "8.71.1"
+    "typescript-eslint": "8.71.2"
   },
   "allowScripts": {
     "@parcel/watcher@2.5.6": true,
