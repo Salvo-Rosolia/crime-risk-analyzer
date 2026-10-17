@@ -7,12 +7,14 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
+from typing import cast
 
 import httpx
 import pytest
 import respx
 
 from crime_risk_analyzer import overpass_client
+from crime_risk_analyzer.eval.snapshots import capturing_source
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.overpass_client import (
     DEFAULT_OVERPASS_URL,
@@ -22,8 +24,10 @@ from crime_risk_analyzer.overpass_client import (
     PER_SELECTOR_CAP,
     OverpassError,
     Poi,
+    TaglioOsm,
     fetch_pois,
     fetch_pois_with_cut,
+    remark_segnala_risposta_incompleta,
 )
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "overpass_sample.json"
@@ -1315,6 +1319,164 @@ async def test_fetch_pois_skips_non_dict_elements() -> None:
     pois = await fetch_pois(_BBOX, "Roma")
     assert len(pois) == 1
     assert pois[0]["id"] == "node/1"
+
+
+# --- #372: ``remark`` di Overpass e risposte troncate ---
+# Quando scatta ``[timeout:25]`` (o la memoria lato server) Overpass risponde
+# 200 con un campo ``remark`` e gli elementi trovati FINO A LI': i selettori in
+# fondo alla query mancano. Le forme sotto sono quelle emesse da Overpass API
+# (prefisso ``runtime error:`` per l'interruzione, ``runtime remark:`` per le
+# note informative).
+
+_REMARK_TIMEOUT = (
+    'runtime error: Query timed out in "query" at line 3 after 26 seconds.'
+)
+
+_REMARK_INCOMPLETI = (
+    _REMARK_TIMEOUT,
+    'runtime error: Query timed out in "recurse" at line 41 after 25 seconds.',
+    'runtime error: Query run out of memory in "query" at line 7 using about '
+    "2048 MB of RAM.",
+    'runtime error: Query ran out of memory in "union" at line 12. It would need '
+    "at least 0 MB of RAM to continue.",
+    "runtime error: Query run out of memory using about 512 MB of RAM.",
+    "Runtime error: something went wrong while executing the query.",
+)
+
+_REMARK_INFORMATIVI = (
+    "runtime remark: Timeout is 180 and maxsize is 536870912.",
+    "runtime remark: The query has been executed with the attic data.",
+    "",
+)
+
+
+@pytest.mark.parametrize("remark", _REMARK_INCOMPLETI)
+def test_remark_di_interruzione_segnala_risposta_incompleta(remark: str) -> None:
+    assert remark_segnala_risposta_incompleta(remark) is True
+
+
+@pytest.mark.parametrize("remark", _REMARK_INFORMATIVI)
+def test_remark_informativo_non_segnala_risposta_incompleta(remark: str) -> None:
+    assert remark_segnala_risposta_incompleta(remark) is False
+
+
+def _troncata(remark: str = _REMARK_TIMEOUT) -> dict[str, object]:
+    """Risposta 200 troncata: il primo elemento del campione e ``remark``."""
+    sample = _sample()
+    elements = cast(list[object], sample["elements"])
+    return {**sample, "elements": elements[:1], "remark": remark}
+
+
+@respx.mock
+async def test_remark_di_timeout_non_e_accettato_come_campione_completo() -> None:
+    """Oggi accettata in silenzio: ritentativi esauriti -> errore esplicito."""
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json=_troncata())
+    )
+
+    with pytest.raises(
+        OverpassError, match="incompleta di Overpass: timeout lato server"
+    ):
+        await fetch_pois(_BBOX, "Roma")
+
+    # Politica interattiva: un tentativo + un ritentativo, poi l'errore.
+    assert route.call_count == 1 + len(INTERACTIVE_RETRY.pause_s)
+
+
+@respx.mock
+async def test_remark_di_timeout_esaurisce_anche_la_politica_offline() -> None:
+    attese: list[float] = []
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json=_troncata())
+    )
+
+    with pytest.raises(OverpassError, match="timeout lato server"):
+        await fetch_pois_with_cut(
+            _BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(attese)
+        )
+
+    assert route.call_count == 1 + len(OFFLINE_RETRY.pause_s)
+    assert attese == list(OFFLINE_RETRY.pause_s)
+
+
+@respx.mock
+async def test_remark_di_timeout_poi_risposta_completa_ritenta_e_usa_la_seconda(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=[
+            httpx.Response(200, json=_troncata()),
+            httpx.Response(200, json=_sample()),
+        ]
+    )
+
+    with caplog.at_level("WARNING"):
+        pois = await fetch_pois(_BBOX, "Roma")
+
+    assert route.call_count == 2
+    # Il campione e' quello della seconda risposta, non quello troncato.
+    assert pois == await _fetch_completo()
+    messaggi = [r.getMessage() for r in caplog.records]
+    assert any(
+        "risposta incompleta" in m and "ritentativo 1/1" in m for m in messaggi
+    ), messaggi
+
+
+async def _fetch_completo() -> list[Poi]:
+    with respx.mock:
+        respx.post(DEFAULT_OVERPASS_URL).mock(
+            return_value=httpx.Response(200, json=_sample())
+        )
+        return await fetch_pois(_BBOX, "Roma")
+
+
+@respx.mock
+async def test_remark_informativo_non_fa_fallire_ne_ritentare() -> None:
+    sample = {**_sample(), "remark": _REMARK_INFORMATIVI[0]}
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json=sample)
+    )
+
+    pois = await fetch_pois(_BBOX, "Roma")
+
+    assert route.call_count == 1
+    assert pois == await _fetch_completo()
+
+
+@respx.mock
+async def test_remark_non_stringa_non_fa_fallire() -> None:
+    """Un ``remark`` di forma inattesa non e' un'interruzione dichiarata."""
+    sample = {**_sample(), "remark": None}
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json=sample)
+    )
+
+    await fetch_pois(_BBOX, "Roma")
+
+    assert route.call_count == 1
+
+
+@respx.mock
+async def test_capture_non_scrive_snapshot_da_una_risposta_troncata(
+    tmp_path: Path,
+) -> None:
+    """Un campione incompleto non deve finire su disco come se fosse completo."""
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json=_troncata())
+    )
+
+    async def inner(bbox: Bbox, citta: str) -> tuple[list[Poi], TaglioOsm | None]:
+        return await fetch_pois_with_cut(
+            bbox, citta, retry=OFFLINE_RETRY, sleep=_recording_sleep([])
+        )
+
+    path = tmp_path / "snap.json"
+    source = capturing_source(path, inner=inner, zona="Colosseo")
+
+    with pytest.raises(OverpassError, match="incompleta di Overpass"):
+        await source(_BBOX, "Roma")
+
+    assert not path.exists()
 
 
 @pytest.mark.integration
