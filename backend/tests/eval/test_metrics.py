@@ -2,9 +2,11 @@ from typing import get_args
 
 import pytest
 
+from crime_risk_analyzer.eval import metrics
 from crime_risk_analyzer.eval.metrics import (
     _MEASURED_TOKEN_BY_MODE,  # pyright: ignore[reportPrivateUsage]
     METRICS_VERSION,
+    RiskAnchoring,
     _measured_spans,  # pyright: ignore[reportPrivateUsage]
     compute_metrics,
     cost_usd_of,
@@ -13,6 +15,7 @@ from crime_risk_analyzer.eval.metrics import (
     hallucination,
     hazards_cited_in,
     latency_ms,
+    risk_anchoring,
 )
 from crime_risk_analyzer.eval.schema import Mode
 from crime_risk_analyzer.istat.blocco import blocco_istat_poi
@@ -724,3 +727,74 @@ def test_parita_frasi_di_m1_e_del_controllo(grezzo: str) -> None:
 def test_frasi_istat_del_controllo_sono_frasi_di_m1(grezzo: str) -> None:
     misurate, istat = _frasi_m1_e_istat(grezzo)
     assert set(istat) <= set(misurate)
+
+
+# --- Ancoraggio ai rischi sul testo misurato da M1 con ISTAT (#377) ---------------
+
+
+def _ancoraggio_dal_record(resp: AnalyzeResponse) -> RiskAnchoring | None:
+    """Come la sezione del confronto: dal grezzo e dalle frasi escluse salvate."""
+    return risk_anchoring(
+        resp.narrativa_grezza,
+        mode="analyze",
+        poi_names=[m.poi for m in resp.risk_models],
+        risk_models=resp.risk_models,
+        frasi_escluse=frasi_escluse_m1(resp) or [],
+    )
+
+
+@pytest.mark.parametrize(
+    "grezzo",
+    [
+        *_MISTE,
+        _narrativa(f"{_ISTAT} Il tasso dei furti e' piu' alto."),
+        _narrativa(f"{_ANCORATA} {_ISTAT} {_ISTAT}"),
+    ],
+)
+def test_ancoraggio_dal_record_istat_ripartisce_le_frasi_di_m1(grezzo: str) -> None:
+    """#377: grezzo meno le frasi escluse salvate = le asserzioni di M1."""
+    resp = _resp_istat(grezzo)
+    graded = metrics._grade(resp, "analyze")  # pyright: ignore[reportPrivateUsage]
+    r = _ancoraggio_dal_record(resp)
+    assert graded is not None and r is not None
+    if r.frasi_misurate:
+        assert (
+            r.frasi_ancorate_rischio + r.frasi_ancorate_solo_poi,
+            r.frasi_misurate,
+        ) == graded
+    else:
+        # Senza blocco, o con il blocco fatto solo di frasi ISTAT escluse: M1 lo
+        # conta non attribuzione, l'ancoraggio ai rischi vale 0.
+        assert graded == (0, 1)
+        assert r.ancoraggio_rischi == 0.0
+
+
+def test_blocco_di_sole_frasi_istat_escluse_e_conforme() -> None:
+    """Il formato c'e': non e' una narrativa non conforme, solo senza frasi."""
+    r = _ancoraggio_dal_record(
+        _resp_istat(_narrativa(f"{_ISTAT} Il tasso dei furti e' piu' alto."))
+    )
+    assert r == RiskAnchoring(0, 0, 0, conforme=True)
+
+
+def test_ancoraggio_con_frasi_escluse_toglie_una_frase_per_voce() -> None:
+    testo = _narrativa(f"{_ANCORATA} {_NON_ANCORATA} {_NON_ANCORATA}")
+    r = risk_anchoring(
+        testo,
+        mode="analyze",
+        poi_names=["Banca A"],
+        risk_models=[],
+        frasi_escluse=[_NON_ANCORATA.rstrip(".")],
+    )
+    assert r == RiskAnchoring(2, 0, 1, conforme=True)
+
+
+def test_ancoraggio_frase_esclusa_assente_dal_blocco_solleva() -> None:
+    with pytest.raises(ValueError, match="frase esclusa"):
+        risk_anchoring(
+            _narrativa(_ANCORATA),
+            mode="analyze",
+            poi_names=["Banca A"],
+            risk_models=[],
+            frasi_escluse=["Frase che non c'e'"],
+        )

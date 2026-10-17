@@ -13,6 +13,8 @@ import pytest
 
 from crime_risk_analyzer.eval.compare import (
     RISK_ANCHORING_HEAD,
+    RISK_ANCHORING_ISTAT_EXCLUDED,
+    RISK_ANCHORING_ISTAT_INCLUDED,
     compare_records,
     risk_anchoring_pointer,
     to_markdown,
@@ -372,6 +374,7 @@ def test_solo_non_conformi_colonna_conformi_non_definita() -> None:
 
 
 def test_run_con_istat_escluse_dalla_sezione() -> None:
+    # Versione 2: da questi record il testo misurato da M1 non si ricostruisce.
     con, senza = _arms()
     con_istat = [r.model_copy(update={"istat_metrics": _ISTAT}) for r in con]
     cmp = compare_records(
@@ -385,11 +388,13 @@ def test_run_con_istat_escluse_dalla_sezione() -> None:
     assert sez is not None
     assert sez.a.narrative_gradabili == 0
     assert sez.a.run_istat_escluse == 2
+    assert sez.a.run_istat_incluse == 0
     assert sez.b.run_istat_escluse == 0
     assert sez.b.narrative_gradabili == 2
     md = to_markdown(cmp)
-    assert "Sezione non calcolata per le run con dati ISTAT" in md
-    assert "la metrica attuale misura un testo diverso" in md
+    assert f"> {RISK_ANCHORING_ISTAT_EXCLUDED} (run escluse — `istat`: 2)." in md
+    assert "versione 4" in RISK_ANCHORING_ISTAT_EXCLUDED
+    assert RISK_ANCHORING_ISTAT_INCLUDED not in md
 
 
 def test_tutte_le_run_con_istat_la_sezione_lo_dice() -> None:
@@ -397,10 +402,182 @@ def test_tutte_le_run_con_istat_la_sezione_lo_dice() -> None:
     cmp = compare_records([rec], [rec], label_a="a", label_b="b")
     assert cmp.ancoraggio_rischi is not None
     assert cmp.ancoraggio_rischi.a.run_istat_escluse == 1
-    assert "Sezione non calcolata per le run con dati ISTAT" in to_markdown(cmp)
+    assert RISK_ANCHORING_ISTAT_EXCLUDED in to_markdown(cmp)
 
 
 def test_senza_istat_nessuna_frase_sulle_run_istat() -> None:
     con, senza = _arms()
-    md = to_markdown(compare_records(con, senza, label_a="con", label_b="senza"))
-    assert "Sezione non calcolata per le run con dati ISTAT" not in md
+    cmp = compare_records(con, senza, label_a="con", label_b="senza")
+    md = to_markdown(cmp)
+    assert RISK_ANCHORING_ISTAT_EXCLUDED not in md
+    assert RISK_ANCHORING_ISTAT_INCLUDED not in md
+    assert cmp.ancoraggio_rischi is not None
+    assert cmp.ancoraggio_rischi.a.run_istat_incluse == 0
+    assert cmp.ancoraggio_rischi.a.frasi_istat_escluse == 0
+
+
+# --- Run con ISTAT di versione 4: incluse dal testo misurato da M1 (#377) --------
+
+_ISTAT_V4 = _ISTAT.model_copy(update={"versione": 4, "frasi_escluse_m1": 1})
+
+#: Frase ISTAT senza POI ne' rischio: M1 la esclude e il record la salva.
+_FRASE_ISTAT = "Secondo l'ISTAT i furti sono in calo"
+
+#: Grezzo del modello: 1 frase da rischio, 1 solo POI, 1 non ancorata, 1 ISTAT.
+_GREZZO = _onto(
+    f"Rapina in banca alla Banca X. La Banca X e' aperta. Folla. {_FRASE_ISTAT}."
+)
+
+#: Narrativa filtrata (mostrata all'operatore): diversa dal grezzo, cosi' i
+#: test vedono quale testo la sezione misura.
+_FILTRATA = _onto("Rapina in banca alla Banca X. Folla.")
+
+
+def _rec_istat_v4(
+    zona: str = "Colosseo",
+    *,
+    experiment: str = "i4",
+    rep: int = 0,
+    grezzo: str | None = _GREZZO,
+    escluse: list[str] | None = None,
+) -> RunRecord:
+    rec = _rec(experiment, zona, _FILTRATA, mode="analyze", rep=rep, istat=True)
+    return rec.model_copy(
+        update={
+            "istat_metrics": _ISTAT_V4,
+            "narrativa_grezza": grezzo,
+            "frasi_escluse_m1": [_FRASE_ISTAT] if escluse is None else escluse,
+        }
+    )
+
+
+def test_run_istat_v4_incluse_sul_testo_misurato_da_m1() -> None:
+    rec = _rec_istat_v4()
+    cmp = compare_records([rec], [rec], label_a="a", label_b="b")
+    sez = cmp.ancoraggio_rischi
+    assert sez is not None
+    zona = sez.zones[0].a
+    # Grezzo senza la frase ISTAT esclusa: 3 frasi, non le 2 della filtrata
+    # ne' le 4 del grezzo intero.
+    assert zona.narrative_gradabili == 1
+    assert zona.frasi_misurate == 3
+    assert zona.frasi_ancorate_rischio == 1
+    assert zona.frasi_ancorate_solo_poi == 1
+    assert zona.ancoraggio_rischi == pytest.approx(1 / 3)
+    assert zona.run_istat_incluse == 1
+    assert zona.run_istat_escluse == 0
+    assert zona.frasi_istat_escluse == 1
+    assert sez.a.run_istat_incluse == 1
+    assert sez.a.frasi_istat_escluse == 1
+
+
+def test_braccio_misto_somma_solo_le_run_ricostruibili() -> None:
+    senza_istat = _rec("i4", "Colosseo", _onto("Rapina in banca."), mode="analyze")
+    v4 = _rec_istat_v4(rep=1)
+    v2 = _rec("i4", "Colosseo", _onto("Folla."), mode="analyze", rep=2, istat=True)
+    # v4 senza il grezzo o senza le frasi escluse: non si ricostruisce.
+    senza_grezzo = _rec_istat_v4(rep=3, grezzo=None)
+    senza_escluse = _rec_istat_v4(rep=4).model_copy(update={"frasi_escluse_m1": None})
+    runs = [senza_istat, v4, v2, senza_grezzo, senza_escluse]
+    cmp = compare_records(
+        [senza_istat],
+        [senza_istat],
+        label_a="a",
+        label_b="b",
+        anchoring_records=(runs, [senza_istat]),
+    )
+    sez = cmp.ancoraggio_rischi
+    assert sez is not None
+    assert sez.a.narrative_gradabili == 2
+    assert sez.a.frasi_misurate == 1 + 3
+    assert sez.a.frasi_ancorate_rischio == 1 + 1
+    assert sez.a.frasi_ancorate_solo_poi == 0 + 1
+    assert sez.a.run_istat_incluse == 1
+    assert sez.a.run_istat_escluse == 3
+    assert sez.a.frasi_istat_escluse == 1
+    assert sez.b.run_istat_incluse == 0
+    md = to_markdown(cmp)
+    assert RISK_ANCHORING_ISTAT_INCLUDED in md
+    assert f"> {RISK_ANCHORING_ISTAT_EXCLUDED} (run escluse — `a`: 3)." in md
+
+
+def test_markdown_avviso_run_istat_incluse_con_frasi_escluse_per_braccio() -> None:
+    a = [_rec_istat_v4(), _rec_istat_v4("Termini")]
+    b = [
+        _rec_istat_v4(experiment="i4b"),
+        _rec_istat_v4("Termini", experiment="i4b", grezzo=_onto("Rapina."), escluse=[]),
+    ]
+    cmp = compare_records(a, b, label_a="a", label_b="b")
+    md = to_markdown(cmp)
+    assert RISK_ANCHORING_ISTAT_INCLUDED in md
+    assert (
+        "> Run con dati ISTAT nella sezione — `a`: 2 run, 2 frasi ISTAT escluse; "
+        "`b`: 2 run, 1 frasi ISTAT escluse."
+    ) in md
+    assert RISK_ANCHORING_ISTAT_EXCLUDED not in md
+    # L'avviso dice che il testo misurato ha accenni ISTAT a parole.
+    assert "a parole" in RISK_ANCHORING_ISTAT_INCLUDED
+    sezione = md[md.index(RISK_ANCHORING_HEAD) :]
+    assert sezione.index(RISK_ANCHORING_ISTAT_INCLUDED) < sezione.index(
+        "Come leggere questa sezione"
+    )
+
+
+def test_json_porta_run_istat_incluse_e_frasi_escluse() -> None:
+    rec = _rec_istat_v4()
+    cmp = compare_records([rec], [rec], label_a="a", label_b="b")
+    data = json.loads(cmp.model_dump_json())
+    sez = data["ancoraggio_rischi"]
+    assert sez["a"]["run_istat_incluse"] == 1
+    assert sez["a"]["frasi_istat_escluse"] == 1
+    assert sez["zones"][0]["b"]["frasi_misurate"] == 3
+
+
+def test_run_istat_v4_verdetto_e_m1_invariati() -> None:
+    rec = _rec_istat_v4()
+    vecchio = rec.model_copy(update={"istat_metrics": _ISTAT})
+    nuovo = compare_records([rec], [rec], label_a="a", label_b="b")
+    prima = compare_records([vecchio], [vecchio], label_a="a", label_b="b")
+    assert nuovo.mean_a == prima.mean_a
+    assert nuovo.mean_delta == prima.mean_delta
+    assert nuovo.quality_verdict == prima.quality_verdict
+
+
+def test_record_istat_v4_letto_da_json() -> None:
+    raw = json.loads(_rec_istat_v4().model_dump_json())
+    rec = RunRecord.model_validate(raw)
+    cmp = compare_records([rec], [rec], label_a="a", label_b="b")
+    assert cmp.ancoraggio_rischi is not None
+    assert cmp.ancoraggio_rischi.a.frasi_misurate == 3
+
+
+def test_report_ripetuto_include_le_run_istat_v4(tmp_path: Path) -> None:
+    records = [
+        _rec_istat_v4(experiment=exp, rep=rep)
+        for exp in ("i4", "i4b")
+        for rep in (0, 1)
+    ]
+    for rec in records:
+        write_record(tmp_path, rec)
+    md_path, json_path = build_repeated_report(
+        tmp_path, "i4", "i4b", label_a="a", label_b="b"
+    )
+    data = json.loads(json_path.read_text(encoding="utf-8"))
+    sez = data["comparison"]["ancoraggio_rischi"]
+    assert sez["a"]["run_istat_incluse"] == 2
+    assert sez["a"]["frasi_istat_escluse"] == 2
+    assert sez["a"]["frasi_misurate"] == 6
+    assert RISK_ANCHORING_ISTAT_INCLUDED in md_path.read_text(encoding="utf-8")
+
+
+def test_run_istat_v3_esclusa_anche_con_grezzo_e_frasi_escluse() -> None:
+    """Prima della versione 4 M1 escludeva altre frasi: anche se il record ha i
+    due campi, il testo misurato allora non e' grezzo meno queste frasi."""
+    v3 = _rec_istat_v4().model_copy(
+        update={"istat_metrics": _ISTAT_V4.model_copy(update={"versione": 3})}
+    )
+    cmp = compare_records([v3], [v3], label_a="a", label_b="b")
+    assert cmp.ancoraggio_rischi is not None
+    assert cmp.ancoraggio_rischi.a.run_istat_escluse == 1
+    assert cmp.ancoraggio_rischi.a.run_istat_incluse == 0
+    assert cmp.ancoraggio_rischi.a.narrative_gradabili == 0
