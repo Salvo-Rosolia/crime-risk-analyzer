@@ -10,8 +10,11 @@ Vincoli (orchestrator.md): massimo :data:`MAX_POIS` POI per richiesta; in caso d
 timeout, di status ritentabile (429/5xx) o, in cattura offline (#247), di un
 blip di trasporto (connessione rifiutata/chiusa/interrotta) si ritenta secondo
 la :class:`RetryPolicy` ricevuta, poi :class:`OverpassError` (mappata a 503
-dall'orchestrator). Le chiamate sono async (``httpx.AsyncClient``): nessun
-I/O bloccante.
+dall'orchestrator). Una risposta 200 che porta un remark di interruzione viene
+ritentata come un timeout e, esauriti i tentativi, solleva :class:`OverpassError`
+(503); il costo e' latenza: fino a 2 tentativi da ~26 s ciascuno in interattivo,
+5 in offline. Le chiamate sono async (``httpx.AsyncClient``): nessun I/O
+bloccante.
 
 Due politiche, perche' i due contesti hanno costi opposti (#232):
 :data:`INTERACTIVE_RETRY` per ``/analyze``, dove un utente sta aspettando e
@@ -26,15 +29,11 @@ elementi trovati fino a quel punto: i selettori in fondo alla query mancano.
 Una risposta cosi' e' trattata come un timeout (stessa :class:`RetryPolicy`) e,
 a ritentativi esauriti, diventa :class:`OverpassError`: mai un bacino parziale
 accettato in silenzio, ne' restituito a ``/analyze`` ne' scritto in uno
-snapshot. Un ``remark`` puramente informativo (``runtime remark: ...``) non
-cambia nulla (:func:`remark_segnala_risposta_incompleta`).
+snapshot. Un ``remark`` che non dichiara un'interruzione, se mai comparisse,
+non cambia nulla (:func:`remark_segnala_risposta_incompleta`).
 
-LIMITE DICHIARATO: il tetto di :data:`PER_SELECTOR_CAP` elementi per blocco
-(quindi anche le al piu' 10 relation per selettore, #314) lo applica Overpass con
-``out center N``, che stampa N elementi QUALSIASI del set, non i piu' vicini al
-centro dell'area: la prossimita' (:func:`select_pois`) sceglie solo dentro il
-bacino che Overpass ha gia' tagliato. In una zona densa un oggetto vicino puo'
-quindi restare fuori dal bacino.
+Il bacino di candidati e' tagliato da Overpass prima della selezione per
+prossimita': vedi il LIMITE DICHIARATO su :data:`PER_SELECTOR_CAP`.
 """
 
 from __future__ import annotations
@@ -88,11 +87,14 @@ MAX_POIS = 20
 #: #212 l'aveva ridotto a 3 quando il taglio era «i primi che arrivano»; con la
 #: selezione per prossimita' un bacino cosi' stretto renderebbe l'ordinamento poco
 #: significativo (si ordinerebbero 3 elementi per selettore scelti da Overpass).
-#: LIMITE DICHIARATO: ``out center N`` restituisce N elementi QUALSIASI, non i piu'
-#: vicini, quindi alzare il tetto riduce l'arbitrarieta' del bacino ma non la
-#: elimina. Resta uguale sui due percorsi (interattivo e cattura offline): un tetto
-#: diverso farebbe selezionare produzione e snapshot da bacini diversi, rompendo
-#: l'iso-input di #110.
+#: LIMITE DICHIARATO: il tetto lo applica Overpass con ``out center N``, che
+#: stampa i primi N elementi del set per id (nodi prima di way prima di
+#: relation), non i piu' vicini al centro dell'area: la prossimita'
+#: (:func:`select_pois`) sceglie solo dentro il bacino gia' tagliato, e in una
+#: zona densa un oggetto vicino puo' restarne fuori. Alzare il tetto riduce
+#: questo effetto ma non lo elimina. Resta uguale sui due percorsi (interattivo
+#: e cattura offline): un tetto diverso farebbe selezionare produzione e
+#: snapshot da bacini diversi, rompendo l'iso-input di #110.
 PER_SELECTOR_CAP = 10
 
 #: Quanti posti al massimo puo' prendere una singola classe TERMINUS dentro i
@@ -117,8 +119,9 @@ _RETRYABLE_STATUS = frozenset({429, 502, 503, 504})
 #: Indizi di esecuzione interrotta in un ``remark`` di Overpass (#372). Il
 #: prefisso ``runtime error`` e' quello che Overpass usa per ogni interruzione
 #: della query (timeout, memoria); le due frasi coprono le forme note anche se il
-#: prefisso cambiasse. ``runtime remark`` e' invece il livello informativo e da
-#: solo non indica nulla di mancante.
+#: prefisso cambiasse. Un remark senza nessuno di questi indizi, se mai
+#: comparisse, e' trattato in via difensiva come non d'interruzione: non va
+#: ritentato.
 _INDIZI_INTERRUZIONE: tuple[str, ...] = (
     "runtime error",
     "timed out",
@@ -223,7 +226,12 @@ class TaglioOsm(TypedDict):
 
 
 class OverpassError(RuntimeError):
-    """Overpass non raggiungibile o risposta non valida (mappabile a 503)."""
+    """Overpass non raggiungibile o risposta non valida (mappabile a 503).
+
+    Anche una risposta 200 che porta un remark di interruzione, ritentata come un
+    timeout fino a esaurire i tentativi (#372): costa latenza, fino a 2 tentativi
+    da ~26 s ciascuno in interattivo, 5 in offline.
+    """
 
 
 def remark_segnala_risposta_incompleta(remark: str) -> bool:
@@ -233,7 +241,8 @@ def remark_segnala_risposta_incompleta(remark: str) -> bool:
     della fine, per esempio ``runtime error: Query timed out in "query" at line 3
     after 26 seconds.`` o ``runtime error: Query run out of memory ...``: gli
     elementi presenti sono solo quelli trovati fino a li'. Falso per un remark
-    informativo (``runtime remark: ...``) o vuoto. Il confronto ignora le
+    vuoto o senza indizi d'interruzione (forma ipotetica, gestita in via
+    difensiva). Il confronto ignora le
     maiuscole: la forma esatta non e' un contratto dell'API.
     """
     testo = remark.lower()
@@ -654,7 +663,10 @@ async def fetch_pois(
     Default: l'intero binding canonico :data:`OSM_SELECTORS`. Arricchisce ogni POI
     con ``terminus_class`` (#13). Ritenta se un tentativo scade in timeout **o**
     risponde con uno status ritentabile (:data:`_RETRYABLE_STATUS`, 429/5xx),
-    secondo ``retry``; esaurita la politica, :class:`OverpassError`.
+    secondo ``retry``; esaurita la politica, :class:`OverpassError`. Una
+    risposta 200 che porta un remark di interruzione viene ritentata come un
+    timeout e, esauriti i tentativi, solleva :class:`OverpassError` (503): costa
+    latenza, fino a 2 tentativi da ~26 s ciascuno in interattivo, 5 in offline.
 
     ``retry`` risolto a :data:`INTERACTIVE_RETRY` quando ``None``: la risoluzione
     avviene alla CHIAMATA e non come default di firma, cosi' un test puo'
@@ -695,6 +707,10 @@ async def fetch_pois_with_cut(
     falsificabile: "questi sono i POI di quella zona a quell'istante" e'
     verificabile contro uno history dump OSM solo se si registra anche il
     taglio dichiarato da Overpass, non solo l'orologio di chi ha chiesto.
+
+    Una risposta 200 che porta un remark di interruzione viene ritentata come un
+    timeout e, esauriti i tentativi, solleva :class:`OverpassError` (503): con
+    :data:`OFFLINE_RETRY` sono 5 tentativi da ~26 s ciascuno, piu' le pause.
     """
     payload = await _fetch_payload(
         bbox,
@@ -774,10 +790,12 @@ async def _fetch_payload(
             )
 
     if esito.remark is not None:
-        raise OverpassError(
-            "Risposta incompleta di Overpass: timeout lato server, anche dopo i "
-            f"ritentativi ({esito.remark})"
-        )
+        # Con un remark finale il ciclo non si e' mai fermato prima: i tentativi
+        # sono stati tutti quelli della politica. Il remark dice da se' il motivo
+        # (timeout, memoria, altro): qui non lo si riqualifica.
+        tentativi = 1 + len(policy.pause_s)
+        dopo = f" dopo {tentativi} tentativi" if tentativi > 1 else ""
+        raise OverpassError(f"Risposta incompleta di Overpass{dopo}: {esito.remark}")
     if esito.response is None:
         raise OverpassError(
             f"Overpass irraggiungibile dopo i ritentativi: {esito.motivo}"

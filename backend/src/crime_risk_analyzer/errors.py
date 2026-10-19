@@ -10,7 +10,8 @@ risposta HTTP** in un punto unico, via ``@app.exception_handler`` (orchestrator.
 Mappa (orchestrator.md):
   * :class:`ZoneNotFoundError`  -> ``422`` (zona non geocodificabile)
   * :class:`GeocodingError`     -> ``503`` (servizio di geocoding non raggiungibile)
-  * :class:`OverpassError`      -> ``503`` (Overpass non raggiungibile dopo retry)
+  * :class:`OverpassError`      -> ``503`` (Overpass non raggiungibile, o risposta
+    200 con remark di interruzione, dopo retry: #372, puo' costare ~2x26 s)
   * :class:`PoiNotFoundError`   -> ``404`` (POI fuori dall'analisi corrente, #197)
   * :class:`ContextMismatchError` -> ``409`` (contesto di zona disallineato, #242)
   * :class:`UnknownPoiTypeError` -> ``422`` (``tipo_poi`` fuori catalogo, #143)
@@ -69,7 +70,12 @@ async def _handle_geocoding_error(
 
 
 async def _handle_overpass_error(_request: Request, exc: OverpassError) -> JSONResponse:
-    """``OverpassError`` -> ``503`` Overpass non raggiungibile dopo retry."""
+    """``OverpassError`` -> ``503`` Overpass non raggiungibile dopo retry.
+
+    Anche una risposta 200 che porta un remark di interruzione viene ritentata
+    come un timeout e, esauriti i tentativi, arriva qui (#372): in interattivo
+    costa fino a 2 tentativi da ~26 s ciascuno prima del 503.
+    """
     return JSONResponse(
         status_code=503,
         content={

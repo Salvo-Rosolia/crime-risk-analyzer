@@ -1324,25 +1324,33 @@ async def test_fetch_pois_skips_non_dict_elements() -> None:
 # --- #372: ``remark`` di Overpass e risposte troncate ---
 # Quando scatta ``[timeout:25]`` (o la memoria lato server) Overpass risponde
 # 200 con un campo ``remark`` e gli elementi trovati FINO A LI': i selettori in
-# fondo alla query mancano. Le forme sotto sono quelle emesse da Overpass API
-# (prefisso ``runtime error:`` per l'interruzione, ``runtime remark:`` per le
-# note informative).
+# fondo alla query mancano. Le forme d'interruzione sotto seguono il prefisso
+# ``runtime error:``; quelle senza prefisso esercitano le frasi di riserva di
+# ``_INDIZI_INTERRUZIONE`` nel caso il prefisso cambiasse.
 
 _REMARK_TIMEOUT = (
     'runtime error: Query timed out in "query" at line 3 after 26 seconds.'
 )
 
+_REMARK_MEMORIA = "runtime error: Query run out of memory using about 2048 MB of RAM."
+
 _REMARK_INCOMPLETI = (
     _REMARK_TIMEOUT,
+    _REMARK_MEMORIA,
     'runtime error: Query timed out in "recurse" at line 41 after 25 seconds.',
     'runtime error: Query run out of memory in "query" at line 7 using about '
     "2048 MB of RAM.",
     'runtime error: Query ran out of memory in "union" at line 12. It would need '
     "at least 0 MB of RAM to continue.",
-    "runtime error: Query run out of memory using about 512 MB of RAM.",
     "Runtime error: something went wrong while executing the query.",
+    # Senza il prefisso ``runtime error``: rilevati solo dalle frasi di riserva.
+    'Error: Query timed out in "query" at line 3 after 26 seconds.',
+    "Query ran out of memory",
+    "Query run out of memory",
 )
 
+# Forme IPOTETICHE, difensive: non e' dimostrato che Overpass le emetta. Se mai
+# comparisse un remark che non dichiara un'interruzione, non va ritentato.
 _REMARK_INFORMATIVI = (
     "runtime remark: Timeout is 180 and maxsize is 536870912.",
     "runtime remark: The query has been executed with the attic data.",
@@ -1360,27 +1368,37 @@ def test_remark_informativo_non_segnala_risposta_incompleta(remark: str) -> None
     assert remark_segnala_risposta_incompleta(remark) is False
 
 
-def _troncata(remark: str = _REMARK_TIMEOUT) -> dict[str, object]:
-    """Risposta 200 troncata: il primo elemento del campione e ``remark``."""
+#: Id del campione completo dopo ``select_pois`` (node/1004 non ha nome); la
+#: risposta troncata porta solo node/1001.
+_ID_CAMPIONE_COMPLETO = ["node/1001", "node/1002", "node/1003", "way/2001"]
+
+
+def _troncata() -> dict[str, object]:
+    """Risposta 200 troncata: il primo elemento del campione e il remark di timeout."""
     sample = _sample()
     elements = cast(list[object], sample["elements"])
-    return {**sample, "elements": elements[:1], "remark": remark}
+    return {**sample, "elements": elements[:1], "remark": _REMARK_TIMEOUT}
 
 
 @respx.mock
 async def test_remark_di_timeout_non_e_accettato_come_campione_completo() -> None:
-    """Oggi accettata in silenzio: ritentativi esauriti -> errore esplicito."""
+    """Una risposta troncata non e' un campione completo.
+
+    Ritentativi esauriti -> :class:`OverpassError`.
+    """
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(200, json=_troncata())
     )
 
-    with pytest.raises(
-        OverpassError, match="incompleta di Overpass: timeout lato server"
-    ):
+    with pytest.raises(OverpassError) as exc_info:
         await fetch_pois(_BBOX, "Roma")
 
+    messaggio = str(exc_info.value)
+    assert "Risposta incompleta di Overpass" in messaggio
+    assert _REMARK_TIMEOUT in messaggio
+    assert "dopo 2 tentativi" in messaggio
     # Politica interattiva: un tentativo + un ritentativo, poi l'errore.
-    assert route.call_count == 1 + len(INTERACTIVE_RETRY.pause_s)
+    assert route.call_count == 1 + len(overpass_client.INTERACTIVE_RETRY.pause_s)
 
 
 @respx.mock
@@ -1390,13 +1408,35 @@ async def test_remark_di_timeout_esaurisce_anche_la_politica_offline() -> None:
         return_value=httpx.Response(200, json=_troncata())
     )
 
-    with pytest.raises(OverpassError, match="timeout lato server"):
+    with pytest.raises(
+        OverpassError, match=r"Risposta incompleta di Overpass.*dopo 5 tentativi"
+    ):
         await fetch_pois_with_cut(
             _BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(attese)
         )
 
     assert route.call_count == 1 + len(OFFLINE_RETRY.pause_s)
     assert attese == list(OFFLINE_RETRY.pause_s)
+
+
+@respx.mock
+async def test_remark_di_memoria_non_e_descritto_come_timeout() -> None:
+    """Un out of memory non e' un timeout, e senza ritentativi non si dice «dopo»."""
+    sample = {**_sample(), "remark": _REMARK_MEMORIA}
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json=sample)
+    )
+    senza_ritentativi = replace(INTERACTIVE_RETRY, pause_s=())
+
+    with pytest.raises(OverpassError) as exc_info:
+        await fetch_pois(_BBOX, "Roma", retry=senza_ritentativi)
+
+    messaggio = str(exc_info.value)
+    assert "timeout" not in messaggio.lower()
+    assert "tentativi" not in messaggio
+    assert "Risposta incompleta di Overpass" in messaggio
+    assert _REMARK_MEMORIA in messaggio
+    assert route.call_count == 1
 
 
 @respx.mock
@@ -1415,19 +1455,11 @@ async def test_remark_di_timeout_poi_risposta_completa_ritenta_e_usa_la_seconda(
 
     assert route.call_count == 2
     # Il campione e' quello della seconda risposta, non quello troncato.
-    assert pois == await _fetch_completo()
+    assert sorted(p["id"] for p in pois) == _ID_CAMPIONE_COMPLETO
     messaggi = [r.getMessage() for r in caplog.records]
     assert any(
         "risposta incompleta" in m and "ritentativo 1/1" in m for m in messaggi
     ), messaggi
-
-
-async def _fetch_completo() -> list[Poi]:
-    with respx.mock:
-        respx.post(DEFAULT_OVERPASS_URL).mock(
-            return_value=httpx.Response(200, json=_sample())
-        )
-        return await fetch_pois(_BBOX, "Roma")
 
 
 @respx.mock
@@ -1440,7 +1472,7 @@ async def test_remark_informativo_non_fa_fallire_ne_ritentare() -> None:
     pois = await fetch_pois(_BBOX, "Roma")
 
     assert route.call_count == 1
-    assert pois == await _fetch_completo()
+    assert sorted(p["id"] for p in pois) == _ID_CAMPIONE_COMPLETO
 
 
 @respx.mock
