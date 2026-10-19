@@ -31,7 +31,11 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from crime_risk_analyzer.eval.aggregate import load_runs
-from crime_risk_analyzer.eval.metrics import RiskAnchoring, risk_anchoring
+from crime_risk_analyzer.eval.metrics import (
+    FrasiEscluseIncoerentiError,
+    RiskAnchoring,
+    risk_anchoring,
+)
 from crime_risk_analyzer.eval.schema import IstatMetrics, Metrics, RunRecord, RunStatus
 
 logger = logging.getLogger(__name__)
@@ -331,10 +335,11 @@ RISK_ANCHORING_NOTE = (
 #: Frase della sezione quando delle run con dati ISTAT ne restano fuori
 #: (#359, #377): M1 le ha misurate su un testo che dal record non si ricostruisce.
 RISK_ANCHORING_ISTAT_EXCLUDED = (
-    "Restano fuori dalla sezione le run con dati ISTAT scritte prima della "
-    "versione 4 delle metriche ISTAT, o senza il testo del modello e le frasi "
-    "escluse: da questi record non si ricostruisce il testo che misura il "
-    "`grounding`"
+    "Restano fuori dalla sezione le run con dati ISTAT da cui non si ricostruisce "
+    "il testo misurato dal `grounding`: record scritti prima della versione 4 "
+    "delle metriche ISTAT, senza il testo del modello (`narrativa_grezza`), senza "
+    "le frasi escluse (`frasi_escluse_m1`) o con frasi escluse che non sono nel "
+    "testo del modello"
 )
 
 #: Avviso della sezione quando contiene run con dati ISTAT (#377): misura il
@@ -344,7 +349,11 @@ RISK_ANCHORING_ISTAT_INCLUDED = (
     "del `grounding`: quello scritto dal modello prima del filtro delle cifre, "
     "che può contenere accenni ai dati ISTAT a parole. Come il `grounding`, non "
     "conta le frasi che parlano del dato ISTAT senza nominare un punto né un "
-    "rischio: il loro numero, per braccio, è nella riga qui sotto."
+    "rischio: il loro numero, per braccio, è nella riga qui sotto. Le righe dei "
+    "dati ISTAT nel prompt riportano le etichette dei rischi collegati "
+    "(«Collegata a: ...»): una frase ISTAT che le riprende conta «da rischio». "
+    "La quota può quindi salire per le frasi ISTAT e non perché il modello "
+    "nomini rischi per i punti."
 )
 
 
@@ -1227,6 +1236,10 @@ def _record_anchoring(record: RunRecord) -> RiskAnchoring | None:
     ricostruito da ``narrativa_grezza`` e ``frasi_escluse_m1`` (#377). Va
     chiamata solo sui record da cui il testo si ricostruisce
     (:func:`_istat_non_ricostruibile` falso).
+
+    Raises:
+        FrasiEscluseIncoerentiError: le frasi escluse del record non sono fra
+            le frasi del grezzo.
     """
     con_istat = record.istat_metrics is not None
     return risk_anchoring(
@@ -1271,9 +1284,20 @@ def _mean_or_none(values: list[float]) -> float | None:
 def _zone_anchoring(records: list[RunRecord]) -> RiskAnchoringArm:
     """Aggrega le narrative gradabili delle run ``OK`` di una zona (#359)."""
     ok = [r for r in records if r.status is RunStatus.OK]
-    inclusi = [r for r in ok if not _istat_non_ricostruibile(r)]
+    inclusi: list[RunRecord] = []
+    computed: list[RiskAnchoring | None] = []
+    for r in ok:
+        if _istat_non_ricostruibile(r):
+            continue
+        try:
+            computed.append(_record_anchoring(r))
+        except FrasiEscluseIncoerentiError as exc:
+            # Un record incoerente resta fuori come i non ricostruibili: non
+            # deve far fallire tutto il report.
+            logger.warning("ancoraggio ai rischi: run %s esclusa: %s", r.run_id, exc)
+            continue
+        inclusi.append(r)
     istat_inclusi = [r for r in inclusi if r.istat_metrics is not None]
-    computed = (_record_anchoring(r) for r in inclusi)
     graded = [r for r in computed if r is not None]
     conformi = [r.ancoraggio_rischi for r in graded if r.conforme]
     misurate = sum(r.frasi_misurate for r in graded)
@@ -1724,8 +1748,12 @@ def risk_anchoring_markdown(comparison: Comparison) -> str:
         f"rischio, {sez.b.frasi_ancorate_solo_poi} solo POI."
     )
     incluse = [
-        f"`{label}`: {arm.run_istat_incluse} run, "
-        f"{arm.frasi_istat_escluse} frasi ISTAT escluse"
+        f"`{label}`: {arm.run_istat_incluse} run, {arm.frasi_istat_escluse} "
+        + (
+            "frase ISTAT esclusa"
+            if arm.frasi_istat_escluse == 1
+            else "frasi ISTAT escluse"
+        )
         for label, arm in ((la, sez.a), (lb, sez.b))
         if arm.run_istat_incluse
     ]

@@ -373,6 +373,11 @@ class RiskAnchoring:
         return self.frasi_ancorate_rischio / self.frasi_misurate
 
 
+class FrasiEscluseIncoerentiError(ValueError):
+    """Una frase esclusa da M1 non e' fra le frasi del blocco misurato del
+    grezzo: grezzo e frasi escluse del record non sono coerenti (#377)."""
+
+
 def _senza_frasi_escluse(frasi: list[str], escluse: Sequence[str]) -> list[str]:
     """``frasi`` senza le ``escluse``, una occorrenza per frase esclusa (#377).
 
@@ -382,7 +387,7 @@ def _senza_frasi_escluse(frasi: list[str], escluse: Sequence[str]) -> list[str]:
     restanti = list(frasi)
     for esclusa in escluse:
         if esclusa not in restanti:
-            raise ValueError(
+            raise FrasiEscluseIncoerentiError(
                 "frase esclusa da M1 che non e' fra le frasi del blocco misurato "
                 f"del grezzo: {esclusa!r}"
             )
@@ -418,8 +423,11 @@ def risk_anchoring(
     Con i dati ISTAT nel prompt (#377) ``narrativa`` e' il grezzo del modello e
     ``frasi_escluse`` le frasi che M1 ha escluso (:func:`frasi_escluse_m1`, salvate
     nel record): si tolgono dalle frasi del blocco, cosi' le frasi misurate sono
-    le asserzioni di M1. Una frase esclusa che non e' fra le frasi del blocco
-    vuol dire grezzo e frasi escluse incoerenti: :class:`ValueError`.
+    le asserzioni di M1.
+
+    Raises:
+        FrasiEscluseIncoerentiError: una frase esclusa non e' fra le frasi del
+            blocco, cioe' grezzo e frasi escluse incoerenti.
     """
     if not (narrativa or "").strip():
         return None

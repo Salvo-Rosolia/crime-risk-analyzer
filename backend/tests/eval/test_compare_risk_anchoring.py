@@ -394,6 +394,9 @@ def test_run_con_istat_escluse_dalla_sezione() -> None:
     md = to_markdown(cmp)
     assert f"> {RISK_ANCHORING_ISTAT_EXCLUDED} (run escluse — `istat`: 2)." in md
     assert "versione 4" in RISK_ANCHORING_ISTAT_EXCLUDED
+    assert "misurato dal `grounding`" in RISK_ANCHORING_ISTAT_EXCLUDED
+    assert "`narrativa_grezza`" in RISK_ANCHORING_ISTAT_EXCLUDED
+    assert "`frasi_escluse_m1`" in RISK_ANCHORING_ISTAT_EXCLUDED
     assert RISK_ANCHORING_ISTAT_INCLUDED not in md
 
 
@@ -418,7 +421,7 @@ def test_senza_istat_nessuna_frase_sulle_run_istat() -> None:
 
 # --- Run con ISTAT di versione 4: incluse dal testo misurato da M1 (#377) --------
 
-_ISTAT_V4 = _ISTAT.model_copy(update={"versione": 4, "frasi_escluse_m1": 1})
+_ISTAT_V4 = _ISTAT.model_copy(update={"versione": 4})
 
 #: Frase ISTAT senza POI ne' rischio: M1 la esclude e il record la salva.
 _FRASE_ISTAT = "Secondo l'ISTAT i furti sono in calo"
@@ -442,11 +445,14 @@ def _rec_istat_v4(
     escluse: list[str] | None = None,
 ) -> RunRecord:
     rec = _rec(experiment, zona, _FILTRATA, mode="analyze", rep=rep, istat=True)
+    frasi = [_FRASE_ISTAT] if escluse is None else escluse
+    # Come l'harness: il conteggio delle metriche ISTAT e' la lunghezza della lista.
+    metriche = _ISTAT_V4.model_copy(update={"frasi_escluse_m1": len(frasi)})
     return rec.model_copy(
         update={
-            "istat_metrics": _ISTAT_V4,
+            "istat_metrics": metriche,
             "narrativa_grezza": grezzo,
-            "frasi_escluse_m1": [_FRASE_ISTAT] if escluse is None else escluse,
+            "frasi_escluse_m1": frasi,
         }
     )
 
@@ -512,11 +518,16 @@ def test_markdown_avviso_run_istat_incluse_con_frasi_escluse_per_braccio() -> No
     assert RISK_ANCHORING_ISTAT_INCLUDED in md
     assert (
         "> Run con dati ISTAT nella sezione — `a`: 2 run, 2 frasi ISTAT escluse; "
-        "`b`: 2 run, 1 frasi ISTAT escluse."
+        "`b`: 2 run, 1 frase ISTAT esclusa."
     ) in md
+    # La tabella ISTAT conta le stesse frasi escluse dei record.
+    assert "> Frasi escluse da M1 — `a`: 2 frasi escluse; `b`: 1 frasi escluse." in md
     assert RISK_ANCHORING_ISTAT_EXCLUDED not in md
-    # L'avviso dice che il testo misurato ha accenni ISTAT a parole.
+    # L'avviso dice che il testo misurato ha accenni ISTAT a parole, e che le
+    # righe ISTAT del prompt portano le etichette dei rischi collegati.
     assert "a parole" in RISK_ANCHORING_ISTAT_INCLUDED
+    assert "«Collegata a: ...»" in RISK_ANCHORING_ISTAT_INCLUDED
+    assert "da rischio" in RISK_ANCHORING_ISTAT_INCLUDED
     sezione = md[md.index(RISK_ANCHORING_HEAD) :]
     assert sezione.index(RISK_ANCHORING_ISTAT_INCLUDED) < sezione.index(
         "Come leggere questa sezione"
@@ -581,3 +592,38 @@ def test_run_istat_v3_esclusa_anche_con_grezzo_e_frasi_escluse() -> None:
     assert cmp.ancoraggio_rischi.a.run_istat_escluse == 1
     assert cmp.ancoraggio_rischi.a.run_istat_incluse == 0
     assert cmp.ancoraggio_rischi.a.narrative_gradabili == 0
+
+
+def test_run_istat_v4_incoerente_esclusa_senza_far_fallire_il_report(
+    tmp_path: Path,
+) -> None:
+    """Una frase esclusa che non e' fra le frasi del grezzo (record incoerente):
+    la run resta fuori dalla sezione come le altre non ricostruibili, il report
+    si genera."""
+    alterata = _FRASE_ISTAT.replace("calo", "aumento")
+    rotto = _rec_istat_v4(rep=1, escluse=[alterata])
+    buono = _rec_istat_v4(rep=0)
+    cmp = compare_records(
+        [buono],
+        [buono],
+        label_a="a",
+        label_b="b",
+        anchoring_records=([buono, rotto], [buono]),
+    )
+    sez = cmp.ancoraggio_rischi
+    assert sez is not None
+    assert sez.a.run_istat_escluse == 1
+    assert sez.a.run_istat_incluse == 1
+    assert sez.a.narrative_gradabili == 1
+    assert sez.a.frasi_istat_escluse == 1
+    md = to_markdown(cmp)
+    assert f"> {RISK_ANCHORING_ISTAT_EXCLUDED} (run escluse — `a`: 1)." in md
+    # Anche il report ripetuto si genera.
+    for rec in (rotto, buono, _rec_istat_v4(experiment="i4b")):
+        write_record(tmp_path, rec)
+    md_path, json_path = build_repeated_report(
+        tmp_path, "i4", "i4b", label_a="a", label_b="b"
+    )
+    data = json.loads(json_path.read_text(encoding="utf-8"))
+    assert data["comparison"]["ancoraggio_rischi"]["a"]["run_istat_escluse"] == 1
+    assert RISK_ANCHORING_ISTAT_EXCLUDED in md_path.read_text(encoding="utf-8")

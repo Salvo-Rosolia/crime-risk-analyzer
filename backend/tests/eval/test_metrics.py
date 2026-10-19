@@ -2,10 +2,11 @@ from typing import get_args
 
 import pytest
 
-from crime_risk_analyzer.eval import metrics
+from crime_risk_analyzer.eval import compare, harness, metrics
 from crime_risk_analyzer.eval.metrics import (
     _MEASURED_TOKEN_BY_MODE,  # pyright: ignore[reportPrivateUsage]
     METRICS_VERSION,
+    FrasiEscluseIncoerentiError,
     RiskAnchoring,
     _measured_spans,  # pyright: ignore[reportPrivateUsage]
     compute_metrics,
@@ -17,7 +18,7 @@ from crime_risk_analyzer.eval.metrics import (
     latency_ms,
     risk_anchoring,
 )
-from crime_risk_analyzer.eval.schema import Mode
+from crime_risk_analyzer.eval.schema import ExperimentConfig, Mode, RunCase, RunRecord
 from crime_risk_analyzer.istat.blocco import blocco_istat_poi
 from crime_risk_analyzer.istat.cifre import controlla_cifre
 from crime_risk_analyzer.models.vocab import ConfidenceSummary
@@ -732,14 +733,28 @@ def test_frasi_istat_del_controllo_sono_frasi_di_m1(grezzo: str) -> None:
 # --- Ancoraggio ai rischi sul testo misurato da M1 con ISTAT (#377) ---------------
 
 
+def _record_istat(resp: AnalyzeResponse) -> RunRecord:
+    """Il record che l'harness scrive per ``resp`` (grezzo e frasi escluse)."""
+    return harness._record_from_response(  # pyright: ignore[reportPrivateUsage]
+        run_id="r",
+        snapshot_id="s",
+        config=ExperimentConfig(
+            name="istat", mode="analyze", model="groq", cases=[], istat=True
+        ),
+        case=RunCase(citta="Roma", zona="Colosseo"),
+        model_id="m",
+        resp=resp,
+        code_commit="a",
+        ontology_hash="b",
+        snapshot_catturato_il=None,
+        snapshot_configurazione_canonica=None,
+    )
+
+
 def _ancoraggio_dal_record(resp: AnalyzeResponse) -> RiskAnchoring | None:
-    """Come la sezione del confronto: dal grezzo e dalle frasi escluse salvate."""
-    return risk_anchoring(
-        resp.narrativa_grezza,
-        mode="analyze",
-        poi_names=[m.poi for m in resp.risk_models],
-        risk_models=resp.risk_models,
-        frasi_escluse=frasi_escluse_m1(resp) or [],
+    """La sezione del confronto sul record scritto dall'harness."""
+    return compare._record_anchoring(  # pyright: ignore[reportPrivateUsage]
+        _record_istat(resp)
     )
 
 
@@ -769,6 +784,23 @@ def test_ancoraggio_dal_record_istat_ripartisce_le_frasi_di_m1(grezzo: str) -> N
         assert r.ancoraggio_rischi == 0.0
 
 
+def test_ancoraggio_dal_record_senza_frasi_escluse_misura_il_grezzo() -> None:
+    """#377: lista di esclusione vuota ma narrativa filtrata diversa dal grezzo
+    (il controllo toglie una cifra non ISTAT): si misurano le frasi di M1, cioe'
+    il grezzo, non la narrativa mostrata."""
+    resp = _resp_istat(_narrativa(f"{_ANCORATA} Si stimano 999 episodi l'anno."))
+    record = _record_istat(resp)
+    assert record.frasi_escluse_m1 == []
+    assert record.narrativa != record.narrativa_grezza
+    graded = metrics._grade(resp, "analyze")  # pyright: ignore[reportPrivateUsage]
+    r = _ancoraggio_dal_record(resp)
+    assert r is not None
+    assert (r.frasi_ancorate_rischio + r.frasi_ancorate_solo_poi, r.frasi_misurate) == (
+        graded
+    )
+    assert r.frasi_misurate == 2
+
+
 def test_blocco_di_sole_frasi_istat_escluse_e_conforme() -> None:
     """Il formato c'e': non e' una narrativa non conforme, solo senza frasi."""
     r = _ancoraggio_dal_record(
@@ -790,7 +822,7 @@ def test_ancoraggio_con_frasi_escluse_toglie_una_frase_per_voce() -> None:
 
 
 def test_ancoraggio_frase_esclusa_assente_dal_blocco_solleva() -> None:
-    with pytest.raises(ValueError, match="frase esclusa"):
+    with pytest.raises(FrasiEscluseIncoerentiError, match="frase esclusa"):
         risk_anchoring(
             _narrativa(_ANCORATA),
             mode="analyze",
