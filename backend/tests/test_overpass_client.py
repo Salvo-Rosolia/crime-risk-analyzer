@@ -15,7 +15,7 @@ import respx
 
 from crime_risk_analyzer import overpass_client
 from crime_risk_analyzer.eval.snapshots import capturing_source
-from crime_risk_analyzer.models.geo import Bbox
+from crime_risk_analyzer.models.geo import Bbox, haversine_m
 from crime_risk_analyzer.overpass_client import (
     DEFAULT_OVERPASS_URL,
     INTERACTIVE_RETRY,
@@ -959,6 +959,225 @@ async def test_parsing_scarta_una_relation_senza_center() -> None:
     )
 
     assert await fetch_pois(_BBOX, "Roma") == []
+
+
+# --- #371: lo stesso oggetto mappato come way e come relation multipoligono ---
+
+#: Ambiente 4 al Palatino come lo restituisce Overpass (``out center``, taglio
+#: 2026-07-15): way/597452722 e relation/1835450 hanno stesso nome e stesso
+#: ``historic``, centri a ~34 m, e tag secondari diversi (``inscription``,
+#: ``fixme``, ``website``). La way non e' un membro della relation: e' una
+#: seconda mappatura dello stesso sito.
+_AMBIENTE_4_WAY: dict[str, object] = {
+    "type": "way",
+    "id": 597452722,
+    "center": {"lat": 41.8900546, "lon": 12.4899794},
+    "tags": {
+        "historic": "archaeological_site",
+        "historic:civilization": "ancient_roman",
+        "inscription": "Ambiente 4- Luogo di Ritrovamento dei temenoi arcaici.",
+        "name": "Ambiente 4",
+    },
+}
+_AMBIENTE_4_REL: dict[str, object] = {
+    "type": "relation",
+    "id": 1835450,
+    "center": {"lat": 41.8901595, "lon": 12.4895943},
+    "tags": {
+        "fixme": "location and detailing",
+        "historic": "archaeological_site",
+        "historic:civilization": "ancient_roman",
+        "inscription": "Ambiente 4 - Area di scavo arcaica.",
+        "name": "Ambiente 4",
+        "type": "multipolygon",
+        "website": "http://archeopalatino.uniroma1.it/",
+    },
+}
+
+#: Gradi di latitudine per metro (sfera media), per spostare un elemento a mano.
+_GRADI_PER_METRO = 1 / 111_195.0
+
+
+def _variante(
+    element: dict[str, object],
+    *,
+    nord_m: float = 0.0,
+    come_nodo: bool = False,
+    elem_id: int | None = None,
+    tags: dict[str, str] | None = None,
+) -> dict[str, object]:
+    """Copia di ``element`` spostata verso nord, eventualmente come node, con id
+    o tag sostituiti."""
+    copia = dict(element)
+    center = cast(dict[str, float], element["center"])
+    lat = center["lat"] + nord_m * _GRADI_PER_METRO
+    if come_nodo:
+        del copia["center"]
+        copia.update(type="node", lat=lat, lon=center["lon"])
+    else:
+        copia["center"] = {"lat": lat, "lon": center["lon"]}
+    if elem_id is not None:
+        copia["id"] = elem_id
+    if tags is not None:
+        copia["tags"] = tags
+    return copia
+
+
+def _tags(element: dict[str, object]) -> dict[str, str]:
+    return dict(cast(dict[str, str], element["tags"]))
+
+
+def _parse(elements: list[dict[str, object]]) -> list[Poi]:
+    return overpass_client._parse_elements(  # pyright: ignore[reportPrivateUsage]
+        {"elements": elements}, "Roma"
+    )
+
+
+def _ids_ordinati(elements: list[dict[str, object]]) -> list[str]:
+    return sorted(p["id"] for p in _parse(elements))
+
+
+def test_way_doppione_della_relation_multipoligono_e_scartata() -> None:
+    """Il caso dell'issue: resta solo la relation, una volta sola."""
+    assert _ids_ordinati([_AMBIENTE_4_WAY, _AMBIENTE_4_REL]) == ["relation/1835450"]
+
+
+def test_sopravvissuto_non_dipende_dall_ordine_di_emissione() -> None:
+    """La relation sopravvive anche se arriva prima della way, con le sue
+    coordinate: id e centro del POI non dipendono dall'ordine di Overpass."""
+    for elementi in (
+        [_AMBIENTE_4_WAY, _AMBIENTE_4_REL],
+        [_AMBIENTE_4_REL, _AMBIENTE_4_WAY],
+    ):
+        pois = _parse(elementi)
+        assert [p["id"] for p in pois] == ["relation/1835450"]
+        assert (pois[0]["lat"], pois[0]["lon"]) == (41.8901595, 12.4895943)
+
+
+def test_stesso_nome_ma_tag_di_famiglia_diversi_non_si_fondono() -> None:
+    """Un ``tourism=attraction`` in piu' sulla way basta a tenerli distinti."""
+    tags_way = _tags(_AMBIENTE_4_WAY) | {"tourism": "attraction"}
+    way = _variante(_AMBIENTE_4_WAY, tags=tags_way)
+    assert _ids_ordinati([way, _AMBIENTE_4_REL]) == [
+        "relation/1835450",
+        "way/597452722",
+    ]
+
+
+def test_stesso_nome_ma_valore_di_famiglia_diverso_non_si_fondono() -> None:
+    """Stessa chiave, valore diverso: ``historic=ruins`` non e' lo stesso sito."""
+    tags_way = _tags(_AMBIENTE_4_WAY) | {"historic": "ruins"}
+    way = _variante(_AMBIENTE_4_WAY, tags=tags_way)
+    assert _ids_ordinati([way, _AMBIENTE_4_REL]) == [
+        "relation/1835450",
+        "way/597452722",
+    ]
+
+
+def test_stesso_nome_e_tag_ma_lontani_non_si_fondono() -> None:
+    """Oltre la soglia di vicinanza sono due siti omonimi, non un doppione."""
+    soglia = overpass_client.DISTANZA_MAX_DOPPIONE_M
+    rel = cast(dict[str, float], _AMBIENTE_4_REL["center"])
+    way = _variante(_AMBIENTE_4_REL, nord_m=soglia + 5, elem_id=597452722)
+    way["type"] = "way"
+    way["tags"] = _tags(_AMBIENTE_4_WAY)
+    centro_way = cast(dict[str, float], way["center"])
+    distanza = haversine_m(rel["lat"], rel["lon"], centro_way["lat"], rel["lon"])
+    assert soglia < distanza < soglia + 10
+    assert _ids_ordinati([way, _AMBIENTE_4_REL]) == [
+        "relation/1835450",
+        "way/597452722",
+    ]
+
+
+def test_due_way_omonime_e_vicine_non_si_fondono() -> None:
+    """Mai due elementi dello stesso tipo: sono oggetti OSM distinti."""
+    gemella = _variante(_AMBIENTE_4_WAY, nord_m=5, elem_id=597452723)
+    assert _ids_ordinati([_AMBIENTE_4_WAY, gemella]) == [
+        "way/597452722",
+        "way/597452723",
+    ]
+
+
+def test_nodo_omonimo_vicino_alla_relation_non_si_fonde() -> None:
+    """Mai i nodi: un punto dentro un'area omonima resta un POI a se'."""
+    nodo = _variante(_AMBIENTE_4_REL, come_nodo=True, elem_id=42)
+    nodo["tags"] = _tags(_AMBIENTE_4_WAY)
+    assert _ids_ordinati([nodo, _AMBIENTE_4_REL]) == ["node/42", "relation/1835450"]
+
+
+def test_nodo_e_way_omonimi_non_si_fondono() -> None:
+    """Due fermate "Termini" o un nodo e un'area omonimi restano distinti."""
+    nodo = _variante(_AMBIENTE_4_WAY, nord_m=3, come_nodo=True, elem_id=42)
+    assert _ids_ordinati([nodo, _AMBIENTE_4_WAY]) == ["node/42", "way/597452722"]
+
+
+@pytest.mark.parametrize("nome", [None, "", "   "])
+def test_way_e_relation_senza_nome_non_si_fondono(nome: str | None) -> None:
+    """Senza nome non c'e' modo di dire che sono lo stesso oggetto."""
+
+    def _con_nome(element: dict[str, object]) -> dict[str, object]:
+        tags = {k: v for k, v in _tags(element).items() if k != "name"}
+        if nome is not None:
+            tags["name"] = nome
+        return _variante(element, tags=tags)
+
+    assert _ids_ordinati([_con_nome(_AMBIENTE_4_WAY), _con_nome(_AMBIENTE_4_REL)]) == [
+        "relation/1835450",
+        "way/597452722",
+    ]
+
+
+def test_relation_che_non_e_un_multipoligono_non_assorbe_la_way() -> None:
+    """Una relation ``type=site`` raggruppa oggetti distinti: non e' l'area
+    della way, quindi non e' un suo doppione."""
+    rel = _variante(_AMBIENTE_4_REL, tags=_tags(_AMBIENTE_4_REL) | {"type": "site"})
+    assert _ids_ordinati([_AMBIENTE_4_WAY, rel]) == [
+        "relation/1835450",
+        "way/597452722",
+    ]
+
+
+def test_doppione_scartato_libera_il_posto_della_classe() -> None:
+    """La deduplica avviene prima di ``select_pois``: il posto che la way
+    occupava fra i ``PER_CLASS_CAP`` Archaeological_site va al sito successivo.
+
+    Sei classi di riempitivi a 500 m riempiono gli altri 17 posti nel primo
+    giro, cosi' il secondo giro non puo' recuperare il sito scartato dal tetto.
+    """
+    centro_rel = cast(dict[str, float], _AMBIENTE_4_REL["center"])
+    lat, lon = centro_rel["lat"], centro_rel["lon"]
+    siti: list[dict[str, object]] = [
+        {
+            "type": "node",
+            "id": 9000 + i,
+            "lat": lat + (60 + 20 * i) * _GRADI_PER_METRO,
+            "lon": lon,
+            "tags": {"historic": "archaeological_site", "name": f"Sito {i}"},
+        }
+        for i in range(2)
+    ]
+    valori = ["bank", "pharmacy", "school", "hospital", "fuel", "police"]
+    riempitivi: list[dict[str, object]] = [
+        {
+            "type": "node",
+            "id": 8000 + i,
+            "lat": lat - 500 * _GRADI_PER_METRO,
+            "lon": lon + i * 0.00001,
+            "tags": {"amenity": valore, "name": f"Riempitivo {i}"},
+        }
+        for i, valore in enumerate(valori * 3)
+    ]
+
+    scelti = overpass_client.select_pois(
+        _parse([_AMBIENTE_4_WAY, _AMBIENTE_4_REL, *siti, *riempitivi]), (lat, lon)
+    )
+
+    assert len(scelti) == MAX_POIS
+    archeologici = [
+        p["id"] for p in scelti if p["terminus_class"] == "Archaeological_site"
+    ]
+    assert archeologici == ["relation/1835450", "node/9000", "node/9001"]
 
 
 @respx.mock
