@@ -25,6 +25,7 @@ from crime_risk_analyzer.overpass_client import (
     fetch_pois,
     fetch_pois_with_cut,
 )
+from crime_risk_analyzer.sparql_module.osm_mapping import map_to_terminus
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "overpass_sample.json"
 _BBOX = Bbox(41.88, 12.48, 41.90, 12.50)
@@ -790,6 +791,17 @@ async def test_relation_con_tetto_proprio_e_blocco_node_way_invariato() -> None:
     assert "  relation[" not in body
 
 
+#: Tag della relation reale del Colosseo (relation/1834818): sito archeologico e
+#: attrazione turistica insieme, il caso di #314 (relation) e #373 (priorita').
+_COLOSSEO_ID = 1834818
+_COLOSSEO_TAGS: dict[str, str] = {
+    "type": "multipolygon",
+    "historic": "archaeological_site",
+    "tourism": "attraction",
+    "name": "Colosseo",
+}
+
+
 def _relation(
     rel_id: int, lat: float, lon: float, tags: dict[str, str]
 ) -> dict[str, object]:
@@ -876,17 +888,7 @@ async def test_relation_vicina_al_centro_entra_nel_campione() -> None:
         }
         for i in range(MAX_POIS)
     ]
-    colosseo = _relation(
-        1834818,
-        lat + 0.00008,
-        lon,
-        {
-            "type": "multipolygon",
-            "historic": "archaeological_site",
-            "tourism": "attraction",
-            "name": "Colosseo",
-        },
-    )
+    colosseo = _relation(_COLOSSEO_ID, lat + 0.00008, lon, dict(_COLOSSEO_TAGS))
     respx.post(DEFAULT_OVERPASS_URL).mock(
         side_effect=_overpass_che_rispetta_la_query(nodi, [colosseo])
     )
@@ -903,16 +905,7 @@ async def test_relation_emessa_da_piu_blocchi_entra_una_volta() -> None:
     ``historic=archaeological_site``: arriva dal blocco di ciascun selettore e
     deve contare una volta sola, come gia' per node e way."""
     lat, lon = _BBOX.center()
-    colosseo = _relation(
-        1834818,
-        lat,
-        lon,
-        {
-            "historic": "archaeological_site",
-            "tourism": "attraction",
-            "name": "Colosseo",
-        },
-    )
+    colosseo = _relation(_COLOSSEO_ID, lat, lon, dict(_COLOSSEO_TAGS))
     respx.post(DEFAULT_OVERPASS_URL).mock(
         side_effect=_overpass_che_rispetta_la_query([], [colosseo, dict(colosseo)])
     )
@@ -1190,15 +1183,28 @@ async def test_fetch_pois_picks_first_mapped_selector_not_first_present() -> Non
 
 
 @respx.mock
+async def test_colosseo_relation_risolve_archaeological_site() -> None:
+    """#373 end-to-end sul caso reale: il Colosseo arriva come relation con
+    ``historic=archaeological_site`` + ``tourism=attraction`` e deve uscire
+    ``Archaeological_site``, non ``Historical_monument``."""
+    lat, lon = _BBOX.center()
+    colosseo = _relation(_COLOSSEO_ID, lat, lon, dict(_COLOSSEO_TAGS))
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=_overpass_che_rispetta_la_query([], [colosseo])
+    )
+
+    pois = await fetch_pois(_BBOX, "Roma")
+
+    assert pois[0]["id"] == f"relation/{_COLOSSEO_ID}"
+    assert pois[0]["osm_tags"] == "historic=archaeological_site"
+    assert pois[0]["terminus_class"] == "Archaeological_site"
+
+
 @pytest.mark.parametrize(
     ("tags", "osm_tag", "terminus_class"),
     [
         pytest.param(
-            {
-                "historic": "archaeological_site",
-                "tourism": "attraction",
-                "name": "Colosseo",
-            },
+            _COLOSSEO_TAGS,
             "historic=archaeological_site",
             "Archaeological_site",
             id="colosseo-archaeological-site-prevale-su-attraction",
@@ -1234,26 +1240,17 @@ async def test_fetch_pois_picks_first_mapped_selector_not_first_present() -> Non
         ),
     ],
 )
-async def test_fetch_pois_historic_prevale_solo_su_tourism_attraction(
+def test_historic_prevale_solo_su_tourism_attraction(
     tags: dict[str, str], osm_tag: str, terminus_class: str
 ) -> None:
     """``tourism=attraction`` e' un tag generico: su un elemento che porta anche un
-    ``historic=*`` mappato vince il tag storico (#373, il Colosseo dev'essere
-    ``Archaeological_site``). Le altre precedenze non cambiano: ``tourism=museum``
-    resta davanti a ``historic`` e ``amenity`` davanti a entrambi."""
-    payload = {
-        "elements": [
-            {"type": "node", "id": 21, "lat": 41.89, "lon": 12.49, "tags": tags}
-        ]
-    }
-    respx.post(DEFAULT_OVERPASS_URL).mock(
-        return_value=httpx.Response(200, json=payload)
-    )
+    ``historic=*`` mappato vince il tag storico (#373). Le altre precedenze non
+    cambiano: ``tourism=museum`` resta davanti a ``historic`` e ``amenity`` davanti
+    a entrambi. Funzione pura: nessuna chiamata HTTP."""
+    selettore = overpass_client._extract_osm_tag(tags)  # pyright: ignore[reportPrivateUsage]
 
-    pois = await fetch_pois(_BBOX, "Roma")
-
-    assert pois[0]["osm_tags"] == osm_tag
-    assert pois[0]["terminus_class"] == terminus_class
+    assert selettore == osm_tag
+    assert map_to_terminus(selettore) == terminus_class
 
 
 @respx.mock
