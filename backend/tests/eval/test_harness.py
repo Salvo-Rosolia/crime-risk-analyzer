@@ -1525,6 +1525,28 @@ async def test_run_case_con_istat_scrive_provenienza_grezzo_e_metriche(
     assert (rec.metrics.grounding, rec.metrics.hallucination) == (0.5, 0.5)
 
 
+async def test_run_case_con_istat_separa_le_escluse_senza_voce_del_prompt(
+    tmp_path: Path,
+) -> None:
+    """#378: fra le frasi escluse da M1 il record separa quelle che non nominano
+    nessuna voce delle righe ISTAT del prompt, senza toccare M1."""
+    furti = "Secondo i dati ISTAT del Comune di Roma i furti sono in calo"
+    sequestri = (
+        "Secondo i dati ISTAT del Comune di Roma i sequestri di persona sono in aumento"
+    )
+    testo = (
+        "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nBanca A: rapina in banca. "
+        f"{furti}. {sequestri}.\n"
+    )
+    rec = await _run_case_istat(tmp_path, testo)
+    assert rec.frasi_escluse_m1 == [furti, sequestri]
+    assert rec.frasi_escluse_senza_voce == [sequestri]
+    assert rec.istat_metrics is not None
+    assert rec.istat_metrics.frasi_escluse_m1 == 2
+    assert rec.istat_metrics.frasi_escluse_senza_voce == 1
+    assert (rec.metrics.grounding, rec.metrics.hallucination) == (1.0, 0.0)
+
+
 async def test_run_case_a_istat_spento_grezzo_uguale_alla_narrativa(
     tmp_path: Path,
 ) -> None:
@@ -1555,6 +1577,7 @@ async def test_run_case_a_istat_spento_grezzo_uguale_alla_narrativa(
         0,
     )
     assert rec.frasi_escluse_m1 is None
+    assert rec.frasi_escluse_senza_voce is None
 
 
 async def test_m1_su_record_istat_grada_il_grezzo_senza_le_frasi_istat_escluse(
@@ -1653,6 +1676,7 @@ def test_record_istat_vacuo_non_dichiara_frasi_escluse() -> None:
     )
     assert record.metrics.quality_vacuous is True
     assert record.frasi_escluse_m1 == []
+    assert record.frasi_escluse_senza_voce == []
     assert record.istat_metrics is not None
     assert record.istat_metrics.frasi_escluse_m1 == 0
     senza = record.model_copy(update={"experiment": "base", "istat_metrics": None})

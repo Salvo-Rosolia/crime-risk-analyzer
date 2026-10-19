@@ -521,7 +521,14 @@ def test_markdown_avviso_run_istat_incluse_con_frasi_escluse_per_braccio() -> No
         "`b`: 2 run, 1 frase ISTAT esclusa."
     ) in md
     # La tabella ISTAT conta le stesse frasi escluse dei record.
-    assert "> Frasi escluse da M1 — `a`: 2 frasi escluse; `b`: 1 frasi escluse." in md
+    # Il fixture non ha il conteggio delle escluse senza voce (#378): n/d.
+    senza_conteggio = (
+        "di cui n/d senza voce ISTAT del prompt (record senza il conteggio)"
+    )
+    assert (
+        f"> Frasi escluse da M1 — `a`: 2 frasi escluse, {senza_conteggio}; "
+        f"`b`: 1 frasi escluse, {senza_conteggio}."
+    ) in md
     assert RISK_ANCHORING_ISTAT_EXCLUDED not in md
     # L'avviso dice che il testo misurato ha accenni ISTAT a parole, e che le
     # righe ISTAT del prompt portano le etichette dei rischi collegati.

@@ -209,6 +209,7 @@ __all__ = [
     "dividi_frasi",
     "dividi_frasi_m1",
     "estrai_numeri",
+    "nomina_voce_delle_righe",
     "valori_del_testo",
     "voci_nominate",
 ]
@@ -697,6 +698,22 @@ def voci_nominate(testo: str, etichette: Sequence[tuple[str, str]]) -> set[str]:
     per codice ISTAT; l'etichetta piu' lunga consuma il suo pezzo di testo
     (:func:`_nominate`)."""
     return _nominate(testo, etichette)[0]
+
+
+def nomina_voce_delle_righe(testo: str, righe: Sequence[RigaIstat]) -> bool:
+    """``True`` se ``testo`` nomina una voce delle ``righe``: per etichetta o
+    codice, per etichetta di un rischio collegato (C1) o, se fra le righe c'e' il
+    totale, come "delitti denunciati" (#378). Voci e rischi come nel controllo
+    (:func:`_nominate`), quindi niente sinonimi: "borseggi" non nomina "furti con
+    destrezza". Il totale invece qui conta per qualunque frase: il controllo lo
+    applica solo con una direzione o un confronto e senza altre voci, quindi la
+    definizione è un po' più larga (un falso "con voce" al più, mai il contrario)."""
+    voci, rischi = _nominate(testo, _etichette(righe), _rischi(righe))
+    if voci or rischi:
+        return True
+    return any(r.voce == VOCE_TOTALE for r in righe) and bool(
+        _TOTALE_IMPLICITO.search(_normalizza(testo))
+    )
 
 
 def _luoghi_nominati(

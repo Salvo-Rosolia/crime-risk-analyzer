@@ -7,11 +7,12 @@ import pytest
 from crime_risk_analyzer.eval.istat_metrics import (
     ISTAT_METRICS_VERSION,
     compute_istat_metrics,
+    frasi_escluse_senza_voce,
     somma_istat_metrics,
 )
 from crime_risk_analyzer.eval.schema import IstatMetrics
 from crime_risk_analyzer.istat.blocco import blocco_istat_poi
-from crime_risk_analyzer.istat.cifre import controlla_cifre
+from crime_risk_analyzer.istat.cifre import EsitoControllo, controlla_cifre
 from crime_risk_analyzer.rag.generation import source_block_spans
 from tests.istat._fattorie import RAPINE_IN_BANCA, istat_poi, riga
 
@@ -156,3 +157,55 @@ def test_codici_voce_scritti_dal_modello() -> None:
         {k: v for k, v in m.model_dump().items() if k != "codici_voce"}
     )
     assert vecchio.codici_voce == 0
+
+
+_ESCLUSE = [
+    "Secondo l'ISTAT a Roma i furti sono in calo",
+    "Secondo i dati ISTAT a Roma sono in aumento i sequestri di persona",
+    "Secondo i dati ISTAT a Roma sono in aumento i sequestri di persona",
+]
+
+
+def _esito(testo: str = "Rischi da ontologia [ONTOLOGIA]\nRapina.\n") -> EsitoControllo:
+    return controlla_cifre(
+        testo,
+        blocchi=source_block_spans(testo),
+        blocco_istat=_BLOCCO.testo,
+        contesto_senza_istat="ZONA: Colosseo",
+        righe=_BLOCCO.righe,
+    )
+
+
+def test_frasi_escluse_senza_voce_delle_righe_del_prompt() -> None:
+    """#378: le frasi escluse che non nominano nessuna voce delle righe passate al
+    modello, nell'ordine e con i doppioni delle escluse."""
+    assert frasi_escluse_senza_voce(_ESCLUSE, _esito()) == _ESCLUSE[1:]
+    assert frasi_escluse_senza_voce([], _esito()) == []
+
+
+def test_metriche_contano_le_escluse_senza_voce() -> None:
+    m = compute_istat_metrics(_esito(), frasi_escluse_m1=3, frasi_escluse_senza_voce=2)
+    assert (m.versione, m.frasi_escluse_m1, m.frasi_escluse_senza_voce) == (4, 3, 2)
+
+
+def test_record_senza_il_conteggio_delle_escluse_senza_voce() -> None:
+    """I record scritti prima di #378 non hanno il campo: ``None``, non 0."""
+    m = _metriche("Rischi da ontologia [ONTOLOGIA]\nRapina.\n")
+    assert m.frasi_escluse_senza_voce is None
+    vecchio = IstatMetrics.model_validate(
+        {k: v for k, v in m.model_dump().items() if k != "frasi_escluse_senza_voce"}
+    )
+    assert vecchio.frasi_escluse_senza_voce is None
+
+
+def test_somma_delle_escluse_senza_voce() -> None:
+    a = compute_istat_metrics(_esito(), frasi_escluse_m1=2, frasi_escluse_senza_voce=1)
+    b = compute_istat_metrics(_esito(), frasi_escluse_m1=1, frasi_escluse_senza_voce=0)
+    s = somma_istat_metrics([a, None, b])
+    assert s is not None
+    assert (s.frasi_escluse_m1, s.frasi_escluse_senza_voce) == (3, 1)
+    # Basta una ripetizione senza il conteggio: la somma non lo inventa.
+    vecchia = b.model_copy(update={"frasi_escluse_senza_voce": None})
+    s = somma_istat_metrics([a, vecchia])
+    assert s is not None
+    assert (s.frasi_escluse_m1, s.frasi_escluse_senza_voce) == (3, None)

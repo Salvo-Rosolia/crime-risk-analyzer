@@ -501,6 +501,21 @@ ISTAT_M1_REDUCED_TEXT = (
     "ISTAT."
 )
 
+#: Nota sulle frasi escluse da M1 che non nominano una voce del prompt (#378),
+#: sotto quella sul testo ridotto: candidate da leggere a mano, non un verdetto.
+ISTAT_ESCLUSE_SENZA_VOCE_TEXT = (
+    "> **Frasi escluse senza voce ISTAT del prompt.** Sono le frasi escluse che "
+    "non nominano nessuna voce delle righe ISTAT passate al modello né un rischio "
+    "collegato a quelle righe, con le regole del controllo ISTAT per le voci; "
+    "sono elencate nei record scritti da #378 in poi (`frasi_escluse_senza_voce`; "
+    "dove manca, il conteggio è n/d). Sono candidate "
+    "da leggere a mano: possono nominare un rischio che non è nella base di "
+    "conoscenza, ma anche parlare del dato in generale o usare un sinonimo della "
+    "voce. Non sono un conteggio di rischi inventati e non cambiano `grounding`, "
+    "`hallucination` né il verdetto. Una frase che nomina una voce delle righe e "
+    "anche un rischio inventato non è fra queste."
+)
+
 #: Titolo dell'avviso quando i due bracci hanno metriche ISTAT di versioni
 #: diverse (#369, D2): M1 e' gradato con regole diverse nei due bracci.
 ISTAT_VERSIONS_DIFFER_HEAD = "> ⚠️ **Metriche ISTAT di versioni diverse.**"
@@ -1644,10 +1659,19 @@ def _avviso_versioni_istat(
 
 
 def _frasi_escluse_del_braccio(metriche: list[IstatMetrics]) -> str:
-    """Totale delle frasi escluse da M1 nelle zone di un braccio (#369)."""
+    """Totale delle frasi escluse da M1 nelle zone di un braccio (#369) e, fra
+    queste, di quelle senza voce ISTAT del prompt (#378)."""
     if any(m.versione < 4 for m in metriche):
         return "n/d (record precedenti alla versione 4)"
-    return f"{sum(m.frasi_escluse_m1 for m in metriche)} frasi escluse"
+    escluse = f"{sum(m.frasi_escluse_m1 for m in metriche)} frasi escluse"
+    senza_voce = [m.frasi_escluse_senza_voce for m in metriche]
+    if any(n is None for n in senza_voce):
+        return (
+            f"{escluse}, di cui n/d senza voce ISTAT del prompt (record senza il "
+            "conteggio)"
+        )
+    totale = sum(n for n in senza_voce if n is not None)
+    return f"{escluse}, di cui {totale} senza voce ISTAT del prompt"
 
 
 def istat_markdown(comparison: Comparison) -> str:
@@ -1684,6 +1708,8 @@ def istat_markdown(comparison: Comparison) -> str:
         ISTAT_M1_REDUCED_TEXT,
         ">",
         f"> Frasi escluse da M1 — {'; '.join(totali)}.",
+        "",
+        ISTAT_ESCLUSE_SENZA_VOCE_TEXT,
     ]
     return "\n".join(lines) + "\n"
 
