@@ -41,7 +41,7 @@ misurano come in ogni braccio, anche se citano ISTAT.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
 from crime_risk_analyzer.eval.pricing import cost_usd
@@ -347,11 +347,13 @@ class RiskAnchoring:
     Affiancata a M1, mai al suo posto: a parita' di narrativa, nomi dei POI e
     ``risk_models``, stesso blocco e stesse frasi di :func:`_grade`, ma le frasi
     ancorate sono divise fra quelle che nominano un rischio e quelle che nominano
-    soltanto un punto. Sui record con dati ISTAT la condizione non vale (M1
-    grada il grezzo senza le frasi ISTAT escluse, non ``RunRecord.narrativa``): il
-    report di confronto li esclude. ``conforme`` e' ``False``
+    soltanto un punto. Sui record con dati ISTAT M1 grada il grezzo senza le
+    frasi ISTAT escluse, non ``RunRecord.narrativa``: lo stesso testo si ottiene
+    passando a :func:`risk_anchoring` il grezzo e le frasi escluse salvate nel
+    record (#377). ``conforme`` e' ``False``
     quando la narrativa e' piena ma il blocco misurato manca o e' vuoto (formato
-    non rispettato): in quel caso tutti i conteggi sono zero.
+    non rispettato): in quel caso tutti i conteggi sono zero. Un blocco fatto
+    solo di frasi ISTAT escluse e' conforme, con zero frasi misurate.
     """
 
     frasi_misurate: int
@@ -371,12 +373,35 @@ class RiskAnchoring:
         return self.frasi_ancorate_rischio / self.frasi_misurate
 
 
+class FrasiEscluseIncoerentiError(ValueError):
+    """Una frase esclusa da M1 non e' fra le frasi del blocco misurato del
+    grezzo: grezzo e frasi escluse del record non sono coerenti (#377)."""
+
+
+def _senza_frasi_escluse(frasi: list[str], escluse: Sequence[str]) -> list[str]:
+    """``frasi`` senza le ``escluse``, una occorrenza per frase esclusa (#377).
+
+    Due frasi con lo stesso testo sono indistinguibili per M1 (stesse
+    ancore), quindi togliere l'una o l'altra da' gli stessi conteggi.
+    """
+    restanti = list(frasi)
+    for esclusa in escluse:
+        if esclusa not in restanti:
+            raise FrasiEscluseIncoerentiError(
+                "frase esclusa da M1 che non e' fra le frasi del blocco misurato "
+                f"del grezzo: {esclusa!r}"
+            )
+        restanti.remove(esclusa)
+    return restanti
+
+
 def risk_anchoring(
     narrativa: str | None,
     *,
     mode: Mode,
     poi_names: Iterable[str],
     risk_models: Iterable[RiskModel],
+    frasi_escluse: Sequence[str] = (),
 ) -> RiskAnchoring | None:
     """Quante frasi del blocco misurato nominano un rischio, e quante solo un POI.
 
@@ -394,6 +419,15 @@ def risk_anchoring(
     :func:`_grade`: ``None`` (non gradabile) su narrativa vuota o senza alcun
     ancoraggio; narrativa piena senza blocco misurato -> ``conforme=False`` e
     conteggi a zero.
+
+    Con i dati ISTAT nel prompt (#377) ``narrativa`` e' il grezzo del modello e
+    ``frasi_escluse`` le frasi che M1 ha escluso (:func:`frasi_escluse_m1`, salvate
+    nel record): si tolgono dalle frasi del blocco, cosi' le frasi misurate sono
+    le asserzioni di M1.
+
+    Raises:
+        FrasiEscluseIncoerentiError: una frase esclusa non e' fra le frasi del
+            blocco, cioe' grezzo e frasi escluse incoerenti.
     """
     if not (narrativa or "").strip():
         return None
@@ -401,8 +435,9 @@ def risk_anchoring(
     hazards = _hazard_anchors(risk_models)
     if not (poi | hazards):
         return None
-    frasi = _measured_sentences(narrativa, mode)
-    if not frasi:
+    tutte = _measured_sentences(narrativa, mode)
+    frasi = _senza_frasi_escluse(tutte, frasi_escluse)
+    if not tutte:
         return RiskAnchoring(0, 0, 0, conforme=False)
     da_rischio = [f for f in frasi if _names_any(f, hazards)]
     solo_poi = [f for f in frasi if not _names_any(f, hazards) and _names_any(f, poi)]
