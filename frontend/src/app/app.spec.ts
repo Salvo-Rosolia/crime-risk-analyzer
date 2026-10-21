@@ -40,6 +40,13 @@ function emitCircle(f: ComponentFixture<App>, circle: Circle | null): void {
   mapDebugEl.componentInstance.circleChange.emit(circle);
 }
 
+/**
+ * Cede un macrotask vero (un timer): serve ai test che aspettano l'esito di una richiesta che si
+ * rifiuta subito, dove `whenStable` passa solo per l'ordine dei microtask e si romperebbe al primo
+ * `await` aggiunto nel codice sotto test. Fa anche scattare subito eventuali rifiuti orfani.
+ */
+const nextMacrotask = (): Promise<void> => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
 const emptyResp: AnalyzeResponse = {
   citta: 'Roma',
   zona_normalizzata: 'Centro',
@@ -257,7 +264,10 @@ describe('App shell', () => {
     domandaInput.dispatchEvent(new Event('input'));
     f.detectChanges();
 
-    api.analyze.mockRejectedValue(new Error('"Atlantide" non corrisponde ad alcuna area.'));
+    // Rifiuto differito: la promise si rifiuta DOPO che il test ha verificato LOADING (e dopo che
+    // lo store ha agganciato il proprio handler), come farebbe l'HTTP reale.
+    let rejectAnalyze!: (e: unknown) => void;
+    api.analyze.mockImplementation(() => new Promise((_res, rej) => (rejectAnalyze = rej)));
     // Cattura la Promise reale ritornata da startAnalysis (chiamata "void" dallo shell su
     // onAnalyze): la attendiamo direttamente, senza affidarci all'euristica di stabilità
     // della zone su un evento DOM sparato manualmente.
@@ -271,6 +281,7 @@ describe('App shell', () => {
       'di sera?',
     );
 
+    rejectAnalyze(new Error('"Atlantide" non corrisponde ad alcuna area.'));
     await startAnalysisSpy.mock.results[0].value;
     f.detectChanges();
 
@@ -1423,7 +1434,7 @@ describe('App shell', () => {
       f.detectChanges();
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
 
-      await f.whenStable();
+      await nextMacrotask();
       f.detectChanges();
 
       expect(flyToSpy).not.toHaveBeenCalled();
@@ -1458,7 +1469,7 @@ describe('App shell', () => {
       f.detectChanges();
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
 
-      await f.whenStable();
+      await nextMacrotask();
       f.detectChanges();
 
       expect(flyToSpy).not.toHaveBeenCalled();
@@ -1486,7 +1497,7 @@ describe('App shell', () => {
       f.detectChanges();
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
 
-      await f.whenStable();
+      await nextMacrotask();
       f.detectChanges();
 
       expect(flyToSpy).not.toHaveBeenCalled();
@@ -1512,7 +1523,7 @@ describe('App shell', () => {
       f.detectChanges();
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
 
-      await f.whenStable();
+      await nextMacrotask();
       f.detectChanges();
 
       expect(flyToSpy).not.toHaveBeenCalled();
@@ -1551,7 +1562,7 @@ describe('App shell', () => {
       f.detectChanges();
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
 
-      await f.whenStable();
+      await nextMacrotask();
       f.detectChanges();
 
       expect(flyToSpy).not.toHaveBeenCalled();
@@ -1585,7 +1596,7 @@ describe('App shell', () => {
       f.detectChanges();
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
 
-      await f.whenStable();
+      await nextMacrotask();
       f.detectChanges();
 
       expect(flyToSpy).not.toHaveBeenCalled();
@@ -1694,16 +1705,16 @@ describe('App shell', () => {
       });
 
       it('dopo un errore lo stesso testo può essere ritentato', async () => {
-        const { f, type, enter } = await setup();
+        const { type, enter } = await setup();
         api.geocodePlace
           .mockRejectedValueOnce(new HttpErrorResponse({ status: 503, error: {} }))
           .mockResolvedValueOnce({ lat: 45.4642, lon: 9.19 });
         type('Duomo di Milano');
 
         enter();
-        await f.whenStable();
+        await nextMacrotask();
         enter();
-        await f.whenStable();
+        await nextMacrotask();
 
         expect(api.geocodePlace).toHaveBeenCalledTimes(2);
       });
@@ -1855,7 +1866,9 @@ describe('App shell', () => {
         enter();
 
         newRequest();
-        reject(new HttpErrorResponse({ status: 404, error: {} }));
+        // Dentro la zona, come farebbe una risposta HTTP reale: un rifiuto non gestito verrebbe
+        // rilevato da zone.js invece di restare invisibile fuori dalla zona.
+        f.ngZone!.run(() => reject(new HttpErrorResponse({ status: 404, error: {} })));
         await f.whenStable();
         f.detectChanges();
 
@@ -1868,7 +1881,7 @@ describe('App shell', () => {
         api.geocodePlace.mockRejectedValueOnce(new HttpErrorResponse({ status: 404, error: {} }));
         type('Atlantide');
         enter();
-        await f.whenStable();
+        await nextMacrotask();
         f.detectChanges();
         expect(f.nativeElement.querySelector('.cra-place-error')).not.toBeNull();
 
@@ -2027,5 +2040,19 @@ describe('App shell', () => {
 
       expect(store.screen()).toBe('INPUT');
     });
+  });
+
+  it('canarino #383: un macrotask dopo il mount non fa esplodere rifiuti orfani dei test precedenti', async () => {
+    // Un rifiuto di zona che nessuno ha ancora sottoscritto viene rilanciato da ComponentFixture con
+    // un setTimeout, quindi esplode al primo macrotask successivo (es. un `whenStable` dopo una
+    // risoluzione tardiva) e fallisce a cascata test che non c'entrano. Questo test cede un
+    // macrotask su un fixture montato: fallisce subito se un test qui sopra lascia un rifiuto
+    // orfano, o se qualcuno riporta il target di `tsconfig.spec.json` a ES2022 (async/await nativo,
+    // che zone.js non traccia: ogni mock rifiutato sincrono nel task DOM diventerebbe orfano).
+    const f = TestBed.createComponent(App);
+    f.detectChanges();
+    await f.whenStable();
+    await nextMacrotask();
+    expect(f.nativeElement.querySelector('cra-map')).toBeTruthy();
   });
 });

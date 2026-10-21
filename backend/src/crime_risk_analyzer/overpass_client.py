@@ -34,6 +34,11 @@ non cambia nulla (:func:`remark_segnala_risposta_incompleta`).
 
 Il bacino di candidati e' tagliato da Overpass prima della selezione per
 prossimita': vedi il LIMITE DICHIARATO su :data:`PER_SELECTOR_CAP`.
+
+Doppioni way/relation (#371): una way che ripete una relation multipoligono
+(stesso nome, stessi tag di famiglia, centri entro
+:data:`DISTANZA_MAX_DOPPIONE_M`) e' tolta dal bacino prima della selezione,
+quindi non occupa un posto fra i :data:`MAX_POIS` ne' nel tetto per classe.
 """
 
 from __future__ import annotations
@@ -51,10 +56,12 @@ from crime_risk_analyzer.sparql_module.osm_mapping import (
     ORDINE_FAMIGLIE,
     OSM_SELECTORS,
     OSM_TO_TERMINUS,
+    SELETTORI_CEDEVOLI,
     map_to_terminus,
 )
 
 __all__ = [
+    "DISTANZA_MAX_DOPPIONE_M",
     "INTERACTIVE_RETRY",
     "MAX_POIS",
     "OFFLINE_RETRY",
@@ -108,6 +115,18 @@ PER_CLASS_CAP = 3
 #: Duomo di Milano) non entravano mai nel bacino. Registrato nella provenienza
 #: degli snapshot: cambia il bacino di candidati quanto ``PER_SELECTOR_CAP``.
 TIPI_ELEMENTO: tuple[str, ...] = ("node", "way", "relation")
+
+#: Distanza massima fra i centri di una way e di una relation multipoligono
+#: perche' la way sia trattata come un doppione della relation (#371). Il caso
+#: che l'ha motivata, Ambiente 4 al Palatino (way/597452722 e relation/1835450),
+#: ha i centri a ~34 m: la way e' un'area di ~8 m dentro il riquadro di
+#: ~120 x 70 m della relation, e il ``center`` di ``out center`` e' il centro del
+#: riquadro, non dell'oggetto. 50 m copre quel caso con margine restando
+#: nell'ordine di un isolato; la soglia da sola non basterebbe a evitare fusioni
+#: sbagliate, e infatti e' l'ultimo dei filtri dopo tipo, nome e tag
+#: (:func:`_scarta_way_doppioni_di_relation`). Una way piu' lontana dal centro
+#: del riquadro resta nel campione: falso negativo accettato.
+DISTANZA_MAX_DOPPIONE_M = 50.0
 
 logger = logging.getLogger(__name__)
 
@@ -201,6 +220,9 @@ class Poi(TypedDict):
     #: E' la chiave con cui i rischi vengono attribuiti al POI (#255) ed entra
     #: in ``context_fingerprint.fingerprint()`` — cambiarne il formato altera
     #: ogni ``contesto_hash`` prodotto da quel momento in poi.
+    #: Da #371 un id identifica un oggetto del campione, non ogni sua mappatura:
+    #: quando una way ripete una relation multipoligono omonima e vicina esce
+    #: solo ``"relation/…"``, e la way non compare in nessun campione.
     id: str
     name: str
     lat: float
@@ -312,13 +334,29 @@ def _extract_osm_tag(tags: Mapping[str, object]) -> str:
     ``key=value`` che esiste nel binding :data:`OSM_TO_TERMINUS`. Cosi' un POI
     multi-tag e' classificato dal tag effettivamente mappato e non da un tag spurio
     a priorita' piu' alta. Ritorna stringa vuota se nessun tag noto e' presente.
+
+    Eccezione (#373): un selettore in :data:`SELETTORI_CEDEVOLI` cede alla famiglia
+    indicata se questa porta un tag mappato sullo stesso elemento
+    (``tourism=attraction`` + ``historic=archaeological_site`` ->
+    ``historic=archaeological_site``).
     """
     for family in ORDINE_FAMIGLIE:
-        value = tags.get(family)
-        if isinstance(value, str):
-            selector = f"{family}={value}"
-            if selector in OSM_TO_TERMINUS:
-                return selector
+        selector = _mapped_selector(tags, family)
+        if selector:
+            preferita = SELETTORI_CEDEVOLI.get(selector)
+            if preferita is not None:
+                return _mapped_selector(tags, preferita) or selector
+            return selector
+    return ""
+
+
+def _mapped_selector(tags: Mapping[str, object], family: str) -> str:
+    """``family=valore`` se ``tags`` lo porta ed e' nel binding, altrimenti ``""``."""
+    value = tags.get(family)
+    if isinstance(value, str):
+        selector = f"{family}={value}"
+        if selector in OSM_TO_TERMINUS:
+            return selector
     return ""
 
 
@@ -387,6 +425,11 @@ def _parse_elements(payload: object, citta: str) -> list[Poi]:
     quali ``MAX_POIS`` escono lo decide :func:`select_pois`. Prima il taglio era
     un ``break`` a ``MAX_POIS`` sull'ordine di emissione, cioe' sull'ordine di
     dichiarazione dei selettori.
+
+    Deduplica due volte: per ``(type, id)``, e da #371 toglie la way che ripete
+    una relation multipoligono omonima e vicina
+    (:func:`_scarta_way_doppioni_di_relation`). Il bacino conta quindi oggetti,
+    non elementi OSM.
     """
     if not isinstance(payload, Mapping):
         raise OverpassError("Risposta Overpass non valida: payload non oggetto")
@@ -396,7 +439,7 @@ def _parse_elements(payload: object, citta: str) -> list[Poi]:
         raise OverpassError("Risposta Overpass priva di 'elements'")
     elements_list = cast(list[object], elements)
 
-    pois: list[Poi] = []
+    candidati: list[_Candidato] = []
     visti: set[tuple[str, str]] = set()
     for element in elements_list:
         if not isinstance(element, Mapping):
@@ -416,7 +459,82 @@ def _parse_elements(payload: object, citta: str) -> list[Poi]:
         poi = _to_poi(element_map, citta)
         if poi is not None:
             visti.add(chiave)
-            pois.append(poi)
+            # ``_to_poi`` ha gia' verificato che ``tags`` sia un Mapping.
+            tags = cast(Mapping[str, object], element_map["tags"])
+            candidati.append(_Candidato(poi, chiave[0], tags))
+    return _scarta_way_doppioni_di_relation(candidati)
+
+
+@dataclass(frozen=True)
+class _Candidato:
+    """Un POI del bacino col tipo OSM e i tag grezzi, che il :class:`Poi` non porta."""
+
+    poi: Poi
+    tipo: str
+    tags: Mapping[str, object]
+
+
+def _firma_doppione(tags: Mapping[str, object]) -> tuple[object, ...] | None:
+    """Nome e valori di TUTTE le famiglie mappate, o ``None`` se senza nome (#371).
+
+    Non il solo selettore rappresentativo (``osm_tags``): un'area con
+    ``tourism=attraction`` in piu' e' descritta diversamente, anche se la classe
+    TERMINUS che ne esce e' la stessa. I tag fuori dalle famiglie (``inscription``,
+    ``fixme``, ``website``, ``type``) non entrano: due mappature dello stesso
+    oggetto li hanno spesso diversi, ma non dicono che cosa l'oggetto sia.
+    """
+    nome = tags.get("name")
+    if not isinstance(nome, str) or not nome.strip():
+        return None
+    return (nome, *(tags.get(famiglia) for famiglia in ORDINE_FAMIGLIE))
+
+
+def _scarta_way_doppioni_di_relation(candidati: list[_Candidato]) -> list[Poi]:
+    """Toglie le way che ripetono una relation multipoligono del bacino (#371).
+
+    Da #314 un sito mappato due volte, come area (way) e come multipoligono
+    (relation), entrava due volte nel campione: Ambiente 4 al Palatino occupava
+    2 dei 20 posti e 2 dei 3 di Archaeological_site, con gli stessi rischi
+    ripetuti e il suo doppione come primo vicino nella narrativa per-POI.
+
+    Regola, volutamente stretta: una way e' scartata solo se nel bacino c'e' una
+    relation con ``type=multipolygon``, stesso nome non vuoto (uguaglianza
+    esatta, nessun confronto approssimato), stessi valori su tutte le famiglie
+    di :data:`ORDINE_FAMIGLIE` e centro entro :data:`DISTANZA_MAX_DOPPIONE_M`.
+    I node non vengono mai fusi (due fermate «Termini» sono due fermate), due
+    elementi dello stesso tipo nemmeno, gli elementi senza nome nemmeno.
+
+    Sopravvive la relation: e' l'oggetto completo, quello che #314 ha portato
+    nel bacino per rappresentare i siti a piu' parti, e il suo id non dipende da
+    quale way arrivi per prima. La scelta non dipende dall'ordine di emissione.
+    Va fatta prima di :func:`select_pois`, cosi' il posto liberato (anche nel
+    tetto per classe) va al candidato successivo.
+    """
+    multipoligoni = [
+        (c.poi, firma)
+        for c in candidati
+        if c.tipo == "relation"
+        and c.tags.get("type") == "multipolygon"
+        and (firma := _firma_doppione(c.tags)) is not None
+    ]
+    pois: list[Poi] = []
+    for c in candidati:
+        firma = _firma_doppione(c.tags) if c.tipo == "way" else None
+        doppione_di = next(
+            (
+                rel["id"]
+                for rel, firma_rel in multipoligoni
+                if firma is not None
+                and firma_rel == firma
+                and haversine_m(c.poi["lat"], c.poi["lon"], rel["lat"], rel["lon"])
+                <= DISTANZA_MAX_DOPPIONE_M
+            ),
+            None,
+        )
+        if doppione_di is not None:
+            logger.debug("POI %s scartato: doppione di %s", c.poi["id"], doppione_di)
+            continue
+        pois.append(c.poi)
     return pois
 
 

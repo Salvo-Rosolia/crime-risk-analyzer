@@ -13,8 +13,17 @@
       41.8946896,
       12.49691735
     ],
-    "switch_ms": 4849,
+    "switch_ms": 42193,
     "pois": [
+      {
+        "id": "relation/1834818",
+        "name": "Colosseo",
+        "lat": 41.8902602,
+        "lon": 12.4923737,
+        "osm_tags": "historic=archaeological_site",
+        "terminus_class": "Archaeological_site",
+        "citta": "Roma"
+      },
       {
         "id": "node/1421083048",
         "name": "Colosseo-Fori Imperiali (MB-MC)",
@@ -43,6 +52,15 @@
         "citta": "Roma"
       },
       {
+        "id": "relation/1835448",
+        "name": "Meta sudans",
+        "lat": 41.8900747,
+        "lon": 12.4906771,
+        "osm_tags": "tourism=attraction",
+        "terminus_class": "Historical_monument",
+        "citta": "Roma"
+      },
+      {
         "id": "node/13261731541",
         "name": "Colosseo",
         "lat": 41.8913606,
@@ -65,7 +83,7 @@
         "name": "Arco di Costantino",
         "lat": 41.8897623,
         "lon": 12.4906668,
-        "osm_tags": "tourism=attraction",
+        "osm_tags": "historic=monument",
         "terminus_class": "Historical_monument",
         "citta": "Roma"
       },
@@ -106,19 +124,28 @@
         "citta": "Roma"
       },
       {
-        "id": "way/140073109",
+        "id": "relation/1835466",
         "name": "",
-        "lat": 41.8902739,
-        "lon": 12.4947463,
-        "osm_tags": "historic=ruins",
-        "terminus_class": "Historical_monument",
+        "lat": 41.8897072,
+        "lon": 12.49017,
+        "osm_tags": "landuse=forest",
+        "terminus_class": "Wooded_area",
         "citta": "Roma"
       },
       {
-        "id": "way/597452722",
-        "name": "Ambiente 4",
-        "lat": 41.8900546,
-        "lon": 12.4899794,
+        "id": "relation/1835468",
+        "name": "",
+        "lat": 41.8892443,
+        "lon": 12.4902258,
+        "osm_tags": "landuse=forest",
+        "terminus_class": "Wooded_area",
+        "citta": "Roma"
+      },
+      {
+        "id": "relation/1894844",
+        "name": "Ludus Magnus",
+        "lat": 41.8901133,
+        "lon": 12.494955,
         "osm_tags": "historic=archaeological_site",
         "terminus_class": "Archaeological_site",
         "citta": "Roma"
@@ -133,19 +160,10 @@
         "citta": "Roma"
       },
       {
-        "id": "way/131635495",
+        "id": "relation/1835463",
         "name": "",
-        "lat": 41.8897305,
-        "lon": 12.4897078,
-        "osm_tags": "landuse=forest",
-        "terminus_class": "Wooded_area",
-        "citta": "Roma"
-      },
-      {
-        "id": "way/131635509",
-        "name": "",
-        "lat": 41.8897356,
-        "lon": 12.4895507,
+        "lat": 41.8899554,
+        "lon": 12.4897362,
         "osm_tags": "landuse=forest",
         "terminus_class": "Wooded_area",
         "citta": "Roma"
@@ -169,30 +187,12 @@
         "citta": "Roma"
       },
       {
-        "id": "node/13119048948",
-        "name": "Domus Aurea",
-        "lat": 41.8912624,
-        "lon": 12.4951112,
-        "osm_tags": "historic=archaeological_site",
-        "terminus_class": "Archaeological_site",
-        "citta": "Roma"
-      },
-      {
         "id": "node/465627962",
         "name": "Monte dei Paschi di Siena",
         "lat": 41.8898049,
         "lon": 12.4954479,
         "osm_tags": "amenity=atm",
         "terminus_class": "Bank",
-        "citta": "Roma"
-      },
-      {
-        "id": "way/131635503",
-        "name": "",
-        "lat": 41.8897828,
-        "lon": 12.4892125,
-        "osm_tags": "landuse=forest",
-        "terminus_class": "Wooded_area",
         "citta": "Roma"
       }
     ],
@@ -26888,5 +26888,20 @@
     }
   },
   "error_type": null,
-  "error": null
+  "error": null,
+  "provenienza": {
+    "catturato_il": "2026-10-21T07:46:11.295217+00:00",
+    "configurazione_canonica": {
+      "selettori_hash": "647d695771617738fad8405f054ade740f66561b5028a19055661818fcac0c9a",
+      "n_selettori": 65,
+      "max_pois": 20,
+      "per_selector_cap": 10,
+      "per_class_cap": 3,
+      "tipi_elemento": [
+        "node",
+        "way",
+        "relation"
+      ]
+    }
+  }
 }

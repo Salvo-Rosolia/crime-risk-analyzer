@@ -4,7 +4,13 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "outDir": "./out-tsc/spec",
-    "types": ["jest"]
+    "types": ["jest"],
+    // Solo per i test: async/await va abbassato (ES2016) perché zone.js non traccia quello nativo;
+    // il bundle di produzione è già abbassato dalla build Angular. `lib` tiene le API ES2022.
+    // Con il target ES2022 un mock che rifiuta una promise dentro un evento DOM veniva segnalato
+    // come non gestito (falso positivo) e faceva esplodere un test successivo (#383).
+    "target": "ES2016",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
   "include": ["src/**/*.d.ts", "src/**/*.spec.ts"]
 }

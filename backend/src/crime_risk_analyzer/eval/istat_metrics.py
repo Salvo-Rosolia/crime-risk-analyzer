@@ -5,19 +5,26 @@ cifre. Le "frasi ISTAT" sono quelle di qualunque blocco che parlano del dato
 (:attr:`~crime_risk_analyzer.istat.cifre.FraseControllata.parla_di_istat`); i
 campi che cambiano significato sono elencati in
 :class:`~crime_risk_analyzer.eval.schema.IstatMetrics`. Versione 4 (#369): conta
-anche le frasi ISTAT escluse da M1.
+anche le frasi ISTAT escluse da M1; da #378 quante di queste non nominano una
+voce delle righe del prompt (campo nuovo, ``None`` sui record di prima: la
+versione non cambia).
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 
 from crime_risk_analyzer.eval.schema import IstatMetrics
-from crime_risk_analyzer.istat.cifre import EsitoControllo
+from crime_risk_analyzer.istat.cifre import EsitoControllo, nomina_voce_delle_righe
 from crime_risk_analyzer.istat.dati import VOCE_TOTALE
 
-__all__ = ["ISTAT_METRICS_VERSION", "compute_istat_metrics", "somma_istat_metrics"]
+__all__ = [
+    "ISTAT_METRICS_VERSION",
+    "compute_istat_metrics",
+    "frasi_escluse_senza_voce",
+    "somma_istat_metrics",
+]
 
 #: Versione delle metriche ISTAT scritte da :func:`compute_istat_metrics`. 1 =
 #: #345 (cifre nel blocco [ISTAT]), 2 = #365 (dati a parole, senza cifre), 3 =
@@ -52,14 +59,38 @@ _CONTEGGI = (
 )
 
 
+def frasi_escluse_senza_voce(
+    escluse: Sequence[str], esito: EsitoControllo
+) -> list[str]:
+    """Frasi escluse da M1 che non nominano nessuna voce delle righe ISTAT del
+    prompt ne' un rischio collegato (#378), nell'ordine delle escluse.
+
+    Sono candidate da leggere a mano, non un verdetto: un rischio fuori dalla
+    base di conoscenza scritto con le parole del dato ISTAT ("secondo i dati
+    ISTAT ... sequestri di persona") finisce qui, ma anche una frase sul dato in
+    generale, con un sinonimo della voce, un numero d'elenco o un frammento di
+    frase. Una frase che nomina una voce delle righe e anche un rischio inventato
+    non c'e', e nemmeno una variante inventata che ne condivide la radice
+    ("furti" copre "furti di identita' digitale"). Il riconoscimento e' quello di
+    :func:`~crime_risk_analyzer.istat.cifre.nomina_voce_delle_righe`: voci e
+    rischi collegati; la locuzione "delitti denunciati" non conta, l'etichetta
+    "totale dei delitti" sì.
+    """
+    return [f for f in escluse if not nomina_voce_delle_righe(f, esito.righe)]
+
+
 def compute_istat_metrics(
-    esito: EsitoControllo, *, frasi_escluse_m1: int
+    esito: EsitoControllo,
+    *,
+    frasi_escluse_m1: int,
+    frasi_escluse_senza_voce: int | None = None,
 ) -> IstatMetrics:
     """Metriche deterministiche sul testo grezzo esaminato dal controllo.
 
     ``frasi_escluse_m1`` (#369) arriva da fuori: quali frasi ISTAT M1 esclude
     dipende dai POI e dai rischi della risposta, che il controllo non conosce
-    (:func:`~crime_risk_analyzer.eval.metrics.frasi_escluse_m1`).
+    (:func:`~crime_risk_analyzer.eval.metrics.frasi_escluse_m1`). Cosi' anche
+    ``frasi_escluse_senza_voce`` (#378, :func:`frasi_escluse_senza_voce`).
     """
     frasi = esito.frasi
     fornite = {r.voce for r in esito.righe if r.voce != VOCE_TOTALE}
@@ -97,11 +128,15 @@ def compute_istat_metrics(
         numeri_in_lettere=esito.numeri_in_lettere,
         codici_voce=esito.codici_voce,
         frasi_escluse_m1=frasi_escluse_m1,
+        frasi_escluse_senza_voce=frasi_escluse_senza_voce,
     )
 
 
 def somma_istat_metrics(metriche: Iterable[IstatMetrics | None]) -> IstatMetrics | None:
-    """Somma dei conteggi fra le ripetizioni (tutte della stessa versione)."""
+    """Somma dei conteggi fra le ripetizioni (tutte della stessa versione).
+
+    ``frasi_escluse_senza_voce`` (#378) e' ``None`` se manca in una ripetizione.
+    """
     presenti = [m for m in metriche if m is not None]
     if not presenti:
         return None
@@ -113,4 +148,13 @@ def somma_istat_metrics(metriche: Iterable[IstatMetrics | None]) -> IstatMetrics
     somme: dict[str, int] = {
         nome: sum(int(getattr(m, nome)) for m in presenti) for nome in _CONTEGGI
     }
-    return IstatMetrics(versione=versioni.pop(), **somme)
+    senza_voce = [m.frasi_escluse_senza_voce for m in presenti]
+    return IstatMetrics(
+        versione=versioni.pop(),
+        frasi_escluse_senza_voce=(
+            None
+            if any(n is None for n in senza_voce)
+            else sum(n for n in senza_voce if n is not None)
+        ),
+        **somme,
+    )

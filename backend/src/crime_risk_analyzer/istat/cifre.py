@@ -209,6 +209,7 @@ __all__ = [
     "dividi_frasi",
     "dividi_frasi_m1",
     "estrai_numeri",
+    "nomina_voce_delle_righe",
     "valori_del_testo",
     "voci_nominate",
 ]
@@ -697,6 +698,26 @@ def voci_nominate(testo: str, etichette: Sequence[tuple[str, str]]) -> set[str]:
     per codice ISTAT; l'etichetta piu' lunga consuma il suo pezzo di testo
     (:func:`_nominate`)."""
     return _nominate(testo, etichette)[0]
+
+
+def nomina_voce_delle_righe(testo: str, righe: Sequence[RigaIstat]) -> bool:
+    """``True`` se ``testo`` nomina una voce delle ``righe``: per etichetta o
+    codice, o per etichetta di un rischio collegato (C1). Voci e rischi come nel
+    controllo (:func:`_nominate`): niente sinonimi ("borseggi" non nomina "furti con
+    destrezza") e, per la tolleranza sulle radici, "furti" nomina anche "furti di
+    identita' digitale", quindi una variante inventata che ne condivide la radice
+    risulta "con voce".
+
+    La locuzione "delitti denunciati" non conta: la riga TOT (la cornice) c'e'
+    sempre fra le righe e la locuzione sta nel prompt, quindi non distinguerebbe
+    nulla e farebbe sparire dalle candidate una frase con un rischio inventato
+    ("i delitti denunciati per sequestro di persona sono in aumento"). Meglio una
+    candidata in piu', che si scarta leggendola, che una persa. Resta invece
+    valida l'etichetta esatta della riga TOT ("totale dei delitti"), che nomina
+    una voce come le altre: "il totale dei delitti per sequestro di persona" non
+    finisce fra le candidate."""
+    voci, rischi = _nominate(testo, _etichette(righe), _rischi(righe))
+    return bool(voci or rischi)
 
 
 def _luoghi_nominati(

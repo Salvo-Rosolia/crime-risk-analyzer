@@ -13,6 +13,7 @@ aggregate, city-agnostic.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -301,6 +302,9 @@ def test_main_city_agnostic_report_routes_to_build_report(
         results_dir: Path, graph: object, ontology_hash: str
     ) -> tuple[Path, Path, Path]:
         calls.append((results_dir, graph, ontology_hash))
+        (results_dir / "records.json").write_text(
+            json.dumps({"summary": {"avvisi": []}}), encoding="utf-8"
+        )
         return (
             results_dir / "records.json",
             results_dir / "report.csv",
@@ -312,3 +316,50 @@ def test_main_city_agnostic_report_routes_to_build_report(
 
     assert eval_main.main() == 0
     assert calls == [(tmp_path, graph_sentinel, "hashZ")]
+
+
+@pytest.mark.parametrize(
+    ("avvisi", "atteso"),
+    [
+        (["Roma: esito senza provenienza (pre-#374)"], True),
+        ([], False),
+    ],
+)
+def test_main_city_agnostic_report_stampa_avvisi_su_stderr(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    avvisi: list[str],
+    atteso: bool,
+) -> None:
+    """Gli AVVISO di provenienza vanno anche a schermo (stderr), non solo nei
+    file gitignorati; exit code invariato (0) e nessun output se coerenti."""
+    monkeypatch.setattr(
+        eval_main, "get_settings", lambda: type("S", (), {"ontology_path": "o"})()
+    )
+
+    def fake_load_ontology(path: str) -> object:
+        return object()
+
+    monkeypatch.setattr(eval_main, "load_ontology", fake_load_ontology)
+    monkeypatch.setattr(eval_main, "ontology_hash", lambda: "h")
+
+    def fake_build_report(
+        results_dir: Path, graph: object, ontology_hash: str
+    ) -> tuple[Path, Path, Path]:
+        records = results_dir / "records.json"
+        records.write_text(
+            json.dumps({"summary": {"avvisi": avvisi}, "records": []}),
+            encoding="utf-8",
+        )
+        return (records, results_dir / "report.csv", results_dir / "report.md")
+
+    monkeypatch.setattr(eval_main, "build_report", fake_build_report)
+    _set_argv(monkeypatch, "city-agnostic", "report", "--results", str(tmp_path))
+
+    assert eval_main.main() == 0
+    err = capsys.readouterr().err
+    if atteso:
+        assert "AVVISO: Roma: esito senza provenienza (pre-#374)" in err
+    else:
+        assert "AVVISO" not in err
