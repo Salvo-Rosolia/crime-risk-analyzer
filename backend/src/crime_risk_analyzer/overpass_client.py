@@ -10,14 +10,30 @@ Vincoli (orchestrator.md): massimo :data:`MAX_POIS` POI per richiesta; in caso d
 timeout, di status ritentabile (429/5xx) o, in cattura offline (#247), di un
 blip di trasporto (connessione rifiutata/chiusa/interrotta) si ritenta secondo
 la :class:`RetryPolicy` ricevuta, poi :class:`OverpassError` (mappata a 503
-dall'orchestrator). Le chiamate sono async (``httpx.AsyncClient``): nessun
-I/O bloccante.
+dall'orchestrator). Una risposta 200 che porta un remark di interruzione viene
+ritentata come un timeout e, esauriti i tentativi, solleva :class:`OverpassError`
+(503); il costo e' latenza: fino a 2 tentativi da ~26 s ciascuno in interattivo,
+5 in offline. Le chiamate sono async (``httpx.AsyncClient``): nessun I/O
+bloccante.
 
 Due politiche, perche' i due contesti hanno costi opposti (#232):
 :data:`INTERACTIVE_RETRY` per ``/analyze``, dove un utente sta aspettando e
 fallire presto e' corretto; :data:`OFFLINE_RETRY` per la cattura degli snapshot
 di valutazione, dove attendere e' gratis e fallire significa non avere
 esperimento. Una sola implementazione, parametrizzata.
+
+Risposte troncate (#372): quando scatta ``[timeout:25]`` della query, o finisce
+la memoria lato server, Overpass NON risponde con un errore HTTP ma con un 200
+che porta un campo ``remark`` (``runtime error: Query timed out ...``) e gli
+elementi trovati fino a quel punto: i selettori in fondo alla query mancano.
+Una risposta cosi' e' trattata come un timeout (stessa :class:`RetryPolicy`) e,
+a ritentativi esauriti, diventa :class:`OverpassError`: mai un bacino parziale
+accettato in silenzio, ne' restituito a ``/analyze`` ne' scritto in uno
+snapshot. Un ``remark`` che non dichiara un'interruzione, se mai comparisse,
+non cambia nulla (:func:`remark_segnala_risposta_incompleta`).
+
+Il bacino di candidati e' tagliato da Overpass prima della selezione per
+prossimita': vedi il LIMITE DICHIARATO su :data:`PER_SELECTOR_CAP`.
 """
 
 from __future__ import annotations
@@ -35,6 +51,7 @@ from crime_risk_analyzer.sparql_module.osm_mapping import (
     ORDINE_FAMIGLIE,
     OSM_SELECTORS,
     OSM_TO_TERMINUS,
+    SELETTORI_CEDEVOLI,
     map_to_terminus,
 )
 
@@ -52,6 +69,7 @@ __all__ = [
     "TaglioOsm",
     "fetch_pois",
     "fetch_pois_with_cut",
+    "remark_segnala_risposta_incompleta",
     "select_pois",
 ]
 
@@ -70,11 +88,14 @@ MAX_POIS = 20
 #: #212 l'aveva ridotto a 3 quando il taglio era «i primi che arrivano»; con la
 #: selezione per prossimita' un bacino cosi' stretto renderebbe l'ordinamento poco
 #: significativo (si ordinerebbero 3 elementi per selettore scelti da Overpass).
-#: LIMITE DICHIARATO: ``out center N`` restituisce N elementi QUALSIASI, non i piu'
-#: vicini, quindi alzare il tetto riduce l'arbitrarieta' del bacino ma non la
-#: elimina. Resta uguale sui due percorsi (interattivo e cattura offline): un tetto
-#: diverso farebbe selezionare produzione e snapshot da bacini diversi, rompendo
-#: l'iso-input di #110.
+#: LIMITE DICHIARATO: il tetto lo applica Overpass con ``out center N``, che
+#: stampa i primi N elementi del set per id (nodi prima di way prima di
+#: relation), non i piu' vicini al centro dell'area: la prossimita'
+#: (:func:`select_pois`) sceglie solo dentro il bacino gia' tagliato, e in una
+#: zona densa un oggetto vicino puo' restarne fuori. Alzare il tetto riduce
+#: questo effetto ma non lo elimina. Resta uguale sui due percorsi (interattivo
+#: e cattura offline): un tetto diverso farebbe selezionare produzione e
+#: snapshot da bacini diversi, rompendo l'iso-input di #110.
 PER_SELECTOR_CAP = 10
 
 #: Quanti posti al massimo puo' prendere una singola classe TERMINUS dentro i
@@ -95,6 +116,18 @@ logger = logging.getLogger(__name__)
 #: risposta con questi status non e' un errore definitivo ma una condizione
 #: transitoria di Overpass -> merita un ritentativo come un timeout.
 _RETRYABLE_STATUS = frozenset({429, 502, 503, 504})
+
+#: Indizi di esecuzione interrotta in un ``remark`` di Overpass (#372). Il
+#: prefisso ``runtime error`` e' quello che Overpass usa per ogni interruzione
+#: della query (timeout, memoria); le due frasi coprono le forme note anche se il
+#: prefisso cambiasse. Un remark senza nessuno di questi indizi, se mai
+#: comparisse, e' trattato in via difensiva come non d'interruzione: non va
+#: ritentato.
+_INDIZI_INTERRUZIONE: tuple[str, ...] = (
+    "runtime error",
+    "timed out",
+    "out of memory",
+)
 
 
 @dataclass(frozen=True)
@@ -194,7 +227,41 @@ class TaglioOsm(TypedDict):
 
 
 class OverpassError(RuntimeError):
-    """Overpass non raggiungibile o risposta non valida (mappabile a 503)."""
+    """Overpass non raggiungibile o risposta non valida (mappabile a 503).
+
+    Anche una risposta 200 che porta un remark di interruzione, ritentata come un
+    timeout fino a esaurire i tentativi (#372): costa latenza, fino a 2 tentativi
+    da ~26 s ciascuno in interattivo, 5 in offline.
+    """
+
+
+def remark_segnala_risposta_incompleta(remark: str) -> bool:
+    """Se il ``remark`` di una risposta 200 dichiara un'esecuzione interrotta (#372).
+
+    Vero per le forme con cui Overpass segnala che la query si e' fermata prima
+    della fine, per esempio ``runtime error: Query timed out in "query" at line 3
+    after 26 seconds.`` o ``runtime error: Query run out of memory ...``: gli
+    elementi presenti sono solo quelli trovati fino a li'. Falso per un remark
+    vuoto o senza indizi d'interruzione (forma ipotetica, gestita in via
+    difensiva). Il confronto ignora le
+    maiuscole: la forma esatta non e' un contratto dell'API.
+    """
+    testo = remark.lower()
+    return any(indizio in testo for indizio in _INDIZI_INTERRUZIONE)
+
+
+def _remark_di_interruzione(payload: object) -> str | None:
+    """Il ``remark`` del payload se segnala una risposta incompleta, o ``None``.
+
+    Un ``remark`` assente o di tipo inatteso non e' un'interruzione dichiarata:
+    la validita' del payload resta verificata da :func:`_parse_elements`.
+    """
+    if not isinstance(payload, Mapping):
+        return None
+    remark = cast(Mapping[str, object], payload).get("remark")
+    if isinstance(remark, str) and remark_segnala_risposta_incompleta(remark):
+        return remark
+    return None
 
 
 def _build_query(bbox: Bbox, osm_selectors: Sequence[str]) -> str:
@@ -246,13 +313,29 @@ def _extract_osm_tag(tags: Mapping[str, object]) -> str:
     ``key=value`` che esiste nel binding :data:`OSM_TO_TERMINUS`. Cosi' un POI
     multi-tag e' classificato dal tag effettivamente mappato e non da un tag spurio
     a priorita' piu' alta. Ritorna stringa vuota se nessun tag noto e' presente.
+
+    Eccezione (#373): un selettore in :data:`SELETTORI_CEDEVOLI` cede alla famiglia
+    indicata se questa porta un tag mappato sullo stesso elemento
+    (``tourism=attraction`` + ``historic=archaeological_site`` ->
+    ``historic=archaeological_site``).
     """
     for family in ORDINE_FAMIGLIE:
-        value = tags.get(family)
-        if isinstance(value, str):
-            selector = f"{family}={value}"
-            if selector in OSM_TO_TERMINUS:
-                return selector
+        selector = _mapped_selector(tags, family)
+        if selector:
+            preferita = SELETTORI_CEDEVOLI.get(selector)
+            if preferita is not None:
+                return _mapped_selector(tags, preferita) or selector
+            return selector
+    return ""
+
+
+def _mapped_selector(tags: Mapping[str, object], family: str) -> str:
+    """``family=valore`` se ``tags`` lo porta ed e' nel binding, altrimenti ``""``."""
+    value = tags.get(family)
+    if isinstance(value, str):
+        selector = f"{family}={value}"
+        if selector in OSM_TO_TERMINUS:
+            return selector
     return ""
 
 
@@ -450,6 +533,63 @@ _RETRYABLE_TRANSPORT_ERRORS: tuple[type[httpx.HTTPError], ...] = (
 )
 
 
+@dataclass(frozen=True)
+class _Esito:
+    """Esito di un tentativo verso Overpass (#372).
+
+    ``payload`` e' significativo solo per una risposta 2xx; ``remark`` non e'
+    ``None`` quando Overpass ha troncato l'esecuzione, e in quel caso il payload
+    non va usato.
+    """
+
+    response: httpx.Response | None
+    payload: object = None
+    motivo_trasporto: str | None = None
+    remark: str | None = None
+
+    @property
+    def da_ritentare(self) -> bool:
+        """Nessuna risposta, status transitorio (429/5xx) o 200 troncato."""
+        return (
+            self.response is None
+            or self.remark is not None
+            or self.response.status_code in _RETRYABLE_STATUS
+        )
+
+    @property
+    def motivo(self) -> str:
+        """Perche' il tentativo non e' andato, per il log e per l'errore."""
+        if self.remark is not None:
+            return f"ha dato una risposta incompleta ({self.remark})"
+        if self.response is None:
+            return self.motivo_trasporto or "nessuna risposta"
+        return f"ha risposto {self.response.status_code}"
+
+
+async def _tentativo(
+    client: httpx.AsyncClient,
+    url: str,
+    query: str,
+    timeout: float,
+    *,
+    retry_transport_errors: bool,
+) -> _Esito:
+    """Un tentativo completo: POST, decodifica JSON di un 2xx, controllo ``remark``.
+
+    Un 2xx che non e' JSON resta un errore definitivo, come prima di #372.
+    """
+    response, motivo = await _try_post(
+        client, url, query, timeout, retry_transport_errors=retry_transport_errors
+    )
+    if response is None or not response.is_success:
+        return _Esito(response, motivo_trasporto=motivo)
+    try:
+        payload: object = response.json()
+    except ValueError as exc:
+        raise OverpassError("Risposta Overpass non e' JSON valido") from exc
+    return _Esito(response, payload=payload, remark=_remark_di_interruzione(payload))
+
+
 async def _try_post(
     client: httpx.AsyncClient,
     url: str,
@@ -540,7 +680,10 @@ async def fetch_pois(
     Default: l'intero binding canonico :data:`OSM_SELECTORS`. Arricchisce ogni POI
     con ``terminus_class`` (#13). Ritenta se un tentativo scade in timeout **o**
     risponde con uno status ritentabile (:data:`_RETRYABLE_STATUS`, 429/5xx),
-    secondo ``retry``; esaurita la politica, :class:`OverpassError`.
+    secondo ``retry``; esaurita la politica, :class:`OverpassError`. Una
+    risposta 200 che porta un remark di interruzione viene ritentata come un
+    timeout e, esauriti i tentativi, solleva :class:`OverpassError` (503): costa
+    latenza, fino a 2 tentativi da ~26 s ciascuno in interattivo, 5 in offline.
 
     ``retry`` risolto a :data:`INTERACTIVE_RETRY` quando ``None``: la risoluzione
     avviene alla CHIAMATA e non come default di firma, cosi' un test puo'
@@ -581,6 +724,10 @@ async def fetch_pois_with_cut(
     falsificabile: "questi sono i POI di quella zona a quell'istante" e'
     verificabile contro uno history dump OSM solo se si registra anche il
     taglio dichiarato da Overpass, non solo l'orologio di chi ha chiesto.
+
+    Una risposta 200 che porta un remark di interruzione viene ritentata come un
+    timeout e, esauriti i tentativi, solleva :class:`OverpassError` (503): con
+    :data:`OFFLINE_RETRY` sono 5 tentativi da ~26 s ciascuno, piu' le pause.
     """
     payload = await _fetch_payload(
         bbox,
@@ -611,45 +758,47 @@ async def _fetch_payload(
     delle due duplica il loop di ritentativo, e nessuna delle due paga un costo
     che non le serve (``fetch_pois`` non tocca mai il payload per il taglio OSM,
     ``fetch_pois_with_cut`` non lo tocca due volte).
+
+    Un 200 con ``remark`` di interruzione (#372) e' ritentato come un timeout e,
+    a politica esaurita, solleva :class:`OverpassError`: il payload troncato non
+    esce mai da qui.
     """
     policy = retry or INTERACTIVE_RETRY
     selectors = list(osm_selectors)
     query = _build_query(bbox, selectors)
 
     async with httpx.AsyncClient(headers={"User-Agent": _USER_AGENT}) as client:
-        response, motivo = await _try_post(
+        esito = await _tentativo(
             client,
             overpass_url,
             query,
             policy.timeout_s,
             retry_transport_errors=policy.retry_transport_errors,
         )
-        # Un ritentativo per ogni pausa dichiarata: scatta sia su nessuna risposta
-        # (timeout o, in offline, un blip di trasporto) sia su uno status
-        # transitorio (429/5xx). Uno status non-2xx NON ritentabile (400/403/404)
-        # esce subito dal ciclo e fallisce piu' sotto, senza attendere.
+        # Un ritentativo per ogni pausa dichiarata: scatta su nessuna risposta
+        # (timeout o, in offline, un blip di trasporto), su uno status
+        # transitorio (429/5xx) e su un 200 troncato da Overpass (#372). Uno
+        # status non-2xx NON ritentabile (400/403/404) esce subito dal ciclo e
+        # fallisce piu' sotto, senza attendere.
         for tentativo, prevista in enumerate(policy.pause_s, start=1):
-            if response is not None and response.status_code not in _RETRYABLE_STATUS:
+            if not esito.da_ritentare:
                 break
             attesa = _attesa_prima_del_ritentativo(
-                response, prevista, policy.retry_after_cap_s
+                esito.response, prevista, policy.retry_after_cap_s
             )
             # Log a ogni ritentativo (#232): con la politica offline l'attesa
             # complessiva arriva a minuti, e senza traccia «processo appeso» e
             # «backoff di cortesia in corso» sono indistinguibili — la condizione
             # che il 26/07 ha spinto a scrivere il backoff a mano in una shell.
-            esito = (
-                motivo if response is None else f"ha risposto {response.status_code}"
-            )
             logger.warning(
                 "Overpass %s: ritentativo %d/%d fra %.0fs",
-                esito,
+                esito.motivo,
                 tentativo,
                 len(policy.pause_s),
                 attesa,
             )
             await sleep(attesa)
-            response, motivo = await _try_post(
+            esito = await _tentativo(
                 client,
                 overpass_url,
                 query,
@@ -657,12 +806,17 @@ async def _fetch_payload(
                 retry_transport_errors=policy.retry_transport_errors,
             )
 
-    if response is None:
-        raise OverpassError(f"Overpass irraggiungibile dopo i ritentativi: {motivo}")
-    if not response.is_success:
-        raise OverpassError(f"Overpass ha risposto {response.status_code}")
-
-    try:
-        return response.json()
-    except ValueError as exc:
-        raise OverpassError("Risposta Overpass non e' JSON valido") from exc
+    if esito.remark is not None:
+        # Con un remark finale il ciclo non si e' mai fermato prima: i tentativi
+        # sono stati tutti quelli della politica. Il remark dice da se' il motivo
+        # (timeout, memoria, altro): qui non lo si riqualifica.
+        tentativi = 1 + len(policy.pause_s)
+        dopo = f" dopo {tentativi} tentativi" if tentativi > 1 else ""
+        raise OverpassError(f"Risposta incompleta di Overpass{dopo}: {esito.remark}")
+    if esito.response is None:
+        raise OverpassError(
+            f"Overpass irraggiungibile dopo i ritentativi: {esito.motivo}"
+        )
+    if not esito.response.is_success:
+        raise OverpassError(f"Overpass ha risposto {esito.response.status_code}")
+    return esito.payload

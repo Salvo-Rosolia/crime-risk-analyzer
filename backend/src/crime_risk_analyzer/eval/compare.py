@@ -31,7 +31,11 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from crime_risk_analyzer.eval.aggregate import load_runs
-from crime_risk_analyzer.eval.metrics import RiskAnchoring, risk_anchoring
+from crime_risk_analyzer.eval.metrics import (
+    FrasiEscluseIncoerentiError,
+    RiskAnchoring,
+    risk_anchoring,
+)
 from crime_risk_analyzer.eval.schema import IstatMetrics, Metrics, RunRecord, RunStatus
 
 logger = logging.getLogger(__name__)
@@ -131,8 +135,12 @@ class RiskAnchoringArm(BaseModel):
 
     Esplorativo e affiancato a M1: il verdetto non lo usa. Contano solo le
     narrative gradabili (:func:`~crime_risk_analyzer.eval.metrics.risk_anchoring`
-    diverso da ``None``) delle run ``OK`` senza dati ISTAT nel prompt; queste
-    ultime sono contate in ``run_istat_escluse`` (vedi :func:`_record_anchoring`).
+    diverso da ``None``) delle run ``OK`` da cui si ricostruisce il testo che M1
+    misura: tutte quelle senza dati ISTAT e quelle con metriche ISTAT dalla
+    versione 4, misurate sul grezzo senza le frasi ISTAT escluse (#377). Queste
+    ultime sono contate in ``run_istat_incluse`` e le loro frasi escluse in
+    ``frasi_istat_escluse``; le run ISTAT da cui il testo non si ricostruisce
+    sono contate in ``run_istat_escluse`` (vedi :func:`_record_anchoring`).
     I totali sono somme di frasi; le ``quota_*`` sono frazioni sulle frasi
     misurate (``None`` se nessuna frase); ``frasi_misurate_media``,
     ``ancoraggio_rischi`` e ``ancoraggio_rischi_conformi`` sono medie per
@@ -153,6 +161,8 @@ class RiskAnchoringArm(BaseModel):
     ancoraggio_rischi: float | None
     ancoraggio_rischi_conformi: float | None
     run_istat_escluse: int = 0
+    run_istat_incluse: int = 0
+    frasi_istat_escluse: int = 0
 
 
 class RiskAnchoringZone(BaseModel):
@@ -322,11 +332,28 @@ RISK_ANCHORING_NOTE = (
 )
 
 
-#: Frase della sezione quando delle run sono escluse perche' portavano dati
-#: ISTAT (#359): su quelle M1 grada un testo diverso da ``RunRecord.narrativa``.
+#: Frase della sezione quando delle run con dati ISTAT ne restano fuori
+#: (#359, #377): M1 le ha misurate su un testo che dal record non si ricostruisce.
 RISK_ANCHORING_ISTAT_EXCLUDED = (
-    "Sezione non calcolata per le run con dati ISTAT: la metrica attuale misura "
-    "un testo diverso"
+    "Restano fuori dalla sezione le run con dati ISTAT da cui non si ricostruisce "
+    "il testo misurato dal `grounding`: record scritti prima della versione 4 "
+    "delle metriche ISTAT, senza il testo del modello (`narrativa_grezza`), senza "
+    "le frasi escluse (`frasi_escluse_m1`) o con frasi escluse che non sono nel "
+    "testo del modello"
+)
+
+#: Avviso della sezione quando contiene run con dati ISTAT (#377): misura il
+#: testo che misura M1, ricostruito dal record (grezzo meno ``frasi_escluse_m1``).
+RISK_ANCHORING_ISTAT_INCLUDED = (
+    "> **Run con dati ISTAT.** Per queste run la sezione misura lo stesso testo "
+    "del `grounding`: quello scritto dal modello prima del filtro delle cifre, "
+    "che può contenere accenni ai dati ISTAT a parole. Come il `grounding`, non "
+    "conta le frasi che parlano del dato ISTAT senza nominare un punto né un "
+    "rischio: il loro numero, per braccio, è nella riga qui sotto. Le righe dei "
+    "dati ISTAT nel prompt riportano le etichette dei rischi collegati "
+    "(«Collegata a: ...»): una frase ISTAT che le riprende conta «da rischio». "
+    "La quota può quindi salire per le frasi ISTAT e non perché il modello "
+    "nomini rischi per i punti."
 )
 
 
@@ -1191,6 +1218,11 @@ def compare_records(
     )
 
 
+#: Prima versione delle metriche ISTAT i cui record salvano le frasi escluse da
+#: M1 (#369): da li' il testo che M1 misura si ricostruisce dal record (#377).
+_VERSIONE_ISTAT_RICOSTRUIBILE = 4
+
+
 def _record_anchoring(record: RunRecord) -> RiskAnchoring | None:
     """Ancoraggio ai rischi di un record, dai soli dati salvati (#359).
 
@@ -1199,28 +1231,46 @@ def _record_anchoring(record: RunRecord) -> RiskAnchoring | None:
     ``resp.poi`` (invariante dell'orchestrator), quindi sono gli stessi nomi che
     M1 usa.
 
-    Va chiamata solo sui record senza dati ISTAT (:func:`_has_istat`): su quelli
-    M1 grada il grezzo senza le frasi ISTAT escluse (``frasi_escluse_m1``), e
-    ``RunRecord.narrativa`` e' un testo diverso.
+    Senza dati ISTAT si misura ``RunRecord.narrativa``. Con i dati ISTAT M1 grada
+    il grezzo senza le frasi ISTAT escluse (#369): si misura lo stesso testo,
+    ricostruito da ``narrativa_grezza`` e ``frasi_escluse_m1`` (#377). Va
+    chiamata solo sui record da cui il testo si ricostruisce
+    (:func:`_istat_non_ricostruibile` falso).
+
+    Raises:
+        FrasiEscluseIncoerentiError: le frasi escluse del record non sono fra
+            le frasi del grezzo.
     """
+    con_istat = record.istat_metrics is not None
     return risk_anchoring(
-        record.narrativa,
+        record.narrativa_grezza if con_istat else record.narrativa,
         mode=record.mode,
         poi_names=[m.poi for m in record.risk_models],
         risk_models=record.risk_models,
+        frasi_escluse=(record.frasi_escluse_m1 or []) if con_istat else [],
     )
 
 
-def _has_istat(record: RunRecord) -> bool:
-    """True se M1 di questo record e' stato gradato su un testo diverso (#359).
+def _istat_non_ricostruibile(record: RunRecord) -> bool:
+    """True se il record ha dati ISTAT ma il testo misurato da M1 non si
+    ricostruisce (#359, #377).
 
     ``istat_metrics`` e' scritto dall'harness esattamente quando la risposta
     porta il controllo delle cifre ISTAT, cioe' quando M1 grada il grezzo senza
     le frasi ISTAT escluse invece della narrativa: e' lo stesso segnale,
     piu' preciso di ``provenance.istat`` (ISTAT richiesto ma magari senza dati
-    nel prompt).
+    nel prompt). Il testo si ricostruisce dalla versione 4 delle metriche ISTAT
+    (prima M1 escludeva altre frasi) e solo se il record ha sia il grezzo sia
+    le frasi escluse.
     """
-    return record.istat_metrics is not None
+    m = record.istat_metrics
+    if m is None:
+        return False
+    return (
+        m.versione < _VERSIONE_ISTAT_RICOSTRUIBILE
+        or record.narrativa_grezza is None
+        or record.frasi_escluse_m1 is None
+    )
 
 
 def _share(part: int, whole: int) -> float | None:
@@ -1234,7 +1284,20 @@ def _mean_or_none(values: list[float]) -> float | None:
 def _zone_anchoring(records: list[RunRecord]) -> RiskAnchoringArm:
     """Aggrega le narrative gradabili delle run ``OK`` di una zona (#359)."""
     ok = [r for r in records if r.status is RunStatus.OK]
-    computed = (_record_anchoring(r) for r in ok if not _has_istat(r))
+    inclusi: list[RunRecord] = []
+    computed: list[RiskAnchoring | None] = []
+    for r in ok:
+        if _istat_non_ricostruibile(r):
+            continue
+        try:
+            computed.append(_record_anchoring(r))
+        except FrasiEscluseIncoerentiError as exc:
+            # Un record incoerente resta fuori come i non ricostruibili: non
+            # deve far fallire tutto il report.
+            logger.warning("ancoraggio ai rischi: run %s esclusa: %s", r.run_id, exc)
+            continue
+        inclusi.append(r)
+    istat_inclusi = [r for r in inclusi if r.istat_metrics is not None]
     graded = [r for r in computed if r is not None]
     conformi = [r.ancoraggio_rischi for r in graded if r.conforme]
     misurate = sum(r.frasi_misurate for r in graded)
@@ -1251,7 +1314,9 @@ def _zone_anchoring(records: list[RunRecord]) -> RiskAnchoringArm:
         quota_solo_poi=_share(solo_poi, misurate),
         ancoraggio_rischi=_mean_or_none([r.ancoraggio_rischi for r in graded]),
         ancoraggio_rischi_conformi=_mean_or_none(conformi),
-        run_istat_escluse=sum(1 for r in ok if _has_istat(r)),
+        run_istat_escluse=len(ok) - len(inclusi),
+        run_istat_incluse=len(istat_inclusi),
+        frasi_istat_escluse=sum(len(r.frasi_escluse_m1 or []) for r in istat_inclusi),
     )
 
 
@@ -1283,6 +1348,8 @@ def _arm_anchoring(zones: list[RiskAnchoringArm]) -> RiskAnchoringArm:
         ancoraggio_rischi=_mean_or_none(medie_ancoraggio),
         ancoraggio_rischi_conformi=_mean_or_none(medie_conformi),
         run_istat_escluse=sum(z.run_istat_escluse for z in zones),
+        run_istat_incluse=sum(z.run_istat_incluse for z in zones),
+        frasi_istat_escluse=sum(z.frasi_istat_escluse for z in zones),
     )
 
 
@@ -1680,6 +1747,23 @@ def risk_anchoring_markdown(comparison: Comparison) -> str:
         f"{sez.b.frasi_misurate} misurate, {sez.b.frasi_ancorate_rischio} da "
         f"rischio, {sez.b.frasi_ancorate_solo_poi} solo POI."
     )
+    incluse = [
+        f"`{label}`: {arm.run_istat_incluse} run, {arm.frasi_istat_escluse} "
+        + (
+            "frase ISTAT esclusa"
+            if arm.frasi_istat_escluse == 1
+            else "frasi ISTAT escluse"
+        )
+        for label, arm in ((la, sez.a), (lb, sez.b))
+        if arm.run_istat_incluse
+    ]
+    if incluse:
+        lines += [
+            "",
+            RISK_ANCHORING_ISTAT_INCLUDED,
+            ">",
+            f"> Run con dati ISTAT nella sezione — {'; '.join(incluse)}.",
+        ]
     escluse = [
         f"`{label}`: {arm.run_istat_escluse}"
         for label, arm in ((la, sez.a), (lb, sez.b))
