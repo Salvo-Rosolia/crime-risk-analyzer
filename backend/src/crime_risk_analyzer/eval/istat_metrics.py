@@ -68,10 +68,12 @@ def frasi_escluse_senza_voce(
     Sono candidate da leggere a mano, non un verdetto: un rischio fuori dalla
     base di conoscenza scritto con le parole del dato ISTAT ("secondo i dati
     ISTAT ... sequestri di persona") finisce qui, ma anche una frase sul dato in
-    generale o con un sinonimo della voce. Una frase che nomina una voce delle
-    righe e anche un rischio inventato non c'e'. Il riconoscimento della voce e'
-    quello di :func:`~crime_risk_analyzer.istat.cifre.nomina_voce_delle_righe`
-    (leggermente piu' largo del controllo sul totale "delitti denunciati").
+    generale, con un sinonimo della voce, un numero d'elenco o un frammento di
+    frase. Una frase che nomina una voce delle righe e anche un rischio inventato
+    non c'e', e nemmeno una variante inventata che ne condivide la radice
+    ("furti" copre "furti di identita' digitale"). Il riconoscimento e' quello di
+    :func:`~crime_risk_analyzer.istat.cifre.nomina_voce_delle_righe`: voci e
+    rischi collegati, il totale "delitti denunciati" non conta.
     """
     return [f for f in escluse if not nomina_voce_delle_righe(f, esito.righe)]
 

@@ -506,14 +506,17 @@ ISTAT_M1_REDUCED_TEXT = (
 ISTAT_ESCLUSE_SENZA_VOCE_TEXT = (
     "> **Frasi escluse senza voce ISTAT del prompt.** Sono le frasi escluse che "
     "non nominano nessuna voce delle righe ISTAT passate al modello né un rischio "
-    "collegato a quelle righe, con le regole del controllo ISTAT per le voci; "
-    "sono elencate nei record scritti da #378 in poi (`frasi_escluse_senza_voce`; "
-    "dove manca, il conteggio è n/d). Sono candidate "
+    "collegato a quelle righe. Le voci si riconoscono per etichetta e per rischio "
+    'collegato, con tolleranza sulle radici ("furti" copre anche "furti di '
+    'identità digitale"): una variante inventata che condivide la radice di una '
+    "voce non è fra le candidate. Sono elencate nei record scritti da #378 in poi "
+    "(`frasi_escluse_senza_voce`; dove manca, il conteggio è n/d). Sono candidate "
     "da leggere a mano: possono nominare un rischio che non è nella base di "
-    "conoscenza, ma anche parlare del dato in generale o usare un sinonimo della "
-    "voce. Non sono un conteggio di rischi inventati e non cambiano `grounding`, "
-    "`hallucination` né il verdetto. Una frase che nomina una voce delle righe e "
-    "anche un rischio inventato non è fra queste."
+    "conoscenza, ma anche parlare del dato in generale, usare un sinonimo della "
+    "voce, essere un numero d'elenco o un frammento di frase. Non sono un "
+    "conteggio di rischi inventati e non cambiano `grounding`, `hallucination` né "
+    "il verdetto. Una frase che nomina una voce delle righe e anche un rischio "
+    "inventato non è fra queste."
 )
 
 #: Titolo dell'avviso quando i due bracci hanno metriche ISTAT di versioni

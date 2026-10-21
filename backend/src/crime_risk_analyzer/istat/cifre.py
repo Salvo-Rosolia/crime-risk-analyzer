@@ -702,18 +702,19 @@ def voci_nominate(testo: str, etichette: Sequence[tuple[str, str]]) -> set[str]:
 
 def nomina_voce_delle_righe(testo: str, righe: Sequence[RigaIstat]) -> bool:
     """``True`` se ``testo`` nomina una voce delle ``righe``: per etichetta o
-    codice, per etichetta di un rischio collegato (C1) o, se fra le righe c'e' il
-    totale, come "delitti denunciati" (#378). Voci e rischi come nel controllo
-    (:func:`_nominate`), quindi niente sinonimi: "borseggi" non nomina "furti con
-    destrezza". Il totale invece qui conta per qualunque frase: il controllo lo
-    applica solo con una direzione o un confronto e senza altre voci, quindi la
-    definizione è un po' più larga (un falso "con voce" al più, mai il contrario)."""
+    codice, o per etichetta di un rischio collegato (C1). Voci e rischi come nel
+    controllo (:func:`_nominate`): niente sinonimi ("borseggi" non nomina "furti con
+    destrezza") e, per la tolleranza sulle radici, "furti" nomina anche "furti di
+    identita' digitale", quindi una variante inventata che ne condivide la radice
+    risulta "con voce".
+
+    Il totale non conta: la riga TOT (la cornice) c'e' sempre fra le righe e la
+    locuzione "delitti denunciati" sta nel prompt, quindi non distinguerebbe
+    nulla e farebbe sparire dalle candidate una frase con un rischio inventato
+    ("i delitti denunciati per sequestro di persona sono in aumento"). Meglio una
+    candidata in piu', che si scarta leggendola, che una persa."""
     voci, rischi = _nominate(testo, _etichette(righe), _rischi(righe))
-    if voci or rischi:
-        return True
-    return any(r.voce == VOCE_TOTALE for r in righe) and bool(
-        _TOTALE_IMPLICITO.search(_normalizza(testo))
-    )
+    return bool(voci or rischi)
 
 
 def _luoghi_nominati(
