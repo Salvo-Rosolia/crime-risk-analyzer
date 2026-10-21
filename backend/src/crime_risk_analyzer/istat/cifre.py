@@ -708,11 +708,14 @@ def nomina_voce_delle_righe(testo: str, righe: Sequence[RigaIstat]) -> bool:
     identita' digitale", quindi una variante inventata che ne condivide la radice
     risulta "con voce".
 
-    Il totale non conta: la riga TOT (la cornice) c'e' sempre fra le righe e la
-    locuzione "delitti denunciati" sta nel prompt, quindi non distinguerebbe
+    La locuzione "delitti denunciati" non conta: la riga TOT (la cornice) c'e'
+    sempre fra le righe e la locuzione sta nel prompt, quindi non distinguerebbe
     nulla e farebbe sparire dalle candidate una frase con un rischio inventato
     ("i delitti denunciati per sequestro di persona sono in aumento"). Meglio una
-    candidata in piu', che si scarta leggendola, che una persa."""
+    candidata in piu', che si scarta leggendola, che una persa. Resta invece
+    valida l'etichetta esatta della riga TOT ("totale dei delitti"), che nomina
+    una voce come le altre: "il totale dei delitti per sequestro di persona" non
+    finisce fra le candidate."""
     voci, rischi = _nominate(testo, _etichette(righe), _rischi(righe))
     return bool(voci or rischi)
 

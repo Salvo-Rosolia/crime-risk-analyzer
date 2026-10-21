@@ -73,7 +73,8 @@ def frasi_escluse_senza_voce(
     non c'e', e nemmeno una variante inventata che ne condivide la radice
     ("furti" copre "furti di identita' digitale"). Il riconoscimento e' quello di
     :func:`~crime_risk_analyzer.istat.cifre.nomina_voce_delle_righe`: voci e
-    rischi collegati, il totale "delitti denunciati" non conta.
+    rischi collegati; la locuzione "delitti denunciati" non conta, l'etichetta
+    "totale dei delitti" sì.
     """
     return [f for f in escluse if not nomina_voce_delle_righe(f, esito.righe)]
 
