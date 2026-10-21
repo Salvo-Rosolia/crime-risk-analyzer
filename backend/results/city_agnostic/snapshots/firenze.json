@@ -13,7 +13,7 @@
       43.7778602,
       11.2545762
     ],
-    "switch_ms": 12448,
+    "switch_ms": 58668,
     "pois": [
       {
         "id": "node/9669810633",
@@ -7033,6 +7033,10 @@
               43.8048891
             ],
             [
+              11.1867035,
+              43.8043411
+            ],
+            [
               11.1865876,
               43.8041727
             ],
@@ -7230,5 +7234,20 @@
     }
   },
   "error_type": null,
-  "error": null
+  "error": null,
+  "provenienza": {
+    "catturato_il": "2026-10-21T07:51:03.635824+00:00",
+    "configurazione_canonica": {
+      "selettori_hash": "647d695771617738fad8405f054ade740f66561b5028a19055661818fcac0c9a",
+      "n_selettori": 65,
+      "max_pois": 20,
+      "per_selector_cap": 10,
+      "per_class_cap": 3,
+      "tipi_elemento": [
+        "node",
+        "way",
+        "relation"
+      ]
+    }
+  }
 }

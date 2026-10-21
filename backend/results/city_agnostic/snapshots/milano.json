@@ -5,158 +5,23 @@
   "capture": {
     "citta": "Milano",
     "zona": "Duomo",
-    "lat": 45.4641385,
-    "lon": 9.1885548,
+    "lat": 45.464656,
+    "lon": 9.1894751,
     "bbox": [
-      45.4591385,
-      9.1835548,
-      45.4691385,
-      9.1935548
+      45.459656,
+      9.1844751,
+      45.469656,
+      9.1944751
     ],
-    "switch_ms": 5394,
+    "switch_ms": 72320,
     "pois": [
       {
-        "id": "node/5216248523",
+        "id": "node/9850493699",
         "name": "Duomo",
-        "lat": 45.4641385,
-        "lon": 9.1885548,
+        "lat": 45.464656,
+        "lon": 9.1894751,
         "osm_tags": "railway=station",
         "terminus_class": "Railway_station",
-        "citta": "Milano"
-      },
-      {
-        "id": "node/1821511528",
-        "name": "Coop.Farrn.Duomo",
-        "lat": 45.4641471,
-        "lon": 9.1884189,
-        "osm_tags": "amenity=pharmacy",
-        "terminus_class": "Pharmacy",
-        "citta": "Milano"
-      },
-      {
-        "id": "node/1940587376",
-        "name": "",
-        "lat": 45.4640203,
-        "lon": 9.1884141,
-        "osm_tags": "amenity=bureau_de_change",
-        "terminus_class": "Bank",
-        "citta": "Milano"
-      },
-      {
-        "id": "node/2401890314",
-        "name": "Forexchange",
-        "lat": 45.4644886,
-        "lon": 9.188417,
-        "osm_tags": "amenity=bureau_de_change",
-        "terminus_class": "Bank",
-        "citta": "Milano"
-      },
-      {
-        "id": "node/2168030902",
-        "name": "Duomo",
-        "lat": 45.4645224,
-        "lon": 9.1884811,
-        "osm_tags": "railway=subway_entrance",
-        "terminus_class": "Railway_station",
-        "citta": "Milano"
-      },
-      {
-        "id": "node/1937305778",
-        "name": "",
-        "lat": 45.4645315,
-        "lon": 9.188593,
-        "osm_tags": "highway=bus_stop",
-        "terminus_class": "Bus_stops",
-        "citta": "Milano"
-      },
-      {
-        "id": "node/1940587379",
-        "name": "Best and Fast",
-        "lat": 45.4645704,
-        "lon": 9.188421,
-        "osm_tags": "amenity=bureau_de_change",
-        "terminus_class": "Bank",
-        "citta": "Milano"
-      },
-      {
-        "id": "way/290222578",
-        "name": "Monumento a Vittorio Emanuele Secondo",
-        "lat": 45.4641881,
-        "lon": 9.1892606,
-        "osm_tags": "historic=monument",
-        "terminus_class": "Historical_monument",
-        "citta": "Milano"
-      },
-      {
-        "id": "node/1309304539",
-        "name": "Duomo",
-        "lat": 45.4636704,
-        "lon": 9.1889513,
-        "osm_tags": "railway=subway_entrance",
-        "terminus_class": "Railway_station",
-        "citta": "Milano"
-      },
-      {
-        "id": "node/2981815874",
-        "name": "Hobby Fumo",
-        "lat": 45.4643185,
-        "lon": 9.1877747,
-        "osm_tags": "shop=tobacco",
-        "terminus_class": "Tobacco_store",
-        "citta": "Milano"
-      },
-      {
-        "id": "node/4381967526",
-        "name": "Cielo",
-        "lat": 45.4648363,
-        "lon": 9.1889286,
-        "osm_tags": "shop=jewelry",
-        "terminus_class": "Jewellery",
-        "citta": "Milano"
-      },
-      {
-        "id": "node/11727500373",
-        "name": "Simbolo Scrofa Semilanuta",
-        "lat": 45.464796,
-        "lon": 9.1879973,
-        "osm_tags": "historic=monument",
-        "terminus_class": "Historical_monument",
-        "citta": "Milano"
-      },
-      {
-        "id": "node/715948266",
-        "name": "Duomo M1 M3",
-        "lat": 45.4642079,
-        "lon": 9.1874464,
-        "osm_tags": "highway=bus_stop",
-        "terminus_class": "Bus_stops",
-        "citta": "Milano"
-      },
-      {
-        "id": "node/4903310236",
-        "name": "Duomo M1 M3",
-        "lat": 45.4634402,
-        "lon": 9.1879821,
-        "osm_tags": "highway=bus_stop",
-        "terminus_class": "Bus_stops",
-        "citta": "Milano"
-      },
-      {
-        "id": "node/4170002689",
-        "name": "Adamas",
-        "lat": 45.4633358,
-        "lon": 9.1890254,
-        "osm_tags": "shop=jewelry",
-        "terminus_class": "Jewellery",
-        "citta": "Milano"
-      },
-      {
-        "id": "node/2075188888",
-        "name": "Milano per la Resistenza",
-        "lat": 45.4648785,
-        "lon": 9.1878086,
-        "osm_tags": "historic=memorial",
-        "terminus_class": "Historical_monument",
         "citta": "Milano"
       },
       {
@@ -178,21 +43,156 @@
         "citta": "Milano"
       },
       {
-        "id": "node/4381967531",
-        "name": "Grimoldi",
-        "lat": 45.4648507,
-        "lon": 9.1896716,
-        "osm_tags": "shop=jewelry",
-        "terminus_class": "Jewellery",
+        "id": "way/163757278",
+        "name": "Galleria Vittorio Emanuele Secondo",
+        "lat": 45.4647182,
+        "lon": 9.1900275,
+        "osm_tags": "tourism=attraction",
+        "terminus_class": "Historical_monument",
         "citta": "Milano"
       },
       {
-        "id": "node/5628180415",
-        "name": "Esselunga",
-        "lat": 45.4635893,
-        "lon": 9.1871859,
-        "osm_tags": "shop=supermarket",
-        "terminus_class": "Shopping_center",
+        "id": "way/290222578",
+        "name": "Monumento a Vittorio Emanuele Secondo",
+        "lat": 45.4641881,
+        "lon": 9.1892606,
+        "osm_tags": "historic=monument",
+        "terminus_class": "Historical_monument",
+        "citta": "Milano"
+      },
+      {
+        "id": "node/13507231238",
+        "name": "Sala degli Orologi",
+        "lat": 45.4648414,
+        "lon": 9.1901924,
+        "osm_tags": "amenity=community_centre",
+        "terminus_class": "Public_building",
+        "citta": "Milano"
+      },
+      {
+        "id": "node/4141759289",
+        "name": "Battistero di San Giovanni alle Fonti",
+        "lat": 45.4644431,
+        "lon": 9.1903007,
+        "osm_tags": "historic=archaeological_site",
+        "terminus_class": "Archaeological_site",
+        "citta": "Milano"
+      },
+      {
+        "id": "node/1937305778",
+        "name": "",
+        "lat": 45.4645315,
+        "lon": 9.188593,
+        "osm_tags": "highway=bus_stop",
+        "terminus_class": "Bus_stops",
+        "citta": "Milano"
+      },
+      {
+        "id": "node/1836685251",
+        "name": "Banca Cesare Ponti",
+        "lat": 45.4649528,
+        "lon": 9.1886543,
+        "osm_tags": "amenity=bank",
+        "terminus_class": "Bank",
+        "citta": "Milano"
+      },
+      {
+        "id": "node/2168030902",
+        "name": "Duomo",
+        "lat": 45.4645224,
+        "lon": 9.1884811,
+        "osm_tags": "railway=subway_entrance",
+        "terminus_class": "Railway_station",
+        "citta": "Milano"
+      },
+      {
+        "id": "node/1940587379",
+        "name": "Best and Fast",
+        "lat": 45.4645704,
+        "lon": 9.188421,
+        "osm_tags": "amenity=bureau_de_change",
+        "terminus_class": "Bank",
+        "citta": "Milano"
+      },
+      {
+        "id": "node/2401890314",
+        "name": "Forexchange",
+        "lat": 45.4644886,
+        "lon": 9.188417,
+        "osm_tags": "amenity=bureau_de_change",
+        "terminus_class": "Bank",
+        "citta": "Milano"
+      },
+      {
+        "id": "node/5216248523",
+        "name": "Duomo",
+        "lat": 45.4641385,
+        "lon": 9.1885548,
+        "osm_tags": "railway=station",
+        "terminus_class": "Railway_station",
+        "citta": "Milano"
+      },
+      {
+        "id": "node/13001316570",
+        "name": "Osservatorio Fondazione Prada",
+        "lat": 45.4653777,
+        "lon": 9.1901311,
+        "osm_tags": "tourism=museum",
+        "terminus_class": "Museum",
+        "citta": "Milano"
+      },
+      {
+        "id": "node/1821511528",
+        "name": "Coop.Farrn.Duomo",
+        "lat": 45.4641471,
+        "lon": 9.1884189,
+        "osm_tags": "amenity=pharmacy",
+        "terminus_class": "Pharmacy",
+        "citta": "Milano"
+      },
+      {
+        "id": "way/166623693",
+        "name": "Galleria Vittorio Emanuele Secondo",
+        "lat": 45.4656112,
+        "lon": 9.1900061,
+        "osm_tags": "tourism=attraction",
+        "terminus_class": "Historical_monument",
+        "citta": "Milano"
+      },
+      {
+        "id": "way/429842534",
+        "name": "Grande Sevese",
+        "lat": 45.4639353,
+        "lon": 9.1905817,
+        "osm_tags": "man_made=pipeline",
+        "terminus_class": "Pipeline",
+        "citta": "Milano"
+      },
+      {
+        "id": "node/2981815874",
+        "name": "Hobby Fumo",
+        "lat": 45.4643185,
+        "lon": 9.1877747,
+        "osm_tags": "shop=tobacco",
+        "terminus_class": "Tobacco_store",
+        "citta": "Milano"
+      },
+      {
+        "id": "node/1223091032",
+        "name": "Museo del Novecento",
+        "lat": 45.4633932,
+        "lon": 9.1902304,
+        "osm_tags": "tourism=museum",
+        "terminus_class": "Museum",
+        "citta": "Milano"
+      },
+      {
+        "id": "node/9656766054",
+        "name": "",
+        "lat": 45.4632081,
+        "lon": 9.1896532,
+        "osm_tags": "shop=tobacco",
+        "terminus_class": "Tobacco_store",
         "citta": "Milano"
       }
     ],
@@ -8446,5 +8446,20 @@
     }
   },
   "error_type": null,
-  "error": null
+  "error": null,
+  "provenienza": {
+    "catturato_il": "2026-10-21T07:47:23.715747+00:00",
+    "configurazione_canonica": {
+      "selettori_hash": "647d695771617738fad8405f054ade740f66561b5028a19055661818fcac0c9a",
+      "n_selettori": 65,
+      "max_pois": 20,
+      "per_selector_cap": 10,
+      "per_class_cap": 3,
+      "tipi_elemento": [
+        "node",
+        "way",
+        "relation"
+      ]
+    }
+  }
 }

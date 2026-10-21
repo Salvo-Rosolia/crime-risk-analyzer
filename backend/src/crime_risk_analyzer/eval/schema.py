@@ -259,6 +259,16 @@ class IstatMetrics(BaseModel):
             "escluse dal denominatore di M1 (#369; 0 prima della versione 4)."
         ),
     )
+    frasi_escluse_senza_voce: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Di frasi_escluse_m1, quante non nominano nessuna voce delle righe "
+            "ISTAT del prompt ne' un rischio collegato (#378): candidate da leggere "
+            "a mano, non un conteggio di rischi inventati. None sui record "
+            "precedenti a #378."
+        ),
+    )
 
 
 class RunCase(BaseModel):
@@ -391,6 +401,15 @@ class RunRecord(BaseModel):
             "dato ISTAT senza nominare un POI ne' un rischio (#369): con "
             "narrativa_grezza ricostruiscono il testo misurato. None senza dati "
             "ISTAT nel prompt, sui record precedenti a #369 e sui record-media."
+        ),
+    )
+    frasi_escluse_senza_voce: list[str] | None = Field(
+        default=None,
+        description=(
+            "Le frasi di frasi_escluse_m1 che non nominano nessuna voce delle righe "
+            "ISTAT del prompt ne' un rischio collegato (#378): candidate a un "
+            "rischio fuori dalla base di conoscenza, da leggere a mano. None senza "
+            "dati ISTAT nel prompt, sui record precedenti a #378 e sui record-media."
         ),
     )
     provenance: Provenance

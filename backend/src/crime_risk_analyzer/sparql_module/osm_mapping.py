@@ -129,6 +129,14 @@ ORDINE_FAMIGLIE: tuple[str, ...] = (
     "landuse",
 )
 
+#: Selettori generici che, sullo stesso elemento, cedono il passo a un tag mappato
+#: di una famiglia successiva in :data:`ORDINE_FAMIGLIE` (#373).
+#: ``tourism=attraction`` dice solo che il luogo e' visitato, mentre ``historic=*``
+#: dice che cosa e': il Colosseo porta entrambi e va classificato
+#: ``Archaeological_site``, non ``Historical_monument``. Tocca solo questa coppia:
+#: ``tourism=museum``/``gallery`` restano davanti a ``historic``.
+SELETTORI_CEDEVOLI: dict[str, str] = {"tourism=attraction": "historic"}
+
 
 def map_to_terminus(osm_tag: str) -> str:
     """Mappa un selettore OSM ``chiave=valore`` a una classe TERMINUS bare reale.

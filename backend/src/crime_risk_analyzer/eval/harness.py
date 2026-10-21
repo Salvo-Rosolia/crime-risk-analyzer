@@ -15,7 +15,10 @@ import re
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
-from crime_risk_analyzer.eval.istat_metrics import compute_istat_metrics
+from crime_risk_analyzer.eval.istat_metrics import (
+    compute_istat_metrics,
+    frasi_escluse_senza_voce,
+)
 from crime_risk_analyzer.eval.metrics import compute_metrics, frasi_escluse_m1
 from crime_risk_analyzer.eval.schema import (
     ExperimentConfig,
@@ -174,6 +177,12 @@ def _record_from_response(
     status = RunStatus.FALLBACK if resp.fallback else RunStatus.OK
     # #369: con ISTAT, le frasi che M1 non misura (None senza ISTAT).
     escluse = frasi_escluse_m1(resp, mode=config.mode)
+    # #378: fra queste, quelle senza una voce delle righe ISTAT del prompt.
+    senza_voce = (
+        frasi_escluse_senza_voce(escluse, resp.controllo_istat)
+        if escluse is not None and resp.controllo_istat is not None
+        else None
+    )
     return RunRecord(
         run_id=run_id,
         experiment=config.name,
@@ -206,12 +215,17 @@ def _record_from_response(
         istat_frasi_scartate=resp.istat_frasi_scartate,
         istat_metrics=(
             compute_istat_metrics(
-                resp.controllo_istat, frasi_escluse_m1=len(escluse or [])
+                resp.controllo_istat,
+                frasi_escluse_m1=len(escluse or []),
+                frasi_escluse_senza_voce=(
+                    None if senza_voce is None else len(senza_voce)
+                ),
             )
             if resp.controllo_istat
             else None
         ),
         frasi_escluse_m1=escluse,
+        frasi_escluse_senza_voce=senza_voce,
         provenance=Provenance(
             code_commit=code_commit,
             ontology_hash=ontology_hash,
