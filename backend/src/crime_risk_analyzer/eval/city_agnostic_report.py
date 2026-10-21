@@ -6,6 +6,7 @@ import csv
 import io
 import json
 from pathlib import Path
+from typing import cast
 
 from rdflib import Graph
 
@@ -15,6 +16,7 @@ from crime_risk_analyzer.eval.city_agnostic import (
     build_record,
     capture_path,
 )
+from crime_risk_analyzer.eval.snapshots import describe_configurazione_divergente
 
 _COLUMNS = [
     "citta",
@@ -80,6 +82,37 @@ def _failed_row(outcome: CaptureOutcome) -> list[str]:
     return [outcome.citta, outcome.zona, "failed", *([""] * n_blank), "False"]
 
 
+def _avvisi_provenienza(outcomes: list[CaptureOutcome]) -> list[str]:
+    """Avvisi sulla provenienza degli esiti (#374); mai solleva.
+
+    Tre casi: provenienza assente (esiti pre-#374), configurazione divergente da
+    quella del codice corrente, provenienze diverse fra loro nel roster (una
+    ricattura parziale che mescola esiti prodotti con configurazioni diverse).
+    La provenienza è la configurazione del CODICE che ha scritto il file, non
+    della query: un'assenza di avvisi non prova che i dati siano omogenei sul lato
+    OSM.
+    """
+    avvisi: list[str] = []
+    firme: set[str] = set()
+    for o in outcomes:
+        if o.provenienza is None:
+            avvisi.append(f"{o.citta}: esito senza provenienza (pre-#374)")
+            firme.add("assente")
+            continue
+        firme.add(json.dumps(o.provenienza.configurazione_canonica, sort_keys=True))
+        divergenza = describe_configurazione_divergente(
+            o.provenienza.configurazione_canonica
+        )
+        if divergenza is not None:
+            avvisi.append(f"{o.citta}: {divergenza}")
+    if len(firme) > 1:
+        avvisi.append(
+            "provenienze miste: gli esiti del roster non sono stati scritti con la "
+            "stessa configurazione (ricattura parziale?)"
+        )
+    return avvisi
+
+
 def _to_csv(rows: list[list[str]]) -> str:
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -101,6 +134,14 @@ def _to_markdown(rows: list[list[str]], summary: dict[str, object]) -> str:
         f"{summary['n_pass_all']} · fallite: {summary['n_failed']} · "
         f"ontology_hash: {summary['ontology_hash']}"
     )
+    provenienza = cast("dict[str, str | None]", summary["provenienza"])
+    lines.append("")
+    lines.append("Provenienza (istante di scrittura dell'esito, per città):")
+    for citta, istante in provenienza.items():
+        lines.append(f"- {citta}: {istante or 'assente'}")
+    for avviso in cast("list[str]", summary["avvisi"]):
+        lines.append("")
+        lines.append(f"AVVISO: {avviso}")
     return "\n".join(lines) + "\n"
 
 
@@ -133,6 +174,11 @@ def build_report(
         "n_pass_all": sum(1 for r in records if _pass_all(r)),
         "n_failed": len(failures),
         "ontology_hash": ontology_hash,
+        "provenienza": {
+            o.citta: o.provenienza.catturato_il if o.provenienza else None
+            for o in outcomes
+        },
+        "avvisi": _avvisi_provenienza(outcomes),
     }
 
     out_dir = results_dir / "city_agnostic"

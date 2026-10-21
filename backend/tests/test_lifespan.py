@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from crime_risk_analyzer.config import get_settings
+from crime_risk_analyzer.config import Settings, get_settings
 from crime_risk_analyzer.istat import dati as istat_dati
 from crime_risk_analyzer.istat.dati import IstatDatiError, svuota_cache
 from crime_risk_analyzer.llm.client import LLMError, get_llm_client
@@ -66,6 +66,8 @@ def test_lifespan_fails_fast_without_llm_key(monkeypatch: pytest.MonkeyPatch) ->
     """
     monkeypatch.setenv("LLM_PROVIDER", "claude")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    # Senza, la chiave di un ``backend/.env`` locale riempirebbe lo stesso Settings.
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
     get_settings.cache_clear()
     get_llm_client.cache_clear()
 

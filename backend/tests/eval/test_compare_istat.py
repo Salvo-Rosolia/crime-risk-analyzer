@@ -8,6 +8,7 @@ import pytest
 
 from crime_risk_analyzer.eval.compare import (
     CONFOUNDED_VARIABLE_HEAD,
+    ISTAT_ESCLUSE_SENZA_VOCE_TEXT,
     ISTAT_ISOLATED_VARIABLE_HEAD,
     ISTAT_M1_REDUCED_TEXT,
     ISTAT_M1_SPLITTER_LIMIT,
@@ -29,10 +30,15 @@ from crime_risk_analyzer.eval.schema import (
 )
 
 
-def _metriche_istat(versione: int = 2, frasi_escluse_m1: int = 0) -> IstatMetrics:
+def _metriche_istat(
+    versione: int = 2,
+    frasi_escluse_m1: int = 0,
+    frasi_escluse_senza_voce: int | None = None,
+) -> IstatMetrics:
     return IstatMetrics(
         versione=versione,
         frasi_escluse_m1=frasi_escluse_m1,
+        frasi_escluse_senza_voce=frasi_escluse_senza_voce,
         cifre_totali=4,
         cifre_istat=1,
         confronti_totali=2,
@@ -174,6 +180,51 @@ def test_report_dice_che_m1_con_istat_e_su_un_testo_ridotto() -> None:
     assert "`istat`: 6 frasi escluse" in md
     sezione = md.split("### Metriche ISTAT")[1]
     assert sezione.index(ISTAT_M1_REDUCED_TEXT) < sezione.index("Nota metodologica")
+
+
+def _con_senza_voce(senza_voce: tuple[int | None, int | None]) -> Comparison:
+    a, b = _bracci()
+    a = [
+        r.model_copy(update={"istat_metrics": _metriche_istat(4, 3, n)})
+        for r, n in zip(a, senza_voce, strict=True)
+    ]
+    return compare_records(a, b, label_a="istat", label_b="base")
+
+
+def test_report_conta_a_parte_le_escluse_senza_voce_del_prompt() -> None:
+    """#378: accanto alle frasi escluse, quante non nominano una voce delle righe
+    ISTAT del prompt; la nota dice che sono candidate da leggere a mano."""
+    confronto = _con_senza_voce((1, 0))
+    md = to_markdown(confronto)
+    assert (
+        "> Frasi escluse da M1 — `istat`: 6 frasi escluse, di cui 1 senza voce "
+        "ISTAT del prompt." in md
+    )
+    assert ISTAT_ESCLUSE_SENZA_VOCE_TEXT in md
+    sezione = md.split("### Metriche ISTAT")[1]
+    assert (
+        sezione.index(ISTAT_M1_REDUCED_TEXT)
+        < sezione.index(ISTAT_ESCLUSE_SENZA_VOCE_TEXT)
+        < sezione.index("Nota metodologica")
+    )
+    zone = json.loads(to_json(confronto))["istat_metrics"]
+    assert [z["a"]["frasi_escluse_senza_voce"] for z in zone] == [1, 0]
+
+
+def test_escluse_senza_voce_non_toccano_m1_ne_il_verdetto() -> None:
+    con, senza = _con_senza_voce((2, 1)), _con_senza_voce((None, None))
+    assert con.model_dump(exclude={"istat_metrics"}) == senza.model_dump(
+        exclude={"istat_metrics"}
+    )
+
+
+def test_record_senza_il_conteggio_delle_escluse_senza_voce() -> None:
+    """Basta una zona scritta prima di #378: il totale del braccio e' n/d."""
+    md = to_markdown(_con_senza_voce((1, None)))
+    assert (
+        "`istat`: 6 frasi escluse, di cui n/d senza voce ISTAT del prompt (record "
+        "senza il conteggio)." in md
+    )
 
 
 def test_la_nota_dichiara_i_pezzi_dello_splitter_di_m1() -> None:

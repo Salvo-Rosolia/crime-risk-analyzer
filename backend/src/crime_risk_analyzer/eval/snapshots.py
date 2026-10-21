@@ -253,13 +253,33 @@ def describe_configurazione_mismatch(
     """
     if provenienza is None:
         return "nessuna provenienza leggibile (pre-#241, non apribile o corrotta)"
-    dichiarata = provenienza.get("configurazione_canonica")
-    # provenienza e' un TypedDict castato da JSON esterno (#241): a runtime la
-    # chiave puo' mancare o avere una forma diversa nonostante il tipo dichiari
-    # sempre ConfigurazioneCanonica — il check e' per i dati reali, non per lo
+    return describe_configurazione_divergente(
+        provenienza.get("configurazione_canonica")
+    )
+
+
+def configurazione_canonica_corrente() -> ConfigurazioneCanonica:
+    """Accessor pubblico della configurazione canonica del codice CORRENTE (#374).
+
+    Per chi (gli esiti C1) deve registrare la stessa configurazione che
+    ``save_snapshot`` scrive, senza importare un nome privato.
+    """
+    return _configurazione_canonica_corrente()
+
+
+def describe_configurazione_divergente(dichiarata: object) -> str | None:
+    """Messaggio d'avviso se la configurazione dichiarata diverge da quella attuale.
+
+    Nucleo di :func:`describe_configurazione_mismatch`, esposto perche' anche gli
+    esiti C1 (#374) portano una ``configurazione_canonica`` ma non l'envelope
+    completo di uno snapshot POI. ``None`` = coerente.
+    """
+    # La configurazione e' castata da JSON esterno (#241): a runtime la chiave puo'
+    # mancare o avere una forma diversa — il check e' per i dati reali, non per lo
     # static checker.
-    if not isinstance(dichiarata, dict):  # pyright: ignore[reportUnnecessaryIsInstance]
+    if not isinstance(dichiarata, dict):
         return "provenienza senza configurazione_canonica"
+    dichiarata = cast(dict[str, object], dichiarata)
     corrente = _configurazione_canonica_corrente()
     divergenti = sorted(k for k in corrente if dichiarata.get(k) != corrente[k])
     if not divergenti:

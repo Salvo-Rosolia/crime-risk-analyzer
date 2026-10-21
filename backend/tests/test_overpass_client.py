@@ -7,13 +7,15 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
+from typing import cast
 
 import httpx
 import pytest
 import respx
 
 from crime_risk_analyzer import overpass_client
-from crime_risk_analyzer.models.geo import Bbox
+from crime_risk_analyzer.eval.snapshots import capturing_source
+from crime_risk_analyzer.models.geo import Bbox, haversine_m
 from crime_risk_analyzer.overpass_client import (
     DEFAULT_OVERPASS_URL,
     INTERACTIVE_RETRY,
@@ -22,9 +24,12 @@ from crime_risk_analyzer.overpass_client import (
     PER_SELECTOR_CAP,
     OverpassError,
     Poi,
+    TaglioOsm,
     fetch_pois,
     fetch_pois_with_cut,
+    remark_segnala_risposta_incompleta,
 )
+from crime_risk_analyzer.sparql_module.osm_mapping import map_to_terminus
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "overpass_sample.json"
 _BBOX = Bbox(41.88, 12.48, 41.90, 12.50)
@@ -790,6 +795,17 @@ async def test_relation_con_tetto_proprio_e_blocco_node_way_invariato() -> None:
     assert "  relation[" not in body
 
 
+#: Tag della relation reale del Colosseo (relation/1834818): sito archeologico e
+#: attrazione turistica insieme, il caso di #314 (relation) e #373 (priorita').
+_COLOSSEO_ID = 1834818
+_COLOSSEO_TAGS: dict[str, str] = {
+    "type": "multipolygon",
+    "historic": "archaeological_site",
+    "tourism": "attraction",
+    "name": "Colosseo",
+}
+
+
 def _relation(
     rel_id: int, lat: float, lon: float, tags: dict[str, str]
 ) -> dict[str, object]:
@@ -876,17 +892,7 @@ async def test_relation_vicina_al_centro_entra_nel_campione() -> None:
         }
         for i in range(MAX_POIS)
     ]
-    colosseo = _relation(
-        1834818,
-        lat + 0.00008,
-        lon,
-        {
-            "type": "multipolygon",
-            "historic": "archaeological_site",
-            "tourism": "attraction",
-            "name": "Colosseo",
-        },
-    )
+    colosseo = _relation(_COLOSSEO_ID, lat + 0.00008, lon, dict(_COLOSSEO_TAGS))
     respx.post(DEFAULT_OVERPASS_URL).mock(
         side_effect=_overpass_che_rispetta_la_query(nodi, [colosseo])
     )
@@ -903,16 +909,7 @@ async def test_relation_emessa_da_piu_blocchi_entra_una_volta() -> None:
     ``historic=archaeological_site``: arriva dal blocco di ciascun selettore e
     deve contare una volta sola, come gia' per node e way."""
     lat, lon = _BBOX.center()
-    colosseo = _relation(
-        1834818,
-        lat,
-        lon,
-        {
-            "historic": "archaeological_site",
-            "tourism": "attraction",
-            "name": "Colosseo",
-        },
-    )
+    colosseo = _relation(_COLOSSEO_ID, lat, lon, dict(_COLOSSEO_TAGS))
     respx.post(DEFAULT_OVERPASS_URL).mock(
         side_effect=_overpass_che_rispetta_la_query([], [colosseo, dict(colosseo)])
     )
@@ -962,6 +959,225 @@ async def test_parsing_scarta_una_relation_senza_center() -> None:
     )
 
     assert await fetch_pois(_BBOX, "Roma") == []
+
+
+# --- #371: lo stesso oggetto mappato come way e come relation multipoligono ---
+
+#: Ambiente 4 al Palatino come lo restituisce Overpass (``out center``, taglio
+#: 2026-07-15): way/597452722 e relation/1835450 hanno stesso nome e stesso
+#: ``historic``, centri a ~34 m, e tag secondari diversi (``inscription``,
+#: ``fixme``, ``website``). La way non e' un membro della relation: e' una
+#: seconda mappatura dello stesso sito.
+_AMBIENTE_4_WAY: dict[str, object] = {
+    "type": "way",
+    "id": 597452722,
+    "center": {"lat": 41.8900546, "lon": 12.4899794},
+    "tags": {
+        "historic": "archaeological_site",
+        "historic:civilization": "ancient_roman",
+        "inscription": "Ambiente 4- Luogo di Ritrovamento dei temenoi arcaici.",
+        "name": "Ambiente 4",
+    },
+}
+_AMBIENTE_4_REL: dict[str, object] = {
+    "type": "relation",
+    "id": 1835450,
+    "center": {"lat": 41.8901595, "lon": 12.4895943},
+    "tags": {
+        "fixme": "location and detailing",
+        "historic": "archaeological_site",
+        "historic:civilization": "ancient_roman",
+        "inscription": "Ambiente 4 - Area di scavo arcaica.",
+        "name": "Ambiente 4",
+        "type": "multipolygon",
+        "website": "http://archeopalatino.uniroma1.it/",
+    },
+}
+
+#: Gradi di latitudine per metro (sfera media), per spostare un elemento a mano.
+_GRADI_PER_METRO = 1 / 111_195.0
+
+
+def _variante(
+    element: dict[str, object],
+    *,
+    nord_m: float = 0.0,
+    come_nodo: bool = False,
+    elem_id: int | None = None,
+    tags: dict[str, str] | None = None,
+) -> dict[str, object]:
+    """Copia di ``element`` spostata verso nord, eventualmente come node, con id
+    o tag sostituiti."""
+    copia = dict(element)
+    center = cast(dict[str, float], element["center"])
+    lat = center["lat"] + nord_m * _GRADI_PER_METRO
+    if come_nodo:
+        del copia["center"]
+        copia.update(type="node", lat=lat, lon=center["lon"])
+    else:
+        copia["center"] = {"lat": lat, "lon": center["lon"]}
+    if elem_id is not None:
+        copia["id"] = elem_id
+    if tags is not None:
+        copia["tags"] = tags
+    return copia
+
+
+def _tags(element: dict[str, object]) -> dict[str, str]:
+    return dict(cast(dict[str, str], element["tags"]))
+
+
+def _parse(elements: list[dict[str, object]]) -> list[Poi]:
+    return overpass_client._parse_elements(  # pyright: ignore[reportPrivateUsage]
+        {"elements": elements}, "Roma"
+    )
+
+
+def _ids_ordinati(elements: list[dict[str, object]]) -> list[str]:
+    return sorted(p["id"] for p in _parse(elements))
+
+
+def test_way_doppione_della_relation_multipoligono_e_scartata() -> None:
+    """Il caso dell'issue: resta solo la relation, una volta sola."""
+    assert _ids_ordinati([_AMBIENTE_4_WAY, _AMBIENTE_4_REL]) == ["relation/1835450"]
+
+
+def test_sopravvissuto_non_dipende_dall_ordine_di_emissione() -> None:
+    """La relation sopravvive anche se arriva prima della way, con le sue
+    coordinate: id e centro del POI non dipendono dall'ordine di Overpass."""
+    for elementi in (
+        [_AMBIENTE_4_WAY, _AMBIENTE_4_REL],
+        [_AMBIENTE_4_REL, _AMBIENTE_4_WAY],
+    ):
+        pois = _parse(elementi)
+        assert [p["id"] for p in pois] == ["relation/1835450"]
+        assert (pois[0]["lat"], pois[0]["lon"]) == (41.8901595, 12.4895943)
+
+
+def test_stesso_nome_ma_tag_di_famiglia_diversi_non_si_fondono() -> None:
+    """Un ``tourism=attraction`` in piu' sulla way basta a tenerli distinti."""
+    tags_way = _tags(_AMBIENTE_4_WAY) | {"tourism": "attraction"}
+    way = _variante(_AMBIENTE_4_WAY, tags=tags_way)
+    assert _ids_ordinati([way, _AMBIENTE_4_REL]) == [
+        "relation/1835450",
+        "way/597452722",
+    ]
+
+
+def test_stesso_nome_ma_valore_di_famiglia_diverso_non_si_fondono() -> None:
+    """Stessa chiave, valore diverso: ``historic=ruins`` non e' lo stesso sito."""
+    tags_way = _tags(_AMBIENTE_4_WAY) | {"historic": "ruins"}
+    way = _variante(_AMBIENTE_4_WAY, tags=tags_way)
+    assert _ids_ordinati([way, _AMBIENTE_4_REL]) == [
+        "relation/1835450",
+        "way/597452722",
+    ]
+
+
+def test_stesso_nome_e_tag_ma_lontani_non_si_fondono() -> None:
+    """Oltre la soglia di vicinanza sono due siti omonimi, non un doppione."""
+    soglia = overpass_client.DISTANZA_MAX_DOPPIONE_M
+    rel = cast(dict[str, float], _AMBIENTE_4_REL["center"])
+    way = _variante(_AMBIENTE_4_REL, nord_m=soglia + 5, elem_id=597452722)
+    way["type"] = "way"
+    way["tags"] = _tags(_AMBIENTE_4_WAY)
+    centro_way = cast(dict[str, float], way["center"])
+    distanza = haversine_m(rel["lat"], rel["lon"], centro_way["lat"], rel["lon"])
+    assert soglia < distanza < soglia + 10
+    assert _ids_ordinati([way, _AMBIENTE_4_REL]) == [
+        "relation/1835450",
+        "way/597452722",
+    ]
+
+
+def test_due_way_omonime_e_vicine_non_si_fondono() -> None:
+    """Mai due elementi dello stesso tipo: sono oggetti OSM distinti."""
+    gemella = _variante(_AMBIENTE_4_WAY, nord_m=5, elem_id=597452723)
+    assert _ids_ordinati([_AMBIENTE_4_WAY, gemella]) == [
+        "way/597452722",
+        "way/597452723",
+    ]
+
+
+def test_nodo_omonimo_vicino_alla_relation_non_si_fonde() -> None:
+    """Mai i nodi: un punto dentro un'area omonima resta un POI a se'."""
+    nodo = _variante(_AMBIENTE_4_REL, come_nodo=True, elem_id=42)
+    nodo["tags"] = _tags(_AMBIENTE_4_WAY)
+    assert _ids_ordinati([nodo, _AMBIENTE_4_REL]) == ["node/42", "relation/1835450"]
+
+
+def test_nodo_e_way_omonimi_non_si_fondono() -> None:
+    """Due fermate "Termini" o un nodo e un'area omonimi restano distinti."""
+    nodo = _variante(_AMBIENTE_4_WAY, nord_m=3, come_nodo=True, elem_id=42)
+    assert _ids_ordinati([nodo, _AMBIENTE_4_WAY]) == ["node/42", "way/597452722"]
+
+
+@pytest.mark.parametrize("nome", [None, "", "   "])
+def test_way_e_relation_senza_nome_non_si_fondono(nome: str | None) -> None:
+    """Senza nome non c'e' modo di dire che sono lo stesso oggetto."""
+
+    def _con_nome(element: dict[str, object]) -> dict[str, object]:
+        tags = {k: v for k, v in _tags(element).items() if k != "name"}
+        if nome is not None:
+            tags["name"] = nome
+        return _variante(element, tags=tags)
+
+    assert _ids_ordinati([_con_nome(_AMBIENTE_4_WAY), _con_nome(_AMBIENTE_4_REL)]) == [
+        "relation/1835450",
+        "way/597452722",
+    ]
+
+
+def test_relation_che_non_e_un_multipoligono_non_assorbe_la_way() -> None:
+    """Una relation ``type=site`` raggruppa oggetti distinti: non e' l'area
+    della way, quindi non e' un suo doppione."""
+    rel = _variante(_AMBIENTE_4_REL, tags=_tags(_AMBIENTE_4_REL) | {"type": "site"})
+    assert _ids_ordinati([_AMBIENTE_4_WAY, rel]) == [
+        "relation/1835450",
+        "way/597452722",
+    ]
+
+
+def test_doppione_scartato_libera_il_posto_della_classe() -> None:
+    """La deduplica avviene prima di ``select_pois``: il posto che la way
+    occupava fra i ``PER_CLASS_CAP`` Archaeological_site va al sito successivo.
+
+    Sei classi di riempitivi a 500 m riempiono gli altri 17 posti nel primo
+    giro, cosi' il secondo giro non puo' recuperare il sito scartato dal tetto.
+    """
+    centro_rel = cast(dict[str, float], _AMBIENTE_4_REL["center"])
+    lat, lon = centro_rel["lat"], centro_rel["lon"]
+    siti: list[dict[str, object]] = [
+        {
+            "type": "node",
+            "id": 9000 + i,
+            "lat": lat + (60 + 20 * i) * _GRADI_PER_METRO,
+            "lon": lon,
+            "tags": {"historic": "archaeological_site", "name": f"Sito {i}"},
+        }
+        for i in range(2)
+    ]
+    valori = ["bank", "pharmacy", "school", "hospital", "fuel", "police"]
+    riempitivi: list[dict[str, object]] = [
+        {
+            "type": "node",
+            "id": 8000 + i,
+            "lat": lat - 500 * _GRADI_PER_METRO,
+            "lon": lon + i * 0.00001,
+            "tags": {"amenity": valore, "name": f"Riempitivo {i}"},
+        }
+        for i, valore in enumerate(valori * 3)
+    ]
+
+    scelti = overpass_client.select_pois(
+        _parse([_AMBIENTE_4_WAY, _AMBIENTE_4_REL, *siti, *riempitivi]), (lat, lon)
+    )
+
+    assert len(scelti) == MAX_POIS
+    archeologici = [
+        p["id"] for p in scelti if p["terminus_class"] == "Archaeological_site"
+    ]
+    assert archeologici == ["relation/1835450", "node/9000", "node/9001"]
 
 
 @respx.mock
@@ -1190,6 +1406,77 @@ async def test_fetch_pois_picks_first_mapped_selector_not_first_present() -> Non
 
 
 @respx.mock
+async def test_colosseo_relation_risolve_archaeological_site() -> None:
+    """#373 end-to-end sul caso reale: il Colosseo arriva come relation con
+    ``historic=archaeological_site`` + ``tourism=attraction`` e deve uscire
+    ``Archaeological_site``, non ``Historical_monument``."""
+    lat, lon = _BBOX.center()
+    colosseo = _relation(_COLOSSEO_ID, lat, lon, dict(_COLOSSEO_TAGS))
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=_overpass_che_rispetta_la_query([], [colosseo])
+    )
+
+    pois = await fetch_pois(_BBOX, "Roma")
+
+    assert pois[0]["id"] == f"relation/{_COLOSSEO_ID}"
+    assert pois[0]["osm_tags"] == "historic=archaeological_site"
+    assert pois[0]["terminus_class"] == "Archaeological_site"
+
+
+@pytest.mark.parametrize(
+    ("tags", "osm_tag", "terminus_class"),
+    [
+        pytest.param(
+            _COLOSSEO_TAGS,
+            "historic=archaeological_site",
+            "Archaeological_site",
+            id="colosseo-archaeological-site-prevale-su-attraction",
+        ),
+        pytest.param(
+            {"tourism": "attraction", "historic": "monument", "name": "Arco"},
+            "historic=monument",
+            "Historical_monument",
+            id="arco-monument-prevale-su-attraction",
+        ),
+        pytest.param(
+            {"tourism": "attraction", "historic": "wayside_cross", "name": "Croce"},
+            "tourism=attraction",
+            "Historical_monument",
+            id="historic-non-mappato-non-ruba-ad-attraction",
+        ),
+        pytest.param(
+            {"tourism": "museum", "historic": "castle", "name": "Castello"},
+            "tourism=museum",
+            "Museum",
+            id="museum-resta-davanti-a-historic",
+        ),
+        pytest.param(
+            {
+                "amenity": "place_of_worship",
+                "tourism": "attraction",
+                "historic": "monument",
+                "name": "Basilica",
+            },
+            "amenity=place_of_worship",
+            "Place_of_worship",
+            id="amenity-resta-davanti-a-tutto",
+        ),
+    ],
+)
+def test_historic_prevale_solo_su_tourism_attraction(
+    tags: dict[str, str], osm_tag: str, terminus_class: str
+) -> None:
+    """``tourism=attraction`` e' un tag generico: su un elemento che porta anche un
+    ``historic=*`` mappato vince il tag storico (#373). Le altre precedenze non
+    cambiano: ``tourism=museum`` resta davanti a ``historic`` e ``amenity`` davanti
+    a entrambi. Funzione pura: nessuna chiamata HTTP."""
+    selettore = overpass_client._extract_osm_tag(tags)  # pyright: ignore[reportPrivateUsage]
+
+    assert selettore == osm_tag
+    assert map_to_terminus(selettore) == terminus_class
+
+
+@respx.mock
 async def test_fetch_pois_unknown_tag_yields_generic() -> None:
     """Elemento con soli tag non mappati -> osm_tags vuoto e GenericUrbanPOI."""
     payload = {
@@ -1315,6 +1602,196 @@ async def test_fetch_pois_skips_non_dict_elements() -> None:
     pois = await fetch_pois(_BBOX, "Roma")
     assert len(pois) == 1
     assert pois[0]["id"] == "node/1"
+
+
+# --- #372: ``remark`` di Overpass e risposte troncate ---
+# Quando scatta ``[timeout:25]`` (o la memoria lato server) Overpass risponde
+# 200 con un campo ``remark`` e gli elementi trovati FINO A LI': i selettori in
+# fondo alla query mancano. Le forme d'interruzione sotto seguono il prefisso
+# ``runtime error:``; quelle senza prefisso esercitano le frasi di riserva di
+# ``_INDIZI_INTERRUZIONE`` nel caso il prefisso cambiasse.
+
+_REMARK_TIMEOUT = (
+    'runtime error: Query timed out in "query" at line 3 after 26 seconds.'
+)
+
+_REMARK_MEMORIA = "runtime error: Query run out of memory using about 2048 MB of RAM."
+
+_REMARK_INCOMPLETI = (
+    _REMARK_TIMEOUT,
+    _REMARK_MEMORIA,
+    'runtime error: Query timed out in "recurse" at line 41 after 25 seconds.',
+    'runtime error: Query run out of memory in "query" at line 7 using about '
+    "2048 MB of RAM.",
+    'runtime error: Query ran out of memory in "union" at line 12. It would need '
+    "at least 0 MB of RAM to continue.",
+    "Runtime error: something went wrong while executing the query.",
+    # Senza il prefisso ``runtime error``: rilevati solo dalle frasi di riserva.
+    'Error: Query timed out in "query" at line 3 after 26 seconds.',
+    "Query ran out of memory",
+    "Query run out of memory",
+)
+
+# Forme IPOTETICHE, difensive: non e' dimostrato che Overpass le emetta. Se mai
+# comparisse un remark che non dichiara un'interruzione, non va ritentato.
+_REMARK_INFORMATIVI = (
+    "runtime remark: Timeout is 180 and maxsize is 536870912.",
+    "runtime remark: The query has been executed with the attic data.",
+    "",
+)
+
+
+@pytest.mark.parametrize("remark", _REMARK_INCOMPLETI)
+def test_remark_di_interruzione_segnala_risposta_incompleta(remark: str) -> None:
+    assert remark_segnala_risposta_incompleta(remark) is True
+
+
+@pytest.mark.parametrize("remark", _REMARK_INFORMATIVI)
+def test_remark_informativo_non_segnala_risposta_incompleta(remark: str) -> None:
+    assert remark_segnala_risposta_incompleta(remark) is False
+
+
+#: Id del campione completo dopo ``select_pois`` (node/1004 non ha nome); la
+#: risposta troncata porta solo node/1001.
+_ID_CAMPIONE_COMPLETO = ["node/1001", "node/1002", "node/1003", "way/2001"]
+
+
+def _troncata() -> dict[str, object]:
+    """Risposta 200 troncata: il primo elemento del campione e il remark di timeout."""
+    sample = _sample()
+    elements = cast(list[object], sample["elements"])
+    return {**sample, "elements": elements[:1], "remark": _REMARK_TIMEOUT}
+
+
+@respx.mock
+async def test_remark_di_timeout_non_e_accettato_come_campione_completo() -> None:
+    """Una risposta troncata non e' un campione completo.
+
+    Ritentativi esauriti -> :class:`OverpassError`.
+    """
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json=_troncata())
+    )
+
+    with pytest.raises(OverpassError) as exc_info:
+        await fetch_pois(_BBOX, "Roma")
+
+    messaggio = str(exc_info.value)
+    assert "Risposta incompleta di Overpass" in messaggio
+    assert _REMARK_TIMEOUT in messaggio
+    assert "dopo 2 tentativi" in messaggio
+    # Politica interattiva: un tentativo + un ritentativo, poi l'errore.
+    assert route.call_count == 1 + len(overpass_client.INTERACTIVE_RETRY.pause_s)
+
+
+@respx.mock
+async def test_remark_di_timeout_esaurisce_anche_la_politica_offline() -> None:
+    attese: list[float] = []
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json=_troncata())
+    )
+
+    with pytest.raises(
+        OverpassError, match=r"Risposta incompleta di Overpass.*dopo 5 tentativi"
+    ):
+        await fetch_pois_with_cut(
+            _BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(attese)
+        )
+
+    assert route.call_count == 1 + len(OFFLINE_RETRY.pause_s)
+    assert attese == list(OFFLINE_RETRY.pause_s)
+
+
+@respx.mock
+async def test_remark_di_memoria_non_e_descritto_come_timeout() -> None:
+    """Un out of memory non e' un timeout, e senza ritentativi non si dice «dopo»."""
+    sample = {**_sample(), "remark": _REMARK_MEMORIA}
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json=sample)
+    )
+    senza_ritentativi = replace(INTERACTIVE_RETRY, pause_s=())
+
+    with pytest.raises(OverpassError) as exc_info:
+        await fetch_pois(_BBOX, "Roma", retry=senza_ritentativi)
+
+    messaggio = str(exc_info.value)
+    assert "timeout" not in messaggio.lower()
+    assert "tentativi" not in messaggio
+    assert "Risposta incompleta di Overpass" in messaggio
+    assert _REMARK_MEMORIA in messaggio
+    assert route.call_count == 1
+
+
+@respx.mock
+async def test_remark_di_timeout_poi_risposta_completa_ritenta_e_usa_la_seconda(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=[
+            httpx.Response(200, json=_troncata()),
+            httpx.Response(200, json=_sample()),
+        ]
+    )
+
+    with caplog.at_level("WARNING"):
+        pois = await fetch_pois(_BBOX, "Roma")
+
+    assert route.call_count == 2
+    # Il campione e' quello della seconda risposta, non quello troncato.
+    assert sorted(p["id"] for p in pois) == _ID_CAMPIONE_COMPLETO
+    messaggi = [r.getMessage() for r in caplog.records]
+    assert any(
+        "risposta incompleta" in m and "ritentativo 1/1" in m for m in messaggi
+    ), messaggi
+
+
+@respx.mock
+async def test_remark_informativo_non_fa_fallire_ne_ritentare() -> None:
+    sample = {**_sample(), "remark": _REMARK_INFORMATIVI[0]}
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json=sample)
+    )
+
+    pois = await fetch_pois(_BBOX, "Roma")
+
+    assert route.call_count == 1
+    assert sorted(p["id"] for p in pois) == _ID_CAMPIONE_COMPLETO
+
+
+@respx.mock
+async def test_remark_non_stringa_non_fa_fallire() -> None:
+    """Un ``remark`` di forma inattesa non e' un'interruzione dichiarata."""
+    sample = {**_sample(), "remark": None}
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json=sample)
+    )
+
+    await fetch_pois(_BBOX, "Roma")
+
+    assert route.call_count == 1
+
+
+@respx.mock
+async def test_capture_non_scrive_snapshot_da_una_risposta_troncata(
+    tmp_path: Path,
+) -> None:
+    """Un campione incompleto non deve finire su disco come se fosse completo."""
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json=_troncata())
+    )
+
+    async def inner(bbox: Bbox, citta: str) -> tuple[list[Poi], TaglioOsm | None]:
+        return await fetch_pois_with_cut(
+            bbox, citta, retry=OFFLINE_RETRY, sleep=_recording_sleep([])
+        )
+
+    path = tmp_path / "snap.json"
+    source = capturing_source(path, inner=inner, zona="Colosseo")
+
+    with pytest.raises(OverpassError, match="incompleta di Overpass"):
+        await source(_BBOX, "Roma")
+
+    assert not path.exists()
 
 
 @pytest.mark.integration

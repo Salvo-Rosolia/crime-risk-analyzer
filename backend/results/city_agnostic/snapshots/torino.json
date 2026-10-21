@@ -13,7 +13,7 @@
       45.0677539,
       7.6839575
     ],
-    "switch_ms": 8974,
+    "switch_ms": 76731,
     "pois": [
       {
         "id": "node/254594415",
@@ -187,11 +187,11 @@
         "citta": "Torino"
       },
       {
-        "id": "node/11971260086",
-        "name": "",
-        "lat": 45.0613379,
-        "lon": 7.6775069,
-        "osm_tags": "amenity=atm",
+        "id": "node/14211663830",
+        "name": "Change",
+        "lat": 45.0611013,
+        "lon": 7.6785259,
+        "osm_tags": "amenity=bureau_de_change",
         "terminus_class": "Bank",
         "citta": "Torino"
       }
@@ -6998,5 +6998,20 @@
     }
   },
   "error_type": null,
-  "error": null
+  "error": null,
+  "provenienza": {
+    "catturato_il": "2026-10-21T07:50:04.843195+00:00",
+    "configurazione_canonica": {
+      "selettori_hash": "647d695771617738fad8405f054ade740f66561b5028a19055661818fcac0c9a",
+      "n_selettori": 65,
+      "max_pois": 20,
+      "per_selector_cap": 10,
+      "per_class_cap": 3,
+      "tipi_elemento": [
+        "node",
+        "way",
+        "relation"
+      ]
+    }
+  }
 }
