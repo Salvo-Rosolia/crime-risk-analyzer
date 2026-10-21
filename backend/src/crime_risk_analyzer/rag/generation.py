@@ -189,7 +189,8 @@ CITATION_LIMIT_CLAUSE = (
 #: individua i TEMI di rischio dominanti con pochi esempi rappresentativi. "NON
 #: elencare" e' la sentinella distintiva del passaggio da enumerazione a sintesi.
 #: Referenziale di proposito (cita i POI/hazard reali): la metrica M1 (#229) grada la
-#: groundedness proprio su questo blocco, quindi la sintesi deve restare ancorata.
+#: groundedness proprio su questo blocco, quindi la sintesi deve restare ancorata
+#: (dal #264 M1 premia i POI nominati, l'hazard da solo non basta).
 _RULE_ONTOLOGY_SYNTHESIS = (
     f"3a. Nel blocco [ONTOLOGIA] {CITATION_LIMIT_CLAUSE} "
     "Prosa analitica e referenziale (cita i POI/hazard reali), non un elenco."
@@ -940,9 +941,10 @@ def poi_line(poi: dict[str, Any]) -> str:
     La classe resta il solo identifier, SENZA etichetta italiana. L'italiano dei
     termini TERMINUS deriva dai filler ontologici (#77), quindi e' contributo
     dell'ontologia quanto gli hazard e il braccio ablato non deve riceverlo — e il
-    proxy di valutazione conta come ancoraggio anche le etichette italiane, percio'
-    darle qui regalerebbe al braccio completo punteggio per una ragione che non ha
-    nulla a che vedere con gli hazard. L'italiano della classe sta su una riga a
+    confronto fra i bracci conta le etichette italiane (il controllo ISTAT e la
+    scomposizione per rischio le leggono; M1 dal #264 ancora solo sui POI), percio'
+    darle qui darebbe al braccio completo un vantaggio che non ha nulla a che vedere
+    con gli hazard. L'italiano della classe sta su una riga a
     parte del blocco ontologico (:func:`_poi_block_lines`), che il braccio ablato
     non emette.
     """

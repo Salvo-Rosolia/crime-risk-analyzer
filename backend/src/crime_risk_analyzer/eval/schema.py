@@ -145,7 +145,7 @@ class Metrics(BaseModel):
         default=None,
         description=(
             "True se grounding/hallucination cadono nel ramo vacuo di "
-            "metrics.py::_grade (nessuna narrativa/ancoraggio da giudicare, non "
+            "metrics.py::_grade (nessuna narrativa/POI da giudicare, non "
             "qualita' reale, #240). None sui record pre-#240 (dato non "
             "disponibile): NON equivale a False, che dichiara esplicitamente "
             "che la run era gradabile."

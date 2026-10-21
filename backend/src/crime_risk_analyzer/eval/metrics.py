@@ -255,10 +255,14 @@ def frasi_escluse_m1(
     ISTAT ... sequestri di persona") finisce qui invece di contare come non
     ancorato.
 
-    Sul ramo VACUO di :func:`_grade` (grezzo vuoto o nessun ancoraggio) M1 non
-    grada nulla, quindi non esclude nulla: ``[]``. Senza ancoraggi ogni frase ISTAT
+    Sul ramo VACUO di :func:`_grade` (grezzo vuoto o nessun POI con un nome) M1 non
+    grada nulla, quindi non esclude nulla: ``[]``. Senza POI ogni frase ISTAT
     risulterebbe "non ancorata" e il record dichiarerebbe esclusioni da un
     denominatore che non esiste.
+
+    Qui gli hazard restano ancoraggi (#264): una frase ISTAT che nomina un rischio
+    ma non un POI resta nel denominatore e, per M1, e' sempre non ancorata. E' il
+    costo noto di non far dipendere l'esclusione dalla regola che ancora.
     """
     if resp.controllo_istat is None:
         return None
@@ -500,7 +504,7 @@ def compute_metrics(
     ISTAT di versioni diverse (``IstatMetrics.versione``) non si confrontano.
 
     ``quality_vacuous`` (#240) espone se questo record e' caduto nel ramo VACUO di
-    :func:`_grade` (narrativa vuota o nessun ancoraggio da citare): grounding/
+    :func:`_grade` (narrativa vuota o nessun POI da citare): grounding/
     hallucination valgono comunque 1.0/0.0 su quel ramo, ma non misurano qualita'
     reale. Prima di #240 questa distinzione era visibile solo nel report di
     confronto (#231); qui diventa un campo del record cosi' che aggregate.py e

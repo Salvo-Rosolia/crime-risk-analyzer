@@ -246,6 +246,14 @@ def test_nonempty_narrative_without_ontology_block_is_penalized() -> None:
     assert hallucination(r) == 1.0
 
 
+def test_hazards_without_a_poi_are_vacuous_nothing_to_cite() -> None:
+    # #264: i rischi da citare ci sono ma nessun POI: nulla puo' ancorare una frase.
+    r = _resp(_narrativa("Qualcosa accade nella zona.")).model_copy(update={"poi": []})
+    assert grounding(r) == 1.0
+    assert hallucination(r) == 0.0
+    assert compute_metrics(r).quality_vacuous is True
+
+
 def test_no_anchors_is_vacuous_nothing_to_cite() -> None:
     # Ramo vacuo per "niente da citare": nessun ancoraggio disponibile (poi/risk_models
     # vuoti, es. zona senza POI recuperati) -> il proxy non ha dati contro cui gradare
@@ -503,7 +511,8 @@ def test_m1_istat_misura_la_frase_istat_che_nomina_un_poi_o_un_rischio(
     frase: str, grounding_atteso: float
 ) -> None:
     """#369: con un POI o un rischio la frase ISTAT non esce dal denominatore;
-    conta come ancorata solo se nomina un POI (#264)."""
+    conta come ancorata solo se nomina un POI (#264). Costo noto: la frase ISTAT
+    con un rischio e senza POI resta misurata e non ancorata."""
     resp = _resp_istat(_narrativa(f"{_ANCORATA} {_NON_ANCORATA} {frase}"))
     assert compute_metrics(resp).grounding == pytest.approx(grounding_atteso)
     assert frasi_escluse_m1(resp) == []
@@ -527,6 +536,17 @@ def test_m1_istat_senza_poi_ne_rischi_e_vacuo_e_non_esclude_nulla() -> None:
     dichiarava per una zona non gradata."""
     resp = _resp_istat(_narrativa(f"{_ANCORATA} {_ISTAT}")).model_copy(
         update={"poi": [], "risk_models": []}
+    )
+    assert _m1(resp) == (1.0, 0.0, True)
+    assert frasi_escluse_m1(resp) == []
+
+
+def test_m1_istat_senza_poi_ma_con_rischi_e_vacuo_e_non_esclude_nulla() -> None:
+    """#264: gli hazard ci sono ma nessun POI: M1 non grada nulla (ramo vacuo),
+    quindi non esclude la frase ISTAT. Con la v2 gli hazard bastavano a gradare e
+    la frase risultava esclusa."""
+    resp = _resp_istat(_narrativa(f"{_ANCORATA} {_ISTAT}")).model_copy(
+        update={"poi": []}
     )
     assert _m1(resp) == (1.0, 0.0, True)
     assert frasi_escluse_m1(resp) == []
