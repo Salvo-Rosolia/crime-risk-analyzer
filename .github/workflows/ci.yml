@@ -156,7 +156,7 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: E2E (Playwright build di produzione + server statico + chromium)
         # `npm run e2e` avvia il webServer di Playwright (ng build + http-server su
-        # :4200) e gira gli spec; in CI (CI=true) non riusa server esistenti.
+        # :4310, E2E_PORT) e gira gli spec; non riusa mai server esistenti.
         if: ${{ steps.tooling.outputs.present == 'true' }}
         run: npm run e2e
       - name: Upload report Playwright (solo su fallimento E2E)
