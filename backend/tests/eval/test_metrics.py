@@ -114,7 +114,8 @@ def _narrativa(
 def test_metrics_version_is_m1_generation() -> None:
     # #229: bump di versione della semantica proxy (v1 inline-tag -> v2 block-aware
     # M1). Serve a compare.py/winner.py per non mescolare generazioni di metrica.
-    assert METRICS_VERSION == 2
+    # #264: v3, una frase e' ancorata solo se nomina un POI della zona.
+    assert METRICS_VERSION == 3
 
 
 def test_grounding_full_when_ontology_sentence_backed() -> None:
@@ -286,6 +287,50 @@ def test_empty_poi_name_does_not_anchor_everything() -> None:
     assert grounding(r) == 0.0
 
 
+# --- #264: l'hazard da solo non ancora una frase -------------------------------
+
+
+@pytest.mark.parametrize(
+    "frase",
+    [
+        "Il rischio di rapina in banca e' elevato nella zona.",
+        "Il rischio Bank_robbery e' elevato nella zona.",
+    ],
+)
+def test_a_sentence_naming_only_a_hazard_is_not_grounded(frase: str) -> None:
+    # La regola 6 del prompt obbliga il modello a usare l'etichetta dell'hazard:
+    # una frase generica che la contiene non lega il rischio a nessun punto.
+    r = _resp(_narrativa(frase))
+    assert grounding(r) == 0.0
+    assert hallucination(r) == 1.0
+
+
+def test_a_sentence_naming_a_poi_without_a_hazard_is_grounded() -> None:
+    r = _resp(_narrativa("Banca A e' aperta fino a tardi."))
+    assert grounding(r) == 1.0
+
+
+def test_the_poi_name_grounds_the_sentence_with_or_without_the_hazard() -> None:
+    r = _resp(
+        _narrativa(
+            "Banca A: rapina in banca.\n"
+            "Il rischio di rapina in banca e' elevato nella zona."
+        )
+    )
+    assert grounding(r) == pytest.approx(0.5)
+
+
+def test_without_a_named_poi_the_proxy_has_nothing_to_cite() -> None:
+    # Gli hazard ci sono ma nessun POI ha un nome: la frase non ha nulla che
+    # possa ancorarla, come nel ramo vacuo "niente da citare".
+    r = _resp(_narrativa("Il rischio di rapina in banca e' elevato.")).model_copy(
+        update={"poi": []}
+    )
+    assert grounding(r) == 1.0
+    assert hallucination(r) == 0.0
+    assert compute_metrics(r).quality_vacuous is True
+
+
 # --- #236: il blocco gradato dipende dal braccio, non il calcolo --------------
 
 
@@ -439,18 +484,28 @@ def test_m1_istat_esclude_le_frasi_istat_senza_poi_ne_rischio() -> None:
 
 
 @pytest.mark.parametrize(
-    "ancorata",
+    ("frase", "grounding_atteso"),
     [
-        "Secondo l'ISTAT nel Comune di Roma i furti vicino a Banca A sono in calo.",
-        "Secondo l'ISTAT nel Comune di Roma la rapina in banca ha un tasso piu' alto.",
+        # nomina un POI: misurata e ancorata
+        (
+            "Secondo l'ISTAT nel Comune di Roma i furti vicino a Banca A sono in calo.",
+            2 / 3,
+        ),
+        # nomina solo un rischio: misurata ma, dal #264, non ancorata
+        (
+            "Secondo l'ISTAT nel Comune di Roma la rapina in banca ha un tasso "
+            "piu' alto.",
+            1 / 3,
+        ),
     ],
 )
 def test_m1_istat_misura_la_frase_istat_che_nomina_un_poi_o_un_rischio(
-    ancorata: str,
+    frase: str, grounding_atteso: float
 ) -> None:
-    """#369: con un POI o un rischio la frase ISTAT si misura come le altre."""
-    resp = _resp_istat(_narrativa(f"{_ANCORATA} {_NON_ANCORATA} {ancorata}"))
-    assert compute_metrics(resp).grounding == pytest.approx(2 / 3)
+    """#369: con un POI o un rischio la frase ISTAT non esce dal denominatore;
+    conta come ancorata solo se nomina un POI (#264)."""
+    resp = _resp_istat(_narrativa(f"{_ANCORATA} {_NON_ANCORATA} {frase}"))
+    assert compute_metrics(resp).grounding == pytest.approx(grounding_atteso)
     assert frasi_escluse_m1(resp) == []
 
 
@@ -806,7 +861,7 @@ def test_blocco_di_sole_frasi_istat_escluse_e_conforme() -> None:
     r = _ancoraggio_dal_record(
         _resp_istat(_narrativa(f"{_ISTAT} Il tasso dei furti e' piu' alto."))
     )
-    assert r == RiskAnchoring(0, 0, 0, conforme=True)
+    assert r == RiskAnchoring(0, 0, 0, 0, conforme=True)
 
 
 def test_ancoraggio_con_frasi_escluse_toglie_una_frase_per_voce() -> None:
@@ -818,7 +873,7 @@ def test_ancoraggio_con_frasi_escluse_toglie_una_frase_per_voce() -> None:
         risk_models=[],
         frasi_escluse=[_NON_ANCORATA.rstrip(".")],
     )
-    assert r == RiskAnchoring(2, 0, 1, conforme=True)
+    assert r == RiskAnchoring(2, 0, 1, 0, conforme=True)
 
 
 def test_ancoraggio_frase_esclusa_assente_dal_blocco_solleva() -> None:
