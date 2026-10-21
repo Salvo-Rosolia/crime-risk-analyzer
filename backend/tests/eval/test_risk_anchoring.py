@@ -55,6 +55,7 @@ def test_frase_con_etichetta_italiana_del_rischio() -> None:
         frasi_misurate=1,
         frasi_ancorate_rischio=1,
         frasi_ancorate_solo_poi=0,
+        frasi_ancorate_poi_e_rischio=0,
         conforme=True,
     )
     assert r.ancoraggio_rischi == 1.0
@@ -107,6 +108,7 @@ def test_senza_blocco_misurato_non_conforme() -> None:
         frasi_misurate=0,
         frasi_ancorate_rischio=0,
         frasi_ancorate_solo_poi=0,
+        frasi_ancorate_poi_e_rischio=0,
         conforme=False,
     )
     assert r.ancoraggio_rischi == 0.0
@@ -137,15 +139,28 @@ def test_braccio_ablato_misurato_sul_suo_blocco() -> None:
         frasi_misurate=2,
         frasi_ancorate_rischio=1,
         frasi_ancorate_solo_poi=1,
+        frasi_ancorate_poi_e_rischio=0,
+        conforme=True,
+    )
+
+
+def test_frase_con_poi_e_rischio_conta_in_tutte_e_due_le_voci() -> None:
+    # La regola piu' severa "POI e rischio nella stessa frase" (#264): la frase
+    # con il punto e il rischio e' ancorata dal rischio e conta anche qui.
+    r = _calc(_onto("Alla Banca X c'e' rischio di rapina in banca. Rapina in banca."))
+    assert r == RiskAnchoring(
+        frasi_misurate=2,
+        frasi_ancorate_rischio=2,
+        frasi_ancorate_solo_poi=0,
+        frasi_ancorate_poi_e_rischio=1,
         conforme=True,
     )
 
 
 def test_poi_senza_nome_scartato() -> None:
     # Un nome vuoto non deve ancorare ogni frase ("" in s e' sempre vero).
-    r = _calc(_onto("Zona molto frequentata."), poi="")
-    assert r is not None
-    assert (r.frasi_ancorate_rischio, r.frasi_ancorate_solo_poi) == (0, 0)
+    # Dal #264 senza POI con un nome non c'e' nulla che ancori una frase: non gradabile.
+    assert _calc(_onto("Zona molto frequentata."), poi="") is None
 
 
 def test_solo_poi_senza_nome_e_rischi_non_gradabile() -> None:
@@ -163,7 +178,7 @@ def test_header_presente_ma_blocco_vuoto_non_conforme() -> None:
         "Rischi dal contesto [CONTESTO]\nRapina in banca alla Banca X."
     )
     assert r is not None
-    assert r == RiskAnchoring(0, 0, 0, conforme=False)
+    assert r == RiskAnchoring(0, 0, 0, 0, conforme=False)
 
 
 _grade = metrics._grade  # pyright: ignore[reportPrivateUsage]
@@ -222,8 +237,8 @@ def _response(narrativa: str) -> AnalyzeResponse:
         "",
     ],
 )
-def test_rischio_piu_solo_poi_coincide_con_m1(body: str) -> None:
-    # La scomposizione ripartisce esattamente cio' che M1 conta come ancorato.
+def test_poi_piu_poi_e_rischio_coincide_con_m1(body: str) -> None:
+    # M1 conta ancorata la frase che nomina un POI (#264): solo POI, o POI e rischio.
     resp = _response(_onto(body))
     graded = _grade(resp, "analyze")
     r = risk_anchoring(
@@ -235,7 +250,7 @@ def test_rischio_piu_solo_poi_coincide_con_m1(body: str) -> None:
     assert graded is not None and r is not None
     if r.conforme:
         assert (
-            r.frasi_ancorate_rischio + r.frasi_ancorate_solo_poi,
+            r.frasi_ancorate_poi_e_rischio + r.frasi_ancorate_solo_poi,
             r.frasi_misurate,
         ) == graded
     else:

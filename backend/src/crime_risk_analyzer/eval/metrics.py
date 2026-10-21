@@ -2,10 +2,11 @@
 
 Metriche strutturali sulla AnalyzeResponse. ``grounding``/``hallucination`` sono
 PROXY testuali (vedi caveat EN/IT nella spec): misurano se le asserzioni di rischio
-citano i dati ancorati (nomi POI/hazard, label EN/IT #77).
+citano i dati ancorati (nomi dei POI della zona, #264).
 
-**Semantica M1 (#229, ``METRICS_VERSION == 2``).** Il proxy grada SOLO le asserzioni
-del PRIMO blocco della narrativa, quello in cui il modello attribuisce rischi ai punti:
+**Semantica M1 (#229, ``METRICS_VERSION == 3`` da #264).** Il proxy grada SOLO le
+asserzioni del PRIMO blocco della narrativa, quello in cui il modello attribuisce
+rischi ai punti:
 nel braccio di prodotto e' ``[ONTOLOGIA]``, l'unico layer con backing strutturato dal
 grounding (``grounding.py`` emette solo il tag ``ONTOLOGIA``); nel braccio di ablazione
 (#236) e' ``[SINTESI-LLM]``, che backing non ne ha per costruzione — ed e' il punto
@@ -25,6 +26,14 @@ non sostituita da un equivalente diretto. ``eval/gold.py`` valida a un'altra gra
 fonte del singolo rischio citato nel blocco misurato
 (:func:`~crime_risk_analyzer.eval.gold.collect_kept_risks`) — che e' una domanda
 diversa. Un claim forte su questi numeri resta quindi privo di un ancoraggio umano.
+
+**Cosa ancora una frase (#264).** Una frase e' ancorata solo se nomina un POI della
+zona. Gli hazard (identifier ed etichette EN/IT) non bastano: la regola 6 del prompt
+obbliga il modello a usare quelle parole, quindi una frase generica come "il rischio di
+furto e' elevato" le contiene sempre e passerebbe per ancorata senza legarsi a nessun
+punto. Senza POI con un nome non c'e' nulla che possa ancorare una frase: ramo VACUO.
+Gli hazard restano ancoraggi per l'esclusione delle frasi ISTAT (:func:`_asserzioni`) e
+per la scomposizione di :func:`risk_anchoring`.
 
 **Come il braccio entra nel calcolo (#236).** Dal ``mode`` della run si ricava la sola
 riga-etichetta da cercare (:data:`_MEASURED_TOKEN_BY_MODE`); la formula non cambia, e
@@ -64,7 +73,10 @@ from crime_risk_analyzer.rag.no_ontology_generation import LLM_SYNTHESIS_TOKEN
 #: l'interpretazione [CONTESTO] al gold umano (#152). Espone la versione cosi' che un
 #: confronto (compare.py/winner.py #157) non mescoli silenziosamente generazioni di
 #: metrica: i valori pre-#229 su output reale non sono confrontabili con questi.
-METRICS_VERSION = 2
+#: ``3`` (#264): ancorata solo la frase che nomina un POI della zona; con ``2`` bastava
+#: un hazard, parola che la regola 6 del prompt impone, quindi i valori ``2`` sono
+#: gonfiati e non confrontabili con i ``3``.
+METRICS_VERSION = 3
 
 #: Riga-etichetta del blocco che il proxy grada, PER BRACCIO (#236). Il braccio
 #: senza ontologia etichetta il suo blocco per cio' che e' — una sintesi del
@@ -178,9 +190,9 @@ def _names_any(sentence: str, anchors: set[str]) -> bool:
     return any(a in low for a in anchors)
 
 
-def _grounded(assertions: list[str], anchors: set[str]) -> list[str]:
-    """Asserzioni ontologiche ancorate: nominano un dato reale (POI/hazard, label)."""
-    return [s for s in assertions if _names_any(s, anchors)]
+def _grounded(assertions: list[str], poi: set[str]) -> list[str]:
+    """Asserzioni ontologiche ancorate: nominano un POI della zona (#264)."""
+    return [s for s in assertions if _names_any(s, poi)]
 
 
 def _testo_m1(resp: AnalyzeResponse) -> str:
@@ -243,22 +255,29 @@ def frasi_escluse_m1(
     ISTAT ... sequestri di persona") finisce qui invece di contare come non
     ancorato.
 
-    Sul ramo VACUO di :func:`_grade` (grezzo vuoto o nessun ancoraggio) M1 non
-    grada nulla, quindi non esclude nulla: ``[]``. Senza ancoraggi ogni frase ISTAT
+    Sul ramo VACUO di :func:`_grade` (grezzo vuoto o nessun POI con un nome) M1 non
+    grada nulla, quindi non esclude nulla: ``[]``. Senza POI ogni frase ISTAT
     risulterebbe "non ancorata" e il record dichiarerebbe esclusioni da un
     denominatore che non esiste.
+
+    Qui gli hazard restano ancoraggi (#264): una frase ISTAT che nomina un rischio
+    ma non un POI resta nel denominatore e, per M1, e' sempre non ancorata. E' il
+    costo noto di non far dipendere l'esclusione dalla regola che ancora.
     """
     if resp.controllo_istat is None:
         return None
-    anchors = _anchors(resp)
-    if _vacuo(resp, anchors):
+    if _vacuo(resp):
         return []
-    return _asserzioni(resp, mode, anchors)[1]
+    return _asserzioni(resp, mode, _anchors(resp))[1]
 
 
-def _vacuo(resp: AnalyzeResponse, anchors: set[str]) -> bool:
-    """Ramo VACUO di :func:`_grade`: grezzo vuoto o nessun ancoraggio da citare."""
-    return not _testo_m1(resp).strip() or not anchors
+def _poi_names(resp: AnalyzeResponse) -> set[str]:
+    return _poi_anchors(p.name for p in resp.poi)
+
+
+def _vacuo(resp: AnalyzeResponse) -> bool:
+    """Ramo VACUO di :func:`_grade`: grezzo vuoto o nessun POI da citare."""
+    return not _testo_m1(resp).strip() or not _poi_names(resp)
 
 
 def _grade(resp: AnalyzeResponse, mode: Mode) -> tuple[int, int] | None:
@@ -267,7 +286,7 @@ def _grade(resp: AnalyzeResponse, mode: Mode) -> tuple[int, int] | None:
     ``None`` = ramo VACUO (grounding 1.0 / hallucination 0.0), riservato ai casi in cui
     il proxy non ha legittimamente nulla da gradare:
     - narrativa vuota (fallback strutturato: nessun output LLM da giudicare);
-    - nessun ancoraggio disponibile (``_anchors`` vuoto: nessun dato da citare).
+    - nessun POI con un nome (nessun dato che possa ancorare una frase, #264).
 
     Il caso "narrativa PIENA con dati da citare ma SENZA asserzioni nel blocco misurato"
     (es. modello che non emette l'header atteso, o lo emette vuoto) NON e' vacuo: e'
@@ -286,21 +305,20 @@ def _grade(resp: AnalyzeResponse, mode: Mode) -> tuple[int, int] | None:
     grezzo intero: una narrativa fatta solo di frasi ISTAT, senza blocco o con il
     blocco tutto escluso, non attribuisce rischi ai punti ed e' NON-ATTRIBUZIONE.
     """
-    anchors = _anchors(resp)
-    if _vacuo(resp, anchors):
+    if _vacuo(resp):
         return None
-    assertions, _ = _asserzioni(resp, mode, anchors)
+    assertions, _ = _asserzioni(resp, mode, _anchors(resp))
     if not assertions:
         return (0, 1)
-    return (len(_grounded(assertions, anchors)), len(assertions))
+    return (len(_grounded(assertions, _poi_names(resp))), len(assertions))
 
 
 def grounding(resp: AnalyzeResponse, *, mode: Mode = _DEFAULT_MODE) -> float:
     """Frazione di ASSERZIONI del blocco misurato ancorate ai dati [0,1] (M1, #229).
 
     Asserzione = frase del blocco misurato (:func:`_asserzioni`); grounded =
-    asserzione che nomina un ancoraggio (POI/hazard, label EN/IT #77). Rami vacui
-    (:func:`_grade` -> ``None``: narrativa vuota o nessun ancoraggio da citare) → 1.0.
+    asserzione che nomina un POI della zona (#264: l'hazard da solo non basta). Rami
+    vacui (:func:`_grade` -> ``None``: narrativa vuota o nessun POI da citare) → 1.0.
     Narrativa piena con dati da citare ma senza asserzioni nel blocco (header
     assente/vuoto) → 0.0 (non-attribuzione, non "vacua"). ``overview``/``[CONTESTO]``
     sono esclusi (interpretazione, delegata al gold).
@@ -345,9 +363,13 @@ class RiskAnchoring:
     """Scomposizione delle frasi del blocco misurato per tipo di ancoraggio (#359).
 
     Affiancata a M1, mai al suo posto: a parita' di narrativa, nomi dei POI e
-    ``risk_models``, stesso blocco e stesse frasi di :func:`_grade`, ma le frasi
-    ancorate sono divise fra quelle che nominano un rischio e quelle che nominano
-    soltanto un punto. Sui record con dati ISTAT M1 grada il grezzo senza le
+    ``risk_models``, stesso blocco e stesse frasi di :func:`_grade`. Le frasi che
+    nominano un rischio (``frasi_ancorate_rischio``, con o senza un punto) sono
+    contate a parte da quelle che nominano soltanto un punto
+    (``frasi_ancorate_solo_poi``); ``frasi_ancorate_poi_e_rischio`` sono quelle che
+    nominano entrambi, il numero della regola piu' severa "POI e rischio nella
+    stessa frase" (#264). Le frasi ancorate di M1 sono ``solo_poi + poi_e_rischio``.
+    Sui record con dati ISTAT M1 grada il grezzo senza le
     frasi ISTAT escluse, non ``RunRecord.narrativa``: lo stesso testo si ottiene
     passando a :func:`risk_anchoring` il grezzo e le frasi escluse salvate nel
     record (#377). ``conforme`` e' ``False``
@@ -359,6 +381,7 @@ class RiskAnchoring:
     frasi_misurate: int
     frasi_ancorate_rischio: int
     frasi_ancorate_solo_poi: int
+    frasi_ancorate_poi_e_rischio: int
     conforme: bool
 
     @property
@@ -405,11 +428,11 @@ def risk_anchoring(
 ) -> RiskAnchoring | None:
     """Quante frasi del blocco misurato nominano un rischio, e quante solo un POI.
 
-    Il proxy M1 (:func:`grounding`) conta ancorata una frase che nomina un
-    ancoraggio QUALSIASI: un nome di POI basta. Qui le due famiglie restano
-    separate: una frase che nomina almeno un hazard (identifier o etichetta
-    EN/IT) e' ancorata dal rischio, anche se nomina pure un punto; una che non
-    nomina hazard ma nomina un punto e' ancorata solo dal POI.
+    Il proxy M1 (:func:`grounding`) conta ancorata una frase che nomina un POI
+    (#264). Qui le due famiglie restano separate: una frase che nomina almeno un
+    hazard (identifier o etichetta EN/IT) e' ancorata dal rischio, anche se nomina
+    pure un punto; una che non nomina hazard ma nomina un punto e' ancorata solo dal
+    POI; una che nomina entrambi e' contata anche in ``poi_e_rischio``.
 
     Prende i dati e non una ``AnalyzeResponse`` perche' si calcola anche sui
     record gia' scritti (``RunRecord``), senza rifare run. Sui record precedenti
@@ -417,7 +440,7 @@ def risk_anchoring(
     lettura (``RiskItem``) e possono differire da quelle usate allora da M1.
     Stessi rami di
     :func:`_grade`: ``None`` (non gradabile) su narrativa vuota o senza alcun
-    ancoraggio; narrativa piena senza blocco misurato -> ``conforme=False`` e
+    POI con un nome; narrativa piena senza blocco misurato -> ``conforme=False`` e
     conteggi a zero.
 
     Con i dati ISTAT nel prompt (#377) ``narrativa`` e' il grezzo del modello e
@@ -433,18 +456,20 @@ def risk_anchoring(
         return None
     poi = _poi_anchors(poi_names)
     hazards = _hazard_anchors(risk_models)
-    if not (poi | hazards):
+    if not poi:
         return None
     tutte = _measured_sentences(narrativa, mode)
     frasi = _senza_frasi_escluse(tutte, frasi_escluse)
     if not tutte:
-        return RiskAnchoring(0, 0, 0, conforme=False)
+        return RiskAnchoring(0, 0, 0, 0, conforme=False)
     da_rischio = [f for f in frasi if _names_any(f, hazards)]
     solo_poi = [f for f in frasi if not _names_any(f, hazards) and _names_any(f, poi)]
+    poi_e_rischio = [f for f in da_rischio if _names_any(f, poi)]
     return RiskAnchoring(
         frasi_misurate=len(frasi),
         frasi_ancorate_rischio=len(da_rischio),
         frasi_ancorate_solo_poi=len(solo_poi),
+        frasi_ancorate_poi_e_rischio=len(poi_e_rischio),
         conforme=True,
     )
 
@@ -479,7 +504,7 @@ def compute_metrics(
     ISTAT di versioni diverse (``IstatMetrics.versione``) non si confrontano.
 
     ``quality_vacuous`` (#240) espone se questo record e' caduto nel ramo VACUO di
-    :func:`_grade` (narrativa vuota o nessun ancoraggio da citare): grounding/
+    :func:`_grade` (narrativa vuota o nessun POI da citare): grounding/
     hallucination valgono comunque 1.0/0.0 su quel ramo, ma non misurano qualita'
     reale. Prima di #240 questa distinzione era visibile solo nel report di
     confronto (#231); qui diventa un campo del record cosi' che aggregate.py e

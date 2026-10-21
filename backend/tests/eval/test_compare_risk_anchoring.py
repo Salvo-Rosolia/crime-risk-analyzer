@@ -48,7 +48,7 @@ _MODELS = [
 ]
 
 
-_POINTER_MARK = "il grounding poggia soprattutto sui nomi dei punti"
+_POINTER_MARK = "le frasi ancorate solo da un nome di punto superano"
 
 
 _ISTAT = IstatMetrics(
@@ -225,8 +225,8 @@ def test_riga_di_rimando_solo_quando_il_solo_poi_prevale() -> None:
     cmp = compare_records(con, senza, label_a="con", label_b="senza")
     riga = risk_anchoring_pointer(cmp)
     assert riga == (
-        "> Per «senza» il grounding poggia soprattutto sui nomi dei punti e non "
-        "sui rischi della base di conoscenza: vedi la sezione «Ancoraggio ai "
+        "> Per «senza» le frasi ancorate solo da un nome di punto superano "
+        "quelle che nominano un rischio: vedi la sezione «Ancoraggio ai "
         "rischi (esplorativo)»."
     )
     pari = compare_records(con, con, label_a="con", label_b="con2")
@@ -342,8 +342,8 @@ def test_rimando_una_riga_per_braccio() -> None:
     cmp = compare_records(senza, senza, label_a="s1", label_b="s2")
     righe = [r for r in risk_anchoring_pointer(cmp).splitlines() if r]
     assert len(righe) == 2
-    assert righe[0].startswith("> Per «s1» il grounding")
-    assert righe[1].startswith("> Per «s2» il grounding")
+    assert righe[0].startswith("> Per «s1» le frasi ancorate")
+    assert righe[1].startswith("> Per «s2» le frasi ancorate")
 
 
 def test_ancoraggio_solo_conformi_esclude_le_non_conformi() -> None:

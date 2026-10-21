@@ -287,7 +287,7 @@ _OPERATIONAL_SPECS: tuple[_MetricSpec, ...] = (_LATENCY_SPEC, _COST_SPEC)
 
 #: Caveat metodologico stampato in coda al report Markdown (#33). ``grounding``
 #: e ``hallucination`` sono PROXY TESTUALI (stimati da pattern sui tag fonte e
-#: sui nomi POI/hazard in ``metrics.py``), non giudizi umani di qualità;
+#: sui nomi dei POI in ``metrics.py``), non giudizi umani di qualità;
 #: ``latency_ms`` e ``cost_usd`` sono invece misure operative dirette. Il
 #: confronto proxy-vs-annotazione umana PER-RUN su queste metriche aggregate
 #: e' stato rimosso (#152): ``eval/gold.py`` valida oggi a un'altra grana
@@ -295,7 +295,7 @@ _OPERATIONAL_SPECS: tuple[_MetricSpec, ...] = (_LATENCY_SPEC, _COST_SPEC)
 PROXY_CAVEAT = (
     "> **Nota metodologica.** `grounding` e `hallucination` sono *proxy "
     "testuali* (copertura delle citazioni e frazione di asserzioni non "
-    "ancorate, stimate da pattern sui tag fonte e sui nomi POI/hazard), non "
+    "ancorate, stimate da pattern sui tag fonte e sui nomi dei POI), non "
     "giudizi umani di qualità: vanno letti come indicatori orientativi, non "
     "come verità. `latency_ms` e `cost_usd` sono invece misure operative "
     "dirette. Un accordo proxy-vs-annotazione umana su queste metriche "
@@ -311,11 +311,14 @@ RISK_ANCHORING_HEAD = "### Ancoraggio ai rischi (esplorativo)"
 #: cosa non puo' dire.
 RISK_ANCHORING_NOTE = (
     "> **Come leggere questa sezione.** Il `grounding` della tabella principale "
-    "conta come ancorata anche una frase che nomina soltanto un punto: i nomi dei "
-    "POI bastano. Qui le due cose sono separate. Una frase è «da rischio» se "
+    "conta come ancorata solo una frase che nomina un punto (da M1 v3): un "
+    "rischio da solo non basta, perché il prompt impone le etichette dei rischi. "
+    "Qui le frasi sono separate per cosa nominano. Una frase è «da rischio» se "
     "nomina almeno un rischio della base di conoscenza (identificativo o "
-    "etichetta italiana o inglese), «solo POI» se non nomina rischi ma nomina un "
-    "punto (gli stessi nomi e rischi che usa il `grounding`). Una narrativa è "
+    "etichetta italiana o inglese), anche senza un punto; «solo POI» se non "
+    "nomina rischi ma nomina un punto. Le frasi ancorate dal `grounding` sono "
+    "quelle «solo POI» più quelle che nominano punto e rischio insieme (queste "
+    "ultime contano in «da rischio» ma non hanno una colonna propria). Una narrativa è "
     "non conforme al formato quando manca il blocco misurato. La colonna "
     "«narrative» conta le narrative gradabili, comprese le non conformi. "
     "% = frasi del braccio messe insieme, narrative non conformi escluse; "
@@ -953,8 +956,8 @@ def _record_quality_vacuous(record: RunRecord) -> bool:
 
     Legge ``metrics.quality_vacuous`` quando disponibile: e' un sovrainsieme di
     :func:`has_narrativa`, perche' ``metrics.py::_grade`` cade nel ramo vacuo sia
-    a narrativa assente sia a narrativa piena ma senza alcun ancoraggio da citare
-    (zona senza POI) — il confine che ``has_narrativa`` da sola dichiarava di non
+    a narrativa assente sia a narrativa piena ma senza alcun POI con un nome da
+    citare (zona senza POI) — il confine che ``has_narrativa`` da sola dichiarava di non
     coprire. Sui record pre-#240 (``quality_vacuous is None``, dato non
     disponibile) ricade su ``has_narrativa``: stesso comportamento di prima
     dell'introduzione di questo campo.
@@ -1819,8 +1822,8 @@ def risk_anchoring_pointer(comparison: Comparison) -> str:
         return ""
     titolo = RISK_ANCHORING_HEAD.removeprefix("### ")
     return "\n\n".join(
-        f"> Per «{label}» il grounding poggia soprattutto sui nomi dei punti e "
-        f"non sui rischi della base di conoscenza: vedi la sezione «{titolo}»."
+        f"> Per «{label}» le frasi ancorate solo da un nome di punto superano "
+        f"quelle che nominano un rischio: vedi la sezione «{titolo}»."
         for label in sez.solo_poi_prevale
     )
 
