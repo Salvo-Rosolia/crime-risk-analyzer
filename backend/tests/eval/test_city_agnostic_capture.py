@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from geopy.exc import GeocoderServiceError  # pyright: ignore[reportMissingTypeStubs]
@@ -10,6 +12,7 @@ from geopy.exc import GeocoderServiceError  # pyright: ignore[reportMissingTypeS
 from crime_risk_analyzer.config import get_settings
 from crime_risk_analyzer.eval import city_agnostic as ca
 from crime_risk_analyzer.eval.geometry import CityBoundary
+from crime_risk_analyzer.eval.snapshots import configurazione_canonica_corrente
 from crime_risk_analyzer.geocoding import GeocodingError, ZoneNotFoundError
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.overpass_client import OverpassError, Poi
@@ -108,6 +111,31 @@ def test_save_and_load_outcome_roundtrip(tmp_path: Path) -> None:
     path = ca.capture_path(tmp_path, "Roma")
     ca.save_outcome(path, outcome)
     assert ca.load_outcome(path) == outcome
+
+
+def test_save_outcome_scrive_fine_riga_lf(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Niente traduzione a CRLF su Windows: gli snapshot sono versionati (#241).
+
+    Il controllo sui byte vale solo su Windows (su Linux ``write_text`` scrive LF
+    comunque), quindi si verifica anche che ``newline=""`` sia davvero passato.
+    """
+    chiamate: list[dict[str, object]] = []
+    originale = Path.write_text
+
+    def _spia(self: Path, data: str, *args: Any, **kwargs: Any) -> int:
+        chiamate.append(dict(kwargs))
+        return originale(self, data, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", _spia)
+    outcome = ca.CaptureOutcome(
+        status="ok", citta="Roma", zona="Colosseo", capture=_capture()
+    )
+    path = ca.capture_path(tmp_path, "Roma")
+    ca.save_outcome(path, outcome)
+    assert chiamate[-1].get("newline") == ""
+    assert b"\r\n" not in path.read_bytes()
 
 
 async def test_capture_city_times_and_fetches_boundary(
@@ -326,6 +354,79 @@ async def test_capture_roster_isolates_overpass_failure(
     roma = ca.load_outcome(ca.capture_path(tmp_path, "Roma"))
     assert roma.status == "failed"
     assert roma.error_type == "OverpassError"
+
+
+_ISTANTE = datetime(2026, 10, 21, 9, 30, tzinfo=UTC)
+
+
+def _fixed_clock() -> datetime:
+    return _ISTANTE
+
+
+def test_outcome_roundtrip_preserves_provenienza(tmp_path: Path) -> None:
+    prov = ca.EsitoProvenienza(
+        catturato_il=_ISTANTE.isoformat(),
+        configurazione_canonica=dict(configurazione_canonica_corrente()),
+    )
+    outcome = ca.CaptureOutcome(
+        status="ok",
+        citta="Roma",
+        zona="Colosseo",
+        capture=_capture(),
+        provenienza=prov,
+    )
+    path = ca.capture_path(tmp_path, "Roma")
+    ca.save_outcome(path, outcome)
+    loaded = ca.load_outcome(path)
+    assert loaded == outcome
+    assert loaded.provenienza is not None
+    assert loaded.provenienza.catturato_il == "2026-10-21T09:30:00+00:00"
+
+
+def test_old_outcome_without_provenienza_loads_as_none(tmp_path: Path) -> None:
+    outcome = ca.CaptureOutcome(
+        status="failed", citta="Roma", zona="Colosseo", error_type="X", error="e"
+    )
+    path = ca.capture_path(tmp_path, "Roma")
+    ca.save_outcome(path, outcome)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    data.pop("provenienza")
+    path.write_text(json.dumps(data), encoding="utf-8")
+    assert ca.load_outcome(path).provenienza is None
+
+
+async def test_capture_roster_writes_provenienza_on_ok_and_failed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def _fake_geocode(zona: str, citta: str) -> dict[str, object]:
+        if citta == "Napoli":
+            raise ZoneNotFoundError("zona non trovata")
+        return {"lat": 41.0, "lon": 12.0, "bbox": Bbox(41.0, 12.0, 41.5, 12.5)}
+
+    monkeypatch.setattr(ca, "geocode_zone", _fake_geocode)
+
+    async def _fake_source(bbox: Bbox, citta: str) -> list[Poi]:
+        return [_poi()]
+
+    roster = (ca.RosterCity("Roma", "Colosseo"), ca.RosterCity("Napoli", "Garibaldi"))
+    await ca.capture_roster(
+        roster,
+        tmp_path,
+        poi_source=_fake_source,
+        boundary_source=_fake_boundary,
+        clock=_fixed_clock,
+    )
+
+    for citta, status in (("Roma", "ok"), ("Napoli", "failed")):
+        outcome = ca.load_outcome(ca.capture_path(tmp_path, citta))
+        assert outcome.status == status
+        assert outcome.provenienza is not None
+        assert outcome.provenienza.catturato_il == _ISTANTE.isoformat()
+        assert (
+            outcome.provenienza.configurazione_canonica
+            == configurazione_canonica_corrente()
+        )
+        assert "taglio_osm" not in ca.EsitoProvenienza.model_fields
 
 
 @pytest.mark.integration

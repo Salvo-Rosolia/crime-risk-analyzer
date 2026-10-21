@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -332,7 +334,14 @@ def main() -> int:
             asyncio.run(capture_roster(ROSTER, results_dir))
         else:
             graph = load_ontology(get_settings().ontology_path)
-            build_report(results_dir, graph, ontology_hash())
+            records_path, _, _ = build_report(results_dir, graph, ontology_hash())
+            # Gli avvisi di provenienza a schermo (stderr), non solo nei file
+            # gitignorati: senza questo un esito senza provenienza o con
+            # configurazioni miste passa inosservato (stesso motivo del
+            # riepilogo di ``_capture``, che non si affida al log).
+            summary = json.loads(records_path.read_text(encoding="utf-8"))["summary"]
+            for avviso in summary["avvisi"]:
+                print(f"AVVISO: {avviso}", file=sys.stderr)
     elif ns.command == "gold-sample":
         records = load_runs(results_dir, experiment=ns.experiment)
         records = [r for r in records if r.mode == ns.mode]

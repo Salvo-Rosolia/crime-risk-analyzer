@@ -14,6 +14,7 @@ from __future__ import annotations
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal, Protocol, cast
@@ -32,6 +33,7 @@ from crime_risk_analyzer.eval.geometry import (
     boundary_from_geojson,
     point_in_multipolygon,
 )
+from crime_risk_analyzer.eval.snapshots import configurazione_canonica_corrente
 from crime_risk_analyzer.geocoding import (
     GeocodingError,
     ZoneNotFoundError,
@@ -277,8 +279,38 @@ def capture_path(results_dir: Path, citta: str) -> Path:
     return results_dir / "city_agnostic" / "snapshots" / f"{city_slug(citta)}.json"
 
 
+class EsitoProvenienza(BaseModel):
+    """Con quale configurazione del CODICE è stato scritto un esito C1 (#374).
+
+    Dice due cose: QUANDO il processo ha scritto l'esito (``catturato_il``,
+    ISO-8601 UTC, orologio del processo: «quando il processo ha finito di
+    scrivere l'esito», DOPO la richiesta a Overpass e non prima, e non «quale
+    stato di OSM ho ottenuto») e le costanti canoniche del codice che l'ha scritto
+    (selettori, cap, tipi di elemento: stessa fonte delle fixture POI, #241).
+
+    Non dice cosa è stato davvero interrogato: ``capture_city`` accetta una
+    ``poi_source`` arbitraria. Per lo stesso motivo NON porta il ``taglio_osm``
+    (#251): ``PoiSource`` ritorna solo i POI, il taglio non è disponibile qui e un
+    campo che afferma più di quanto si sa è peggio di uno che tace. Lo scopo è
+    rendere visibile una ricattura parziale che mescola esiti prodotti con
+    configurazioni diverse (es. con e senza relation, #314).
+
+    ``configurazione_canonica`` è un dict generico (non il TypedDict di
+    ``snapshots``) perché viene riletto da JSON esterno: la verifica contro la
+    configurazione corrente è in ``describe_configurazione_divergente``.
+    """
+
+    catturato_il: str
+    configurazione_canonica: dict[str, object]
+
+
 class CaptureOutcome(BaseModel):
-    """Esito di una cattura per città: successo (con capture) o fallimento (errore)."""
+    """Esito di una cattura per città: successo (con capture) o fallimento (errore).
+
+    ``provenienza`` è presente su ok e failed (anche un fallimento dice con quale
+    configurazione è stato tentato); ``None`` per gli esiti scritti prima di #374,
+    che restano leggibili.
+    """
 
     status: Literal["ok", "failed"]
     citta: str
@@ -286,12 +318,29 @@ class CaptureOutcome(BaseModel):
     capture: CityCapture | None = None
     error_type: str | None = None
     error: str | None = None
+    provenienza: EsitoProvenienza | None = None
+
+
+def _provenienza_corrente(clock: Callable[[], datetime]) -> EsitoProvenienza:
+    return EsitoProvenienza(
+        catturato_il=clock().isoformat(),
+        configurazione_canonica=dict(configurazione_canonica_corrente()),
+    )
 
 
 def save_outcome(path: Path, outcome: CaptureOutcome) -> None:
-    """Serializza un esito su file (crea le cartelle)."""
+    """Serializza un esito su file (crea le cartelle).
+
+    ``newline=""``: nessuna traduzione. Su Windows il default scriveva CRLF contro
+    il blob LF in git, e con ``core.autocrlf=false`` ogni ricattura risultava
+    modificata su tutto il file (con ``.gitattributes`` ``* text=auto eol=lf`` il
+    diff è invece vuoto; stessa classe di
+    :func:`~crime_risk_analyzer.eval.snapshots.save_snapshot`).
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(outcome.model_dump_json(indent=2) + "\n", encoding="utf-8")
+    path.write_text(
+        outcome.model_dump_json(indent=2) + "\n", encoding="utf-8", newline=""
+    )
 
 
 def load_outcome(path: Path) -> CaptureOutcome:
@@ -337,8 +386,14 @@ async def capture_roster(
     *,
     poi_source: PoiSource | None = None,
     boundary_source: BoundarySource = fetch_city_boundary,
+    clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> None:
-    """Cattura ogni città del roster isolando i fallimenti per-città (M3)."""
+    """Cattura ogni città del roster isolando i fallimenti per-città (M3).
+
+    Ogni esito (ok e failed) porta la provenienza (#374). ``clock`` è un callable
+    iniettabile, non una stringa: l'istante non si fabbrica a mano (come in
+    ``save_snapshot``).
+    """
     for city in roster:
         try:
             capture = await capture_city(
@@ -348,7 +403,11 @@ async def capture_roster(
                 boundary_source=boundary_source,
             )
             outcome = CaptureOutcome(
-                status="ok", citta=city.citta, zona=city.zona, capture=capture
+                status="ok",
+                citta=city.citta,
+                zona=city.zona,
+                capture=capture,
+                provenienza=_provenienza_corrente(clock),
             )
         except (GeocodingError, OverpassError) as exc:
             outcome = CaptureOutcome(
@@ -357,5 +416,6 @@ async def capture_roster(
                 zona=city.zona,
                 error_type=type(exc).__name__,
                 error=str(exc),
+                provenienza=_provenienza_corrente(clock),
             )
         save_outcome(capture_path(results_dir, city.citta), outcome)
