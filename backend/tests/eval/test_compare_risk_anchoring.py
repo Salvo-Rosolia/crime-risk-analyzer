@@ -12,11 +12,14 @@ from pathlib import Path
 import pytest
 
 from crime_risk_analyzer.eval.compare import (
+    M1_VERSIONS_DIFFER_HEAD,
     RISK_ANCHORING_HEAD,
     RISK_ANCHORING_ISTAT_EXCLUDED,
     RISK_ANCHORING_ISTAT_INCLUDED,
+    Comparison,
     compare_records,
     risk_anchoring_pointer,
+    to_json,
     to_markdown,
 )
 from crime_risk_analyzer.eval.harness import make_run_id, write_record
@@ -161,6 +164,10 @@ def test_sezione_per_zona_e_braccio() -> None:
     assert colosseo.a.ancoraggio_rischi == pytest.approx(0.5)
     assert termini.a.frasi_ancorate_rischio == 1
     assert termini.a.frasi_ancorate_solo_poi == 1
+    assert (
+        colosseo.a.frasi_ancorate_poi_e_rischio,
+        termini.a.frasi_ancorate_poi_e_rischio,
+    ) == (0, 1)
     assert colosseo.b.quota_solo_poi == pytest.approx(0.5)
     assert colosseo.b.quota_rischio == 0.0
     # Non conforme: contato a parte, 0 frasi, ancoraggio 0.0, quote non definite.
@@ -172,6 +179,7 @@ def test_sezione_per_zona_e_braccio() -> None:
     assert sez.a.frasi_misurate == 4
     assert sez.a.frasi_ancorate_rischio == 2
     assert sez.a.frasi_ancorate_solo_poi == 1
+    assert sez.a.frasi_ancorate_poi_e_rischio == 1
     assert sez.a.quota_rischio == pytest.approx(0.5)
     assert sez.a.quota_solo_poi == pytest.approx(0.25)
     assert sez.a.ancoraggio_rischi == pytest.approx(0.5)
@@ -194,6 +202,11 @@ def test_markdown_porta_sezione_numeri_e_nota() -> None:
     assert "| MEDIA |  | con | 2 | 2.0 | 50.0% | 25.0% | 0.500 | 0.500 | 0 |" in md
     assert "| MEDIA |  | senza | 2 | 1.0 | 0.0% | 50.0% | 0.000 | 0.000 | 1 |" in md
     assert "nomi dei POI" in md
+    # Le frasi ancorate di M1 sono solo POI + POI e rischio: il testo li somma.
+    assert (
+        "`con`: 4 misurate, 2 da rischio, 1 solo POI, 1 POI e rischio; "
+        "`senza`: 2 misurate, 0 da rischio, 1 solo POI, 0 POI e rischio." in md
+    )
     # Come si aggrega, detto in una frase.
     assert "frasi del braccio messe insieme, narrative non conformi escluse" in md
     assert "narrative gradabili, comprese le non conformi" in md
@@ -226,7 +239,7 @@ def test_riga_di_rimando_solo_quando_il_solo_poi_prevale() -> None:
     riga = risk_anchoring_pointer(cmp)
     assert riga == (
         "> Per «senza» le frasi ancorate solo da un nome di punto superano "
-        "quelle che nominano un rischio: vedi la sezione «Ancoraggio ai "
+        "quelle che nominano un punto e un rischio: vedi la sezione «Ancoraggio ai "
         "rischi (esplorativo)»."
     )
     pari = compare_records(con, con, label_a="con", label_b="con2")
@@ -234,18 +247,40 @@ def test_riga_di_rimando_solo_quando_il_solo_poi_prevale() -> None:
 
 
 def test_parita_non_fa_scattare_il_rimando() -> None:
-    # 1 frase da rischio e 1 solo POI: "supera" e' stretto.
+    # 1 frase solo POI e 1 con punto e rischio: "supera" e' stretto.
     a = [
         _rec(
             "a",
             "Colosseo",
-            _onto("Rapina in banca. La Banca X e' aperta."),
+            _onto("Alla Banca X rapina in banca. La Banca X e' aperta."),
             mode="analyze",
         )
     ]
     cmp = compare_records(a, a, label_a="a", label_b="b")
     assert cmp.ancoraggio_rischi is not None
+    assert cmp.ancoraggio_rischi.a.frasi_ancorate_solo_poi == 1
+    assert cmp.ancoraggio_rischi.a.frasi_ancorate_poi_e_rischio == 1
     assert cmp.ancoraggio_rischi.solo_poi_prevale == []
+
+
+def test_frase_da_rischio_senza_punto_non_conta_contro_il_solo_poi() -> None:
+    # #408: «da rischio» include frasi senza POI, che M1 non conta come ancorate.
+    # Con 1 sola frase solo POI e nessuna con punto e rischio, il solo POI prevale
+    # fra le frasi ancorate anche se ci sono molte frasi da rischio senza punto.
+    a = [
+        _rec(
+            "a",
+            "Colosseo",
+            _onto("Rapina in banca. Possibile rapina in banca. La Banca X e' aperta."),
+            mode="analyze",
+        )
+    ]
+    cmp = compare_records(a, a, label_a="a", label_b="b")
+    sez = cmp.ancoraggio_rischi
+    assert sez is not None
+    assert sez.a.frasi_ancorate_rischio == 2
+    assert sez.a.frasi_ancorate_poi_e_rischio == 0
+    assert sez.solo_poi_prevale == ["a", "b"]
 
 
 def test_record_non_ok_esclusi() -> None:
@@ -634,3 +669,179 @@ def test_run_istat_v4_incoerente_esclusa_senza_far_fallire_il_report(
     data = json.loads(json_path.read_text(encoding="utf-8"))
     assert data["comparison"]["ancoraggio_rischi"]["a"]["run_istat_escluse"] == 1
     assert RISK_ANCHORING_ISTAT_EXCLUDED in md_path.read_text(encoding="utf-8")
+
+
+def _versione_m1(rec: RunRecord, versione: int | None) -> RunRecord:
+    metrics = rec.metrics.model_copy(update={"versione": versione})
+    return rec.model_copy(update={"metrics": metrics})
+
+
+def test_metriche_senza_versione_valgono_non_registrata() -> None:
+    # Record scritti prima di #408: la versione di M1 non e' nota (era 1, 2 o 3).
+    assert (
+        Metrics(grounding=1.0, hallucination=0.0, latency_ms=0, cost_usd=0.0).versione
+        is None
+    )
+
+
+def test_bracci_con_versioni_m1_diverse_hanno_un_avviso() -> None:
+    con, senza = _arms()
+    con = [_versione_m1(r, 2) for r in con]
+    senza = [_versione_m1(r, 3) for r in senza]
+    cmp = compare_records(con, senza, label_a="con", label_b="senza")
+    assert cmp.avviso_versioni_m1.startswith(M1_VERSIONS_DIFFER_HEAD)
+    assert "`con`: versione 2; `senza`: versione 3" in cmp.avviso_versioni_m1
+    md = to_markdown(cmp)
+    assert md.index(M1_VERSIONS_DIFFER_HEAD) < md.index("| citta |")
+    assert json.loads(to_json(cmp))["avviso_versioni_m1"] == cmp.avviso_versioni_m1
+
+
+def test_stessa_versione_m1_nessun_avviso() -> None:
+    con, senza = _arms()
+    con = [_versione_m1(r, 3) for r in con]
+    senza = [_versione_m1(r, 3) for r in senza]
+    cmp = compare_records(con, senza, label_a="con", label_b="senza")
+    assert cmp.avviso_versioni_m1 == ""
+    assert M1_VERSIONS_DIFFER_HEAD not in to_markdown(cmp)
+    # Anche se nessuna e' registrata (record tutti pre-#408): niente da segnalare.
+    assert compare_records(*_arms(), label_a="a", label_b="b").avviso_versioni_m1 == ""
+
+
+def test_versione_m1_non_registrata_contro_registrata_e_segnalata() -> None:
+    con, senza = _arms()
+    senza = [_versione_m1(r, 3) for r in senza]
+    cmp = compare_records(con, senza, label_a="con", label_b="senza")
+    assert "`con`: versione n/d; `senza`: versione 3" in cmp.avviso_versioni_m1
+
+
+def test_versioni_m1_miste_dentro_un_braccio_si_segnalano_senza_rifiutare() -> None:
+    # A differenza di ISTAT (#369) il confronto non rifiuta: avvisa.
+    con, senza = _arms()
+    extra = _versione_m1(
+        _rec("con", "Colosseo", _onto("Rapina in banca."), mode="analyze", rep=1), 2
+    )
+    con = [_versione_m1(r, 3) for r in con]
+    cmp = compare_records(
+        con,
+        senza,
+        label_a="con",
+        label_b="senza",
+        anchoring_records=([*con, extra], senza),
+    )
+    assert "`con`: versione 2, 3" in cmp.avviso_versioni_m1
+
+
+def test_versione_dei_record_esclusi_non_conta() -> None:
+    con, senza = _arms()
+    fallback = _versione_m1(
+        _rec(
+            "senza",
+            "Colosseo",
+            _synth("La Banca X."),
+            mode="no_ontology_prompt",
+            rep=1,
+            status=RunStatus.FALLBACK,
+        ),
+        1,
+    )
+    cmp = compare_records(
+        con,
+        senza,
+        label_a="con",
+        label_b="senza",
+        anchoring_records=(con, [*senza, fallback]),
+    )
+    assert cmp.avviso_versioni_m1 == ""
+
+
+def test_zona_scartata_in_un_braccio_non_conta_per_le_versioni_m1() -> None:
+    # Colosseo: v2 in A ma FALLBACK in B -> zona in `failed`, non confrontata.
+    con, senza = _arms()
+    con = [
+        _versione_m1(r, 3) if r.zona != "Colosseo" else _versione_m1(r, 2) for r in con
+    ]
+    senza = [
+        _versione_m1(r, 3)
+        if r.zona != "Colosseo"
+        else _versione_m1(r.model_copy(update={"status": RunStatus.FALLBACK}), 3)
+        for r in senza
+    ]
+    cmp = compare_records(con, senza, label_a="con", label_b="senza")
+    assert [f.zona for f in cmp.failed] == ["Colosseo"]
+    assert cmp.avviso_versioni_m1 == ""
+
+
+def test_zona_scartata_con_ripetizioni_non_conta_per_le_versioni_m1() -> None:
+    con, senza = _arms()
+    con = [
+        _versione_m1(r, 3) if r.zona != "Colosseo" else _versione_m1(r, 2) for r in con
+    ]
+    senza = [
+        _versione_m1(r, 3)
+        if r.zona != "Colosseo"
+        else _versione_m1(r.model_copy(update={"status": RunStatus.FALLBACK}), 3)
+        for r in senza
+    ]
+    # Ripetizione extra OK della zona scartata, a v2: resta fuori dall'insieme.
+    extra = _versione_m1(
+        _rec("con", "Colosseo", _onto("Rapina in banca."), mode="analyze", rep=1), 2
+    )
+    cmp = compare_records(
+        con,
+        senza,
+        label_a="con",
+        label_b="senza",
+        anchoring_records=([*con, extra], senza),
+    )
+    assert cmp.avviso_versioni_m1 == ""
+
+
+def _vacuo(rec: RunRecord) -> RunRecord:
+    metrics = rec.metrics.model_copy(update={"quality_vacuous": True})
+    return rec.model_copy(update={"metrics": metrics})
+
+
+def test_baseline_vacuo_a_versione_vecchia_non_fa_scattare_l_avviso() -> None:
+    con, senza = _arms()
+    con = [_vacuo(_versione_m1(r, 2)) for r in con]
+    senza = [_versione_m1(r, 3) for r in senza]
+    cmp = compare_records(con, senza, label_a="con", label_b="senza")
+    assert cmp.avviso_versioni_m1 == ""
+
+
+def test_record_vacuo_escluso_non_nasconde_un_vero_disaccordo() -> None:
+    con, senza = _arms()
+    con = [_versione_m1(r, 2) for r in con]
+    con[0] = _vacuo(_versione_m1(con[0], 1))
+    senza = [_versione_m1(r, 3) for r in senza]
+    cmp = compare_records(con, senza, label_a="con", label_b="senza")
+    assert "`con`: versione 2; `senza`: versione 3" in cmp.avviso_versioni_m1
+
+
+def test_avviso_n_d_dice_che_non_si_sa_se_le_versioni_differiscano() -> None:
+    con, senza = _arms()
+    senza = [_versione_m1(r, 3) for r in senza]
+    avviso = compare_records(
+        con, senza, label_a="con", label_b="senza"
+    ).avviso_versioni_m1
+    assert "non si sa se le versioni differiscano davvero" in avviso
+    assert "falso allarme" in avviso
+    assert "rigirare" not in avviso
+
+
+def test_avviso_con_versioni_note_e_diverse_suggerisce_di_rigirare() -> None:
+    con, senza = _arms()
+    con = [_versione_m1(r, 2) for r in con]
+    senza = [_versione_m1(r, 3) for r in senza]
+    avviso = compare_records(
+        con, senza, label_a="con", label_b="senza"
+    ).avviso_versioni_m1
+    assert "rigirare i bracci con lo stesso codice" in avviso
+    assert "falso allarme" not in avviso
+
+
+def test_json_vecchio_senza_avviso_m1_si_legge() -> None:
+    con, senza = _arms()
+    dati = json.loads(to_json(compare_records(con, senza, label_a="a", label_b="b")))
+    del dati["avviso_versioni_m1"]
+    assert Comparison.model_validate(dati).avviso_versioni_m1 == ""
