@@ -155,6 +155,7 @@ class RiskAnchoringArm(BaseModel):
     frasi_misurate: int
     frasi_ancorate_rischio: int
     frasi_ancorate_solo_poi: int
+    frasi_ancorate_poi_e_rischio: int
     frasi_misurate_media: float | None
     quota_rischio: float | None
     quota_solo_poi: float | None
@@ -181,8 +182,8 @@ class RiskAnchoringSection(BaseModel):
     a: RiskAnchoringArm
     b: RiskAnchoringArm
     #: Label dei bracci in cui le frasi ancorate solo da nomi di POI sono piu'
-    #: di quelle ancorate da un rischio (:func:`solo_poi_prevale`): fa comparire
-    #: il rimando alla sezione vicino al verdetto.
+    #: di quelle che nominano un POI e un rischio insieme (:func:`solo_poi_prevale`):
+    #: fa comparire il rimando alla sezione vicino al verdetto.
     solo_poi_prevale: list[str]
 
 
@@ -248,6 +249,11 @@ class Comparison(BaseModel):
     #: ``isolated_variable``, cosi' JSON e Markdown dicono la stessa cosa; vuoto
     #: altrimenti.
     avviso_versioni_istat: str = ""
+    #: Avviso quando i record dei due bracci, o dentro un braccio, hanno versioni
+    #: diverse di M1 (#408): grounding/hallucination sono gradati con semantiche
+    #: diverse. Non rifiuta, avvisa; vuoto altrimenti. Campo del modello come
+    #: ``avviso_versioni_istat``.
+    avviso_versioni_m1: str = ""
     #: Ancoraggio ai rischi separato da quello ai nomi dei POI (#359), calcolato
     #: dai record al momento del report. ``None`` se nessun braccio ha una
     #: narrativa gradabile (es. baseline contro baseline). Non entra nel verdetto.
@@ -318,7 +324,8 @@ RISK_ANCHORING_NOTE = (
     "etichetta italiana o inglese), anche senza un punto; «solo POI» se non "
     "nomina rischi ma nomina un punto. Le frasi ancorate dal `grounding` sono "
     "quelle «solo POI» più quelle che nominano punto e rischio insieme (queste "
-    "ultime contano in «da rischio» ma non hanno una colonna propria). Una narrativa è "
+    "ultime contano in «da rischio» e nel testo sotto la tabella sono «POI e "
+    "rischio»). Una narrativa è "
     "non conforme al formato quando manca il blocco misurato. La colonna "
     "«narrative» conta le narrative gradabili, comprese le non conformi. "
     "% = frasi del braccio messe insieme, narrative non conformi escluse; "
@@ -525,6 +532,10 @@ ISTAT_ESCLUSE_SENZA_VOCE_TEXT = (
 #: Titolo dell'avviso quando i due bracci hanno metriche ISTAT di versioni
 #: diverse (#369, D2): M1 e' gradato con regole diverse nei due bracci.
 ISTAT_VERSIONS_DIFFER_HEAD = "> ⚠️ **Metriche ISTAT di versioni diverse.**"
+
+#: Titolo dell'avviso quando i record hanno versioni diverse di M1 (#408),
+#: fra i due bracci o dentro uno: grounding/hallucination non sono confrontabili.
+M1_VERSIONS_DIFFER_HEAD = "> ⚠️ **Metriche M1 di versioni diverse.**"
 
 #: Effetto collaterale dichiarato: il blocco ISTAT occupa budget (#345, D14).
 ISTAT_BUDGET_SIDE_EFFECT = (
@@ -1229,6 +1240,13 @@ def compare_records(
         ),
         istat_metrics=istat_zone,
         avviso_versioni_istat=_avviso_versioni_istat(istat_zone, label_a, label_b),
+        avviso_versioni_m1=_avviso_versioni_m1(
+            source_a,
+            source_b,
+            {(z.citta, z.zona) for z in zones},
+            label_a,
+            label_b,
+        ),
         ancoraggio_rischi=_risk_anchoring_section(
             source_a,
             source_b,
@@ -1324,12 +1342,14 @@ def _zone_anchoring(records: list[RunRecord]) -> RiskAnchoringArm:
     misurate = sum(r.frasi_misurate for r in graded)
     rischio = sum(r.frasi_ancorate_rischio for r in graded)
     solo_poi = sum(r.frasi_ancorate_solo_poi for r in graded)
+    poi_e_rischio = sum(r.frasi_ancorate_poi_e_rischio for r in graded)
     return RiskAnchoringArm(
         narrative_gradabili=len(graded),
         non_conformi=sum(1 for r in graded if not r.conforme),
         frasi_misurate=misurate,
         frasi_ancorate_rischio=rischio,
         frasi_ancorate_solo_poi=solo_poi,
+        frasi_ancorate_poi_e_rischio=poi_e_rischio,
         frasi_misurate_media=_mean_or_none([float(r.frasi_misurate) for r in graded]),
         quota_rischio=_share(rischio, misurate),
         quota_solo_poi=_share(solo_poi, misurate),
@@ -1346,6 +1366,7 @@ def _arm_anchoring(zones: list[RiskAnchoringArm]) -> RiskAnchoringArm:
     misurate = sum(z.frasi_misurate for z in zones)
     rischio = sum(z.frasi_ancorate_rischio for z in zones)
     solo_poi = sum(z.frasi_ancorate_solo_poi for z in zones)
+    poi_e_rischio = sum(z.frasi_ancorate_poi_e_rischio for z in zones)
     medie_frasi = [
         z.frasi_misurate_media for z in zones if z.frasi_misurate_media is not None
     ]
@@ -1363,6 +1384,7 @@ def _arm_anchoring(zones: list[RiskAnchoringArm]) -> RiskAnchoringArm:
         frasi_misurate=misurate,
         frasi_ancorate_rischio=rischio,
         frasi_ancorate_solo_poi=solo_poi,
+        frasi_ancorate_poi_e_rischio=poi_e_rischio,
         frasi_misurate_media=_mean_or_none(medie_frasi),
         quota_rischio=_share(rischio, misurate),
         quota_solo_poi=_share(solo_poi, misurate),
@@ -1375,12 +1397,14 @@ def _arm_anchoring(zones: list[RiskAnchoringArm]) -> RiskAnchoringArm:
 
 
 def solo_poi_prevale(arm: RiskAnchoringArm) -> bool:
-    """True se nel braccio le frasi ancorate solo da POI superano quelle da rischio.
+    """True se nel braccio le frasi solo POI superano quelle con POI e rischio.
 
-    Confronto stretto fra i due totali di frasi del braccio (#359): a parita'
-    il rimando non compare.
+    Le frasi ancorate di M1 sono solo ``solo_poi`` e ``poi_e_rischio`` (#408): il
+    confronto e' fra queste due. ``frasi_ancorate_rischio`` non va bene, perche'
+    include le frasi da rischio senza punto, che M1 non conta come ancorate.
+    Confronto stretto (#359): a parita' il rimando non compare.
     """
-    return arm.frasi_ancorate_solo_poi > arm.frasi_ancorate_rischio
+    return arm.frasi_ancorate_solo_poi > arm.frasi_ancorate_poi_e_rischio
 
 
 def _risk_anchoring_section(
@@ -1664,6 +1688,70 @@ def _avviso_versioni_istat(
     )
 
 
+def _versioni_m1(
+    records: list[RunRecord], zone: set[tuple[str, str]]
+) -> set[int | None]:
+    """Versioni di M1 dei record che entrano davvero nel confronto (#408).
+
+    Contano solo le zone effettivamente confrontate (non quelle in ``failed``) e,
+    fra i loro record, non quelli esclusi per status ne' quelli con qualita'
+    vacua: su questi ``grounding``/``hallucination`` non dipendono dalla versione.
+    """
+    return {
+        r.metrics.versione
+        for r in records
+        if (r.citta, r.zona) in zone
+        and r.status not in _EXCLUDED_STATUSES
+        and r.metrics.quality_vacuous is not True
+    }
+
+
+def _versioni_m1_testo(versioni: set[int | None]) -> str:
+    """Versioni ordinate, ``n/d`` per i record che non la registrano (#408)."""
+    note = sorted(v for v in versioni if v is not None)
+    return ", ".join([*map(str, note), *(["n/d"] if None in versioni else [])])
+
+
+def _avviso_versioni_m1(
+    arm_a: list[RunRecord],
+    arm_b: list[RunRecord],
+    zone: set[tuple[str, str]],
+    label_a: str,
+    label_b: str,
+) -> str:
+    """Avviso se M1 ha versioni diverse, fra i bracci o dentro uno (#408).
+
+    Come :func:`_avviso_versioni_istat` segnala senza rifiutare: grounding e
+    hallucination sono gradati con semantiche diverse, e il report lo dice prima
+    delle tabelle. ``""`` se tutti i record condividono la stessa versione
+    (anche ``n/d``, cioe' tutti precedenti al campo).
+    """
+    versioni_a = _versioni_m1(arm_a, zone)
+    versioni_b = _versioni_m1(arm_b, zone)
+    tutte = versioni_a | versioni_b
+    if len(tutte) <= 1:
+        return ""
+    if None in tutte:
+        coda = (
+            "Con n/d (record scritto prima che la versione fosse registrata) non "
+            "si sa se le versioni differiscano davvero: puo' essere un falso "
+            "allarme. Se differiscono, il delta su `grounding`/`hallucination` "
+            "mescola l'effetto dei bracci con quello della metrica."
+        )
+    else:
+        coda = (
+            "`grounding`/`hallucination` sono gradati con semantiche diverse: il "
+            "delta su quegli assi mescola l'effetto dei bracci con quello della "
+            "metrica. Per un confronto pulito, rigirare i bracci con lo stesso "
+            "codice."
+        )
+    return (
+        f"{M1_VERSIONS_DIFFER_HEAD} `{label_a}`: versione "
+        f"{_versioni_m1_testo(versioni_a)}; `{label_b}`: versione "
+        f"{_versioni_m1_testo(versioni_b)}. {coda}"
+    )
+
+
 def _frasi_escluse_del_braccio(metriche: list[IstatMetrics]) -> str:
     """Totale delle frasi escluse da M1 nelle zone di un braccio (#369) e, fra
     queste, di quelle senza voce ISTAT del prompt (#378)."""
@@ -1775,9 +1863,11 @@ def risk_anchoring_markdown(comparison: Comparison) -> str:
     lines.append(
         f"> Frasi del braccio — `{la}`: {sez.a.frasi_misurate} misurate, "
         f"{sez.a.frasi_ancorate_rischio} da rischio, "
-        f"{sez.a.frasi_ancorate_solo_poi} solo POI; `{lb}`: "
+        f"{sez.a.frasi_ancorate_solo_poi} solo POI, "
+        f"{sez.a.frasi_ancorate_poi_e_rischio} POI e rischio; `{lb}`: "
         f"{sez.b.frasi_misurate} misurate, {sez.b.frasi_ancorate_rischio} da "
-        f"rischio, {sez.b.frasi_ancorate_solo_poi} solo POI."
+        f"rischio, {sez.b.frasi_ancorate_solo_poi} solo POI, "
+        f"{sez.b.frasi_ancorate_poi_e_rischio} POI e rischio."
     )
     incluse = [
         f"`{label}`: {arm.run_istat_incluse} run, {arm.frasi_istat_escluse} "
@@ -1815,7 +1905,7 @@ def risk_anchoring_pointer(comparison: Comparison) -> str:
     """Righe che rimandano alla sezione (#359), una per braccio; vuota se nessuna.
 
     Una riga per ogni braccio in cui le frasi ancorate solo da nomi di POI sono
-    piu' di quelle ancorate da un rischio (:func:`solo_poi_prevale`).
+    piu' di quelle che nominano un punto e un rischio (:func:`solo_poi_prevale`).
     """
     sez = comparison.ancoraggio_rischi
     if sez is None:
@@ -1823,7 +1913,7 @@ def risk_anchoring_pointer(comparison: Comparison) -> str:
     titolo = RISK_ANCHORING_HEAD.removeprefix("### ")
     return "\n\n".join(
         f"> Per «{label}» le frasi ancorate solo da un nome di punto superano "
-        f"quelle che nominano un rischio: vedi la sezione «{titolo}»."
+        f"quelle che nominano un punto e un rischio: vedi la sezione «{titolo}»."
         for label in sez.solo_poi_prevale
     )
 
@@ -1852,6 +1942,10 @@ def to_markdown(comparison: Comparison, *, anchoring_pointer: bool = True) -> st
     # Versioni ISTAT diverse fra i bracci (#369): cambia il testo che M1 grada.
     if comparison.avviso_versioni_istat:
         lines.append(comparison.avviso_versioni_istat)
+        lines.append("")
+    # Versioni M1 diverse (#408): grounding/hallucination non confrontabili.
+    if comparison.avviso_versioni_m1:
+        lines.append(comparison.avviso_versioni_m1)
         lines.append("")
     # Vacuità (#231): l'avviso apre il report, PRIMA della tabella. Al contrario
     # chi legge incontrerebbe un delta di qualità e solo dopo la nota che lo

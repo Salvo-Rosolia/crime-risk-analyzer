@@ -151,6 +151,19 @@ class Metrics(BaseModel):
             "che la run era gradabile."
         ),
     )
+    # #408: versione della semantica M1 (``metrics.METRICS_VERSION``) con cui
+    # grounding/hallucination sono stati gradati. I record scritti prima non la
+    # portano e non si puo' ricavare: erano 1, 2 o 3 a seconda del codice di quel
+    # giorno. Un default numerico affermerebbe il falso, quindi ``None``; il
+    # confronto la mostra come ``n/d`` e avvisa se differisce dall'altro braccio.
+    versione: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Versione della semantica M1 di grounding/hallucination (#408); None "
+            "sui record precedenti, dove non e' nota."
+        ),
+    )
     latency_ms: int = Field(ge=0, description="Latenza end-to-end della pipeline.")
     cost_usd: float = Field(ge=0.0, description="Costo stimato in USD.")
 

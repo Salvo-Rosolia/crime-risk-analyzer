@@ -526,6 +526,7 @@ def compute_metrics(
         grounding=grounding_value,
         hallucination=hallucination_value,
         quality_vacuous=graded is None,
+        versione=METRICS_VERSION,
         latency_ms=latency_ms(resp),
         cost_usd=cost_usd_of(resp),
     )

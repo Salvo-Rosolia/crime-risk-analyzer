@@ -118,6 +118,13 @@ def test_metrics_version_is_m1_generation() -> None:
     assert METRICS_VERSION == 3
 
 
+def test_compute_metrics_salva_la_versione_di_m1() -> None:
+    # #408: la versione esce nel record, cosi' un confronto vede se due run sono
+    # state gradate con la stessa semantica.
+    r = _resp(_narrativa("Banca A presenta rischio rapina."))
+    assert compute_metrics(r).versione == METRICS_VERSION
+
+
 def test_grounding_full_when_ontology_sentence_backed() -> None:
     r = _resp(_narrativa("Banca A presenta rischio rapina."))
     assert grounding(r) == 1.0
