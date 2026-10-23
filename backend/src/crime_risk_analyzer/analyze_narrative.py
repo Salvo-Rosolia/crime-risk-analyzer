@@ -22,6 +22,7 @@ from crime_risk_analyzer import zone_context_cache
 from crime_risk_analyzer.context_fingerprint import (
     ContestoHash,
     fingerprint,
+    fonti_attive_id,
     istat_versione_per,
 )
 from crime_risk_analyzer.geocoding import ZoneNotFoundError
@@ -105,7 +106,9 @@ async def run_analysis_fast(
         citta, zona, ZoneContext(retrieval=retrieval_ctx, grounded=grounded)
     )
     contesto_hash = fingerprint(
-        retrieval_ctx["pois"], istat_versione=istat_versione_per(istat_context_enabled)
+        retrieval_ctx["pois"],
+        istat_versione=istat_versione_per(istat_context_enabled),
+        fonti=fonti_attive_id(),
     )
     poi_out = _build_poi_list(
         retrieval_ctx, grounded, istat_context_enabled=istat_context_enabled
@@ -264,6 +267,7 @@ async def run_zone_narrative(
     impronta = fingerprint(
         cached["retrieval"]["pois"],
         istat_versione=istat_versione_per(istat_context_enabled),
+        fonti=fonti_attive_id(),
     )
     if impronta != contesto_hash:
         raise ContextMismatchError(

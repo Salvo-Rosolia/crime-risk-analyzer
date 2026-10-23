@@ -6,6 +6,7 @@ from typing import cast
 
 import httpx
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from crime_risk_analyzer import area_search, zone_context_cache
@@ -152,6 +153,36 @@ def test_analyze_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     assert body["fallback"] is False
     assert body["narrativa"] is None
     assert [p["confidence"] for p in body["poi"]] == ["verificato", None]
+
+
+def test_contesto_hash_di_analyze_cambia_con_la_sessione(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#416: lo stesso input da sessioni con fonti diverse non condivide l'impronta
+    (e quindi non puo' riusare la narrativa di un altro set)."""
+    import dataclasses
+
+    from crime_risk_analyzer.sources import routes as sources_routes
+    from crime_risk_analyzer.sources.context import default_set
+    from crime_risk_analyzer.sources.session import SessionStore
+
+    _patch_io(monkeypatch)
+    zone_context_cache.clear()
+    store = SessionStore(ttl_seconds=100, max_sessions=2)
+    sid = "sessione-di-prova-AAAA"
+    store.activate(
+        sid, dataclasses.replace(default_set(), id="custom-x", kind="custom"), []
+    )
+    client = _client()
+    cast(FastAPI, client.app).dependency_overrides[sources_routes.get_sessions] = (
+        lambda: store
+    )
+    body = {"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0}
+    default = client.post("/analyze", json=body).json()["contesto_hash"]
+    con_set = client.post("/analyze", json=body, headers={"X-Session-Id": sid}).json()[
+        "contesto_hash"
+    ]
+    assert default != con_set
 
 
 @pytest.mark.parametrize("acceso", [True, False], ids=["istat-acceso", "istat-spento"])

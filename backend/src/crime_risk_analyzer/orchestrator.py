@@ -23,7 +23,11 @@ from typing import Protocol
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from crime_risk_analyzer.config import get_settings
-from crime_risk_analyzer.context_fingerprint import fingerprint, istat_versione_per
+from crime_risk_analyzer.context_fingerprint import (
+    fingerprint,
+    fonti_attive_id,
+    istat_versione_per,
+)
 from crime_risk_analyzer.geocoding import GeoResult
 from crime_risk_analyzer.i18n.terminus_labels import label_en, label_it
 from crime_risk_analyzer.istat.campi_risposta import CampiIstatRisposta
@@ -773,7 +777,9 @@ async def run_analysis(
     # confronta con quella del contesto che userebbe e rifiuta (409) se
     # divergono, invece di generare prosa su un intorno che a schermo non c'e'.
     contesto_hash = fingerprint(
-        retrieval_ctx["pois"], istat_versione=istat_versione_per(istat_context_enabled)
+        retrieval_ctx["pois"],
+        istat_versione=istat_versione_per(istat_context_enabled),
+        fonti=fonti_attive_id(),
     )
     poi_out = _build_poi_list(
         retrieval_ctx, grounded, istat_context_enabled=istat_context_enabled
@@ -882,7 +888,9 @@ async def run_no_ontology_prompt(
     )
     grounded = ground(retrieval_ctx)
     contesto_hash = fingerprint(
-        retrieval_ctx["pois"], istat_versione=istat_versione_per(istat_context_enabled)
+        retrieval_ctx["pois"],
+        istat_versione=istat_versione_per(istat_context_enabled),
+        fonti=fonti_attive_id(),
     )
     poi_out = _build_poi_list(retrieval_ctx, grounded)
     nel_prompt = poi_del_prompt_zona(

@@ -16,6 +16,10 @@ __all__ = [
     "MAX_BYTES_CSV",
     "MAX_BYTES_GEOJSON",
     "MAX_BYTES_ONTOLOGIA",
+    "MAX_BYTES_RICHIESTA",
+    "MAX_FILE_MULTIPART",
+    "MAX_CAMPI_MULTIPART",
+    "MAX_PARTE_CAMPO",
     "MAX_LUNGHEZZA_NOTA",
     "MAX_LUNGHEZZA_TESTO",
     "controlla_nota",
@@ -25,6 +29,17 @@ __all__ = [
 MAX_BYTES_ONTOLOGIA = 20 * 1024 * 1024
 MAX_BYTES_GEOJSON = 10 * 1024 * 1024
 MAX_BYTES_CSV = 5 * 1024 * 1024
+#: Tetto del corpo di ``POST /sources`` (``Content-Length``), controllato prima di
+#: leggerlo: somma dei tetti dei file piu' 1 MB per intestazioni dei campi e form.
+MAX_BYTES_RICHIESTA = (
+    MAX_BYTES_ONTOLOGIA + MAX_BYTES_GEOJSON + 3 * MAX_BYTES_CSV + 1024 * 1024
+)
+#: Limiti del multipart (Starlette ``request.form``): 5 file (ontologia, 3 CSV,
+#: confini), pochi campi di testo (vocabolario + le proprieta' di vulnerabilita').
+MAX_FILE_MULTIPART = 5
+MAX_CAMPI_MULTIPART = 20
+#: Dimensione massima di un campo di testo (non dei file).
+MAX_PARTE_CAMPO = 64 * 1024
 
 MAX_LUNGHEZZA_TESTO = 120
 #: Le note della tabella hazard-voce non entrano nel prompt: solo lunghezza e

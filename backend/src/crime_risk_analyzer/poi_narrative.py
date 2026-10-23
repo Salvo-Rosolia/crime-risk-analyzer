@@ -27,6 +27,7 @@ from crime_risk_analyzer import zone_context_cache
 from crime_risk_analyzer.context_fingerprint import (
     ContestoHash,
     fingerprint,
+    fonti_attive_id,
     istat_versione_per,
 )
 from crime_risk_analyzer.geocoding import ZoneNotFoundError
@@ -208,7 +209,11 @@ async def run_poi_narrative(
     # combacia il POI presente e' irrilevante, e un rifiuto non deve costare
     # token. L'impronta e' solo confrontata: non entra nel prompt.
     if (
-        fingerprint(pois, istat_versione=istat_versione_per(istat_context_enabled))
+        fingerprint(
+            pois,
+            istat_versione=istat_versione_per(istat_context_enabled),
+            fonti=fonti_attive_id(),
+        )
         != contesto_hash
     ):
         raise ContextMismatchError(
