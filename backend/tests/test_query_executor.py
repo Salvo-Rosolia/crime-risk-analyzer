@@ -14,6 +14,7 @@ pattern a restrizione + ``rdfs:subClassOf*`` (ereditarieta' transitiva), con
 """
 
 import logging
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -21,7 +22,12 @@ from rdflib import Graph
 
 from crime_risk_analyzer.ontology import load_ontology
 from crime_risk_analyzer.ontology_namespaces import TERMINUS
+from crime_risk_analyzer.sources.vocabulary import (
+    TERMINUS_VOCABULARY,
+    OntologyVocabulary,
+)
 from crime_risk_analyzer.sparql_module.query_executor import (
+    InvalidIriError,
     PoiRiskProfile,
     RiskQueryExecutor,
 )
@@ -343,3 +349,189 @@ def test_all_uriref_restrictions_emit_no_warning(
         RiskQueryExecutor(load_ontology(str(FIXTURE)))
 
     assert [r for r in caplog.records if r.levelno == logging.WARNING] == []
+
+
+# --- Namespace e proprieta' configurabili (#412) ---------------------------
+
+ALT_NS = "http://example.org/other#"
+
+
+def _alt_graph(ns: str = ALT_NS) -> Graph:
+    """Ontologia fittizia con namespace e nomi di property diversi da TERMINUS."""
+    turtle = f"""
+    @prefix o:    <{ns}> .
+    @prefix owl:  <http://www.w3.org/2002/07/owl#> .
+    @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+    o:Parent a owl:Class ;
+        rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty o:hasHazard ; owl:someValuesFrom o:Fire ] .
+    o:Shop a owl:Class ;
+        rdfs:subClassOf o:Parent ,
+        [ a owl:Restriction ;
+            owl:onProperty o:hasEvent ; owl:someValuesFrom o:Looting ] ,
+        [ a owl:Restriction ;
+            owl:onProperty o:hasActor ; owl:someValuesFrom o:Gang ] ,
+        [ a owl:Restriction ;
+            owl:onProperty o:weakTo ; owl:someValuesFrom o:NoAlarm ] ,
+        [ a owl:Restriction ;
+            owl:onProperty o:weakAspect ; owl:someValuesFrom o:Glass ] ,
+        [ a owl:Restriction ;
+            owl:onProperty o:ignored ; owl:someValuesFrom o:Noise ] .
+    """
+    graph = Graph()
+    graph.parse(data=turtle, format="turtle")
+    return graph
+
+
+def _alt_vocabulary(namespace: str = ALT_NS) -> OntologyVocabulary:
+    return OntologyVocabulary(
+        namespace=namespace,
+        hazard="hasHazard",
+        critical_event="hasEvent",
+        performer="hasActor",
+        vulnerability=("weakTo", "weakAspect"),
+    )
+
+
+def test_custom_namespace_and_properties() -> None:
+    executor = RiskQueryExecutor(_alt_graph(), vocabulary=_alt_vocabulary())
+
+    profile = executor.profile("Shop")
+
+    assert profile.hazards == ["Fire"]  # ereditato da Parent
+    assert profile.critical_events == ["Looting"]
+    assert profile.stakeholders == ["Gang"]
+    assert profile.vulnerabilities == ["Glass", "NoAlarm"]
+    assert "Shop → hasEvent → Looting" in profile.sparql_paths
+    assert not any("ignored" in p for p in profile.sparql_paths)
+
+
+def test_custom_namespace_with_slash_separator() -> None:
+    ns = "http://example.org/other/"
+    executor = RiskQueryExecutor(_alt_graph(ns), vocabulary=_alt_vocabulary(ns))
+
+    assert executor.profile("Shop").hazards == ["Fire"]
+
+
+def test_default_properties_unchanged_on_alt_namespace_graph() -> None:
+    """Col default TERMINUS, un grafo con altro namespace non produce filler."""
+    executor = RiskQueryExecutor(_alt_graph())
+
+    assert executor.profile("Shop").hazards == []
+
+
+def test_default_vocabulary_is_terminus() -> None:
+    assert RiskQueryExecutor(Graph())._vocabulary == TERMINUS_VOCABULARY  # pyright: ignore[reportPrivateUsage]
+
+
+@pytest.mark.parametrize(
+    "namespace",
+    [
+        "",
+        "not an iri#",
+        "relative/path#",
+        "http://example.org/a b#",
+        "http://example.org/<x>#",
+        'http://example.org/"x"#',
+        "http://example.org/{x}#",
+        "http://example.org/x",  # non termina con # o /
+        "http://example.org/x\n#",
+    ],
+)
+def test_invalid_namespace_rejected_before_query(namespace: str) -> None:
+    with pytest.raises(InvalidIriError):
+        RiskQueryExecutor(Graph(), vocabulary=_alt_vocabulary(namespace))
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "",
+        "has hazard",
+        "has>Hazard",
+        'a"b',
+        "a{b}",
+        "a|b",
+        "a^b",
+        "a`b",
+        "a\\b",
+        "a#b",
+        "a/b",
+        "a?b",
+        "a\tb",
+        "a\nb",
+        "x> } DELETE WHERE { ?s ?p ?o",
+    ],
+)
+@pytest.mark.parametrize("slot", ["hazard", "critical_event", "performer", "vuln"])
+def test_invalid_property_name_rejected_before_query(name: str, slot: str) -> None:
+    base = _alt_vocabulary()
+    if slot == "vuln":
+        vocabulary = replace(base, vulnerability=("weakTo", name))
+    else:
+        vocabulary = replace(base, **{slot: name})
+    with pytest.raises(InvalidIriError):
+        RiskQueryExecutor(Graph(), vocabulary=vocabulary)
+
+
+def test_invalid_iri_error_is_value_error() -> None:
+    assert issubclass(InvalidIriError, ValueError)
+
+
+def test_empty_vulnerability_rejected() -> None:
+    """``vulnerability=()`` e' rifiutata in anticipo (serve almeno una property)."""
+    vocabulary = replace(_alt_vocabulary(), vulnerability=())
+    with pytest.raises(InvalidIriError, match="vulnerabilita"):
+        RiskQueryExecutor(Graph(), vocabulary=vocabulary)
+
+
+def test_same_property_in_two_slots_is_not_rejected_and_fills_both() -> None:
+    """Comportamento reale: la stessa property in due slot NON viene rifiutata.
+
+    ``problems()`` non controlla i duplicati; l'indice mappa l'IRI al nome locale
+    e ``profile`` legge ogni slot per nome. Qui ``hasActor`` e' assegnata sia a
+    hazard sia a performer: il filler ``Gang`` compare in entrambe le liste e il
+    vero hazard ``Fire`` (``hasHazard``) non e' piu' letto.
+    """
+    vocabulary = replace(_alt_vocabulary(), hazard="hasActor")
+    assert vocabulary.problems() == []
+
+    profile = RiskQueryExecutor(_alt_graph(), vocabulary=vocabulary).profile("Shop")
+
+    assert profile.stakeholders == ["Gang"]
+    assert profile.hazards == ["Gang"]
+
+
+def test_non_uriref_filler_on_custom_property_logs_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Un filler BNode su una property di rischio custom e' scartato con WARNING."""
+    turtle = f"""
+    @prefix o:    <{ALT_NS}> .
+    @prefix owl:  <http://www.w3.org/2002/07/owl#> .
+    @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+    o:Shop a owl:Class ;
+        rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty o:hasHazard ; owl:someValuesFrom o:Fire ] ,
+        [ a owl:Restriction ;
+            owl:onProperty o:hasEvent ;
+            owl:someValuesFrom [ a owl:Class ;
+                owl:unionOf ( o:Looting o:Riot ) ] ] .
+    """
+    graph = Graph()
+    graph.parse(data=turtle, format="turtle")
+
+    with caplog.at_level(logging.WARNING, logger=QUERY_EXECUTOR_LOGGER):
+        executor = RiskQueryExecutor(graph, vocabulary=_alt_vocabulary())
+    records = [r for r in caplog.records if r.levelno == logging.WARNING]
+
+    assert len(records) == 1
+    message = records[0].getMessage()
+    assert "non-URIRef" in message
+    assert "hasEvent" in message
+    assert "BNode" in message
+    profile = executor.profile("Shop")
+    assert profile.critical_events == []
+    assert profile.hazards == ["Fire"]

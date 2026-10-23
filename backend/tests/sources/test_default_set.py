@@ -6,6 +6,7 @@ from crime_risk_analyzer.ontology import get_ontology
 from crime_risk_analyzer.ontology_namespaces import TERMINUS
 from crime_risk_analyzer.sources.context import default_set
 from crime_risk_analyzer.sources.model import TERMINUS_CONFIG, OsmBinding
+from crime_risk_analyzer.sources.vocabulary import TERMINUS_VOCABULARY
 from crime_risk_analyzer.sparql_module.osm_mapping import (
     GENERIC_FALLBACK,
     ORDINE_FAMIGLIE,
@@ -48,6 +49,15 @@ def test_default_set_config_ontologia_terminus() -> None:
     assert TERMINUS_CONFIG.performer == _PERFORMER
     assert TERMINUS_CONFIG.vulnerability == _VULNERABILITY_PROPS
     assert TERMINUS_CONFIG.namespace == str(TERMINUS)
+
+
+def test_terminus_vocabulary_coincide_con_costanti_storiche() -> None:
+    # Le costanti private di query_executor sono il riferimento storico: il
+    # default effettivo dell'executor e' TERMINUS_VOCABULARY, che non deve driftare.
+    assert TERMINUS_VOCABULARY.hazard == _HAZARD
+    assert TERMINUS_VOCABULARY.critical_event == _CRITICAL_EVENT
+    assert TERMINUS_VOCABULARY.performer == _PERFORMER
+    assert TERMINUS_VOCABULARY.vulnerability == _VULNERABILITY_PROPS
 
 
 def test_default_set_osm() -> None:
