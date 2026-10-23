@@ -38,39 +38,50 @@ from __future__ import annotations
 import logging
 from functools import lru_cache
 
-from rdflib import Graph, URIRef
+from rdflib import Graph, Namespace, URIRef
 from rdflib.namespace import RDFS
 from rdflib.plugins.sparql import prepareQuery
 
 from crime_risk_analyzer.models.risk import PoiRiskProfile
 from crime_risk_analyzer.ontology import get_ontology
-from crime_risk_analyzer.ontology_namespaces import TERMINUS
+from crime_risk_analyzer.sources.vocabulary import (
+    TERMINUS_VOCABULARY,
+    OntologyVocabulary,
+)
 
-__all__ = ["PoiRiskProfile", "RiskQueryExecutor", "get_executor"]
+__all__ = [
+    "InvalidIriError",
+    "PoiRiskProfile",
+    "RiskQueryExecutor",
+    "get_executor",
+]
 
 logger = logging.getLogger(__name__)
 
-#: Le quattro object property TERMINUS che legano un POI ai suoi rischi. La
-#: vulnerabilita' usa DUE property: ``isVulnerableTo`` a livello POI/System e
-#: ``havingVulnerability`` a livello System_aspect (divergenza #78) — entrambe
-#: raccolte cosi' da non perdere filler.
+
+#: Nomi TERMINUS storici delle property di rischio. Il default dell'executor e'
+#: :data:`TERMINUS_VOCABULARY`; queste costanti restano come riferimento che
+#: tests/sources/test_default_set.py confronta con esso (e con TERMINUS_CONFIG)
+#: per evitare drift.
 _HAZARD = "havingHazard"
 _CRITICAL_EVENT = "havingCriticalEvent"
 _PERFORMER = "havingPerformer"
 _VULNERABILITY_PROPS = ("isVulnerableTo", "havingVulnerability")
 
-#: Query parametrizzata che enumera, per ogni classe ``?c`` con una restrizione
-#: ``owl:Restriction`` su una delle property di rischio, la coppia
-#: ``(property, filler)``. Eseguita UNA volta in :meth:`RiskQueryExecutor.__init__`.
-#: La forma e' quella canonica di ``sparql.md`` (restrizione + onProperty +
-#: someValuesFrom); il ``VALUES ?prop`` vincola alle sole property di interesse.
+
+class InvalidIriError(ValueError):
+    """Namespace o nomi di property non validi come IRI (rifiutati in anticipo)."""
+
+
+#: Query parametrica sul grafo che enumera, per ogni classe ``?c`` con una
+#: restrizione ``owl:Restriction``, la coppia ``(property, filler)``. Statica e
+#: indipendente da namespace/property configurati: le property di rischio si
+#: selezionano dopo, in Python, confrontando ``URIRef`` (nessuna interpolazione
+#: di stringhe nella query). Eseguita UNA volta in
+#: :meth:`RiskQueryExecutor.__init__`.
 _RESTRICTION_QUERY = prepareQuery(
     """
     SELECT DISTINCT ?c ?prop ?filler WHERE {
-        VALUES ?prop {
-            tc:havingHazard tc:havingCriticalEvent tc:havingPerformer
-            tc:isVulnerableTo tc:havingVulnerability
-        }
         ?c rdfs:subClassOf ?r .
         ?r a owl:Restriction ;
            owl:onProperty ?prop ;
@@ -78,7 +89,6 @@ _RESTRICTION_QUERY = prepareQuery(
     }
     """,
     initNs={
-        "tc": TERMINUS,
         "owl": URIRef("http://www.w3.org/2002/07/owl#"),
         "rdfs": RDFS,
     },
@@ -92,7 +102,9 @@ def _local_name(term: URIRef) -> str:
 
 
 class RiskQueryExecutor:
-    """Indice delle restrizioni di rischio TERMINUS, costruito una volta sul grafo.
+    """Indice delle restrizioni di rischio, costruito una volta sul grafo.
+
+    Namespace e nomi delle property sono configurabili (default TERMINUS).
 
     Costruire l'executor esegue la query parametrizzata che enumera tutte le
     restrizioni del grafo (parte costosa, POI-indipendente). Da li' in poi
@@ -101,20 +113,41 @@ class RiskQueryExecutor:
     per richiesta.
     """
 
-    def __init__(self, graph: Graph) -> None:
+    def __init__(
+        self,
+        graph: Graph,
+        *,
+        vocabulary: OntologyVocabulary = TERMINUS_VOCABULARY,
+    ) -> None:
+        """Indicizza le restrizioni di rischio del grafo.
+
+        Args:
+            graph: ontologia gia' caricata.
+            vocabulary: namespace e nomi delle cinque property di rischio.
+                Default: TERMINUS.
+
+        Raises:
+            InvalidIriError: vocabolario non valido come IRI (controllato prima
+                di qualunque interrogazione del grafo).
+        """
+        problems = vocabulary.problems()
+        if problems:
+            raise InvalidIriError("; ".join(problems))
+        ns = Namespace(vocabulary.namespace)
+        wanted = {ns[name]: name for name in vocabulary.properties}
+        self._vocabulary = vocabulary
+        self._ns = ns
         self._graph = graph
         # Mappa classe-con-restrizione -> coppie (property, filler) gia' come nomi
         # locali. Solo le classi che dichiarano almeno una restrizione compaiono.
         self._by_class: dict[URIRef, list[tuple[str, str]]] = {}
         for row in graph.query(_RESTRICTION_QUERY):
             cls, prop, filler = row[0], row[1], row[2]  # type: ignore[misc]
-            if (
-                isinstance(cls, URIRef)
-                and isinstance(prop, URIRef)
-                and isinstance(filler, URIRef)
-            ):
+            if not isinstance(prop, URIRef) or prop not in wanted:
+                continue  # restrizione su una property non di rischio
+            if isinstance(cls, URIRef) and isinstance(filler, URIRef):
                 self._by_class.setdefault(cls, []).append(
-                    (_local_name(prop), _local_name(filler))
+                    (wanted[prop], _local_name(filler))
                 )
             else:
                 # Restrizione con un termine non-URIRef: tipicamente un
@@ -138,7 +171,7 @@ class RiskQueryExecutor:
         ordine stabile sui blank node delle restrizioni).
         """
         ancestors = self._graph.transitive_objects(
-            TERMINUS[terminus_class], RDFS.subClassOf
+            self._ns[terminus_class], RDFS.subClassOf
         )
         collected: dict[str, set[str]] = {}
         for ancestor in ancestors:
@@ -169,11 +202,12 @@ class RiskQueryExecutor:
         """
         by_prop = self._fillers_by_property(terminus_class)
 
-        hazards = by_prop.get(_HAZARD, [])
-        critical_events = by_prop.get(_CRITICAL_EVENT, [])
-        stakeholders = by_prop.get(_PERFORMER, [])
+        voc = self._vocabulary
+        hazards = by_prop.get(voc.hazard, [])
+        critical_events = by_prop.get(voc.critical_event, [])
+        stakeholders = by_prop.get(voc.performer, [])
         vulnerabilities = sorted(
-            {f for prop in _VULNERABILITY_PROPS for f in by_prop.get(prop, [])}
+            {f for prop in voc.vulnerability for f in by_prop.get(prop, [])}
         )
 
         # Un sparql_path per filler, con la property reale che lo lega (un salto).
@@ -182,10 +216,10 @@ class RiskQueryExecutor:
         sparql_paths = [
             f"{terminus_class} → {prop} → {filler}"
             for prop in (
-                _HAZARD,
-                _CRITICAL_EVENT,
-                *_VULNERABILITY_PROPS,
-                _PERFORMER,
+                voc.hazard,
+                voc.critical_event,
+                *voc.vulnerability,
+                voc.performer,
             )
             for filler in by_prop.get(prop, [])
         ]
