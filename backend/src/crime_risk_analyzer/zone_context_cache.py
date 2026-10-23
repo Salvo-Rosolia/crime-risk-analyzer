@@ -18,8 +18,9 @@ from typing import TypedDict
 
 from crime_risk_analyzer.rag.grounding import GroundedContext
 from crime_risk_analyzer.rag.retrieval import RetrievalContext
+from crime_risk_analyzer.sources.context import current_id
 
-__all__ = ["MAX_ZONES", "TTL_SECONDS", "ZoneContext", "clear", "get", "put"]
+__all__ = ["MAX_ZONES", "TTL_SECONDS", "ZoneContext", "clear", "get", "purge", "put"]
 
 #: Numero massimo di zone conservate: oltre, si sfratta la più vecchia.
 MAX_ZONES = 32
@@ -35,10 +36,10 @@ class ZoneContext(TypedDict):
     grounded: GroundedContext
 
 
-_STORE: dict[tuple[str, str], tuple[float, ZoneContext]] = {}
+_STORE: dict[tuple[str, str, str], tuple[float, ZoneContext]] = {}
 
 
-def _key(citta: str, zona: str) -> tuple[str, str]:
+def _key(citta: str, zona: str) -> tuple[str, str, str]:
     """Chiave tollerante: il client rimanda la zona come l'ha ricevuta.
 
     La chiave e' l'ETICHETTA, non l'area: un cerchio la cui etichetta di reverse
@@ -49,8 +50,11 @@ def _key(citta: str, zona: str) -> tuple[str, str]:
     ``contesto_hash`` con l'impronta del contesto in slot, e un contesto
     sovrascritto dall'altra area da' ``ContextMismatchError`` -> 409, che invita a
     rilanciare l'analisi.
+
+    Il primo elemento e' l'id del set di fonti attivo (#416): due sessioni con
+    fonti diverse non si vedono mai, nemmeno se analizzano la stessa zona.
     """
-    return (citta.strip().casefold(), zona.strip().casefold())
+    return (current_id(), citta.strip().casefold(), zona.strip().casefold())
 
 
 def put(citta: str, zona: str, ctx: ZoneContext, *, now: float | None = None) -> None:
@@ -75,6 +79,12 @@ def get(citta: str, zona: str, *, now: float | None = None) -> ZoneContext | Non
         _STORE.pop(key, None)
         return None
     return ctx
+
+
+def purge(set_id: str) -> None:
+    """Toglie le voci di un set di fonti (sostituito, azzerato o scaduto)."""
+    for key in [k for k in _STORE if k[0] == set_id]:
+        _STORE.pop(key, None)
 
 
 def clear() -> None:

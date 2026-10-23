@@ -31,8 +31,9 @@ from pydantic import Field
 
 from crime_risk_analyzer.istat.dati import versione_dati
 from crime_risk_analyzer.overpass_client import Poi
+from crime_risk_analyzer.sources.context import DEFAULT_ID, current_id
 
-__all__ = ["ContestoHash", "fingerprint", "istat_versione_per"]
+__all__ = ["ContestoHash", "fingerprint", "fonti_attive_id", "istat_versione_per"]
 
 #: Lunghezza esatta di un'impronta: l'hexdigest sha256 che :func:`fingerprint`
 #: restituisce (32 byte, due caratteri per byte). Ancorata al digest reale da
@@ -65,7 +66,12 @@ ContestoHash = Annotated[
 ]
 
 
-def fingerprint(pois: list[Poi], *, istat_versione: str | None = None) -> str:
+def fingerprint(
+    pois: list[Poi],
+    *,
+    istat_versione: str | None = None,
+    fonti: str | None = None,
+) -> str:
     """Hexdigest sha256 della lista di POI del contesto di zona.
 
     Entrano nel digest i soli campi che alimentano il prompt del POI: ``id``,
@@ -92,16 +98,27 @@ def fingerprint(pois: list[Poi], *, istat_versione: str | None = None) -> str:
     Con una versione (anche vuota) il testo canonico e' un oggetto JSON
     ``{"istat_versione": ..., "pois": [...]}``: un oggetto non coincide mai con
     una lista, quindi le due forme non possono collidere per costruzione.
+
+    ``fonti`` (#416): id del set di fonti caricato dall'utente, ``None`` con il
+    set di default (digest invariato). Con un id l'oggetto canonico porta anche
+    ``"fonti"``: due sessioni con fonti diverse non condividono mai un'impronta,
+    quindi la fase 2 di una non puo' accettare quella dell'altra.
     """
     righe = [
         [poi["id"], poi["name"], poi["terminus_class"], poi["lat"], poi["lon"]]
         for poi in pois
     ]
-    dati: object = (
-        righe
-        if istat_versione is None
-        else {"istat_versione": istat_versione, "pois": righe}
-    )
+    dati: object
+    if istat_versione is None and fonti is None:
+        dati = righe
+    else:
+        oggetto: dict[str, object] = {}
+        if istat_versione is not None:
+            oggetto["istat_versione"] = istat_versione
+        oggetto["pois"] = righe
+        if fonti is not None:
+            oggetto["fonti"] = fonti
+        dati = oggetto
     canonico = json.dumps(dati, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(canonico.encode("utf-8")).hexdigest()
 
@@ -116,3 +133,13 @@ def istat_versione_per(istat_context_enabled: bool) -> str | None:
     pura come :func:`fingerprint`, per questo e' una funzione a parte.
     """
     return versione_dati() if istat_context_enabled else None
+
+
+def fonti_attive_id() -> str | None:
+    """Id del set di fonti da mettere nell'impronta (#416).
+
+    ``None`` con il set di default, cosi' l'impronta resta quella di prima.
+    Come :func:`istat_versione_per`, e' l'unica sorgente per calcolo e confronto.
+    """
+    attivo = current_id()
+    return None if attivo == DEFAULT_ID else attivo

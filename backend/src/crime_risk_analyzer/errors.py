@@ -15,6 +15,8 @@ Mappa (orchestrator.md):
   * :class:`PoiNotFoundError`   -> ``404`` (POI fuori dall'analisi corrente, #197)
   * :class:`ContextMismatchError` -> ``409`` (contesto di zona disallineato, #242)
   * :class:`UnknownPoiTypeError` -> ``422`` (``tipo_poi`` fuori catalogo, #143)
+  * :class:`SourceValidationError` -> ``422`` (file delle fonti non validi, #416)
+  * :class:`SourcesExpiredError` -> ``410`` (fonti della sessione scadute, #416)
 
 Nessuna allowlist di citta' (#191): una citta' italiana inesistente non e'
 respinta a monte, ma fallisce al geocoding come :class:`ZoneNotFoundError` (422).
@@ -40,6 +42,8 @@ from crime_risk_analyzer.geocoding import GeocodingError, ZoneNotFoundError
 from crime_risk_analyzer.overpass_client import OverpassError
 from crime_risk_analyzer.poi_narrative import ContextMismatchError, PoiNotFoundError
 from crime_risk_analyzer.poi_types import UnknownPoiTypeError
+from crime_risk_analyzer.sources.report import SourceValidationError
+from crime_risk_analyzer.sources.session import SourcesExpiredError
 
 
 async def _handle_zone_not_found(
@@ -132,6 +136,41 @@ async def _handle_unknown_poi_type(
     )
 
 
+async def _handle_source_validation(
+    _request: Request, exc: SourceValidationError
+) -> JSONResponse:
+    """``SourceValidationError`` -> ``422`` con il report completo (#416).
+
+    Il report elenca TUTTI i problemi (errori e avvisi), cosi' chi carica corregge
+    i file in un solo giro; ``file`` aggancia ogni messaggio al suo campo.
+    """
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": {
+                "errore": "fonti_non_valide",
+                "messaggio": "i file caricati non sono validi: correggi e riprova",
+                "errors": [p.model_dump() for p in exc.report.errors],
+                "warnings": [p.model_dump() for p in exc.report.warnings],
+            }
+        },
+    )
+
+
+async def _handle_sources_expired(
+    _request: Request, exc: SourcesExpiredError
+) -> JSONResponse:
+    """``SourcesExpiredError`` -> ``410`` (#416).
+
+    Le fonti caricate dalla sessione non ci sono piu': invece di analizzare in
+    silenzio sul default, si chiede di ricaricarle o di tornare al default.
+    """
+    return JSONResponse(
+        status_code=410,
+        content={"detail": {"errore": "fonti_scadute", "messaggio": str(exc)}},
+    )
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     """Registra sull'``app`` la mappa centrale errore di dominio -> HTTP.
 
@@ -149,3 +188,5 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(PoiNotFoundError, _handle_poi_not_found)  # pyright: ignore[reportArgumentType]
     app.add_exception_handler(ContextMismatchError, _handle_context_mismatch)  # pyright: ignore[reportArgumentType]
     app.add_exception_handler(UnknownPoiTypeError, _handle_unknown_poi_type)  # pyright: ignore[reportArgumentType]
+    app.add_exception_handler(SourceValidationError, _handle_source_validation)  # pyright: ignore[reportArgumentType]
+    app.add_exception_handler(SourcesExpiredError, _handle_sources_expired)  # pyright: ignore[reportArgumentType]

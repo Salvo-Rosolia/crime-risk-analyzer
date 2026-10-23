@@ -68,6 +68,16 @@ class Settings(BaseSettings):
     # ``/analyze`` (``main.analyze``): e' il dato che il frontend usa per
     # ordinare i rischi nel Dettaglio POI.
     istat_context_enabled: bool = True
+    # Fonti caricate dall'utente (#416): il set vale per la sessione e scade dopo
+    # questo tempo dall'ultimo uso (finestra mobile). Il tetto di sessioni limita la
+    # memoria (ogni set tiene in RAM un grafo OWL fino a 20 MB): oltre, si sfratta
+    # la sessione con la scadenza piu' vicina.
+    sources_session_ttl_seconds: float = Field(default=3600.0, gt=0)
+    sources_max_sessions: int = Field(default=8, ge=1)
+    # Upload/parse di ``POST /sources`` contemporanei: il parse di un file da 20 MB
+    # e' CPU e RAM. Oltre il tetto la rotta risponde subito 503 (Retry-After)
+    # invece di accodare: nessuna coda di connessioni aperte con il corpo in attesa.
+    sources_max_concurrent_uploads: int = Field(default=2, ge=1)
     cache_enabled: bool = True
     # Geocoding hardening (#115). ``cache_enabled`` (sopra) gate la cache dei
     # risultati di geocoding (prima setting dichiarato ma inutilizzato).

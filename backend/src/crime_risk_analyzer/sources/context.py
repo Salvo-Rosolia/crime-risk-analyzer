@@ -38,7 +38,16 @@ from crime_risk_analyzer.sparql_module.query_executor import (
     get_executor,
 )
 
-__all__ = ["bind", "current", "current_executor", "default_set"]
+__all__ = [
+    "DEFAULT_ID",
+    "bind",
+    "current",
+    "current_executor",
+    "current_id",
+    "default_set",
+]
+
+DEFAULT_ID = "default"
 
 _ACTIVE: ContextVar[SourceSet | None] = ContextVar("active_source_set", default=None)
 
@@ -72,6 +81,12 @@ def current() -> SourceSet:
     """Set attivo nel contesto corrente, altrimenti il default."""
     active = _ACTIVE.get()
     return active if active is not None else default_set()
+
+
+def current_id() -> str:
+    """Id del set attivo, senza costruire il default (chiavi di cache e impronte)."""
+    active = _ACTIVE.get()
+    return active.id if active is not None else DEFAULT_ID
 
 
 def current_executor() -> RiskQueryExecutor:

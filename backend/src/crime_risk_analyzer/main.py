@@ -47,6 +47,8 @@ from crime_risk_analyzer.poi_narrative import (
 )
 from crime_risk_analyzer.poi_types import PoiType, poi_types, resolve_poi_type
 from crime_risk_analyzer.rag.retrieval import GeoSource
+from crime_risk_analyzer.sources import routes as sources_routes
+from crime_risk_analyzer.sources.session import SESSION_HEADER
 from crime_risk_analyzer.sparql_module.query_executor import (
     RiskQueryExecutor,
     get_executor,
@@ -84,6 +86,9 @@ async def _resolve_area(
 
 
 router = APIRouter()
+
+#: Lega alla richiesta il set di fonti della sessione (#416), se ne ha uno.
+_SESSIONE = [Depends(sources_routes.activate_session)]
 
 
 @router.get("/health")
@@ -159,7 +164,7 @@ async def geocode(
     return {"lat": lat, "lon": lon}
 
 
-@router.post("/analyze")
+@router.post("/analyze", dependencies=_SESSIONE)
 async def analyze(
     request: AnalyzeRequest,
     executor: Annotated[RiskQueryExecutor, Depends(get_executor)],
@@ -199,7 +204,7 @@ async def analyze(
     )
 
 
-@router.post("/analyze/narrativa")
+@router.post("/analyze/narrativa", dependencies=_SESSIONE)
 async def analyze_narrativa(
     request: ZoneNarrativeRequest,
     executor: Annotated[RiskQueryExecutor, Depends(get_executor)],
@@ -247,7 +252,7 @@ async def analyze_narrativa(
     )
 
 
-@router.post("/analyze/baseline")
+@router.post("/analyze/baseline", dependencies=_SESSIONE)
 async def analyze_baseline(
     request: BaselineRequest,
     executor: Annotated[RiskQueryExecutor, Depends(get_executor)],
@@ -277,7 +282,7 @@ async def analyze_baseline(
     )
 
 
-@router.post("/analyze/poi")
+@router.post("/analyze/poi", dependencies=_SESSIONE)
 async def analyze_poi(
     request: PoiNarrativeRequest,
     executor: Annotated[RiskQueryExecutor, Depends(get_executor)],
@@ -361,8 +366,8 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.cors_allow_origins,
         allow_credentials=False,
-        allow_methods=["GET", "POST"],
-        allow_headers=["Content-Type"],
+        allow_methods=["GET", "POST", "DELETE"],
+        allow_headers=["Content-Type", SESSION_HEADER],
     )
     # GZip (#346, O10): la fase 1 di /analyze porta un IstatPoi per POI (+50-55%
     # di byte); nessuna rotta e' in streaming (niente StreamingResponse/SSE), quindi
@@ -370,6 +375,7 @@ def create_app() -> FastAPI:
     # minuscole (es. /health).
     app.add_middleware(GZipMiddleware, minimum_size=1000)
     app.include_router(router)
+    app.include_router(sources_routes.router)
     return app
 
 
