@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from crime_risk_analyzer.istat.blocco import INTESTAZIONE_DATI_ISTAT
@@ -16,6 +18,8 @@ from crime_risk_analyzer.rag.poi_generation import (
     build_poi_context_str,
     generate_poi_narrative,
 )
+from crime_risk_analyzer.sources.context import bind, default_set
+from crime_risk_analyzer.sources.model import IstatSource
 from tests.istat._fattorie import RAPINE_IN_BANCA, istat_poi
 
 
@@ -135,3 +139,23 @@ async def test_generazione_senza_istat_come_prima() -> None:
     assert spia.calls[0][0] == POI_SYSTEM_PROMPT
     assert out.narrativa == "[ONTOLOGIA]\nRischio di rapina.\n"
     assert (out.istat_attivo, out.istat_frasi_scartate) == (False, 0)
+
+
+async def test_versione_dati_dal_set_legato_senza_monkeypatch() -> None:
+    attivo = default_set()
+    custom = dataclasses.replace(
+        attivo,
+        id="x",
+        kind="custom",
+        istat=IstatSource(
+            dati=attivo.istat.dati,
+            mappatura=attivo.istat.mappatura,
+            voci_rottura=attivo.istat.voci_rottura,
+            versione="X",
+        ),
+    )
+    with bind(custom):
+        _, out = await _genera(
+            "[ONTOLOGIA]\nRischio di rapina.\n", istat_poi(RAPINE_IN_BANCA)
+        )
+    assert (out.istat_attivo, out.istat_versione_dati) == (True, "X")

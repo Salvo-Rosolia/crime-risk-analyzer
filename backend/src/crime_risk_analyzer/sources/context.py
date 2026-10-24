@@ -20,6 +20,7 @@ from functools import lru_cache
 
 from crime_risk_analyzer.istat.catalogo import VOCI_ROTTURA_2016
 from crime_risk_analyzer.istat.dati import dati_istat_o_none
+from crime_risk_analyzer.istat.dati import versione_dati as _versione_dati_default
 from crime_risk_analyzer.istat.mappatura import MAPPATURA
 from crime_risk_analyzer.ontology import get_ontology
 from crime_risk_analyzer.sources.model import (
@@ -40,6 +41,7 @@ from crime_risk_analyzer.sparql_module.query_executor import (
 
 __all__ = [
     "DEFAULT_ID",
+    "active_istat",
     "bind",
     "current",
     "current_executor",
@@ -47,6 +49,7 @@ __all__ = [
     "current_labels",
     "current_osm",
     "default_set",
+    "versione_dati",
 ]
 
 DEFAULT_ID = "default"
@@ -111,6 +114,28 @@ def current_labels() -> Mapping[str, tuple[str, str]] | None:
     """
     active = _ACTIVE.get()
     return active.labels if active is not None else None
+
+
+def active_istat() -> IstatSource | None:
+    """Fonte ISTAT del set legato con :func:`bind`; ``None`` se vale il default.
+
+    Fuori da ``bind`` NON costruisce il default: chi legge ISTAT passa dalle
+    cache dei dati (``dati_istat_o_none``), come prima di #414. Con un set legato
+    le righe, la mappatura e la versione sono SEMPRE quelle del set, anche se
+    ``dati`` e' ``None`` (nessun ripiego sui dati di default).
+    """
+    active = _ACTIVE.get()
+    return active.istat if active is not None else None
+
+
+def versione_dati() -> str | None:
+    """Versione dei dati ISTAT del set attivo, ``None`` se non disponibili.
+
+    Unica sorgente per risposta, impronta e confronto; con il default coincide
+    con :func:`crime_risk_analyzer.istat.dati.versione_dati`.
+    """
+    istat = active_istat()
+    return istat.versione if istat is not None else _versione_dati_default()
 
 
 def current_executor() -> RiskQueryExecutor:
