@@ -1,0 +1,11 @@
+osm_tag,classe
+amenity=bank,Bank
+amenity=pharmacy,Pharmacy
+shop=supermarket,Supermarket
+shop=jewelry,Jewelry_shop
+amenity=post_office,Post_office
+amenity=bar,Bar
+amenity=nightclub,Nightclub
+railway=station,Railway_station
+amenity=school,School
+amenity=parking,Car_park

@@ -1,9 +1,10 @@
 """API delle fonti caricate dall'utente (#416).
 
-``POST /sources`` carica un set e lo attiva per la sessione, ``GET /sources`` ne
-dice lo stato, ``DELETE /sources`` torna al default, ``GET
-/sources/templates/{nome}`` scarica i modelli CSV. La sessione e' quella
-dell'intestazione ``X-Session-Id`` (vedi :mod:`~crime_risk_analyzer.sources.session`).
+``POST /sources`` carica un set e lo attiva per la sessione, ``POST
+/sources/example`` attiva quello d'esempio, ``GET /sources`` ne dice lo stato,
+``DELETE /sources`` torna al default, ``GET /sources/templates/{nome}`` scarica i
+modelli CSV. La sessione e' quella dell'intestazione ``X-Session-Id`` (vedi
+:mod:`~crime_risk_analyzer.sources.session`).
 
 :func:`activate_session` e' la dipendenza che le rotte di analisi aggiungono per
 lavorare sul set della sessione: lega il set al contesto della richiesta
@@ -28,6 +29,7 @@ from pydantic import BaseModel
 from crime_risk_analyzer.config import get_settings
 from crime_risk_analyzer.sources.build import build_source_set, fallback_luoghi
 from crime_risk_analyzer.sources.context import bind
+from crime_risk_analyzer.sources.example import example_bundle
 from crime_risk_analyzer.sources.limits import (
     MAX_BYTES_CSV,
     MAX_BYTES_GEOJSON,
@@ -208,6 +210,9 @@ async def activate_session(
 class SetSummary(BaseModel):
     """Che cosa contiene il set attivo (per la schermata di stato)."""
 
+    #: ``example`` per il set d'esempio, ``custom`` per quello caricato: da qui
+    #: l'indicatore "Fonti: Esempio" / "Fonti: Personalizzate".
+    kind: Literal["example", "custom"]
     classi: int
     selettori_osm: int
     versione_dati: str | None
@@ -240,6 +245,7 @@ def _riepilogo(entry: SessionEntry) -> SetSummary:
     s = entry.source_set
     dati = s.istat.dati
     return SetSummary(
+        kind="example" if s.kind == "example" else "custom",
         classi=len(s.labels or {}),
         selettori_osm=len(s.osm.osm_to_class),
         versione_dati=s.istat.versione,
@@ -321,6 +327,21 @@ async def upload_sources(
 
 
 router.include_router(_upload_router)
+
+
+@router.post("/sources/example")
+async def activate_example(
+    sessions: Sessions, x_session_id: RequiredSession
+) -> SourcesStatus:
+    """Attiva il set d'esempio per la sessione, senza caricare file.
+
+    Il set e' costruito una volta sola (alla prima richiesta, in un thread: legge
+    e valida i file d'esempio) e condiviso fra le sessioni: e' immutabile. Come
+    ``POST /sources`` sostituisce il set gia' attivo.
+    """
+    source_set, avvisi = await run_in_threadpool(example_bundle)
+    sessions.activate(x_session_id, source_set, avvisi)
+    return _stato(sessions, x_session_id)
 
 
 @router.delete("/sources")
