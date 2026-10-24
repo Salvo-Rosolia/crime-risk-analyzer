@@ -36,6 +36,7 @@ from crime_risk_analyzer.istat.dati import (
 )
 from crime_risk_analyzer.istat.luoghi import luogo_di
 from crime_risk_analyzer.istat.mappatura import MAPPATURA, Corrispondenza
+from crime_risk_analyzer.sources.context import active_istat
 
 __all__ = [
     "MOTIVO_ANNO_MANCANTE",
@@ -150,13 +151,21 @@ def riga_istat(
     voce: str,
     *,
     collegamenti: tuple[Collegamento, ...] = (),
+    voci_rottura: frozenset[str] | None = None,
 ) -> RigaIstat:
-    """Riga di ``voce`` (o del totale) nel ``luogo``."""
+    """Riga di ``voce`` (o del totale) nel ``luogo``.
+
+    ``voci_rottura`` (serie non confrontabili) di default viene dal set attivo
+    (#414): quelle del catalogo con il set di default.
+    """
     file = dati.delitti
     attuale = file.valore(luogo.codice, voce, file.anno)
     passato = file.valore(luogo.codice, voce, file.anno_confronto)
     italia = file.valore(CODICE_ITALIA, voce, file.anno)
-    rottura = voce in VOCI_ROTTURA_2016
+    if voci_rottura is None:
+        attivo = active_istat()
+        voci_rottura = VOCI_ROTTURA_2016 if attivo is None else attivo.voci_rottura
+    rottura = voce in voci_rottura
     pct, motivo = variazione(
         attuale.delitti if attuale else None,
         passato.delitti if passato else None,
@@ -192,16 +201,27 @@ def istat_per_poi(
     ``None`` anche fuori da ogni poligono o senza dati: la cornice da sola non entra
     nel prompt (decisione del piano: il totale e' contesto delle voci, non un dato
     a se').
+
+    Fonte mista (#414): dentro ``bind``, un ``dati=`` esplicito sostituisce solo i
+    dati; mappatura e voci di rottura restano quelle del set attivo.
     """
-    sorgente = dati if dati is not None else dati_istat_o_none()
+    attivo = active_istat()
+    if dati is not None:
+        sorgente = dati
+    elif attivo is not None:
+        sorgente = attivo.dati
+    else:
+        sorgente = dati_istat_o_none()
     if sorgente is None:
         return None
     luogo = luogo_di(lat, lon, dati=sorgente)
     if luogo is None:
         return None
+    tabella = MAPPATURA if attivo is None else attivo.mappatura
+    rotture = VOCI_ROTTURA_2016 if attivo is None else attivo.voci_rottura
     per_voce: dict[str, list[Collegamento]] = {}
     for hazard in dict.fromkeys(hazards):
-        mappatura = MAPPATURA.get(hazard)
+        mappatura = tabella.get(hazard)
         if mappatura is None or mappatura.voce_istat is None:
             continue
         # Invariante garantita dai test del Task 2: voce_istat None <=> corrispondenza
@@ -217,9 +237,15 @@ def istat_per_poi(
     if not per_voce:
         return None
     return IstatPoi(
-        cornice=riga_istat(sorgente, luogo, VOCE_TOTALE),
+        cornice=riga_istat(sorgente, luogo, VOCE_TOTALE, voci_rottura=rotture),
         righe=tuple(
-            riga_istat(sorgente, luogo, voce, collegamenti=tuple(collegamenti))
+            riga_istat(
+                sorgente,
+                luogo,
+                voce,
+                collegamenti=tuple(collegamenti),
+                voci_rottura=rotture,
+            )
             for voce, collegamenti in sorted(per_voce.items())
         ),
     )
