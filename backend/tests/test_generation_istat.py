@@ -6,6 +6,7 @@ per le narrative scritte prima, e i test di parsing usano quella forma.
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Any
 
 import pytest
@@ -27,6 +28,8 @@ from crime_risk_analyzer.rag.generation import (
     parse_source_prose,
     source_block_spans,
 )
+from crime_risk_analyzer.sources.context import bind, default_set
+from crime_risk_analyzer.sources.model import IstatSource
 from tests.istat._fattorie import BANKROB, RAPINE_IN_BANCA, istat_poi, riga
 
 #: Narrativa nella forma di #345, col terzo blocco [ISTAT] (record vecchi, D4).
@@ -300,3 +303,23 @@ def test_nota_taglio_delle_voci_non_tocca_la_cifra_citata() -> None:
     assert esito is not None
     assert filtrata == narrativa
     assert esito.frasi_scartate == 0
+
+
+async def test_versione_dati_dal_set_legato_senza_monkeypatch() -> None:
+    attivo = default_set()
+    custom = dataclasses.replace(
+        attivo,
+        id="x",
+        kind="custom",
+        istat=IstatSource(
+            dati=attivo.istat.dati,
+            mappatura=attivo.istat.mappatura,
+            voci_rottura=attivo.istat.voci_rottura,
+            versione="X",
+        ),
+    )
+    with bind(custom):
+        out = await generate_analysis(
+            _ctx(_poi(istat=istat_poi(RAPINE_IN_BANCA))), _Spia(), istat=True
+        )
+    assert (out.istat_attivo, out.istat_versione_dati) == (True, "X")
