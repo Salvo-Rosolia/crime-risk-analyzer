@@ -13,7 +13,7 @@ sottostanti (va svuotata anche ``default_set.cache_clear()``).
 
 from __future__ import annotations
 
-from collections.abc import Generator
+from collections.abc import Generator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import lru_cache
@@ -46,11 +46,20 @@ __all__ = [
     "current",
     "current_executor",
     "current_id",
+    "current_labels",
+    "current_osm",
     "default_set",
     "versione_dati",
 ]
 
 DEFAULT_ID = "default"
+
+#: Binding OSM del default: costruito dalle costanti, senza costruire il set.
+_DEFAULT_OSM = OsmBinding(
+    osm_to_class=OSM_TO_TERMINUS,
+    ordine_famiglie=ORDINE_FAMIGLIE,
+    selettori_cedevoli=SELETTORI_CEDEVOLI,
+)
 
 _ACTIVE: ContextVar[SourceSet | None] = ContextVar("active_source_set", default=None)
 
@@ -65,11 +74,7 @@ def default_set() -> SourceSet:
         graph=get_ontology(),
         ontology=TERMINUS_CONFIG,
         executor=get_executor(),
-        osm=OsmBinding(
-            osm_to_class=OSM_TO_TERMINUS,
-            ordine_famiglie=ORDINE_FAMIGLIE,
-            selettori_cedevoli=SELETTORI_CEDEVOLI,
-        ),
+        osm=_DEFAULT_OSM,
         istat=IstatSource(
             dati=dati,
             mappatura=MAPPATURA,
@@ -90,6 +95,25 @@ def current_id() -> str:
     """Id del set attivo, senza costruire il default (chiavi di cache e impronte)."""
     active = _ACTIVE.get()
     return active.id if active is not None else DEFAULT_ID
+
+
+def current_osm() -> OsmBinding:
+    """Binding OSM del set attivo; senza set, quello del default.
+
+    Non costruisce il set di default (grafo, dati ISTAT): il percorso di Overpass
+    e dei tool offline non ne ha bisogno.
+    """
+    active = _ACTIVE.get()
+    return active.osm if active is not None else _DEFAULT_OSM
+
+
+def current_labels() -> Mapping[str, tuple[str, str]] | None:
+    """Etichette ``classe -> (IT, EN)`` del set attivo; ``None`` = JSON TERMINUS.
+
+    Come :func:`current_osm`, non costruisce il default (che ha ``labels=None``).
+    """
+    active = _ACTIVE.get()
+    return active.labels if active is not None else None
 
 
 def active_istat() -> IstatSource | None:

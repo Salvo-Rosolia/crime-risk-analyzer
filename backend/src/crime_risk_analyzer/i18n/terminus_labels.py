@@ -42,7 +42,36 @@ def _records() -> dict[str, LabelRecord]:
     return {rec["identifier"]: rec for rec in raw}
 
 
+def _spaziata(identifier: str) -> str:
+    """Nome della classe con gli spazi al posto dei separatori (set custom)."""
+    text = identifier.replace("_", " ").replace("-", " ").strip()
+    return " ".join(text.split()) or identifier
+
+
+def _etichette_del_set(identifier: str) -> tuple[str, str] | None:
+    """Coppia ``(it, en)`` di un set che porta le proprie etichette, altrimenti None.
+
+    ``None`` anche quando il set usa il JSON TERMINUS (``labels is None``):
+    in quel caso si prosegue sul vocabolario controllato come per il default.
+    """
+    # Import locale: ``sources`` importa moduli che importano queste etichette.
+    from crime_risk_analyzer.sources.context import current_labels
+
+    labels = current_labels()
+    if labels is None:
+        return None
+    return labels.get(identifier, ("", ""))
+
+
 def label_it(identifier: str) -> str:
+    """Etichetta IT della classe dal set attivo (JSON TERMINUS per il default).
+
+    Set con etichette proprie: IT, poi EN, poi il nome con gli spazi. Per il
+    JSON TERMINUS: IT, poi EN, poi il nome normalizzato.
+    """
+    propria = _etichette_del_set(identifier)
+    if propria is not None:
+        return propria[0] or propria[1] or _spaziata(identifier)
     rec = _records().get(identifier)
     if rec is not None and rec["label_it"]:
         return rec["label_it"]
@@ -52,6 +81,10 @@ def label_it(identifier: str) -> str:
 
 
 def label_en(identifier: str) -> str:
+    """Etichetta EN della classe dal set attivo (vedi :func:`label_it`)."""
+    propria = _etichette_del_set(identifier)
+    if propria is not None:
+        return propria[1] or _spaziata(identifier)
     rec = _records().get(identifier)
     if rec is not None and rec["label_en"]:
         return rec["label_en"]
