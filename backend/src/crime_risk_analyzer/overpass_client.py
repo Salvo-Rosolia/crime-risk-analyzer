@@ -52,13 +52,7 @@ from typing import TypedDict, cast
 import httpx
 
 from crime_risk_analyzer.models.geo import Bbox, haversine_m
-from crime_risk_analyzer.sparql_module.osm_mapping import (
-    ORDINE_FAMIGLIE,
-    OSM_SELECTORS,
-    OSM_TO_TERMINUS,
-    SELETTORI_CEDEVOLI,
-    map_to_terminus,
-)
+from crime_risk_analyzer.sources.context import current_osm
 
 __all__ = [
     "DISTANZA_MAX_DOPPIONE_M",
@@ -330,20 +324,21 @@ def _build_query(bbox: Bbox, osm_selectors: Sequence[str]) -> str:
 def _extract_osm_tag(tags: Mapping[str, object]) -> str:
     """Estrae il selettore rappresentativo ``chiave=valore`` da ``tags`` OSM.
 
-    Itera le famiglie in :data:`ORDINE_FAMIGLIE` (priorita') e ritorna il PRIMO
-    ``key=value`` che esiste nel binding :data:`OSM_TO_TERMINUS`. Cosi' un POI
+    Itera le famiglie in ``ordine_famiglie`` del set attivo (priorita') e ritorna il
+    PRIMO ``key=value`` che esiste nel binding ``osm_to_class``. Cosi' un POI
     multi-tag e' classificato dal tag effettivamente mappato e non da un tag spurio
     a priorita' piu' alta. Ritorna stringa vuota se nessun tag noto e' presente.
 
-    Eccezione (#373): un selettore in :data:`SELETTORI_CEDEVOLI` cede alla famiglia
+    Eccezione (#373): un selettore in ``selettori_cedevoli`` cede alla famiglia
     indicata se questa porta un tag mappato sullo stesso elemento
     (``tourism=attraction`` + ``historic=archaeological_site`` ->
     ``historic=archaeological_site``).
     """
-    for family in ORDINE_FAMIGLIE:
+    binding = current_osm()
+    for family in binding.ordine_famiglie:
         selector = _mapped_selector(tags, family)
         if selector:
-            preferita = SELETTORI_CEDEVOLI.get(selector)
+            preferita = binding.selettori_cedevoli.get(selector)
             if preferita is not None:
                 return _mapped_selector(tags, preferita) or selector
             return selector
@@ -355,7 +350,7 @@ def _mapped_selector(tags: Mapping[str, object], family: str) -> str:
     value = tags.get(family)
     if isinstance(value, str):
         selector = f"{family}={value}"
-        if selector in OSM_TO_TERMINUS:
+        if selector in current_osm().osm_to_class:
             return selector
     return ""
 
@@ -413,7 +408,7 @@ def _to_poi(element: Mapping[str, object], citta: str) -> Poi | None:
         lat=lat,
         lon=lon,
         osm_tags=osm_tag,
-        terminus_class=map_to_terminus(osm_tag),
+        terminus_class=current_osm().map(osm_tag),
         citta=citta,
     )
 
@@ -486,7 +481,7 @@ def _firma_doppione(tags: Mapping[str, object]) -> tuple[object, ...] | None:
     nome = tags.get("name")
     if not isinstance(nome, str) or not nome.strip():
         return None
-    return (nome, *(tags.get(famiglia) for famiglia in ORDINE_FAMIGLIE))
+    return (nome, *(tags.get(famiglia) for famiglia in current_osm().ordine_famiglie))
 
 
 def _scarta_way_doppioni_di_relation(candidati: list[_Candidato]) -> list[Poi]:
@@ -500,7 +495,7 @@ def _scarta_way_doppioni_di_relation(candidati: list[_Candidato]) -> list[Poi]:
     Regola, volutamente stretta: una way e' scartata solo se nel bacino c'e' una
     relation con ``type=multipolygon``, stesso nome non vuoto (uguaglianza
     esatta, nessun confronto approssimato), stessi valori su tutte le famiglie
-    di :data:`ORDINE_FAMIGLIE` e centro entro :data:`DISTANZA_MAX_DOPPIONE_M`.
+    di ``ordine_famiglie`` e centro entro :data:`DISTANZA_MAX_DOPPIONE_M`.
     I node non vengono mai fusi (due fermate «Termini» sono due fermate), due
     elementi dello stesso tipo nemmeno, gli elementi senza nome nemmeno.
 
@@ -770,7 +765,7 @@ def _attesa_prima_del_ritentativo(
 async def fetch_pois(
     bbox: Bbox,
     citta: str,
-    osm_selectors: Iterable[str] = OSM_SELECTORS,
+    osm_selectors: Iterable[str] | None = None,
     *,
     overpass_url: str = DEFAULT_OVERPASS_URL,
     retry: RetryPolicy | None = None,
@@ -778,7 +773,7 @@ async def fetch_pois(
 ) -> list[Poi]:
     """Recupera i POI dentro ``bbox`` per i selettori OSM ``osm_selectors``.
 
-    Default: l'intero binding canonico :data:`OSM_SELECTORS`. Arricchisce ogni POI
+    Default: l'intero binding OSM del set attivo (``None``). Arricchisce ogni POI
     con ``terminus_class`` (#13). Ritenta se un tentativo scade in timeout **o**
     risponde con uno status ritentabile (:data:`_RETRYABLE_STATUS`, 429/5xx),
     secondo ``retry``; esaurita la politica, :class:`OverpassError`. Una
@@ -813,7 +808,7 @@ async def fetch_pois(
 async def fetch_pois_with_cut(
     bbox: Bbox,
     citta: str,
-    osm_selectors: Iterable[str] = OSM_SELECTORS,
+    osm_selectors: Iterable[str] | None = None,
     *,
     overpass_url: str = DEFAULT_OVERPASS_URL,
     retry: RetryPolicy | None = None,
@@ -847,7 +842,7 @@ async def fetch_pois_with_cut(
 async def _fetch_payload(
     bbox: Bbox,
     citta: str,
-    osm_selectors: Iterable[str],
+    osm_selectors: Iterable[str] | None,
     *,
     overpass_url: str,
     retry: RetryPolicy | None,
@@ -865,7 +860,9 @@ async def _fetch_payload(
     esce mai da qui.
     """
     policy = retry or INTERACTIVE_RETRY
-    selectors = list(osm_selectors)
+    selectors = list(
+        current_osm().selectors if osm_selectors is None else osm_selectors
+    )
     query = _build_query(bbox, selectors)
 
     async with httpx.AsyncClient(headers={"User-Agent": _USER_AGENT}) as client:

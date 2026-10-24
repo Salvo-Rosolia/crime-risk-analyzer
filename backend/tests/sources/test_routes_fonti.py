@@ -118,6 +118,19 @@ def test_upload_senza_confini_che_coprano_i_dati_422(client: TestClient) -> None
     assert r.json()["detail"]["errore"] == "fonti_non_valide"
 
 
+def test_upload_con_alias_tipo_poi_ambigui_422(client: TestClient) -> None:
+    ontologia = ONTOLOGIA_TTL.replace('"Ospedale"@it', '"Banca"@it')
+    r = _upload(client, ontology=ontologia.encode())
+    assert r.status_code == 422
+    assert r.json()["detail"]["errore"] == "fonti_non_valide"
+    testo = str(r.json()["detail"])
+    assert "alias_tipo_poi_ambiguo" in testo
+    assert "Banca" in testo
+    assert "Ospedale" in testo
+    # il set non e' stato attivato
+    assert client.get("/sources", headers={H: SID}).json()["stato"] == "default"
+
+
 def test_upload_senza_intestazione_422(client: TestClient) -> None:
     assert _upload(client, sid=None).status_code == 422
 
