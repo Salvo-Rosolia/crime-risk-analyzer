@@ -45,7 +45,6 @@ from crime_risk_analyzer.istat.cifre import (
     SpanBlocco,
     applica_controllo,
 )
-from crime_risk_analyzer.istat.dati import versione_dati
 from crime_risk_analyzer.llm.client import LLMResponse
 from crime_risk_analyzer.models.vocab import Confidence, ConfidenceSummary, Tag
 from crime_risk_analyzer.rag.istat_rules import (
@@ -53,6 +52,7 @@ from crime_risk_analyzer.rag.istat_rules import (
     RULE_ISTAT_DIVIETI,
     sostituisci_una_volta,
 )
+from crime_risk_analyzer.sources.context import versione_dati
 
 #: Divieto di valutazione di pericolosita' (vincolo legale non negoziabile,
 #: _project.md §Vincoli). Copre sia le scale NUMERICHE (percentuali/voti) sia

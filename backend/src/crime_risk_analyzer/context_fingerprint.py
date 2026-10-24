@@ -29,9 +29,8 @@ from typing import Annotated
 
 from pydantic import Field
 
-from crime_risk_analyzer.istat.dati import versione_dati
 from crime_risk_analyzer.overpass_client import Poi
-from crime_risk_analyzer.sources.context import DEFAULT_ID, current_id
+from crime_risk_analyzer.sources.context import DEFAULT_ID, current_id, versione_dati
 
 __all__ = ["ContestoHash", "fingerprint", "fonti_attive_id", "istat_versione_per"]
 

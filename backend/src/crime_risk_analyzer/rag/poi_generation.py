@@ -33,7 +33,6 @@ from pydantic import BaseModel, Field
 from crime_risk_analyzer.i18n.terminus_labels import controlled_vocab_for, label_it
 from crime_risk_analyzer.istat.blocco import blocco_istat_poi
 from crime_risk_analyzer.istat.cifre import applica_controllo
-from crime_risk_analyzer.istat.dati import versione_dati
 from crime_risk_analyzer.istat.righe import IstatPoi
 from crime_risk_analyzer.rag.generation import (
     RULE_NO_DANGER_RATING,
@@ -53,6 +52,7 @@ from crime_risk_analyzer.rag.istat_rules import (
     sostituisci_una_volta,
 )
 from crime_risk_analyzer.rag.poi_context import NeighbourPoi
+from crime_risk_analyzer.sources.context import versione_dati
 
 __all__ = [
     "POI_SYSTEM_PROMPT",
