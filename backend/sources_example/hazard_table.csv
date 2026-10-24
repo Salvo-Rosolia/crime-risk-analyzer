@@ -1,0 +1,14 @@
+hazard,voce,corrispondenza,serie_non_confrontabile,nota
+Bank_robbery,BANKROB,esatta,no,
+Post_office_robbery,POSTROB,esatta,no,
+Robbery,ROBBER,esatta,no,
+Street_robbery,STREETROB,esatta,no,
+Theft,THEFT,esatta,no,
+Shoplifting,SHOPTHEF,esatta,no,
+Pickpocketing,BAGTHEF,piu_stretta,no,La voce comprende solo i furti con strappo
+Car_theft,CARTHEF,esatta,no,
+Arson,ARSON,esatta,no,
+Vandalism,DAMAGE,piu_larga,si,Voce toccata dalla depenalizzazione del 2016
+Public_disorder,TOT,piu_larga,si,Il totale comprende anche fatti depenalizzati nel 2016
+Burglary,,,no,Nessuna voce adeguata nei dati d'esempio
+Fraud,,,no,Nessuna voce adeguata nei dati d'esempio

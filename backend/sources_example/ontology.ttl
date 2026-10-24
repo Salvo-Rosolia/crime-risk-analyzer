@@ -1,0 +1,123 @@
+@prefix mc:   <http://example.org/mini-crime#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+
+# Mini-ontologia inventata per il set d'esempio delle fonti dinamiche (#417).
+# Stesso pattern a restrizioni OWL di TERMINUS, ma namespace e proprieta' propri:
+# hasRisk, hasEvent, hasActor, isFragileTo, hasWeakness.
+# Le etichette IT/EN ci sono solo per meta' delle classi POI: le altre usano il
+# nome della classe (ripiego), come previsto per i file caricati dall'utente.
+
+<http://example.org/mini-crime> a owl:Ontology ;
+    rdfs:comment "Mini-ontologia d'esempio, inventata: non e' TERMINUS." .
+
+# --- Superclasse dei POI commerciali (le sottoclassi ereditano la restrizione) ---
+
+mc:Commercial_site a owl:Class ;
+    rdfs:subClassOf [ a owl:Restriction ;
+        owl:onProperty mc:hasRisk ; owl:someValuesFrom mc:Theft ] .
+
+# --- Classi POI (dieci) ---
+
+mc:Bank a owl:Class ;
+    rdfs:label "Banca"@it, "Bank"@en ;
+    rdfs:subClassOf mc:Commercial_site ,
+        [ a owl:Restriction ; owl:onProperty mc:hasRisk ; owl:someValuesFrom mc:Bank_robbery ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasEvent ; owl:someValuesFrom mc:Armed_assault ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasActor ; owl:someValuesFrom mc:Organized_group ] ,
+        [ a owl:Restriction ; owl:onProperty mc:isFragileTo ; owl:someValuesFrom mc:Isolated_location ] .
+
+mc:Pharmacy a owl:Class ;
+    rdfs:label "Farmacia"@it, "Pharmacy"@en ;
+    rdfs:subClassOf mc:Commercial_site ,
+        [ a owl:Restriction ; owl:onProperty mc:hasRisk ; owl:someValuesFrom mc:Robbery ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasEvent ; owl:someValuesFrom mc:Armed_assault ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasActor ; owl:someValuesFrom mc:Lone_offender ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasWeakness ; owl:someValuesFrom mc:Poor_lighting ] .
+
+mc:Supermarket a owl:Class ;
+    rdfs:subClassOf mc:Commercial_site ,
+        [ a owl:Restriction ; owl:onProperty mc:hasRisk ; owl:someValuesFrom mc:Shoplifting ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasEvent ; owl:someValuesFrom mc:Brawl ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasActor ; owl:someValuesFrom mc:Lone_offender ] ,
+        [ a owl:Restriction ; owl:onProperty mc:isFragileTo ; owl:someValuesFrom mc:Crowding ] .
+
+mc:Jewelry_shop a owl:Class ;
+    rdfs:subClassOf mc:Commercial_site ,
+        [ a owl:Restriction ; owl:onProperty mc:hasRisk ; owl:someValuesFrom mc:Robbery ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasRisk ; owl:someValuesFrom mc:Burglary ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasEvent ; owl:someValuesFrom mc:Break_in ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasActor ; owl:someValuesFrom mc:Organized_group ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasWeakness ; owl:someValuesFrom mc:Weak_locks ] .
+
+mc:Post_office a owl:Class ;
+    rdfs:subClassOf mc:Commercial_site ,
+        [ a owl:Restriction ; owl:onProperty mc:hasRisk ; owl:someValuesFrom mc:Post_office_robbery ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasRisk ; owl:someValuesFrom mc:Fraud ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasEvent ; owl:someValuesFrom mc:Armed_assault ] ,
+        [ a owl:Restriction ; owl:onProperty mc:isFragileTo ; owl:someValuesFrom mc:Isolated_location ] .
+
+mc:Bar a owl:Class ;
+    rdfs:label "Bar"@it, "Bar"@en ;
+    rdfs:subClassOf
+        [ a owl:Restriction ; owl:onProperty mc:hasRisk ; owl:someValuesFrom mc:Vandalism ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasRisk ; owl:someValuesFrom mc:Public_disorder ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasEvent ; owl:someValuesFrom mc:Brawl ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasActor ; owl:someValuesFrom mc:Lone_offender ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasWeakness ; owl:someValuesFrom mc:Poor_lighting ] .
+
+mc:Nightclub a owl:Class ;
+    rdfs:subClassOf
+        [ a owl:Restriction ; owl:onProperty mc:hasRisk ; owl:someValuesFrom mc:Public_disorder ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasRisk ; owl:someValuesFrom mc:Pickpocketing ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasEvent ; owl:someValuesFrom mc:Brawl ] ,
+        [ a owl:Restriction ; owl:onProperty mc:isFragileTo ; owl:someValuesFrom mc:Crowding ] .
+
+mc:Railway_station a owl:Class ;
+    rdfs:label "Stazione ferroviaria"@it, "Railway station"@en ;
+    rdfs:subClassOf
+        [ a owl:Restriction ; owl:onProperty mc:hasRisk ; owl:someValuesFrom mc:Pickpocketing ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasRisk ; owl:someValuesFrom mc:Street_robbery ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasActor ; owl:someValuesFrom mc:Lone_offender ] ,
+        [ a owl:Restriction ; owl:onProperty mc:isFragileTo ; owl:someValuesFrom mc:Crowding ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasWeakness ; owl:someValuesFrom mc:Poor_lighting ] .
+
+mc:School a owl:Class ;
+    rdfs:label "Scuola"@it, "School"@en ;
+    rdfs:subClassOf
+        [ a owl:Restriction ; owl:onProperty mc:hasRisk ; owl:someValuesFrom mc:Vandalism ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasRisk ; owl:someValuesFrom mc:Arson ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasEvent ; owl:someValuesFrom mc:Break_in ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasWeakness ; owl:someValuesFrom mc:Isolated_location ] .
+
+mc:Car_park a owl:Class ;
+    rdfs:subClassOf
+        [ a owl:Restriction ; owl:onProperty mc:hasRisk ; owl:someValuesFrom mc:Car_theft ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasRisk ; owl:someValuesFrom mc:Vandalism ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasActor ; owl:someValuesFrom mc:Lone_offender ] ,
+        [ a owl:Restriction ; owl:onProperty mc:hasWeakness ; owl:someValuesFrom mc:Poor_lighting ] .
+
+# --- Rischi, eventi, attori, vulnerabilita' (classi dichiarate, senza etichette) ---
+
+mc:Bank_robbery a owl:Class .
+mc:Post_office_robbery a owl:Class .
+mc:Robbery a owl:Class .
+mc:Street_robbery a owl:Class .
+mc:Theft a owl:Class .
+mc:Shoplifting a owl:Class .
+mc:Pickpocketing a owl:Class .
+mc:Car_theft a owl:Class .
+mc:Arson a owl:Class .
+mc:Vandalism a owl:Class .
+mc:Public_disorder a owl:Class .
+mc:Burglary a owl:Class .
+mc:Fraud a owl:Class .
+mc:Armed_assault a owl:Class .
+mc:Break_in a owl:Class .
+mc:Brawl a owl:Class .
+mc:Organized_group a owl:Class .
+mc:Lone_offender a owl:Class .
+mc:Crowding a owl:Class .
+mc:Isolated_location a owl:Class .
+mc:Poor_lighting a owl:Class .
+mc:Weak_locks a owl:Class .

@@ -340,6 +340,55 @@ def test_default_senza_intestazione_422_e_idempotente(client: TestClient) -> Non
     assert client.delete("/sources", headers={H: SID}).status_code == 200
 
 
+def test_esempio_si_attiva_con_un_solo_comando(client: TestClient) -> None:
+    r = client.post("/sources/example", headers={H: SID})
+    assert r.status_code == 200, r.text
+    corpo = r.json()
+    assert corpo["stato"] == "attivo"
+    assert corpo["scade_tra_secondi"] == 100
+    assert corpo["set"]["kind"] == "example"
+    assert corpo["set"]["selettori_osm"] > 0
+    assert corpo["set"]["luoghi"] == [
+        "Comune di Milano",
+        "Comune di Roma",
+        "Comune di Napoli",
+    ]
+    assert any(a["code"] == "etichetta_mancante" for a in corpo["set"]["avvisi"])
+    assert client.get("/probe", headers={H: SID}).json() == {"set": "example"}
+    assert client.get("/sources", headers={H: SID}).json()["set"]["kind"] == "example"
+
+
+def test_esempio_senza_intestazione_o_malformata_422(client: TestClient) -> None:
+    assert client.post("/sources/example").status_code == 422
+    assert client.post("/sources/example", headers={H: "corto"}).status_code == 422
+
+
+def test_esempio_vale_solo_per_la_sessione_che_lo_attiva(client: TestClient) -> None:
+    client.post("/sources/example", headers={H: SID})
+    assert client.get("/probe", headers={H: SID2}).json() == {"set": "default"}
+    assert client.get("/sources", headers={H: SID2}).json()["stato"] == "default"
+
+
+def test_esempio_sostituisce_un_set_caricato_e_delete_torna_al_default(
+    client: TestClient,
+) -> None:
+    assert _upload(client).status_code == 200
+    assert client.get("/sources", headers={H: SID}).json()["set"]["kind"] == "custom"
+    assert client.post("/sources/example", headers={H: SID}).status_code == 200
+    assert client.get("/probe", headers={H: SID}).json() == {"set": "example"}
+    assert client.delete("/sources", headers={H: SID}).json()["stato"] == "default"
+    assert client.get("/probe", headers={H: SID}).json() == {"set": "default"}
+
+
+def test_esempio_riattivato_dopo_la_scadenza(
+    client: TestClient, clock: Orologio
+) -> None:
+    client.post("/sources/example", headers={H: SID})
+    clock.t = 101.0
+    assert client.get("/sources", headers={H: SID}).json()["stato"] == "scaduto"
+    assert client.post("/sources/example", headers={H: SID}).json()["stato"] == "attivo"
+
+
 @pytest.mark.parametrize("nome", ["osm_table", "data", "hazard_table"])
 def test_modelli_scaricabili(client: TestClient, nome: str) -> None:
     r = client.get(f"/sources/templates/{nome}")

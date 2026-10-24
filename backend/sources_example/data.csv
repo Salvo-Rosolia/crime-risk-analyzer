@@ -1,0 +1,89 @@
+luogo,voce,voce_etichetta,anno,delitti,tasso,tasso_sotto_soglia
+IT,TOT,totale,2024,2399347,4069.6,no
+IT,TOT,totale,2014,2812936,4663.3,no
+IT,ROBBER,rapine,2024,28709,48.7,no
+IT,ROBBER,rapine,2014,39236,65.0,no
+IT,THEFT,furti,2024,1054599,1788.7,no
+IT,THEFT,furti,2014,1573213,2608.1,no
+IT,SHOPTHEF,furti in esercizi commerciali,2024,74267,126.0,no
+IT,SHOPTHEF,furti in esercizi commerciali,2014,106457,176.5,no
+IT,STREETROB,rapine in pubblica via,2024,16550,28.1,no
+IT,STREETROB,rapine in pubblica via,2014,20528,34.0,no
+IT,BAGTHEF,furti con strappo,2024,13487,22.9,no
+IT,BAGTHEF,furti con strappo,2014,19109,31.7,no
+IT,CARTHEF,furti di autovetture,2024,103876,176.2,no
+IT,CARTHEF,furti di autovetture,2014,119957,198.9,no
+IT,DAMAGE,danneggiamenti,2024,277984,471.5,no
+IT,DAMAGE,danneggiamenti,2014,279277,463.0,no
+IT,ARSON,incendi,2024,5437,9.2,no
+IT,ARSON,incendi,2014,6855,11.4,no
+IT,BANKROB,rapine in banca,2024,63,0.1,no
+IT,BANKROB,rapine in banca,2014,789,1.3,no
+IT,POSTROB,rapine in uffici postali,2024,122,0.2,no
+IT,POSTROB,rapine in uffici postali,2014,353,0.6,no
+058091,TOT,totale,2024,217536,7906.3,no
+058091,TOT,totale,2014,216750,7829.0,no
+058091,ROBBER,rapine,2024,3038,110.4,no
+058091,ROBBER,rapine,2014,3570,128.9,no
+058091,THEFT,furti,2024,134169,4876.4,no
+058091,THEFT,furti,2014,148910,5378.6,no
+058091,SHOPTHEF,furti in esercizi commerciali,2024,6028,219.1,no
+058091,SHOPTHEF,furti in esercizi commerciali,2014,7277,262.8,no
+058091,STREETROB,rapine in pubblica via,2024,1864,67.7,no
+058091,STREETROB,rapine in pubblica via,2014,1838,66.4,no
+058091,BAGTHEF,furti con strappo,2024,1697,61.7,no
+058091,BAGTHEF,furti con strappo,2014,1954,70.6,no
+058091,CARTHEF,furti di autovetture,2024,13985,508.3,no
+058091,CARTHEF,furti di autovetture,2014,14834,535.8,no
+058091,DAMAGE,danneggiamenti,2024,19843,721.2,no
+058091,DAMAGE,danneggiamenti,2014,16417,593.0,no
+058091,ARSON,incendi,2024,213,7.7,no
+058091,ARSON,incendi,2014,170,6.1,no
+058091,BANKROB,rapine in banca,2024,3,0.1,no
+058091,BANKROB,rapine in banca,2014,46,1.7,no
+058091,POSTROB,rapine in uffici postali,2024,10,0.4,no
+058091,POSTROB,rapine in uffici postali,2014,20,0.7,no
+015146,TOT,totale,2024,140974,10342.7,no
+015146,TOT,totale,2014,162177,12181.4,no
+015146,ROBBER,rapine,2024,3499,256.7,no
+015146,ROBBER,rapine,2014,3340,250.9,no
+015146,THEFT,furti,2024,80580,5911.9,no
+015146,THEFT,furti,2014,104287,7833.2,no
+015146,SHOPTHEF,furti in esercizi commerciali,2024,5376,394.4,no
+015146,SHOPTHEF,furti in esercizi commerciali,2014,7774,583.9,no
+015146,STREETROB,rapine in pubblica via,2024,2130,156.3,no
+015146,STREETROB,rapine in pubblica via,2014,2072,155.6,no
+015146,BAGTHEF,furti con strappo,2024,1839,134.9,no
+015146,BAGTHEF,furti con strappo,2014,1872,140.6,no
+015146,CARTHEF,furti di autovetture,2024,3554,260.7,no
+015146,CARTHEF,furti di autovetture,2014,6803,511.0,no
+015146,DAMAGE,danneggiamenti,2024,17581,1289.9,no
+015146,DAMAGE,danneggiamenti,2014,18004,1352.3,no
+015146,ARSON,incendi,2024,71,5.2,no
+015146,ARSON,incendi,2014,123,9.2,no
+015146,BANKROB,rapine in banca,2024,0,0.0,no
+015146,BANKROB,rapine in banca,2014,33,2.5,no
+015146,POSTROB,rapine in uffici postali,2024,0,0.0,no
+015146,POSTROB,rapine in uffici postali,2014,17,1.3,no
+063049,TOT,totale,2024,59506,6520.6,no
+063049,TOT,totale,2014,59594,6182.5,no
+063049,ROBBER,rapine,2024,1325,145.2,no
+063049,ROBBER,rapine,2014,2867,297.4,no
+063049,THEFT,furti,2024,28331,3104.5,no
+063049,THEFT,furti,2014,32354,3356.5,no
+063049,SHOPTHEF,furti in esercizi commerciali,2024,708,77.6,no
+063049,SHOPTHEF,furti in esercizi commerciali,2014,1190,123.5,no
+063049,STREETROB,rapine in pubblica via,2024,1001,109.7,no
+063049,STREETROB,rapine in pubblica via,2014,2197,227.9,no
+063049,BAGTHEF,furti con strappo,2024,1040,114.0,no
+063049,BAGTHEF,furti con strappo,2014,1600,166.0,no
+063049,CARTHEF,furti di autovetture,2024,5730,627.9,no
+063049,CARTHEF,furti di autovetture,2014,6143,637.3,no
+063049,DAMAGE,danneggiamenti,2024,2281,250.0,no
+063049,DAMAGE,danneggiamenti,2014,2036,211.2,no
+063049,ARSON,incendi,2024,78,8.5,no
+063049,ARSON,incendi,2014,75,7.8,no
+063049,BANKROB,rapine in banca,2024,3,0.3,no
+063049,BANKROB,rapine in banca,2014,11,1.1,no
+063049,POSTROB,rapine in uffici postali,2024,4,0.4,no
+063049,POSTROB,rapine in uffici postali,2014,9,0.9,no

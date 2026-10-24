@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Callable
+from typing import Literal
 
 from rdflib import Graph
 
@@ -18,9 +19,11 @@ from crime_risk_analyzer.sources.model import (
 )
 from crime_risk_analyzer.sources.parsing import ParsedSources
 from crime_risk_analyzer.sources.report import SourceValidationError, ValidationReport
+from crime_risk_analyzer.sources.vocabulary import OntologyVocabulary
 from crime_risk_analyzer.sparql_module.query_executor import RiskQueryExecutor
 
 __all__ = [
+    "EXAMPLE_ID",
     "ExecutorFactory",
     "build_source_set",
     "default_executor_factory",
@@ -30,27 +33,38 @@ __all__ = [
 ExecutorFactory = Callable[[Graph, OntologyConfig], RiskQueryExecutor]
 
 
-def default_executor_factory(graph: Graph, config: OntologyConfig) -> RiskQueryExecutor:
-    """Executor sul grafo caricato.
+#: Id del set d'esempio: fisso, perche' il set e' uno solo e condiviso (costruito
+#: una volta); i set ``custom`` hanno invece un id nuovo a ogni caricamento.
+EXAMPLE_ID = "example"
 
-    PUNTO DI COLLEGAMENTO con #412: oggi ``RiskQueryExecutor`` conosce solo il
-    namespace e le proprieta' TERMINUS e ignora ``config``; quando l'executor
-    accettera' un :class:`OntologyConfig` va passato qui, e solo qui.
-    """
-    del config
-    return RiskQueryExecutor(graph)
+
+def default_executor_factory(graph: Graph, config: OntologyConfig) -> RiskQueryExecutor:
+    """Executor sul grafo caricato, con namespace e proprieta' del set."""
+    return RiskQueryExecutor(
+        graph,
+        vocabulary=OntologyVocabulary(
+            namespace=config.namespace,
+            hazard=config.hazard,
+            critical_event=config.critical_event,
+            performer=config.performer,
+            vulnerability=config.vulnerability,
+        ),
+    )
 
 
 def build_source_set(
     parsed: ParsedSources,
     *,
+    kind: Literal["example", "custom"] = "custom",
     executor_factory: ExecutorFactory = default_executor_factory,
 ) -> SourceSet:
-    """Impacchetta le fonti controllate in un set con id nuovo e univoco.
+    """Impacchetta le fonti controllate in un set.
 
-    L'id e' diverso a ogni caricamento (anche con file identici): e' la parte
-    della chiave di cache di zona e dell'impronta del contesto che separa le
-    sessioni e che invalida la cache quando una sessione ricarica.
+    Un set ``custom`` ha un id nuovo e univoco a ogni caricamento (anche con file
+    identici): e' la parte della chiave di cache di zona e dell'impronta del
+    contesto che separa le sessioni e che invalida la cache quando una sessione
+    ricarica. Il set ``example`` ha l'id fisso :data:`EXAMPLE_ID`: chi lo usa lo
+    costruisce una volta sola e lo condivide.
 
     Raises:
         SourceValidationError: due classi del binding OSM hanno lo stesso alias di
@@ -65,8 +79,8 @@ def build_source_set(
         vulnerability=parsed.vocabulary.vulnerability,
     )
     source_set = SourceSet(
-        id=_nuovo_id(),
-        kind="custom",
+        id=_nuovo_id() if kind == "custom" else EXAMPLE_ID,
+        kind=kind,
         graph=parsed.graph,
         ontology=config,
         executor=executor_factory(parsed.graph, config),
