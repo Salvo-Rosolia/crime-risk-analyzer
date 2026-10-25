@@ -1,0 +1,186 @@
+<div class="cra-sources-scrim">
+  <div
+    #dialog
+    class="cra-sources-dialog"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="cra-sources-title"
+    tabindex="-1"
+    [attr.aria-busy]="store.busy() !== null"
+  >
+    <header class="cra-sources-head">
+      <h2 id="cra-sources-title">Fonti</h2>
+      <button
+        type="button"
+        class="cra-sources-close"
+        aria-label="Chiudi"
+        [disabled]="store.busy() !== null"
+        (click)="onClose()"
+      >
+        ×
+      </button>
+    </header>
+
+    <p class="cra-sources-intro">
+      Le fonti sono i file su cui si basa l'analisi. Se non ne carichi, si usano quelle predefinite.
+      Le fonti caricate valgono solo per questa sessione.
+    </p>
+
+    <p class="cra-active-summary">
+      <b>Fonti attive: {{ store.indicator().label }}</b>
+      @if (summary(); as text) {
+        <span>{{ text }}</span>
+      }
+      @if (expiry(); as text) {
+        <span>{{ text }}</span>
+      }
+      @if (store.indicator().kind === 'expired') {
+        <span>Le fonti caricate sono scadute: caricale di nuovo o torna al default.</span>
+      }
+    </p>
+
+    <p class="cra-sources-note">Cambiando le fonti le analisi in corso verranno azzerate.</p>
+
+    <p class="cra-sr-status" role="status" aria-live="polite">{{ busyText() }}</p>
+
+    <div class="cra-sources-quick">
+      <button
+        type="button"
+        class="cra-btn-outline"
+        [disabled]="store.busy() !== null"
+        (click)="onUseExample()"
+      >
+        Usa l'esempio
+      </button>
+      <button
+        type="button"
+        class="cra-btn-outline"
+        [disabled]="store.busy() !== null"
+        (click)="onReset()"
+      >
+        Torna al default
+      </button>
+    </div>
+
+    @if (store.report()) {
+      <p class="cra-sources-alert" role="alert">
+        I file non sono stati accettati: correggi i problemi qui sotto e riprova. Le fonti attive
+        non sono cambiate.
+      </p>
+    }
+    @if (vocabularyHint()) {
+      <p class="cra-sources-hint" role="note">
+        Molti errori riguardano i nomi dell'ontologia. Se stai provando i file d'esempio o
+        un'ontologia che non usa i nomi di TERMINUS, apri «Impostazioni avanzate dell'ontologia» e
+        indica il namespace e i nomi delle proprietà. Gli errori restano elencati qui sotto.
+      </p>
+    }
+    @if (generalProblems().length) {
+      <ul class="cra-problems cra-problems-general" aria-label="Altri problemi del controllo">
+        @for (item of generalProblems(); track $index) {
+          <li [class]="item.kind === 'error' ? 'cra-problem-error' : 'cra-problem-warning'">
+            <span class="cra-problem-tag">{{ item.kind === 'error' ? 'Errore' : 'Avviso' }}</span>
+            {{ lineText(item.p) }}{{ messageText(item.p) }}
+          </li>
+        }
+      </ul>
+    }
+    @if (store.message(); as msg) {
+      <p class="cra-sources-alert" role="alert">{{ msg }}</p>
+    }
+
+    <ng-template #slotTpl let-slot>
+      <div class="cra-slot" [attr.data-slot]="slot.key">
+        <label [for]="'cra-src-' + slot.key">
+          {{ slot.label }}
+          @if (slot.required) {
+            <span class="cra-required" aria-hidden="true">*</span>
+          } @else {
+            <span class="cra-optional">(facoltativo)</span>
+          }
+        </label>
+        <input
+          type="file"
+          [id]="'cra-src-' + slot.key"
+          [accept]="slot.accept"
+          [attr.aria-required]="slot.required ? true : null"
+          [attr.aria-describedby]="'cra-src-' + slot.key + '-hint'"
+          (change)="onFile(slot.key, $event)"
+        />
+        <span class="cra-slot-hint" [id]="'cra-src-' + slot.key + '-hint'">
+          {{ slot.hint }}
+          @if (slot.template; as tpl) {
+            <a [href]="templateUrl(tpl)" download>Scarica il modello</a>
+          }
+        </span>
+        @if (errorsFor(slot.key); as list) {
+          <ul class="cra-problems">
+            @for (p of list; track $index) {
+              <li class="cra-problem-error">
+                <span class="cra-problem-tag">Errore</span> {{ lineText(p) }}{{ messageText(p) }}
+              </li>
+            }
+          </ul>
+        }
+        @if (warningsFor(slot.key); as list) {
+          <ul class="cra-problems">
+            @for (p of list; track $index) {
+              <li class="cra-problem-warning">
+                <span class="cra-problem-tag">Avviso</span> {{ lineText(p) }}{{ messageText(p) }}
+              </li>
+            }
+          </ul>
+        }
+      </div>
+    </ng-template>
+
+    <form (submit)="onSubmit($event)">
+      <section class="cra-sources-section" aria-labelledby="cra-sources-ontology-h">
+        <h3 id="cra-sources-ontology-h">Ontologia</h3>
+        @for (slot of ontologySlots; track slot.key) {
+          <ng-container
+            [ngTemplateOutlet]="slotTpl"
+            [ngTemplateOutletContext]="{ $implicit: slot }"
+          />
+        }
+        <details class="cra-advanced">
+          <summary>Impostazioni avanzate dell'ontologia</summary>
+          <p class="cra-slot-hint">
+            Lascia vuoto per usare i nomi dell'ontologia TERMINUS. Compila solo se la tua ontologia
+            usa altri nomi.
+          </p>
+          @for (field of vocabularyFields; track field.key) {
+            <div class="cra-field">
+              <label [for]="'cra-src-' + field.key">{{ field.label }}</label>
+              <input
+                type="text"
+                [id]="'cra-src-' + field.key"
+                autocomplete="off"
+                [placeholder]="field.placeholder"
+                (input)="onVocabulary(field.key, $event)"
+              />
+            </div>
+          }
+        </details>
+      </section>
+
+      <section class="cra-sources-section" aria-labelledby="cra-sources-data-h">
+        <h3 id="cra-sources-data-h">Dati</h3>
+        @for (slot of dataSlots; track slot.key) {
+          <ng-container
+            [ngTemplateOutlet]="slotTpl"
+            [ngTemplateOutletContext]="{ $implicit: slot }"
+          />
+        }
+      </section>
+
+      <button type="submit" class="cra-btn-solid" [disabled]="!canUpload()">
+        @if (store.busy() === 'upload') {
+          Controllo in corso…
+        } @else {
+          Carica le fonti
+        }
+      </button>
+    </form>
+  </div>
+</div>

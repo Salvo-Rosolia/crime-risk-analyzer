@@ -180,6 +180,51 @@ describe('ApiService', () => {
     expect(await p2).toEqual([poiTypes[0]]);
   });
 
+  const expired = {
+    status: 410,
+    statusText: 'Gone',
+  };
+  const expiredBody = { detail: { errore: 'fonti_scadute', messaggio: 'scadute' } };
+
+  it('poiTypes: dopo invalidatePoiTypes rilegge l’elenco (il set di fonti è cambiato)', async () => {
+    const p1 = api.poiTypes();
+    http.expectOne('/poi-types').flush(poiTypes);
+    await p1;
+    api.invalidatePoiTypes();
+    const p2 = api.poiTypes();
+    http.expectOne('/poi-types').flush([poiTypes[0]]);
+    expect(await p2).toEqual([poiTypes[0]]);
+  });
+
+  it('poiTypes: 410 fonti_scadute dopo un elenco già ricevuto mantiene quell’elenco e ritenta alla lettura dopo', async () => {
+    const p1 = api.poiTypes();
+    http.expectOne('/poi-types').flush(poiTypes);
+    await p1;
+    api.invalidatePoiTypes();
+    const p2 = api.poiTypes();
+    http.expectOne('/poi-types').flush(expiredBody, expired);
+    expect(await p2).toEqual(poiTypes);
+    const p3 = api.poiTypes();
+    http.expectOne('/poi-types').flush([poiTypes[1]]);
+    expect(await p3).toEqual([poiTypes[1]]);
+  });
+
+  it('poiTypes: 410 senza un elenco precedente fallisce come prima, senza crash', async () => {
+    const p1 = api.poiTypes();
+    http.expectOne('/poi-types').flush(expiredBody, expired);
+    await expect(p1).rejects.toBeTruthy();
+  });
+
+  it('poiTypes: un errore diverso da 410 non riusa l’elenco precedente', async () => {
+    const p1 = api.poiTypes();
+    http.expectOne('/poi-types').flush(poiTypes);
+    await p1;
+    api.invalidatePoiTypes();
+    const p2 = api.poiTypes();
+    http.expectOne('/poi-types').flush('boom', { status: 503, statusText: 'Service Unavailable' });
+    await expect(p2).rejects.toBeTruthy();
+  });
+
   it('geocodePlace chiama GET /geocode con la query', async () => {
     const promise = api.geocodePlace('Duomo di Milano');
     const req = http.expectOne((r) => r.url === '/geocode');

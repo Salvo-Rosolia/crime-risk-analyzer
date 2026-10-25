@@ -381,3 +381,53 @@ export type Action =
       llmUsed: string;
     }
   | { type: 'ZONE_NARRATIVE_ERROR'; message: string };
+
+/** Campo di caricamento a cui un problema del controllo si aggancia (`Problem.file` del backend). */
+export type SourceFile = 'ontology' | 'osm_table' | 'data' | 'hazard_table' | 'boundaries';
+
+/** Modelli CSV scaricabili (`GET /sources/templates/{name}`). */
+export type SourceTemplate = 'osm_table' | 'data' | 'hazard_table';
+
+/** Un errore o avviso del controllo dei file: `message` è già in italiano, `line` solo per i CSV. */
+export interface SourceProblem {
+  code: string;
+  file: SourceFile;
+  message: string;
+  line: number | null;
+}
+
+/** Riepilogo del set attivo; `kind` distingue "Esempio" da "Personalizzate". */
+export interface SourceSetSummary {
+  kind: 'example' | 'custom';
+  classi: number;
+  selettori_osm: number;
+  versione_dati: string | null;
+  luoghi: string[];
+  avvisi: SourceProblem[];
+}
+
+/** Risposta di tutte le rotte `/sources` (stato della sessione). */
+export interface SourcesStatus {
+  stato: 'default' | 'attivo' | 'scaduto';
+  scade_tra_secondi: number | null;
+  set: SourceSetSummary | null;
+}
+
+/** Vocabolario dell'ontologia caricata: vuoto = quello TERMINUS (lo decide il backend). */
+export interface SourceVocabulary {
+  namespace?: string;
+  hazard?: string;
+  critical_event?: string;
+  performer?: string;
+  vulnerability?: string[];
+}
+
+/** File scelti per il caricamento: i quattro obbligatori più i confini facoltativi. */
+export interface SourceUpload {
+  ontology: File;
+  osm_table: File;
+  data: File;
+  hazard_table: File;
+  boundaries?: File | null;
+  vocabulary?: SourceVocabulary;
+}

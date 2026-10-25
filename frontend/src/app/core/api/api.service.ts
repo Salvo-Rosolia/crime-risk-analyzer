@@ -1,12 +1,16 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
+import { isSourcesExpired } from './sources-expired';
 import {
   AnalyzeResponse,
   BaselineParams,
   PoiNarrativeResponse,
   PoiType,
   SearchArea,
+  SourceTemplate,
+  SourcesStatus,
+  SourceUpload,
   ZoneNarrativeResponse,
 } from '@core/models/models';
 
@@ -32,6 +36,8 @@ export class ApiService {
   private citiesPromise: Promise<string[]> | null = null;
   /** Stessa memoizzazione di `citiesPromise`, per `poiTypes()` (#143). */
   private poiTypesPromise: Promise<PoiType[]> | null = null;
+  /** Ultimo elenco di tipi POI ricevuto: ripiego se le fonti scadono prima di una rilettura. */
+  private lastPoiTypes: PoiType[] | null = null;
 
   /**
    * Elenco delle città suggerite per il datalist dei pannelli di ricerca (`GET /cities`): UNA sola
@@ -57,12 +63,25 @@ export class ApiService {
    */
   poiTypes(): Promise<PoiType[]> {
     if (!this.poiTypesPromise) {
-      this.poiTypesPromise = firstValueFrom(this.http.get<PoiType[]>('/poi-types')).catch((err) => {
-        this.poiTypesPromise = null;
-        throw err;
-      });
+      this.poiTypesPromise = firstValueFrom(this.http.get<PoiType[]>('/poi-types'))
+        .then((types) => (this.lastPoiTypes = types))
+        .catch((err) => {
+          this.poiTypesPromise = null;
+          // Fonti scadute: il select non si svuota, resta l'ultimo elenco noto. La lettura
+          // successiva ritenta (dopo il ritorno al default o un nuovo caricamento).
+          if (isSourcesExpired(err) && this.lastPoiTypes) return this.lastPoiTypes;
+          throw err;
+        });
     }
     return this.poiTypesPromise;
+  }
+
+  /**
+   * I tipi POI dipendono dal set di fonti attivo: quando il set cambia (caricamento, esempio,
+   * default) la prossima `poiTypes()` rilegge dal backend invece di riusare l'elenco memoizzato.
+   */
+  invalidatePoiTypes(): void {
+    this.poiTypesPromise = null;
   }
 
   /**
@@ -128,5 +147,48 @@ export class ApiService {
     if (domanda && domanda.trim()) payload.domanda = domanda.trim();
 
     return firstValueFrom(this.http.post<ZoneNarrativeResponse>('/analyze/narrativa', payload));
+  }
+
+  /** Stato delle fonti della sessione (`GET /sources`): default, attive o scadute. */
+  sourcesStatus(): Promise<SourcesStatus> {
+    return firstValueFrom(this.http.get<SourcesStatus>('/sources'));
+  }
+
+  /**
+   * Carica i file e, se il controllo li accetta, attiva il set per la sessione (`POST /sources`,
+   * multipart). Con errori il backend risponde 422 con il report completo e non tocca il set già
+   * attivo. I campi del vocabolario lasciati vuoti non si mandano: valgono quelli TERMINUS.
+   */
+  uploadSources(upload: SourceUpload): Promise<SourcesStatus> {
+    const body = new FormData();
+    body.append('ontology', upload.ontology);
+    body.append('osm_table', upload.osm_table);
+    body.append('data', upload.data);
+    body.append('hazard_table', upload.hazard_table);
+    if (upload.boundaries) body.append('boundaries', upload.boundaries);
+    const v = upload.vocabulary;
+    for (const key of ['namespace', 'hazard', 'critical_event', 'performer'] as const) {
+      const value = v?.[key]?.trim();
+      if (value) body.append(key, value);
+    }
+    for (const value of v?.vulnerability ?? []) {
+      if (value.trim()) body.append('vulnerability', value.trim());
+    }
+    return firstValueFrom(this.http.post<SourcesStatus>('/sources', body));
+  }
+
+  /** Attiva il set d'esempio senza caricare file (`POST /sources/example`). */
+  useExampleSources(): Promise<SourcesStatus> {
+    return firstValueFrom(this.http.post<SourcesStatus>('/sources/example', null));
+  }
+
+  /** Torna alle fonti predefinite (`DELETE /sources`, idempotente). */
+  resetSources(): Promise<SourcesStatus> {
+    return firstValueFrom(this.http.delete<SourcesStatus>('/sources'));
+  }
+
+  /** URL del modello CSV scaricabile: un link `download` basta, il backend manda l'allegato. */
+  templateUrl(name: SourceTemplate): string {
+    return `/sources/templates/${name}`;
   }
 }

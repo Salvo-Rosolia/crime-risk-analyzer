@@ -50,6 +50,14 @@
   --scrim: rgba(33, 31, 27, 0.4);
 }
 
+/* Schermi stretti: l'header va su due righe (titolo + Fonti, poi ricerca + modalità), così nulla
+   esce dal viewport. Il token resta l'unica fonte dell'altezza per mappa, pannelli e dialog. */
+@media (max-width: 767px) {
+  :root {
+    --header-height: 88px;
+  }
+}
+
 html,
 body {
   height: 100%;
