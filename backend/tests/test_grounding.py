@@ -172,7 +172,7 @@ def test_ground_trova_il_path_anche_sulla_seconda_property_della_vulnerabilita()
 ):
     """La vulnerabilita' usa DUE property (divergenza #78): entrambe vanno cercate.
 
-    Se ``_PROPS_VULNERABILITY`` perdesse ``havingVulnerability``, un filler che
+    Se ``OntologyConfig.vulnerability`` perdesse ``havingVulnerability``, un filler che
     nell'ontologia arriva da quella property non troverebbe il proprio path e
     ``_source_for`` ne SINTETIZZEREBBE uno su ``isVulnerableTo``: una citazione
     sintatticamente perfetta e FALSA, silenziosa, indistinguibile a valle da una
@@ -439,3 +439,71 @@ def test_ground_senza_dati_istat_non_fallisce(monkeypatch: _pytest.MonkeyPatch) 
     out = _ground(_contesto_istat(41.8902, 12.4922, ["Bank_robbery"]))
     assert out["validated_risks"][0].get("istat") is None
     assert out["validated_risks"][0]["risks"][0]["hazard"] == "Bank_robbery"
+
+
+def _custom_ontology_set() -> object:
+    import dataclasses
+
+    from crime_risk_analyzer.sources.context import default_set
+    from crime_risk_analyzer.sources.model import OntologyConfig
+
+    return dataclasses.replace(
+        default_set(),
+        id="proprieta-custom",
+        kind="custom",
+        ontology=OntologyConfig(
+            namespace="http://example.org/o#",
+            hazard="hasRisk",
+            critical_event="hasEvent",
+            performer="hasActor",
+            vulnerability=("weakTo",),
+        ),
+    )
+
+
+def test_ground_usa_le_proprieta_dell_ontologia_attiva_nel_fallback() -> None:
+    """Senza path nei ``sparql_paths`` la citazione sintetizzata usa le proprieta'
+    del set attivo, non quelle TERMINUS: ``Bank -> havingHazard`` non esiste in
+    un'ontologia che chiama la proprieta' ``hasRisk`` (#434)."""
+    from crime_risk_analyzer.sources.context import bind
+    from crime_risk_analyzer.sources.model import SourceSet
+
+    custom = _custom_ontology_set()
+    assert isinstance(custom, SourceSet)
+    prof = _profile(
+        "Bank",
+        hazards=["Robbery"],
+        critical_events=["Alarm"],
+        vulnerabilities=["Poor_surveillance"],
+        stakeholders=["Guard"],
+    )
+    with bind(custom):
+        out = ground(_ctx([_poi("1", "Banca", "Bank")], {"Bank": prof}))
+
+    vr = out["validated_risks"][0]
+    assert vr["risks"][0]["source"] == "Bank → hasRisk → Robbery"
+    assert vr["critical_events"][0]["source"] == "Bank → hasEvent → Alarm"
+    assert vr["vulnerabilities"][0]["source"] == "Bank → weakTo → Poor_surveillance"
+    assert vr["stakeholders"][0]["source"] == "Bank → hasActor → Guard"
+    assert vr["sparql_path"] == "Bank → hasRisk → Robbery"
+
+
+def test_ground_riconosce_i_path_con_le_proprieta_dell_ontologia_attiva() -> None:
+    """Un path reale ereditato da una superclasse con proprieta' custom viene preso
+    dai ``sparql_paths`` e non sintetizzato da ``terminus_class``."""
+    from crime_risk_analyzer.sources.context import bind
+    from crime_risk_analyzer.sources.model import SourceSet
+
+    custom = _custom_ontology_set()
+    assert isinstance(custom, SourceSet)
+    prof = _profile(
+        "Bank",
+        hazards=["Robbery"],
+        sparql_paths=["Building → hasRisk → Robbery"],
+    )
+    with bind(custom):
+        out = ground(_ctx([_poi("1", "Banca", "Bank")], {"Bank": prof}))
+
+    assert out["validated_risks"][0]["risks"][0]["source"] == (
+        "Building → hasRisk → Robbery"
+    )
