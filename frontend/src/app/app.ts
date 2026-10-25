@@ -175,8 +175,6 @@ export class App {
       if (revision === seen) return;
       seen = revision;
       untracked(() => {
-        // I tipi POI dipendono dal set di fonti: il prossimo pannello Base li rilegge.
-        this.api.invalidatePoiTypes();
         this.onResetConfirmed();
       });
     });
