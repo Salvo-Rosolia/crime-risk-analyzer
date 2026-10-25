@@ -114,13 +114,14 @@ async def cities(settings: Annotated[Settings, Depends(get_settings)]) -> list[s
     return settings.supported_cities
 
 
-@router.get("/poi-types", dependencies=_SESSIONE)
+@router.get("/poi-types")
 async def list_poi_types() -> list[PoiType]:
     """Catalogo dei tipi POI accettati da ``tipo_poi`` di ``/analyze/baseline`` (#143).
 
     Le classi TERMINUS che il mapping OSM puo' produrre, con l'etichetta IT del
-    vocabolario controllato, ordinate per etichetta. Legge il set di fonti della
-    sessione, se ne ha uno (#413); quello di default e' in cache. Nessuna rete.
+    vocabolario controllato, ordinate per etichetta. Serve sempre l'elenco del set
+    di default (in cache), senza ``_SESSIONE``: non legge ne' valida la sessione
+    delle fonti, quindi non risponde mai 410 ``fonti_scadute`` (#438). Nessuna rete.
     """
     return list(poi_types())
 

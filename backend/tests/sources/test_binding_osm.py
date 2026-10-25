@@ -275,43 +275,41 @@ def _client(store: SessionStore) -> TestClient:
     return TestClient(app)
 
 
-def test_endpoint_poi_types_con_set_custom_e_default() -> None:
+def test_endpoint_poi_types_ignora_la_sessione_e_serve_il_default() -> None:
+    """#438: l'elenco e' sempre quello del default, anche con un set custom attivo."""
     store = SessionStore(ttl_seconds=100, max_sessions=4)
     store.activate(SID, _custom(), [])
     client = _client(store)
 
-    custom = cast(
+    con_sessione = cast(
         httpx.Response,
         client.get("/poi-types", headers={"X-Session-Id": SID}),  # pyright: ignore[reportUnknownMemberType]
     )
     default = cast(httpx.Response, client.get("/poi-types"))  # pyright: ignore[reportUnknownMemberType]
 
-    assert custom.status_code == 200
-    assert {t["terminus_class"] for t in custom.json()} == {
-        "Banca",
-        "Gas_station",
-        "Monumento",
-        "Rovina",
-    }
-    assert {t["terminus_class"] for t in default.json()} == set(
+    assert con_sessione.status_code == 200
+    assert {t["terminus_class"] for t in con_sessione.json()} == set(
         OSM_TO_TERMINUS.values()
     )
+    assert con_sessione.json() == default.json()
 
 
-def test_endpoint_poi_types_con_sessione_scaduta_410() -> None:
+def test_endpoint_poi_types_con_sessione_scaduta_o_malformata_200() -> None:
+    """#438: niente 410 (ne' 422 per intestazione malformata): serve il default."""
     t = [0.0]
     store = SessionStore(ttl_seconds=100, max_sessions=4, clock=lambda: t[0])
     store.activate(SID, _custom(), [])
     client = _client(store)
     t[0] = 101.0
 
-    r = cast(
-        httpx.Response,
-        client.get("/poi-types", headers={"X-Session-Id": SID}),  # pyright: ignore[reportUnknownMemberType]
-    )
-
-    assert r.status_code == 410
-    assert r.json()["detail"]["errore"] == "fonti_scadute"
+    atteso = cast(httpx.Response, client.get("/poi-types")).json()  # pyright: ignore[reportUnknownMemberType]
+    for header in (SID, "x"):
+        r = cast(
+            httpx.Response,
+            client.get("/poi-types", headers={"X-Session-Id": header}),  # pyright: ignore[reportUnknownMemberType]
+        )
+        assert r.status_code == 200
+        assert r.json() == atteso
 
 
 # --- Overpass: selettori del set ---
