@@ -71,3 +71,32 @@
   cursor: not-allowed;
   opacity: 0.5;
 }
+
+/*
+ * Schermi stretti (< 768px, #441): l'host si dissolve (`display: contents`) e i suoi blocchi
+ * diventano flex item dell'header, che va a capo. Ordine: modalità accanto alla ricerca (riga 2),
+ * poi badge Copertura e chip di confidenza (riga 3, che a capo scendono se non entrano). Il
+ * divisore non serve più: i gruppi sono separati dal gap.
+ */
+@media (max-width: 767px) {
+  :host {
+    display: contents;
+  }
+
+  .cra-mode-toggle {
+    order: 4;
+  }
+
+  .cra-coverage-badge {
+    order: 5;
+  }
+
+  .cra-header-divider {
+    display: none;
+  }
+
+  .cra-chip-group {
+    order: 6;
+    flex-wrap: wrap;
+  }
+}
