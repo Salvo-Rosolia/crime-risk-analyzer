@@ -8,6 +8,7 @@ from dataclasses import replace
 import pytest
 
 from crime_risk_analyzer.istat.dati import CODICE_ITALIA, ValoreAnno
+from crime_risk_analyzer.sources.ontology_reader import _causa_leggibile  # pyright: ignore[reportPrivateUsage]
 from crime_risk_analyzer.sources.parsing import (
     ParsedSources,
     UploadedFiles,
@@ -243,6 +244,62 @@ def test_turtle_malformato() -> None:
     report = _report(con(ontology=b"questo non e' turtle @@@"))
     assert _codici(report.errors) == ["ontologia_illeggibile"]
     assert report.errors[0].file == "ontology"
+
+
+def test_turtle_malformato_messaggio_senza_frammento_di_file() -> None:
+    """#439: riga e causa si', il dump dei byte del file no."""
+    contenuto = (
+        b"@prefix a: <http://x/> .\na:b a:c a:d .\na:e a:f ;; SEGRETO-NEL-FILE @@@ .\n"
+    )
+    report = _report(con(ontology=contenuto))
+    messaggio = report.errors[0].message
+    assert "riga 3" in messaggio
+    assert "objectList expected" in messaggio
+    assert "SEGRETO-NEL-FILE" not in messaggio
+    assert "prefix" not in messaggio
+    assert "\\n" not in messaggio
+    assert "b'" not in messaggio
+
+
+def test_turtle_stringa_non_chiusa_messaggio_senza_contenuto() -> None:
+    """#439: anche gli errori non-BadSyntax di rdflib non lasciano il file."""
+    exc = Exception(
+        "at line 2 of <>:\nQuote expected in string at ^ in tp://x/> .\n"
+        'a:e a:f "^SEGRETO'
+    )
+    messaggio = _causa_leggibile(exc)
+    assert messaggio == "riga 2: Quote expected in string"
+
+
+@pytest.mark.parametrize(
+    ("testo", "atteso"),
+    [
+        ("\nfoo", "foo"),
+        ("  \n  bar  \nbaz", "bar"),
+        ("  ", "Exception"),
+        ("", "Exception"),
+        ("at line 4 of <>:\n", "riga 4: Exception"),
+    ],
+)
+def test_causa_leggibile_prima_riga_non_vuota(testo: str, atteso: str) -> None:
+    assert _causa_leggibile(Exception(testo)) == atteso
+
+
+def test_unicode_decode_error_messaggio_senza_byte_del_file() -> None:
+    try:
+        b"\xff\xfe\x00bad".decode("utf-8")
+    except UnicodeDecodeError as exc:
+        assert _causa_leggibile(exc).startswith("'utf-8' codec can't decode byte")
+    report = _report(con(ontology=b"\xff\xfe\x00bad"))
+    assert report.errors[0].message.startswith("ontologia non leggibile come turtle")
+
+
+def test_xml_malformato_messaggio_breve_senza_contenuto() -> None:
+    report = _report(con(ontology=b"<rdf:RDF><SEGRETO", ontology_name="mini.owl"))
+    messaggio = report.errors[0].message
+    assert "ontologia non leggibile come xml" in messaggio
+    assert "SEGRETO" not in messaggio
+    assert "\n" not in messaggio
 
 
 def test_ontologia_vuota() -> None:
