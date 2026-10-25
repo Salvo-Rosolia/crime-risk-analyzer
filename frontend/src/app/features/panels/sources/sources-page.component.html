@@ -68,12 +68,19 @@
         non sono cambiate.
       </p>
     }
+    @if (vocabularyHint()) {
+      <p class="cra-sources-hint" role="note">
+        Molti errori riguardano i nomi dell'ontologia. Se stai provando i file d'esempio o
+        un'ontologia che non usa i nomi di TERMINUS, apri «Impostazioni avanzate dell'ontologia» e
+        indica il namespace e i nomi delle proprietà. Gli errori restano elencati qui sotto.
+      </p>
+    }
     @if (generalProblems().length) {
       <ul class="cra-problems cra-problems-general" aria-label="Altri problemi del controllo">
         @for (item of generalProblems(); track $index) {
           <li [class]="item.kind === 'error' ? 'cra-problem-error' : 'cra-problem-warning'">
             <span class="cra-problem-tag">{{ item.kind === 'error' ? 'Errore' : 'Avviso' }}</span>
-            {{ lineText(item.p) }}{{ item.p.message }}
+            {{ lineText(item.p) }}{{ messageText(item.p) }}
           </li>
         }
       </ul>
@@ -110,7 +117,7 @@
           <ul class="cra-problems">
             @for (p of list; track $index) {
               <li class="cra-problem-error">
-                <span class="cra-problem-tag">Errore</span> {{ lineText(p) }}{{ p.message }}
+                <span class="cra-problem-tag">Errore</span> {{ lineText(p) }}{{ messageText(p) }}
               </li>
             }
           </ul>
@@ -119,7 +126,7 @@
           <ul class="cra-problems">
             @for (p of list; track $index) {
               <li class="cra-problem-warning">
-                <span class="cra-problem-tag">Avviso</span> {{ lineText(p) }}{{ p.message }}
+                <span class="cra-problem-tag">Avviso</span> {{ lineText(p) }}{{ messageText(p) }}
               </li>
             }
           </ul>

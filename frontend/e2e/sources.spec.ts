@@ -86,3 +86,30 @@ test('focus: entra nel dialog, Tab non esce, Esc lo restituisce all indicatore',
   await expect(dialog).toBeHidden();
   await expect(indicator(page)).toBeFocused();
 });
+
+for (const width of [390, 600]) {
+  test(`a ${width}px l'indicatore e il toggle di modalità sono visibili e cliccabili, senza scroll orizzontale`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 844 });
+    await mockApi(page);
+    await page.goto('/');
+    const scrolls = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    );
+    expect(scrolls).toBe(false);
+    for (const target of [
+      indicator(page),
+      page.locator('cra-header-controls').getByRole('button', { name: 'Base', exact: true }),
+    ]) {
+      await expect(target).toBeInViewport({ ratio: 1 });
+    }
+    const header = await page.locator('.cra-header').evaluate((el) => ({
+      scroll: el.scrollWidth,
+      client: el.clientWidth,
+    }));
+    expect(header.scroll).toBeLessThanOrEqual(header.client);
+    await indicator(page).click();
+    await expect(page.getByRole('dialog', { name: 'Fonti' })).toBeVisible();
+  });
+}

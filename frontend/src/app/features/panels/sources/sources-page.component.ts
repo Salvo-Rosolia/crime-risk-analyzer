@@ -90,6 +90,22 @@ const VOCABULARY_FIELDS = [
 
 type VocabularyKey = (typeof VOCABULARY_FIELDS)[number]['key'];
 
+/** Lunghezza massima di un messaggio del controllo mostrato in pagina. */
+const MAX_MESSAGE = 320;
+
+/**
+ * Rende leggibile un messaggio del controllo: toglie il frammento di file che il parser include
+ * dopo `in: "b'…` (illeggibile e inutile all'utente) e accorcia i testi troppo lunghi. La riga e la
+ * causa restano; il messaggio completo resta nella risposta del server.
+ */
+function shortMessage(message: string): string {
+  const text = message
+    .replace(/\s+in:\s*"?b'[\s\S]*$/, '')
+    .replace(/\s+at \^$/, '')
+    .trim();
+  return text.length > MAX_MESSAGE ? `${text.slice(0, MAX_MESSAGE).trimEnd()}…` : text;
+}
+
 function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
 }
@@ -173,9 +189,18 @@ export class SourcesPageComponent {
       plural(set.classi, 'classe', 'classi'),
       plural(set.selettori_osm, 'selettore OSM', 'selettori OSM'),
     ];
-    if (set.versione_dati) parts.push(`dati ${set.versione_dati}`);
+    if (set.versione_dati) parts.push(`versione dei dati ${set.versione_dati}`);
     if (set.luoghi.length) parts.push(`luoghi: ${set.luoghi.join(', ')}`);
     return parts.join(' · ');
+  });
+
+  /** Tanti errori sui nomi dell'ontologia: quasi sempre il vocabolario non è quello TERMINUS. */
+  protected readonly vocabularyHint = computed(() => {
+    const errors = this.store.report()?.errors ?? [];
+    return (
+      errors.some((e) => e.code === 'ontologia_senza_restrizioni') ||
+      errors.filter((e) => e.code === 'classe_assente_dall_ontologia').length >= 3
+    );
   });
 
   protected readonly expiry = computed(() => {
@@ -281,6 +306,10 @@ export class SourcesPageComponent {
 
   protected warningsFor(key: SourceFile): SourceProblem[] | undefined {
     return this.warningsByFile()[key];
+  }
+
+  protected messageText(problem: SourceProblem): string {
+    return shortMessage(problem.message);
   }
 
   protected lineText(problem: SourceProblem): string {

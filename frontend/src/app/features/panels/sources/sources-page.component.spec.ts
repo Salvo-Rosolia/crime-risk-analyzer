@@ -119,6 +119,64 @@ describe('SourcesPageComponent', () => {
     expect(reset).toHaveBeenCalled();
   });
 
+  it('con errori di vocabolario in massa suggerisce le Impostazioni avanzate senza nascondere gli errori', () => {
+    report.set({
+      errors: [
+        { code: 'ontologia_senza_restrizioni', file: 'ontology', message: 'nessuna', line: null },
+        ...[2, 3, 4].map((line) => ({
+          code: 'classe_assente_dall_ontologia',
+          file: 'osm_table' as const,
+          message: `la classe ${line} non esiste`,
+          line,
+        })),
+      ],
+      warnings: [],
+    });
+    fixture.detectChanges();
+    const hint = q('.cra-sources-hint')!;
+    expect(hint.textContent).toContain("Impostazioni avanzate dell'ontologia");
+    expect(hint.textContent).toContain('namespace');
+    expect(qa('.cra-problem-error').length).toBe(4);
+  });
+
+  it('un errore di altro tipo non mostra il suggerimento sul vocabolario', () => {
+    report.set({
+      errors: [{ code: 'colonna_mancante', file: 'data', message: 'manca anno', line: 1 }],
+      warnings: [],
+    });
+    fixture.detectChanges();
+    expect(q('.cra-sources-hint')).toBeNull();
+  });
+
+  it('accorcia il dump tecnico dell ontologia illeggibile, tenendo riga e causa', () => {
+    const dump =
+      "ontologia non leggibile come turtle: at line 2 of <>: Bad syntax (Keyword 'this' was ancient N3.) at ^ in:\n\"b'@prefix : <x> .\\n '^b'this is not turtle ;;;\\n'\"";
+    report.set({
+      errors: [{ code: 'ontologia_illeggibile', file: 'ontology', message: dump, line: null }],
+      warnings: [],
+    });
+    fixture.detectChanges();
+    const text = q('[data-slot=ontology] .cra-problem-error')!.textContent!;
+    expect(text).toContain('at line 2');
+    expect(text).toContain('Bad syntax');
+    expect(text).not.toContain("b'@prefix");
+  });
+
+  it('tronca un messaggio lunghissimo', () => {
+    report.set({
+      errors: [{ code: 'x', file: 'data', message: 'a'.repeat(900), line: 1 }],
+      warnings: [],
+    });
+    fixture.detectChanges();
+    expect(q('[data-slot=data] .cra-problem-error')!.textContent!.length).toBeLessThan(400);
+  });
+
+  it('il riepilogo etichetta la versione dei dati', () => {
+    current.set(status('custom'));
+    fixture.detectChanges();
+    expect(q('.cra-active-summary')?.textContent).toContain('versione dei dati 2024');
+  });
+
   it('mostra errori e avvisi del controllo sotto il file giusto, con la riga', () => {
     report.set({
       errors: [{ code: 'c', file: 'data', message: 'Colonna mancante: anno', line: 1 }],

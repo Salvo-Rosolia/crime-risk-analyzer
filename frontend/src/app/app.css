@@ -32,6 +32,47 @@
   flex: 1 1 auto;
 }
 
+/*
+ * Schermi stretti (< 768px): senza wrap l'header superava il viewport (691px) e l'indicatore Fonti
+ * e il toggle Completo/Base restavano fuori schermo. Riga 1: titolo + Fonti; riga 2: ricerca +
+ * modalità. Il tagline è decorativo e si nasconde. L'altezza è `--header-height` (styles.css).
+ */
+@media (max-width: 767px) {
+  .cra-header {
+    flex-wrap: wrap;
+    align-content: center;
+    row-gap: var(--space-2);
+    padding: 0 var(--space-3);
+  }
+
+  .cra-tagline {
+    display: none;
+  }
+
+  .cra-header-spacer {
+    order: 1;
+  }
+
+  cra-sources-indicator {
+    order: 2;
+  }
+
+  .cra-place-search {
+    order: 3;
+    flex: 1 1 120px;
+    min-width: 0;
+  }
+
+  .cra-place-search input {
+    width: 100%;
+    min-width: 0;
+  }
+
+  cra-header-controls {
+    order: 4;
+  }
+}
+
 cra-map {
   position: absolute;
   inset: var(--header-height) 0 0 0;

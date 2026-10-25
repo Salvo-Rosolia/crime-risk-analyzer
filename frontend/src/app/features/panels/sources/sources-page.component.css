@@ -83,13 +83,19 @@ h3 {
   gap: var(--space-2);
 }
 
-.cra-sources-alert {
+.cra-sources-alert,
+.cra-sources-hint {
   margin: 0;
   padding: var(--space-2) var(--space-3);
   background: var(--c-error-bg);
   color: var(--c-error);
   border-radius: calc(var(--radius) / 2);
   font-size: 0.85rem;
+}
+
+.cra-sources-hint {
+  background: var(--accent-bg);
+  color: var(--ink);
 }
 
 form {
@@ -141,6 +147,19 @@ input[type='file'] {
   font-size: 0.8rem;
 }
 
+input[type='file']::file-selector-button {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 0.8rem;
+  padding: var(--space-1) var(--space-3);
+  margin-right: var(--space-2);
+  border: 1.5px solid var(--ink);
+  border-radius: calc(var(--radius) / 2);
+  background: var(--paper-2);
+  color: var(--ink);
+  cursor: pointer;
+}
+
 a {
   margin-left: var(--space-1);
   color: var(--accent-2);
@@ -151,6 +170,10 @@ a {
   flex-direction: column;
   gap: var(--space-2);
   font-size: 0.8rem;
+}
+
+.cra-advanced .cra-field {
+  margin-top: var(--space-3);
 }
 
 .cra-advanced summary {
@@ -235,10 +258,14 @@ a:focus-visible,
 }
 
 /* Annuncio per gli screen reader dell'operazione in corso; a vista c'è già il pulsante "Controllo
-   in corso…" e i controlli disabilitati. */
+   in corso…" e i controlli disabilitati. Nascosto visivamente (non con display:none, che lo
+   toglierebbe dall'albero di accessibilità) e fuori dal flusso, così non lascia uno spazio vuoto. */
 .cra-sr-status {
-  margin: 0;
-  font-size: 0.8rem;
-  color: var(--ink-2);
-  min-height: 1.2em;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
