@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { mockApi, mockSources } from './support/mocking';
+import { drawSearchCircle } from './support/map';
+import { S } from './support/selectors';
 
 const indicator = (page: import('@playwright/test').Page) =>
   page.getByRole('button', { name: /Apri la pagina Fonti/ });
@@ -113,3 +115,33 @@ for (const width of [390, 600]) {
     await expect(page.getByRole('dialog', { name: 'Fonti' })).toBeVisible();
   });
 }
+
+test('i tipi POI del select Base si rileggono quando cambia il set di fonti', async ({ page }) => {
+  await mockApi(page);
+  let calls = 0;
+  await page.route('**/poi-types', (route) => {
+    calls += 1;
+    const json =
+      calls === 1
+        ? [{ terminus_class: 'Bank', label_it: 'Banca' }]
+        : [{ terminus_class: 'Bar', label_it: 'Bar' }];
+    return route.fulfill({ json });
+  });
+  await page.goto('/');
+  await drawSearchCircle(page);
+  await S.modeToggleButton(page, 'base').click();
+  await expect(S.baseTipoPoiOptions(page)).toHaveText(['Tutti i tipi', 'Banca']);
+
+  await indicator(page).click();
+  await page
+    .getByRole('dialog', { name: 'Fonti' })
+    .getByRole('button', { name: "Usa l'esempio" })
+    .click();
+  await expect(indicator(page)).toContainText('Fonti: Esempio');
+  await page.keyboard.press('Escape');
+
+  await drawSearchCircle(page);
+  await S.modeToggleButton(page, 'base').click();
+  await expect(S.baseTipoPoiOptions(page)).toHaveText(['Tutti i tipi', 'Bar']);
+  expect(calls).toBe(2);
+});

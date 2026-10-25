@@ -46,6 +46,7 @@ describe('App shell - fonti (#419)', () => {
     api = {
       cities: jest.fn().mockResolvedValue([]),
       poiTypes: jest.fn().mockResolvedValue([]),
+      invalidatePoiTypes: jest.fn(),
       sourcesStatus: jest.fn().mockResolvedValue(EXAMPLE),
       useExampleSources: jest.fn().mockResolvedValue(EXAMPLE),
       resetSources: jest
@@ -66,6 +67,16 @@ describe('App shell - fonti (#419)', () => {
     f.detectChanges();
     const ind = f.nativeElement.querySelector('header cra-sources-indicator button');
     expect(ind.textContent).toContain('Fonti: Esempio');
+  });
+
+  it("cambiando il set attivo l'elenco dei tipi POI viene invalidato, non a ogni lettura", async () => {
+    const f = TestBed.createComponent(App);
+    f.detectChanges();
+    await f.whenStable();
+    expect(api['invalidatePoiTypes']).not.toHaveBeenCalled();
+    await TestBed.inject(SourcesStore).reset();
+    f.detectChanges();
+    expect(api['invalidatePoiTypes']).toHaveBeenCalledTimes(1);
   });
 
   it("senza backend l'indicatore dice Predefinite", async () => {

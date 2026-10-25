@@ -174,7 +174,11 @@ export class App {
       const revision = this.sources.revision();
       if (revision === seen) return;
       seen = revision;
-      untracked(() => this.onResetConfirmed());
+      untracked(() => {
+        // I tipi POI dipendono dal set di fonti: il prossimo pannello Base li rilegge.
+        this.api.invalidatePoiTypes();
+        this.onResetConfirmed();
+      });
     });
     // Le fonti vivono nella sessione del server: all'avvio si rilegge quali sono attive (un
     // ricaricamento ritrova quelle caricate prima), così l'indicatore è giusto subito.

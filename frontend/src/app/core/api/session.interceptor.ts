@@ -1,17 +1,13 @@
-import { HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
+import { HttpInterceptorFn } from '@angular/common/http';
 import { inject } from '@angular/core';
 import { catchError, throwError } from 'rxjs';
 import { SourcesStore } from '@core/state/sources.store';
+import { isSourcesExpired } from './sources-expired';
 import { SESSION_HEADER, sessionId } from './session-id';
 
 /** URL verso il backend: relativo alla radice, ma non `//host` (protocol-relative, altro host). */
 function isBackendUrl(url: string): boolean {
   return url.startsWith('/') && !url.startsWith('//');
-}
-
-function isSourcesExpired(err: unknown): boolean {
-  if (!(err instanceof HttpErrorResponse) || err.status !== 410) return false;
-  return (err.error as { detail?: { errore?: string } } | null)?.detail?.errore === 'fonti_scadute';
 }
 
 /**
