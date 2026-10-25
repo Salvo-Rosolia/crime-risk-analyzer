@@ -71,6 +71,22 @@
   cra-header-controls {
     order: 4;
   }
+
+  /*
+   * Con i risultati a schermo (badge Copertura + chip, #441) l'header ha una terza riga. Il token
+   * resta l'unica fonte dell'altezza per mappa, pannelli e dialog: lo si ridefinisce qui, sullo
+   * stesso host che li contiene, quando l'header ospita il badge.
+   */
+  :host:has(.cra-coverage-badge) {
+    --header-height: 124px;
+  }
+}
+
+/* Sotto i 480px badge Copertura e chip non stanno nella stessa riga: la quarta riga li separa. */
+@media (max-width: 479px) {
+  :host:has(.cra-coverage-badge) {
+    --header-height: 160px;
+  }
 }
 
 cra-map {
