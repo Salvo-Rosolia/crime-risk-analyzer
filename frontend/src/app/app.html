@@ -19,6 +19,11 @@
       <span class="cra-place-error" role="alert">{{ msg }}</span>
     }
   </div>
+  <cra-sources-indicator
+    [label]="sources.indicator().label"
+    [kind]="sources.indicator().kind"
+    (openPage)="sources.openPage()"
+  />
   <cra-header-controls
     [data]="store.completoData()"
     [mode]="store.mode()"
@@ -142,3 +147,7 @@
     }
   }
 </section>
+
+@if (sources.open()) {
+  <cra-sources-page (closed)="sources.closePage()" />
+}

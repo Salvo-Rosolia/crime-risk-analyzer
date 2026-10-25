@@ -7,6 +7,9 @@ import {
   PoiNarrativeResponse,
   PoiType,
   SearchArea,
+  SourceTemplate,
+  SourcesStatus,
+  SourceUpload,
   ZoneNarrativeResponse,
 } from '@core/models/models';
 
@@ -128,5 +131,48 @@ export class ApiService {
     if (domanda && domanda.trim()) payload.domanda = domanda.trim();
 
     return firstValueFrom(this.http.post<ZoneNarrativeResponse>('/analyze/narrativa', payload));
+  }
+
+  /** Stato delle fonti della sessione (`GET /sources`): default, attive o scadute. */
+  sourcesStatus(): Promise<SourcesStatus> {
+    return firstValueFrom(this.http.get<SourcesStatus>('/sources'));
+  }
+
+  /**
+   * Carica i file e, se il controllo li accetta, attiva il set per la sessione (`POST /sources`,
+   * multipart). Con errori il backend risponde 422 con il report completo e non tocca il set già
+   * attivo. I campi del vocabolario lasciati vuoti non si mandano: valgono quelli TERMINUS.
+   */
+  uploadSources(upload: SourceUpload): Promise<SourcesStatus> {
+    const body = new FormData();
+    body.append('ontology', upload.ontology);
+    body.append('osm_table', upload.osm_table);
+    body.append('data', upload.data);
+    body.append('hazard_table', upload.hazard_table);
+    if (upload.boundaries) body.append('boundaries', upload.boundaries);
+    const v = upload.vocabulary;
+    for (const key of ['namespace', 'hazard', 'critical_event', 'performer'] as const) {
+      const value = v?.[key]?.trim();
+      if (value) body.append(key, value);
+    }
+    for (const value of v?.vulnerability ?? []) {
+      if (value.trim()) body.append('vulnerability', value.trim());
+    }
+    return firstValueFrom(this.http.post<SourcesStatus>('/sources', body));
+  }
+
+  /** Attiva il set d'esempio senza caricare file (`POST /sources/example`). */
+  useExampleSources(): Promise<SourcesStatus> {
+    return firstValueFrom(this.http.post<SourcesStatus>('/sources/example', null));
+  }
+
+  /** Torna alle fonti predefinite (`DELETE /sources`, idempotente). */
+  resetSources(): Promise<SourcesStatus> {
+    return firstValueFrom(this.http.delete<SourcesStatus>('/sources'));
+  }
+
+  /** URL del modello CSV scaricabile: un link `download` basta, il backend manda l'allegato. */
+  templateUrl(name: SourceTemplate): string {
+    return `/sources/templates/${name}`;
   }
 }

@@ -1,7 +1,11 @@
 import type { Page } from '@playwright/test';
 import cities from '../fixtures/cities.json';
 import poiTypes from '../fixtures/poi-types.json';
-import type { AnalyzeResponse } from '../../src/app/core/models/models';
+import type {
+  AnalyzeResponse,
+  SourceProblem,
+  SourcesStatus,
+} from '../../src/app/core/models/models';
 
 /**
  * Helper di mocking a livello browser (`page.route`) per gli E2E di parità (#69): nessuna
@@ -43,6 +47,7 @@ export interface MockOpts {
 }
 
 export async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
+  await mockSources(page);
   await page.route('**/cities', (route) => route.fulfill({ json: opts.cities ?? cities }));
   await page.route('**/poi-types', (route) =>
     route.fulfill({ status: opts.poiTypesStatus ?? 200, json: opts.poiTypes ?? poiTypes }),
@@ -104,4 +109,61 @@ export async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
       }),
     );
   }
+}
+
+export interface MockSourcesOpts {
+  /** Se valorizzato `POST /sources` risponde 422 con questo report, come il backend. */
+  rejectUpload?: { errors: SourceProblem[]; warnings?: SourceProblem[] };
+}
+
+const DEFAULT_SOURCES: SourcesStatus = { stato: 'default', scade_tra_secondi: null, set: null };
+
+function activeSet(kind: 'example' | 'custom'): SourcesStatus {
+  return {
+    stato: 'attivo',
+    scade_tra_secondi: 900,
+    set: {
+      kind,
+      classi: 7,
+      selettori_osm: 12,
+      versione_dati: '2024',
+      luoghi: ['Roma'],
+      avvisi: [],
+    },
+  };
+}
+
+/**
+ * Mock stateful delle rotte `/sources` (#419): GET riflette l'ultimo esito di POST/DELETE, come il
+ * backend per la stessa sessione. Registrato da `mockApi` così nessuno scenario chiama il server
+ * statico per l'indicatore delle fonti.
+ */
+export async function mockSources(page: Page, opts: MockSourcesOpts = {}): Promise<void> {
+  let current: SourcesStatus = DEFAULT_SOURCES;
+  await page.route('**/sources', (route) => {
+    const method = route.request().method();
+    if (method === 'POST') {
+      if (opts.rejectUpload) {
+        return route.fulfill({
+          status: 422,
+          json: {
+            detail: {
+              errore: 'fonti_non_valide',
+              messaggio: 'i file caricati non sono validi: correggi e riprova',
+              errors: opts.rejectUpload.errors,
+              warnings: opts.rejectUpload.warnings ?? [],
+            },
+          },
+        });
+      }
+      current = activeSet('custom');
+    } else if (method === 'DELETE') {
+      current = DEFAULT_SOURCES;
+    }
+    return route.fulfill({ json: current });
+  });
+  await page.route('**/sources/example', (route) => {
+    current = activeSet('example');
+    return route.fulfill({ json: current });
+  });
 }

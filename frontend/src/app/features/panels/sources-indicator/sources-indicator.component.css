@@ -1,0 +1,36 @@
+:host {
+  display: inline-flex;
+}
+
+.cra-sources-indicator {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 5px var(--space-3);
+  border: 1px solid var(--header-border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--paper);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.cra-sources-indicator:hover {
+  background: var(--header-divider);
+}
+
+.cra-sources-indicator:focus-visible {
+  outline: 2px solid var(--paper);
+  outline-offset: 2px;
+}
+
+/* Fonti diverse dal default: l'indicatore si distingue a colpo d'occhio, senza usare i colori
+   della confidence (verde/ambra) che qui significherebbero altro. */
+.cra-sources-indicator:is([data-kind='example'], [data-kind='custom']) {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.cra-sources-indicator[data-kind='expired'] {
+  border-color: var(--paper);
+  border-style: dashed;
+}

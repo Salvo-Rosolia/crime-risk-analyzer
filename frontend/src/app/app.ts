@@ -3,8 +3,10 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  effect,
   inject,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { MapComponent } from '@features/map/map.component';
@@ -14,7 +16,10 @@ import { PanelDockComponent } from '@features/panels/dock/panel-dock.component';
 import { NarrativeSheetComponent } from '@features/panels/narrative/narrative-sheet.component';
 import { BasePanelComponent } from '@features/panels/base/base-panel.component';
 import { HeaderControlsComponent } from '@features/panels/header-controls/header-controls.component';
+import { SourcesIndicatorComponent } from '@features/panels/sources-indicator/sources-indicator.component';
+import { SourcesPageComponent } from '@features/panels/sources/sources-page.component';
 import { ApiService } from '@core/api/api.service';
+import { SourcesStore } from '@core/state/sources.store';
 import { errorMessage, StateStore } from '@core/state/state.store';
 import {
   AnalyzeRequestPayload,
@@ -68,12 +73,15 @@ function isCompositionEnter(event: KeyboardEvent): boolean {
     NarrativeSheetComponent,
     BasePanelComponent,
     HeaderControlsComponent,
+    SourcesIndicatorComponent,
+    SourcesPageComponent,
   ],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
 export class App {
   protected readonly store = inject(StateStore);
+  protected readonly sources = inject(SourcesStore);
   private readonly api = inject(ApiService);
   /** Handle sulla mappa reale (#318): serve solo per `flyTo` dalla casella "vai a un luogo" — vedi
    * l'idioma identico dentro `MapComponent` stesso (`mapEl = viewChild.required(...)`). */
@@ -155,6 +163,23 @@ export class App {
     const index = poi.findIndex((p) => p.id === id);
     return index >= 0 ? { poi: poi[index], number: index + 1 } : null;
   });
+
+  constructor() {
+    // Il set attivo è cambiato davvero (#419): i risultati a schermo erano calcolati sul set
+    // precedente, quindi si riparte da una richiesta nuova (stesso azzeramento di "+ Nuova
+    // richiesta"). Osserva lo store, non il dialog: funziona anche se la pagina è stata chiusa
+    // mentre il caricamento era in volo. Il valore iniziale non è un cambio.
+    let seen = this.sources.revision();
+    effect(() => {
+      const revision = this.sources.revision();
+      if (revision === seen) return;
+      seen = revision;
+      untracked(() => this.onResetConfirmed());
+    });
+    // Le fonti vivono nella sessione del server: all'avvio si rilegge quali sono attive (un
+    // ricaricamento ritrova quelle caricate prima), così l'indicatore è giusto subito.
+    void this.sources.refresh();
+  }
 
   protected onCircleChange(c: Circle | null): void {
     this.circle.set(c);

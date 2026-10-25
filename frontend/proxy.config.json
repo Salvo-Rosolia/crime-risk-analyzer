@@ -3,5 +3,6 @@
   "/analyze/baseline": { "target": "http://localhost:8000", "secure": false },
   "/cities": { "target": "http://localhost:8000", "secure": false },
   "/poi-types": { "target": "http://localhost:8000", "secure": false },
+  "/sources": { "target": "http://localhost:8000", "secure": false },
   "/geocode": { "target": "http://localhost:8000", "secure": false }
 }

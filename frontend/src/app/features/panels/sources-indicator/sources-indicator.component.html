@@ -1,0 +1,9 @@
+<button
+  type="button"
+  class="cra-sources-indicator"
+  [attr.data-kind]="kind()"
+  [attr.aria-label]="'Fonti: ' + label() + '. Apri la pagina Fonti'"
+  (click)="openPage.emit()"
+>
+  Fonti: <b>{{ label() }}</b>
+</button>
