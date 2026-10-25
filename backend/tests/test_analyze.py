@@ -23,7 +23,7 @@ from crime_risk_analyzer.overpass_client import OverpassError, Poi
 from crime_risk_analyzer.rag import retrieval
 from crime_risk_analyzer.rag.grounding import GroundedContext
 from crime_risk_analyzer.rag.retrieval import RetrievalContext
-from crime_risk_analyzer.sparql_module.query_executor import get_executor
+from crime_risk_analyzer.sources.context import current_executor
 
 _BANK = PoiRiskProfile(
     terminus_class="Bank",
@@ -123,7 +123,7 @@ def _patch_io(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _client(llm: object = None, *, settings: Settings | None = None) -> TestClient:
     app = create_app()
-    app.dependency_overrides[get_executor] = lambda: _FakeProfiler()
+    app.dependency_overrides[current_executor] = lambda: _FakeProfiler()
     app.dependency_overrides[get_llm_client] = lambda: llm or _FakeLLMClient()
     if settings is not None:
         app.dependency_overrides[get_settings] = lambda: settings
