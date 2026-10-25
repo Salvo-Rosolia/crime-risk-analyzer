@@ -25,7 +25,7 @@ from crime_risk_analyzer.poi_narrative import (
     run_poi_narrative,
 )
 from crime_risk_analyzer.rag import retrieval
-from crime_risk_analyzer.sparql_module.query_executor import get_executor
+from crime_risk_analyzer.sources.context import current_executor
 
 _POI_ID = "node/1"
 
@@ -144,7 +144,7 @@ def _patch_io(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _client(llm: object = None) -> TestClient:
     app = create_app()
-    app.dependency_overrides[get_executor] = lambda: _FakeProfiler()
+    app.dependency_overrides[current_executor] = lambda: _FakeProfiler()
     app.dependency_overrides[get_llm_client] = lambda: llm or _FakeLLMClient()
     return TestClient(app, raise_server_exceptions=False)
 
@@ -169,7 +169,7 @@ def test_rotta_poi_legge_l_interruttore_dalle_settings(
     _patch_io(monkeypatch)
     impostazioni = Settings(istat_context_enabled=acceso)
     app = create_app()
-    app.dependency_overrides[get_executor] = lambda: _FakeProfiler()
+    app.dependency_overrides[current_executor] = lambda: _FakeProfiler()
     app.dependency_overrides[get_llm_client] = lambda: _Spia()
     app.dependency_overrides[get_settings] = lambda: impostazioni
     client = TestClient(app, raise_server_exceptions=False)

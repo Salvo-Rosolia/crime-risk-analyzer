@@ -28,7 +28,7 @@ from crime_risk_analyzer.models.risk import PoiRiskProfile
 from crime_risk_analyzer.orchestrator import run_analysis, run_no_ontology_prompt
 from crime_risk_analyzer.overpass_client import Poi
 from crime_risk_analyzer.rag import retrieval
-from crime_risk_analyzer.sparql_module.query_executor import get_executor
+from crime_risk_analyzer.sources.context import current_executor
 
 _POI_ID = "node/1"
 
@@ -103,7 +103,7 @@ def _client(monkeypatch: pytest.MonkeyPatch, *, acceso: bool) -> TestClient:
     monkeypatch.setattr(retrieval, "fetch_pois", _fetch)
     impostazioni = Settings(istat_context_enabled=acceso)
     app = create_app()
-    app.dependency_overrides[get_executor] = lambda: _Profiler()
+    app.dependency_overrides[current_executor] = lambda: _Profiler()
     app.dependency_overrides[get_llm_client] = lambda: _LLM()
     app.dependency_overrides[get_settings] = lambda: impostazioni
     return TestClient(app, raise_server_exceptions=False)

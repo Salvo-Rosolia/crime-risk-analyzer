@@ -48,6 +48,7 @@ from crime_risk_analyzer.poi_narrative import (
 from crime_risk_analyzer.poi_types import PoiType, poi_types, resolve_poi_type
 from crime_risk_analyzer.rag.retrieval import GeoSource
 from crime_risk_analyzer.sources import routes as sources_routes
+from crime_risk_analyzer.sources.context import current_executor
 from crime_risk_analyzer.sources.session import SESSION_HEADER
 from crime_risk_analyzer.sparql_module.query_executor import (
     RiskQueryExecutor,
@@ -166,7 +167,7 @@ async def geocode(
 @router.post("/analyze", dependencies=_SESSIONE)
 async def analyze(
     request: AnalyzeRequest,
-    executor: Annotated[RiskQueryExecutor, Depends(get_executor)],
+    executor: Annotated[RiskQueryExecutor, Depends(current_executor)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> AnalyzeResponse:
     """Fase 1 (#259/#292): area -> OSM -> SPARQL -> grounding -> JSON.
@@ -206,7 +207,7 @@ async def analyze(
 @router.post("/analyze/narrativa", dependencies=_SESSIONE)
 async def analyze_narrativa(
     request: ZoneNarrativeRequest,
-    executor: Annotated[RiskQueryExecutor, Depends(get_executor)],
+    executor: Annotated[RiskQueryExecutor, Depends(current_executor)],
     llm_client: Annotated[LLMClient, Depends(get_llm_client)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ZoneNarrativeResponse:
@@ -254,7 +255,7 @@ async def analyze_narrativa(
 @router.post("/analyze/baseline", dependencies=_SESSIONE)
 async def analyze_baseline(
     request: BaselineRequest,
-    executor: Annotated[RiskQueryExecutor, Depends(get_executor)],
+    executor: Annotated[RiskQueryExecutor, Depends(current_executor)],
 ) -> AnalyzeResponse:
     """Variante senza LLM per l'ablation: solo dati strutturati dal grounding.
 
@@ -284,7 +285,7 @@ async def analyze_baseline(
 @router.post("/analyze/poi", dependencies=_SESSIONE)
 async def analyze_poi(
     request: PoiNarrativeRequest,
-    executor: Annotated[RiskQueryExecutor, Depends(get_executor)],
+    executor: Annotated[RiskQueryExecutor, Depends(current_executor)],
     llm_client: Annotated[LLMClient, Depends(get_llm_client)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> PoiNarrativeResponse:
