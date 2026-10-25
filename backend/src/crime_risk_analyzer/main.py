@@ -250,6 +250,7 @@ async def analyze_narrativa(
         request_token_budget=settings.llm_request_token_budget,
         max_tokens=settings.llm_max_tokens,
         istat_context_enabled=settings.istat_context_enabled,
+        istat_scelta_modello=settings.istat_scelta_modello,
     )
 
 

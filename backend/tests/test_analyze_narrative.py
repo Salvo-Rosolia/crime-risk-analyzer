@@ -737,6 +737,33 @@ def test_rotta_di_zona_segue_l_interruttore(
     assert (resp.json()["istat_versione_dati"] is not None) is acceso
 
 
+def test_rotta_di_zona_con_scelta_del_modello_usa_il_prompt_di_scelta(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#366: ``istat_scelta_modello`` arriva fino al prompt, solo con ISTAT acceso."""
+    from crime_risk_analyzer.rag.generation import (
+        SYSTEM_PROMPT,
+        SYSTEM_PROMPT_ISTAT_SCELTA,
+    )
+
+    _patch_io(monkeypatch)
+    llm = _RecordingLLMClient()
+    client = _client(
+        llm=llm,
+        settings=Settings(istat_context_enabled=True, istat_scelta_modello=True),
+    )
+    assert _narrativa(client, _analizza(client)).status_code == 200
+    assert llm.calls[0][0] == SYSTEM_PROMPT_ISTAT_SCELTA
+
+    llm_spento = _RecordingLLMClient()
+    spento = _client(
+        llm=llm_spento,
+        settings=Settings(istat_context_enabled=False, istat_scelta_modello=True),
+    )
+    assert _narrativa(spento, _analizza(spento)).status_code == 200
+    assert llm_spento.calls[0][0] == SYSTEM_PROMPT
+
+
 def test_endpoint_completa_la_narrativa_lasciata_aperta_dalla_fase_1(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

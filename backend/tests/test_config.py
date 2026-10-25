@@ -384,3 +384,18 @@ def test_env_example_allineato_ai_default_di_budget_e_istat() -> None:
     )
     assert valori["ISTAT_CONTEXT_ENABLED"] == "true"
     assert default["istat_context_enabled"].default is True
+
+
+def test_istat_scelta_modello_default_spento_e_da_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#366: il modo "il modello sceglie le voci" e' opt-in (A/B con le frasi)."""
+    monkeypatch.delenv("ISTAT_SCELTA_MODELLO", raising=False)
+    assert Settings(_env_file=None).istat_scelta_modello is False  # pyright: ignore[reportCallIssue]
+    monkeypatch.setenv("ISTAT_SCELTA_MODELLO", "true")
+    assert Settings(_env_file=None).istat_scelta_modello is True  # pyright: ignore[reportCallIssue]
+
+
+def test_env_example_ha_l_interruttore_di_scelta_spento() -> None:
+    assert _valori_env_example()["ISTAT_SCELTA_MODELLO"] == "false"
+    assert Settings.model_fields["istat_scelta_modello"].default is False

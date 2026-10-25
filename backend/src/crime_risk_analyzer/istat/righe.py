@@ -42,6 +42,7 @@ __all__ = [
     "MOTIVO_ANNO_MANCANTE",
     "MOTIVO_ROTTURA_2016",
     "MOTIVO_SOTTO_SOGLIA",
+    "DICITURA_CONFRONTO",
     "SOGLIA_PIU_ALTO",
     "SOGLIA_PIU_BASSO",
     "SOGLIA_TENDENZA",
@@ -69,7 +70,7 @@ MOTIVO_SOTTO_SOGLIA = f"meno di {SOGLIA_TENDENZA} delitti in uno dei due anni"
 ConfrontoItalia = Literal["piu_alto", "piu_basso", "simile"]
 SOGLIA_PIU_ALTO = Decimal("1.10")
 SOGLIA_PIU_BASSO = Decimal("0.90")
-_DICITURA_CONFRONTO: dict[ConfrontoItalia, str] = {
+DICITURA_CONFRONTO: dict[ConfrontoItalia, str] = {
     "piu_alto": "tasso più alto di quello italiano",
     "piu_basso": "tasso più basso di quello italiano",
     "simile": "tasso simile a quello italiano",
@@ -284,7 +285,7 @@ def _confronto(riga: RigaIstat) -> str:
     classe = confronto_italia(riga)
     if classe is None:
         return "confronto con il tasso italiano non disponibile"
-    return _DICITURA_CONFRONTO[classe]
+    return DICITURA_CONFRONTO[classe]
 
 
 def _tendenza(riga: RigaIstat) -> str:
