@@ -1,7 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
-import { isSourcesExpired } from './sources-expired';
 import {
   AnalyzeResponse,
   BaselineParams,
@@ -36,8 +35,6 @@ export class ApiService {
   private citiesPromise: Promise<string[]> | null = null;
   /** Stessa memoizzazione di `citiesPromise`, per `poiTypes()` (#143). */
   private poiTypesPromise: Promise<PoiType[]> | null = null;
-  /** Ultimo elenco di tipi POI ricevuto: ripiego se le fonti scadono prima di una rilettura. */
-  private lastPoiTypes: PoiType[] | null = null;
 
   /**
    * Elenco delle città suggerite per il datalist dei pannelli di ricerca (`GET /cities`): UNA sola
@@ -63,25 +60,12 @@ export class ApiService {
    */
   poiTypes(): Promise<PoiType[]> {
     if (!this.poiTypesPromise) {
-      this.poiTypesPromise = firstValueFrom(this.http.get<PoiType[]>('/poi-types'))
-        .then((types) => (this.lastPoiTypes = types))
-        .catch((err) => {
-          this.poiTypesPromise = null;
-          // Fonti scadute: il select non si svuota, resta l'ultimo elenco noto. La lettura
-          // successiva ritenta (dopo il ritorno al default o un nuovo caricamento).
-          if (isSourcesExpired(err) && this.lastPoiTypes) return this.lastPoiTypes;
-          throw err;
-        });
+      this.poiTypesPromise = firstValueFrom(this.http.get<PoiType[]>('/poi-types')).catch((err) => {
+        this.poiTypesPromise = null;
+        throw err;
+      });
     }
     return this.poiTypesPromise;
-  }
-
-  /**
-   * I tipi POI dipendono dal set di fonti attivo: quando il set cambia (caricamento, esempio,
-   * default) la prossima `poiTypes()` rilegge dal backend invece di riusare l'elenco memoizzato.
-   */
-  invalidatePoiTypes(): void {
-    this.poiTypesPromise = null;
   }
 
   /**
