@@ -13,6 +13,7 @@ import pytest
 
 from crime_risk_analyzer.istat.cifre import SpanBlocco, applica_controllo
 from crime_risk_analyzer.istat.righe import IstatPoi
+from crime_risk_analyzer.istat.scelta import RULE_ISTAT_SCELTA, ScartiScelta
 from crime_risk_analyzer.llm.client import LLMResponse
 from crime_risk_analyzer.rag import generation as generation_mod
 from crime_risk_analyzer.rag.generation import (
@@ -20,6 +21,7 @@ from crime_risk_analyzer.rag.generation import (
     ISTAT_RISERVA_MAX_TOKEN,
     SYSTEM_PROMPT,
     SYSTEM_PROMPT_ISTAT,
+    SYSTEM_PROMPT_ISTAT_SCELTA,
     SourceProse,
     _estimate_tokens,  # pyright: ignore[reportPrivateUsage]
     build_context,
@@ -323,3 +325,96 @@ async def test_versione_dati_dal_set_legato_senza_monkeypatch() -> None:
             _ctx(_poi(istat=istat_poi(RAPINE_IN_BANCA))), _Spia(), istat=True
         )
     assert (out.istat_attivo, out.istat_versione_dati) == (True, "X")
+
+
+# --- #366: il modello sceglie le voci, l'app compone le frasi -------------------
+
+_SCELTA = "SCELTA DATI ISTAT:\nRapina in banca | rapine in banca | alto\n"
+
+
+async def test_scelta_prompt_e_richiesta_senza_regola_a_parole() -> None:
+    spia = _Spia()
+    await generate_analysis(
+        _ctx(_poi(istat=istat_poi(RAPINE_IN_BANCA))),
+        spia,
+        istat=True,
+        istat_scelta=True,
+    )
+    system, user = spia.calls[0]
+    assert system == SYSTEM_PROMPT_ISTAT_SCELTA
+    assert system != SYSTEM_PROMPT_ISTAT
+    assert RULE_ISTAT_SCELTA in system
+    assert "NON scrivere frasi sui dati ISTAT" in system
+    assert "DATI ISTAT" in user
+
+
+async def test_scelta_spenta_o_istat_spento_non_cambia_nulla() -> None:
+    base, scelta_senza_istat, istat_senza_scelta = _Spia(), _Spia(), _Spia()
+    ctx = _ctx(_poi(istat=istat_poi(RAPINE_IN_BANCA)))
+    await generate_analysis(ctx, base, istat=False)
+    await generate_analysis(ctx, scelta_senza_istat, istat=False, istat_scelta=True)
+    await generate_analysis(ctx, istat_senza_scelta, istat=True)
+    assert base.calls == scelta_senza_istat.calls
+    assert istat_senza_scelta.calls[0][0] == SYSTEM_PROMPT_ISTAT
+
+
+async def test_scelta_l_app_compone_la_frase_e_toglie_il_blocco() -> None:
+    testo = (
+        "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nRischio di rapina per Banca "
+        "node/1.\n\nRischi dal contesto [CONTESTO]\nZona di transito.\n\n" + _SCELTA
+    )
+    out = await generate_analysis(
+        _ctx(_poi(istat=istat_poi(RAPINE_IN_BANCA))),
+        _Spia(testo),
+        istat=True,
+        istat_scelta=True,
+    )
+    assert "SCELTA DATI ISTAT" not in out.narrativa
+    assert out.narrativa_grezza == testo
+    fonti = parse_source_prose(out.narrativa)
+    assert fonti.ontologia.startswith("Rischio di rapina per Banca node/1.")
+    assert (
+        "Secondo i dati ISTAT del Comune di Roma (2024), la voce «rapine in banca» "
+        "(rischio: Rapina in banca) ha un tasso più alto di quello italiano e un "
+        "andamento in calo dal 2014." in fonti.ontologia
+    )
+    assert fonti.contesto == "Zona di transito."
+    assert [s.hazard for s in out.istat_scelta] == ["Bank_robbery"]
+    assert out.istat_scelta_scarti == ScartiScelta()
+    assert "istat_scelta_scarti" not in out.model_dump()
+    assert "istat_scelta" not in out.model_dump()
+
+
+async def test_scelta_non_ancorata_non_produce_frasi() -> None:
+    testo = (
+        "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nProsa.\n\n"
+        "SCELTA DATI ISTAT:\nRapina in banca | furti d'auto | alto\n"
+    )
+    out = await generate_analysis(
+        _ctx(_poi(istat=istat_poi(RAPINE_IN_BANCA))),
+        _Spia(testo),
+        istat=True,
+        istat_scelta=True,
+    )
+    assert out.narrativa == "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nProsa."
+    assert out.istat_scelta == []
+    assert out.istat_scelta_scarti.voce_non_nel_blocco == 1
+
+
+async def test_scelta_il_controllo_resta_rete_di_sicurezza_sul_testo_del_modello() -> (
+    None
+):
+    testo = (
+        "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\n"
+        "Banca node/1 conta 46 rapine in banca. "
+        "Rischio di rapina per Banca node/1.\n\n" + _SCELTA
+    )
+    out = await generate_analysis(
+        _ctx(_poi(istat=istat_poi(RAPINE_IN_BANCA))),
+        _Spia(testo),
+        istat=True,
+        istat_scelta=True,
+    )
+    assert "conta 46" not in out.narrativa
+    assert out.istat_frasi_scartate == 1
+    assert "andamento in calo" in out.narrativa

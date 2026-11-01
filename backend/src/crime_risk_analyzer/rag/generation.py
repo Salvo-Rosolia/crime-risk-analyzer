@@ -45,6 +45,15 @@ from crime_risk_analyzer.istat.cifre import (
     SpanBlocco,
     applica_controllo,
 )
+from crime_risk_analyzer.istat.scelta import (
+    RULE_ISTAT_SCELTA,
+    ScartiScelta,
+    SceltaIstat,
+    componi_frasi,
+    estrai_scelta,
+    inserisci_frasi,
+    risolvi_scelta,
+)
 from crime_risk_analyzer.llm.client import LLMResponse
 from crime_risk_analyzer.models.vocab import Confidence, ConfidenceSummary, Tag
 from crime_risk_analyzer.rag.istat_rules import (
@@ -290,6 +299,12 @@ SYSTEM_PROMPT_ISTAT = sostituisci_una_volta(
     ),
     f"{RULE_NO_DANGER_RATING}\n",
     f"{RULE_NO_DANGER_RATING}\n{RULE_ISTAT_DIVIETI}\n",
+)
+
+#: Variante di :data:`SYSTEM_PROMPT_ISTAT` per il modo "il modello sceglie" (#366):
+#: la regola 3c non chiede frasi sui dati ISTAT ma la scelta voce/peso per rischio.
+SYSTEM_PROMPT_ISTAT_SCELTA = sostituisci_una_volta(
+    SYSTEM_PROMPT_ISTAT, RULE_ISTAT_A_PAROLE, RULE_ISTAT_SCELTA
 )
 
 
@@ -571,6 +586,22 @@ class GenerationResult(BaseModel):
         default=None,
         exclude=True,
         description="Esito del controllo delle cifre: solo in memoria, per l'harness.",
+    )
+    istat_scelta_scarti: ScartiScelta = Field(
+        default_factory=ScartiScelta,
+        exclude=True,
+        description=(
+            "Righe di scelta scartate per motivo (#366): solo in memoria, per la "
+            "misura."
+        ),
+    )
+    istat_scelta: list[SceltaIstat] = Field(
+        default_factory=list[SceltaIstat],
+        exclude=True,
+        description=(
+            "Scelte voce ISTAT/peso del modello ancorate ai dati (#366), dalle quali "
+            "l'app ha composto le frasi: solo in memoria, per l'harness."
+        ),
     )
     poi_nel_prompt: list[str] | None = Field(
         default=None,
@@ -1297,6 +1328,7 @@ def prepara_richiesta_zona(
     max_tokens: int = DEFAULT_MAX_TOKENS,
     context_format: ContextFormat = DEFAULT_CONTEXT_FORMAT,
     istat: bool = False,
+    istat_scelta: bool = False,
 ) -> RichiestaZona:
     """Prepara la richiesta di zona senza chiamare il modello (#345, F9).
 
@@ -1313,6 +1345,7 @@ def prepara_richiesta_zona(
     blocco e' vuoto lascerebbe comunque MENO POI nel prompt di quanti ne avrebbe
     scelti un run a interruttore spento.
     """
+    prompt_istat = SYSTEM_PROMPT_ISTAT_SCELTA if istat_scelta else SYSTEM_PROMPT_ISTAT
     istat_richiesto = istat and ha_righe_istat(context_dict.get("validated_risks", []))
     user_allowance_senza = (
         request_token_budget - _estimate_tokens(SYSTEM_PROMPT) - max_tokens
@@ -1320,7 +1353,7 @@ def prepara_richiesta_zona(
     contesto: ContestoCostruito | None = None
     if istat_richiesto:
         user_allowance_con = (
-            request_token_budget - _estimate_tokens(SYSTEM_PROMPT_ISTAT) - max_tokens
+            request_token_budget - _estimate_tokens(prompt_istat) - max_tokens
         )
         contesto = build_context(
             context_dict,
@@ -1340,9 +1373,7 @@ def prepara_richiesta_zona(
             context_format=context_format,
             istat=False,
         )
-    system_prompt = (
-        SYSTEM_PROMPT_ISTAT if contesto.blocco_istat.testo else SYSTEM_PROMPT
-    )
+    system_prompt = prompt_istat if contesto.blocco_istat.testo else SYSTEM_PROMPT
     return RichiestaZona(system_prompt=system_prompt, contesto=contesto)
 
 
@@ -1405,6 +1436,7 @@ async def generate_analysis(
     max_tokens: int = DEFAULT_MAX_TOKENS,
     context_format: ContextFormat = DEFAULT_CONTEXT_FORMAT,
     istat: bool = False,
+    istat_scelta: bool = False,
 ) -> GenerationResult:
     """Genera l'analisi del rischio dal context validato.
 
@@ -1435,6 +1467,11 @@ async def generate_analysis(
     applica_controllo`); ``narrativa`` e' il testo filtrato, ``narrativa_grezza``
     quello del modello. Senza righe, o spento, il comportamento e' quello di prima.
 
+    ``istat_scelta`` (#366): il modello non scrive frasi ISTAT ma sceglie voce e peso
+    per rischio; le frasi le compone l'app (:mod:`~crime_risk_analyzer.istat.scelta`)
+    DOPO il controllo. Il controllo ISTAT resta attivo solo come rete di sicurezza
+    sul testo scritto dal modello, non sulle frasi composte dall'app.
+
     Fix round 1 (spec 4.10): le righe ISTAT possono esserci nel context ma non
     sopravvivere alla selezione dei POI (troncate, o senza budget residuo per il
     blocco): in quel caso il TENTATIVO va scartato per intero, non solo il
@@ -1453,6 +1490,7 @@ async def generate_analysis(
         max_tokens=max_tokens,
         context_format=context_format,
         istat=istat,
+        istat_scelta=istat_scelta,
     )
     istat_attivo = bool(contesto.blocco_istat.testo)
 
@@ -1460,12 +1498,24 @@ async def generate_analysis(
     response = await llm_client.generate(system_prompt, contesto.testo)
     latenza_ms = int((time.perf_counter() - start) * 1000)
 
+    scelte: list[SceltaIstat] = []
+    scarti = ScartiScelta()
+    testo_modello = response.text
+    if istat_scelta and istat_attivo:
+        testo_modello, grezze, malformate = estrai_scelta(response.text)
+        scelte, scarti = risolvi_scelta(
+            grezze, contesto.blocco_istat.righe, malformate=malformate
+        )
     narrativa, controllo = applica_controllo(
-        response.text,
+        testo_modello,
         blocco=contesto.blocco_istat,
-        spans=source_block_spans(response.text),
+        spans=source_block_spans(testo_modello),
         contesto=contesto.testo_senza_istat,
     )
+    if scelte:
+        narrativa = inserisci_frasi(
+            narrativa, source_block_spans(narrativa), componi_frasi(scelte)
+        )
 
     confidence_summary = ConfidenceSummary.model_validate(
         context_dict.get("confidence_summary", {})
@@ -1495,6 +1545,8 @@ async def generate_analysis(
         istat_versione_dati=versione_dati() if istat_attivo else None,
         istat_frasi_scartate=controllo.frasi_scartate if controllo else 0,
         controllo_istat=controllo,
+        istat_scelta=scelte,
+        istat_scelta_scarti=scarti,
         # #349: dalla selezione che ha davvero costruito questo prompt, non
         # ricalcolata.
         poi_nel_prompt=poi_nel_prompt_ids(

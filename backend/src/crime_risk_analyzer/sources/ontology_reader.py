@@ -117,7 +117,7 @@ def read_ontology(
         report.error(
             "ontologia_illeggibile",
             _FILE,
-            f"ontologia non leggibile come {formato}: {str(exc)[:200]}",
+            f"ontologia non leggibile come {formato}: {_causa_leggibile(exc)}",
         )
         return None
     if len(graph) == 0:
@@ -144,6 +144,29 @@ def read_ontology(
             f"{vocabulary.namespace!r}: controlla namespace e nomi delle proprieta'",
         )
     return OntologyReading(graph=graph, classes=nomi, labels=etichette)
+
+
+_RIGA_RDFLIB = re.compile(r"^at line (\d+) of ")
+_TAGLIO_CONTENUTO = " at ^"
+
+
+def _causa_leggibile(exc: Exception) -> str:
+    """Riga e causa di un errore di parse, senza il frammento di file (#439).
+
+    Il messaggio di rdflib per il Turtle e' ``at line N of <>:`` seguito dalla
+    causa, poi `` at ^ in:`` e un pezzo del file: si tiene solo ``riga N`` e la
+    causa, tagliando da `` at ^`` in poi. Per gli altri errori (XML, codifica)
+    vale la prima riga non vuota.
+    """
+    righe = [r.strip() for r in str(exc).splitlines() if r.strip()]
+    riga: str | None = None
+    if righe and (m := _RIGA_RDFLIB.match(righe[0])):
+        riga = m.group(1)
+        righe = righe[1:]
+    causa = righe[0].split(_TAGLIO_CONTENUTO)[0].strip()[:200] if righe else ""
+    if not causa:
+        causa = type(exc).__name__
+    return f"riga {riga}: {causa}" if riga else causa
 
 
 def _entita_ammesse(content: bytes, report: ValidationReport) -> bool:
