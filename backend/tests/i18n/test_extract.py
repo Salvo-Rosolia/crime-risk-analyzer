@@ -46,7 +46,7 @@ def test_extract_follows_stakeholder_restriction() -> None:
 
 def test_extract_categoria_collisione_non_dipende_dall_ordine_del_dict() -> None:
     """Un filler raggiunto da due property con categorie diverse non prende quella
-    della prima property iterata in ``_PROP_CATEGORY`` (ordine incidentale del
+    della prima property iterata in ``_prop_category()`` (ordine incidentale del
     dict): vince la categoria con priorita' piu' alta in ``_CATEGORY_ORDER``.
 
     Riproduce empiricamente il difetto segnalato in review: prima della fix, un
@@ -54,7 +54,8 @@ def test_extract_categoria_collisione_non_dipende_dall_ordine_del_dict() -> None
     categoria e non diventava mai ``stakeholder`` anche quando raggiungibile
     anche via ``havingPerformer`` — non perche' ``stakeholder`` fosse meno
     prioritario per costruzione, ma solo perche' ``havingPerformer`` e' l'ultima
-    entry del dict ``_PROP_CATEGORY``. Qui la vulnerabilita' (priorita' 3) vince
+    entry del dict restituito da ``_prop_category()``. Qui la vulnerabilita'
+    (priorita' 3) vince
     sullo stakeholder (priorita' 4) perche' lo dichiara ``_CATEGORY_ORDER``, non
     perche' e' elencata prima.
     """
@@ -114,3 +115,41 @@ def test_merge_preserves_existing_it() -> None:
     ]
     merged = extract.merge_preserving_it(new, existing)  # type: ignore[arg-type]
     assert merged[0]["label_it"] == "Rapina in filiale"
+
+
+def test_extract_segue_le_proprieta_dell_ontologia_passata() -> None:
+    """Namespace e proprieta' vengono dalla configurazione, non da TERMINUS (#434)."""
+    from crime_risk_analyzer.sources.model import OntologyConfig
+
+    g = Graph()
+    g.parse(
+        data="""
+        @prefix ex:   <http://example.org/o#> .
+        @prefix owl:  <http://www.w3.org/2002/07/owl#> .
+        @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+        ex:Bank a owl:Class ;
+            rdfs:subClassOf [ a owl:Restriction ;
+                owl:onProperty ex:hasRisk ;
+                owl:someValuesFrom ex:Robbery ] ;
+            rdfs:subClassOf [ a owl:Restriction ;
+                owl:onProperty ex:weakTo ;
+                owl:someValuesFrom ex:Poor_surveillance ] .
+        """,
+        format="turtle",
+    )
+    config = OntologyConfig(
+        namespace="http://example.org/o#",
+        hazard="hasRisk",
+        critical_event="hasEvent",
+        performer="hasActor",
+        vulnerability=("weakTo",),
+    )
+
+    by_id = {
+        r["identifier"]: r
+        for r in extract.extract_records(g, ["Bank"], ontology=config)
+    }
+
+    assert by_id["Robbery"]["category"] == "hazard"
+    assert by_id["Poor_surveillance"]["category"] == "vulnerability"
