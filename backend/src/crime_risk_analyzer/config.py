@@ -68,6 +68,12 @@ class Settings(BaseSettings):
     # ``/analyze`` (``main.analyze``): e' il dato che il frontend usa per
     # ordinare i rischi nel Dettaglio POI.
     istat_context_enabled: bool = True
+    # Modo dei dati ISTAT nella narrativa di zona (#366): spento = il modello
+    # scrive le frasi (#365); acceso = il modello sceglie per ogni rischio la voce
+    # ISTAT e il peso, e l'app compone le frasi. Agisce solo con
+    # ``istat_context_enabled`` acceso. Opt-in finche' la valutazione non dice che
+    # migliora (#368/#369).
+    istat_scelta_modello: bool = False
     # Fonti caricate dall'utente (#416): il set vale per la sessione e scade dopo
     # questo tempo dall'ultimo uso (finestra mobile). Il tetto di sessioni limita la
     # memoria (ogni set tiene in RAM un grafo OWL fino a 20 MB): oltre, si sfratta

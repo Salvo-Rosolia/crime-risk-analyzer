@@ -737,6 +737,69 @@ def test_rotta_di_zona_segue_l_interruttore(
     assert (resp.json()["istat_versione_dati"] is not None) is acceso
 
 
+def test_rotta_di_zona_con_scelta_del_modello_usa_il_prompt_di_scelta(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#366: ``istat_scelta_modello`` arriva fino al prompt, solo con ISTAT acceso."""
+    from crime_risk_analyzer.rag.generation import (
+        SYSTEM_PROMPT,
+        SYSTEM_PROMPT_ISTAT_SCELTA,
+    )
+
+    _patch_io(monkeypatch)
+    llm = _RecordingLLMClient()
+    client = _client(
+        llm=llm,
+        settings=Settings(istat_context_enabled=True, istat_scelta_modello=True),
+    )
+    assert _narrativa(client, _analizza(client)).status_code == 200
+    assert llm.calls[0][0] == SYSTEM_PROMPT_ISTAT_SCELTA
+
+    llm_spento = _RecordingLLMClient()
+    spento = _client(
+        llm=llm_spento,
+        settings=Settings(istat_context_enabled=False, istat_scelta_modello=True),
+    )
+    assert _narrativa(spento, _analizza(spento)).status_code == 200
+    assert llm_spento.calls[0][0] == SYSTEM_PROMPT
+
+
+def _chiavi(valore: object) -> set[str]:
+    if isinstance(valore, dict):
+        d = cast(dict[str, object], valore)
+        return set(d) | {k for v in d.values() for k in _chiavi(v)}
+    if isinstance(valore, list):
+        return {k for v in cast(list[object], valore) for k in _chiavi(v)}
+    return set()
+
+
+def test_con_la_scelta_del_modello_il_peso_non_esce_dalle_risposte(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D9 (#366): il peso scelto dal modello non entra nel contratto dell'API ne'
+    nella narrativa (nessun ranking)."""
+    _patch_io(monkeypatch)
+    client = _client(
+        llm=_RecordingLLMClient(),
+        settings=Settings(istat_context_enabled=True, istat_scelta_modello=True),
+    )
+    zone_context_cache.clear()
+    zona = cast(
+        httpx.Response,
+        client.post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze",
+            json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0},
+        ),
+    )
+    assert zona.status_code == 200
+    narrativa = _narrativa(client, str(zona.json()["contesto_hash"]))
+    assert narrativa.status_code == 200
+    for risposta in (zona, narrativa):
+        corpo = risposta.json()
+        assert not {k for k in _chiavi(corpo) if "scelta" in k or "peso" in k}
+        assert "SCELTA DATI ISTAT" not in risposta.text
+
+
 def test_endpoint_completa_la_narrativa_lasciata_aperta_dalla_fase_1(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

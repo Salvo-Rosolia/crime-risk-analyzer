@@ -26,6 +26,7 @@ from crime_risk_analyzer.ontology import get_ontology
 from crime_risk_analyzer.sources.model import (
     TERMINUS_CONFIG,
     IstatSource,
+    OntologyConfig,
     OsmBinding,
     SourceSet,
 )
@@ -47,6 +48,7 @@ __all__ = [
     "current_executor",
     "current_id",
     "current_labels",
+    "current_ontology",
     "current_osm",
     "default_set",
     "versione_dati",
@@ -114,6 +116,16 @@ def current_labels() -> Mapping[str, tuple[str, str]] | None:
     """
     active = _ACTIVE.get()
     return active.labels if active is not None else None
+
+
+def current_ontology() -> OntologyConfig:
+    """Proprieta' dell'ontologia del set attivo; senza set, quelle TERMINUS.
+
+    Come :func:`current_osm`, non costruisce il default (il grounding non carica
+    il grafo per leggere i nomi delle proprieta').
+    """
+    active = _ACTIVE.get()
+    return active.ontology if active is not None else TERMINUS_CONFIG
 
 
 def active_istat() -> IstatSource | None:
