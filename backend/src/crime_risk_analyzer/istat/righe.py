@@ -55,6 +55,7 @@ __all__ = [
     "istat_per_poi",
     "riga_istat",
     "variazione",
+    "verso_variazione",
 ]
 
 #: Sotto questo numero di delitti in uno dei due anni la variazione non si calcola:
@@ -288,20 +289,32 @@ def _confronto(riga: RigaIstat) -> str:
     return DICITURA_CONFRONTO[classe]
 
 
+def verso_variazione(riga: RigaIstat) -> str | None:
+    """Verso della variazione a parole (#365 D7): il segno, mai il valore.
+
+    ``None`` se la variazione non e' calcolata. Unica fonte di questa
+    classificazione: la usano la riga del contesto e le frasi di #366.
+    """
+    if riga.variazione_pct is None:
+        return None
+    if riga.variazione_pct > 0:
+        return "in crescita"
+    if riga.variazione_pct < 0:
+        return "in calo"
+    return "stabile"
+
+
 def _tendenza(riga: RigaIstat) -> str:
     """Tendenza a parole (#365 D7): il segno della variazione, mai il valore."""
-    if riga.variazione_pct is None:
+    verso = verso_variazione(riga)
+    if verso is None:
         motivo = riga.motivo_senza_variazione
         return (
             f"tendenza non calcolata: {motivo}"
             if motivo
             else ("tendenza non calcolata")
         )
-    if riga.variazione_pct > 0:
-        return f"in crescita dal {riga.anno_confronto}"
-    if riga.variazione_pct < 0:
-        return f"in calo dal {riga.anno_confronto}"
-    return f"stabile dal {riga.anno_confronto}"
+    return f"{verso} dal {riga.anno_confronto}"
 
 
 def _collegamenti(collegamenti: tuple[Collegamento, ...]) -> str:

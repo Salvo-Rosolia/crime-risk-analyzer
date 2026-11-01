@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
+import pytest
+
+from crime_risk_analyzer.istat.righe import formatta_riga, verso_variazione
 from crime_risk_analyzer.istat.scelta import (
     INTESTAZIONE_SCELTA,
     ScartiScelta,
@@ -15,6 +20,8 @@ from crime_risk_analyzer.istat.scelta import (
 )
 from crime_risk_analyzer.rag.generation import source_block_spans
 from tests.istat._fattorie import collegamento, cornice, riga
+
+Peso = Literal["alto", "medio", "basso"]
 
 _FURTI = riga(
     "THEFT",
@@ -165,13 +172,12 @@ def test_frase_composta_dall_app_senza_pezzi_interni() -> None:
         assert interno not in frase
 
 
-def test_frase_dichiara_la_voce_piu_larga_o_piu_stretta() -> None:
+def test_frase_non_riporta_il_tipo_di_corrispondenza() -> None:
+    """La voce piu' larga o piu' stretta del rischio non e' un pezzo da mostrare."""
     larga = SceltaIstat(
         riga=_FURTI, hazard="Property_theft", rischio="Furto di beni", peso="alto"
     )
-    assert _frase(larga).endswith(
-        "in calo dal 2014; la voce comprende anche altri reati."
-    )
+    assert _frase(larga).endswith("in calo dal 2014.")
     stretta_riga = _FURTI.model_copy(
         update={
             "collegamenti": (
@@ -182,7 +188,23 @@ def test_frase_dichiara_la_voce_piu_larga_o_piu_stretta() -> None:
     stretta = SceltaIstat(
         riga=stretta_riga, hazard="Property_theft", rischio="Furto di beni", peso="alto"
     )
-    assert "copre solo una parte del rischio" in _frase(stretta)
+    assert _frase(stretta) == _frase(larga)
+    for frase in (_frase(larga), _frase(stretta)):
+        assert "comprende" not in frase and "copre solo" not in frase
+
+
+@pytest.mark.parametrize(
+    ("variazione", "verso"), [(20, "in crescita"), (-5, "in calo"), (0, "stabile")]
+)
+def test_il_verso_della_frase_e_quello_della_riga_del_contesto(
+    variazione: float, verso: str
+) -> None:
+    """Direzione: una sola classificazione, condivisa con la riga dell'indicatore."""
+    r = _RAPINE.model_copy(update={"variazione_pct": variazione})
+    assert verso_variazione(r) == verso
+    scelta = SceltaIstat(riga=r, hazard="Robbery", rischio="Rapina", peso="alto")
+    assert f"un andamento {verso} dal {r.anno_confronto}" in _frase(scelta)
+    assert f"{verso} dal {r.anno_confronto}" in formatta_riga(r)
 
 
 def test_frase_omette_tendenza_non_calcolata() -> None:
@@ -210,10 +232,23 @@ def test_senza_confronto_ne_tendenza_nessuna_frase() -> None:
     assert componi_frasi([scelta]) == []
 
 
-def test_frasi_ordinate_per_peso_e_stabili() -> None:
-    basso = SceltaIstat(riga=_FURTI, hazard="h", rischio="Furto di beni", peso="basso")
-    alto = SceltaIstat(riga=_RAPINE, hazard="r", rischio="Rapina", peso="alto")
-    frasi = componi_frasi([basso, alto])
+def test_ordine_delle_frasi_non_dipende_dal_peso_ne_dall_ordine_del_modello() -> None:
+    """D9: un ordine deciso dal modello si leggerebbe come una graduatoria."""
+    ordini: set[tuple[str, ...]] = set()
+    combinazioni: list[tuple[Peso, Peso]] = [
+        ("basso", "alto"),
+        ("alto", "basso"),
+        ("medio", "medio"),
+    ]
+    for pesi in combinazioni:
+        furti = SceltaIstat(
+            riga=_FURTI, hazard="h", rischio="Furto di beni", peso=pesi[0]
+        )
+        rapine = SceltaIstat(riga=_RAPINE, hazard="r", rischio="Rapina", peso=pesi[1])
+        for scelte in ([furti, rapine], [rapine, furti]):
+            ordini.add(tuple(componi_frasi(scelte)))
+    assert len(ordini) == 1
+    frasi = next(iter(ordini))
     assert "rapine" in frasi[0]
     assert "furti" in frasi[1]
 

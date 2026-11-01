@@ -14,10 +14,13 @@ con la stessa classificazione dell'indicatore
 (:func:`~crime_risk_analyzer.istat.righe.confronto_italia`), quindi nessun pezzo
 interno della riga (tendenza non calcolata, tipo di corrispondenza) finisce nel
 testo. Le frasi vanno in fondo al blocco [ONTOLOGIA] (:func:`inserisci_frasi`),
-ordinate dal peso piu' alto al piu' basso.
+in un ordine deterministico (luogo, voce, rischio) che non dipende dal modello.
 
-Il peso del modello decide solo l'ordine delle frasi: non e' un livello di
-pericolosita' e non esce mai nel testo.
+Il peso del modello e' solo una misura (solidita' del dato dichiarata): non ordina
+le frasi, non e' un livello di pericolosita' e non esce mai nel testo ne' nelle
+risposte dell'API (D9: nessun ranking). Se la scelta si perde (blocco assente o
+righe scartate) il testo resta senza frasi ISTAT: non c'e' un ripiego
+deterministico.
 """
 
 from __future__ import annotations
@@ -35,6 +38,7 @@ from crime_risk_analyzer.istat.righe import (
     DICITURA_CONFRONTO,
     RigaIstat,
     confronto_italia,
+    verso_variazione,
 )
 
 __all__ = [
@@ -52,7 +56,7 @@ __all__ = [
 ]
 
 Peso = Literal["alto", "medio", "basso"]
-#: Dal piu' al meno solido: l'ordine delle frasi composte.
+#: Dal piu' al meno solido: il vocabolario del peso (non ordina le frasi).
 PESI: Final[tuple[Peso, ...]] = ("alto", "medio", "basso")
 _PESO_DI: Final[dict[str, Peso]] = {p: p for p in PESI}
 
@@ -68,10 +72,9 @@ _ELENCO = re.compile(r"^[\s\-*•]+")
 RULE_ISTAT_SCELTA = (
     "3c. NON scrivere frasi sui dati ISTAT: le scrive l'applicazione. Per ogni "
     "rischio che ha una voce ISTAT collegata nella sezione DATI ISTAT, indica quale "
-    "voce lo sostiene e quanto pesa, cosi' l'applicazione ordina i rischi e da' piu' "
-    "spazio a quelli con un dato solido. Usa il peso per dare piu' spazio, nel testo, "
-    "ai rischi con un dato solido (voce di corrispondenza esatta, tendenza e "
-    "confronto indicati) e meno a quelli con un dato debole. In coda alla risposta, "
+    "voce lo sostiene e quanto e' solido il dato (voce di corrispondenza esatta, "
+    "tendenza e confronto indicati). Il peso non cambia lo spazio che dai ai rischi "
+    "nel testo: descrivi i rischi come sempre. In coda alla risposta, "
     f'dopo i blocchi, scrivi la riga "{INTESTAZIONE_SCELTA}" e, per ogni scelta, una '
     "riga nella forma: etichetta del rischio | etichetta della voce ISTAT | peso. "
     "Le etichette sono ESATTAMENTE quelle della sezione DATI ISTAT (la voce) e del "
@@ -230,48 +233,38 @@ def risolvi_scelta(
     return scelte, scarti
 
 
-_QUALIFICA = {
-    "piu_larga": "la voce comprende anche altri reati",
-    "piu_stretta": "la voce copre solo una parte del rischio",
-}
-
-
 def componi_frase(scelta: SceltaIstat) -> str | None:
     """Frase della scelta, o ``None`` se non c'e' ne' confronto ne' tendenza da dire.
 
-    Niente cifre (le mostra l'interfaccia). La tendenza si dice solo se calcolata;
-    la corrispondenza solo se la voce non coincide col rischio.
+    Niente cifre (le mostra l'interfaccia) e niente tipo di corrispondenza fra voce
+    e rischio: la voce e il rischio si leggono entrambi nella frase. La tendenza si
+    dice solo se calcolata.
     """
     riga = scelta.riga
     classe = confronto_italia(riga)
     parti: list[str] = []
     if classe is not None:
         parti.append(f"un {DICITURA_CONFRONTO[classe]}")
-    if riga.variazione_pct is not None:
-        if riga.variazione_pct > 0:
-            andamento = "in crescita"
-        elif riga.variazione_pct < 0:
-            andamento = "in calo"
-        else:
-            andamento = "stabile"
-        parti.append(f"un andamento {andamento} dal {riga.anno_confronto}")
+    verso = verso_variazione(riga)
+    if verso is not None:
+        parti.append(f"un andamento {verso} dal {riga.anno_confronto}")
     if not parti:
         return None
-    frase = (
+    return (
         f"Secondo i dati ISTAT del {riga.luogo_nome} ({riga.anno}), la voce "
-        f"«{riga.voce_label}» (rischio: {scelta.rischio}) ha {' e '.join(parti)}"
+        f"«{riga.voce_label}» (rischio: {scelta.rischio}) ha {' e '.join(parti)}."
     )
-    corrispondenza = next(
-        (c.corrispondenza for c in riga.collegamenti if c.hazard == scelta.hazard),
-        None,
-    )
-    qualifica = _QUALIFICA.get(corrispondenza or "")
-    return f"{frase}; {qualifica}." if qualifica else f"{frase}."
 
 
 def componi_frasi(scelte: Sequence[SceltaIstat]) -> list[str]:
-    """Frasi delle scelte, dal peso piu' alto al piu' basso (stabile a parita')."""
-    ordinate = sorted(scelte, key=lambda s: PESI.index(s.peso))
+    """Frasi delle scelte in ordine deterministico (luogo, voce, rischio).
+
+    L'ordine non dipende dal peso ne' dall'ordine delle righe del modello: un
+    ordinamento deciso dal modello si leggerebbe come una graduatoria (D9).
+    """
+    ordinate = sorted(
+        scelte, key=lambda s: (s.riga.luogo_codice, s.riga.voce, s.hazard)
+    )
     frasi = (componi_frase(s) for s in ordinate)
     return [f for f in frasi if f is not None]
 
