@@ -286,10 +286,11 @@ def test_causa_leggibile_prima_riga_non_vuota(testo: str, atteso: str) -> None:
 
 
 def test_unicode_decode_error_messaggio_senza_byte_del_file() -> None:
-    try:
+    with pytest.raises(UnicodeDecodeError) as eccezione:
         b"\xff\xfe\x00bad".decode("utf-8")
-    except UnicodeDecodeError as exc:
-        assert _causa_leggibile(exc).startswith("'utf-8' codec can't decode byte")
+    assert _causa_leggibile(eccezione.value).startswith(
+        "'utf-8' codec can't decode byte"
+    )
     report = _report(con(ontology=b"\xff\xfe\x00bad"))
     assert report.errors[0].message.startswith("ontologia non leggibile come turtle")
 
