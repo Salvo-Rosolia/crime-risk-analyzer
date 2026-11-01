@@ -211,6 +211,7 @@ async def run_zone_narrative(
     request_token_budget: int = DEFAULT_REQUEST_TOKEN_BUDGET,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     istat_context_enabled: bool = False,
+    istat_scelta_modello: bool = False,
 ) -> ZoneNarrativeResponse:
     """Fase 2 (#259): genera la narrativa sul contesto già scaldato da
     :func:`run_analysis_fast`, a cache fredda lo ricostruisce.
@@ -287,6 +288,7 @@ async def run_zone_narrative(
             request_token_budget=request_token_budget,
             max_tokens=max_tokens,
             istat=istat_context_enabled,
+            istat_scelta=istat_scelta_modello,
         )
     except LLMError as exc:
         logger.warning(
