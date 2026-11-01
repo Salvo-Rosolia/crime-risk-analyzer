@@ -27,6 +27,7 @@ from crime_risk_analyzer.rag.grounding import ground as _ground
 from crime_risk_analyzer.rag.retrieval import RetrievalContext, RetrievalStats
 from crime_risk_analyzer.rag.retrieval import RetrievalContext as _Ctx
 from crime_risk_analyzer.rag.retrieval import RetrievalStats as _Stats
+from crime_risk_analyzer.sources.model import SourceSet
 
 
 def _poi(poi_id: str, name: str, terminus_class: str) -> Poi:
@@ -441,7 +442,7 @@ def test_ground_senza_dati_istat_non_fallisce(monkeypatch: _pytest.MonkeyPatch) 
     assert out["validated_risks"][0]["risks"][0]["hazard"] == "Bank_robbery"
 
 
-def _custom_ontology_set() -> object:
+def _custom_ontology_set() -> SourceSet:
     import dataclasses
 
     from crime_risk_analyzer.sources.context import default_set
@@ -466,10 +467,8 @@ def test_ground_usa_le_proprieta_dell_ontologia_attiva_nel_fallback() -> None:
     del set attivo, non quelle TERMINUS: ``Bank -> havingHazard`` non esiste in
     un'ontologia che chiama la proprieta' ``hasRisk`` (#434)."""
     from crime_risk_analyzer.sources.context import bind
-    from crime_risk_analyzer.sources.model import SourceSet
 
     custom = _custom_ontology_set()
-    assert isinstance(custom, SourceSet)
     prof = _profile(
         "Bank",
         hazards=["Robbery"],
@@ -492,10 +491,8 @@ def test_ground_riconosce_i_path_con_le_proprieta_dell_ontologia_attiva() -> Non
     """Un path reale ereditato da una superclasse con proprieta' custom viene preso
     dai ``sparql_paths`` e non sintetizzato da ``terminus_class``."""
     from crime_risk_analyzer.sources.context import bind
-    from crime_risk_analyzer.sources.model import SourceSet
 
     custom = _custom_ontology_set()
-    assert isinstance(custom, SourceSet)
     prof = _profile(
         "Bank",
         hazards=["Robbery"],
