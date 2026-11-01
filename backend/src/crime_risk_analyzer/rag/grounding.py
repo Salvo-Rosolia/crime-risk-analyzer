@@ -36,6 +36,7 @@ from crime_risk_analyzer.istat.righe import IstatPoi, istat_per_poi
 from crime_risk_analyzer.models.risk import PoiRiskProfile
 from crime_risk_analyzer.models.vocab import Confidence, Tag
 from crime_risk_analyzer.rag.retrieval import RetrievalContext
+from crime_risk_analyzer.sources.context import current_ontology
 
 __all__ = [
     "GroundedContext",
@@ -151,15 +152,6 @@ class GroundedContext(TypedDict):
     confidence_summary: dict[str, int]
 
 
-#: Le property TERMINUS per asse, nell'ordine in cui ``query_executor`` le
-#: interroga. La vulnerabilita' ne usa DUE (divergenza #78): entrambe vanno cercate
-#: o si perde il path di un filler legittimo.
-_PROPS_HAZARD = ("havingHazard",)
-_PROPS_CRITICAL_EVENT = ("havingCriticalEvent",)
-_PROPS_VULNERABILITY = ("isVulnerableTo", "havingVulnerability")
-_PROPS_STAKEHOLDER = ("havingPerformer",)
-
-
 def _source_for(profile: PoiRiskProfile, props: tuple[str, ...], filler: str) -> str:
     """Path SPARQL reale di ``filler`` per una delle ``props``, dai ``sparql_paths``.
 
@@ -196,6 +188,13 @@ def ground(context: RetrievalContext) -> GroundedContext:
     (``GenericUrbanPOI``/profilo vuoto) restano con ``risks=[]``. Il
     ``confidence_summary`` conta i livelli reali.
     """
+    # Le proprieta' sono quelle dell'ontologia attiva (#434), non TERMINUS fisse:
+    # una citazione con una proprieta' che nel suo grafo non esiste non e' ancorata.
+    ontology = current_ontology()
+    props_hazard = (ontology.hazard,)
+    props_critical_event = (ontology.critical_event,)
+    props_vulnerability = ontology.vulnerability
+    props_stakeholder = (ontology.performer,)
     validated: list[ValidatedRisk] = []
     n_verificato = 0
     n_da_confermare = 0
@@ -207,7 +206,7 @@ def ground(context: RetrievalContext) -> GroundedContext:
                 "hazard": hazard,
                 "tag": _TAG,
                 "confidence": confidence,
-                "source": _source_for(profile, _PROPS_HAZARD, hazard),
+                "source": _source_for(profile, props_hazard, hazard),
             }
             for hazard in profile.hazards
         ]
@@ -222,13 +221,13 @@ def ground(context: RetrievalContext) -> GroundedContext:
                 "terminus_class": poi["terminus_class"],
                 "risks": risks,
                 "critical_events": _entities(
-                    profile, _PROPS_CRITICAL_EVENT, profile.critical_events
+                    profile, props_critical_event, profile.critical_events
                 ),
                 "vulnerabilities": _entities(
-                    profile, _PROPS_VULNERABILITY, profile.vulnerabilities
+                    profile, props_vulnerability, profile.vulnerabilities
                 ),
                 "stakeholders": _entities(
-                    profile, _PROPS_STAKEHOLDER, profile.stakeholders
+                    profile, props_stakeholder, profile.stakeholders
                 ),
                 "sparql_path": risks[0]["source"] if risks else None,
                 "istat": istat_per_poi(poi["lat"], poi["lon"], profile.hazards),

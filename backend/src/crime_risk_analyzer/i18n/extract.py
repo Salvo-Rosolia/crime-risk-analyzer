@@ -18,11 +18,11 @@ import json
 from collections.abc import Iterable
 from pathlib import Path
 
-from rdflib import RDFS, Graph
+from rdflib import RDFS, Graph, Namespace
 from rdflib.namespace import OWL
 
 from crime_risk_analyzer.i18n.terminus_labels import LabelRecord
-from crime_risk_analyzer.ontology_namespaces import TERMINUS
+from crime_risk_analyzer.sources.model import TERMINUS_CONFIG, OntologyConfig
 from crime_risk_analyzer.sparql_module.osm_mapping import (
     GENERIC_FALLBACK,
     OSM_TO_TERMINUS,
@@ -38,15 +38,6 @@ _DEFAULT_OUT = str(Path(__file__).parent / "terminus_labels.json")
 _TYPO_FIXES: dict[str, str] = {
     "Brank_branch": "Branch robbery",
     "Buiding_damage": "Building damage",
-}
-
-#: Object property → categoria del filler.
-_PROP_CATEGORY: dict[str, str] = {
-    "havingHazard": "hazard",
-    "havingCriticalEvent": "critical_event",
-    "havingVulnerability": "vulnerability",
-    "isVulnerableTo": "vulnerability",
-    "havingPerformer": "stakeholder",
 }
 
 _CATEGORY_ORDER: dict[str, int] = {
@@ -91,29 +82,47 @@ def _record(identifier: str, category: str) -> LabelRecord:
     }
 
 
-def extract_records(graph: Graph, seeds: Iterable[str]) -> list[LabelRecord]:
+def _prop_category(ontology: OntologyConfig) -> dict[str, str]:
+    """Nome locale della property -> categoria del filler, dall'ontologia."""
+    return {
+        ontology.hazard: "hazard",
+        ontology.critical_event: "critical_event",
+        **{name: "vulnerability" for name in ontology.vulnerability},
+        ontology.performer: "stakeholder",
+    }
+
+
+def extract_records(
+    graph: Graph,
+    seeds: Iterable[str],
+    ontology: OntologyConfig = TERMINUS_CONFIG,
+) -> list[LabelRecord]:
     """Estrae i record del sottografo affiorante a partire dai POI seed.
+
+    Namespace e nomi delle property vengono da ``ontology`` (default TERMINUS, #434).
 
     Un filler puo' essere raggiunto da PIU' property con categorie diverse (sul
     sottografo affiorante reale succede gia', non solo in teoria: es.
     ``ATM_out_of_service`` e' insieme hazard e critical_event su POI diversi).
     La categoria non e' quella della prima property incontrata iterando
-    ``_PROP_CATEGORY`` — dipenderebbe dall'ordine del dict, incidentale — ma
+    la mappa property -> categoria — dipenderebbe dall'ordine del dict, incidentale — ma
     quella con priorita' piu' alta in ``_CATEGORY_ORDER`` (lo stesso ordine gia'
     usato per l'output): un criterio esplicito e stabile, non un effetto
     collaterale dell'ordine di definizione.
     """
+    ns = Namespace(ontology.namespace)
+    prop_category = _prop_category(ontology)
     poi_records: dict[str, LabelRecord] = {}
     filler_categories: dict[str, set[str]] = {}
     for poi in sorted(set(seeds)):
-        poi_uri = TERMINUS[poi]
+        poi_uri = ns[poi]
         if not any(graph.triples((poi_uri, None, None))):
             continue
         poi_records.setdefault(poi, _record(poi, "poi"))
-        for prop, category in _PROP_CATEGORY.items():
+        for prop, category in prop_category.items():
             rows = graph.query(
                 _FILLER_Q,
-                initBindings={"poi": poi_uri, "p": TERMINUS[prop]},
+                initBindings={"poi": poi_uri, "p": ns[prop]},
                 initNs={"rdfs": RDFS, "owl": OWL},
             )
             for row in rows:
