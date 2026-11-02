@@ -17,7 +17,7 @@ describe('LoadingOverlayComponent', () => {
     jest.useRealTimers();
   });
 
-  it('elenca gli step cosmetici della fase 1 (geocoding → Overpass → SPARQL → grounding, nessuna generazione LLM qui)', () => {
+  it('lists the cosmetic steps of phase 1 (geocoding → Overpass → SPARQL → grounding, no LLM generation here)', () => {
     const text = fixture.nativeElement.textContent;
     for (const step of LOADING_STEPS) {
       expect(text).toContain(step);
@@ -26,13 +26,13 @@ describe('LoadingOverlayComponent', () => {
     expect(text).not.toContain('LLM');
   });
 
-  it('il primo step è "corrente" da subito', () => {
+  it('the first step is "current" right away', () => {
     const steps = fixture.nativeElement.querySelectorAll('.cra-loading-step');
     expect(steps[0].classList.contains('cra-step-current')).toBe(true);
     expect(steps[1].classList.contains('cra-step-current')).toBe(false);
   });
 
-  it('avanza lo step corrente nel tempo (cosmetico, nessuno streaming reale dal server)', () => {
+  it('advances the current step over time (cosmetic, no real streaming from the server)', () => {
     jest.advanceTimersByTime(1400);
     fixture.detectChanges();
     const steps = fixture.nativeElement.querySelectorAll('.cra-loading-step');
@@ -40,14 +40,14 @@ describe('LoadingOverlayComponent', () => {
     expect(steps[1].classList.contains('cra-step-current')).toBe(true);
   });
 
-  it("si ferma all'ultimo step e non oltre", () => {
+  it('stops at the last step and no further', () => {
     jest.advanceTimersByTime(1400 * (LOADING_STEPS.length + 5));
     fixture.detectChanges();
     const steps = fixture.nativeElement.querySelectorAll('.cra-loading-step');
     expect(steps[LOADING_STEPS.length - 1].classList.contains('cra-step-current')).toBe(true);
   });
 
-  it('ripulisce il timer alla distruzione del componente (nessun avanzamento successivo)', () => {
+  it('cleans up the timer when the component is destroyed (no later advance)', () => {
     const clearSpy = jest.spyOn(window, 'clearInterval');
     fixture.destroy();
     expect(clearSpy).toHaveBeenCalled();

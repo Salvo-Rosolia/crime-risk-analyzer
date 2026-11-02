@@ -1,9 +1,9 @@
 /*
- * Narrativa in PANNELLO DESTRO a tutta altezza (#218): a differenza del vecchio bottom-sheet
- * full-width, sta a destra e libera l'altezza per mappa e dock (che torna a tutta altezza) —
- * scelta ottimizzata per laptop (largo ma basso). Collassabile via `open()` (classe host
- * `cra-narr-collapsed`): resta solo l'header, col banner di sicurezza SEMPRE visibile. Sotto
- * 1100px torna bottom-sheet full-width (media query in fondo), col dock che ripristina il cap.
+ * Narrative in a full-height RIGHT-HAND PANEL (#218): unlike the old full-width bottom sheet,
+ * it sits on the right and frees the height for the map and the dock (which goes back to full height) —
+ * choice optimized for laptops (wide but short). Collapsible via `open()` (host class
+ * `cra-narr-collapsed`): only the header remains, with the safety banner ALWAYS visible. Below
+ * 1100px it goes back to a full-width bottom sheet (media query at the bottom), with the dock restoring the cap.
  */
 :host {
   position: absolute;
@@ -22,7 +22,7 @@
   box-shadow: var(--shadow);
 }
 
-/* Collassato: altezza automatica (solo header) → libera la parte bassa a destra per la mappa. */
+/* Collapsed: automatic height (header only) → frees the lower right part for the map. */
 :host(.cra-narr-collapsed) {
   bottom: auto;
 }
@@ -36,8 +36,8 @@
   margin: 0;
 }
 
-/* Header a più righe: nel pannello stretto (300px) chevron+titolo, banner e Rigenera vanno a capo
-   ordinatamente; a bottom-sheet (media query) torna una riga sola. */
+/* Multi-line header: in the narrow panel (300px) chevron+title, banner and Rigenera wrap
+   neatly; as a bottom sheet (media query) it goes back to a single line. */
 .cra-narr-header {
   flex: 0 0 auto;
   display: flex;
@@ -100,9 +100,9 @@
   border-top: var(--panel-border) solid var(--ink);
 }
 
-/* Stato della generazione per-POI (#197): righe di servizio sopra il contenuto, distinte dalla
-   prosa. L'errore riusa la famiglia amber degli avvisi (--c-da-confermare-*), che è già il
-   registro visivo dei messaggi non bloccanti: il contenuto precedente resta leggibile sotto. */
+/* State of the per-POI generation (#197): service rows above the content, distinct from the
+   prose. The error reuses the amber family of the warnings (--c-da-confermare-*), which is already the
+   visual register of non-blocking messages: the previous content stays readable below. */
 .cra-narr-loading,
 .cra-narr-error,
 .cra-narr-fallback,
@@ -117,9 +117,9 @@
   font-style: italic;
 }
 
-/* Errore e fallback condividono il registro amber degli avvisi: entrambi dicono che la prosa
-   attesa non c'è. L'avviso di assenza di ancoraggio ontologico (#197/#220) è invece una NOTA
-   epistemica su un testo che c'è ed è leggibile, quindi resta neutro e non allarmista. */
+/* Error and fallback share the amber register of the warnings: both say the expected prose
+   is not there. The ontology-anchoring-absence warning (#197/#220) is instead an epistemic
+   NOTE on a text that exists and is readable, so it stays neutral and not alarmist. */
 .cra-narr-error,
 .cra-narr-fallback {
   color: var(--c-da-confermare-ink);
@@ -196,7 +196,7 @@
   white-space: pre-wrap;
 }
 
-/* #365: riga sotto la descrizione della fonte, stesso registro della descrizione. */
+/* #365: row under the source description, same register as the description. */
 .cra-narr-istat-note {
   font-size: 0.72rem;
   font-style: italic;
@@ -205,9 +205,9 @@
 }
 
 /*
- * #365: indicatore ISTAT in linea nella prosa. Resta nel flusso del testo (inline, può andare a
- * capo): corpo più piccolo, filetto a sinistra nel colore della fonte ISTAT, colore del testo
- * neutro — nessun rosso/verde sulla tendenza (D9: non è un giudizio di pericolosità).
+ * #365: inline ISTAT indicator in the prose. It stays in the text flow (inline, can wrap):
+ * smaller body, thin rule on the left in the ISTAT source color, neutral text color
+ * — no red/green on the trend (D9: it is not a judgment of dangerousness).
  */
 .cra-narr-istat {
   margin: 0 0.25em;
@@ -221,9 +221,9 @@
 }
 
 /*
- * Fallback bottom-sheet sotto 1100px (#218): su finestre strette il pannello destro strozzerebbe
- * la mappa, quindi la narrativa torna in basso a tutta larghezza (layout storico), col dock che
- * ripristina il cap d'altezza (panel-dock.component.css, stessa media query).
+ * Bottom-sheet fallback below 1100px (#218): on narrow windows the right panel would choke
+ * the map, so the narrative goes back to the bottom at full width (historical layout), with the dock
+ * restoring the height cap (panel-dock.component.css, same media query).
  */
 @media (max-width: 1099px) {
   :host {
@@ -244,7 +244,7 @@
   }
 }
 
-/* Testo solo per i lettori di schermo (#365): prefisso e chiusura dell'indicatore in linea. */
+/* Screen-reader-only text (#365): prefix and closing of the inline indicator. */
 .cra-vh {
   position: absolute;
   width: 1px;

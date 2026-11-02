@@ -5,16 +5,16 @@ import { SourcesStore } from '@core/state/sources.store';
 import { isSourcesExpired } from './sources-expired';
 import { SESSION_HEADER, sessionId } from './session-id';
 
-/** URL verso il backend: relativo alla radice, ma non `//host` (protocol-relative, altro host). */
+/** URL towards the backend: relative to the root, but not `//host` (protocol-relative, another host). */
 function isBackendUrl(url: string): boolean {
   return url.startsWith('/') && !url.startsWith('//');
 }
 
 /**
- * Aggiunge il token di sessione a ogni richiesta verso il backend: le rotte di analisi lavorano sul
- * set di fonti della sessione, e senza intestazione userebbero il default anche dopo un
- * caricamento. Gli altri host non lo ricevono. Inoltre intercetta il 410 `fonti_scadute` di
- * qualunque rotta e lo segnala allo store delle fonti, così l'indicatore non resta stantio.
+ * Adds the session token to every request towards the backend: the analysis routes work on the
+ * session's source set, and without the header they would use the default even after an
+ * upload. Other hosts do not receive it. It also intercepts the 410 `fonti_scadute` of
+ * any route and reports it to the sources store, so the indicator does not stay stale.
  */
 export const sessionInterceptor: HttpInterceptorFn = (req, next) => {
   if (!isBackendUrl(req.url)) return next(req);

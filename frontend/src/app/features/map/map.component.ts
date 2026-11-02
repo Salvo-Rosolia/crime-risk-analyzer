@@ -52,35 +52,35 @@ type DrawState = 'idle' | 'drawing-radius' | 'ready';
       }
 
       /*
-       * Input numerico del raggio (#318, D2/§5.1 design doc): l'unica via KEYBOARD/screen-reader
-       * per impostare il raggio, il drag da solo la esclude. Fluttua sopra la mappa invece di
-       * stare in un pannello laterale perché deve restare visibile in drawing-radius/ready
-       * indipendentemente da quale pannello di ricerca (completo/base) è montato accanto alla
-       * mappa.
+       * Numeric radius input (#318, D2/§5.1 design doc): the only KEYBOARD/screen-reader way
+       * to set the radius, dragging alone excludes it. It floats above the map instead of
+       * sitting in a side panel because it must stay visible in drawing-radius/ready
+       * regardless of which search panel (full/base) is mounted next to the
+       * map.
        *
-       * Posizione (fix reperto review: non più in alto a sinistra, era invisibile/incliccabile
-       * ovunque). .cra-panels (app.css) è z-index:500 nello stacking context ROOT, quindi sta
-       * sempre sopra cra-map (z-index:0): qualunque pannello dentro .cra-panels copre questo
-       * controllo, indipendentemente da z-index/posizione LOCALI qui dentro. Angolo per angolo:
-       *  - alto-sinistra: SEMPRE occupato - .cra-panel in INPUT/ERROR (app.css, margin:16px) e
-       *    il dock POI in RESULTS/FILTER/DETAIL (panel-dock.component.css, top/left:
-       *    var(--space-4), width fissa var(--panel-max-width)) partono entrambi da lì.
-       *  - basso-destra: SEMPRE occupato dal controllo zoom di Leaflet - zoomControl:false in
-       *    L.map(...) (questo file) disattiva solo quello di default, ma poco dopo viene
-       *    riaggiunto a mano con L.control.zoom({ position: 'bottomright' }), quindi un
-       *    controllo zoom esiste per davvero a quell'angolo; in più, a layout largo, ci finisce
-       *    sopra anche il pannello narrativa (narrative-sheet.component.css, top/right/bottom:
-       *    var(--space-4), quindi a tutta altezza).
-       *  - basso-sinistra: NON sicuro nonostante sembri libero - il dock POI ha solo un
-       *    max-height (non un'altezza fissa) e con una lista piena arriva quasi in fondo; sotto
-       *    i 1100px la narrativa diventa un bottom-sheet a piena larghezza (stessa
-       *    narrative-sheet.component.css) e occupa anche quell'angolo quando aperta.
-       *  - alto, subito a destra del dock/pannello: libero in ogni schermata. Il dock/.cra-panel
-       *    hanno larghezza FISSA (var(--panel-max-width), mai di più anche a lista piena - solo
-       *    l'altezza cresce col contenuto), e la narrativa (quando presente, a layout largo) parte
-       *    da destra con la sua stessa larghezza fissa: resta quindi un corridoio verticale libero
-       *    fra i due, dove l'ancoraggio orizzontale sotto riusa var(--panel-max-width) invece di un
-       *    valore fisso in px per restare corretto se quella costante cambia.
+       * Position (review finding fix: no longer top left, it was invisible/unclickable
+       * everywhere). .cra-panels (app.css) is z-index:500 in the ROOT stacking context, so it always sits
+       * above cra-map (z-index:0): any panel inside .cra-panels covers this
+       * control, regardless of LOCAL z-index/position in here. Corner by corner:
+       *  - top-left: ALWAYS occupied - .cra-panel in INPUT/ERROR (app.css, margin:16px) and
+       *    the POI dock in RESULTS/FILTER/DETAIL (panel-dock.component.css, top/left:
+       *    var(--space-4), fixed width var(--panel-max-width)) both start from there.
+       *  - bottom-right: ALWAYS occupied by the Leaflet zoom control - zoomControl:false in
+       *    L.map(...) (this file) disables only the default one, but shortly after it is
+       *    added back by hand with L.control.zoom({ position: 'bottomright' }), so a
+       *    zoom control really exists at that corner; moreover, on a wide layout, the narrative panel
+       *    also lands on top of it (narrative-sheet.component.css, top/right/bottom:
+       *    var(--space-4), hence full height).
+       *  - bottom-left: NOT safe even though it looks free - the POI dock has only a
+       *    max-height (not a fixed height) and with a full list it reaches almost the bottom; below
+       *    1100px the narrative becomes a full-width bottom sheet (same
+       *    narrative-sheet.component.css) and also occupies that corner when open.
+       *  - top, right next to the dock/panel: free on every screen. The dock/.cra-panel
+       *    have a FIXED width (var(--panel-max-width), never more even with a full list - only
+       *    the height grows with the content), and the narrative (when present, on a wide layout) starts
+       *    from the right with its own fixed width: a free vertical corridor therefore remains
+       *    between the two, where the horizontal anchoring below reuses var(--panel-max-width) instead of a
+       *    fixed px value to stay correct if that constant changes.
        */
       .cra-radius-control {
         position: absolute;
@@ -124,55 +124,55 @@ export class MapComponent implements OnDestroy {
   private markers: L.LayerGroup | null = null;
 
   /**
-   * Segnali (non semplici campi) apposta: `drawState`/`radiusM` sono letti dal template
-   * (`showRadiusInput`/`[value]` dell'input, #318) e gli aggiornamenti arrivano da handler Leaflet
-   * nativi (`map.on(...)`), non da binding `(evento)` del template — solo un segnale, non un campo
-   * privato, ridisegna la vista OnPush in quel caso.
+   * Signals (not plain fields) on purpose: `drawState`/`radiusM` are read by the template
+   * (`showRadiusInput`/`[value]` of the input, #318) and updates come from native Leaflet
+   * handlers (`map.on(...)`), not from `(event)` bindings in the template — only a signal, not a private
+   * field, redraws the OnPush view in that case.
    */
   private readonly drawState = signal<DrawState>('idle');
   private circleLayer: L.Circle | null = null;
   private centerLatLng: { lat: number; lon: number } | null = null;
 
-  /** Raggio corrente del cerchio in disegno/confermato, per la sincronizzazione bidirezionale con
-   * l'input numerico (#318 D2): il drag lo aggiorna (e lo riflette nel campo), la digitazione lo
-   * aggiorna solo alla conferma (evento `change`: blur/invio, vedi {@link onRadiusChange}) — non ad
-   * ogni tasto (vedi {@link onRadiusInput}), altrimenti il `[value]` legato a questo segnale
-   * riscriverebbe il campo mentre l'utente sta ancora componendo un numero. */
+  /** Current radius of the circle being drawn/confirmed, for the two-way synchronization with
+   * the numeric input (#318 D2): dragging updates it (and reflects it in the field), typing
+   * updates it only on confirmation (`change` event: blur/enter, see {@link onRadiusChange}) — not on
+   * every keystroke (see {@link onRadiusInput}), otherwise the `[value]` bound to this signal
+   * would rewrite the field while the user is still composing a number. */
   protected readonly radiusM = signal<number>(DEFAULT_RADIUS_M);
-  /** L'input numerico è utile solo mentre un cerchio esiste (`drawing-radius`/`ready`): in `idle`
-   * non c'è ancora un centro su cui applicare un raggio. */
+  /** The numeric input is useful only while a circle exists (`drawing-radius`/`ready`): in `idle`
+   * there is no center yet to apply a radius to. */
   protected readonly showRadiusInput = computed(() => this.drawState() !== 'idle');
 
   constructor() {
     afterNextRender(() => {
-      // doubleClickZoom:false (fix reperto review): Leaflet emette DUE eventi `click` nativi
-      // prima del `dblclick` su ogni doppio clic. Il draw FSM di questo componente (vedi
-      // {@link onMapClick}) legge ogni `click` come un passo idle->drawing-radius->ready (o
-      // ready->nuovo centro): senza disattivare qui lo zoom-su-doppio-clic di default, un
-      // doppio clic fatto per zoomare (nessuna intenzione di ridisegnare) veniva silenziosamente
-      // interpretato come due clic della FSM, scartando un cerchio già confermato
-      // (`circleChange(null)`) e sostituendolo con uno nuovo a raggio di default nel punto dove
-      // l'utente voleva solo zoomare.
+      // doubleClickZoom:false (review finding fix): Leaflet emits TWO native `click` events
+      // before the `dblclick` on every double click. The draw FSM of this component (see
+      // {@link onMapClick}) reads every `click` as a step idle->drawing-radius->ready (or
+      // ready->new center): without disabling the default double-click zoom here, a
+      // double click made to zoom (no intention of redrawing) was silently
+      // interpreted as two FSM clicks, discarding an already confirmed circle
+      // (`circleChange(null)`) and replacing it with a new one at default radius at the point where
+      // the user only wanted to zoom.
       const map = L.map(this.mapEl().nativeElement, {
         zoomControl: false,
         doubleClickZoom: false,
       }).setView([41.9028, 12.4964], 12);
-      // Basemap: tile standard OpenStreetMap, senza chiave.
+      // Basemap: standard OpenStreetMap tiles, no key.
       //
-      // Si veniva da CARTO (`basemaps.cartocdn.com/rastertiles/voyager`), che ha iniziato a
-      // richiedere una API key: la richiesta continua a rispondere HTTP 200 con `image/png`, ma il
-      // corpo è un segnaposto "API KEY REQUIRED" di ~2 KB invece di una tile vera di ~14 KB. Poiché
-      // non è un 4xx, Leaflet non emette `tileerror` e la console resta pulita: la mappa risulta
-      // vuota senza un solo segnale d'errore. Vale per tutti gli stili della loro CDN, non solo
-      // Voyager, quindi non era una questione di stile ma di accesso.
+      // We came from CARTO (`basemaps.cartocdn.com/rastertiles/voyager`), which started
+      // requiring an API key: the request keeps answering HTTP 200 with `image/png`, but the
+      // body is an "API KEY REQUIRED" placeholder of ~2 KB instead of a real tile of ~14 KB. Since
+      // it is not a 4xx, Leaflet does not emit `tileerror` and the console stays clean: the map ends up
+      // empty without a single error signal. It holds for all the styles of their CDN, not just
+      // Voyager, so it was not a matter of style but of access.
       //
-      // Niente `{s}`: OSM ha deprecato i subdomini (un solo host su HTTP/2 è la via consigliata, e
-      // passarli fa loggare un warning da Leaflet). Niente `{r}`: le tile standard non hanno la
-      // variante retina @2x, e chiederla darebbe 404.
+      // No `{s}`: OSM has deprecated the subdomains (a single host over HTTP/2 is the recommended way, and
+      // passing them makes Leaflet log a warning). No `{r}`: the standard tiles have no
+      // retina @2x variant, and asking for it would give 404.
       //
-      // LIMITE DICHIARATO: la tile usage policy di OSM copre usi leggeri — sviluppo, demo, tesi —
-      // non un servizio ad alto volume. Un deploy reale richiede un provider dedicato (o tile
-      // self-hosted), non questo endpoint.
+      // DECLARED LIMIT: OSM's tile usage policy covers light uses — development, demo, thesis —
+      // not a high-volume service. A real deployment requires a dedicated provider (or self-hosted
+      // tiles), not this endpoint.
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
         attribution:
@@ -225,7 +225,7 @@ export class MapComponent implements OnDestroy {
   private onMapClick(e: L.LeafletMouseEvent): void {
     const { lat, lng } = e.latlng;
     if (this.drawState() === 'idle' || this.drawState() === 'ready') {
-      // ready -> nuovo centro: il cerchio confermato in precedenza non è più valido.
+      // ready -> new center: the previously confirmed circle is no longer valid.
       if (this.drawState() === 'ready') this.circleChange.emit(null);
       this.centerLatLng = { lat, lon: lng };
       this.circleLayer?.remove();
@@ -234,7 +234,7 @@ export class MapComponent implements OnDestroy {
       this.drawState.set('drawing-radius');
       return;
     }
-    // drawing-radius -> ready: conferma il raggio corrente.
+    // drawing-radius -> ready: confirms the current radius.
     if (this.centerLatLng && this.circleLayer) {
       this.drawState.set('ready');
       this.circleChange.emit({
@@ -257,16 +257,16 @@ export class MapComponent implements OnDestroy {
   }
 
   /**
-   * Sincronizzazione da tastiera, fase DIGITAZIONE (#318 D2, fix reperto review "clampa e riscrive
-   * ad ogni tasto"): con `[value]="radiusM()"` nel template, chiamare `radiusM.set(...)` qui
-   * riscriverebbe il campo ad ogni carattere — "8" verrebbe clampato a "150" prima ancora che
-   * l'utente possa scrivere "800", che quindi non sarebbe MAI raggiungibile. Per questo qui non si
-   * tocca mai `radiusM` (né si riscrive il campo): si aggiorna solo l'ANTEPRIMA lato
-   * mappa/cerchio (stesso clamp del drag, tramite {@link clampRadius}) quando il testo digitato è
-   * già un numero — un valore fuori range aggiorna comunque subito mappa/`circleChange` (se
-   * `ready`), ma con quello VISUALIZZATO invariato. Il campo vuoto (utente a metà di una
-   * riscrittura) non tocca nemmeno l'anteprima. Il clamp autoritativo, che riscrive anche il
-   * campo, avviene solo alla conferma: vedi {@link onRadiusChange}.
+   * Keyboard synchronization, TYPING phase (#318 D2, review finding fix "clamps and rewrites
+   * at every keystroke"): with `[value]="radiusM()"` in the template, calling `radiusM.set(...)` here
+   * would rewrite the field at every character — "8" would be clamped to "150" before the
+   * user can even type "800", which would therefore NEVER be reachable. For this reason here
+   * `radiusM` is never touched (nor is the field rewritten): only the map/circle-side PREVIEW is
+   * updated (same clamp as the drag, via {@link clampRadius}) when the typed text is
+   * already a number — an out-of-range value still immediately updates the map/`circleChange` (if
+   * `ready`), but with the DISPLAYED one unchanged. The empty field (user in the middle of a
+   * rewrite) does not even touch the preview. The authoritative clamp, which also rewrites the
+   * field, happens only on confirmation: see {@link onRadiusChange}.
    */
   protected onRadiusInput(event: Event): void {
     const value = (event.target as HTMLInputElement).value;
@@ -285,24 +285,24 @@ export class MapComponent implements OnDestroy {
   }
 
   /**
-   * Sincronizzazione da tastiera, fase CONFERMA (evento `change`: blur o invio, #318 D2 fix): qui,
-   * e solo qui, il valore viene clampato E riscritto nel campo (`radiusM.set(...)`, che tramite
-   * `[value]` sovrascrive il testo digitato) — l'utente ha finito di comporre il numero, quindi
-   * allineare la vista al valore effettivo non gli impedisce più di raggiungere un valore
-   * intermedio come durante la digitazione (vedi {@link onRadiusInput}).
+   * Keyboard synchronization, CONFIRMATION phase (`change` event: blur or enter, #318 D2 fix): here,
+   * and only here, the value is clamped AND rewritten into the field (`radiusM.set(...)`, which through
+   * `[value]` overwrites the typed text) — the user has finished composing the number, so
+   * aligning the view to the effective value no longer prevents them from reaching an
+   * intermediate value as during typing (see {@link onRadiusInput}).
    *
-   * Campo svuotato del tutto alla conferma (fix reperto review): `Number('') === 0`, che è
-   * finito (non `NaN`), quindi senza questo guardiano `clampRadius(0)` scatterebbe silenziosamente
-   * al minimo (150m) — scartando un raggio valido già confermato (es. 800m) invece di ripristinarlo.
-   * Stessa guardia già presente in {@link onRadiusInput} per il caso identico durante la digitazione
-   * (`value.trim() === ''`): qui si riparte da `this.radiusM()`, l'ultimo valore noto-buono, invece
-   * di far cadere `raw` (0) nel clamp.
+   * Field emptied completely on confirmation (review finding fix): `Number('') === 0`, which is
+   * finite (not `NaN`), so without this guard `clampRadius(0)` would silently jump
+   * to the minimum (150m) — discarding a valid radius already confirmed (e.g. 800m) instead of restoring it.
+   * Same guard already present in {@link onRadiusInput} for the identical case during typing
+   * (`value.trim() === ''`): here we start again from `this.radiusM()`, the last known-good value, instead of
+   * letting `raw` (0) fall into the clamp.
    *
-   * `target.value` è riscritto qui esplicitamente, non solo via `radiusM.set(...)` + `[value]`:
-   * i segnali Angular saltano la notifica se il nuovo valore è uguale al precedente (`Object.is`),
-   * quindi quando il ripristino sopra riporta `clamped` allo stesso valore già in `radiusM()` (caso
-   * comune: si svuota un campo già a 800 e si conferma) il solo `[value]` non ridisegnerebbe il
-   * campo, che resterebbe visivamente vuoto pur avendo lo stato logico corretto.
+   * `target.value` is rewritten here explicitly, not only via `radiusM.set(...)` + `[value]`:
+   * Angular signals skip the notification if the new value equals the previous one (`Object.is`),
+   * so when the restoration above brings `clamped` back to the same value already in `radiusM()` (common
+   * case: an already-800 field is emptied and confirmed) `[value]` alone would not redraw the
+   * field, which would stay visually empty despite having the correct logical state.
    */
   protected onRadiusChange(event: Event): void {
     const target = event.target as HTMLInputElement;
@@ -328,19 +328,19 @@ export class MapComponent implements OnDestroy {
     return Math.min(Math.max(value, MIN_RADIUS_M), MAX_RADIUS_M);
   }
 
-  /** Chiamato dalla casella "vai a un luogo" (#318): sposta la mappa, non tocca il cerchio disegnato. */
+  /** Called by the "go to a place" box (#318): moves the map, does not touch the drawn circle. */
   flyTo(lat: number, lon: number): void {
     this.map?.flyTo([lat, lon], 14);
   }
 
   /**
-   * Azzera il cerchio disegnato (#318, reperto review I5): chiamato da `App.onResetConfirmed()`
-   * dopo "+ Nuova richiesta". Senza questo metodo `MapComponent` non aveva modo di sapere che lo
-   * shell ha azzerato il proprio segnale `circle` — il cerchio restava disegnato sulla mappa
-   * (`circleLayer` non toccato) mentre il resto della UI (bottone disabilitato, istruzione
-   * "disegna un cerchio") lasciava intendere che non ce n'era uno. Riporta lo stato a `idle` (non
-   * `ready` con un `null` emesso): il prossimo clic deve ripartire da un centro nuovo, non
-   * riconfermare/scartare quello appena rimosso.
+   * Clears the drawn circle (#318, review finding I5): called by `App.onResetConfirmed()`
+   * after "+ Nuova richiesta". Without this method `MapComponent` had no way to know that the
+   * shell cleared its own `circle` signal — the circle stayed drawn on the map
+   * (`circleLayer` untouched) while the rest of the UI (disabled button, instruction
+   * "disegna un cerchio") implied there was none. It brings the state back to `idle` (not
+   * `ready` with a `null` emitted): the next click must restart from a new center, not
+   * reconfirm/discard the one just removed.
    */
   clearCircle(): void {
     this.circleLayer?.remove();

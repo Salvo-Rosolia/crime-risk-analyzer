@@ -85,14 +85,14 @@ describe('HeaderControlsComponent', () => {
   function setup(
     inputs: {
       data?: AnalyzeResponse | null;
-      mode?: 'completo' | 'base';
+      mode?: 'full' | 'base';
       filter?: Confidence | null;
       loading?: boolean;
     } = {},
   ): void {
     fixture = TestBed.createComponent(HeaderControlsComponent);
     fixture.componentRef.setInput('data', inputs.data ?? null);
-    fixture.componentRef.setInput('mode', inputs.mode ?? 'completo');
+    fixture.componentRef.setInput('mode', inputs.mode ?? 'full');
     fixture.componentRef.setInput('filter', inputs.filter ?? null);
     fixture.componentRef.setInput('loading', inputs.loading ?? false);
     fixture.detectChanges();
@@ -104,14 +104,14 @@ describe('HeaderControlsComponent', () => {
     }).compileComponents();
   });
 
-  it('il toggle Completo/Base è sempre presente, anche senza dati (per poter entrare in Base da zero)', () => {
+  it('the Full/Base toggle is always present, even without data (to be able to enter Base from scratch)', () => {
     setup({ data: null });
     const text = fixture.nativeElement.textContent;
     expect(text).toContain('Completo');
     expect(text).toContain('Base');
   });
 
-  it('click su "Base" emette toggleMode(\'base\')', () => {
+  it('click on "Base" emits toggleMode(\'base\')', () => {
     setup();
     const spy = jest.fn();
     fixture.componentInstance.toggleMode.subscribe(spy);
@@ -123,50 +123,50 @@ describe('HeaderControlsComponent', () => {
     expect(spy).toHaveBeenCalledWith('base');
   });
 
-  it('click su "Completo" emette toggleMode(\'completo\')', () => {
+  it('click on "Completo" emits toggleMode(\'full\')', () => {
     setup({ mode: 'base' });
     const spy = jest.fn();
     fixture.componentInstance.toggleMode.subscribe(spy);
     const buttons: HTMLButtonElement[] = Array.from(
       fixture.nativeElement.querySelectorAll('.cra-mode-btn'),
     );
-    const completoBtn = buttons.find((b) => b.textContent?.trim() === 'Completo')!;
-    completoBtn.click();
-    expect(spy).toHaveBeenCalledWith('completo');
+    const fullBtn = buttons.find((b) => b.textContent?.trim() === 'Completo')!;
+    fullBtn.click();
+    expect(spy).toHaveBeenCalledWith('full');
   });
 
-  it('la modalità attiva è marcata (aria-pressed)', () => {
-    setup({ mode: 'completo' });
+  it('the active mode is marked (aria-pressed)', () => {
+    setup({ mode: 'full' });
     const buttons: HTMLButtonElement[] = Array.from(
       fixture.nativeElement.querySelectorAll('.cra-mode-btn'),
     );
-    const completoBtn = buttons.find((b) => b.textContent?.trim() === 'Completo')!;
+    const fullBtn = buttons.find((b) => b.textContent?.trim() === 'Completo')!;
     const baseBtn = buttons.find((b) => b.textContent?.trim() === 'Base')!;
-    expect(completoBtn.getAttribute('aria-pressed')).toBe('true');
+    expect(fullBtn.getAttribute('aria-pressed')).toBe('true');
     expect(baseBtn.getAttribute('aria-pressed')).toBe('false');
   });
 
-  it('senza dati non mostra badge Copertura né chip confidence', () => {
+  it('without data it shows neither the Copertura badge nor the confidence chips', () => {
     setup({ data: null });
     expect(fixture.nativeElement.textContent).not.toContain('Copertura');
     expect(fixture.nativeElement.querySelectorAll('.cra-chip').length).toBe(0);
   });
 
-  it('in modalità base non mostra badge Copertura né chip confidence (anche con dati presenti)', () => {
+  it('in base mode it shows neither the Copertura badge nor the confidence chips (even with data present)', () => {
     setup({ data, mode: 'base' });
     expect(fixture.nativeElement.textContent).not.toContain('Copertura');
     expect(fixture.nativeElement.querySelectorAll('.cra-chip').length).toBe(0);
   });
 
-  it('con dati in modalità completo mostra il badge Copertura qualitativo (via deriveCoverage/coverageBadgeText, sui 4 POI di fixture 3 hanno confidence non nulla)', () => {
-    setup({ data, mode: 'completo' });
+  it('with data in full mode it shows the qualitative Copertura badge (via deriveCoverage/coverageBadgeText, of the 4 fixture POIs 3 have non-null confidence)', () => {
+    setup({ data, mode: 'full' });
     expect(fixture.nativeElement.textContent).toContain(
       'Copertura 3 su 4 POI coperti da ontologia',
     );
   });
 
-  it('mostra i chip confidence con il conteggio dei POI (non dei rischi) per livello; #220: solo 2 livelli, il POI D fuori ontologia (confidence null) non ha una categoria propria', () => {
-    setup({ data, mode: 'completo' });
+  it('shows the confidence chips with the POI count (not the risk count) per level; #220: only 2 levels, POI D outside the ontology (confidence null) has no category of its own', () => {
+    setup({ data, mode: 'full' });
     const chips: HTMLButtonElement[] = Array.from(
       fixture.nativeElement.querySelectorAll('.cra-chip'),
     );
@@ -177,8 +177,8 @@ describe('HeaderControlsComponent', () => {
     expect(text).toContain('Anonimo');
   });
 
-  it('click su un chip emette setFilter; riclic sul chip attivo emette clearFilter', () => {
-    setup({ data, mode: 'completo' });
+  it('click on a chip emits setFilter; clicking the active chip again emits clearFilter', () => {
+    setup({ data, mode: 'full' });
     const setSpy = jest.fn();
     const clearSpy = jest.fn();
     fixture.componentInstance.setFilter.subscribe(setSpy);
@@ -199,8 +199,8 @@ describe('HeaderControlsComponent', () => {
     expect(clearSpy).toHaveBeenCalled();
   });
 
-  it('aria-pressed sui chip riflette il filtro attivo', () => {
-    setup({ data, mode: 'completo', filter: 'da_confermare' });
+  it('aria-pressed on the chips reflects the active filter', () => {
+    setup({ data, mode: 'full', filter: 'da_confermare' });
     const chips: HTMLButtonElement[] = Array.from(
       fixture.nativeElement.querySelectorAll('.cra-chip'),
     );
@@ -208,8 +208,8 @@ describe('HeaderControlsComponent', () => {
     expect(chips[1].getAttribute('aria-pressed')).toBe('true');
   });
 
-  describe('BLOCCANTE A (review #67-bis): il toggle Completo/Base è disabilitato durante LOADING', () => {
-    it('i bottoni del toggle sono disabilitati quando loading=true', () => {
+  describe('BLOCKER A (review #67-bis): the Full/Base toggle is disabled during LOADING', () => {
+    it('the toggle buttons are disabled when loading=true', () => {
       setup({ loading: true });
       const buttons: HTMLButtonElement[] = Array.from(
         fixture.nativeElement.querySelectorAll('.cra-mode-btn'),
@@ -218,7 +218,7 @@ describe('HeaderControlsComponent', () => {
       expect(buttons.every((b) => b.disabled)).toBe(true);
     });
 
-    it('i bottoni del toggle sono abilitati quando loading=false (default)', () => {
+    it('the toggle buttons are enabled when loading=false (default)', () => {
       setup({ loading: false });
       const buttons: HTMLButtonElement[] = Array.from(
         fixture.nativeElement.querySelectorAll('.cra-mode-btn'),
@@ -226,7 +226,7 @@ describe('HeaderControlsComponent', () => {
       expect(buttons.every((b) => !b.disabled)).toBe(true);
     });
 
-    it('un click su un bottone disabilitato non emette toggleMode (il disabled nativo blocca il click)', () => {
+    it('a click on a disabled button does not emit toggleMode (the native disabled blocks the click)', () => {
       setup({ loading: true });
       const spy = jest.fn();
       fixture.componentInstance.toggleMode.subscribe(spy);

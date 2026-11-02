@@ -1,11 +1,11 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, signal } from '@angular/core';
 
 /**
- * Fasi cosmetiche allineate alla pipeline reale della fase 1 di `POST /analyze`
- * (backend/orchestrator.md): geocoding → OSM/Overpass → SPARQL → grounding. Nessuna generazione
- * LLM qui (#259/#292): la narrativa arriva poi, in background, da una seconda chiamata
- * (`POST /analyze/narrativa`) che questo overlay non copre — a quel punto la FSM è già in RESULTS.
- * Nessuno streaming/SSE: l'avanzamento è puramente lato client (spec-frontend.md §Stato Loading).
+ * Cosmetic phases aligned with the real pipeline of phase 1 of `POST /analyze`
+ * (backend/orchestrator.md): geocoding → OSM/Overpass → SPARQL → grounding. No LLM
+ * generation here (#259/#292): the narrative arrives later, in the background, from a second call
+ * (`POST /analyze/narrativa`) that this overlay does not cover — by then the FSM is already in RESULTS.
+ * No streaming/SSE: progress is purely client-side (spec-frontend.md §Loading State).
  */
 export const LOADING_STEPS: readonly string[] = Object.freeze([
   'Geocodifica zona',

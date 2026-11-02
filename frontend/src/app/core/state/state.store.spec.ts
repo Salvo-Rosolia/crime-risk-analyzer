@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ApiService } from '@core/api/api.service';
 import { StateStore } from '@core/state/state.store';
-import { istatPoi, istatRiga } from '@core/testing/istat-fixtures';
+import { istatPoi, istatRow } from '@core/testing/istat-fixtures';
 import {
   AnalyzeResponse,
   IstatPoi,
@@ -61,10 +61,10 @@ const poiResp: PoiNarrativeResponse = {
   fallback: false,
 };
 
-const CENTRO: { lat: number; lon: number } = { lat: 41.9, lon: 12.5 };
-const RAGGIO = 500;
-/** L'area nella modalita' "cerchio": le due modalita' coesistono, questa e' quella geometrica. */
-const AREA: SearchArea = { kind: 'circle', center: CENTRO, radiusM: RAGGIO };
+const CENTER: { lat: number; lon: number } = { lat: 41.9, lon: 12.5 };
+const RADIUS = 500;
+/** The area in "circle" mode: the two modes coexist, this one is the geometric one. */
+const AREA: SearchArea = { kind: 'circle', center: CENTER, radiusM: RADIUS };
 
 describe('StateStore', () => {
   let store: StateStore;
@@ -80,9 +80,9 @@ describe('StateStore', () => {
       analyze: jest.fn(),
       analyzeBaseline: jest.fn(),
       poiNarrative: jest.fn(),
-      // Default: promise che non risolve mai, così i test estranei alla narrativa di zona (#292)
-      // non devono preoccuparsi del giro in background che `startAnalysis` avvia da sé — i test
-      // dedicati sotto sovrascrivono questo mock esplicitamente.
+      // Default: a promise that never resolves, so the tests unrelated to the zone narrative (#292)
+      // do not have to worry about the background round that `startAnalysis` starts by itself — the
+      // dedicated tests below override this mock explicitly.
       zoneNarrative: jest.fn().mockReturnValue(new Promise<ZoneNarrativeResponse>(() => undefined)),
     };
     TestBed.configureTestingModule({
@@ -91,46 +91,46 @@ describe('StateStore', () => {
     store = TestBed.inject(StateStore);
   });
 
-  it('dispatch aggiorna i selettori tramite transition', () => {
-    store.dispatch({ type: 'ANALYZE', area: AREA, pipeline: 'completo' });
+  it('dispatch updates the selectors through transition', () => {
+    store.dispatch({ type: 'ANALYZE', area: AREA, pipeline: 'full' });
     expect(store.screen()).toBe('LOADING');
   });
 
-  it("pendingDomanda riflette l'ultimo valore inviato (per il retry dopo un errore)", () => {
-    expect(store.pendingDomanda()).toBeNull();
+  it('pendingQuestion reflects the last value sent (for the retry after an error)', () => {
+    expect(store.pendingQuestion()).toBeNull();
     store.dispatch({
       type: 'ANALYZE',
       area: AREA,
-      domanda: 'di sera?',
-      pipeline: 'completo',
+      question: 'di sera?',
+      pipeline: 'full',
     });
-    expect(store.pendingDomanda()).toBe('di sera?');
+    expect(store.pendingQuestion()).toBe('di sera?');
   });
 
-  it('startAnalysis success → LOAD_SUCCESS con i dati in completoData (mai in baselineData)', async () => {
+  it('startAnalysis success → LOAD_SUCCESS with the data in fullData (never in baselineData)', async () => {
     api.analyze.mockResolvedValue(data);
     await store.startAnalysis(AREA, null);
     expect(api.analyze).toHaveBeenCalledWith(AREA);
     expect(store.screen()).toBe('RESULTS');
-    expect(store.completoData()).toBe(data);
+    expect(store.fullData()).toBe(data);
     expect(store.baselineData()).toBeNull();
   });
 
-  it('startAnalysis con domanda: non la manda alla fase 1 (api.analyze), solo alla fase 2 in background (#292)', async () => {
+  it('startAnalysis with question: does not send it to phase 1 (api.analyze), only to phase 2 in the background (#292)', async () => {
     api.analyze.mockResolvedValue(data);
     await store.startAnalysis(AREA, 'di sera?');
     expect(api.analyze).toHaveBeenCalledWith(AREA);
     expect(api.zoneNarrative).toHaveBeenCalledWith('Roma', 'Colosseo', 'h-ctx', 'di sera?');
   });
 
-  it('startAnalysis failure → LOAD_ERROR con messaggio', async () => {
+  it('startAnalysis failure → LOAD_ERROR with message', async () => {
     api.analyze.mockRejectedValue(new Error('offline'));
     await store.startAnalysis(AREA);
     expect(store.screen()).toBe('ERROR');
     expect(store.error()).toBe('offline');
   });
 
-  it('startAnalysis failure con HttpErrorResponse 422 → error() contiene il messaggio del backend, non il fallback generico', async () => {
+  it('startAnalysis failure with HttpErrorResponse 422 → error() contains the backend message, not the generic fallback', async () => {
     const err = new HttpErrorResponse({
       status: 422,
       error: {
@@ -143,7 +143,7 @@ describe('StateStore', () => {
     expect(store.error()).toBe("Zona X non trovata nell'ontologia.");
   });
 
-  it('startBaselineAnalysis failure con 422 "tipo_poi non riconosciuto" (#143) → error() contiene il messaggio del backend, non il fallback generico', async () => {
+  it('startBaselineAnalysis failure with 422 "tipo_poi non riconosciuto" (#143) → error() contains the backend message, not the generic fallback', async () => {
     const err = new HttpErrorResponse({
       status: 422,
       error: {
@@ -154,12 +154,12 @@ describe('StateStore', () => {
       },
     });
     api.analyzeBaseline.mockRejectedValue(err);
-    await store.startBaselineAnalysis({ area: AREA, tipo_poi: 'banca' });
+    await store.startBaselineAnalysis({ area: AREA, poiType: 'banca' });
     expect(store.screen()).toBe('BASE');
     expect(store.error()).toBe("Tipo POI non riconosciuto: 'banca'");
   });
 
-  it('startBaselineAnalysis failure con 422 standard pydantic (detail LISTA, non la forma {errore, messaggio}) non va in crash e ricade sul fallback generico', async () => {
+  it('startBaselineAnalysis failure with standard pydantic 422 (LIST detail, not the {errore, messaggio} shape) does not crash and falls back to the generic fallback', async () => {
     const err = new HttpErrorResponse({
       status: 422,
       error: {
@@ -178,17 +178,17 @@ describe('StateStore', () => {
     expect(store.error()).toBe('Endpoint /analyze/baseline non ancora disponibile.');
   });
 
-  it('startBaselineAnalysis success → LOAD_SUCCESS con i dati in baselineData (mai in completoData)', async () => {
+  it('startBaselineAnalysis success → LOAD_SUCCESS with the data in baselineData (never in fullData)', async () => {
     store.dispatch({ type: 'TOGGLE_MODE', mode: 'base' });
     api.analyzeBaseline.mockResolvedValue(data);
     const params = { area: AREA };
     await store.startBaselineAnalysis(params);
     expect(api.analyzeBaseline).toHaveBeenCalledWith(params);
     expect(store.baselineData()).toBe(data);
-    expect(store.completoData()).toBeNull();
+    expect(store.fullData()).toBeNull();
   });
 
-  it('startBaselineAnalysis failure in modalità base → resta su BASE (non ERROR), il retry può richiamare ancora startBaselineAnalysis', async () => {
+  it('startBaselineAnalysis failure in base mode → stays on BASE (not ERROR), the retry can call startBaselineAnalysis again', async () => {
     store.dispatch({ type: 'TOGGLE_MODE', mode: 'base' });
     api.analyzeBaseline.mockRejectedValue(new Error('404'));
     await store.startBaselineAnalysis({ area: AREA });
@@ -197,18 +197,18 @@ describe('StateStore', () => {
   });
 
   describe('fromCache computed', () => {
-    it('è false allo stato iniziale', () => {
+    it('is false in the initial state', () => {
       expect(store.fromCache()).toBe(false);
     });
 
-    it('diventa true con data.cache_hit === true', async () => {
+    it('becomes true with data.cache_hit === true', async () => {
       const cached: AnalyzeResponse = { ...data, cache_hit: true };
       api.analyze.mockResolvedValue(cached);
       await store.startAnalysis(AREA);
       expect(store.fromCache()).toBe(true);
     });
 
-    it('resta false con una risposta normale (senza cache_hit)', async () => {
+    it('stays false with a normal response (without cache_hit)', async () => {
       api.analyze.mockResolvedValue(data);
       await store.startAnalysis(AREA);
       expect(store.fromCache()).toBe(false);
@@ -216,7 +216,7 @@ describe('StateStore', () => {
   });
 
   describe('startBaselineAnalysis', () => {
-    it("dispatcha ANALYZE e resta in LOADING prima dell'await; instrada su BASE anche senza un TOGGLE_MODE preventivo (il pipeline tag non dipende da state.mode, review #67-bis bloccante A)", async () => {
+    it('dispatches ANALYZE and stays in LOADING before the await; routes to BASE even without a prior TOGGLE_MODE (the pipeline tag does not depend on state.mode, review #67-bis blocker A)', async () => {
       let screenAtDispatch: string | null = null;
       api.analyzeBaseline.mockImplementation(() => {
         screenAtDispatch = store.screen();
@@ -227,7 +227,7 @@ describe('StateStore', () => {
       expect(store.screen()).toBe('BASE');
     });
 
-    it('in modalità base resta su BASE dopo il successo (non salta su RESULTS del sistema completo)', async () => {
+    it('in base mode stays on BASE after success (does not jump to RESULTS of the full system)', async () => {
       store.dispatch({ type: 'TOGGLE_MODE', mode: 'base' });
       api.analyzeBaseline.mockResolvedValue(data);
       await store.startBaselineAnalysis({ area: AREA });
@@ -237,36 +237,36 @@ describe('StateStore', () => {
   });
 
   describe('lastQuery computed', () => {
-    it('è null prima di ogni analisi e NON viene popolato da ANALYZE (lo fa LOAD_SUCCESS, #318)', () => {
+    it('is null before any analysis and is NOT populated by ANALYZE (LOAD_SUCCESS does, #318)', () => {
       expect(store.lastQuery()).toBeNull();
       store.dispatch({
         type: 'ANALYZE',
         area: AREA,
-        domanda: 'di sera?',
-        pipeline: 'completo',
+        question: 'di sera?',
+        pipeline: 'full',
       });
       expect(store.lastQuery()).toBeNull();
     });
 
-    it('riflette center/radiusM/domanda inviati + citta/zona RISOLTE dalla risposta, popolato da LOAD_SUCCESS (sorgente di "Rigenera", #318)', async () => {
+    it('reflects center/radiusM/question sent + city/zone RESOLVED from the response, populated by LOAD_SUCCESS (source of "Rigenera", #318)', async () => {
       api.analyze.mockResolvedValue(data);
       await store.startAnalysis(AREA, 'di sera?');
       expect(store.lastQuery()).toEqual({
         area: AREA,
-        citta: 'Roma',
-        zona: 'Colosseo',
-        domanda: 'di sera?',
+        city: 'Roma',
+        zone: 'Colosseo',
+        question: 'di sera?',
       });
     });
 
-    it('sopravvive a SELECT_POI/SET_FILTER (resta la sorgente di "Rigenera" anche in Vista Dettaglio/Filtro)', async () => {
+    it('survives SELECT_POI/SET_FILTER (stays the source of "Rigenera" even in Detail/Filter view)', async () => {
       api.analyze.mockResolvedValue(data);
       await store.startAnalysis(AREA, null);
       const expected = {
         area: AREA,
-        citta: 'Roma',
-        zona: 'Colosseo',
-        domanda: null,
+        city: 'Roma',
+        zone: 'Colosseo',
+        question: null,
       };
       expect(store.lastQuery()).toEqual(expected);
 
@@ -279,23 +279,23 @@ describe('StateStore', () => {
   });
 
   describe('narrOpen computed', () => {
-    it('parte aperto e si inverte con TOGGLE_NARR', () => {
+    it('starts open and flips with TOGGLE_NARR', () => {
       expect(store.narrOpen()).toBe(true);
       store.dispatch({ type: 'TOGGLE_NARR' });
       expect(store.narrOpen()).toBe(false);
     });
   });
 
-  describe('poiPanelOpen computed (#199: cablato al collasso del dock Lista/Dettaglio)', () => {
-    it('parte aperto e si inverte con TOGGLE_POI_PANEL', () => {
+  describe('poiPanelOpen computed (#199: wired to the collapse of the POI List/Detail dock)', () => {
+    it('starts open and flips with TOGGLE_POI_PANEL', () => {
       expect(store.poiPanelOpen()).toBe(true);
       store.dispatch({ type: 'TOGGLE_POI_PANEL' });
       expect(store.poiPanelOpen()).toBe(false);
     });
   });
 
-  describe('BLOCCANTE A (review #67-bis): race condition sul routing per-mode', () => {
-    it('risposta Completo in volo + toggle a Base nel frattempo → la risposta finisce SEMPRE in completoData, mai in baselineData', async () => {
+  describe('BLOCKER A (review #67-bis): race condition on per-mode routing', () => {
+    it('Full response in flight + toggle to Base in the meantime → the response ALWAYS ends up in fullData, never in baselineData', async () => {
       let resolveAnalyze!: (value: AnalyzeResponse) => void;
       api.analyze.mockReturnValue(
         new Promise<AnalyzeResponse>((resolve) => {
@@ -306,19 +306,19 @@ describe('StateStore', () => {
       const pending = store.startAnalysis(AREA, null);
       expect(store.screen()).toBe('LOADING');
 
-      // l'utente cambia modalità MENTRE la richiesta Completo è ancora in volo (nessuna guardia
-      // a livello di store: la difesa primaria deve reggere comunque, quella UI è un secondo strato)
+      // the user changes mode WHILE the Full request is still in flight (no guard
+      // at the store level: the primary defense must hold anyway, the UI one is a second layer)
       store.dispatch({ type: 'TOGGLE_MODE', mode: 'base' });
       expect(store.mode()).toBe('base');
 
       resolveAnalyze(data);
       await pending;
 
-      expect(store.completoData()).toBe(data);
+      expect(store.fullData()).toBe(data);
       expect(store.baselineData()).toBeNull();
     });
 
-    it('risposta Base in volo + toggle a Completo nel frattempo → la risposta finisce SEMPRE in baselineData, mai in completoData', async () => {
+    it('Base response in flight + toggle to Full in the meantime → the response ALWAYS ends up in baselineData, never in fullData', async () => {
       store.dispatch({ type: 'TOGGLE_MODE', mode: 'base' });
       let resolveBaseline!: (value: AnalyzeResponse) => void;
       api.analyzeBaseline.mockReturnValue(
@@ -330,26 +330,26 @@ describe('StateStore', () => {
       const pending = store.startBaselineAnalysis({ area: AREA });
       expect(store.screen()).toBe('LOADING');
 
-      store.dispatch({ type: 'TOGGLE_MODE', mode: 'completo' });
-      expect(store.mode()).toBe('completo');
+      store.dispatch({ type: 'TOGGLE_MODE', mode: 'full' });
+      expect(store.mode()).toBe('full');
 
       resolveBaseline(data);
       await pending;
 
       expect(store.baselineData()).toBe(data);
-      expect(store.completoData()).toBeNull();
+      expect(store.fullData()).toBeNull();
     });
   });
 
-  describe('BLOCCANTE B (review #67-bis): lastQuery isolato per pipeline', () => {
-    it('una ricerca Base non sovrascrive lastQuery (sorgente di "Rigenera", solo sistema completo)', async () => {
+  describe('BLOCKER B (review #67-bis): lastQuery isolated per pipeline', () => {
+    it('a Base search does not overwrite lastQuery (source of "Rigenera", full system only)', async () => {
       api.analyze.mockResolvedValue(data);
       await store.startAnalysis(AREA, null);
       expect(store.lastQuery()).toEqual({
         area: AREA,
-        citta: 'Roma',
-        zona: 'Colosseo',
-        domanda: null,
+        city: 'Roma',
+        zone: 'Colosseo',
+        question: null,
       });
 
       store.dispatch({ type: 'TOGGLE_MODE', mode: 'base' });
@@ -359,20 +359,20 @@ describe('StateStore', () => {
         zona_normalizzata: 'Duomo',
       };
       api.analyzeBaseline.mockResolvedValue(baselineResp);
-      const centroBase = { lat: 45.4, lon: 9.2 };
-      await store.startBaselineAnalysis({ center: centroBase, radiusM: 300 });
+      const baseCenter = { lat: 45.4, lon: 9.2 };
+      await store.startBaselineAnalysis({ center: baseCenter, radiusM: 300 });
 
       expect(store.lastQuery()).toEqual({
         area: AREA,
-        citta: 'Roma',
-        zona: 'Colosseo',
-        domanda: null,
+        city: 'Roma',
+        zone: 'Colosseo',
+        question: null,
       });
     });
   });
 
-  describe('narrativa POI (#197)', () => {
-    /** Porta lo store in RESULTS con lastQuery valorizzato: `loadPoiNarrative` ne ha bisogno. */
+  describe('POI narrative (#197)', () => {
+    /** Brings the store to RESULTS with lastQuery set: `loadPoiNarrative` needs it. */
     async function analyzed(): Promise<void> {
       api.analyze.mockResolvedValue({ ...data, narrativa: 'narrativa di zona' });
       await store.startAnalysis(AREA, null);
@@ -382,23 +382,23 @@ describe('StateStore', () => {
       api.poiNarrative.mockResolvedValue(poiResp);
     });
 
-    it("loadPoiNarrative chiama l'API con l'ultima query, l'id e l'impronta del contesto", async () => {
+    it('loadPoiNarrative calls the API with the last query, the id and the context fingerprint', async () => {
       await analyzed();
       await store.loadPoiNarrative('node/1');
       expect(api.poiNarrative).toHaveBeenCalledWith('Roma', 'Colosseo', 'node/1', 'h-ctx');
-      expect(store.state().poiNarratives['node/1'].narrativa).toBe('narrativa del POI');
+      expect(store.state().poiNarratives['node/1'].narrative).toBe('narrativa del POI');
     });
 
-    it("loadPoiNarrative non chiama l'API se la risposta di zona non porta un'impronta (#242)", async () => {
-      // Senza impronta non esiste una richiesta che il backend possa verificare: meglio non
-      // chiamare che spedire una richiesta destinata al 409.
+    it('loadPoiNarrative does not call the API if the zone response carries no fingerprint (#242)', async () => {
+      // Without a fingerprint there is no request the backend can verify: better not to
+      // call than to send a request destined for the 409.
       api.analyze.mockResolvedValue({ ...data, contesto_hash: '' });
       await store.startAnalysis(AREA, null);
       await store.loadPoiNarrative('node/1');
       expect(api.poiNarrative).not.toHaveBeenCalled();
     });
 
-    it('dopo una nuova analisi della zona il click su un POI manda la NUOVA impronta (#242)', async () => {
+    it('after a new zone analysis the click on a POI sends the NEW fingerprint (#242)', async () => {
       await analyzed();
       api.analyze.mockResolvedValue({ ...data, contesto_hash: 'h-ctx-2' });
       await store.startAnalysis(AREA, null);
@@ -406,51 +406,51 @@ describe('StateStore', () => {
       expect(api.poiNarrative).toHaveBeenLastCalledWith('Roma', 'Colosseo', 'node/1', 'h-ctx-2');
     });
 
-    it('scarta una generazione che arriva dopo una nuova analisi della zona (#242)', async () => {
-      // La verifica server-side copre solo ciò che passa dalla rete: se il risultato tardivo
-      // finisse in `poiNarratives`, un click successivo lo servirebbe dalla cache SENZA richiesta,
-      // mostrando prosa ancorata al vicinato dell'analisi precedente.
+    it('discards a generation that arrives after a new zone analysis (#242)', async () => {
+      // The server-side check covers only what goes over the network: if the late result
+      // ended up in `poiNarratives`, a later click would serve it from the cache WITHOUT a request,
+      // showing prose anchored to the neighborhood of the previous analysis.
       await analyzed();
-      let risolvi!: (v: PoiNarrativeResponse) => void;
+      let resolve!: (v: PoiNarrativeResponse) => void;
       api.poiNarrative.mockReturnValue(
         new Promise<PoiNarrativeResponse>((r) => {
-          risolvi = r;
+          resolve = r;
         }),
       );
-      const inVolo = store.loadPoiNarrative('node/1');
+      const inFlight = store.loadPoiNarrative('node/1');
 
       api.analyze.mockResolvedValue({ ...data, contesto_hash: 'h-ctx-2' });
       await store.startAnalysis(AREA, null);
 
-      risolvi(poiResp);
-      await inVolo;
+      resolve(poiResp);
+      await inFlight;
 
       expect(store.state().poiNarratives['node/1']).toBeUndefined();
       expect(store.poiNarrativeLoading()).toBeNull();
     });
 
-    it('scarta anche il FALLIMENTO di una generazione superata da una nuova analisi (#242)', async () => {
-      // Simmetrico al caso del successo: un banner d'errore su un contesto che non è più a
-      // schermo parlerebbe di una richiesta che non riguarda ciò che l'utente sta guardando.
+    it('also discards the FAILURE of a generation overtaken by a new analysis (#242)', async () => {
+      // Symmetric to the success case: an error banner on a context that is no longer on
+      // screen would talk about a request that does not concern what the user is looking at.
       await analyzed();
-      let rifiuta!: (e: unknown) => void;
+      let reject!: (e: unknown) => void;
       api.poiNarrative.mockReturnValue(
         new Promise<PoiNarrativeResponse>((_, rej) => {
-          rifiuta = rej;
+          reject = rej;
         }),
       );
-      const inVolo = store.loadPoiNarrative('node/1');
+      const inFlight = store.loadPoiNarrative('node/1');
 
       api.analyze.mockResolvedValue({ ...data, contesto_hash: 'h-ctx-2' });
       await store.startAnalysis(AREA, null);
 
-      rifiuta(new Error('boom'));
-      await inVolo;
+      reject(new Error('boom'));
+      await inFlight;
 
       expect(store.poiNarrativeError()).toBeNull();
     });
 
-    it('loadPoiNarrative su 409 mostra il messaggio del backend (#242)', async () => {
+    it('loadPoiNarrative on 409 shows the backend message (#242)', async () => {
       await analyzed();
       api.poiNarrative.mockRejectedValue(
         new HttpErrorResponse({
@@ -467,26 +467,26 @@ describe('StateStore', () => {
       expect(store.poiNarrativeError()).toBe('rilancia l’analisi di zona');
     });
 
-    it("loadPoiNarrative non richiama l'API se la narrativa è già in cache", async () => {
+    it('loadPoiNarrative does not call the API again if the narrative is already in cache', async () => {
       await analyzed();
       await store.loadPoiNarrative('node/1');
       await store.loadPoiNarrative('node/1');
       expect(api.poiNarrative).toHaveBeenCalledTimes(1);
     });
 
-    it('loadPoiNarrative con force bypassa la cache (bottone «rigenera»)', async () => {
+    it('loadPoiNarrative with force bypasses the cache ("rigenera" button)', async () => {
       await analyzed();
       await store.loadPoiNarrative('node/1');
       await store.loadPoiNarrative('node/1', { force: true });
       expect(api.poiNarrative).toHaveBeenCalledTimes(2);
     });
 
-    it('loadPoiNarrative senza una query precedente non chiama l’API', async () => {
+    it('loadPoiNarrative without a previous query does not call the API', async () => {
       await store.loadPoiNarrative('node/1');
       expect(api.poiNarrative).not.toHaveBeenCalled();
     });
 
-    it('loadPoiNarrative su errore popola poiNarrativeError e sblocca il caricamento', async () => {
+    it('loadPoiNarrative on error populates poiNarrativeError and unblocks the loading state', async () => {
       await analyzed();
       api.poiNarrative.mockRejectedValue(new Error('boom'));
       await store.loadPoiNarrative('node/1');
@@ -494,7 +494,7 @@ describe('StateStore', () => {
       expect(store.poiNarrativeLoading()).toBeNull();
     });
 
-    it('loadPoiNarrative su 404 mostra il messaggio del backend', async () => {
+    it('loadPoiNarrative on 404 shows the backend message', async () => {
       await analyzed();
       api.poiNarrative.mockRejectedValue(
         new HttpErrorResponse({
@@ -506,17 +506,17 @@ describe('StateStore', () => {
       expect(store.poiNarrativeError()).toBe('rilancia l’analisi');
     });
 
-    it('currentNarrativa segue lo scope: POI se selezionato, zona altrimenti', async () => {
+    it('currentNarrative follows the scope: POI if selected, zone otherwise', async () => {
       await analyzed();
       await store.loadPoiNarrative('node/1');
       store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
-      expect(store.currentNarrativa()).toBe('narrativa del POI');
-      expect(store.currentNarrativaFonti()?.ontologia).toBe('rischio rapina');
+      expect(store.currentNarrative()).toBe('narrativa del POI');
+      expect(store.currentNarrativeSources()?.ontologia).toBe('rischio rapina');
       store.dispatch({ type: 'DESELECT_POI' });
-      expect(store.currentNarrativa()).toBe('narrativa di zona');
+      expect(store.currentNarrative()).toBe('narrativa di zona');
     });
 
-    it("l'errore di un POI non sopravvive al ritorno alla lista", async () => {
+    it("a POI's error does not survive the return to the list", async () => {
       await analyzed();
       api.poiNarrative.mockRejectedValue(new Error('boom'));
       store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
@@ -527,7 +527,7 @@ describe('StateStore', () => {
       expect(store.poiNarrativeError()).toBeNull();
     });
 
-    it("l'errore di un POI non sopravvive alla selezione di un altro POI già in cache", async () => {
+    it("a POI's error does not survive the selection of another already cached POI", async () => {
       await analyzed();
       await store.loadPoiNarrative('node/1');
       api.poiNarrative.mockRejectedValue(new Error('boom'));
@@ -535,33 +535,33 @@ describe('StateStore', () => {
       await store.loadPoiNarrative('node/2');
       expect(store.poiNarrativeError()).toBe('boom');
 
-      // 'node/1' è già in cache: loadPoiNarrative esce subito, senza POI_NARRATIVE_START.
+      // 'node/1' is already in cache: loadPoiNarrative exits immediately, without POI_NARRATIVE_START.
       store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
       await store.loadPoiNarrative('node/1');
       expect(store.poiNarrativeError()).toBeNull();
     });
 
-    it('un POI selezionato senza narrativa ancora pronta mostra quella di zona', async () => {
+    it('a selected POI without a narrative ready yet shows the zone one', async () => {
       await analyzed();
       store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
-      expect(store.currentNarrativa()).toBe('narrativa di zona');
+      expect(store.currentNarrative()).toBe('narrativa di zona');
     });
 
-    it('il caricamento è dichiarato solo se riguarda la selezione corrente', async () => {
+    it('the loading state is declared only if it concerns the current selection', async () => {
       await analyzed();
       store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
       store.dispatch({ type: 'POI_NARRATIVE_START', poiId: 'node/1' });
       expect(store.poiNarrativePending()).toBe(true);
 
-      // Tornando alla lista la generazione resta in volo, ma non è più lo scope mostrato.
+      // Going back to the list the generation stays in flight, but it is no longer the scope shown.
       store.dispatch({ type: 'DESELECT_POI' });
       expect(store.poiNarrativePending()).toBe(false);
     });
 
-    it('lo scope mostrato è nominato solo quando è davvero la narrativa del punto', async () => {
+    it('the scope shown is named only when it is really the point narrative', async () => {
       await analyzed();
       store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
-      // Narrativa non ancora arrivata: il corpo mostra la zona, quindi nessun nome di punto.
+      // Narrative not yet arrived: the body shows the zone, so no point name.
       expect(store.currentScopePoiName()).toBeNull();
 
       await store.loadPoiNarrative('node/1');
@@ -571,8 +571,8 @@ describe('StateStore', () => {
       expect(store.currentScopePoiName()).toBeNull();
     });
 
-    it('#365: le occorrenze ISTAT seguono lo scope: zona → tutti i POI, punto → solo il POI', async () => {
-      const istat = istatPoi(istatRiga('BANKROB', ['Bank_robbery']));
+    it('#365: the ISTAT occurrences follow the scope: zone → all POIs, point → only the POI', async () => {
+      const istat = istatPoi(istatRow('BANKROB', ['Bank_robbery']));
       const mk = (id: string, i?: IstatPoi): Poi => ({
         id,
         name: id,
@@ -599,17 +599,17 @@ describe('StateStore', () => {
 
       await store.loadPoiNarrative('node/1');
       store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
-      const punto = store.currentNarrativeIstatOccurrences();
-      expect(punto).toHaveLength(1);
-      expect(punto[0]).toEqual({
+      const point = store.currentNarrativeIstatOccurrences();
+      expect(point).toHaveLength(1);
+      expect(point[0]).toEqual({
         hazardLabel: 'Rapina in banca',
         hazard: 'Bank_robbery',
         istat,
       });
     });
 
-    it('#365: se i riskModels della narrativa del punto sono di un altro poi_id, nessuna occorrenza ISTAT', async () => {
-      const istat = istatPoi(istatRiga('BANKROB', ['Bank_robbery']));
+    it('#365: if the narrative riskModels belong to another poi_id, no ISTAT occurrence', async () => {
+      const istat = istatPoi(istatRow('BANKROB', ['Bank_robbery']));
       api.analyze.mockResolvedValue({
         ...data,
         poi: [
@@ -634,11 +634,11 @@ describe('StateStore', () => {
       });
       store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
       await store.loadPoiNarrative('node/1');
-      // l'aggancio è per poi_id: un modello di un altro punto non produce indicatori
+      // the match is by poi_id: a model of another point produces no indicators
       expect(store.currentNarrativeIstatOccurrences()).toEqual([]);
     });
 
-    it('#261: un POI senza nome (feature OSM anonima) nomina lo scope col ripiego sulla classe, non con una stringa vuota', async () => {
+    it('#261: a POI without a name (anonymous OSM feature) names the scope with the class fallback, not an empty string', async () => {
       api.analyze.mockResolvedValue({
         ...data,
         narrativa: 'narrativa di zona',
@@ -666,7 +666,7 @@ describe('StateStore', () => {
       expect(store.currentScopePoiName()).toBe('Banca (senza nome su OSM)');
     });
 
-    it('un POI fuori ontologia è segnalato come privo di ancoraggio', async () => {
+    it('a POI outside the ontology is flagged as lacking anchoring', async () => {
       await analyzed();
       api.poiNarrative.mockResolvedValue({
         ...poiResp,
@@ -677,14 +677,14 @@ describe('StateStore', () => {
       await store.loadPoiNarrative('node/2');
       expect(store.poiNarrativeUngrounded()).toBe(true);
 
-      // Un punto ANCORATO all'ontologia non deve ereditare l'avviso del precedente.
+      // A point ANCHORED to the ontology must not inherit the warning of the previous one.
       api.poiNarrative.mockResolvedValue(poiResp);
       store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
       await store.loadPoiNarrative('node/1');
       expect(store.poiNarrativeUngrounded()).toBe(false);
     });
 
-    it('il fallback dell’LLM sul POI è esposto come stato distinto', async () => {
+    it('the LLM fallback on the POI is exposed as a distinct state', async () => {
       await analyzed();
       api.poiNarrative.mockResolvedValue({ ...poiResp, narrativa: '', fallback: true });
       store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
@@ -693,8 +693,8 @@ describe('StateStore', () => {
     });
   });
 
-  describe('narrativa di ZONA (#259 fase 2, #292)', () => {
-    it('currentNarrativeLoading/Error/Fallback sono sicuri prima di qualunque analisi (nessun completoData)', () => {
+  describe('ZONE narrative (#259 phase 2, #292)', () => {
+    it('currentNarrativeLoading/Error/Fallback are safe before any analysis (no fullData)', () => {
       expect(store.currentNarrativeLoading()).toBe(false);
       expect(store.currentNarrativeError()).toBeNull();
       expect(store.currentNarrativeFallback()).toBe(false);
@@ -715,60 +715,60 @@ describe('StateStore', () => {
       latenza_ms: 300,
       repro: { temperature: 0, seed: 0, prompt_hash: 'z' },
       fallback: false,
-      // Diverso dal placeholder di fase 1 (data.llm_used = 'test-model'): prova che il valore in
-      // completoData dopo ZONE_NARRATIVE_SUCCESS viene da qui, non è rimasto quello della fase 1.
+      // Different from the phase 1 placeholder (data.llm_used = 'test-model'): proves that the value in
+      // fullData after ZONE_NARRATIVE_SUCCESS comes from here, it did not stay the phase 1 one.
       llm_used: 'llama-3.3-70b-versatile',
     };
 
-    it('startAnalysis: la risposta veloce porta narrativa null e RESULTS subito, prima ancora che la fase 2 risolva', async () => {
+    it('startAnalysis: the fast response carries narrativa null and RESULTS immediately, even before phase 2 resolves', async () => {
       api.analyze.mockResolvedValue(fastResp);
       const pending = store.startAnalysis(AREA, null);
-      // La fase 2 non è attesa da startAnalysis: appena la Promise si risolve la FSM è già in
-      // RESULTS con narrativa null e zoneNarrativeLoading già a true (dispatchato in sincrono,
-      // prima del primo await dentro loadZoneNarrative).
+      // Phase 2 is not awaited by startAnalysis: as soon as the Promise resolves the FSM is already in
+      // RESULTS with narrativa null and zoneNarrativeLoading already true (dispatched synchronously,
+      // before the first await inside loadZoneNarrative).
       await pending;
       expect(store.screen()).toBe('RESULTS');
-      expect(store.completoData()?.narrativa).toBeNull();
+      expect(store.fullData()?.narrativa).toBeNull();
       expect(store.zoneNarrativeLoading()).toBe(true);
     });
 
-    it('startAnalysis: chiama zoneNarrative con citta/zona RISOLTE/impronta/domanda e popola la narrativa quando risolve', async () => {
+    it('startAnalysis: calls zoneNarrative with RESOLVED city/zone/fingerprint/question and populates the narrative when it resolves', async () => {
       api.analyze.mockResolvedValue(fastResp);
       api.zoneNarrative.mockResolvedValue(zoneResp);
       await store.startAnalysis(AREA, 'di sera?');
-      // Un microtask in più: la Promise di zoneNarrative (già risolta) deve ancora "arrivare" al
-      // dispatch di ZONE_NARRATIVE_SUCCESS dentro loadZoneNarrative.
+      // One more microtask: the zoneNarrative Promise (already resolved) must still "arrive" at the
+      // dispatch of ZONE_NARRATIVE_SUCCESS inside loadZoneNarrative.
       await Promise.resolve();
       await Promise.resolve();
 
       expect(api.zoneNarrative).toHaveBeenCalledWith('Roma', 'Colosseo', 'h-ctx', 'di sera?');
-      expect(store.completoData()?.narrativa).toBe('narrativa di zona generata');
-      expect(store.currentNarrativa()).toBe('narrativa di zona generata');
-      expect(store.currentNarrativaFonti()?.ontologia).toBe('rischio ontologico');
-      expect(store.completoData()?.llm_used).toBe('llama-3.3-70b-versatile');
+      expect(store.fullData()?.narrativa).toBe('narrativa di zona generata');
+      expect(store.currentNarrative()).toBe('narrativa di zona generata');
+      expect(store.currentNarrativeSources()?.ontologia).toBe('rischio ontologico');
+      expect(store.fullData()?.llm_used).toBe('llama-3.3-70b-versatile');
       expect(store.zoneNarrativeLoading()).toBe(false);
     });
 
-    it('non chiama zoneNarrative se la risposta veloce non porta un’impronta (#242)', async () => {
+    it('does not call zoneNarrative if the fast response carries no fingerprint (#242)', async () => {
       api.analyze.mockResolvedValue({ ...fastResp, contesto_hash: '' });
       await store.startAnalysis(AREA, null);
       await Promise.resolve();
       expect(api.zoneNarrative).not.toHaveBeenCalled();
     });
 
-    it('scarta un successo di zoneNarrative arrivato dopo una nuova analisi della zona (#242)', async () => {
+    it('discards a zoneNarrative success that arrived after a new zone analysis (#242)', async () => {
       api.analyze.mockResolvedValue(fastResp);
-      let risolvi!: (v: ZoneNarrativeResponse) => void;
+      let resolve!: (v: ZoneNarrativeResponse) => void;
       api.zoneNarrative.mockReturnValue(
         new Promise<ZoneNarrativeResponse>((r) => {
-          risolvi = r;
+          resolve = r;
         }),
       );
-      const inVolo = store.startAnalysis(AREA, null);
-      await inVolo;
+      const inFlight = store.startAnalysis(AREA, null);
+      await inFlight;
       expect(store.zoneNarrativeLoading()).toBe(true);
 
-      // Una nuova analisi arriva mentre la fase 2 precedente è ancora in volo.
+      // A new analysis arrives while the previous phase 2 is still in flight.
       api.analyze.mockResolvedValue({ ...fastResp, contesto_hash: 'h-ctx-2' });
       api.zoneNarrative.mockReturnValue(new Promise<ZoneNarrativeResponse>(() => undefined));
       await store.startAnalysis(
@@ -776,20 +776,20 @@ describe('StateStore', () => {
         null,
       );
 
-      risolvi(zoneResp);
+      resolve(zoneResp);
       await Promise.resolve();
       await Promise.resolve();
 
-      expect(store.completoData()?.narrativa).toBeNull();
+      expect(store.fullData()?.narrativa).toBeNull();
       expect(store.zoneNarrativeError()).toBeNull();
     });
 
-    it('scarta anche il fallimento di zoneNarrative superato da una nuova analisi (#242)', async () => {
+    it('also discards the zoneNarrative failure overtaken by a new analysis (#242)', async () => {
       api.analyze.mockResolvedValue(fastResp);
-      let rifiuta!: (e: unknown) => void;
+      let reject!: (e: unknown) => void;
       api.zoneNarrative.mockReturnValue(
         new Promise<ZoneNarrativeResponse>((_, rej) => {
-          rifiuta = rej;
+          reject = rej;
         }),
       );
       await store.startAnalysis(AREA, null);
@@ -801,14 +801,14 @@ describe('StateStore', () => {
         null,
       );
 
-      rifiuta(new Error('boom'));
+      reject(new Error('boom'));
       await Promise.resolve();
       await Promise.resolve();
 
       expect(store.zoneNarrativeError()).toBeNull();
     });
 
-    it('su errore popola zoneNarrativeError e sblocca il caricamento', async () => {
+    it('on error populates zoneNarrativeError and unblocks the loading state', async () => {
       api.analyze.mockResolvedValue(fastResp);
       api.zoneNarrative.mockRejectedValue(new Error('boom'));
       await store.startAnalysis(AREA, null);
@@ -819,12 +819,12 @@ describe('StateStore', () => {
       expect(store.zoneNarrativeLoading()).toBe(false);
     });
 
-    it('currentNarrativeLoading/currentNarrativeError/currentNarrativeFallback seguono lo scope ZONA fuori da DETAIL', async () => {
+    it('currentNarrativeLoading/currentNarrativeError/currentNarrativeFallback follow the ZONE scope outside DETAIL', async () => {
       api.analyze.mockResolvedValue(fastResp);
-      let risolvi!: (v: ZoneNarrativeResponse) => void;
+      let resolve!: (v: ZoneNarrativeResponse) => void;
       api.zoneNarrative.mockReturnValue(
         new Promise<ZoneNarrativeResponse>((r) => {
-          risolvi = r;
+          resolve = r;
         }),
       );
       await store.startAnalysis(AREA, null);
@@ -832,7 +832,7 @@ describe('StateStore', () => {
       expect(store.currentNarrativeLoading()).toBe(true);
       expect(store.currentNarrativeError()).toBeNull();
 
-      risolvi({ ...zoneResp, fallback: true, narrativa: '' });
+      resolve({ ...zoneResp, fallback: true, narrativa: '' });
       await Promise.resolve();
       await Promise.resolve();
 
@@ -840,15 +840,15 @@ describe('StateStore', () => {
       expect(store.currentNarrativeFallback()).toBe(true);
     });
 
-    it('in Vista Dettaglio currentNarrativeError/Loading seguono lo scope del POI, non quello di zona', async () => {
+    it('in Detail view currentNarrativeError/Loading follow the POI scope, not the zone one', async () => {
       api.analyze.mockResolvedValue(fastResp);
       api.zoneNarrative.mockReturnValue(new Promise<ZoneNarrativeResponse>(() => undefined));
       await store.startAnalysis(AREA, null);
-      expect(store.currentNarrativeLoading()).toBe(true); // scope zona: la fase 2 è in volo
+      expect(store.currentNarrativeLoading()).toBe(true); // zone scope: phase 2 is in flight
 
       store.dispatch({ type: 'SELECT_POI', id: '1' });
-      // In Vista Dettaglio nessuna generazione POI è stata avviata: non è "in caricamento" per lo
-      // scope corrente, anche se la narrativa di zona lo è ancora in background.
+      // In Detail view no POI generation has been started: it is not "loading" for the
+      // current scope, even if the zone narrative still is in the background.
       expect(store.currentNarrativeLoading()).toBe(false);
       expect(store.currentNarrativeError()).toBeNull();
     });

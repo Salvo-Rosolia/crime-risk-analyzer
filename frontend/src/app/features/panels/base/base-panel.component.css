@@ -1,7 +1,7 @@
 /*
- * Stato Sistema base (ablation): sostituisce mappa/pannelli/narrativa, occupa l'intera area
- * sotto l'header (stesso riquadro di `.cra-panels` in app.css, di cui è fratello nel template).
- * Deliberatamente povero: sfondo bianco piatto, niente ombre/blur dei pannelli flottanti.
+ * Base-system State (ablation): replaces map/panels/narrative, occupies the whole area
+ * under the header (same box as `.cra-panels` in app.css, of which it is a sibling in the template).
+ * Deliberately poor: flat white background, no shadows/blur of the floating panels.
  */
 :host {
   position: absolute;

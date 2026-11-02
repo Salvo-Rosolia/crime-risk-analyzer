@@ -1,10 +1,10 @@
 import { confMeta } from '@core/confidence';
 import {
   Confidence,
-  IstatCollegamento,
-  IstatCorrispondenza,
+  IstatLink,
+  IstatMatchKind,
   IstatPoi,
-  IstatRiga,
+  IstatRow,
   NarrativeSourceTag,
   OntologyItem,
   Poi,
@@ -15,16 +15,16 @@ import {
 } from '@core/models/models';
 
 /**
- * Ordine canonico dei tag fonte (spec-frontend.md, cross-cutting: Stato C fattori di rischio per
- * fonte). Condivisa da `orderGroupsByTag`; le schede della narrativa usano `NARRATIVE_TAG_ORDER`
- * (include ISTAT, che un rischio non può mai avere).
+ * Canonical order of the source tags (spec-frontend.md, cross-cutting: State C risk factors by
+ * source). Shared by `orderGroupsByTag`; the narrative tabs use `NARRATIVE_TAG_ORDER`
+ * (includes ISTAT, which a risk can never have).
  */
 const SOURCE_TAG_ORDER: readonly SourceTag[] = ['ONTOLOGIA', 'CONTESTO', 'SPECULATIVO'];
 
 /**
- * Ordine delle schede della narrativa (#345): i blocchi nell'ordine in cui il modello li scrive
- * (ONTOLOGIA, CONTESTO, ISTAT), poi SPECULATIVO. Separato da `SOURCE_TAG_ORDER`, che ordina i
- * gruppi di rischi e non può contenere ISTAT.
+ * Order of the narrative tabs (#345): the blocks in the order in which the model writes them
+ * (ONTOLOGIA, CONTESTO, ISTAT), then SPECULATIVO. Separate from `SOURCE_TAG_ORDER`, which orders
+ * the risk groups and cannot contain ISTAT.
  */
 const NARRATIVE_TAG_ORDER: readonly NarrativeSourceTag[] = [
   'ONTOLOGIA',
@@ -48,56 +48,57 @@ export function cityColorFor(city: string): string {
 export interface InputPanelValidation {
   ok: boolean;
   error: string | null;
-  /** Campo a cui imputare l'errore (per evidenziare solo il bordo pertinente in UI). */
-  field: 'citta' | 'zona' | null;
+  /** Field the error is attributed to (to highlight only the relevant border in the UI). */
+  field: 'city' | 'zone' | null;
 }
 
 /**
- * Validazione client della coppia città/zona (restaurata da prima di #318): usata dai pannelli
- * "Analisi zona" e "Sistema base" quando l'area non è già un cerchio disegnato — un submit con un
- * cerchio presente non la invoca nemmeno, perché un cerchio è per costruzione già un'area valida.
+ * Client validation of the city/zone pair (restored from before #318): used by the
+ * "Analisi zona" and "Sistema base" panels when the area is not already a drawn circle — a submit
+ * with a circle present does not even invoke it, because a circle is by construction already a
+ * valid area.
  */
 export function validateInputPanel({
-  citta,
-  zona,
+  city,
+  zone,
 }: {
-  citta?: string;
-  zona?: string;
+  city?: string;
+  zone?: string;
 } = {}): InputPanelValidation {
-  if (!citta || !citta.trim()) {
-    return { ok: false, error: 'Inserisci una città.', field: 'citta' };
+  if (!city || !city.trim()) {
+    return { ok: false, error: 'Inserisci una città.', field: 'city' };
   }
-  if (!zona || !zona.trim()) {
-    return { ok: false, error: 'Inserisci una zona.', field: 'zona' };
+  if (!zone || !zone.trim()) {
+    return { ok: false, error: 'Inserisci una zona.', field: 'zone' };
   }
   return { ok: true, error: null, field: null };
 }
 
-/** Etichetta IT controllata dell'hazard (#77) con fallback all'identificatore di classe grezzo. */
+/** Controlled IT label of the hazard (#77) with fallback to the raw class identifier. */
 export function hazardDisplayLabel(risk: Pick<RiskItem, 'hazard' | 'hazard_label_it'>): string {
   return risk.hazard_label_it || risk.hazard;
 }
 
-/** Etichetta IT controllata di un'entità ontologica (#256) con fallback all'identificatore grezzo.
- * Stesso pattern di `hazardDisplayLabel`/`poiDisplayLabel`: la regola vive qui e non nel template,
- * così il ramo di fallback è esercitabile da un test. */
+/** Controlled IT label of an ontology entity (#256) with fallback to the raw identifier.
+ * Same pattern as `hazardDisplayLabel`/`poiDisplayLabel`: the rule lives here and not in the
+ * template, so the fallback branch can be exercised by a test. */
 export function ontologyDisplayLabel(item: Pick<OntologyItem, 'name' | 'label_it'>): string {
   return item.label_it || item.name;
 }
 
-/** Etichetta IT controllata della classe POI (#77) con fallback all'identificatore di classe grezzo. */
+/** Controlled IT label of the POI class (#77) with fallback to the raw class identifier. */
 export function poiDisplayLabel(poi: Pick<Poi, 'terminus_class' | 'terminus_label_it'>): string {
   return poi.terminus_label_it || poi.terminus_class;
 }
 
 /**
- * Etichetta di ripiego per un POI senza `name` (#261): i nomi OSM non sono sempre presenti (le
- * feature anonime arrivano con `name` vuoto, stessa ragione per cui il POI è `da_confermare`,
- * #220). Il ripiego è costruito sulla classe (`poiDisplayLabel`) e dichiara esplicitamente
- * l'assenza, invece di lasciare una riga bianca in lista/popup/dettaglio. `trim()` prima del
- * controllo: un nome fatto di soli spazi è dato OSM reale, è truthy in JS, e senza trim
- * riprodurrebbe la stessa riga vuota — `confidence_from_poi_name` (backend, rag/grounding.py)
- * fa già lo stesso trim, quindi qui allinea la UI a un POI che il backend marca da_confermare.
+ * Fallback label for a POI without `name` (#261): OSM names are not always present (anonymous
+ * features arrive with an empty `name`, same reason why the POI is `da_confermare`, #220). The
+ * fallback is built on the class (`poiDisplayLabel`) and explicitly declares the absence,
+ * instead of leaving a blank row in list/popup/detail. `trim()` before the check: a name made of
+ * spaces only is real OSM data, it is truthy in JS, and without trim it would reproduce the same
+ * empty row — `confidence_from_poi_name` (backend, rag/grounding.py) already does the same trim,
+ * so here it aligns the UI with a POI that the backend marks da_confermare.
  */
 export function poiNameDisplayLabel(
   poi: Pick<Poi, 'name' | 'terminus_class' | 'terminus_label_it'>,
@@ -108,7 +109,7 @@ export function poiNameDisplayLabel(
 
 export interface DetailModel {
   poi: Poi;
-  /** Etichetta IT preferita del POI (fallback a terminus_class se manca). */
+  /** Preferred IT label of the POI (fallback to terminus_class if missing). */
   poiLabel: string;
   sparqlParts: string[];
   groups: Record<string, RiskItem[]>;
@@ -119,8 +120,8 @@ export function buildDetailModel(
   riskModels: RiskModel[] | null | undefined,
 ): DetailModel {
   const sparqlParts = poi.sparql_path ? poi.sparql_path.split(' → ') : [];
-  // Aggancio per `poi_id`, non per nome: i nomi OSM non sono né unici né sempre presenti,
-  // quindi un `find` per nome fa vedere sul dettaglio di un punto i rischi di un altro.
+  // Join by `poi_id`, not by name: OSM names are neither unique nor always present,
+  // so a `find` by name shows on a point's detail the risks of another one.
   const model = (riskModels ?? []).find((r) => r.poi_id === poi.id);
   const groups: Record<string, RiskItem[]> = {};
   for (const risk of model?.risks ?? []) {
@@ -138,10 +139,10 @@ export interface TagGroup {
 }
 
 /**
- * Ordina i `groups` di `buildDetailModel` (Record non ordinato) nell'ordine canonico
- * ONTOLOGIA → CONTESTO → SPECULATIVO richiesto dallo Stato C (spec-frontend.md); eventuali tag
- * fuori contratto restano in coda. Tag assenti
- * o con lista vuota vengono omessi.
+ * Orders the `groups` of `buildDetailModel` (unordered Record) in the canonical order
+ * ONTOLOGIA → CONTESTO → SPECULATIVO required by State C (spec-frontend.md); any
+ * out-of-contract tags stay at the end. Missing tags
+ * or tags with an empty list are omitted.
  */
 export function orderGroupsByTag(groups: Record<string, RiskItem[]>): TagGroup[] {
   const ordered: TagGroup[] = [];
@@ -157,45 +158,45 @@ export function orderGroupsByTag(groups: Record<string, RiskItem[]>): TagGroup[]
 }
 
 /**
- * Soglia minima di delitti nel luogo nell'ultimo anno perché una voce ISTAT valga come dato
- * (#346, O8, dopo /code-review): stessa soglia `SOGLIA_TENDENZA` di
- * `backend/src/crime_risk_analyzer/istat/righe.py`, sotto la quale il backend non calcola
- * nemmeno la tendenza. Senza questa soglia 1-19 delitti in tutto il comune (es. una sola rapina
- * in banca a Como, peso 12) metterebbero quel rischio in cima all'ordine.
+ * Minimum threshold of crimes in the place in the last year for an ISTAT item to count as data
+ * (#346, O8, after /code-review): same `SOGLIA_TENDENZA` threshold as
+ * `backend/src/crime_risk_analyzer/istat/rows.py`, below which the backend does not even compute
+ * the trend. Without this threshold 1-19 crimes in the whole municipality (e.g. a single bank
+ * robbery in Como, weight 12) would put that risk at the top of the order.
  */
 export const ISTAT_MIN_DELITTI = 20;
 
-/** Riga ISTAT agganciata a un rischio, con il collegamento che la lega e il peso (#346/#347). */
+/** ISTAT row attached to a risk, with the link that binds it and the weight (#346/#347). */
 interface IstatMatch {
-  riga: IstatRiga;
-  collegamento: IstatCollegamento;
+  row: IstatRow;
+  link: IstatLink;
   weight: number;
 }
 
 /**
- * Unica logica di aggancio rischio → voce ISTAT (#346/#347): la usano sia il peso dell'ordine
- * (`istatWeight`) sia l'indicatore (`withIstatIndicators`), così ordine e indicatore non possono
- * divergere. `null` = nessun dato: rischio senza voce, voce con meno di `ISTAT_MIN_DELITTI`
- * delitti nel luogo (o conteggio assente, O8), oppure tasso/tasso nazionale assenti o tasso
- * nazionale 0. Il «meno di 0,1» pubblicato da ISTAT pesa 0 (non `null`): il dato c'è.
+ * The single risk → ISTAT item matching logic (#346/#347): used both by the order weight
+ * (`istatWeight`) and by the indicator (`withIstatIndicators`), so order and indicator cannot
+ * diverge. `null` = no data: risk without an item, item with fewer than `ISTAT_MIN_DELITTI`
+ * crimes in the place (or missing count, O8), or rate/national rate missing or national
+ * rate 0. The "less than 0.1" published by ISTAT weighs 0 (not `null`): the datum exists.
  */
 function istatMatch(hazard: string, istat: IstatPoi | null | undefined): IstatMatch | null {
-  for (const riga of istat?.righe ?? []) {
-    const collegamento = riga.collegamenti.find((c) => c.hazard === hazard);
-    if (!collegamento) continue;
-    if (riga.delitti == null || riga.delitti < ISTAT_MIN_DELITTI) return null;
-    if (riga.tasso_sotto_soglia) return { riga, collegamento, weight: 0 };
-    if (riga.tasso == null || riga.tasso_italia == null || riga.tasso_italia === 0) return null;
-    return { riga, collegamento, weight: riga.tasso / riga.tasso_italia };
+  for (const row of istat?.righe ?? []) {
+    const link = row.collegamenti.find((c) => c.hazard === hazard);
+    if (!link) continue;
+    if (row.delitti == null || row.delitti < ISTAT_MIN_DELITTI) return null;
+    if (row.tasso_sotto_soglia) return { row, link, weight: 0 };
+    if (row.tasso == null || row.tasso_italia == null || row.tasso_italia === 0) return null;
+    return { row, link, weight: row.tasso / row.tasso_italia };
   }
   return null;
 }
 
 /**
- * Peso ISTAT di un rischio (#346): tasso del luogo del POI diviso tasso nazionale, stesso anno.
- * È l'unica misura confrontabile fra voci diverse (i furti sono sempre molti più delle rapine).
- * La corrispondenza della voce non pesa: la dice l'indicatore (#347). `null` = nessun dato (vedi
- * `istatMatch`). Mai mostrato a schermo (D9).
+ * ISTAT weight of a risk (#346): rate of the POI's place divided by the national rate, same year.
+ * It is the only comparable measure across different items (thefts are always far more than
+ * robberies). The item's match kind does not weigh: the indicator says it (#347). `null` = no
+ * data (see `istatMatch`). Never shown on screen (D9).
  */
 export function istatWeight(hazard: string, istat: IstatPoi | null | undefined): number | null {
   return istatMatch(hazard, istat)?.weight ?? null;
@@ -204,17 +205,17 @@ export function istatWeight(hazard: string, istat: IstatPoi | null | undefined):
 export interface IstatOrdering {
   risks: RiskItem[];
   /**
-   * Numero di rischi con dato ISTAT, in testa a `risks` (#346, O9): 0 se nessuno (ordine
-   * invariato, nessuna nota). `rankedCount > 0` sostituisce il vecchio flag `byIstat` — si
-   * deriva da qui invece di portare un bit ridondante.
+   * Number of risks with ISTAT data, at the head of `risks` (#346, O9): 0 if none (order
+   * unchanged, no note). `rankedCount > 0` replaces the old `byIstat` flag — it is derived from
+   * here instead of carrying a redundant bit.
    */
   rankedCount: number;
 }
 
 /**
- * Ordina i rischi di un gruppo-fonte col dato ISTAT del luogo del POI (#346): prima quelli con
- * dato per peso decrescente, poi gli altri nell'ordine di arrivo. Stabile: a pari peso (rischi
- * sulla stessa voce) resta l'ordine di arrivo. Non muta l'array in ingresso.
+ * Orders the risks of a source group with the ISTAT datum of the POI's place (#346): first those
+ * with data by decreasing weight, then the others in arrival order. Stable: at equal weight (risks
+ * on the same item) the arrival order is kept. Does not mutate the input array.
  */
 export function orderRisksByIstat(
   risks: RiskItem[],
@@ -236,12 +237,12 @@ export function orderRisksByIstat(
 }
 
 /**
- * Avviso quando la voce ISTAT non coincide col rischio (#345, D3): l'esatta non ne ha. Un valore
- * fuori contratto (dato legacy, mismatch di versione) riceve un avviso generico invece di
- * nessuno: tacere farebbe passare la voce per coincidente.
+ * Warning when the ISTAT item does not coincide with the risk (#345, D3): the exact one has
+ * none. An out-of-contract value (legacy data, version mismatch) gets a generic warning instead
+ * of none: staying silent would make the item pass for coincident.
  */
-function istatCorrispondenzaNote(corrispondenza: IstatCorrispondenza): string | null {
-  switch (corrispondenza) {
+function istatMatchNote(match: IstatMatchKind): string | null {
+  switch (match) {
     case 'esatta':
       return null;
     case 'piu_larga':
@@ -253,80 +254,80 @@ function istatCorrispondenzaNote(corrispondenza: IstatCorrispondenza): string | 
   }
 }
 
-/** Punto delle migliaia sulla parte intera (134169 → 134.169). */
-function withThousandsDots(intero: string): string {
-  return intero.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+/** Thousands dot on the integer part (134169 → 134.169). */
+function withThousandsDots(integer: string): string {
+  return integer.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 }
 
-/** Intero col punto delle migliaia (134.169), come `formatta_intero` del backend. */
+/** Integer with thousands dot (134.169), like the backend's `formatta_intero`. */
 function formatIstatCount(n: number): string {
   return withThousandsDots(String(n));
 }
 
 /**
- * Un decimale, virgola decimale e punto delle migliaia (1.162,7), come `formatta_decimale` del
- * backend (`istat/righe.py`).
+ * One decimal, decimal comma and thousands dot (1.162,7), like the backend's `formatta_decimale`
+ * (`istat/rows.py`).
  */
 function formatIstatDecimal(x: number): string {
-  const [intero, decimale] = x.toFixed(1).split('.');
-  return `${withThousandsDots(intero)},${decimale}`;
+  const [integer, decimal] = x.toFixed(1).split('.');
+  return `${withThousandsDots(integer)},${decimal}`;
 }
 
-/** Tasso pubblicato ogni 100.000 abitanti: «meno di 0,1» se ISTAT lo pubblica così (`_tasso`). */
-function formatIstatRate(valore: number | null, sottoSoglia: boolean): string {
-  if (valore != null) return formatIstatDecimal(valore);
-  return sottoSoglia ? 'meno di 0,1' : 'non disponibile';
+/** Rate published per 100,000 inhabitants: "meno di 0,1" if ISTAT publishes it that way (`_tasso`). */
+function formatIstatRate(value: number | null, belowThreshold: boolean): string {
+  if (value != null) return formatIstatDecimal(value);
+  return belowThreshold ? 'meno di 0,1' : 'non disponibile';
 }
 
 /**
- * Tendenza 10 anni col solo segno della variazione, senza banda «stabile»: lo stesso criterio del
- * controllo cifre della narrativa (`istat/cifre.py`), che accetta «in aumento/in calo» per
- * qualunque variazione col segno giusto. Riporta anche i delitti dell'anno base (valori assoluti
- * di entrambi gli anni), così una percentuale enorme su pochi casi si legge per quello che è.
+ * 10-year trend with only the sign of the change, without a "stable" band: the same criterion as
+ * the narrative's figures check (`istat/figures.py`), which accepts "in aumento/in calo" for any
+ * change with the right sign. It also reports the crimes of the base year (absolute values of
+ * both years), so a huge percentage on few cases reads for what it is.
  */
-function istatTrend(riga: IstatRiga): Pick<IstatIndicator, 'freccia' | 'tendenza'> {
-  const v = riga.variazione_pct;
+function istatTrend(row: IstatRow): Pick<IstatIndicator, 'arrow' | 'trend'> {
+  const v = row.variazione_pct;
   if (v == null) {
-    const motivo = riga.motivo_senza_variazione;
-    const tendenza = motivo ? `tendenza non calcolabile: ${motivo}` : 'tendenza non calcolabile';
-    return { freccia: null, tendenza };
+    const reason = row.motivo_senza_variazione;
+    const trend = reason ? `tendenza non calcolabile: ${reason}` : 'tendenza non calcolabile';
+    return { arrow: null, trend };
   }
-  const erano =
-    riga.delitti_confronto != null ? `, erano ${formatIstatCount(riga.delitti_confronto)}` : '';
-  const segno = v > 0 ? '+' : v < 0 ? '−' : '';
-  const pct = `${segno}${Math.abs(v)}% dal ${riga.anno_confronto}${erano}`;
-  if (v > 0) return { freccia: '▲', tendenza: `in crescita (${pct})` };
-  if (v < 0) return { freccia: '▼', tendenza: `in calo (${pct})` };
-  return { freccia: null, tendenza: `stabile (${pct})` };
+  const were =
+    row.delitti_confronto != null ? `, erano ${formatIstatCount(row.delitti_confronto)}` : '';
+  const sign = v > 0 ? '+' : v < 0 ? '−' : '';
+  const pct = `${sign}${Math.abs(v)}% dal ${row.anno_confronto}${were}`;
+  if (v > 0) return { arrow: '▲', trend: `in crescita (${pct})` };
+  if (v < 0) return { arrow: '▼', trend: `in calo (${pct})` };
+  return { arrow: null, trend: `stabile (${pct})` };
 }
 
 /**
- * Indicatore ISTAT accanto a un rischio (#347), in parti: `dati` è il testo prima della tendenza;
- * la `freccia` è decorativa (il template la rende `aria-hidden`, la `tendenza` dice già «in
- * crescita»/«in calo»), così i lettori di schermo non leggono «triangolo nero». Su una voce già
- * mostrata da un rischio precedente dello stesso gruppo `dati` è «stessa voce ISTAT: …» e
- * `tendenza` è `null`.
+ * ISTAT indicator next to a risk (#347), in parts: `data` is the text before the trend;
+ * the `arrow` is decorative (the template renders it `aria-hidden`, the `trend` already says "in
+ * crescita"/"in calo"), so screen readers do not read "black triangle". On an item already
+ * shown by a previous risk of the same group `data` is "stessa voce ISTAT: …" and
+ * `trend` is `null`.
  */
 export interface IstatIndicator {
-  dati: string;
-  freccia: '▲' | '▼' | null;
-  tendenza: string | null;
+  data: string;
+  arrow: '▲' | '▼' | null;
+  trend: string | null;
 }
 
-/** Un rischio del Dettaglio col suo indicatore ISTAT (`null` se il rischio non ha dato). */
+/** A risk of the Detail with its ISTAT indicator (`null` if the risk has no data). */
 export interface IstatEntry {
   risk: RiskItem;
   indicator: IstatIndicator | null;
 }
 
 /**
- * Indicatori ISTAT dei rischi di un gruppo nel Dettaglio (#347), nell'ordine dato. Riga completa:
- * voce (con l'avviso se non coincide col rischio), delitti denunciati dell'ultimo anno, tasso del
- * luogo e tasso italiano così come pubblicati (mai il loro rapporto, D9) e tendenza 10 anni. Il
- * luogo sta nella nota del gruppo. `null` esattamente quando `istatWeight` è `null` (stesso
- * `istatMatch`), così indicatore e ordine non divergono. Quando più rischi condividono la stessa
- * voce solo la prima occorrenza (in ordine, non per adiacenza) è completa: le altre dicono
- * «stessa voce ISTAT: …» col proprio avviso, perché la corrispondenza è per rischio.
+ * ISTAT indicators of the risks of a group in the Detail (#347), in the given order. Full row:
+ * item (with the warning if it does not coincide with the risk), crimes reported in the last
+ * year, the place's rate and the Italian rate as published (never their ratio, D9) and 10-year
+ * trend. The place is in the group's note. `null` exactly when `istatWeight` is `null` (same
+ * `istatMatch`), so indicator and order do not diverge. When several risks share the same item
+ * only the first occurrence (in order, not by adjacency) is full: the others say
+ * "stessa voce ISTAT: …" with their own warning, because the match is per risk.
  */
 export function withIstatIndicators(
   risks: RiskItem[],
@@ -336,105 +337,102 @@ export function withIstatIndicators(
   return risks.map((risk) => {
     const found = istatIndicatorFor(risk.hazard, istat);
     if (!found) return { risk, indicator: null };
-    if (seen.has(found.voce)) {
-      const dati = `stessa voce ISTAT: ${found.voceLabel}`;
-      return { risk, indicator: { dati, freccia: null, tendenza: null } };
+    if (seen.has(found.item)) {
+      const data = `stessa voce ISTAT: ${found.itemLabel}`;
+      return { risk, indicator: { data, arrow: null, trend: null } };
     }
-    seen.add(found.voce);
+    seen.add(found.item);
     return { risk, indicator: found.indicator };
   });
 }
 
 /**
- * Indicatore ISTAT compatto per la prosa (#365): luogo e anno, voce, tassi (stessi formattatori del
- * Dettaglio), tendenza breve e, solo se la voce non coincide col rischio, l'avviso in coda. Niente
- * conteggi dei delitti né «erano …»: dentro una frase deve restare corto. Il luogo è quello della
- * riga usata (comune o provincia).
+ * Compact ISTAT indicator for the prose (#365): place and year, item, rates (same formatters as
+ * the Detail), short trend and, only if the item does not coincide with the risk, the warning at
+ * the end. No crime counts nor "erano …": inside a sentence it must stay short. The place is that
+ * of the row used (municipality or province).
  */
 export interface IstatProseIndicator {
-  dati: string;
-  freccia: '▲' | '▼' | null;
-  tendenza: string;
-  nota: string | null;
+  data: string;
+  arrow: '▲' | '▼' | null;
+  trend: string;
+  note: string | null;
 }
 
-function istatProseIndicator(
-  riga: IstatRiga,
-  corrispondenzaNote: string | null,
-): IstatProseIndicator {
-  const tasso = formatIstatRate(riga.tasso, riga.tasso_sotto_soglia);
-  const italia = formatIstatRate(riga.tasso_italia, riga.tasso_italia_sotto_soglia);
-  const dati = `ISTAT · ${riga.luogo_nome} ${riga.anno} · ${riga.voce_label}: ${tasso} ogni 100.000 ab. (Italia ${italia})`;
-  const v = riga.variazione_pct;
-  let freccia: '▲' | '▼' | null = null;
-  let tendenza = 'tendenza n.d.';
+function istatProseIndicator(row: IstatRow, matchNote: string | null): IstatProseIndicator {
+  const rate = formatIstatRate(row.tasso, row.tasso_sotto_soglia);
+  const italy = formatIstatRate(row.tasso_italia, row.tasso_italia_sotto_soglia);
+  const data = `ISTAT · ${row.luogo_nome} ${row.anno} · ${row.voce_label}: ${rate} ogni 100.000 ab. (Italia ${italy})`;
+  const v = row.variazione_pct;
+  let arrow: '▲' | '▼' | null = null;
+  let trend = 'tendenza n.d.';
   if (v != null) {
-    const segno = v > 0 ? '+' : v < 0 ? '−' : '';
-    tendenza = `${segno}${Math.abs(v)}% dal ${riga.anno_confronto}`;
-    freccia = v > 0 ? '▲' : v < 0 ? '▼' : null;
+    const sign = v > 0 ? '+' : v < 0 ? '−' : '';
+    trend = `${sign}${Math.abs(v)}% dal ${row.anno_confronto}`;
+    arrow = v > 0 ? '▲' : v < 0 ? '▼' : null;
   }
-  // Le note del Dettaglio iniziano tutte con «voce ISTAT»: qui «ISTAT» è già in testa all'indicatore.
-  const nota = corrispondenzaNote ? corrispondenzaNote.replace(/^voce ISTAT /, 'voce ') : null;
-  return { dati, freccia, tendenza, nota };
+  // The Detail notes all start with "voce ISTAT": here "ISTAT" is already at the head of the indicator.
+  const note = matchNote ? matchNote.replace(/^voce ISTAT /, 'voce ') : null;
+  return { data, arrow, trend, note };
 }
 
 /**
- * Indicatore completo di un hazard (#347, riusato dalla narrativa #365): unico punto che traduce
- * un `istatMatch` nel testo mostrato, così Dettaglio e prosa non possono divergere nei formati.
- * `voce` è il codice della voce (chiave di deduplica), `voceLabel` l'etichetta con l'eventuale
- * avviso di corrispondenza. `null` esattamente quando `istatMatch` è `null`.
+ * Full indicator of a hazard (#347, reused by the narrative #365): the single point that
+ * translates an `istatMatch` into the displayed text, so Detail and prose cannot diverge in
+ * formats. `item` is the item code (dedup key), `itemLabel` the label with the possible
+ * match warning. `null` exactly when `istatMatch` is `null`.
  */
 function istatIndicatorFor(
   hazard: string,
   istat: IstatPoi | null | undefined,
 ): {
-  voce: string;
-  voceLabel: string;
+  item: string;
+  itemLabel: string;
   indicator: IstatIndicator;
   prose: IstatProseIndicator;
 } | null {
   const match = istatMatch(hazard, istat);
   if (!match) return null;
-  const { riga, collegamento } = match;
-  const nota = istatCorrispondenzaNote(collegamento.corrispondenza);
-  const voceLabel = nota ? `${riga.voce_label} (${nota})` : riga.voce_label;
-  // `istatMatch` esclude già i conteggi assenti: `delitti` qui è sempre un numero.
-  const delitti = `${formatIstatCount(riga.delitti ?? 0)} delitti denunciati nel ${riga.anno}`;
-  const tasso = formatIstatRate(riga.tasso, riga.tasso_sotto_soglia);
-  const italia = formatIstatRate(riga.tasso_italia, riga.tasso_italia_sotto_soglia);
-  const dati = `${voceLabel} · ${delitti} · ${tasso} ogni 100.000 ab. (Italia: ${italia})`;
+  const { row, link } = match;
+  const note = istatMatchNote(link.corrispondenza);
+  const itemLabel = note ? `${row.voce_label} (${note})` : row.voce_label;
+  // `istatMatch` already excludes missing counts: `delitti` here is always a number.
+  const crimes = `${formatIstatCount(row.delitti ?? 0)} delitti denunciati nel ${row.anno}`;
+  const rate = formatIstatRate(row.tasso, row.tasso_sotto_soglia);
+  const italy = formatIstatRate(row.tasso_italia, row.tasso_italia_sotto_soglia);
+  const data = `${itemLabel} · ${crimes} · ${rate} ogni 100.000 ab. (Italia: ${italy})`;
   return {
-    voce: riga.voce,
-    voceLabel,
-    indicator: { dati, ...istatTrend(riga) },
-    prose: istatProseIndicator(riga, nota),
+    item: row.voce,
+    itemLabel,
+    indicator: { data, ...istatTrend(row) },
+    prose: istatProseIndicator(row, note),
   };
 }
 
-/** Un rischio (con la sua etichetta italiana) visto su un POI, col dato ISTAT di quel POI (#365). */
+/** A risk (with its Italian label) seen on a POI, with the ISTAT datum of that POI (#365). */
 export interface IstatHazardOccurrence {
   hazardLabel: string;
   hazard: string;
   istat: IstatPoi | null | undefined;
 }
 
-/** Rischio con dato ISTAT valido, pronto per essere cercato nella prosa (#365). */
+/** Risk with valid ISTAT data, ready to be searched in the prose (#365). */
 export interface IstatProseCandidate {
-  /** Etichetta italiana esatta del rischio, cercata nel testo. */
+  /** Exact Italian label of the risk, searched in the text. */
   hazardLabel: string;
-  /** Codice della voce ISTAT: un solo indicatore per voce. */
-  voce: string;
+  /** Code of the ISTAT item: one indicator per item. */
+  item: string;
   indicator: IstatProseIndicator;
 }
 
-/** Pezzo di prosa: testo semplice oppure indicatore ISTAT in linea (#365). */
+/** Piece of prose: plain text or inline ISTAT indicator (#365). */
 export type ProseSegment =
   { kind: 'text'; text: string } | { kind: 'istat'; indicator: IstatProseIndicator };
 
 /**
- * Appiattisce POI + modelli di rischio nell'ordine dei POI (aggancio per `poi_id`, come
- * `buildDetailModel`): ogni voce porta l'`istat` del proprio POI. Vale per la zona (tutti i POI)
- * e per il punto (un POI e il suo modello).
+ * Flattens POIs + risk models in the order of the POIs (join by `poi_id`, like
+ * `buildDetailModel`): each entry carries the `istat` of its own POI. It applies to the zone (all
+ * the POIs) and to the point (one POI and its model).
  */
 export function flattenIstatOccurrences(
   poi: Poi[] | null | undefined,
@@ -451,9 +449,9 @@ export function flattenIstatOccurrences(
 }
 
 /**
- * Candidati per la prosa (#365): per ogni rischio, il primo POI (in ordine) che lo ha con un dato
- * ISTAT valido (`istatMatch` non nullo, quindi soglia `ISTAT_MIN_DELITTI` compresa). I rischi senza
- * dato in nessun POI non producono candidati.
+ * Candidates for the prose (#365): for each risk, the first POI (in order) that has it with a
+ * valid ISTAT datum (`istatMatch` not null, hence `ISTAT_MIN_DELITTI` threshold included). Risks
+ * without data in any POI produce no candidates.
  */
 export function buildIstatProseCandidates(
   occurrences: IstatHazardOccurrence[],
@@ -465,40 +463,40 @@ export function buildIstatProseCandidates(
     const hit = istatIndicatorFor(occ.hazard, occ.istat);
     if (!hit) continue;
     found.add(occ.hazard);
-    out.push({ hazardLabel: occ.hazardLabel, voce: hit.voce, indicator: hit.prose });
+    out.push({ hazardLabel: occ.hazardLabel, item: hit.item, indicator: hit.prose });
   }
   return out;
 }
 
-/** Caratteri che chiudono una citazione o una formattazione markdown dopo la menzione (#365). */
+/** Characters that close a quotation or markdown formatting after the mention (#365). */
 const CLOSERS = new Set(['\u201D', '"', '\u00BB', '\u2019', '\u2018', '*', '_']);
 const SINGLE_QUOTES = new Set(['’', '‘']);
-/** Un solo segno di punteggiatura subito dopo la menzione: l'indicatore lo segue, non lo precede. */
+/** A single punctuation mark right after the mention: the indicator follows it, it does not precede it. */
 const TRAILING_PUNCTUATION = new Set([',', '.', ';', ':', ')']);
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** Apostrofi tipografici → dritto, un carattere per uno: gli indici restano quelli della prosa. */
+/** Typographic apostrophes → straight, one character for one: indices remain those of the prose. */
 function normalizeApostrophes(value: string): string {
   return value.replace(/[\u2018\u2019]/g, "'");
 }
 
 /**
- * Prosa a segmenti (#365, D6): dopo la PRIMA menzione dell'etichetta italiana esatta di un
- * rischio con dato ISTAT si inserisce l'indicatore. Confronto case-insensitive e apostrofo dritto
- * o tipografico equivalenti; confini di parola con lettere/cifre Unicode e `_` (le virgolette e i
- * marcatori markdown `*`/`_` di apertura e chiusura non sono parola, quindi non impediscono il
- * match; `furto_di_rame` invece è una parola sola). Le etichette più lunghe vengono
- * provate per prime. `blocks` sono le etichette di TUTTI i rischi dello scope, anche senza dato:
- * consumano il match senza indicatore, così «Furto con strappo» (senza dato) non viene letto come
- * «Furto» (con dato). Con la stessa etichetta su più candidati vince il primo (ordine di POI).
- * Limite noto: l'attribuzione è per PAROLA ESATTA dell'etichetta nel testo. Se un rischio con dato
- * ("Furto") compare dentro una frase più lunga che non è un rischio dello scope ("Aggressione a
- * scopo di furto"), l'indicatore si aggancia lì.
- * Un solo indicatore per voce ISTAT. Dopo la menzione l'indicatore salta le virgolette di chiusura
- * e i marcatori markdown di chiusura (`**`, `*`, `_`). Niente HTML: il template rende i segmenti.
+ * Prose in segments (#365, D6): after the FIRST mention of the exact Italian label of a risk
+ * with ISTAT data the indicator is inserted. Case-insensitive comparison, straight or
+ * typographic apostrophe equivalent; word boundaries with Unicode letters/digits and `_` (the
+ * opening and closing quotes and markdown markers `*`/`_` are not word characters, so they do
+ * not prevent the match; `furto_di_rame` instead is a single word). Longer labels are
+ * tried first. `blocks` are the labels of ALL the risks of the scope, even without data:
+ * they consume the match without an indicator, so "Furto con strappo" (without data) is not read
+ * as "Furto" (with data). With the same label on several candidates the first wins (POI order).
+ * Known limit: attribution is by EXACT WORD of the label in the text. If a risk with data
+ * ("Furto") appears inside a longer phrase that is not a risk of the scope ("Aggressione a
+ * scopo di furto"), the indicator attaches there.
+ * One indicator per ISTAT item. After the mention the indicator skips the closing quotes
+ * and the closing markdown markers (`**`, `*`, `_`). No HTML: the template renders the segments.
  */
 export function withIstatProseIndicators(
   prose: string,
@@ -520,11 +518,11 @@ export function withIstatProseIndicators(
     .sort((a, b) => b.length - a.length)
     .map(escapeRegExp)
     .join('|');
-  // Niente lookbehind (Safari 16.0-16.3 non lo supporta, #387): il confine a sinistra è un gruppo
-  // di prefisso catturato (inizio testo, o un non-parola, più al più due `_` di apertura markdown)
-  // e la menzione parte a `m.index + m[1].length`. A destra un lookahead, che Safari conosce:
-  // `_` è carattere di parola (identificatori tipo `furto_di_rame`), ma un `_` di chiusura
-  // markdown (`_furto_`, `__furto__`) non lo è, cioè non vale se segue altra parola.
+  // No lookbehind (Safari 16.0-16.3 does not support it, #387): the left boundary is a captured
+  // prefix group (start of text, or a non-word, plus at most two opening markdown `_`)
+  // and the mention starts at `m.index + m[1].length`. On the right a lookahead, which Safari
+  // knows: `_` is a word character (identifiers like `furto_di_rame`), but a closing markdown
+  // `_` (`_furto_`, `__furto__`) is not, i.e. it does not count if another word follows.
   const re = new RegExp(
     `((?:^|[^\\p{L}\\p{N}_])_{0,2})(?:${alternation})(?!_*[\\p{L}\\p{N}])`,
     'giu',
@@ -533,7 +531,7 @@ export function withIstatProseIndicators(
 
   const segments: ProseSegment[] = [];
   const seenLabels = new Set<string>();
-  const shownVoci = new Set<string>();
+  const shownItems = new Set<string>();
   let cursor = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(haystack)) !== null) {
@@ -542,11 +540,11 @@ export function withIstatProseIndicators(
     if (seenLabels.has(label)) continue;
     seenLabels.add(label);
     const candidate = byLabel.get(label);
-    if (!candidate || shownVoci.has(candidate.voce)) continue;
-    shownVoci.add(candidate.voce);
+    if (!candidate || shownItems.has(candidate.item)) continue;
+    shownItems.add(candidate.item);
     let end = m.index + m[0].length;
     while (end < prose.length && CLOSERS.has(prose[end])) {
-      // ’ e ‘ chiudono solo se non sono l'apostrofo di una parola (dell’area): niente lettera dopo.
+      // ’ and ‘ close only if they are not a word's apostrophe (dell’area): no letter after.
       if (SINGLE_QUOTES.has(prose[end]) && /[\p{L}\p{N}]/u.test(prose[end + 1] ?? '')) break;
       end += 1;
     }
@@ -560,8 +558,8 @@ export function withIstatProseIndicators(
 }
 
 /**
- * Nota dei gruppi ordinati col dato ISTAT (#346): dice cosa si confronta (tassi del luogo e
- * italiano, non il numero di delitti), con luogo e anno; nessun valore (D9).
+ * Note of the groups ordered with the ISTAT datum (#346): says what is compared (rates of the
+ * place and the Italian one, not the number of crimes), with place and year; no values (D9).
  */
 export function istatOrderNote(istat: IstatPoi): string {
   return `Ordinati confrontando il tasso per 100.000 abitanti del luogo con quello italiano, non in base al numero di delitti (ISTAT ${istat.cornice.anno}, ${istat.cornice.luogo_nome}).`;
@@ -575,12 +573,12 @@ export interface BaseRow {
 }
 
 /**
- * Righe della tabella "POI · Hazard · Categoria" dello Stato Sistema base (ablation,
- * spec-frontend.md §Stato Sistema base): una riga per ogni coppia (POI, hazard), stesso
- * abbinamento POI↔RiskModel per `poi_id` usato da `buildDetailModel`. "Categoria" resta la
- * terminus class grezza (prefisso `tc:`), deliberatamente tecnica e non tradotta — coerente
- * con la povertà visiva voluta dal confronto ablation (il sistema completo mostra invece
- * l'etichetta IT curata in `poiDisplayLabel`).
+ * Rows of the "POI · Hazard · Categoria" table of the Base system State (ablation,
+ * spec-frontend.md §Base system State): one row for each (POI, hazard) pair, same
+ * POI↔RiskModel matching by `poi_id` used by `buildDetailModel`. "Categoria" stays the raw
+ * terminus class (`tc:` prefix), deliberately technical and untranslated — consistent
+ * with the visual poverty wanted by the ablation comparison (the full system instead shows
+ * the curated IT label in `poiDisplayLabel`).
  */
 export function buildBaseRows(
   poi: Poi[] | null | undefined,
@@ -602,12 +600,12 @@ export function buildBaseRows(
 }
 
 /**
- * Regola unica "il POI corrisponde al filtro di confidence attivo" — consumata sia da
- * `PoiPanelComponent` (semantica "nascondi": esclude i non corrispondenti dalla lista)
- * sia da `MapComponent` (semantica "attenua": i non corrispondenti restano visibili ma `dim`).
- * `filter` nullo = nessun filtro attivo, tutti i POI corrispondono (incluso un POI fuori ontologia,
- * `confidence: null`, #220). Con un filtro attivo un POI `null` non corrisponde MAI: non è
- * filtrabile come categoria (nessun livello lo rappresenta in `LEVELS`).
+ * Single rule "the POI matches the active confidence filter" — consumed both by
+ * `PoiPanelComponent` ("hide" semantics: excludes non-matching ones from the list)
+ * and by `MapComponent` ("dim" semantics: non-matching ones stay visible but `dim`).
+ * Null `filter` = no active filter, all POIs match (including a POI outside the ontology,
+ * `confidence: null`, #220). With an active filter a `null` POI NEVER matches: it is not
+ * filterable as a category (no level represents it in `LEVELS`).
  */
 export function matchesFilter(confidence: Confidence | null, filter: Confidence | null): boolean {
   return filter == null || confidence === filter;
@@ -640,37 +638,37 @@ const SOURCE_PROSE_KEY: Readonly<Record<NarrativeSourceTag, keyof Omit<SourcePro
   };
 
 /**
- * Costruisce il modello a tab della narrativa (Stato B) dalla sola prosa per fonte
- * (`narrativa_fonti`). Un tab è incluso solo se ha prosa non vuota; ordine canonico
- * ONTOLOGIA→CONTESTO→ISTAT→SPECULATIVO. `overview` è esposto a parte (mostrato sopra i tab).
+ * Builds the narrative's tab model (State B) from the per-source prose alone
+ * (`narrativa_fonti`). A tab is included only if it has non-empty prose; canonical order
+ * ONTOLOGIA→CONTESTO→ISTAT→SPECULATIVO. `overview` is exposed separately (shown above the tabs).
  *
- * #329: il pannello mostrava anche, sotto la prosa, l'elenco degli hazard per fonte — tutti i
- * rischi di tutti i POI della zona, appiattiti e non deduplicati. Su una zona da 20 punti erano
- * circa 160 voci, con gli stessi blocchi ripetuti: i rischi dipendono solo dalla classe TERMINUS,
- * quindi tre stazioni ferroviarie versavano tre volte gli stessi undici hazard. Staccati dal
- * proprio POI non erano nemmeno interpretabili. Sono rimasti dove hanno senso, cioè nel pannello
- * Dettaglio: lì ogni rischio è attribuito al suo punto e porta la citazione SPARQL.
+ * #329: the panel also showed, under the prose, the list of hazards per source — all the
+ * risks of all the POIs of the zone, flattened and not deduplicated. On a 20-point zone that was
+ * about 160 entries, with the same blocks repeated: the risks depend only on the TERMINUS class,
+ * so three railway stations poured the same eleven hazards three times. Detached from their own
+ * POI they were not even interpretable. They stayed where they make sense, i.e. in the Detail
+ * panel: there each risk is attributed to its point and carries the SPARQL citation.
  *
- * Di conseguenza `riskModels` non serve più qui, e un tag con soli hazard non apre più un tab
- * (che sarebbe vuoto). Con la narrativa in fallback non c'è alcun tab: il messaggio di fallback
- * rimanda al Dettaglio.
+ * Consequently `riskModels` is no longer needed here, and a tag with only hazards no longer opens
+ * a tab (which would be empty). With the narrative in fallback there is no tab: the fallback
+ * message points to the Detail.
  */
-export function buildSourceTabs(fonti: SourceProse | null | undefined): NarrativeTabsModel {
+export function buildSourceTabs(sources: SourceProse | null | undefined): NarrativeTabsModel {
   const tabs: SourceTab[] = [];
   for (const tag of NARRATIVE_TAG_ORDER) {
-    const prose = (fonti?.[SOURCE_PROSE_KEY[tag]] ?? '').trim();
+    const prose = (sources?.[SOURCE_PROSE_KEY[tag]] ?? '').trim();
     if (prose) tabs.push({ tag, prose });
   }
-  return { overview: (fonti?.overview ?? '').trim(), tabs };
+  return { overview: (sources?.overview ?? '').trim(), tabs };
 }
 
 /**
- * Markup del popup Leaflet per un marker POI: numero, nome, etichetta IT e badge confidence.
- * Un POI fuori ontologia (`confidence: null`, #220) non mostra la riga di badge (nessun badge,
- * coerente con la card di `PoiPanelComponent` e l'header di `DetailPanelComponent`). Fallback
- * difensivo (`confMeta`, `core/confidence.ts`) se `confidence` è una stringa fuori contratto (non
- * uno dei 2 livelli noti): una voce imprevista non deve interrompere il `forEach` di redraw dei
- * marker successivi.
+ * Leaflet popup markup for a POI marker: number, name, IT label and confidence badge.
+ * A POI outside the ontology (`confidence: null`, #220) does not show the badge row (no badge,
+ * consistent with the card of `PoiPanelComponent` and the header of `DetailPanelComponent`).
+ * Defensive fallback (`confMeta`, `core/confidence.ts`) if `confidence` is an out-of-contract
+ * string (not one of the 2 known levels): an unexpected entry must not interrupt the redraw
+ * `forEach` of the following markers.
  */
 export function poiPopupHTML(
   poi: Pick<Poi, 'name' | 'confidence' | 'terminus_class' | 'terminus_label_it'>,

@@ -6,11 +6,11 @@ import analyzeFixture from './fixtures/analyze.happy.json';
 import type { AnalyzeResponse } from '../src/app/core/models/models';
 
 /**
- * Dock unico a sinistra (Approccio A, variante 1, #199): sostituisce il Dettaglio come pannello
- * flottante top-right con una VISTA dentro lo stesso dock della Lista POI (drill-down `Lista →
- * clic POI → Dettaglio → "‹ indietro"`). Copre le aree cieche esplicitamente segnalate dallo spec
- * (#199 §Piano di test): layout/posizioni del dock non erano testate da nessun E2E precedente.
- * Riusa il fixture `analyze.happy.json` (già confermato in `results.spec.ts`/`detail-filter.spec.ts`).
+ * Single dock on the left (Approach A, variant 1, #199): replaces the Detail as a floating
+ * top-right panel with a VIEW inside the same dock as the POI List (drill-down `List →
+ * POI click → Detail → "‹ indietro"`). It covers the blind spots explicitly flagged by the spec
+ * (#199 §Test plan): dock layout/positions were not tested by any previous E2E.
+ * It reuses the `analyze.happy.json` fixture (already confirmed in `results.spec.ts`/`detail-filter.spec.ts`).
  */
 const analyze = analyzeFixture as AnalyzeResponse;
 
@@ -23,8 +23,8 @@ async function gotoResults(page: import('@playwright/test').Page): Promise<void>
   await expect(S.poiPanel(page)).toBeVisible();
 }
 
-test.describe('Drill-down Lista→Dettaglio dentro il dock (#199 criterio 4)', () => {
-  test('click su una card mostra la Vista Dettaglio nel dock (senza smontarlo); "‹ indietro" torna alla Vista Lista', async ({
+test.describe('List→Detail drill-down inside the dock (#199 criterion 4)', () => {
+  test('click on a card shows the Detail view in the dock (without unmounting it); "‹ indietro" goes back to the List view', async ({
     page,
   }) => {
     await gotoResults(page);
@@ -35,8 +35,8 @@ test.describe('Drill-down Lista→Dettaglio dentro il dock (#199 criterio 4)', (
 
     await S.poiCards(page).nth(0).click();
 
-    // il Dettaglio non è un terzo pannello flottante: è dentro lo stesso cra-panel-dock, che non
-    // si smonta (stesso principio del test unit di non-rimonta in app.spec.ts).
+    // the Detail is not a third floating panel: it is inside the same cra-panel-dock, which does not
+    // unmount (same principle as the unit non-remount test in app.spec.ts).
     await expect(S.panelDock(page)).toBeVisible();
     await expect(S.detailPanel(page)).toBeVisible();
     await expect(S.poiPanel(page)).toBeHidden();
@@ -48,8 +48,8 @@ test.describe('Drill-down Lista→Dettaglio dentro il dock (#199 criterio 4)', (
   });
 });
 
-test.describe('Dock collassabile (#199 decisione 3, TOGGLE_POI_PANEL)', () => {
-  test('il controllo di collasso nasconde/mostra il corpo del dock e aggiorna aria-expanded', async ({
+test.describe('Collapsible dock (#199 decision 3, TOGGLE_POI_PANEL)', () => {
+  test('the collapse control hides/shows the dock body and updates aria-expanded', async ({
     page,
   }) => {
     await gotoResults(page);
@@ -69,13 +69,15 @@ test.describe('Dock collassabile (#199 decisione 3, TOGGLE_POI_PANEL)', () => {
   });
 });
 
-test.describe('"+ Nuova richiesta" (#199 decisione 4): conferma leggera IN-APP, poi RESET', () => {
-  test('conferma "Sì" dispatcha RESET: torna allo Stato INPUT col form vuoto', async ({ page }) => {
+test.describe('"+ Nuova richiesta" (#199 decision 4): light IN-APP confirmation, then RESET', () => {
+  test('"Sì" confirmation dispatches RESET: goes back to INPUT State with an empty form', async ({
+    page,
+  }) => {
     await gotoResults(page);
 
     await S.newRequestButton(page).click();
 
-    // conferma leggera IN-APP (mai window.confirm): il dock resta a schermo, RESULTS non è toccato.
+    // light IN-APP confirmation (never window.confirm): the dock stays on screen, RESULTS is not touched.
     await expect(page.getByText('Ricominciare? Perderai i risultati')).toBeVisible();
     await expect(S.panelDock(page)).toBeVisible();
 
@@ -83,16 +85,16 @@ test.describe('"+ Nuova richiesta" (#199 decisione 4): conferma leggera IN-APP, 
 
     await expect(S.inputPanel(page)).toBeVisible();
     await expect(S.panelDock(page)).toHaveCount(0);
-    // `onResetConfirmed` (app.ts) azzera esplicitamente cerchio E città/zona (#335): il form torna
-    // vuoto, nessuna delle due aree della ricerca precedente resta implicitamente valida.
-    await expect(S.cittaField(page)).toHaveValue('');
-    await expect(S.zonaField(page)).toHaveValue('');
-    // Il bottone resta comunque abilitato (UX pre-#318): un submit senza area mostra l'errore
-    // client invece di un controllo disabilitato senza spiegazione.
+    // `onResetConfirmed` (app.ts) explicitly clears circle AND city/zone (#335): the form goes back
+    // empty, neither of the areas of the previous search stays implicitly valid.
+    await expect(S.cityField(page)).toHaveValue('');
+    await expect(S.zoneField(page)).toHaveValue('');
+    // The button stays enabled anyway (pre-#318 UX): a submit without an area shows the client
+    // error instead of a disabled control without explanation.
     await expect(S.submitButton(page)).toBeEnabled();
   });
 
-  test('"Annulla" resta in Stato RESULTS coi risultati intatti, nessun RESET', async ({ page }) => {
+  test('"Annulla" stays in RESULTS State with the results intact, no RESET', async ({ page }) => {
     await gotoResults(page);
 
     await S.newRequestButton(page).click();
@@ -104,33 +106,33 @@ test.describe('"+ Nuova richiesta" (#199 decisione 4): conferma leggera IN-APP, 
   });
 });
 
-test.describe('Layout largo (#218): dock a sinistra a tutta altezza, narrativa a destra, affiancati', () => {
-  test('dock e narrativa non si sovrappongono (dock sinistra, narrativa destra); il dock è a tutta altezza; la mappa resta visibile al centro; collassando la narrativa la mappa riprende la parte bassa-destra', async ({
+test.describe('Wide layout (#218): dock on the left full height, narrative on the right, side by side', () => {
+  test('dock and narrative do not overlap (dock left, narrative right); the dock is full height; the map stays visible in the center; collapsing the narrative the map takes back the bottom-right part', async ({
     page,
   }) => {
     await gotoResults(page);
 
     const viewport = page.viewportSize()!;
-    // il progetto punta a laptop (viewport e2e Desktop Chrome 1280px ≥ 1100): narrativa a DESTRA.
+    // the project targets laptops (e2e viewport Desktop Chrome 1280px ≥ 1100): narrative on the RIGHT.
     const dockBox = await S.panelDock(page).boundingBox();
     const narrBoxOpen = await S.narrativeSheet(page).boundingBox();
     expect(dockBox).not.toBeNull();
     expect(narrBoxOpen).not.toBeNull();
 
-    // affiancati: il dock (sinistra) termina prima dell'inizio della narrativa (destra).
+    // side by side: the dock (left) ends before the narrative (right) begins.
     expect(dockBox!.x + dockBox!.width).toBeLessThanOrEqual(narrBoxOpen!.x + 1);
 
-    // dock a TUTTA ALTEZZA: arriva vicino al fondo del viewport (molto oltre il vecchio cap ~45vh).
+    // FULL HEIGHT dock: it reaches close to the bottom of the viewport (well beyond the old ~45vh cap).
     expect(dockBox!.y + dockBox!.height).toBeGreaterThan(viewport.height * 0.8);
 
-    // mappa visibile al centro: un punto centrale (fuori da entrambi i pannelli) è sopra `cra-map`.
+    // map visible in the center: a central point (outside both panels) is above `cra-map`.
     const isMapCenter = await page.evaluate(
       ([x, y]) => document.elementFromPoint(x, y)?.closest('cra-map') != null,
       [viewport.width / 2, viewport.height / 2],
     );
     expect(isMapCenter).toBe(true);
 
-    // collassa la narrativa: si riduce in altezza (solo header) e la parte bassa-destra torna mappa.
+    // collapse the narrative: it shrinks in height (header only) and the bottom-right part goes back to map.
     await S.narrativeHeader(page).click();
     await expect(S.narrativeHeader(page)).toHaveAttribute('aria-expanded', 'false');
     const narrBoxClosed = await S.narrativeSheet(page).boundingBox();
@@ -147,8 +149,8 @@ test.describe('Layout largo (#218): dock a sinistra a tutta altezza, narrativa a
   });
 });
 
-test.describe('Responsive <1100px (#218 criterio 4): fallback bottom-sheet', () => {
-  test('a finestra stretta la narrativa torna in basso a tutta larghezza e il dock si accorcia sopra di essa (cap ripristinato)', async ({
+test.describe('Responsive <1100px (#218 criterion 4): bottom-sheet fallback', () => {
+  test('on a narrow window the narrative goes back to the bottom at full width and the dock shortens above it (cap restored)', async ({
     page,
   }) => {
     await page.setViewportSize({ width: 900, height: 800 });
@@ -159,11 +161,11 @@ test.describe('Responsive <1100px (#218 criterio 4): fallback bottom-sheet', () 
     expect(dockBox).not.toBeNull();
     expect(narrBox).not.toBeNull();
 
-    // narrativa a tutta larghezza in basso (occupa quasi tutta la larghezza del viewport)
+    // narrative at full width at the bottom (occupies almost the whole viewport width)
     expect(narrBox!.width).toBeGreaterThan(900 * 0.8);
-    // dock SOPRA la narrativa (bottom-sheet), non affiancato — comportamento storico #199
+    // dock ABOVE the narrative (bottom-sheet), not side by side — historical #199 behavior
     expect(dockBox!.y + dockBox!.height).toBeLessThanOrEqual(narrBox!.y + 1);
-    // cap d'altezza ripristinato: il dock non arriva al fondo (lascia spazio al bottom-sheet)
+    // height cap restored: the dock does not reach the bottom (leaves room for the bottom-sheet)
     expect(dockBox!.y + dockBox!.height).toBeLessThan(800 * 0.75);
   });
 });

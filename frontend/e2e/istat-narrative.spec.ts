@@ -10,10 +10,10 @@ import type {
 } from '../src/app/core/models/models';
 
 /**
- * Indicatore ISTAT in linea nella prosa ONTOLOGIA (#365): il testo del modello cita il rischio a
- * parole, i numeri li calcola l'app dai dati del POI e li mostra subito dopo la prima menzione.
+ * Inline ISTAT indicator in the ONTOLOGIA prose (#365): the model's text cites the risk in
+ * words, the numbers are computed by the app from the POI's data and shown right after the first mention.
  */
-const riga = {
+const row = {
   luogo_codice: '058091',
   luogo_nome: 'Comune di Roma',
   luogo_breve: 'Roma',
@@ -39,7 +39,7 @@ const riga = {
     },
   ],
 };
-const istat: IstatPoi = { cornice: { ...riga, voce: 'TOT', collegamenti: [] }, righe: [riga] };
+const istat: IstatPoi = { cornice: { ...row, voce: 'TOT', collegamenti: [] }, righe: [row] };
 
 const base = analyzeFixture as unknown as AnalyzeResponse;
 const fastAnalyze: AnalyzeResponse = {
@@ -65,7 +65,7 @@ const zoneNarrative: ZoneNarrativeResponse = {
   llm_used: 'test',
 };
 
-test('ISTAT in linea: l’indicatore compare dopo la prima menzione nel tab ONTOLOGIA e non negli altri', async ({
+test('inline ISTAT: the indicator appears after the first mention in the ONTOLOGIA tab and not in the others', async ({
   page,
 }) => {
   await mockApi(page, { analyze: fastAnalyze, zoneNarrative });
@@ -73,19 +73,19 @@ test('ISTAT in linea: l’indicatore compare dopo la prima menzione nel tab ONTO
   await drawSearchCircle(page);
   await S.submitButton(page).click();
 
-  const ontologia = page.locator('#cra-narr-panel-ONTOLOGIA');
-  const indicatore = ontologia.locator('.cra-narr-istat');
-  await expect(indicatore).toHaveCount(1);
-  await expect(indicatore).toContainText(
+  const ontology = page.locator('#cra-narr-panel-ONTOLOGIA');
+  const indicator = ontology.locator('.cra-narr-istat');
+  await expect(indicator).toHaveCount(1);
+  await expect(indicator).toContainText(
     'ISTAT · Comune di Roma 2024 · borseggi: 180,5 ogni 100.000 ab. (Italia 90,2)',
   );
-  await expect(indicatore).toContainText('+25% dal 2014');
-  await expect(ontologia.locator('.cra-narr-istat-note')).toBeVisible();
-  // markdown reso senza asterischi visibili, indicatore dopo la chiusura del grassetto
-  await expect(ontologia.locator('.cra-narr-prose')).not.toContainText('*');
-  await expect(ontologia.locator('.cra-narr-prose strong')).toHaveCount(1);
+  await expect(indicator).toContainText('+25% dal 2014');
+  await expect(ontology.locator('.cra-narr-istat-note')).toBeVisible();
+  // markdown rendered without visible asterisks, indicator after the closing of the bold
+  await expect(ontology.locator('.cra-narr-prose')).not.toContainText('*');
+  await expect(ontology.locator('.cra-narr-prose strong')).toHaveCount(1);
 
   await page.getByRole('tab', { name: 'CONTESTO' }).click();
-  await expect(page.locator('.cra-narr-istat')).toHaveCount(1); // solo quello (nascosto) di ONTOLOGIA
+  await expect(page.locator('.cra-narr-istat')).toHaveCount(1); // only the (hidden) one of ONTOLOGIA
   await expect(page.locator('#cra-narr-panel-CONTESTO .cra-narr-istat')).toHaveCount(0);
 });

@@ -38,51 +38,51 @@ describe('SourcesStore', () => {
     store = TestBed.inject(SourcesStore);
   });
 
-  it('senza stato noto l indicatore dice Predefinite', () => {
+  it('without a known state the indicator says Predefinite', () => {
     expect(store.indicator()).toEqual({ label: 'Predefinite', kind: 'default' });
   });
 
-  it('refresh legge lo stato dal backend', async () => {
+  it('refresh reads the state from the backend', async () => {
     api.sourcesStatus.mockResolvedValue(set('custom'));
     await store.refresh();
     expect(store.indicator()).toEqual({ label: 'Personalizzate', kind: 'custom' });
   });
 
-  it('refresh con backend giu lascia l indicatore sul default, senza errore', async () => {
+  it('refresh with the backend down leaves the indicator on the default, with no error', async () => {
     api.sourcesStatus.mockRejectedValue(new HttpErrorResponse({ status: 0 }));
     await store.refresh();
     expect(store.indicator().kind).toBe('default');
     expect(store.message()).toBeNull();
   });
 
-  it('scaduto: indicatore Scadute', async () => {
+  it('expired: indicator Scadute', async () => {
     api.sourcesStatus.mockResolvedValue({ stato: 'scaduto', scade_tra_secondi: null, set: null });
     await store.refresh();
     expect(store.indicator()).toEqual({ label: 'Scadute', kind: 'expired' });
   });
 
-  it('useExample attiva l esempio e segnala il cambio', async () => {
+  it('useExample activates the example and signals the change', async () => {
     api.useExampleSources.mockResolvedValue(set('example'));
     expect(await store.useExample()).toBe(true);
     expect(store.indicator()).toEqual({ label: 'Esempio', kind: 'example' });
     expect(store.busy()).toBeNull();
   });
 
-  it('reset torna al default', async () => {
+  it('reset goes back to the default', async () => {
     api.resetSources.mockResolvedValue(DEFAULT);
     expect(await store.reset()).toBe(true);
     expect(store.indicator().kind).toBe('default');
   });
 
-  it('upload valido: stato attivo e avvisi del set visibili', async () => {
-    const avviso = problem('data', 'Colonna ignorata');
-    api.uploadSources.mockResolvedValue(set('custom', [avviso]));
+  it('valid upload: active state and warnings of the set visible', async () => {
+    const warning = problem('data', 'Colonna ignorata');
+    api.uploadSources.mockResolvedValue(set('custom', [warning]));
     expect(await store.upload(upload)).toBe(true);
     expect(store.report()).toBeNull();
-    expect(store.activeWarnings()).toEqual([avviso]);
+    expect(store.activeWarnings()).toEqual([warning]);
   });
 
-  it('upload rifiutato (422): report con errori e avvisi, nessun cambio', async () => {
+  it('rejected upload (422): report with errors and warnings, no change', async () => {
     const err = problem('ontology', 'File non leggibile');
     const warn = problem('data', 'Riga vuota');
     api.uploadSources.mockRejectedValue(
@@ -104,7 +104,7 @@ describe('SourcesStore', () => {
     expect(store.busy()).toBeNull();
   });
 
-  it('upload fallito per altro motivo: messaggio del backend', async () => {
+  it('failed upload for another reason: backend message', async () => {
     api.uploadSources.mockRejectedValue(
       new HttpErrorResponse({
         status: 503,
@@ -116,7 +116,7 @@ describe('SourcesStore', () => {
     expect(store.report()).toBeNull();
   });
 
-  it('un esito nuovo cancella il report e il messaggio precedenti', async () => {
+  it('a new outcome clears the previous report and message', async () => {
     api.uploadSources.mockRejectedValue(new HttpErrorResponse({ status: 500 }));
     await store.upload(upload);
     expect(store.message()).not.toBeNull();
@@ -125,7 +125,7 @@ describe('SourcesStore', () => {
     expect(store.message()).toBeNull();
   });
 
-  it('busy segna l operazione in corso', async () => {
+  it('busy marks the operation in progress', async () => {
     let done!: (s: SourcesStatus) => void;
     api.resetSources.mockReturnValue(new Promise<SourcesStatus>((r) => (done = r)));
     const p = store.reset();
@@ -135,15 +135,15 @@ describe('SourcesStore', () => {
     expect(store.busy()).toBeNull();
   });
 
-  it('open/close della pagina', () => {
+  it('open/close of the page', () => {
     store.openPage();
     expect(store.open()).toBe(true);
     store.closePage();
     expect(store.open()).toBe(false);
   });
 
-  describe('revision (cambio effettivo del set attivo)', () => {
-    it('upload riuscito: incrementa sempre (sono file nuovi)', async () => {
+  describe('revision (effective change of the active set)', () => {
+    it('successful upload: always increments (they are new files)', async () => {
       api.uploadSources.mockResolvedValue(set('custom'));
       await store.upload(upload);
       api.uploadSources.mockResolvedValue(set('custom'));
@@ -151,13 +151,13 @@ describe('SourcesStore', () => {
       expect(store.revision()).toBe(2);
     });
 
-    it('upload rifiutato: non incrementa', async () => {
+    it('rejected upload: does not increment', async () => {
       api.uploadSources.mockRejectedValue(new HttpErrorResponse({ status: 500 }));
       await store.upload(upload);
       expect(store.revision()).toBe(0);
     });
 
-    it('esempio da default incrementa, esempio gia attivo no', async () => {
+    it('example from default increments, example already active does not', async () => {
       api.useExampleSources.mockResolvedValue(set('example'));
       await store.useExample();
       expect(store.revision()).toBe(1);
@@ -165,7 +165,7 @@ describe('SourcesStore', () => {
       expect(store.revision()).toBe(1);
     });
 
-    it('reset da fonti attive incrementa, reset gia al default no', async () => {
+    it('reset from active sources increments, reset already at default does not', async () => {
       api.resetSources.mockResolvedValue(DEFAULT);
       await store.reset();
       expect(store.revision()).toBe(0);
@@ -175,7 +175,7 @@ describe('SourcesStore', () => {
       expect(store.revision()).toBe(2);
     });
 
-    it('reset da scadute incrementa (i risultati a schermo erano sul set scaduto)', async () => {
+    it('reset from expired increments (the results on screen were on the expired set)', async () => {
       store.markExpired();
       api.resetSources.mockResolvedValue(DEFAULT);
       await store.reset();
@@ -183,25 +183,25 @@ describe('SourcesStore', () => {
     });
   });
 
-  it('markExpired porta l indicatore su Scadute senza chiamare la rete', () => {
+  it('markExpired brings the indicator to Scadute without calling the network', () => {
     store.markExpired();
     expect(store.indicator()).toEqual({ label: 'Scadute', kind: 'expired' });
     expect(api.sourcesStatus).not.toHaveBeenCalled();
   });
 
-  it('aprire la pagina rilegge lo stato dal backend', () => {
+  it('opening the page re-reads the state from the backend', () => {
     store.openPage();
     expect(api.sourcesStatus).toHaveBeenCalledTimes(1);
   });
 
-  describe('refresh in volo non sovrascrive uno stato piu recente', () => {
+  describe('in-flight refresh does not overwrite a more recent state', () => {
     const deferred = () => {
       let resolve!: (s: SourcesStatus) => void;
       const promise = new Promise<SourcesStatus>((r) => (resolve = r));
       return { promise, resolve };
     };
 
-    it('markExpired durante una refresh: resta Scadute', async () => {
+    it('markExpired during a refresh: stays Scadute', async () => {
       const d = deferred();
       api.sourcesStatus.mockReturnValue(d.promise);
       const p = store.refresh();
@@ -211,7 +211,7 @@ describe('SourcesStore', () => {
       expect(store.indicator().kind).toBe('expired');
     });
 
-    it('upload durante una refresh: vince l esito dell upload', async () => {
+    it('upload during a refresh: the outcome of the upload wins', async () => {
       const d = deferred();
       api.sourcesStatus.mockReturnValue(d.promise);
       api.uploadSources.mockResolvedValue(set('custom'));
@@ -222,7 +222,7 @@ describe('SourcesStore', () => {
       expect(store.indicator().kind).toBe('custom');
     });
 
-    it('esempio e reset durante una refresh: vince l azione', async () => {
+    it('example and reset during a refresh: the action wins', async () => {
       const d = deferred();
       api.sourcesStatus.mockReturnValue(d.promise);
       api.useExampleSources.mockResolvedValue(set('example'));
@@ -242,7 +242,7 @@ describe('SourcesStore', () => {
       expect(store.indicator().kind).toBe('default');
     });
 
-    it('una refresh partita durante l azione e conclusa dopo non vince', async () => {
+    it('a refresh started during the action and concluded after it does not win', async () => {
       let finish!: (s: SourcesStatus) => void;
       api.useExampleSources.mockReturnValue(new Promise<SourcesStatus>((r) => (finish = r)));
       const run = store.useExample();
@@ -256,7 +256,7 @@ describe('SourcesStore', () => {
       expect(store.indicator().kind).toBe('example');
     });
 
-    it('due refresh ravvicinate: vale l ultima, anche se arriva prima', async () => {
+    it('two close refreshes: the last one counts, even if it arrives first', async () => {
       const a = deferred();
       const b = deferred();
       api.sourcesStatus.mockReturnValueOnce(a.promise).mockReturnValueOnce(b.promise);
@@ -269,7 +269,7 @@ describe('SourcesStore', () => {
       expect(store.indicator().kind).toBe('custom');
     });
 
-    it('la lettura iniziale e openPage continuano a scrivere lo stato', async () => {
+    it('the initial read and openPage keep writing the state', async () => {
       api.sourcesStatus.mockResolvedValue(set('example'));
       await store.refresh();
       expect(store.indicator().kind).toBe('example');

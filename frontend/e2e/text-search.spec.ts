@@ -5,15 +5,15 @@ import { drawSearchCircle } from './support/map';
 import { S } from './support/selectors';
 
 /**
- * Le due modalita' di scelta dell'area coesistono (#335, come prima di #318): il cerchio
- * disegnato sulla mappa e città/zona digitate nel pannello "Analisi zona". L'utente usa l'una o
- * l'altra, mai entrambe insieme — il backend rifiuta con 422 un body che ne porti due, quindi il
- * client non deve nemmeno poterlo comporre. La casella di ricerca in header NON sceglie più l'area
- * (torna pura navigazione, "vai a un luogo" — copertura unit in `app.spec.ts`, l'ultimo test qui
- * sotto la copre anche a livello e2e).
+ * The two area-selection modes coexist (#335, as before #318): the drawn circle
+ * on the map and city/zone typed in the "Analisi zona" panel. The user uses one or the
+ * other, never both together — the backend rejects with 422 a body carrying two, so the
+ * client must not even be able to compose it. The search box in the header NO LONGER chooses the area
+ * (back to pure navigation, "go to a place" — unit coverage in `app.spec.ts`, the last test here
+ * below covers it at e2e level too).
  */
-test.describe('le due modalita di scelta dell’area (cerchio, città/zona) coesistono', () => {
-  test('compilare città e zona abilita l’analisi e viaggia come {citta, zona}, non come cerchio', async ({
+test.describe('the two area-selection modes (circle, city/zone) coexist', () => {
+  test('filling in city and zone enables the analysis and travels as {citta, zona}, not as a circle', async ({
     page,
   }) => {
     await mockApi(page, { analyze });
@@ -25,10 +25,10 @@ test.describe('le due modalita di scelta dell’area (cerchio, città/zona) coes
     });
 
     await page.goto('/');
-    // Il bottone resta abilitato anche senza area (UX pre-#318): un submit senza città/zona
-    // compilate mostra l'errore client invece di un controllo disabilitato senza spiegazione.
-    await S.cittaField(page).fill('Roma');
-    await S.zonaField(page).fill('Colosseo');
+    // The button stays enabled even without an area (pre-#318 UX): a submit without city/zone
+    // filled shows the client error instead of a disabled control without explanation.
+    await S.cityField(page).fill('Roma');
+    await S.zoneField(page).fill('Colosseo');
 
     await S.submitButton(page).click();
     await expect(S.panelDock(page)).toBeVisible();
@@ -37,7 +37,7 @@ test.describe('le due modalita di scelta dell’area (cerchio, città/zona) coes
     expect(bodies[0]).toEqual({ citta: 'Roma', zona: 'Colosseo' });
   });
 
-  test('senza città compilata il submit mostra l’errore inline e non chiama /analyze', async ({
+  test('without city filled the submit shows the inline error and does not call /analyze', async ({
     page,
   }) => {
     await mockApi(page, { analyze });
@@ -48,14 +48,14 @@ test.describe('le due modalita di scelta dell’area (cerchio, città/zona) coes
     });
 
     await page.goto('/');
-    await S.zonaField(page).fill('Colosseo');
+    await S.zoneField(page).fill('Colosseo');
     await S.submitButton(page).click();
 
     await expect(S.inputError(page)).toHaveText('Inserisci una città.');
     expect(called).toBe(false);
   });
 
-  test('disegnare un cerchio sostituisce città/zona come area attiva, e viceversa', async ({
+  test('drawing a circle replaces city/zone as the active area, and vice versa', async ({
     page,
   }) => {
     await mockApi(page, { analyze });
@@ -67,13 +67,13 @@ test.describe('le due modalita di scelta dell’area (cerchio, città/zona) coes
     });
 
     await page.goto('/');
-    await S.cittaField(page).fill('Roma');
-    await S.zonaField(page).fill('Colosseo');
+    await S.cityField(page).fill('Roma');
+    await S.zoneField(page).fill('Colosseo');
 
-    // Il cerchio arriva DOPO città/zona: deve vincere lui, e i campi si svuotano.
+    // The circle arrives AFTER city/zone: it must win, and the fields are emptied.
     await drawSearchCircle(page);
-    await expect(S.cittaField(page)).toHaveValue('');
-    await expect(S.zonaField(page)).toHaveValue('');
+    await expect(S.cityField(page)).toHaveValue('');
+    await expect(S.zoneField(page)).toHaveValue('');
 
     await S.submitButton(page).click();
     await expect(S.panelDock(page)).toBeVisible();
@@ -84,18 +84,18 @@ test.describe('le due modalita di scelta dell’area (cerchio, città/zona) coes
     expect(bodies[0]).not.toHaveProperty('citta');
   });
 
-  test('digitare di nuovo città/zona dopo un cerchio disegnato rimuove il cerchio (anche dalla mappa)', async ({
+  test('typing city/zone again after a drawn circle removes the circle (even from the map)', async ({
     page,
   }) => {
     await mockApi(page, { analyze });
     await page.goto('/');
 
     await drawSearchCircle(page);
-    await S.cittaField(page).fill('Milano');
+    await S.cityField(page).fill('Milano');
 
-    // Niente più cerchio disegnato sulla mappa (MapComponent.clearCircle()): il layer Leaflet del
-    // cerchio sparisce, qui verificato indirettamente attraverso il corpo che l'analisi invia.
-    await S.zonaField(page).fill('Duomo');
+    // No more circle drawn on the map (MapComponent.clearCircle()): the Leaflet layer of the
+    // circle disappears, here verified indirectly through the body that the analysis sends.
+    await S.zoneField(page).fill('Duomo');
 
     const bodies: Record<string, unknown>[] = [];
     await page.route('**/analyze', async (route) => {
@@ -110,7 +110,7 @@ test.describe('le due modalita di scelta dell’area (cerchio, città/zona) coes
     expect(bodies[0]).toEqual({ citta: 'Milano', zona: 'Duomo' });
   });
 
-  test('"vai a un luogo" in header sposta la mappa (geocode chiamato) ma NON diventa l’area: città/zona restano vuote e il submit mostra ancora l’errore client', async ({
+  test('"go to a place" in the header moves the map (geocode called) but does NOT become the area: city/zone stay empty and the submit still shows the client error', async ({
     page,
   }) => {
     await mockApi(page, { analyze });
@@ -131,11 +131,11 @@ test.describe('le due modalita di scelta dell’area (cerchio, città/zona) coes
 
     await expect.poll(() => geocodeCalled).toBe(true);
 
-    // Niente area dalla sola navigazione: i campi del pannello restano vuoti...
-    await expect(S.cittaField(page)).toHaveValue('');
-    await expect(S.zonaField(page)).toHaveValue('');
+    // No area from navigation alone: the panel fields stay empty...
+    await expect(S.cityField(page)).toHaveValue('');
+    await expect(S.zoneField(page)).toHaveValue('');
 
-    // ...e il submit si comporta come senza alcuna area scelta (errore client, nessuna /analyze).
+    // ...and the submit behaves as with no area chosen (client error, no /analyze).
     await S.submitButton(page).click();
     await expect(S.inputError(page)).toHaveText('Inserisci una città.');
     expect(analyzeCalled).toBe(false);

@@ -99,7 +99,7 @@ describe('MapComponent', () => {
     await fixture.whenStable();
   });
 
-  it('init Leaflet + tile OpenStreetMap standard', () => {
+  it('Leaflet init + standard OpenStreetMap tiles', () => {
     expect(L.map).toHaveBeenCalled();
     expect(L.tileLayer).toHaveBeenCalledWith(
       expect.stringContaining('tile.openstreetmap.org'),
@@ -108,20 +108,20 @@ describe('MapComponent', () => {
   });
 
   /*
-   * Il basemap NON passa più da CARTO: `basemaps.cartocdn.com` ha iniziato a richiedere una API
-   * key e serve un PNG segnaposto "API KEY REQUIRED" con HTTP 200 (~2 KB invece di ~14 KB), quindi
-   * né Leaflet né la console segnalavano un errore — la mappa risultava semplicemente vuota.
-   * Questo test blinda il fatto che non ci si torni per distrazione: un URL con chiave fallirebbe
-   * allo stesso modo, in silenzio.
+   * The basemap no longer goes through CARTO: `basemaps.cartocdn.com` started requiring an API
+   * key and serves an "API KEY REQUIRED" placeholder PNG with HTTP 200 (~2 KB instead of ~14 KB), so
+   * neither Leaflet nor the console reported an error — the map simply came out empty.
+   * This test guards against going back by distraction: a URL with a key would fail
+   * the same way, silently.
    */
-  it('nessuna dipendenza residua da CARTO (né URL né attribuzione)', () => {
+  it('no residual dependency on CARTO (neither URL nor attribution)', () => {
     const [url, options] = (L.tileLayer as jest.Mock).mock.calls[0];
     const attribution = (options as { attribution: string }).attribution;
     expect(url).not.toEqual(expect.stringContaining('carto'));
     expect(attribution).not.toEqual(expect.stringContaining('CARTO'));
   });
 
-  it('attribution copre dati POI e tile (OSM/ODbL) e geocoding (Nominatim)', () => {
+  it('attribution covers POI data and tiles (OSM/ODbL) and geocoding (Nominatim)', () => {
     const [, options] = (L.tileLayer as jest.Mock).mock.calls[0];
     const attribution = (options as { attribution: string }).attribution;
     expect(attribution).toEqual(expect.stringContaining('OpenStreetMap'));
@@ -129,7 +129,7 @@ describe('MapComponent', () => {
     expect(attribution).toEqual(expect.stringContaining('Nominatim'));
   });
 
-  it('attribution: i 3 termini sono link cliccabili verso le rispettive fonti', () => {
+  it('attribution: the 3 terms are clickable links to the respective sources', () => {
     const [, options] = (L.tileLayer as jest.Mock).mock.calls[0];
     const attribution = (options as { attribution: string }).attribution;
     expect(attribution).toEqual(expect.stringContaining('openstreetmap.org/copyright'));
@@ -137,20 +137,20 @@ describe('MapComponent', () => {
     expect(attribution).toEqual(expect.stringContaining('nominatim.org'));
   });
 
-  it('flyToBounds con POI', () => {
+  it('flyToBounds with POIs', () => {
     fixture.componentRef.setInput('data', makeResp([makePoi()]));
     fixture.detectChanges();
     expect(mockMap.flyToBounds).toHaveBeenCalled();
   });
 
-  it('no flyToBounds con data null', () => {
+  it('no flyToBounds with null data', () => {
     fixture.componentRef.setInput('data', null);
     fixture.detectChanges();
     expect(mockMap.flyToBounds).not.toHaveBeenCalled();
   });
 
   describe('marker POI', () => {
-    it('crea un marker numerato per ogni POI; ripulisce il layer a ogni redraw', () => {
+    it('creates a numbered marker for each POI; cleans the layer at every redraw', () => {
       fixture.componentRef.setInput('data', makeResp([makePoi({ id: '0' }), makePoi({ id: '1' })]));
       fixture.detectChanges();
       expect(mockLayerGroup.clearLayers).toHaveBeenCalledTimes(1);
@@ -164,27 +164,27 @@ describe('MapComponent', () => {
       expect(L.marker).toHaveBeenCalledTimes(1);
     });
 
-    it('posiziona il marker sulle coordinate lat/lon del POI', () => {
+    it('places the marker on the lat/lon coordinates of the POI', () => {
       fixture.componentRef.setInput('data', makeResp([makePoi({ lat: 41.89, lon: 12.49 })]));
       fixture.detectChanges();
       expect(L.marker).toHaveBeenCalledWith([41.89, 12.49], expect.anything());
     });
 
-    it('colora il pin secondo la confidence del POI', () => {
+    it('colors the pin according to the POI confidence', () => {
       fixture.componentRef.setInput('data', makeResp([makePoi({ confidence: 'da_confermare' })]));
       fixture.detectChanges();
       const [opts] = (L.divIcon as jest.Mock).mock.calls.at(-1) as [{ html: string }];
       expect(opts.html).toContain(CONF.da_confermare.color);
     });
 
-    it('#220: un POI fuori ontologia (confidence null) rende un pin neutro (DIM_COLOR), non un colore di confidence', () => {
+    it('#220: a POI outside the ontology (confidence null) renders a neutral pin (DIM_COLOR), not a confidence color', () => {
       fixture.componentRef.setInput('data', makeResp([makePoi({ confidence: null })]));
       fixture.detectChanges();
       const [opts] = (L.divIcon as jest.Mock).mock.calls.at(-1) as [{ html: string }];
       expect(opts.html).toContain(DIM_COLOR);
     });
 
-    it('applica lo stato dim (grigio, opacità ridotta) ai marker esclusi dal filtro attivo', () => {
+    it('applies the dim state (gray, reduced opacity) to the markers excluded by the active filter', () => {
       fixture.componentRef.setInput(
         'data',
         makeResp([
@@ -199,7 +199,7 @@ describe('MapComponent', () => {
       expect(calls[1][0].html).toContain(DIM_COLOR);
     });
 
-    it('nessun dim quando il filtro è null (tutti i marker pieni)', () => {
+    it('no dim when the filter is null (all markers full)', () => {
       fixture.componentRef.setInput(
         'data',
         makeResp([
@@ -213,7 +213,7 @@ describe('MapComponent', () => {
       expect(calls[1][0].html).not.toContain(DIM_COLOR);
     });
 
-    it('#220: un POI fuori ontologia (confidence null) è dim quando un filtro è attivo (non corrisponde ad alcuna categoria) e pieno senza filtro', () => {
+    it('#220: a POI outside the ontology (confidence null) is dim when a filter is active (it matches no category) and full without a filter', () => {
       fixture.componentRef.setInput(
         'data',
         makeResp([
@@ -232,7 +232,7 @@ describe('MapComponent', () => {
       expect(calls.at(-1)![0].html).toContain('opacity:1');
     });
 
-    it('applica lo stato focus (34px, più grande) al marker selezionato', () => {
+    it('applies the focus state (34px, larger) to the selected marker', () => {
       const pois = [makePoi({ id: '0' }), makePoi({ id: '1' })];
       fixture.componentRef.setInput('data', makeResp(pois));
       fixture.componentRef.setInput('selectedId', '1');
@@ -242,7 +242,7 @@ describe('MapComponent', () => {
       expect(calls[1][0].iconSize).toEqual([34, 34]);
     });
 
-    it('lega un popup a ogni marker con nome ed etichetta IT del POI', () => {
+    it('binds a popup to each marker with the POI name and IT label', () => {
       fixture.componentRef.setInput(
         'data',
         makeResp([
@@ -258,7 +258,7 @@ describe('MapComponent', () => {
       );
     });
 
-    it("click sul marker emette poiClick con l'id del POI", () => {
+    it('click on the marker emits poiClick with the POI id', () => {
       fixture.componentRef.setInput('data', makeResp([makePoi({ id: 'poi-42' })]));
       fixture.detectChanges();
 
@@ -272,7 +272,7 @@ describe('MapComponent', () => {
     });
   });
 
-  it('ngOnDestroy ripulisce i marker e rimuove la mappa (nessun leak di layer)', () => {
+  it('ngOnDestroy cleans the markers and removes the map (no layer leak)', () => {
     fixture.componentRef.setInput('data', makeResp([makePoi()]));
     fixture.detectChanges();
     fixture.destroy();
@@ -280,21 +280,21 @@ describe('MapComponent', () => {
     expect(mockMap.remove).toHaveBeenCalled();
   });
 
-  describe('disegno del cerchio', () => {
-    it('un click in idle posiziona il centro ed entra in drawing-radius', () => {
+  describe('circle drawing', () => {
+    it('a click in idle places the center and enters drawing-radius', () => {
       const spy = jest.fn();
       fixture.componentInstance.circleChange.subscribe(spy);
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
       expect(L.circle).toHaveBeenCalledWith([41.9, 12.5], expect.objectContaining({ radius: 300 }));
     });
 
-    it('un drag successivo al click aggiorna il raggio del cerchio live', () => {
+    it('a drag after the click updates the live circle radius', () => {
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
       fireMap('mousemove', { latlng: { lat: 41.905, lng: 12.5 } });
       expect(mockCircle.setRadius).toHaveBeenCalled();
     });
 
-    it('un secondo click conferma e emette circleChange con center+radiusM', () => {
+    it('a second click confirms and emits circleChange with center+radiusM', () => {
       const spy = jest.fn();
       fixture.componentInstance.circleChange.subscribe(spy);
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
@@ -305,42 +305,42 @@ describe('MapComponent', () => {
       );
     });
 
-    it('flyTo(lat, lon) chiama map.flyTo', () => {
+    it('flyTo(lat, lon) calls map.flyTo', () => {
       fixture.componentInstance.flyTo(41.8, 12.4);
       expect(mockMap.flyTo).toHaveBeenCalledWith([41.8, 12.4], expect.any(Number));
     });
 
-    it('un click in ready riparte da un nuovo centro invece di riconfermare il vecchio', () => {
+    it('a click in ready restarts from a new center instead of reconfirming the old one', () => {
       const spy = jest.fn();
       fixture.componentInstance.circleChange.subscribe(spy);
 
-      // idle -> drawing-radius -> ready: conferma il primo cerchio (centro A).
+      // idle -> drawing-radius -> ready: confirms the first circle (center A).
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
       fireMap('mousemove', { latlng: { lat: 41.905, lng: 12.5 } });
       fireMap('click', { latlng: { lat: 41.905, lng: 12.5 } });
       expect(spy).toHaveBeenCalledWith(expect.objectContaining({ lat: 41.9, lon: 12.5 }));
       spy.mockClear();
 
-      // ready -> un ulteriore click NON riconferma il vecchio cerchio: resetta e invalida.
+      // ready -> a further click does NOT reconfirm the old circle: it resets and invalidates.
       fireMap('click', { latlng: { lat: 42.0, lng: 12.6 } });
       expect(spy).toHaveBeenCalledWith(null);
       spy.mockClear();
 
-      // drawing-radius -> ready sul NUOVO centro (B), non il vecchio (A).
+      // drawing-radius -> ready on the NEW center (B), not the old one (A).
       fireMap('mousemove', { latlng: { lat: 42.005, lng: 12.6 } });
       fireMap('click', { latlng: { lat: 42.005, lng: 12.6 } });
       expect(spy).toHaveBeenCalledWith(expect.objectContaining({ lat: 42.0, lon: 12.6 }));
       expect(spy).not.toHaveBeenCalledWith(expect.objectContaining({ lat: 41.9, lon: 12.5 }));
     });
 
-    it('il raggio è clampato al minimo (150m) quando il drag è più corto', () => {
+    it('the radius is clamped to the minimum (150m) when the drag is shorter', () => {
       (mockMap.distance as jest.Mock).mockReturnValueOnce(50);
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
       fireMap('mousemove', { latlng: { lat: 41.9005, lng: 12.5 } });
       expect(mockCircle.setRadius).toHaveBeenCalledWith(150);
     });
 
-    it('il raggio è clampato al massimo (3000m) quando il drag è più lungo', () => {
+    it('the radius is clamped to the maximum (3000m) when the drag is longer', () => {
       (mockMap.distance as jest.Mock).mockReturnValueOnce(5000);
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
       fireMap('mousemove', { latlng: { lat: 41.95, lng: 12.5 } });
@@ -348,16 +348,16 @@ describe('MapComponent', () => {
     });
   });
 
-  describe('input numerico del raggio (#318 D2: via keyboard/screen reader, non solo il drag)', () => {
+  describe('numeric radius input (#318 D2: via keyboard/screen reader, not only the drag)', () => {
     function radiusInput(): HTMLInputElement | null {
       return fixture.nativeElement.querySelector('#cra-radius-input');
     }
 
-    it('assente in idle (nessun cerchio ancora disegnato)', () => {
+    it('absent in idle (no circle drawn yet)', () => {
       expect(radiusInput()).toBeNull();
     });
 
-    it('appare in drawing-radius (dopo il primo clic) con il raggio di default', () => {
+    it('appears in drawing-radius (after the first click) with the default radius', () => {
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
       fixture.detectChanges();
       const input = radiusInput();
@@ -365,7 +365,7 @@ describe('MapComponent', () => {
       expect(input!.value).toBe('300');
     });
 
-    it('resta visibile in ready (dopo la conferma)', () => {
+    it('stays visible in ready (after the confirmation)', () => {
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
       fireMap('mousemove', { latlng: { lat: 41.905, lng: 12.5 } });
       fireMap('click', { latlng: { lat: 41.905, lng: 12.5 } });
@@ -373,7 +373,7 @@ describe('MapComponent', () => {
       expect(radiusInput()).toBeTruthy();
     });
 
-    it("un drag aggiorna il valore mostrato dall'input (sincronizzazione mappa -> input)", () => {
+    it('a drag updates the value shown by the input (map -> input synchronization)', () => {
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
       fixture.detectChanges();
       (mockMap.distance as jest.Mock).mockReturnValueOnce(900);
@@ -382,7 +382,7 @@ describe('MapComponent', () => {
       expect(radiusInput()!.value).toBe('900');
     });
 
-    it('digitare un valore aggiorna subito il raggio del cerchio disegnato (sincronizzazione input -> mappa)', () => {
+    it('typing a value immediately updates the radius of the drawn circle (input -> map synchronization)', () => {
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
       fixture.detectChanges();
       const input = radiusInput()!;
@@ -391,7 +391,7 @@ describe('MapComponent', () => {
       expect(mockCircle.setRadius).toHaveBeenCalledWith(900);
     });
 
-    it('digitare un valore mentre il cerchio è "ready" ri-emette circleChange col nuovo raggio (lo shell resta sincronizzato)', () => {
+    it('typing a value while the circle is "ready" re-emits circleChange with the new radius (the shell stays in sync)', () => {
       const spy = jest.fn();
       fixture.componentInstance.circleChange.subscribe(spy);
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
@@ -407,7 +407,7 @@ describe('MapComponent', () => {
       expect(spy).toHaveBeenCalledWith({ lat: 41.9, lon: 12.5, radiusM: 900 });
     });
 
-    it('digitare un valore mentre il cerchio è ancora "drawing-radius" (non confermato) NON emette circleChange', () => {
+    it('typing a value while the circle is still "drawing-radius" (not confirmed) does NOT emit circleChange', () => {
       const spy = jest.fn();
       fixture.componentInstance.circleChange.subscribe(spy);
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
@@ -420,7 +420,7 @@ describe('MapComponent', () => {
       expect(spy).not.toHaveBeenCalled();
     });
 
-    it('digitare "800" carattere per carattere lo raggiunge davvero: il campo mostra "800" e il cerchio è al raggio 800 (niente clamp-e-riscrittura ad ogni tasto)', () => {
+    it('typing "800" character by character really reaches it: the field shows "800" and the circle is at radius 800 (no clamp-and-rewrite at every key)', () => {
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
       fixture.detectChanges();
       const input = radiusInput()!;
@@ -442,7 +442,7 @@ describe('MapComponent', () => {
       expect(mockCircle.setRadius).toHaveBeenLastCalledWith(800);
     });
 
-    it('un valore digitato sotto il minimo resta visibile as-is mentre si digita (input): solo la mappa vede già il clamp come anteprima', () => {
+    it('a value typed below the minimum stays visible as-is while typing (input): only the map already sees the clamp as a preview', () => {
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
       fixture.detectChanges();
       const input = radiusInput()!;
@@ -454,7 +454,7 @@ describe('MapComponent', () => {
       expect(input.value).toBe('10');
     });
 
-    it('un valore digitato sotto il minimo (150m) è clampato E riscritto nel campo solo alla conferma (evento change: blur/invio)', () => {
+    it('a value typed below the minimum (150m) is clamped AND rewritten in the field only on confirmation (change event: blur/enter)', () => {
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
       fixture.detectChanges();
       const input = radiusInput()!;
@@ -469,7 +469,7 @@ describe('MapComponent', () => {
       expect(input.value).toBe('150');
     });
 
-    it('un valore digitato sopra il massimo resta visibile as-is mentre si digita (input): solo la mappa vede già il clamp come anteprima', () => {
+    it('a value typed above the maximum stays visible as-is while typing (input): only the map already sees the clamp as a preview', () => {
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
       fixture.detectChanges();
       const input = radiusInput()!;
@@ -481,7 +481,7 @@ describe('MapComponent', () => {
       expect(input.value).toBe('9999');
     });
 
-    it('un valore digitato sopra il massimo (3000m) è clampato E riscritto nel campo solo alla conferma (evento change: blur/invio)', () => {
+    it('a value typed above the maximum (3000m) is clamped AND rewritten in the field only on confirmation (change event: blur/enter)', () => {
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
       fixture.detectChanges();
       const input = radiusInput()!;
@@ -496,7 +496,7 @@ describe('MapComponent', () => {
       expect(input.value).toBe('3000');
     });
 
-    it('svuotare il campo per riscriverlo da capo non lo fa scattare a 150 mid-edit (niente clamp finché non si conferma)', () => {
+    it('emptying the field to rewrite it from scratch does not make it jump to 150 mid-edit (no clamp until confirmed)', () => {
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
       fireMap('mousemove', { latlng: { lat: 41.905, lng: 12.5 } });
       fixture.detectChanges();
@@ -509,13 +509,13 @@ describe('MapComponent', () => {
       expect(input.value).toBe('');
     });
 
-    it("svuotare il campo del tutto e confermare (change) ripristina l'ultimo raggio valido, non scatta al minimo 150 (fix reperto review: Number('')===0 è finito, non NaN)", () => {
+    it("emptying the field completely and confirming (change) restores the last valid radius, does not jump to the minimum 150 (review finding fix: Number('')===0 is finite, not NaN)", () => {
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
       fixture.detectChanges();
       const input = radiusInput()!;
 
-      // Conferma prima un raggio valido e diverso sia dal default (300) sia dal minimo (150),
-      // così un ripristino accidentale a uno di quei due valori farebbe fallire l'assert sotto.
+      // First confirm a radius that is valid and different from both the default (300) and the minimum (150),
+      // so an accidental restore to one of those two values would make the assert below fail.
       input.value = '800';
       input.dispatchEvent(new Event('input'));
       fixture.detectChanges();
@@ -533,7 +533,7 @@ describe('MapComponent', () => {
       expect(input.value).toBe('800');
     });
 
-    it('il change (conferma) ri-emette circleChange col valore clampato quando il cerchio è "ready"', () => {
+    it('the change (confirmation) re-emits circleChange with the clamped value when the circle is "ready"', () => {
       const spy = jest.fn();
       fixture.componentInstance.circleChange.subscribe(spy);
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
@@ -552,8 +552,8 @@ describe('MapComponent', () => {
     });
   });
 
-  describe('clearCircle() (#318, reperto review I5: RESET deve pulire anche il disegno sulla mappa)', () => {
-    it('rimuove il cerchio disegnato dalla mappa e non emette alcun circleChange', () => {
+  describe('clearCircle() (#318, review finding I5: RESET must also clear the drawing on the map)', () => {
+    it('removes the drawn circle from the map and does not emit any circleChange', () => {
       const spy = jest.fn();
       fixture.componentInstance.circleChange.subscribe(spy);
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
@@ -567,7 +567,7 @@ describe('MapComponent', () => {
       expect(spy).not.toHaveBeenCalled();
     });
 
-    it("nasconde di nuovo l'input numerico del raggio", () => {
+    it('hides the numeric radius input again', () => {
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
       fixture.detectChanges();
       expect(fixture.nativeElement.querySelector('#cra-radius-input')).toBeTruthy();
@@ -578,7 +578,7 @@ describe('MapComponent', () => {
       expect(fixture.nativeElement.querySelector('#cra-radius-input')).toBeNull();
     });
 
-    it('riporta lo stato a IDLE genuino: un clic successivo apre un nuovo disegno senza il reset "ready" (nessun null emesso prima)', () => {
+    it('brings the state back to a genuine IDLE: a later click opens a new drawing without the "ready" reset (no null emitted before)', () => {
       const spy = jest.fn();
       fixture.componentInstance.circleChange.subscribe(spy);
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
@@ -589,9 +589,9 @@ describe('MapComponent', () => {
       fixture.componentInstance.clearCircle();
       (L.circle as jest.Mock).mockClear();
 
-      // Se lo stato fosse rimasto "ready" invece di "idle", questo clic emetterebbe prima un
-      // circleChange(null) di reset (comportamento della transizione ready->nuovo centro, vedi
-      // "un click in ready riparte da un nuovo centro" sopra) — qui NON deve accadere.
+      // If the state had stayed "ready" instead of "idle", this click would first emit a
+      // circleChange(null) reset (behavior of the ready->new center transition, see
+      // "a click in ready restarts from a new center" above) — here it must NOT happen.
       fireMap('click', { latlng: { lat: 42.0, lng: 12.6 } });
 
       expect(spy).not.toHaveBeenCalledWith(null);

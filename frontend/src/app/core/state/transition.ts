@@ -12,13 +12,13 @@ export const STATES = Object.freeze({
 
 export const initialState: AppState = {
   screen: 'INPUT',
-  completoData: null,
+  fullData: null,
   baselineData: null,
   selectedPoiId: null,
   filter: null,
   error: null,
-  mode: 'completo',
-  pendingDomanda: null,
+  mode: 'full',
+  pendingQuestion: null,
   lastQuery: null,
   poiPanelOpen: true,
   narrOpen: true,
@@ -32,97 +32,97 @@ export const initialState: AppState = {
 export function transition(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'ANALYZE': {
-      // Sia le narrative POI sia quella di zona sono ancorate al contesto della pipeline
-      // COMPLETO: la pipeline base non le mostra mai e non tocca completoData, quindi non deve
-      // invalidarle né interrompere un caricamento/errore che appartiene all'altra pipeline
-      // (#245). Un'unica isBase, come nel case LOAD_SUCCESS adiacente, evita che le due coppie
-      // di campi (POI e zona) divergano silenziosamente sulla stessa condizione.
+      // Both the POI narratives and the zone one are anchored to the context of the FULL
+      // pipeline: the base pipeline never shows them and does not touch fullData, so it must not
+      // invalidate them nor interrupt a loading/error that belongs to the other pipeline
+      // (#245). A single isBase, as in the adjacent LOAD_SUCCESS case, keeps the two pairs
+      // of fields (POI and zone) from silently diverging on the same condition.
       const isBase = action.pipeline === 'base';
       return {
         ...state,
         screen: 'LOADING',
-        pendingDomanda: action.domanda ?? null,
+        pendingQuestion: action.question ?? null,
         error: null,
         selectedPoiId: null,
         filter: null,
-        // Le narrative POI (#197) sono ancorate al vicinato del contesto di zona appena
-        // sostituito: tenerle mostrerebbe, sul POI di una zona nuova, un testo scritto per
-        // un'altra. Si invalidano qui, non alla SELECT_POI, così il costo LLM resta pagato
-        // una volta sola per POI finché la zona non cambia.
+        // POI narratives (#197) are anchored to the neighborhood of the zone context just
+        // replaced: keeping them would show, on a POI of a new zone, a text written for
+        // another one. They are invalidated here, not at SELECT_POI, so the LLM cost is paid
+        // only once per POI as long as the zone does not change.
         poiNarratives: isBase ? state.poiNarratives : {},
         poiNarrativeLoading: isBase ? state.poiNarrativeLoading : null,
         poiNarrativeError: isBase ? state.poiNarrativeError : null,
-        // Narrativa di ZONA (#292): stesso ragionamento, un nuovo contesto rende in volo (se
-        // ancora pendente) o già mostrato (se un errore era rimasto) irrilevante.
+        // ZONE narrative (#292): same reasoning, a new context makes irrelevant one in flight (if
+        // still pending) or already shown (if an error had remained).
         zoneNarrativeLoading: isBase ? state.zoneNarrativeLoading : false,
         zoneNarrativeError: isBase ? state.zoneNarrativeError : null,
-        // lastQuery NON si tocca qui: anche quando l'area scelta porta già con sé una città/zona
-        // (#335, modalità testuale) le etichette definitive sono quelle della RISPOSTA
-        // (citta/zona_normalizzata — in modalità cerchio un reverse geocode, in modalità
-        // città/zona il testo dell'utente dopo lo strip) e non esistono finché non arriva. È
-        // LOAD_SUCCESS (non-base) a popolare lastQuery, combinando l'area e la domanda
-        // dell'azione con le etichette di action.data.
+        // lastQuery is NOT touched here: even when the chosen area already carries a city/zone
+        // (#335, text mode) the definitive labels are those of the RESPONSE
+        // (citta/zona_normalizzata — in circle mode a reverse geocode, in city/zone mode the
+        // user's text after the strip) and they do not exist until it arrives. It is
+        // LOAD_SUCCESS (non-base) that populates lastQuery, combining the action's area and
+        // question with the labels of action.data.
       };
     }
     case 'LOAD_SUCCESS': {
-      // Due campi dati separati (review #67, bloccanti 1+2) instradati sulla pipeline DICHIARATA
-      // DALL'AZIONE (action.pipeline, fissata da state.store.ts al momento in cui la richiesta è
-      // PARTITA), MAI su state.mode letto ora (review #67-bis, bloccante A — race condition): se
-      // si rileggesse state.mode qui, un TOGGLE_MODE dispatchato mentre la richiesta è ancora in
-      // volo dirotterebbe la risposta sulla pipeline sbagliata. Riallinea anche `mode` alla
-      // pipeline appena arrivata (autocorrettivo, invariante con la guardia UI su LOADING che
-      // impedisce comunque a `mode` di derivare durante il volo).
+      // Two separate data fields (review #67, blockers 1+2) routed onto the pipeline DECLARED BY
+      // THE ACTION (action.pipeline, set by state.store.ts at the moment the request
+      // STARTED), NEVER on state.mode read now (review #67-bis, blocker A — race condition): if
+      // state.mode were re-read here, a TOGGLE_MODE dispatched while the request is still in
+      // flight would hijack the response to the wrong pipeline. It also realigns `mode` to the
+      // pipeline that just arrived (self-correcting, invariant with the UI guard on LOADING that
+      // in any case prevents `mode` from drifting during the flight).
       const isBase = action.pipeline === 'base';
       return {
         ...state,
         screen: isBase ? 'BASE' : 'RESULTS',
         mode: action.pipeline,
-        completoData: isBase ? state.completoData : action.data,
+        fullData: isBase ? state.fullData : action.data,
         baselineData: isBase ? action.data : state.baselineData,
         error: null,
         selectedPoiId: null,
         filter: null,
-        // lastQuery nasce QUI, non in ANALYZE: serve la combinazione di (a) l'area e la
-        // domanda ORIGINALI passate attraverso la catena di azioni dalla richiesta
-        // (necessari a "Rigenera", che re-invoca /analyze) e (b) le etichette citta/zona della
-        // RISPOSTA (necessarie a /analyze/poi e /analyze/narrativa, che le rimandano come
-        // contesto — stesso trattamento di contesto_hash; in modalità cerchio sono un reverse
-        // geocode, in modalità città/zona coincidono con `action.area.citta`/`.zona`, #335). La pipeline
-        // base non ha "Rigenera" e non tocca mai lastQuery (bloccante B review #67-bis); un
-        // LOAD_SUCCESS completo senza area nell'azione (difensivo, non dovrebbe
-        // accadere: state.store.ts li passa sempre) lascia lastQuery invariato invece di
-        // scrivere un valore parziale.
+        // lastQuery is born HERE, not in ANALYZE: it needs the combination of (a) the ORIGINAL
+        // area and question passed through the action chain from the request
+        // (needed by "Rigenera", which re-invokes /analyze) and (b) the city/zone labels of the
+        // RESPONSE (needed by /analyze/poi and /analyze/narrativa, which send them back as
+        // context — same treatment as contesto_hash; in circle mode they are a reverse
+        // geocode, in city/zone mode they coincide with `action.area.city`/`.zone`, #335). The
+        // base pipeline has no "Rigenera" and never touches lastQuery (blocker B review
+        // #67-bis); a full LOAD_SUCCESS without an area in the action (defensive, it should not
+        // happen: state.store.ts always passes them) leaves lastQuery unchanged instead of
+        // writing a partial value.
         lastQuery:
           isBase || !action.area
             ? state.lastQuery
             : {
                 area: action.area,
-                citta: action.data.citta,
-                zona: action.data.zona_normalizzata,
-                domanda: action.domanda ?? null,
+                city: action.data.citta,
+                zone: action.data.zona_normalizzata,
+                question: action.question ?? null,
               },
       };
     }
     case 'LOAD_ERROR':
-      // pendingDomanda NON si azzera: il form rimontato (InputPanel in Stato Errore, o BasePanel
-      // che resta su BASE) deve ripopolarsi con l'ultima domanda inviata (vedi review #66 MAJOR).
-      // Il cerchio digitato non ha più bisogno di questo trattamento (#318): pendingCitta/
-      // pendingZona sono rimossi, perché il cerchio vive in MapComponent, che sopravvive da solo
-      // al remount tra schermi e non richiede reseeding esterno. Lo schermo di arrivo segue
-      // action.pipeline, non state.mode (stessa ragione di LOAD_SUCCESS sopra — bloccante A): un
-      // errore in pipeline base resta sullo Stato Sistema base — che gestisce da sé errore+retry
-      // col proprio form — invece di dirottare sullo Stato Errore condiviso col form del sistema
-      // completo (che ritenterebbe erroneamente su `/analyze` invece che su `/analyze/baseline`).
+      // pendingQuestion is NOT cleared: the remounted form (InputPanel in Error state, or
+      // BasePanel which stays on BASE) must repopulate with the last question sent (see review
+      // #66 MAJOR). The typed circle no longer needs this treatment (#318): pendingCity/
+      // pendingZone are removed, because the circle lives in MapComponent, which survives on its
+      // own across screen remounts and needs no external reseeding. The arrival screen follows
+      // action.pipeline, not state.mode (same reason as LOAD_SUCCESS above — blocker A): an
+      // error in the base pipeline stays on the base-system State — which handles error+retry
+      // itself with its own form — instead of hijacking to the Error State shared with the
+      // full-system form (which would wrongly retry on `/analyze` instead of `/analyze/baseline`).
       return {
         ...state,
         screen: action.pipeline === 'base' ? 'BASE' : 'ERROR',
         mode: action.pipeline,
         error: action.message,
       };
-    // `poiNarrativeError` si azzera a ogni cambio di scope (#197): l'errore riguarda la
-    // generazione di UN punto, quindi non deve sopravvivere né al ritorno alla lista né alla
-    // selezione di un altro POI. Va fatto qui e non in `loadPoiNarrative`, che su un POI già in
-    // cache esce prima di dispatchare `POI_NARRATIVE_START` e lascerebbe il banner appeso.
+    // `poiNarrativeError` is cleared at every scope change (#197): the error concerns the
+    // generation of ONE point, so it must survive neither the return to the list nor the
+    // selection of another POI. It is done here and not in `loadPoiNarrative`, which for a POI
+    // already in cache exits before dispatching `POI_NARRATIVE_START` and would leave the banner hanging.
     case 'SELECT_POI':
       return { ...state, screen: 'DETAIL', selectedPoiId: action.id, poiNarrativeError: null };
     case 'DESELECT_POI':
@@ -133,11 +133,11 @@ export function transition(state: AppState, action: Action): AppState {
         poiNarrativeError: null,
       };
     case 'SET_FILTER': {
-      // Filtro/dettaglio esistono solo nel sistema completo: la ricerca del POI selezionato usa
-      // sempre completoData, mai baselineData (che non ha selezione/dettaglio).
+      // Filter/detail exist only in the full system: the lookup of the selected POI always uses
+      // fullData, never baselineData (which has no selection/detail).
       const selectedPoi =
-        state.selectedPoiId && state.completoData?.poi
-          ? state.completoData.poi.find((p) => p.id === state.selectedPoiId)
+        state.selectedPoiId && state.fullData?.poi
+          ? state.fullData.poi.find((p) => p.id === state.selectedPoiId)
           : null;
       const poiExcluded = !!selectedPoi && selectedPoi.confidence !== action.level;
       return {
@@ -150,12 +150,12 @@ export function transition(state: AppState, action: Action): AppState {
     case 'CLEAR_FILTER':
       return { ...state, screen: 'RESULTS', filter: null };
     case 'TOGGLE_MODE': {
-      // Verso base si va sempre in BASE (il BasePanel gestisce da sé form/tabella/errore, vuoti se
-      // baselineData è null); verso completo si torna in RESULTS solo se esiste già completoData,
-      // altrimenti INPUT. `error` si azzera qui: un errore rimasto dall'altra modalità non deve
-      // ricomparire nel form appena montato dopo un toggle (nessuna nuova ANALYZE lo azzererebbe).
+      // Towards base it always goes to BASE (the BasePanel handles form/table/error itself, empty
+      // if baselineData is null); towards full it returns to RESULTS only if fullData already
+      // exists, otherwise INPUT. `error` is cleared here: an error left over from the other mode
+      // must not reappear in the form just mounted after a toggle (no new ANALYZE would clear it).
       const targetScreen: Screen =
-        action.mode === 'base' ? 'BASE' : state.completoData ? 'RESULTS' : 'INPUT';
+        action.mode === 'base' ? 'BASE' : state.fullData ? 'RESULTS' : 'INPUT';
       return { ...state, screen: targetScreen, mode: action.mode, error: null };
     }
     case 'RESET':
@@ -174,32 +174,32 @@ export function transition(state: AppState, action: Action): AppState {
         poiNarrativeError: null,
       };
     case 'POI_NARRATIVE_ERROR':
-      // Le narrative già in cache restano: il fallimento riguarda la sola generazione in corso.
+      // Narratives already in cache remain: the failure concerns only the generation in progress.
       return { ...state, poiNarrativeLoading: null, poiNarrativeError: action.message };
     case 'ZONE_NARRATIVE_START':
       return { ...state, zoneNarrativeLoading: true, zoneNarrativeError: null };
     case 'ZONE_NARRATIVE_SUCCESS':
-      // Aggiorna SOLO narrativa/narrativa_fonti/fallback/llm_used di completoData (nessun nuovo
-      // stato della FSM, #292): la mappa/i rischi/il badge Copertura restano quelli già mostrati
-      // dalla fase 1. `llm_used` della fase 1 è un placeholder (non ha più chiamato l'LLM): questo
-      // è il valore reale, di chi ha scritto la narrativa.
+      // Updates ONLY narrativa/narrativa_fonti/fallback/llm_used of fullData (no new FSM
+      // state, #292): the map/risks/Copertura badge remain those already shown by phase 1.
+      // Phase 1's `llm_used` is a placeholder (it did not call the LLM): this is the real value,
+      // of whoever wrote the narrative.
       return {
         ...state,
-        completoData: state.completoData
+        fullData: state.fullData
           ? {
-              ...state.completoData,
-              narrativa: action.narrativa,
-              narrativa_fonti: action.narrativaFonti,
+              ...state.fullData,
+              narrativa: action.narrative,
+              narrativa_fonti: action.narrativeSources,
               fallback: action.fallback,
               llm_used: action.llmUsed,
             }
-          : state.completoData,
+          : state.fullData,
         zoneNarrativeLoading: false,
         zoneNarrativeError: null,
       };
     case 'ZONE_NARRATIVE_ERROR':
-      // La narrativa di zona eventualmente già mostrata (fixture legacy o rigenerazione precedente)
-      // resta: il fallimento riguarda solo il nuovo giro in corso.
+      // The zone narrative possibly already shown (legacy fixture or previous regeneration)
+      // remains: the failure concerns only the new round in progress.
       return { ...state, zoneNarrativeLoading: false, zoneNarrativeError: action.message };
     default:
       return state;

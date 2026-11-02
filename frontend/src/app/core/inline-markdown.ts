@@ -1,10 +1,10 @@
 /**
- * Markdown INLINE della prosa della narrativa, reso come segmenti (niente HTML, niente librerie):
- * `**x**`/`__x__` grassetto, `*x*`/`_x_` corsivo, `***x***` entrambi, annidamento e terminatori
- * combinati (`**a *b***`, `***a** b*`), con le regole di «apertura/chiusura» di CommonMark sulle
- * sequenze di `*` e `_`. Per riga: elenchi («* », «- », «• », «1. ») con un pallino, titoli `#` in
- * grassetto, spazi finali (hard break markdown) tolti. Un marcatore non accoppiato resta testo;
- * `_` dentro una parola (snake_case) non è corsivo; apostrofi e virgolette non sono toccati.
+ * INLINE markdown of the narrative prose, rendered as segments (no HTML, no libraries):
+ * `**x**`/`__x__` bold, `*x*`/`_x_` italic, `***x***` both, nesting and combined
+ * terminators (`**a *b***`, `***a** b*`), with the CommonMark "opening/closing" rules on
+ * sequences of `*` and `_`. Per line: lists ("* ", "- ", "• ", "1. ") with a bullet, `#` headings in
+ * bold, trailing spaces (markdown hard break) removed. An unpaired marker stays text;
+ * `_` inside a word (snake_case) is not italic; apostrophes and quotes are not touched.
  */
 export interface MdSegment {
   text: string;
@@ -12,14 +12,14 @@ export interface MdSegment {
   italic: boolean;
 }
 
-/** Una sequenza di testo o di marcatori (`*`/`_` consecutivi) con lo stile che le si accumula. */
+/** A run of text or of markers (consecutive `*`/`_`) with the style accumulated on it. */
 interface Token {
-  /** Testo (se `delim` è falso) oppure il solo carattere del marcatore. */
+  /** Text (if `delim` is false) or just the marker character. */
   text: string;
   delim: boolean;
-  /** Marcatori ancora liberi; scende man mano che vengono accoppiati. */
+  /** Markers still free; goes down as they get paired. */
   len: number;
-  /** Lunghezza originale della sequenza (serve alla «regola del 3»). */
+  /** Original length of the run (needed by the "rule of 3"). */
   origLen: number;
   canOpen: boolean;
   canClose: boolean;
@@ -31,20 +31,20 @@ const isWhitespace = (c: string | undefined): boolean => c === undefined || /\s/
 const isPunctuation = (c: string | undefined): boolean =>
   c !== undefined && /[\p{P}\p{S}]/u.test(c);
 
-/** Carattere (code point intero) che precede l'indice `i`, o `undefined` a inizio testo. */
+/** Character (whole code point) preceding index `i`, or `undefined` at the start of the text. */
 function charBefore(s: string, i: number): string | undefined {
   if (i <= 0) return undefined;
   const low = s.charCodeAt(i - 1);
   return low >= 0xdc00 && low <= 0xdfff && i >= 2 ? s.slice(i - 2, i) : s[i - 1];
 }
 
-/** Carattere (code point intero) che inizia all'indice `i`, o `undefined` a fine testo. */
+/** Character (whole code point) starting at index `i`, or `undefined` at the end of the text. */
 function charAt(s: string, i: number): string | undefined {
   const cp = s.codePointAt(i);
   return cp === undefined ? undefined : String.fromCodePoint(cp);
 }
 
-/** Spezza la riga in testo e sequenze di marcatori, con chi può aprire/chiudere (CommonMark). */
+/** Splits the line into text and marker runs, with who can open/close (CommonMark). */
 function tokenize(s: string, bold: boolean, italic: boolean): Token[] {
   const toks: Token[] = [];
   let buf = '';
@@ -74,8 +74,8 @@ function tokenize(s: string, bold: boolean, italic: boolean): Token[] {
     let j = i;
     while (s[j] === c) j++;
     flush();
-    // Gli slot (indicatori ISTAT) seguono i marcatori di chiusura (`**“x”**<slot>`): per decidere
-    // chi apre/chiude sono trasparenti, come se non ci fossero.
+    // The slots (ISTAT indicators) follow the closing markers (`**“x”**<slot>`): to decide
+    // who opens/closes they are transparent, as if they were not there.
     let bi = i;
     while (bi > 0 && s[bi - 1] === SLOT) bi--;
     let aj = j;
@@ -93,7 +93,7 @@ function tokenize(s: string, bold: boolean, italic: boolean): Token[] {
       delim: true,
       len: j - i,
       origLen: j - i,
-      // `_` non apre/chiude dentro una parola (snake_case): vale solo ai bordi o con punteggiatura.
+      // `_` does not open/close inside a word (snake_case): it counts only at the edges or with punctuation.
       canOpen: c === '*' ? leftFlanking : leftFlanking && (!rightFlanking || isPunctuation(before)),
       canClose:
         c === '*' ? rightFlanking : rightFlanking && (!leftFlanking || isPunctuation(after)),
@@ -107,15 +107,15 @@ function tokenize(s: string, bold: boolean, italic: boolean): Token[] {
 }
 
 /**
- * Accoppia le sequenze di marcatori (algoritmo di CommonMark): per ogni chiusura cerca a ritroso
- * l'apertura compatibile; ogni coppia consuma 2 marcatori (grassetto) se entrambe ne hanno almeno
- * 2, altrimenti 1 (corsivo), e applica lo stile a tutto ciò che sta in mezzo. Quel che avanza di
- * una sequenza continua a poter accoppiarsi (`***x***`, `**a *b***`). I marcatori mai accoppiati
- * restano testo.
+ * Pairs the marker runs (CommonMark algorithm): for each closer it searches backwards
+ * for the compatible opener; each pair consumes 2 markers (bold) if both have at least
+ * 2, otherwise 1 (italic), and applies the style to everything in between. What is left of
+ * a run can still pair (`***x***`, `**a *b***`). Markers never paired
+ * stay text.
  */
 function pairEmphasis(toks: Token[]): void {
-  // Come `openers_bottom` di CommonMark: per ogni classe di chiusura (carattere, può aprire, lunghezza
-  // mod 3) l'indice sotto cui si è già visto che non c'è alcuna apertura, per non riscansionare.
+  // Like CommonMark's `openers_bottom`: for each closer class (character, can open, length
+  // mod 3) the index below which it has already been seen that there is no opener, to avoid rescanning.
   const floors = new Map<string, number>();
   for (let c = 0; c < toks.length; c++) {
     const closer = toks[c];
@@ -127,8 +127,8 @@ function pairEmphasis(toks: Token[]): void {
       for (; o > floor; o--) {
         const cand = toks[o];
         if (!cand.delim || cand.text !== closer.text || cand.len === 0 || !cand.canOpen) continue;
-        // Regola del 3: se uno dei due può anche fare l'altro ruolo, la somma delle lunghezze
-        // originali non può essere multipla di 3 (salvo lo siano entrambe).
+        // Rule of 3: if one of the two can also play the other role, the sum of the original
+        // lengths cannot be a multiple of 3 (unless both are).
         const ambiguous = cand.canClose || closer.canOpen;
         const sum = cand.origLen + closer.origLen;
         if (ambiguous && sum % 3 === 0 && !(cand.origLen % 3 === 0 && closer.origLen % 3 === 0)) {
@@ -145,7 +145,7 @@ function pairEmphasis(toks: Token[]): void {
       for (let k = o + 1; k < c; k++) {
         if (used === 2) toks[k].bold = true;
         else toks[k].italic = true;
-        if (toks[k].delim) toks[k].canOpen = false; // dentro una coppia già chiusa: non apre più
+        if (toks[k].delim) toks[k].canOpen = false; // inside an already closed pair: it no longer opens
       }
       opener.len -= used;
       closer.len -= used;
@@ -171,7 +171,7 @@ function parseInline(s: string, bold: boolean, italic: boolean, out: MdSegment[]
 const HEADING = /^\s{0,3}#{1,6}\s+(.*)$/;
 const BULLET = /^(\s*)([*\-•]|\d{1,2}[.)])\s+(.*)$/;
 
-/** Parsa il testo (più righe) in segmenti stilati; gli a-capo restano nei segmenti di testo. */
+/** Parses the text (multiple lines) into styled segments; newlines stay in the text segments. */
 export function parseInlineMarkdown(text: string): MdSegment[] {
   const out: MdSegment[] = [];
   const lines = text.split('\n');
@@ -193,20 +193,20 @@ export function parseInlineMarkdown(text: string): MdSegment[] {
   return out;
 }
 
-/** Segmento di una prosa con «slot» (es. gli indicatori ISTAT) inseriti fra i pezzi di testo. */
+/** Segment of prose with "slots" (e.g. the ISTAT indicators) inserted between the text pieces. */
 export type MdPart<T> = MdSegment | { slot: T };
 
 /**
- * Segnaposto interno di uno slot: un carattere dell'area privata Unicode, scritto come escape
- * (un editor o un formatter non può perderlo, e `split('')` non spezzerebbe tutto). Il testo in
- * ingresso viene ripulito dal carattere, così gli slot trovati corrispondono sempre a quelli dati.
+ * Internal placeholder of a slot: a Unicode private-use character, written as an escape
+ * (an editor or a formatter cannot lose it, and `split('')` would not split everything). The
+ * input text is cleaned of the character, so the slots found always match the ones given.
  */
 const SLOT = '\uE000';
 
 /**
- * Come `parseInlineMarkdown` ma su una sequenza di testi e slot: il markdown è interpretato
- * sull'intero testo (una coppia `**…**` che contiene uno slot resta una coppia) e poi gli slot
- * vengono rimessi al loro posto, dentro lo stile in cui cadono.
+ * Like `parseInlineMarkdown` but on a sequence of texts and slots: the markdown is interpreted
+ * on the whole text (a `**…**` pair that contains a slot stays a pair) and then the slots
+ * are put back in their place, inside the style in which they fall.
  */
 export function parseInlineMarkdownWithSlots<T>(parts: (string | { slot: T })[]): MdPart<T>[] {
   const slots: T[] = [];

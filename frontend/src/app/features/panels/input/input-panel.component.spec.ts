@@ -12,8 +12,8 @@ describe('InputPanelComponent', () => {
     form.dispatchEvent(new Event('submit', { cancelable: true }));
   }
 
-  function setDomanda(value: string): void {
-    const textarea: HTMLTextAreaElement = fixture.nativeElement.querySelector('#cra-domanda');
+  function setQuestion(value: string): void {
+    const textarea: HTMLTextAreaElement = fixture.nativeElement.querySelector('#cra-question');
     textarea.value = value;
     textarea.dispatchEvent(new Event('input'));
   }
@@ -37,20 +37,20 @@ describe('InputPanelComponent', () => {
     fixture.detectChanges();
   });
 
-  it('carica le città da ApiService.cities() e le propone nella datalist', () => {
+  it('loads the cities from ApiService.cities() and offers them in the datalist', () => {
     expect(api.cities).toHaveBeenCalled();
-    const options = fixture.nativeElement.querySelectorAll('#cra-citta-options option');
+    const options = fixture.nativeElement.querySelectorAll('#cra-city-options option');
     expect(options.length).toBe(3);
   });
 
-  it('il bottone Analizza è sempre abilitato (pre-#318: meglio un submit che spiega cosa manca che un bottone disabilitato senza perché)', () => {
+  it('the Analizza button is always enabled (pre-#318: better a submit that explains what is missing than a disabled button with no why)', () => {
     fixture.componentRef.setInput('area', null);
     fixture.detectChanges();
     const btn: HTMLButtonElement = fixture.nativeElement.querySelector('button[type="submit"]');
     expect(btn.disabled).toBe(false);
   });
 
-  it('emette AnalyzeRequestPayload con center/radiusM dal cerchio disegnato', () => {
+  it('emits AnalyzeRequestPayload with center/radiusM from the drawn circle', () => {
     const spy = jest.fn();
     component.analyze.subscribe(spy);
     fixture.componentRef.setInput('area', {
@@ -59,27 +59,27 @@ describe('InputPanelComponent', () => {
       radiusM: 500,
     });
     fixture.detectChanges();
-    component['domanda'].set('di sera?');
+    component['question'].set('di sera?');
     fixture.nativeElement.querySelector('form').dispatchEvent(new Event('submit'));
     expect(spy).toHaveBeenCalledWith({
       area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
-      domanda: 'di sera?',
+      question: 'di sera?',
     });
   });
 
-  it('emette AnalyzeRequestPayload con citta/zona quando l’area è nella modalità città/zona', () => {
+  it('emits AnalyzeRequestPayload with city/zone when the area is in city/zone mode', () => {
     const spy = jest.fn();
     component.analyze.subscribe(spy);
-    fixture.componentRef.setInput('area', { kind: 'zone', citta: 'Roma', zona: 'Colosseo' });
+    fixture.componentRef.setInput('area', { kind: 'zone', city: 'Roma', zone: 'Colosseo' });
     fixture.detectChanges();
     submitForm();
     expect(spy).toHaveBeenCalledWith({
-      area: { kind: 'zone', citta: 'Roma', zona: 'Colosseo' },
-      domanda: null,
+      area: { kind: 'zone', city: 'Roma', zone: 'Colosseo' },
+      question: null,
     });
   });
 
-  it('emette domanda null quando il campo è lasciato vuoto', () => {
+  it('emits question null when the field is left empty', () => {
     const spy = jest.fn();
     component.analyze.subscribe(spy);
     fixture.componentRef.setInput('area', {
@@ -91,11 +91,11 @@ describe('InputPanelComponent', () => {
     submitForm();
     expect(spy).toHaveBeenCalledWith({
       area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
-      domanda: null,
+      question: null,
     });
   });
 
-  it('trimma la domanda prima di emetterla', () => {
+  it('trims the question before emitting it', () => {
     const spy = jest.fn();
     component.analyze.subscribe(spy);
     fixture.componentRef.setInput('area', {
@@ -104,16 +104,16 @@ describe('InputPanelComponent', () => {
       radiusM: 500,
     });
     fixture.detectChanges();
-    setDomanda('  di sera?  ');
+    setQuestion('  di sera?  ');
     fixture.detectChanges();
     submitForm();
     expect(spy).toHaveBeenCalledWith({
       area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
-      domanda: 'di sera?',
+      question: 'di sera?',
     });
   });
 
-  it('senza area (né cerchio né città/zona compilate) il submit non emette analyze e mostra l’errore sul campo città', () => {
+  it('without an area (neither circle nor city/zone filled) the submit does not emit analyze and shows the error on the city field', () => {
     const spy = jest.fn();
     component.analyze.subscribe(spy);
     fixture.componentRef.setInput('area', null);
@@ -122,63 +122,63 @@ describe('InputPanelComponent', () => {
     fixture.detectChanges();
     expect(spy).not.toHaveBeenCalled();
     expect(fixture.nativeElement.textContent).toContain('Inserisci una città.');
-    const cittaField: HTMLInputElement = fixture.nativeElement.querySelector('#cra-citta');
-    expect(cittaField.classList).toContain('cra-field-error');
+    const cityField: HTMLInputElement = fixture.nativeElement.querySelector('#cra-city');
+    expect(cityField.classList).toContain('cra-field-error');
   });
 
-  it('con città compilata e zona vuota il submit mostra l’errore sul campo zona', () => {
+  it('with city filled and zone empty the submit shows the error on the zone field', () => {
     fixture.componentRef.setInput('area', null);
-    fixture.componentRef.setInput('citta', 'Roma');
+    fixture.componentRef.setInput('city', 'Roma');
     fixture.detectChanges();
     submitForm();
     fixture.detectChanges();
     expect(fixture.nativeElement.textContent).toContain('Inserisci una zona.');
-    const zonaField: HTMLInputElement = fixture.nativeElement.querySelector('#cra-zona');
-    expect(zonaField.classList).toContain('cra-field-error');
+    const zoneField: HTMLInputElement = fixture.nativeElement.querySelector('#cra-zone');
+    expect(zoneField.classList).toContain('cra-field-error');
   });
 
-  it('digitare in città/zona emette cittaChange/zonaChange verso lo shell (stato condiviso, non posseduto qui)', () => {
-    const cittaSpy = jest.fn();
-    const zonaSpy = jest.fn();
-    component.cittaChange.subscribe(cittaSpy);
-    component.zonaChange.subscribe(zonaSpy);
+  it('typing in city/zone emits cityChange/zoneChange towards the shell (shared state, not owned here)', () => {
+    const citySpy = jest.fn();
+    const zoneSpy = jest.fn();
+    component.cityChange.subscribe(citySpy);
+    component.zoneChange.subscribe(zoneSpy);
 
-    setFieldValue('#cra-citta', 'Milano');
-    setFieldValue('#cra-zona', 'Duomo');
+    setFieldValue('#cra-city', 'Milano');
+    setFieldValue('#cra-zone', 'Duomo');
 
-    expect(cittaSpy).toHaveBeenCalledWith('Milano');
-    expect(zonaSpy).toHaveBeenCalledWith('Duomo');
+    expect(citySpy).toHaveBeenCalledWith('Milano');
+    expect(zoneSpy).toHaveBeenCalledWith('Duomo');
   });
 
-  it('il campo città/zona riflette l’input ricevuto dallo shell', () => {
-    fixture.componentRef.setInput('citta', 'Napoli');
-    fixture.componentRef.setInput('zona', 'Centro');
+  it('the city/zone field reflects the input received from the shell', () => {
+    fixture.componentRef.setInput('city', 'Napoli');
+    fixture.componentRef.setInput('zone', 'Centro');
     fixture.detectChanges();
-    const cittaField: HTMLInputElement = fixture.nativeElement.querySelector('#cra-citta');
-    const zonaField: HTMLInputElement = fixture.nativeElement.querySelector('#cra-zona');
-    expect(cittaField.value).toBe('Napoli');
-    expect(zonaField.value).toBe('Centro');
+    const cityField: HTMLInputElement = fixture.nativeElement.querySelector('#cra-city');
+    const zoneField: HTMLInputElement = fixture.nativeElement.querySelector('#cra-zone');
+    expect(cityField.value).toBe('Napoli');
+    expect(zoneField.value).toBe('Centro');
   });
 
-  it('a11y: il campo in errore porta aria-invalid e aria-describedby verso l’id del messaggio', () => {
+  it('a11y: the field in error carries aria-invalid and aria-describedby pointing to the message id', () => {
     fixture.componentRef.setInput('area', null);
     fixture.detectChanges();
     submitForm();
     fixture.detectChanges();
 
-    const cittaField: HTMLInputElement = fixture.nativeElement.querySelector('#cra-citta');
-    const zonaField: HTMLInputElement = fixture.nativeElement.querySelector('#cra-zona');
+    const cityField: HTMLInputElement = fixture.nativeElement.querySelector('#cra-city');
+    const zoneField: HTMLInputElement = fixture.nativeElement.querySelector('#cra-zone');
     const errorMsg: HTMLElement = fixture.nativeElement.querySelector('.cra-input-error');
 
     expect(errorMsg.id).toBeTruthy();
-    expect(cittaField.getAttribute('aria-invalid')).toBe('true');
-    expect(cittaField.getAttribute('aria-describedby')).toBe(errorMsg.id);
-    // Solo il campo imputato dalla validazione porta gli attributi: l'altro resta pulito.
-    expect(zonaField.getAttribute('aria-invalid')).toBeNull();
-    expect(zonaField.getAttribute('aria-describedby')).toBeNull();
+    expect(cityField.getAttribute('aria-invalid')).toBe('true');
+    expect(cityField.getAttribute('aria-describedby')).toBe(errorMsg.id);
+    // Only the field attributed by the validation carries the attributes: the other stays clean.
+    expect(zoneField.getAttribute('aria-invalid')).toBeNull();
+    expect(zoneField.getAttribute('aria-describedby')).toBeNull();
   });
 
-  it('il bottone è collegato via aria-describedby al testo che spiega le due modalità di scelta dell’area', () => {
+  it('the button is linked via aria-describedby to the text explaining the two area-selection modes', () => {
     const btn: HTMLButtonElement = fixture.nativeElement.querySelector('button[type="submit"]');
     const describedById = btn.getAttribute('aria-describedby');
     expect(describedById).toBeTruthy();
@@ -187,7 +187,7 @@ describe('InputPanelComponent', () => {
     expect(hint.classList).toContain('cra-hint');
   });
 
-  it('mostra il messaggio di errore server (Stato Errore) via input serverError', () => {
+  it('shows the server error message (Error State) via the serverError input', () => {
     fixture.componentRef.setInput(
       'serverError',
       '"Atlantide" non corrisponde ad alcuna area nell\'ontologia.',
@@ -196,15 +196,15 @@ describe('InputPanelComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('non corrisponde ad alcuna area');
   });
 
-  it('errore server con area in modalità città/zona: il bordo d’errore va sul campo zona', () => {
-    fixture.componentRef.setInput('area', { kind: 'zone', citta: 'Roma', zona: 'Atlantide' });
+  it('server error with area in city/zone mode: the error border goes on the zone field', () => {
+    fixture.componentRef.setInput('area', { kind: 'zone', city: 'Roma', zone: 'Atlantide' });
     fixture.componentRef.setInput('serverError', '"Atlantide" non trovata.');
     fixture.detectChanges();
-    const zonaField: HTMLInputElement = fixture.nativeElement.querySelector('#cra-zona');
-    expect(zonaField.classList).toContain('cra-field-error');
+    const zoneField: HTMLInputElement = fixture.nativeElement.querySelector('#cra-zone');
+    expect(zoneField.classList).toContain('cra-field-error');
   });
 
-  it('errore server con area a cerchio: nessun bordo d’errore sul campo zona (il geocoding del cerchio è cosmetico)', () => {
+  it('server error with a circle area: no error border on the zone field (the circle geocoding is cosmetic)', () => {
     fixture.componentRef.setInput('area', {
       kind: 'circle',
       center: { lat: 41.9, lon: 12.5 },
@@ -212,11 +212,11 @@ describe('InputPanelComponent', () => {
     });
     fixture.componentRef.setInput('serverError', 'Errore generico.');
     fixture.detectChanges();
-    const zonaField: HTMLInputElement = fixture.nativeElement.querySelector('#cra-zona');
-    expect(zonaField.classList).not.toContain('cra-field-error');
+    const zoneField: HTMLInputElement = fixture.nativeElement.querySelector('#cra-zone');
+    expect(zoneField.classList).not.toContain('cra-field-error');
   });
 
-  it('BLOCCANTE (reperto review): un submit vuoto mostra "Inserisci una città.", ma disegnare un cerchio subito dopo azzera l’errore', () => {
+  it('BLOCKER (review finding): an empty submit shows "Inserisci una città.", but drawing a circle right after clears the error', () => {
     fixture.componentRef.setInput('area', null);
     fixture.detectChanges();
     submitForm();
@@ -231,41 +231,41 @@ describe('InputPanelComponent', () => {
     fixture.detectChanges();
 
     expect(fixture.nativeElement.textContent).not.toContain('Inserisci una città.');
-    const cittaField: HTMLInputElement = fixture.nativeElement.querySelector('#cra-citta');
-    expect(cittaField.classList).not.toContain('cra-field-error');
+    const cityField: HTMLInputElement = fixture.nativeElement.querySelector('#cra-city');
+    expect(cityField.classList).not.toContain('cra-field-error');
   });
 
-  it('BLOCCANTE (reperto review): un 503 in modalità cerchio non resta agganciato al campo zona dopo aver digitato una NUOVA città/zona', () => {
+  it('BLOCKER (review finding): a 503 in circle mode does not stay attached to the zone field after typing a NEW city/zone', () => {
     const circleArea = { kind: 'circle' as const, center: { lat: 41.9, lon: 12.5 }, radiusM: 500 };
     fixture.componentRef.setInput('area', circleArea);
     fixture.componentRef.setInput('serverError', 'Servizio di geocoding non raggiungibile.');
     fixture.detectChanges();
 
-    // La nuova area è un'altra ISTANZA (anche se, per assurdo, avesse valori uguali): simula lo
-    // shell che ricalcola `area()` perché citta/zona sono appena diventate una coppia valida.
-    fixture.componentRef.setInput('area', { kind: 'zone', citta: 'Roma', zona: 'Colosseo' });
+    // The new area is another INSTANCE (even if, absurdly, it had equal values): it simulates the
+    // shell recomputing `area()` because city/zone have just become a valid pair.
+    fixture.componentRef.setInput('area', { kind: 'zone', city: 'Roma', zone: 'Colosseo' });
     fixture.detectChanges();
 
-    const zonaField: HTMLInputElement = fixture.nativeElement.querySelector('#cra-zona');
-    expect(zonaField.classList).not.toContain('cra-field-error');
+    const zoneField: HTMLInputElement = fixture.nativeElement.querySelector('#cra-zone');
+    expect(zoneField.classList).not.toContain('cra-field-error');
   });
 
-  it('un errore server sulla STESSA area città/zona (retry senza modificare i campi) resta agganciato al campo zona', () => {
-    const zoneArea = { kind: 'zone' as const, citta: 'Roma', zona: 'Atlantide' };
+  it('a server error on the SAME city/zone area (retry without modifying the fields) stays attached to the zone field', () => {
+    const zoneArea = { kind: 'zone' as const, city: 'Roma', zone: 'Atlantide' };
     fixture.componentRef.setInput('area', zoneArea);
     fixture.componentRef.setInput('serverError', '"Atlantide" non trovata.');
     fixture.detectChanges();
 
-    // Stesso riferimento (nessun cambio nei campi, retry identico): il bordo deve restare.
+    // Same reference (no change in the fields, identical retry): the border must stay.
     fixture.componentRef.setInput('serverError', '"Atlantide" non trovata.');
     fixture.detectChanges();
 
-    const zonaField: HTMLInputElement = fixture.nativeElement.querySelector('#cra-zona');
-    expect(zonaField.classList).toContain('cra-field-error');
+    const zoneField: HTMLInputElement = fixture.nativeElement.querySelector('#cra-zone');
+    expect(zoneField.classList).toContain('cra-field-error');
   });
 });
 
-describe('InputPanelComponent — pre-fill della domanda pending (retry dopo un remount in Stato Errore)', () => {
+describe('InputPanelComponent — pre-fill of the pending question (retry after a remount in Error State)', () => {
   let fixture: ComponentFixture<InputPanelComponent>;
 
   beforeEach(async () => {
@@ -275,21 +275,21 @@ describe('InputPanelComponent — pre-fill della domanda pending (retry dopo un 
       providers: [{ provide: ApiService, useValue: api }],
     }).compileComponents();
     fixture = TestBed.createComponent(InputPanelComponent);
-    // NIENTE detectChanges qui: il test imposta l'input *prima* del primo ciclo,
-    // così ngOnInit lo legge esattamente come farebbe un remount reale dello @switch.
+    // NO detectChanges here: the test sets the input *before* the first cycle,
+    // so ngOnInit reads it exactly as a real remount of the @switch would.
   });
 
-  it("rimonto (percorso reale INPUT→LOADING→ERROR): ripopola domanda dall'input initialDomanda", () => {
-    fixture.componentRef.setInput('initialDomanda', 'di sera?');
+  it('remount (real path INPUT→LOADING→ERROR): repopulates question from the initialQuestion input', () => {
+    fixture.componentRef.setInput('initialQuestion', 'di sera?');
     fixture.detectChanges();
 
-    const domanda: HTMLTextAreaElement = fixture.nativeElement.querySelector('#cra-domanda');
-    expect(domanda.value).toBe('di sera?');
+    const question: HTMLTextAreaElement = fixture.nativeElement.querySelector('#cra-question');
+    expect(question.value).toBe('di sera?');
   });
 
-  it('senza valore pending (primo mount, Stato A) il campo domanda resta vuoto', () => {
+  it('without a pending value (first mount, State A) the question field stays empty', () => {
     fixture.detectChanges();
-    const domanda: HTMLTextAreaElement = fixture.nativeElement.querySelector('#cra-domanda');
-    expect(domanda.value).toBe('');
+    const question: HTMLTextAreaElement = fixture.nativeElement.querySelector('#cra-question');
+    expect(question.value).toBe('');
   });
 });

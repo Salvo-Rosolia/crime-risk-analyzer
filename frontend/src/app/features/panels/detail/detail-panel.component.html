@@ -64,13 +64,13 @@
                   </span>
                   @if (entry.indicator; as indicator) {
                     <span class="cra-istat-indicator"
-                      >{{ indicator.dati }}
-                      @if (indicator.tendenza) {
+                      >{{ indicator.data }}
+                      @if (indicator.trend) {
                         ·
-                        @if (indicator.freccia) {
-                          <span aria-hidden="true">{{ indicator.freccia }}</span>
+                        @if (indicator.arrow) {
+                          <span aria-hidden="true">{{ indicator.arrow }}</span>
                         }
-                        {{ indicator.tendenza }}
+                        {{ indicator.trend }}
                       }
                     </span>
                   }
@@ -86,17 +86,17 @@
   @if (ontologyAxes().length) {
     <section class="cra-detail-section">
       <h3 class="cra-eyebrow">Contesto ontologico · per asse</h3>
-      @for (asse of ontologyAxes(); track asse.titolo) {
+      @for (axis of ontologyAxes(); track axis.title) {
         <div class="cra-axis-group">
-          <h4 class="cra-axis-title">{{ asse.titolo }}</h4>
-          @if (asse.nota) {
-            <p class="cra-axis-note">{{ asse.nota }}</p>
+          <h4 class="cra-axis-title">{{ axis.title }}</h4>
+          @if (axis.note) {
+            <p class="cra-axis-note">{{ axis.note }}</p>
           }
           <ul class="cra-axis-list">
-            @for (voce of asse.voci; track voce.name) {
+            @for (entry of axis.entries; track entry.name) {
               <li class="cra-axis-row">
-                <span class="cra-axis-label">{{ axisLabel(voce) }}</span>
-                <span class="cra-axis-source">{{ voce.source }}</span>
+                <span class="cra-axis-label">{{ axisLabel(entry) }}</span>
+                <span class="cra-axis-source">{{ entry.source }}</span>
               </li>
             }
           </ul>

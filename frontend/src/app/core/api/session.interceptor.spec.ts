@@ -22,34 +22,34 @@ describe('sessionInterceptor', () => {
     ctrl = TestBed.inject(HttpTestingController);
   });
 
-  it('aggiunge il token di sessione alle richieste relative', () => {
+  it('adds the session token to relative requests', () => {
     http.get('/cities').subscribe();
     const req = ctrl.expectOne('/cities');
     expect(req.request.headers.get(SESSION_HEADER)).toBe(sessionId());
     req.flush([]);
   });
 
-  it('non lo manda agli altri host', () => {
+  it('does not send it to other hosts', () => {
     http.get('https://example.org/x').subscribe();
     const req = ctrl.expectOne('https://example.org/x');
     expect(req.request.headers.has(SESSION_HEADER)).toBe(false);
     req.flush({});
   });
 
-  it('il token ha il formato accettato dal backend e resta lo stesso nella scheda', () => {
+  it('the token has the format accepted by the backend and stays the same within the tab', () => {
     const id = sessionId();
     expect(id).toMatch(/^[A-Za-z0-9_-]{16,128}$/);
     expect(sessionId()).toBe(id);
   });
 
-  it('non lo manda agli URL protocol-relative (//host)', () => {
+  it('does not send it to protocol-relative URLs (//host)', () => {
     http.get('//example.org/x').subscribe();
     const req = ctrl.expectOne('//example.org/x');
     expect(req.request.headers.has(SESSION_HEADER)).toBe(false);
     req.flush({});
   });
 
-  it('un 410 fonti_scadute segna le fonti come scadute', () => {
+  it('a 410 fonti_scadute marks the sources as expired', () => {
     const store = TestBed.inject(SourcesStore);
     http.post('/analyze', {}).subscribe({ error: (e: HttpErrorResponse) => e });
     ctrl
@@ -61,14 +61,14 @@ describe('sessionInterceptor', () => {
     expect(store.indicator().kind).toBe('expired');
   });
 
-  it('altri errori non toccano lo stato delle fonti', () => {
+  it('other errors do not touch the sources state', () => {
     const store = TestBed.inject(SourcesStore);
     http.post('/analyze', {}).subscribe({ error: (e: HttpErrorResponse) => e });
     ctrl.expectOne('/analyze').flush({}, { status: 500, statusText: 'x' });
     expect(store.indicator().kind).toBe('default');
   });
 
-  it('il 410 fonti_scadute vale anche per la narrativa del POI', () => {
+  it('the 410 fonti_scadute also applies to the POI narrative', () => {
     const store = TestBed.inject(SourcesStore);
     http.post('/analyze/poi', {}).subscribe({ error: (e: HttpErrorResponse) => e });
     ctrl

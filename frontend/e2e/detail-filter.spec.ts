@@ -12,22 +12,22 @@ import {
 import type { AnalyzeResponse, Poi, RiskModel } from '../src/app/core/models/models';
 
 /**
- * Scenari RESULTS→DETAIL e RESULTS→FILTER (#69 Task 4), sullo stesso fixture `analyze.happy.json`
- * di Task 3 (Colosseo=verificato con sparql_path, Piazza Venezia=da_confermare, Vicolo
- * Oscuro=fuori ontologia (confidence null, #220) con sparql_path null; +3 POI aggiuntivi
- * introdotti dal fix-review #69 per rendere distinti i conteggi confidence, vedi
- * `results.spec.ts`). Nessun valore hardcodato
- * slegato dal fixture: i conteggi/testi attesi derivano da `analyze.poi`/`analyze.risk_models`.
+ * RESULTS→DETAIL and RESULTS→FILTER scenarios (#69 Task 4), on the same `analyze.happy.json` fixture
+ * as Task 3 (Colosseo=verificato with sparql_path, Piazza Venezia=da_confermare, Vicolo
+ * Oscuro=outside the ontology (confidence null, #220) with sparql_path null; +3 additional POIs
+ * introduced by fix-review #69 to make the confidence counts distinct, see
+ * `results.spec.ts`). No hardcoded value
+ * detached from the fixture: the expected counts/texts derive from `analyze.poi`/`analyze.risk_models`.
  *
- * L'ordine atteso dei fattori di rischio (`detailFactorLabels`) è derivato dalla STESSA logica di
- * rendering del componente (`buildDetailModel` + `orderGroupsByTag` + `orderRisksByIstat` dentro
- * ogni gruppo, `core/ui-helpers.ts`), non dall'ordine grezzo di `risk_models[].risks`: il DOM
- * riordina prima i gruppi per tag fonte (ONTOLOGIA → CONTESTO → SPECULATIVO) e poi, dentro
- * ciascuno, i rischi col dato ISTAT del POI (#346) — quindi l'atteso deve passare dalla stessa
- * trasformazione per restare corretto anche se l'ordine grezzo del fixture cambiasse (fix-review
- * #69). Il fixture `analyze.happy.json` non porta `istat`, quindi qui `orderRisksByIstat` è un
- * no-op (nessun rischio ha dato): l'applicazione resta comunque corretta anche quando il fixture
- * lo guadagnerà.
+ * The expected order of the risk factors (`detailFactorLabels`) is derived from the SAME logic as
+ * the component's rendering (`buildDetailModel` + `orderGroupsByTag` + `orderRisksByIstat` inside
+ * each group, `core/ui-helpers.ts`), not from the raw order of `risk_models[].risks`: the DOM
+ * first reorders the groups by source tag (ONTOLOGIA → CONTESTO → SPECULATIVO) and then, inside
+ * each, the risks with the POI's ISTAT datum (#346) — so the expectation must go through the same
+ * transformation to stay correct even if the raw order of the fixture changed (fix-review
+ * #69). The `analyze.happy.json` fixture carries no `istat`, so here `orderRisksByIstat` is a
+ * no-op (no risk has data): the application stays correct anyway even when the fixture
+ * gains it.
  */
 function expectedFactorLabels(poi: Poi, riskModels: RiskModel[]): string[] {
   const detailModel = buildDetailModel(poi, riskModels);
@@ -46,39 +46,39 @@ async function gotoResults(page: import('@playwright/test').Page): Promise<void>
   await expect(S.poiPanel(page)).toBeVisible();
 }
 
-test.describe('RESULTS→DETAIL: accoppiamento bidirezionale marker↔card', () => {
+test.describe('RESULTS→DETAIL: bidirectional marker↔card pairing', () => {
   test.beforeEach(async ({ page }) => {
     await gotoResults(page);
   });
 
-  test('click su un marker apre il dettaglio POI, evidenzia la card accoppiata; il tasto chiudi torna a RESULTS', async ({
+  test('click on a marker opens the POI detail, highlights the paired card; the close button goes back to RESULTS', async ({
     page,
   }) => {
-    // POI 0 = Colosseo: verificato, sparql_path presente (3 parti), 2 gruppi ONTOLOGIA+CONTESTO.
+    // POI 0 = Colosseo: verificato, sparql_path present (3 parts), 2 groups ONTOLOGIA+CONTESTO.
     const poi = analyze.poi[0];
 
     await S.mapMarkers(page).nth(0).click();
 
     await expect(S.detailPanel(page)).toBeVisible();
-    // Dock unico (#199): la Vista Dettaglio nasconde la Vista Lista (mutuamente esclusive dentro
-    // cra-panel-dock), che però non si smonta (`panelDock` resta lo stesso nodo — verificato negli
-    // unit test di app.spec.ts).
+    // Single dock (#199): the Detail view hides the List view (mutually exclusive inside
+    // cra-panel-dock), which however does not unmount (`panelDock` stays the same node — verified in the
+    // unit tests of app.spec.ts).
     await expect(S.poiPanel(page)).toBeHidden();
     await expect(S.panelDock(page)).toBeVisible();
 
-    // Citazione SPARQL lineare: un salto per parte, stesso ordine di `sparql_path`.
+    // Linear SPARQL citation: one hop per part, same order as `sparql_path`.
     await expect(S.detailCitationParts(page)).toHaveText(poi.sparql_path!.split(' → '));
 
-    // Fattori di rischio raggruppati per fonte, ordine ONTOLOGIA → CONTESTO (spec-frontend.md).
+    // Risk factors grouped by source, order ONTOLOGIA → CONTESTO (spec-frontend.md).
     await expect(S.detailSourceGroups(page)).toHaveCount(2);
     await expect(S.detailSourceTags(page)).toHaveText(['[ONTOLOGIA]', '[CONTESTO]']);
     await expect(S.detailFactorLabels(page)).toHaveText(
       expectedFactorLabels(poi, analyze.risk_models),
     );
 
-    // #256/#270: gli assi TERMINUS oltre agli hazard, ciascuno con la propria citazione. Il
-    // fixture ne popola uno per asse sul POI 0 (eventi critici, vulnerabilità, stakeholder), quindi
-    // i gruppi renderizzati sono tre.
+    // #256/#270: the TERMINUS axes beyond hazards, each with its own citation. The
+    // fixture populates one per axis on POI 0 (critical events, vulnerabilities, stakeholders), so
+    // the rendered groups are three.
     await expect(page.locator('.cra-axis-group')).toHaveCount(3);
     await expect(page.locator('.cra-axis-label')).toHaveText([
       poi.critical_events![0].label_it,
@@ -88,12 +88,12 @@ test.describe('RESULTS→DETAIL: accoppiamento bidirezionale marker↔card', () 
     await expect(page.locator('.cra-axis-source').first()).toHaveText(
       poi.critical_events![0].source,
     );
-    // La nota anti-direttiva-operativa (#270) compare solo sul gruppo Stakeholder.
+    // The anti-operational-directive note (#270) appears only on the Stakeholder group.
     await expect(page.locator('.cra-axis-note')).toHaveText(
       "Dato citato dall'ontologia: non è un'indicazione su chi contattare o allertare.",
     );
 
-    // Accoppiamento bidirezionale: la card dello stesso POI è marcata come selezionata.
+    // Bidirectional pairing: the card of the same POI is marked as selected.
     await expect(S.poiCards(page).nth(0)).toHaveAttribute('aria-current', 'true');
 
     await S.detailBack(page).click();
@@ -102,16 +102,16 @@ test.describe('RESULTS→DETAIL: accoppiamento bidirezionale marker↔card', () 
     await expect(S.poiPanel(page)).toBeVisible();
   });
 
-  test('click su una card apre il dettaglio POI ed evidenzia (focus) il marker accoppiato', async ({
+  test('click on a card opens the POI detail and highlights (focus) the paired marker', async ({
     page,
   }) => {
-    // POI 2 = Vicolo Oscuro: fuori ontologia (confidence null, #220), sparql_path null (nessuna
-    // citazione), un solo gruppo SPECULATIVO che assorbe anche il rischio con tag null
-    // (`orderGroupsByTag`). Copertura difensiva del fallback frontend `risk.tag || 'SPECULATIVO'`
-    // (`core/ui-helpers.ts`), non un payload che l'orchestrator produce oggi: dal blocco
-    // [SPECULATIVO] rimosso dal prompt (#229) la narrativa a tab realistica ha solo 2 fonti
-    // (ONTOLOGIA/CONTESTO, vedi `base-regenerate.spec.ts`); qui si verifica solo che, se un rischio
-    // arrivasse comunque senza tag riconosciuto, il dettaglio lo raggruppi correttamente.
+    // POI 2 = Vicolo Oscuro: outside the ontology (confidence null, #220), sparql_path null (no
+    // citation), a single SPECULATIVO group that also absorbs the risk with null tag
+    // (`orderGroupsByTag`). Defensive coverage of the frontend fallback `risk.tag || 'SPECULATIVO'`
+    // (`core/ui-helpers.ts`), not a payload the orchestrator produces today: since the
+    // [SPECULATIVO] block was removed from the prompt (#229) the realistic tab narrative has only 2 sources
+    // (ONTOLOGIA/CONTESTO, see `base-regenerate.spec.ts`); here we only verify that, if a risk
+    // arrived anyway without a recognized tag, the detail groups it correctly.
     const poi = analyze.poi[2];
 
     await S.poiCards(page).nth(2).click();
@@ -126,8 +126,8 @@ test.describe('RESULTS→DETAIL: accoppiamento bidirezionale marker↔card', () 
       expectedFactorLabels(poi, analyze.risk_models),
     );
 
-    // Accoppiamento bidirezionale: il marker dello stesso POI diventa "focus" (pin più grande,
-    // `pinHTML` in `core/confidence.ts`); il marker non selezionato resta alla dimensione base.
+    // Bidirectional pairing: the marker of the same POI becomes "focus" (larger pin,
+    // `pinHTML` in `core/confidence.ts`); the non-selected marker stays at the base size.
     await expect(S.mapMarkerPin(page).nth(2)).toHaveCSS('width', '34px');
     await expect(S.mapMarkerPin(page).nth(0)).toHaveCSS('width', '26px');
 
@@ -138,12 +138,12 @@ test.describe('RESULTS→DETAIL: accoppiamento bidirezionale marker↔card', () 
   });
 });
 
-test.describe('RESULTS→FILTER: chip confidence', () => {
+test.describe('RESULTS→FILTER: confidence chips', () => {
   test.beforeEach(async ({ page }) => {
     await gotoResults(page);
   });
 
-  test('click su un chip nasconde le card non corrispondenti e attenua i marker; riclic rimuove il filtro', async ({
+  test('click on a chip hides the non-matching cards and dims the markers; clicking again removes the filter', async ({
     page,
   }) => {
     const total = analyze.poi.length;
@@ -151,7 +151,7 @@ test.describe('RESULTS→FILTER: chip confidence', () => {
     const matchingCount = analyze.poi.filter((p) => p.confidence === matchingLevel).length;
     const hiddenCount = total - matchingCount;
 
-    // Sanity check sul fixture: il filtro dev'essere selettivo, non vacuo (mix di livelli, Task 3).
+    // Sanity check on the fixture: the filter must be selective, not vacuous (mix of levels, Task 3).
     expect(hiddenCount).toBeGreaterThan(0);
 
     await expect(S.poiCards(page)).toHaveCount(total);
@@ -160,17 +160,17 @@ test.describe('RESULTS→FILTER: chip confidence', () => {
     const chip = S.headerConfidenceChips(page).filter({ hasText: 'Identificato' });
     await chip.click();
 
-    // Card: le non corrispondenti sono escluse dal DOM (semantica "nascondi").
+    // Cards: the non-matching ones are excluded from the DOM ("hide" semantics).
     await expect(S.poiCards(page)).toHaveCount(matchingCount);
     await expect(S.hiddenBar(page)).toHaveText(`${hiddenCount} nascosti`);
 
-    // Marker: le non corrispondenti restano visibili ma attenuate (semantica "dim", `pinHTML`).
+    // Markers: the non-matching ones stay visible but dimmed ("dim" semantics, `pinHTML`).
     for (let i = 0; i < analyze.poi.length; i++) {
       const expectedOpacity = analyze.poi[i].confidence === matchingLevel ? '1' : '0.45';
       await expect(S.mapMarkerPin(page).nth(i)).toHaveCSS('opacity', expectedOpacity);
     }
 
-    // Riclic sullo stesso chip: CLEAR_FILTER, i conteggi tornano pieni.
+    // Click on the same chip again: CLEAR_FILTER, the counts go back to full.
     await chip.click();
 
     await expect(S.poiCards(page)).toHaveCount(total);

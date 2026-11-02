@@ -27,15 +27,15 @@
   opacity: 0.8;
 }
 
-/* Spinge cra-header-controls all'estremità destra dell'header (titolo+tagline restano a sinistra). */
+/* Pushes cra-header-controls to the right end of the header (title+tagline stay on the left). */
 .cra-header-spacer {
   flex: 1 1 auto;
 }
 
 /*
- * Schermi stretti (< 768px): senza wrap l'header superava il viewport (691px) e l'indicatore Fonti
- * e il toggle Completo/Base restavano fuori schermo. Riga 1: titolo + Fonti; riga 2: ricerca +
- * modalità. Il tagline è decorativo e si nasconde. L'altezza è `--header-height` (styles.css).
+ * Narrow screens (< 768px): without wrap the header exceeded the viewport (691px) and the Fonti indicator
+ * and the Full/Base toggle stayed off screen. Row 1: title + Fonti; row 2: search +
+ * mode. The tagline is decorative and is hidden. The height is `--header-height` (styles.css).
  */
 @media (max-width: 767px) {
   .cra-header {
@@ -73,16 +73,16 @@
   }
 
   /*
-   * Con i risultati a schermo (badge Copertura + chip, #441) l'header ha una terza riga. Il token
-   * resta l'unica fonte dell'altezza per mappa, pannelli e dialog: lo si ridefinisce qui, sullo
-   * stesso host che li contiene, quando l'header ospita il badge.
+   * With results on screen (Copertura badge + chips, #441) the header has a third row. The token
+   * remains the only source of the height for map, panels and dialog: it is redefined here, on the
+   * same host that contains them, when the header hosts the badge.
    */
   :host:has(.cra-coverage-badge) {
     --header-height: 124px;
   }
 }
 
-/* Sotto i 480px badge Copertura e chip non stanno nella stessa riga: la quarta riga li separa. */
+/* Below 480px the Copertura badge and chips do not fit on the same row: the fourth row separates them. */
 @media (max-width: 479px) {
   :host:has(.cra-coverage-badge) {
     --header-height: 160px;
@@ -104,13 +104,13 @@ cra-map {
 }
 
 /*
- * `box-sizing: border-box` NON è cosmetico qui: rende vero ciò che il resto del layout già
- * assume, cioè che `--panel-max-width` sia la larghezza ESTERNA del pannello. Senza, padding
- * (2 × var(--space-4)) e bordo (2 × var(--panel-border)) si sommavano fuori dal token e il
- * pannello arrivava 35px più a destra del previsto, coprendo l'inizio della barra del raggio
- * (`.cra-radius-control`, map.component.ts), che si ancora proprio a `--panel-max-width`.
- * L'invariante è presidiata da `e2e/map-radius-control.spec.ts` — un test di geometria reale,
- * perché jsdom non calcola layout.
+ * `box-sizing: border-box` is NOT cosmetic here: it makes true what the rest of the layout already
+ * assumes, namely that `--panel-max-width` is the OUTER width of the panel. Without it, padding
+ * (2 × var(--space-4)) and border (2 × var(--panel-border)) added up outside the token and the
+ * panel ended up 35px further right than expected, covering the start of the radius bar
+ * (`.cra-radius-control`, map.component.ts), which anchors exactly to `--panel-max-width`.
+ * The invariant is guarded by `e2e/map-radius-control.spec.ts` — a real-geometry test,
+ * because jsdom does not compute layout.
  */
 .cra-panel {
   box-sizing: border-box;
@@ -125,9 +125,9 @@ cra-map {
 }
 
 /*
- * Casella "vai a un luogo" (#318): vive DENTRO l'header (fra cra-header-spacer e
- * cra-header-controls), non fluttuante sopra la mappa — così non contende lo spazio col dock POI
- * (in alto a sinistra) né con la narrativa bottom-sheet (a tutta altezza a destra).
+ * "Go to a place" box (#318): it lives INSIDE the header (between cra-header-spacer and
+ * cra-header-controls), not floating above the map — so it does not compete for space with the POI dock
+ * (top left) nor with the narrative bottom sheet (full height on the right).
  */
 .cra-place-search {
   position: relative;
@@ -162,9 +162,9 @@ cra-map {
 }
 
 /*
- * Il dock unico Lista/Dettaglio POI (#199, `cra-panel-dock`) e la narrativa bottom-sheet
- * (`cra-narrative-sheet`) gestiscono da sé posizione/dimensione nel proprio `:host` CSS
- * (`panel-dock.component.css`/`narrative-sheet.component.css`), perché entrambi hanno un'altezza
- * dinamica (coordinata dai signal `narrOpen`/`poiPanelOpen`) — a differenza dei pannelli statici
- * sopra (`.cra-panel`), qui non serve un wrapper con classi di ancoraggio esterne.
+ * The single POI List/Detail dock (#199, `cra-panel-dock`) and the narrative bottom sheet
+ * (`cra-narrative-sheet`) handle position/size themselves in their own `:host` CSS
+ * (`panel-dock.component.css`/`narrative-sheet.component.css`), because both have a
+ * dynamic height (coordinated by the `narrOpen`/`poiPanelOpen` signals) — unlike the static panels
+ * above (`.cra-panel`), here no wrapper with external anchoring classes is needed.
  */

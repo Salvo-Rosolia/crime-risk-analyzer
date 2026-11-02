@@ -16,45 +16,45 @@ import {
 } from '@core/ui-helpers';
 import type { IstatIndicator } from '@core/ui-helpers';
 import { CONF, DIM_COLOR } from '@core/confidence';
-import { IstatPoi, IstatRiga, Poi, RiskItem, RiskModel, SourceProse } from '@core/models/models';
-import { istatPoi, istatRiga } from '@core/testing/istat-fixtures';
+import { IstatPoi, IstatRow, Poi, RiskItem, RiskModel, SourceProse } from '@core/models/models';
+import { istatPoi, istatRow } from '@core/testing/istat-fixtures';
 
 describe('ui-helpers', () => {
-  it('cityColorFor: città note e fallback', () => {
+  it('cityColorFor: known cities and fallback', () => {
     expect(cityColorFor('Roma')).toBe('#0e7b80');
     expect(cityColorFor('Atlantide')).toBe('#928d82');
   });
 
-  it('validateInputPanel: citta assente → errore sul campo citta, non valuta la zona', () => {
-    expect(validateInputPanel({ zona: 'Roma' })).toEqual({
+  it('validateInputPanel: missing city → error on the city field, does not evaluate the zone', () => {
+    expect(validateInputPanel({ zone: 'Roma' })).toEqual({
       ok: false,
       error: 'Inserisci una città.',
-      field: 'citta',
+      field: 'city',
     });
   });
 
-  it("validateInputPanel: città non presente tra i suggerimenti → ok (validazione rilassata, l'allowlist è stata rimossa dal backend — #191)", () => {
-    expect(validateInputPanel({ citta: 'Acireale', zona: 'Centro' })).toEqual({
+  it('validateInputPanel: city not among the suggestions → ok (relaxed validation, the allowlist was removed from the backend — #191)', () => {
+    expect(validateInputPanel({ city: 'Acireale', zone: 'Centro' })).toEqual({
       ok: true,
       error: null,
       field: null,
     });
   });
 
-  it('validateInputPanel: zona vuota → errore sul campo zona, valorizzata → ok (citta valida)', () => {
-    expect(validateInputPanel({ citta: 'Roma', zona: '' })).toEqual({
+  it('validateInputPanel: empty zone → error on the zone field, filled → ok (valid city)', () => {
+    expect(validateInputPanel({ city: 'Roma', zone: '' })).toEqual({
       ok: false,
       error: 'Inserisci una zona.',
-      field: 'zona',
+      field: 'zone',
     });
-    expect(validateInputPanel({ citta: 'Roma', zona: 'Centro' })).toEqual({
+    expect(validateInputPanel({ city: 'Roma', zone: 'Centro' })).toEqual({
       ok: true,
       error: null,
       field: null,
     });
   });
 
-  it('buildDetailModel: split sparql_path e groups per tag del POI corrispondente', () => {
+  it('buildDetailModel: split sparql_path and groups by tag of the matching POI', () => {
     const poi: Poi = {
       id: '1',
       name: 'Colosseo',
@@ -86,10 +86,10 @@ describe('ui-helpers', () => {
     expect(out.groups['ONTOLOGIA']).toHaveLength(1);
   });
 
-  it('buildDetailModel: due POI con lo STESSO nome ma id diversi ricevono rischi distinti', () => {
-    // L'altra metà del difetto: i nomi OSM non sono unici (due filiali si chiamano
-    // uguale). Con l'aggancio per nome vinceva la prima, anche a classi diverse.
-    const secondaFiliale: Poi = {
+  it('buildDetailModel: two POIs with the SAME name but different ids get distinct risks', () => {
+    // The other half of the defect: OSM names are not unique (two branches are called
+    // the same). With name matching the first one won, even for different classes.
+    const secondBranch: Poi = {
       id: '2',
       name: 'Farmacia Roma',
       terminus_class: 'Pharmacy',
@@ -128,15 +128,15 @@ describe('ui-helpers', () => {
         ],
       },
     ];
-    const out = buildDetailModel(secondaFiliale, rm);
+    const out = buildDetailModel(secondBranch, rm);
     expect(out.groups['ONTOLOGIA'].map((r) => r.hazard)).toEqual(['Theft']);
   });
 
-  it('buildDetailModel: due POI senza nome restano distinti (aggancio per id, non per nome)', () => {
-    // Caso reale: nelle zone catturate 3-6 POI su 20 sono feature OSM anonime, e
-    // appartengono a classi diverse. Agganciando per nome, `find('')` restituisce il
-    // primo e il dettaglio della farmacia mostrerebbe i rischi della banca.
-    const farmaciaAnonima: Poi = {
+  it('buildDetailModel: two POIs without a name stay distinct (match by id, not by name)', () => {
+    // Real case: in the captured zones 3-6 POIs out of 20 are anonymous OSM features, and
+    // they belong to different classes. Matching by name, `find('')` returns the
+    // first one and the pharmacy detail would show the bank risks.
+    const anonymousPharmacy: Poi = {
       id: '22',
       name: '',
       terminus_class: 'Pharmacy',
@@ -175,12 +175,12 @@ describe('ui-helpers', () => {
         ],
       },
     ];
-    const out = buildDetailModel(farmaciaAnonima, rm);
+    const out = buildDetailModel(anonymousPharmacy, rm);
     expect(out.groups['ONTOLOGIA'].map((r) => r.hazard)).toEqual(['Theft']);
   });
 
-  it("buildDetailModel: poiLabel preferisce terminus_label_it, fallback a terminus_class se l'etichetta manca", () => {
-    const poiConLabel: Poi = {
+  it('buildDetailModel: poiLabel prefers terminus_label_it, falls back to terminus_class if the label is missing', () => {
+    const poiWithLabel: Poi = {
       id: '1',
       name: 'Colosseo',
       terminus_class: 'ArchaeologicalSite',
@@ -191,13 +191,13 @@ describe('ui-helpers', () => {
       terminus_label_it: 'Sito archeologico',
       terminus_label_en: 'Archaeological site',
     };
-    expect(buildDetailModel(poiConLabel, []).poiLabel).toBe('Sito archeologico');
+    expect(buildDetailModel(poiWithLabel, []).poiLabel).toBe('Sito archeologico');
 
-    const poiSenzaLabel: Poi = { ...poiConLabel, terminus_label_it: '' };
-    expect(buildDetailModel(poiSenzaLabel, []).poiLabel).toBe('ArchaeologicalSite');
+    const poiWithoutLabel: Poi = { ...poiWithLabel, terminus_label_it: '' };
+    expect(buildDetailModel(poiWithoutLabel, []).poiLabel).toBe('ArchaeologicalSite');
   });
 
-  it('orderGroupsByTag: ordina i gruppi di buildDetailModel in ONTOLOGIA→CONTESTO→SPECULATIVO', () => {
+  it('orderGroupsByTag: orders the groups of buildDetailModel as ONTOLOGIA→CONTESTO→SPECULATIVO', () => {
     const groups: Record<string, RiskItem[]> = {
       SPECULATIVO: [
         {
@@ -234,7 +234,7 @@ describe('ui-helpers', () => {
     ]);
   });
 
-  it('orderGroupsByTag: omette i tag assenti/vuoti e mette in coda i tag fuori contratto', () => {
+  it('orderGroupsByTag: omits missing/empty tags and puts out-of-contract tags last', () => {
     const onto: RiskItem = {
       hazard: 'h',
       confidence: 'verificato',
@@ -242,11 +242,11 @@ describe('ui-helpers', () => {
       hazard_label_it: 'H',
       hazard_label_en: 'H',
     };
-    const groups: Record<string, RiskItem[]> = { ONTOLOGIA: [onto], CONTESTO: [], ALTRO: [onto] };
-    expect(orderGroupsByTag(groups).map((g) => g.tag)).toEqual(['ONTOLOGIA', 'ALTRO']);
+    const groups: Record<string, RiskItem[]> = { ONTOLOGIA: [onto], CONTESTO: [], OTHER: [onto] };
+    expect(orderGroupsByTag(groups).map((g) => g.tag)).toEqual(['ONTOLOGIA', 'OTHER']);
   });
 
-  it('buildBaseRows: una riga per coppia (POI, hazard), Categoria = tc:terminus_class grezzo', () => {
+  it('buildBaseRows: one row per (POI, hazard) pair, Categoria = raw tc:terminus_class', () => {
     const poi: Poi[] = [
       {
         id: '1',
@@ -318,8 +318,8 @@ describe('ui-helpers', () => {
     ]);
   });
 
-  it('buildBaseRows: due POI senza nome finiscono ciascuno sulla propria riga (aggancio per id)', () => {
-    const anonimi: Poi[] = [
+  it('buildBaseRows: two POIs without a name each end up on their own row (match by id)', () => {
+    const anonymous: Poi[] = [
       {
         id: '11',
         name: '',
@@ -371,13 +371,13 @@ describe('ui-helpers', () => {
         ],
       },
     ];
-    expect(buildBaseRows(anonimi, riskModels)).toEqual([
+    expect(buildBaseRows(anonymous, riskModels)).toEqual([
       { poiId: '11', poiName: '', hazardLabel: 'Rapina in banca', category: 'tc:Bank' },
       { poiId: '22', poiName: '', hazardLabel: 'Vandalismo', category: 'tc:School' },
     ]);
   });
 
-  it('buildBaseRows: POI senza risk_models corrispondenti → nessuna riga; input null/undefined → []', () => {
+  it('buildBaseRows: POI without matching risk_models → no row; null/undefined input → []', () => {
     const poi: Poi[] = [
       {
         id: '1',
@@ -396,22 +396,22 @@ describe('ui-helpers', () => {
     expect(buildBaseRows(undefined, undefined)).toEqual([]);
   });
 
-  it('matchesFilter: filtro null → sempre true (nessun filtro attivo), incluso un POI fuori ontologia (confidence null)', () => {
+  it('matchesFilter: null filter → always true (no active filter), including a POI outside the ontology (confidence null)', () => {
     expect(matchesFilter('verificato', null)).toBe(true);
     expect(matchesFilter(null, null)).toBe(true);
   });
 
-  it('matchesFilter: filtro attivo → true solo per la confidence corrispondente', () => {
+  it('matchesFilter: active filter → true only for the matching confidence', () => {
     expect(matchesFilter('da_confermare', 'da_confermare')).toBe(true);
     expect(matchesFilter('verificato', 'da_confermare')).toBe(false);
   });
 
-  it('matchesFilter: con un filtro attivo, un POI fuori ontologia (confidence null, #220) non corrisponde mai (non filtrabile come categoria)', () => {
+  it('matchesFilter: with an active filter, a POI outside the ontology (confidence null, #220) never matches (not filterable as a category)', () => {
     expect(matchesFilter(null, 'verificato')).toBe(false);
     expect(matchesFilter(null, 'da_confermare')).toBe(false);
   });
 
-  it("poiPopupHTML: include numero, nome, etichetta IT e badge confidence; esegue escape dell'HTML", () => {
+  it('poiPopupHTML: includes number, name, IT label and confidence badge; escapes the HTML', () => {
     const poi: Poi = {
       id: '1',
       name: 'Bar <Test> & "Co"',
@@ -430,7 +430,7 @@ describe('ui-helpers', () => {
     expect(html).toContain(CONF.da_confermare.label);
   });
 
-  it("poiPopupHTML: fallback a terminus_class se manca l'etichetta IT", () => {
+  it('poiPopupHTML: falls back to terminus_class if the IT label is missing', () => {
     const poi: Poi = {
       id: '1',
       name: 'Vicolo',
@@ -445,7 +445,7 @@ describe('ui-helpers', () => {
     expect(poiPopupHTML(poi, 1)).toContain('Alley');
   });
 
-  it('poiPopupHTML: confidence fuori-contratto non lancia, usa un fallback difensivo (come pinColor)', () => {
+  it('poiPopupHTML: out-of-contract confidence does not throw, uses a defensive fallback (like pinColor)', () => {
     const poi = {
       id: '1',
       name: 'X',
@@ -461,7 +461,7 @@ describe('ui-helpers', () => {
     expect(poiPopupHTML(poi, 1)).toContain(DIM_COLOR);
   });
 
-  it('poiPopupHTML: un POI fuori ontologia (confidence null, #220) non mostra la riga di badge confidence', () => {
+  it('poiPopupHTML: a POI outside the ontology (confidence null, #220) does not show the confidence badge row', () => {
     const poi: Poi = {
       id: '1',
       name: 'Vicolo Oscuro',
@@ -478,7 +478,7 @@ describe('ui-helpers', () => {
     expect(html).toContain('Vicolo Oscuro');
   });
 
-  it('poiPopupHTML: #261 un POI senza nome (feature OSM anonima) mostra il ripiego sulla classe invece di una riga bianca', () => {
+  it('poiPopupHTML: #261 a POI without a name (anonymous OSM feature) shows the class fallback instead of a blank row', () => {
     const poi: Poi = {
       id: '1',
       name: '',
@@ -494,8 +494,8 @@ describe('ui-helpers', () => {
     expect(html).toContain('4. Banca (senza nome su OSM)');
   });
 
-  it("poiNameDisplayLabel: nome presente → usato com'è; nome assente → ripiego sulla classe con dichiarazione esplicita (#261)", () => {
-    const conNome: Poi = {
+  it('poiNameDisplayLabel: name present → used as is; name missing → class fallback with explicit declaration (#261)', () => {
+    const withName: Poi = {
       id: '1',
       name: 'Colosseo',
       terminus_class: 'Archaeological_site',
@@ -506,18 +506,18 @@ describe('ui-helpers', () => {
       terminus_label_it: 'Sito archeologico',
       terminus_label_en: 'Archaeological site',
     };
-    expect(poiNameDisplayLabel(conNome)).toBe('Colosseo');
+    expect(poiNameDisplayLabel(withName)).toBe('Colosseo');
 
-    const senzaNome: Poi = { ...conNome, name: '' };
-    expect(poiNameDisplayLabel(senzaNome)).toBe('Sito archeologico (senza nome su OSM)');
+    const withoutName: Poi = { ...withName, name: '' };
+    expect(poiNameDisplayLabel(withoutName)).toBe('Sito archeologico (senza nome su OSM)');
 
-    const senzaNomeNeEtichetta: Poi = { ...conNome, name: '', terminus_label_it: '' };
-    expect(poiNameDisplayLabel(senzaNomeNeEtichetta)).toBe(
+    const withoutNameNorLabel: Poi = { ...withName, name: '', terminus_label_it: '' };
+    expect(poiNameDisplayLabel(withoutNameNorLabel)).toBe(
       'Archaeological_site (senza nome su OSM)',
     );
   });
 
-  it('poiNameDisplayLabel: #302 un nome fatto di soli spazi (dato OSM reale, truthy in JS) è trattato come assente, non come presente', () => {
+  it('poiNameDisplayLabel: #302 a name made of spaces only (real OSM datum, truthy in JS) is treated as missing, not as present', () => {
     const poi: Poi = {
       id: '1',
       name: '   ',
@@ -532,7 +532,7 @@ describe('ui-helpers', () => {
     expect(poiNameDisplayLabel(poi)).toBe('Banca (senza nome su OSM)');
   });
 
-  describe('ordine dei rischi con i dati ISTAT (#346)', () => {
+  describe('order of risks with ISTAT data (#346)', () => {
     function risk(hazard: string): RiskItem {
       return {
         hazard,
@@ -543,93 +543,89 @@ describe('ui-helpers', () => {
       };
     }
 
-    it('istatWeight: tasso del luogo diviso tasso Italia', () => {
-      const dati = istatPoi(istatRiga('THEFT', ['Theft'], { tasso: 300, tasso_italia: 100 }));
-      expect(istatWeight('Theft', dati)).toBe(3);
+    it('istatWeight: local rate divided by Italian rate', () => {
+      const data = istatPoi(istatRow('THEFT', ['Theft'], { tasso: 300, tasso_italia: 100 }));
+      expect(istatWeight('Theft', data)).toBe(3);
     });
 
-    it('istatWeight: «meno di 0,1» vale 0 ma è un dato (al limite della soglia O8, 20 delitti)', () => {
-      const dati = istatPoi(
-        istatRiga('BANKROB', ['Bank_robbery'], {
+    it('istatWeight: "meno di 0,1" weighs 0 but is a datum (at the O8 threshold limit, 20 crimes)', () => {
+      const data = istatPoi(
+        istatRow('BANKROB', ['Bank_robbery'], {
           tasso: null,
           tasso_sotto_soglia: true,
           delitti: ISTAT_MIN_DELITTI,
         }),
       );
-      expect(istatWeight('Bank_robbery', dati)).toBe(0);
+      expect(istatWeight('Bank_robbery', data)).toBe(0);
     });
 
-    it('istatWeight: senza voce, tasso assente o tasso Italia assente/0 → nessun dato', () => {
-      const dati = istatPoi(
-        istatRiga('A', ['senza_tasso'], { tasso: null }),
-        istatRiga('B', ['senza_italia'], { tasso_italia: null }),
-        istatRiga('C', ['italia_zero'], { tasso_italia: 0 }),
+    it('istatWeight: without item, missing rate or missing/0 Italian rate → no data', () => {
+      const data = istatPoi(
+        istatRow('A', ['senza_tasso'], { tasso: null }),
+        istatRow('B', ['senza_italia'], { tasso_italia: null }),
+        istatRow('C', ['italia_zero'], { tasso_italia: 0 }),
       );
-      expect(istatWeight('non_collegato', dati)).toBeNull();
-      expect(istatWeight('senza_tasso', dati)).toBeNull();
-      expect(istatWeight('senza_italia', dati)).toBeNull();
-      expect(istatWeight('italia_zero', dati)).toBeNull();
+      expect(istatWeight('non_collegato', data)).toBeNull();
+      expect(istatWeight('senza_tasso', data)).toBeNull();
+      expect(istatWeight('senza_italia', data)).toBeNull();
+      expect(istatWeight('italia_zero', data)).toBeNull();
     });
 
-    it('istatWeight (O8): meno di 20 delitti nel luogo vale «senza dato»; 20 basta; conteggio assente vale «senza dato»', () => {
-      const pochi = istatPoi(
-        istatRiga('X', ['pochi'], { delitti: 19, tasso: 300, tasso_italia: 100 }),
+    it('istatWeight (O8): fewer than 20 crimes in the place counts as "no data"; 20 is enough; missing count counts as "no data"', () => {
+      const few = istatPoi(istatRow('X', ['few'], { delitti: 19, tasso: 300, tasso_italia: 100 }));
+      const threshold = istatPoi(
+        istatRow('Y', ['threshold'], { delitti: 20, tasso: 300, tasso_italia: 100 }),
       );
-      const soglia = istatPoi(
-        istatRiga('Y', ['soglia'], { delitti: 20, tasso: 300, tasso_italia: 100 }),
+      const missing = istatPoi(
+        istatRow('Z', ['missing'], { delitti: null, tasso: 300, tasso_italia: 100 }),
       );
-      const assente = istatPoi(
-        istatRiga('Z', ['assente'], { delitti: null, tasso: 300, tasso_italia: 100 }),
-      );
-      expect(istatWeight('pochi', pochi)).toBeNull();
-      expect(istatWeight('soglia', soglia)).toBe(3);
-      expect(istatWeight('assente', assente)).toBeNull();
+      expect(istatWeight('few', few)).toBeNull();
+      expect(istatWeight('threshold', threshold)).toBe(3);
+      expect(istatWeight('missing', missing)).toBeNull();
     });
 
-    it('orderRisksByIstat: prima i rischi con dato per rapporto decrescente, poi gli altri in ordine di arrivo', () => {
-      const dati = istatPoi(
-        istatRiga('LOW', ['basso'], { tasso: 50, tasso_italia: 100 }),
-        istatRiga('HIGH', ['alto'], { tasso: 400, tasso_italia: 100 }),
-        istatRiga('ZERO', ['soglia'], { tasso: null, tasso_sotto_soglia: true }),
+    it('orderRisksByIstat: first the risks with data by decreasing ratio, then the others in arrival order', () => {
+      const data = istatPoi(
+        istatRow('LOW', ['basso'], { tasso: 50, tasso_italia: 100 }),
+        istatRow('HIGH', ['alto'], { tasso: 400, tasso_italia: 100 }),
+        istatRow('ZERO', ['soglia'], { tasso: null, tasso_sotto_soglia: true }),
       );
       const input = [risk('x'), risk('basso'), risk('y'), risk('soglia'), risk('alto')];
-      const out = orderRisksByIstat(input, dati);
+      const out = orderRisksByIstat(input, data);
       expect(out.risks.map((r) => r.hazard)).toEqual(['alto', 'basso', 'soglia', 'x', 'y']);
       expect(out.rankedCount).toBe(3);
     });
 
-    it('orderRisksByIstat: a pari rapporto (stessa voce) resta l’ordine di arrivo', () => {
-      const dati = istatPoi(
-        istatRiga('DAMAGE', ['b', 'a', 'c'], { tasso: 200, tasso_italia: 100 }),
-      );
-      const out = orderRisksByIstat([risk('c'), risk('a'), risk('b')], dati);
+    it('orderRisksByIstat: at equal ratio (same item) the arrival order is kept', () => {
+      const data = istatPoi(istatRow('DAMAGE', ['b', 'a', 'c'], { tasso: 200, tasso_italia: 100 }));
+      const out = orderRisksByIstat([risk('c'), risk('a'), risk('b')], data);
       expect(out.risks.map((r) => r.hazard)).toEqual(['c', 'a', 'b']);
     });
 
-    it('orderRisksByIstat: istat null, undefined o senza rischi collegati → lista invariata, rankedCount 0', () => {
+    it('orderRisksByIstat: istat null, undefined or without linked risks → list unchanged, rankedCount 0', () => {
       const input = [risk('b'), risk('a')];
-      for (const dati of [null, undefined, istatPoi(istatRiga('THEFT', ['altro']))]) {
-        const out = orderRisksByIstat(input, dati);
+      for (const data of [null, undefined, istatPoi(istatRow('THEFT', ['altro']))]) {
+        const out = orderRisksByIstat(input, data);
         expect(out.risks).toEqual(input);
         expect(out.rankedCount).toBe(0);
       }
     });
 
-    it('orderRisksByIstat: non muta l’array in ingresso', () => {
-      const dati = istatPoi(istatRiga('HIGH', ['alto'], { tasso: 400, tasso_italia: 100 }));
+    it('orderRisksByIstat: does not mutate the input array', () => {
+      const data = istatPoi(istatRow('HIGH', ['alto'], { tasso: 400, tasso_italia: 100 }));
       const input = [risk('x'), risk('alto')];
-      orderRisksByIstat(input, dati);
+      orderRisksByIstat(input, data);
       expect(input.map((r) => r.hazard)).toEqual(['x', 'alto']);
     });
 
-    it('istatOrderNote: dichiara il confronto fra tassi del luogo e italiano, con luogo e anno, nessun valore', () => {
+    it('istatOrderNote: declares the comparison between local and Italian rates, with place and year, no value', () => {
       expect(istatOrderNote(istatPoi())).toBe(
         'Ordinati confrontando il tasso per 100.000 abitanti del luogo con quello italiano, non in base al numero di delitti (ISTAT 2024, Comune di Roma).',
       );
     });
   });
 
-  describe('indicatore ISTAT accanto al rischio (#347)', () => {
+  describe('ISTAT indicator next to the risk (#347)', () => {
     function risk(hazard: string): RiskItem {
       return {
         hazard,
@@ -640,25 +636,25 @@ describe('ui-helpers', () => {
       };
     }
 
-    /** Testo dell'indicatore come appare a schermo, freccia compresa (oracolo dei soli test). */
-    function testoIndicatore(ind: IstatIndicator | null): string | null {
+    /** Text of the indicator as it appears on screen, arrow included (test oracle only). */
+    function indicatorText(ind: IstatIndicator | null): string | null {
       if (!ind) return null;
-      if (ind.tendenza === null) return ind.dati;
-      const tendenza = ind.freccia ? `${ind.freccia} ${ind.tendenza}` : ind.tendenza;
-      return `${ind.dati} · ${tendenza}`;
+      if (ind.trend === null) return ind.data;
+      const tendenza = ind.arrow ? `${ind.arrow} ${ind.trend}` : ind.trend;
+      return `${ind.data} · ${tendenza}`;
     }
 
-    function testi(hazards: string[], dati: IstatPoi | null | undefined): (string | null)[] {
-      return withIstatIndicators(hazards.map(risk), dati).map((e) => testoIndicatore(e.indicator));
+    function texts(hazards: string[], data: IstatPoi | null | undefined): (string | null)[] {
+      return withIstatIndicators(hazards.map(risk), data).map((e) => indicatorText(e.indicator));
     }
 
-    function indicatore(over: Partial<IstatRiga> = {}): string | null {
-      return testi(['Theft'], istatPoi(istatRiga('THEFT', ['Theft'], over)))[0];
+    function indicatorWith(over: Partial<IstatRow> = {}): string | null {
+      return texts(['Theft'], istatPoi(istatRow('THEFT', ['Theft'], over)))[0];
     }
 
-    it('riga completa: voce più ampia, delitti denunciati, tassi del luogo e dell’Italia, calo con il conteggio dell’anno base', () => {
+    it('full row: broader item, crimes reported, rates of the place and of Italy, decline with the base-year count', () => {
       expect(
-        indicatore({
+        indicatorWith({
           voce_label: 'furti',
           delitti: 134169,
           delitti_confronto: 149077,
@@ -671,8 +667,8 @@ describe('ui-helpers', () => {
       );
     });
 
-    it('corrispondenza esatta: nessun avviso; crescita con +; tassi a un decimale', () => {
-      const riga = istatRiga('PICKTHEF', ['Theft'], {
+    it('exact match: no warning; growth with +; rates to one decimal', () => {
+      const row = istatRow('PICKTHEF', ['Theft'], {
         voce_label: 'scippi',
         delitti: 3016,
         delitti_confronto: 22,
@@ -681,13 +677,13 @@ describe('ui-helpers', () => {
         variazione_pct: 2114,
         collegamenti: [{ hazard: 'Theft', hazard_label_it: 'Furto', corrispondenza: 'esatta' }],
       });
-      expect(testi(['Theft'], istatPoi(riga))[0]).toBe(
+      expect(texts(['Theft'], istatPoi(row))[0]).toBe(
         'scippi · 3.016 delitti denunciati nel 2024 · 108,0 ogni 100.000 ab. (Italia: 12,0) · ▲ in crescita (+2114% dal 2014, erano 22)',
       );
     });
 
-    it('voce più stretta: avviso dedicato', () => {
-      const riga = istatRiga('CARTHEF', ['Vehicle_Theft'], {
+    it('narrower item: dedicated warning', () => {
+      const row = istatRow('CARTHEF', ['Vehicle_Theft'], {
         voce_label: 'furti di autovetture',
         collegamenti: [
           {
@@ -697,31 +693,31 @@ describe('ui-helpers', () => {
           },
         ],
       });
-      expect(testi(['Vehicle_Theft'], istatPoi(riga))[0]).toMatch(
+      expect(texts(['Vehicle_Theft'], istatPoi(row))[0]).toMatch(
         /^furti di autovetture \(voce ISTAT che copre solo una parte del rischio\) · /,
       );
     });
 
-    it('corrispondenza sconosciuta (fuori contratto o chiave ereditata): avviso generico, non nessun avviso', () => {
+    it('unknown match (out of contract or inherited key): generic warning, not no warning', () => {
       for (const corrispondenza of ['boh', 'constructor', 'toString']) {
-        const riga = istatRiga('THEFT', ['Theft'], {
+        const row = istatRow('THEFT', ['Theft'], {
           voce_label: 'furti',
           collegamenti: [
             { hazard: 'Theft', hazard_label_it: 'Furto', corrispondenza: corrispondenza as never },
           ],
         });
-        expect(testi(['Theft'], istatPoi(riga))[0]).toMatch(
+        expect(texts(['Theft'], istatPoi(row))[0]).toMatch(
           /^furti \(voce ISTAT non coincidente col rischio\) · /,
         );
       }
     });
 
-    it('«meno di 0,1» per il tasso del luogo e per quello italiano', () => {
-      expect(indicatore({ tasso: null, tasso_sotto_soglia: true })).toContain(
+    it('"meno di 0,1" for the place rate and for the Italian one', () => {
+      expect(indicatorWith({ tasso: null, tasso_sotto_soglia: true })).toContain(
         '· meno di 0,1 ogni 100.000 ab. (Italia: 100,0) ·',
       );
       expect(
-        indicatore({
+        indicatorWith({
           tasso: null,
           tasso_sotto_soglia: true,
           tasso_italia: null,
@@ -730,25 +726,25 @@ describe('ui-helpers', () => {
       ).toContain('· meno di 0,1 ogni 100.000 ab. (Italia: meno di 0,1) ·');
     });
 
-    it('tendenza: segno della variazione, nessuna banda «stabile» (come il controllo cifre della narrativa)', () => {
-      expect(indicatore({ variazione_pct: 2 })).toMatch(
+    it('trend: sign of the change, no "stabile" band (like the narrative figures check)', () => {
+      expect(indicatorWith({ variazione_pct: 2 })).toMatch(
         /· ▲ in crescita \(\+2% dal 2014, erano 100\)$/,
       );
-      expect(indicatore({ variazione_pct: -1 })).toMatch(
+      expect(indicatorWith({ variazione_pct: -1 })).toMatch(
         /· ▼ in calo \(−1% dal 2014, erano 100\)$/,
       );
-      expect(indicatore({ variazione_pct: 0 })).toMatch(/· stabile \(0% dal 2014, erano 100\)$/);
+      expect(indicatorWith({ variazione_pct: 0 })).toMatch(/· stabile \(0% dal 2014, erano 100\)$/);
     });
 
-    it('conteggio dell’anno base assente: niente «erano»', () => {
-      expect(indicatore({ variazione_pct: 5, delitti_confronto: null })).toMatch(
+    it('missing base-year count: no "erano"', () => {
+      expect(indicatorWith({ variazione_pct: 5, delitti_confronto: null })).toMatch(
         /· ▲ in crescita \(\+5% dal 2014\)$/,
       );
     });
 
-    it('tendenza non calcolabile: riporta il motivo del backend', () => {
+    it('trend not computable: reports the backend reason', () => {
       expect(
-        indicatore({
+        indicatorWith({
           variazione_pct: null,
           motivo_senza_variazione:
             'serie interrotta dalla depenalizzazione del 2016 (d.lgs. 7/2016)',
@@ -756,86 +752,86 @@ describe('ui-helpers', () => {
       ).toMatch(
         /· tendenza non calcolabile: serie interrotta dalla depenalizzazione del 2016 \(d\.lgs\. 7\/2016\)$/,
       );
-      expect(indicatore({ variazione_pct: null, motivo_senza_variazione: null })).toMatch(
+      expect(indicatorWith({ variazione_pct: null, motivo_senza_variazione: null })).toMatch(
         /· tendenza non calcolabile$/,
       );
     });
 
-    it('nessun indicatore dove non c’è peso: sotto soglia, senza voce, senza istat', () => {
-      expect(indicatore({ delitti: ISTAT_MIN_DELITTI - 1 })).toBeNull();
-      expect(indicatore({ tasso_italia: null })).toBeNull();
-      expect(testi(['Altro'], istatPoi(istatRiga('THEFT', ['Theft'])))).toEqual([null]);
-      expect(testi(['Theft'], null)).toEqual([null]);
-      expect(testi(['Theft'], undefined)).toEqual([null]);
+    it('no indicator where there is no weight: below threshold, no item, no istat', () => {
+      expect(indicatorWith({ delitti: ISTAT_MIN_DELITTI - 1 })).toBeNull();
+      expect(indicatorWith({ tasso_italia: null })).toBeNull();
+      expect(texts(['Altro'], istatPoi(istatRow('THEFT', ['Theft'])))).toEqual([null]);
+      expect(texts(['Theft'], null)).toEqual([null]);
+      expect(texts(['Theft'], undefined)).toEqual([null]);
     });
 
-    it('indicatore presente al confine: 20 delitti, e tasso «meno di 0,1» (peso 0 ma ordinato)', () => {
-      expect(indicatore({ delitti: ISTAT_MIN_DELITTI })).toContain(
+    it('indicator present at the boundary: 20 crimes, and rate "meno di 0,1" (weight 0 but ordered)', () => {
+      expect(indicatorWith({ delitti: ISTAT_MIN_DELITTI })).toContain(
         '20 delitti denunciati nel 2024',
       );
-      expect(indicatore({ tasso: null, tasso_sotto_soglia: true })).not.toBeNull();
+      expect(indicatorWith({ tasso: null, tasso_sotto_soglia: true })).not.toBeNull();
     });
 
-    it('stessa voce su più rischi: solo la prima occorrenza è completa, anche se non adiacenti', () => {
-      const riga = istatRiga('DAMAGE', ['a', 'c'], {
+    it('same item on several risks: only the first occurrence is full, even if not adjacent', () => {
+      const row = istatRow('DAMAGE', ['a', 'c'], {
         voce_label: 'danneggiamenti',
         collegamenti: [
           { hazard: 'a', hazard_label_it: 'A', corrispondenza: 'esatta' },
           { hazard: 'c', hazard_label_it: 'C', corrispondenza: 'piu_larga' },
         ],
       });
-      const altra = istatRiga('THEFT', ['b'], { voce_label: 'furti' });
-      const out = testi(['a', 'b', 'c', 'x'], istatPoi(riga, altra));
+      const other = istatRow('THEFT', ['b'], { voce_label: 'furti' });
+      const out = texts(['a', 'b', 'c', 'x'], istatPoi(row, other));
       expect(out[0]).toMatch(/^danneggiamenti · 100 delitti denunciati nel 2024 · /);
       expect(out[1]).toMatch(/^furti \(voce ISTAT più ampia del rischio\) · 100 delitti/);
       expect(out[2]).toBe('stessa voce ISTAT: danneggiamenti (voce ISTAT più ampia del rischio)');
       expect(out[3]).toBeNull();
     });
 
-    it('ripetizione senza avviso quando la corrispondenza della ripetuta è esatta', () => {
-      const riga = istatRiga('DAMAGE', ['a', 'b'], {
+    it('repetition without warning when the match of the repeated one is exact', () => {
+      const row = istatRow('DAMAGE', ['a', 'b'], {
         voce_label: 'danneggiamenti',
         collegamenti: [
           { hazard: 'a', hazard_label_it: 'A', corrispondenza: 'piu_larga' },
           { hazard: 'b', hazard_label_it: 'B', corrispondenza: 'esatta' },
         ],
       });
-      expect(testi(['a', 'b'], istatPoi(riga))[1]).toBe('stessa voce ISTAT: danneggiamenti');
+      expect(texts(['a', 'b'], istatPoi(row))[1]).toBe('stessa voce ISTAT: danneggiamenti');
     });
 
-    it('la freccia è una parte separata (decorativa), la tendenza si legge da sola', () => {
-      const [su] = withIstatIndicators(
+    it('the arrow is a separate (decorative) part, the trend reads on its own', () => {
+      const [up] = withIstatIndicators(
         [risk('Theft')],
-        istatPoi(istatRiga('THEFT', ['Theft'], { variazione_pct: 20 })),
+        istatPoi(istatRow('THEFT', ['Theft'], { variazione_pct: 20 })),
       );
-      expect(su.indicator?.freccia).toBe('▲');
-      expect(su.indicator?.tendenza).toBe('in crescita (+20% dal 2014, erano 100)');
-      const [stabile] = withIstatIndicators(
+      expect(up.indicator?.arrow).toBe('▲');
+      expect(up.indicator?.trend).toBe('in crescita (+20% dal 2014, erano 100)');
+      const [steady] = withIstatIndicators(
         [risk('Theft')],
-        istatPoi(istatRiga('THEFT', ['Theft'], { variazione_pct: 0 })),
+        istatPoi(istatRow('THEFT', ['Theft'], { variazione_pct: 0 })),
       );
-      expect(stabile.indicator?.freccia).toBeNull();
+      expect(steady.indicator?.arrow).toBeNull();
     });
 
-    it('conserva l’ordine e il riferimento dei rischi in ingresso', () => {
-      const rischi = [risk('b'), risk('a')];
-      const out = withIstatIndicators(rischi, istatPoi(istatRiga('A', ['a'])));
-      expect(out.map((e) => e.risk)).toEqual(rischi);
-      expect(out[0].risk).toBe(rischi[0]);
+    it('keeps the order and the reference of the input risks', () => {
+      const risks = [risk('b'), risk('a')];
+      const out = withIstatIndicators(risks, istatPoi(istatRow('A', ['a'])));
+      expect(out.map((e) => e.risk)).toEqual(risks);
+      expect(out[0].risk).toBe(risks[0]);
     });
   });
 });
 
 describe('buildSourceTabs', () => {
-  const FONTI: SourceProse = {
+  const SOURCES: SourceProse = {
     overview: 'Sintesi zona.',
     ontologia: 'Prosa onto.',
     contesto: 'Prosa ctx.',
     speculativo: '',
   };
 
-  it('estrae overview e tab in ordine ONTOLOGIA→CONTESTO→SPECULATIVO', () => {
-    const out = buildSourceTabs(FONTI);
+  it('extracts overview and tabs in ONTOLOGIA→CONTESTO→SPECULATIVO order', () => {
+    const out = buildSourceTabs(SOURCES);
     expect(out.overview).toBe('Sintesi zona.');
     expect(out.tabs.map((t) => t.tag)).toEqual(['ONTOLOGIA', 'CONTESTO']);
     expect(out.tabs[0]).toEqual({ tag: 'ONTOLOGIA', prose: 'Prosa onto.' });
@@ -843,37 +839,37 @@ describe('buildSourceTabs', () => {
   });
 
   /*
-   * #329: un tab esiste SOLO se ha prosa. Prima ne nasceva uno anche dai soli hazard, perché il
-   * pannello mostrava sotto la prosa l'elenco di tutti i rischi di tutti i POI — circa 160 voci
-   * su una zona da 20 punti, con gli stessi blocchi ripetuti perché i rischi dipendono solo dalla
-   * classe TERMINUS. Quell'elenco e' stato tolto: i rischi restano nel pannello Dettaglio, dove
-   * sono attribuiti al loro POI e portano la citazione SPARQL.
+   * #329: a tab exists ONLY if it has prose. Before, one was also born from hazards alone, because the
+   * panel showed under the prose the list of all the risks of all the POIs — about 160 entries
+   * on a 20-point zone, with the same blocks repeated because the risks depend only on the
+   * TERMINUS class. That list was removed: the risks remain in the Detail panel, where
+   * they are attributed to their POI and carry the SPARQL citation.
    */
-  it('#329: un tag con soli hazard e nessuna prosa non produce piu un tab', () => {
-    const fonti: SourceProse = {
+  it('#329: a tag with only hazards and no prose no longer produces a tab', () => {
+    const sources: SourceProse = {
       overview: '',
       ontologia: 'Solo prosa onto.',
       contesto: '',
       speculativo: '',
     };
-    const out = buildSourceTabs(fonti);
+    const out = buildSourceTabs(sources);
     expect(out.tabs.map((t) => t.tag)).toEqual(['ONTOLOGIA']);
     expect(out.tabs[0]).toEqual({ tag: 'ONTOLOGIA', prose: 'Solo prosa onto.' });
   });
 
-  it('nessuna prosa -> nessun tab', () => {
+  it('no prose -> no tab', () => {
     const out = buildSourceTabs({ overview: '', ontologia: '', contesto: '', speculativo: '' });
     expect(out.tabs).toEqual([]);
     expect(out.overview).toBe('');
   });
 
-  it('fonti null -> overview vuoto e nessun tab', () => {
+  it('sources null -> empty overview and no tab', () => {
     const out = buildSourceTabs(null);
     expect(out.overview).toBe('');
     expect(out.tabs).toEqual([]);
   });
 
-  it('#345: il blocco ISTAT apre una scheda fra CONTESTO e SPECULATIVO', () => {
+  it('#345: the ISTAT block opens a tab between CONTESTO and SPECULATIVO', () => {
     const out = buildSourceTabs({
       overview: '',
       ontologia: 'O.',
@@ -885,7 +881,7 @@ describe('buildSourceTabs', () => {
     expect(out.tabs[2].prose).toContain('fonte ISTAT');
   });
 
-  it('#345: senza il campo istat (backend precedente) nessuna scheda ISTAT', () => {
-    expect(buildSourceTabs(FONTI).tabs.map((t) => t.tag)).not.toContain('ISTAT');
+  it('#345: without the istat field (earlier backend) no ISTAT tab', () => {
+    expect(buildSourceTabs(SOURCES).tabs.map((t) => t.tag)).not.toContain('ISTAT');
   });
 });

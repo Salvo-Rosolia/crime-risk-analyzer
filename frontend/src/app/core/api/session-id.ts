@@ -1,17 +1,17 @@
-/** Intestazione con cui il backend riconosce la sessione delle fonti (`SESSION_HEADER`). */
+/** Header with which the backend recognizes the sources session (`SESSION_HEADER`). */
 export const SESSION_HEADER = 'X-Session-Id';
 
 const STORAGE_KEY = 'cra.session-id';
 
-/** Il backend accetta 16-128 caratteri `[A-Za-z0-9_-]`: un UUID senza trattini ne ha 32. */
+/** The backend accepts 16-128 `[A-Za-z0-9_-]` characters: a UUID without dashes has 32. */
 function newSessionId(): string {
   return crypto.randomUUID().replaceAll('-', '');
 }
 
 /**
- * Token di sessione scelto dal client: lo stesso per tutta la scheda (sessionStorage), così un
- * ricaricamento ritrova le fonti caricate e non ne crea di orfane sul server. Se lo storage non è
- * disponibile ne vale uno per la sola vita della pagina.
+ * Session token chosen by the client: the same for the whole tab (sessionStorage), so a
+ * reload finds the uploaded sources again and does not create orphans on the server. If storage is
+ * not available, one lives for the page's lifetime only.
  */
 let memoryId: string | null = null;
 

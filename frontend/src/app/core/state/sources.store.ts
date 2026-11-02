@@ -3,7 +3,7 @@ import { ApiService } from '@core/api/api.service';
 import type { SourceProblem, SourcesStatus, SourceUpload } from '@core/models/models';
 import { errorMessage } from './state.store';
 
-/** Esito del controllo di un caricamento rifiutato: tutti i problemi, per file. */
+/** Outcome of the check of a rejected upload: all the problems, per file. */
 export interface SourcesReport {
   errors: SourceProblem[];
   warnings: SourceProblem[];
@@ -11,7 +11,7 @@ export interface SourcesReport {
 
 export type IndicatorKind = 'default' | 'example' | 'custom' | 'expired';
 
-/** Cosa mostra l'indicatore sempre visibile: il template antepone "Fonti: ". */
+/** What the always-visible indicator shows: the template prepends "Fonti: ". */
 export interface SourcesIndicator {
   label: string;
   kind: IndicatorKind;
@@ -19,7 +19,7 @@ export interface SourcesIndicator {
 
 export type SourcesBusy = 'upload' | 'example' | 'reset';
 
-/** Impronta del set attivo: due stati con la stessa impronta danno le stesse analisi. */
+/** Fingerprint of the active set: two states with the same fingerprint give the same analyses. */
 function signature(status: SourcesStatus | null): string {
   if (status?.stato === 'attivo' && status.set) {
     const { kind, versione_dati, classi, selettori_osm } = status.set;
@@ -28,7 +28,7 @@ function signature(status: SourcesStatus | null): string {
   return status?.stato === 'scaduto' ? 'scaduto' : 'default';
 }
 
-/** Corpo di un 422 `fonti_non_valide`, se `err` lo è. */
+/** Body of a 422 `fonti_non_valide`, if `err` is one. */
 function reportFrom(err: unknown): SourcesReport | null {
   const res = (err as { status?: number; error?: { detail?: unknown } } | null) ?? {};
   const detail = res.error?.detail as
@@ -38,10 +38,10 @@ function reportFrom(err: unknown): SourcesReport | null {
 }
 
 /**
- * Stato delle fonti della sessione (#419), separato dalla FSM dell'analisi: caricare o cambiare
- * fonti non è uno stato della mappa, e la pagina Fonti si apre sopra qualunque schermata. Le
- * azioni ritornano `true` se il set attivo è cambiato, così lo shell può azzerare i risultati
- * dell'analisi, calcolati sul set precedente.
+ * State of the session's sources (#419), separate from the analysis FSM: uploading or changing
+ * sources is not a state of the map, and the Fonti page opens above any screen. The
+ * actions return `true` if the active set changed, so the shell can clear the
+ * analysis results, computed on the previous set.
  */
 @Injectable({ providedIn: 'root' })
 export class SourcesStore {
@@ -52,20 +52,20 @@ export class SourcesStore {
   private readonly _busy = signal<SourcesBusy | null>(null);
   private readonly _open = signal(false);
   private readonly _revision = signal(0);
-  /** Generazione dello stato: una lettura partita prima di un'azione o di un 410 non lo scavalca. */
+  /** State generation: a read started before an action or a 410 does not override it. */
   private seq = 0;
 
   readonly status = this._status.asReadonly();
-  /** Problemi dell'ultimo caricamento rifiutato; `null` dopo ogni esito diverso. */
+  /** Problems of the last rejected upload; `null` after any different outcome. */
   readonly report = this._report.asReadonly();
-  /** Errore non di validazione (rete, upload troppo grande, sistema occupato…). */
+  /** Non-validation error (network, upload too large, system busy…). */
   readonly message = this._message.asReadonly();
   readonly busy = this._busy.asReadonly();
   readonly open = this._open.asReadonly();
   /**
-   * Contatore dei cambi EFFETTIVI del set attivo (caricamento riuscito, esempio o default che
-   * cambiano davvero il set). Vive nello store, non nel dialog: chi chiude la pagina mentre
-   * un'operazione è in volo non perde la notifica. Lo shell lo osserva per azzerare l'analisi.
+   * Counter of the EFFECTIVE changes of the active set (successful upload, example or default that
+   * really change the set). It lives in the store, not in the dialog: whoever closes the page while
+   * an operation is in flight does not lose the notification. The shell observes it to clear the analysis.
    */
   readonly revision = this._revision.asReadonly();
 
@@ -80,16 +80,16 @@ export class SourcesStore {
     return { label: 'Predefinite', kind: 'default' };
   });
 
-  /** Avvisi (non bloccanti) del set attivo, emersi al suo caricamento. */
+  /** Non-blocking warnings of the active set, emerged at its loading. */
   readonly activeWarnings = computed(() => this._status()?.set?.avvisi ?? []);
 
-  /** Apre la pagina e rilegge lo stato: le fonti possono essere scadute nel frattempo. */
+  /** Opens the page and re-reads the state: the sources may have expired in the meantime. */
   openPage(): void {
     this._open.set(true);
     void this.refresh();
   }
 
-  /** Un 410 `fonti_scadute` dalle rotte di analisi: l'indicatore lo riflette senza altra rete. */
+  /** A 410 `fonti_scadute` from the analysis routes: the indicator reflects it with no further network. */
   markExpired(): void {
     this.seq++;
     this._status.set({ stato: 'scaduto', scade_tra_secondi: null, set: null });
@@ -99,14 +99,14 @@ export class SourcesStore {
     this._open.set(false);
   }
 
-  /** Rilegge lo stato dal backend. Se non risponde l'indicatore resta com'era: non è un errore. */
+  /** Re-reads the state from the backend. If it does not answer the indicator stays as it was: it is not an error. */
   async refresh(): Promise<void> {
     const mine = ++this.seq;
     try {
       const status = await this.api.sourcesStatus();
       if (mine === this.seq) this._status.set(status);
     } catch {
-      // Backend irraggiungibile: nessun messaggio, l'analisi mostrerà il suo errore.
+      // Backend unreachable: no message, the analysis will show its own error.
     }
   }
 
@@ -140,10 +140,10 @@ export class SourcesStore {
     this._message.set(null);
     try {
       const status = await call();
-      // Anche le letture partite durante l'azione, e chiuse dopo, non devono scavalcarla.
+      // Reads started during the action, and closed after it, must not override it either.
       this.seq++;
       this._status.set(status);
-      // Un caricamento riuscito porta file nuovi anche se l'impronta coincide con quella di prima.
+      // A successful upload brings new files even if the fingerprint coincides with the previous one.
       if (alwaysChanges || signature(status) !== before) this._revision.update((n) => n + 1);
       return true;
     } catch (err) {
