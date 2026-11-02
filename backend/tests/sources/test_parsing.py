@@ -7,7 +7,7 @@ from dataclasses import replace
 
 import pytest
 
-from crime_risk_analyzer.istat.dati import CODICE_ITALIA, ValoreAnno
+from crime_risk_analyzer.istat.data import ITALY_CODE, YearValue
 from crime_risk_analyzer.sources.ontology_reader import _causa_leggibile  # pyright: ignore[reportPrivateUsage]
 from crime_risk_analyzer.sources.parsing import (
     ParsedSources,
@@ -81,10 +81,10 @@ def test_dati_stessa_logica_istat() -> None:
     assert delitti.anno == 2024
     assert delitti.anno_confronto == 2014
     assert delitti.voci == {"TOT": "totale", "ROB": "rapine", "THEFT": "furti"}
-    assert delitti.valore("001", "ROB", 2024) == ValoreAnno(
+    assert delitti.valore("001", "ROB", 2024) == YearValue(
         delitti=100, tasso=80.0, tasso_sotto_soglia=False
     )
-    assert delitti.valore(CODICE_ITALIA, "ROB", 2014) is not None
+    assert delitti.valore(ITALY_CODE, "ROB", 2014) is not None
     assert delitti.valore("001", "ROB", 1999) is None
 
 
@@ -520,7 +520,7 @@ def test_dati_sotto_soglia_senza_tasso() -> None:
     parsed, report = check_sources(con(data=dati.encode()), VOCABOLARIO)
     assert report.ok
     assert parsed is not None
-    assert parsed.istat.delitti.valore("001", "ROB", 2023) == ValoreAnno(
+    assert parsed.istat.delitti.valore("001", "ROB", 2023) == YearValue(
         delitti=3, tasso=None, tasso_sotto_soglia=True
     )
 
@@ -565,7 +565,7 @@ def test_dati_tasso_sotto_soglia_colonna_opzionale() -> None:
     parsed, report = check_sources(con(data=dati), VOCABOLARIO)
     assert report.ok
     assert parsed is not None
-    assert parsed.istat.delitti.valore("001", "ROB", 2024) == ValoreAnno(
+    assert parsed.istat.delitti.valore("001", "ROB", 2024) == YearValue(
         delitti=100, tasso=80.0, tasso_sotto_soglia=False
     )
 

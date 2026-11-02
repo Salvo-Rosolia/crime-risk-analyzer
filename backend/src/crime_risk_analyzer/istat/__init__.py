@@ -1,1 +1,1 @@
-"""Dati ISTAT sui delitti denunciati come fonte della narrativa (#345)."""
+"""ISTAT data on reported offences as a source of the narrative (#345)."""

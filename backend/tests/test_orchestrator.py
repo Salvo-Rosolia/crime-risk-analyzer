@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from crime_risk_analyzer.config import get_settings
 from crime_risk_analyzer.geocoding import GeoResult
-from crime_risk_analyzer.istat.righe import Collegamento, IstatPoi, RigaIstat
+from crime_risk_analyzer.istat.rows import IstatPoi, IstatRow, Link
 from crime_risk_analyzer.llm.client import GROQ_MODEL, LLMError, LLMResponse
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.models.risk import PoiRiskProfile
@@ -49,7 +49,7 @@ from tests.eval._doubles import FakeLLMClient as _FakeLLMClient
 from tests.eval._doubles import FakeProfiler as _FakeProfiler
 from tests.eval._doubles import default_llm_response as _llm_response
 from tests.eval._doubles import righe_poi
-from tests.istat._fattorie import BANKROB, istat_poi
+from tests.istat._factories import BANKROB, istat_poi
 
 
 def _poi(poi_id: str, name: str, terminus_class: str) -> dict[str, object]:
@@ -1702,14 +1702,14 @@ def test_poi_out_has_no_numeric_danger_scoring_field() -> None:
         "stakeholders",
         # #346: dati ISTAT gia' calcolati nel grounding (tassi/conteggi del comune
         # o della provincia, mai del POI), non un punteggio derivato dal POI stesso.
-        # Il sottoalbero (IstatPoi/RigaIstat/Collegamento) ha la propria guardia
+        # Il sottoalbero (IstatPoi/IstatRow/Link) ha la propria guardia
         # exact-set in test_istat_subtree_has_no_numeric_danger_scoring_field.
         "istat",
     }
 
 
 def test_istat_subtree_has_no_numeric_danger_scoring_field() -> None:
-    """Exact-set dei campi di ``IstatPoi``/``RigaIstat``/``Collegamento`` (#346).
+    """Exact-set dei campi di ``IstatPoi``/``IstatRow``/``Link`` (#346).
 
     Un campo ``rapporto``/``peso``/punteggio derivato aggiunto a uno di questi
     modelli finirebbe in OGNI risposta di ``/analyze`` (via ``PoiOut.istat``),
@@ -1719,7 +1719,7 @@ def test_istat_subtree_has_no_numeric_danger_scoring_field() -> None:
     ``model_fields`` dichiarati."""
     assert set(IstatPoi.model_fields) == {"cornice", "righe"}
     assert IstatPoi.model_computed_fields == {}
-    assert set(RigaIstat.model_fields) == {
+    assert set(IstatRow.model_fields) == {
         "luogo_codice",
         "luogo_nome",
         "luogo_breve",
@@ -1739,13 +1739,13 @@ def test_istat_subtree_has_no_numeric_danger_scoring_field() -> None:
         "rottura_2016",
         "collegamenti",
     }
-    assert RigaIstat.model_computed_fields == {}
-    assert set(Collegamento.model_fields) == {
+    assert IstatRow.model_computed_fields == {}
+    assert set(Link.model_fields) == {
         "hazard",
         "hazard_label_it",
         "corrispondenza",
     }
-    assert Collegamento.model_computed_fields == {}
+    assert Link.model_computed_fields == {}
 
 
 def test_poi_out_ontology_axes_reject_numeric_value() -> None:

@@ -30,9 +30,9 @@ from crime_risk_analyzer.context_fingerprint import (
 )
 from crime_risk_analyzer.geocoding import GeoResult
 from crime_risk_analyzer.i18n.terminus_labels import label_en, label_it
-from crime_risk_analyzer.istat.campi_risposta import CampiIstatRisposta
-from crime_risk_analyzer.istat.cifre import EsitoControllo
-from crime_risk_analyzer.istat.righe import IstatPoi
+from crime_risk_analyzer.istat.figures import CheckOutcome
+from crime_risk_analyzer.istat.response_fields import IstatResponseFields
+from crime_risk_analyzer.istat.rows import IstatPoi
 from crime_risk_analyzer.llm.client import LLMError, LLMResponse
 from crime_risk_analyzer.models.geo import haversine_m
 from crime_risk_analyzer.models.risk import PoiRiskProfile
@@ -402,11 +402,11 @@ def _messaggio_zero_poi(n_poi: int, narrativa: str | None) -> str | None:
     return _MESSAGGIO_ZERO_POI
 
 
-class AnalyzeResponse(CampiIstatRisposta):
+class AnalyzeResponse(IstatResponseFields):
     """Schema canonico di ``/analyze`` (backend/orchestrator.md).
 
     ``istat_attivo``/``istat_versione_dati``/``istat_frasi_scartate`` arrivano da
-    :class:`~crime_risk_analyzer.istat.campi_risposta.CampiIstatRisposta`, la base
+    :class:`~crime_risk_analyzer.istat.response_fields.IstatResponseFields`, la base
     condivisa con ``ZoneNarrativeResponse``/``PoiNarrativeResponse`` (#345).
     """
 
@@ -478,7 +478,7 @@ class AnalyzeResponse(CampiIstatRisposta):
         exclude=True,
         description="Testo del modello prima del controllo (#345): solo per l'harness.",
     )
-    controllo_istat: EsitoControllo | None = Field(
+    controllo_istat: CheckOutcome | None = Field(
         default=None,
         exclude=True,
         description="Esito del controllo delle cifre (#345): solo per l'harness.",

@@ -31,9 +31,9 @@ import time
 from pydantic import BaseModel, Field
 
 from crime_risk_analyzer.i18n.terminus_labels import controlled_vocab_for, label_it
-from crime_risk_analyzer.istat.blocco import blocco_istat_poi
-from crime_risk_analyzer.istat.cifre import applica_controllo
-from crime_risk_analyzer.istat.righe import IstatPoi
+from crime_risk_analyzer.istat.block import istat_block_for_poi
+from crime_risk_analyzer.istat.figures import apply_check
+from crime_risk_analyzer.istat.rows import IstatPoi
 from crime_risk_analyzer.rag.generation import (
     RULE_NO_DANGER_RATING,
     RULE_NO_OPERATIONAL_DIRECTIVES,
@@ -191,7 +191,7 @@ def build_poi_context_str(
 
     # Dati ISTAT del luogo del punto (#345): cornice e voci dei suoi rischi, dopo i
     # dati ontologici e prima del vicinato. Assenti, il testo e' quello di prima.
-    blocco = blocco_istat_poi(istat)
+    blocco = istat_block_for_poi(istat)
     if blocco.testo:
         lines.extend(blocco.testo.split("\n"))
         lines.append("")
@@ -253,7 +253,7 @@ async def generate_poi_narrative(
     luogo.
     """
 
-    def _contesto(dati_istat: IstatPoi | None) -> str:
+    def _contesto(istat_data: IstatPoi | None) -> str:
         return build_poi_context_str(
             citta=citta,
             zona=zona,
@@ -264,20 +264,20 @@ async def generate_poi_narrative(
             sparql_path=sparql_path,
             neighbours=neighbours,
             zone_summary=zone_summary,
-            istat=dati_istat,
+            istat=istat_data,
         )
 
-    blocco = blocco_istat_poi(istat)
+    blocco = istat_block_for_poi(istat)
     istat_attivo = bool(blocco.testo)
     system_prompt = POI_SYSTEM_PROMPT_ISTAT if istat_attivo else POI_SYSTEM_PROMPT
     start = time.perf_counter()
     response = await llm_client.generate(system_prompt, _contesto(istat))
     latenza_ms = int((time.perf_counter() - start) * 1000)
-    narrativa, controllo = applica_controllo(
+    narrativa, controllo = apply_check(
         response.text,
-        blocco=blocco,
+        block=blocco,
         spans=source_block_spans(response.text),
-        contesto=_contesto(None),
+        context=_contesto(None),
     )
     return PoiGenerationResult(
         narrativa=narrativa,

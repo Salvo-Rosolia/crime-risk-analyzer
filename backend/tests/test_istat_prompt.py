@@ -10,7 +10,7 @@ import hashlib
 
 import pytest
 
-from crime_risk_analyzer.istat.blocco import INTESTAZIONE_DATI_ISTAT
+from crime_risk_analyzer.istat.block import ISTAT_DATA_HEADER
 from crime_risk_analyzer.rag.generation import (
     _RULE_BLOCK_STRUCTURE,  # pyright: ignore[reportPrivateUsage]
     ONTOLOGY_BLOCK_HEADER,
@@ -185,7 +185,7 @@ def test_la_frase_d_esempio_della_spec_d7() -> None:
 def test_niente_parentesi_quadre_per_il_luogo() -> None:
     """D7: il blocco scrive il luogo senza parentesi quadre, e le regole non le
     nominano piu' (il modello le copiava: "del [Comune di Roma, 2024]")."""
-    for testo in (ISTAT_REGOLE_USO, INTESTAZIONE_DATI_ISTAT):
+    for testo in (ISTAT_REGOLE_USO, ISTAT_DATA_HEADER):
         assert "parentesi quadre" not in testo
 
 
@@ -231,8 +231,8 @@ def test_sostituisci_una_volta_rifiuta_zero_o_piu_occorrenze() -> None:
 
 def test_gli_anni_dell_esempio_sono_quelli_dei_dati() -> None:
     """C-6: un aggiornamento dei dati ISTAT deve far aggiornare anche l'esempio."""
-    from crime_risk_analyzer.istat.dati import dati_istat
+    from crime_risk_analyzer.istat.data import istat_data
 
-    delitti = dati_istat().delitti
+    delitti = istat_data().delitti
     assert f"({delitti.anno})" in ESEMPIO_ISTAT
     assert f"dal {delitti.anno_confronto}" in ESEMPIO_ISTAT

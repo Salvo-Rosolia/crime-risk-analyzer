@@ -8,7 +8,7 @@ from rdflib.namespace import RDFS
 
 from crime_risk_analyzer import zone_context_cache
 from crime_risk_analyzer.geocoding import GeoResult
-from crime_risk_analyzer.istat.dati import dati_istat_o_none
+from crime_risk_analyzer.istat.data import istat_data_or_none
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.orchestrator import run_baseline
 from crime_risk_analyzer.overpass_client import Poi
@@ -98,7 +98,7 @@ def test_gli_avvisi_segnalano_le_etichette_mancanti() -> None:
 
 
 def test_i_dati_coincidono_con_delitti_json() -> None:
-    reale = dati_istat_o_none()
+    reale = istat_data_or_none()
     assert reale is not None
     esempio = example_set().istat.dati
     assert esempio is not None

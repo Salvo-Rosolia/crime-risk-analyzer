@@ -7,7 +7,7 @@ valore e il valore e' visibile nel threadpool di Starlette (copia del contesto).
 Limiti noti: (a) un task lanciato con ``asyncio.create_task``/``to_thread`` che
 sopravvive al blocco :func:`bind` conserva il set del contesto copiato alla
 creazione; (b) :func:`default_set` congela dati, grafo ed executor alla prima
-chiamata e non si azzera con ``svuota_cache()``/``cache_clear()`` delle cache
+chiamata e non si azzera con ``clear_cache()``/``cache_clear()`` delle cache
 sottostanti (va svuotata anche ``default_set.cache_clear()``).
 """
 
@@ -18,10 +18,10 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import lru_cache
 
-from crime_risk_analyzer.istat.catalogo import VOCI_ROTTURA_2016
-from crime_risk_analyzer.istat.dati import dati_istat_o_none
-from crime_risk_analyzer.istat.dati import versione_dati as _versione_dati_default
-from crime_risk_analyzer.istat.mappatura import MAPPATURA
+from crime_risk_analyzer.istat.catalog import BREAK_ITEMS_2016
+from crime_risk_analyzer.istat.data import data_version as _versione_dati_default
+from crime_risk_analyzer.istat.data import istat_data_or_none
+from crime_risk_analyzer.istat.mapping import HAZARD_MAPPING
 from crime_risk_analyzer.ontology import get_ontology
 from crime_risk_analyzer.sources.model import (
     TERMINUS_CONFIG,
@@ -69,7 +69,7 @@ _ACTIVE: ContextVar[SourceSet | None] = ContextVar("active_source_set", default=
 @lru_cache(maxsize=1)
 def default_set() -> SourceSet:
     """Set TERMINUS + ISTAT costruito dai moduli esistenti (singleton)."""
-    dati = dati_istat_o_none()
+    dati = istat_data_or_none()
     return SourceSet(
         id="default",
         kind="default",
@@ -79,8 +79,8 @@ def default_set() -> SourceSet:
         osm=_DEFAULT_OSM,
         istat=IstatSource(
             dati=dati,
-            mappatura=MAPPATURA,
-            voci_rottura=VOCI_ROTTURA_2016,
+            mappatura=HAZARD_MAPPING,
+            voci_rottura=BREAK_ITEMS_2016,
             versione=dati.versione if dati is not None else None,
         ),
         labels=None,
@@ -132,7 +132,7 @@ def active_istat() -> IstatSource | None:
     """Fonte ISTAT del set legato con :func:`bind`; ``None`` se vale il default.
 
     Fuori da ``bind`` NON costruisce il default: chi legge ISTAT passa dalle
-    cache dei dati (``dati_istat_o_none``), come prima di #414. Con un set legato
+    cache dei dati (``istat_data_or_none``), come prima di #414. Con un set legato
     le righe, la mappatura e la versione sono SEMPRE quelle del set, anche se
     ``dati`` e' ``None`` (nessun ripiego sui dati di default).
     """
@@ -144,7 +144,7 @@ def versione_dati() -> str | None:
     """Versione dei dati ISTAT del set attivo, ``None`` se non disponibili.
 
     Unica sorgente per risposta, impronta e confronto; con il default coincide
-    con :func:`crime_risk_analyzer.istat.dati.versione_dati`.
+    con :func:`crime_risk_analyzer.istat.data.data_version`.
     """
     istat = active_istat()
     return istat.versione if istat is not None else _versione_dati_default()

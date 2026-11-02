@@ -2,7 +2,7 @@
 
 Versione 2 (#365): i dati ISTAT si usano a parole nel blocco [ONTOLOGIA], senza
 cifre. Le "frasi ISTAT" sono quelle di qualunque blocco che parlano del dato
-(:attr:`~crime_risk_analyzer.istat.cifre.FraseControllata.parla_di_istat`); i
+(:attr:`~crime_risk_analyzer.istat.figures.CheckedSentence.parla_di_istat`); i
 campi che cambiano significato sono elencati in
 :class:`~crime_risk_analyzer.eval.schema.IstatMetrics`. Versione 4 (#369): conta
 anche le frasi ISTAT escluse da M1; da #378 quante di queste non nominano una
@@ -16,8 +16,8 @@ import re
 from collections.abc import Iterable, Sequence
 
 from crime_risk_analyzer.eval.schema import IstatMetrics
-from crime_risk_analyzer.istat.cifre import EsitoControllo, nomina_voce_delle_righe
-from crime_risk_analyzer.istat.dati import VOCE_TOTALE
+from crime_risk_analyzer.istat.data import TOTAL_ITEM
+from crime_risk_analyzer.istat.figures import CheckOutcome, names_item_of_rows
 
 __all__ = [
     "ISTAT_METRICS_VERSION",
@@ -59,9 +59,7 @@ _CONTEGGI = (
 )
 
 
-def frasi_escluse_senza_voce(
-    escluse: Sequence[str], esito: EsitoControllo
-) -> list[str]:
+def frasi_escluse_senza_voce(escluse: Sequence[str], esito: CheckOutcome) -> list[str]:
     """Frasi escluse da M1 che non nominano nessuna voce delle righe ISTAT del
     prompt ne' un rischio collegato (#378), nell'ordine delle escluse.
 
@@ -72,15 +70,15 @@ def frasi_escluse_senza_voce(
     frase. Una frase che nomina una voce delle righe e anche un rischio inventato
     non c'e', e nemmeno una variante inventata che ne condivide la radice
     ("furti" copre "furti di identita' digitale"). Il riconoscimento e' quello di
-    :func:`~crime_risk_analyzer.istat.cifre.nomina_voce_delle_righe`: voci e
+    :func:`~crime_risk_analyzer.istat.figures.names_item_of_rows`: voci e
     rischi collegati; la locuzione "delitti denunciati" non conta, l'etichetta
     "totale dei delitti" sì.
     """
-    return [f for f in escluse if not nomina_voce_delle_righe(f, esito.righe)]
+    return [f for f in escluse if not names_item_of_rows(f, esito.righe)]
 
 
 def compute_istat_metrics(
-    esito: EsitoControllo,
+    esito: CheckOutcome,
     *,
     frasi_escluse_m1: int,
     frasi_escluse_senza_voce: int | None = None,
@@ -93,7 +91,7 @@ def compute_istat_metrics(
     ``frasi_escluse_senza_voce`` (#378, :func:`frasi_escluse_senza_voce`).
     """
     frasi = esito.frasi
-    fornite = {r.voce for r in esito.righe if r.voce != VOCE_TOTALE}
+    fornite = {r.voce for r in esito.righe if r.voce != TOTAL_ITEM}
     frasi_istat = [f for f in frasi if f.parla_di_istat]
     # Una voce e' citata se una frase ISTAT che il filtro TIENE la nomina.
     citate = {v for f in frasi_istat if f.motivo is None for v in f.voci} & fornite

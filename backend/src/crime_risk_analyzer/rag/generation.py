@@ -35,24 +35,24 @@ from crime_risk_analyzer.i18n.terminus_labels import (
     label_en,
     label_it,
 )
-from crime_risk_analyzer.istat.blocco import (
-    BloccoIstat,
-    blocco_istat_zona,
-    ha_righe_istat,
+from crime_risk_analyzer.istat.block import (
+    IstatBlock,
+    has_istat_rows,
+    istat_block_for_zone,
 )
-from crime_risk_analyzer.istat.cifre import (
-    EsitoControllo,
-    SpanBlocco,
-    applica_controllo,
+from crime_risk_analyzer.istat.figures import (
+    BlockSpan,
+    CheckOutcome,
+    apply_check,
 )
-from crime_risk_analyzer.istat.scelta import (
-    RULE_ISTAT_SCELTA,
-    ScartiScelta,
-    SceltaIstat,
-    componi_frasi,
-    estrai_scelta,
-    inserisci_frasi,
-    risolvi_scelta,
+from crime_risk_analyzer.istat.selection import (
+    RULE_ISTAT_SELECTION,
+    IstatSelection,
+    SelectionDiscards,
+    compose_sentences,
+    extract_selection,
+    insert_sentences,
+    resolve_selection,
 )
 from crime_risk_analyzer.llm.client import LLMResponse
 from crime_risk_analyzer.models.vocab import Confidence, ConfidenceSummary, Tag
@@ -304,7 +304,7 @@ SYSTEM_PROMPT_ISTAT = sostituisci_una_volta(
 #: Variante di :data:`SYSTEM_PROMPT_ISTAT` per il modo "il modello sceglie" (#366):
 #: la regola 3c non chiede frasi sui dati ISTAT ma la scelta voce/peso per rischio.
 SYSTEM_PROMPT_ISTAT_SCELTA = sostituisci_una_volta(
-    SYSTEM_PROMPT_ISTAT, RULE_ISTAT_A_PAROLE, RULE_ISTAT_SCELTA
+    SYSTEM_PROMPT_ISTAT, RULE_ISTAT_A_PAROLE, RULE_ISTAT_SELECTION
 )
 
 
@@ -394,7 +394,7 @@ class SourceProse(BaseModel):
 
 def source_block_spans(
     narrativa: str, *, measured_token: str = ONTOLOGY_TOKEN
-) -> list[SpanBlocco]:
+) -> list[BlockSpan]:
     """Blocchi per fonte della narrativa, in ordine di posizione (#345).
 
     Stessa individuazione delle righe-etichetta di sempre
@@ -415,7 +415,7 @@ def source_block_spans(
         found.append((field, line_start, content_start))
     found.sort(key=lambda t: t[1])
     return [
-        SpanBlocco(
+        BlockSpan(
             campo=field,
             inizio_riga=line_start,
             inizio=content_start,
@@ -582,21 +582,21 @@ class GenerationResult(BaseModel):
     istat_frasi_scartate: int = Field(
         default=0, ge=0, description="Frasi tolte dal controllo delle cifre (#345)."
     )
-    controllo_istat: EsitoControllo | None = Field(
+    controllo_istat: CheckOutcome | None = Field(
         default=None,
         exclude=True,
         description="Esito del controllo delle cifre: solo in memoria, per l'harness.",
     )
-    istat_scelta_scarti: ScartiScelta = Field(
-        default_factory=ScartiScelta,
+    istat_scelta_scarti: SelectionDiscards = Field(
+        default_factory=SelectionDiscards,
         exclude=True,
         description=(
             "Righe di scelta scartate per motivo (#366): solo in memoria, per la "
             "misura."
         ),
     )
-    istat_scelta: list[SceltaIstat] = Field(
-        default_factory=list[SceltaIstat],
+    istat_scelta: list[IstatSelection] = Field(
+        default_factory=list[IstatSelection],
         exclude=True,
         description=(
             "Scelte voce ISTAT/peso del modello ancorate ai dati (#366), dalle quali "
@@ -723,7 +723,7 @@ class ContestoCostruito(NamedTuple):
 
     testo: str
     testo_senza_istat: str
-    blocco_istat: BloccoIstat
+    blocco_istat: IstatBlock
     #: I POI entrati nel prompt, nell'ordine di selezione (che e' l'ordine del
     #: prompt col formato ``per_poi``) (#349): il braccio senza ontologia elenca lo
     #: stesso insieme, non tutti i punti. Obbligatorio: con un default vuoto una
@@ -1166,8 +1166,8 @@ def build_context(
     domanda_norm = _normalize_user_question(domanda)
     riserva = 0
     if istat:
-        pieno = blocco_istat_zona(
-            validated, stima_token=_estimate_tokens, limite_token=None
+        pieno = istat_block_for_zone(
+            validated, estimate_tokens=_estimate_tokens, token_limit=None
         )
         if pieno.testo:
             riserva = min(
@@ -1189,11 +1189,11 @@ def build_context(
         context_format=context_format,
     )
     if not istat:
-        return ContestoCostruito(senza, senza, BloccoIstat(), tuple(selected))
-    blocco = blocco_istat_zona(
+        return ContestoCostruito(senza, senza, IstatBlock(), tuple(selected))
+    blocco = istat_block_for_zone(
         selected,
-        stima_token=_estimate_tokens,
-        limite_token=context_budget_tokens
+        estimate_tokens=_estimate_tokens,
+        token_limit=context_budget_tokens
         - _estimate_tokens(senza)
         - _MARGINE_BLOCCO_TOKEN,
     )
@@ -1346,7 +1346,7 @@ def prepara_richiesta_zona(
     scelti un run a interruttore spento.
     """
     prompt_istat = SYSTEM_PROMPT_ISTAT_SCELTA if istat_scelta else SYSTEM_PROMPT_ISTAT
-    istat_richiesto = istat and ha_righe_istat(context_dict.get("validated_risks", []))
+    istat_richiesto = istat and has_istat_rows(context_dict.get("validated_risks", []))
     user_allowance_senza = (
         request_token_budget - _estimate_tokens(SYSTEM_PROMPT) - max_tokens
     )
@@ -1463,12 +1463,12 @@ async def generate_analysis(
 
     ``istat`` (#345): con righe ISTAT nella zona usa :data:`SYSTEM_PROMPT_ISTAT`
     sia per il budget sia per la chiamata, aggiunge il blocco DATI ISTAT e passa
-    la risposta al controllo delle cifre (:func:`~crime_risk_analyzer.istat.cifre.
-    applica_controllo`); ``narrativa`` e' il testo filtrato, ``narrativa_grezza``
+    la risposta al controllo delle cifre (:func:`~crime_risk_analyzer.istat.figures.
+    apply_check`); ``narrativa`` e' il testo filtrato, ``narrativa_grezza``
     quello del modello. Senza righe, o spento, il comportamento e' quello di prima.
 
     ``istat_scelta`` (#366): il modello non scrive frasi ISTAT ma sceglie voce e peso
-    per rischio; le frasi le compone l'app (:mod:`~crime_risk_analyzer.istat.scelta`)
+    per rischio; le frasi le compone l'app (:mod:`~crime_risk_analyzer.istat.selection`)
     DOPO il controllo. Il controllo ISTAT resta attivo solo come rete di sicurezza
     sul testo scritto dal modello, non sulle frasi composte dall'app.
 
@@ -1498,23 +1498,23 @@ async def generate_analysis(
     response = await llm_client.generate(system_prompt, contesto.testo)
     latenza_ms = int((time.perf_counter() - start) * 1000)
 
-    scelte: list[SceltaIstat] = []
-    scarti = ScartiScelta()
+    scelte: list[IstatSelection] = []
+    scarti = SelectionDiscards()
     testo_modello = response.text
     if istat_scelta and istat_attivo:
-        testo_modello, grezze, malformate = estrai_scelta(response.text)
-        scelte, scarti = risolvi_scelta(
-            grezze, contesto.blocco_istat.righe, malformate=malformate
+        testo_modello, grezze, malformate = extract_selection(response.text)
+        scelte, scarti = resolve_selection(
+            grezze, contesto.blocco_istat.righe, malformed=malformate
         )
-    narrativa, controllo = applica_controllo(
+    narrativa, controllo = apply_check(
         testo_modello,
-        blocco=contesto.blocco_istat,
+        block=contesto.blocco_istat,
         spans=source_block_spans(testo_modello),
-        contesto=contesto.testo_senza_istat,
+        context=contesto.testo_senza_istat,
     )
     if scelte:
-        narrativa = inserisci_frasi(
-            narrativa, source_block_spans(narrativa), componi_frasi(scelte)
+        narrativa = insert_sentences(
+            narrativa, source_block_spans(narrativa), compose_sentences(scelte)
         )
 
     confidence_summary = ConfidenceSummary.model_validate(

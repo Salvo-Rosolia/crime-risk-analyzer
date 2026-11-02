@@ -1,28 +1,28 @@
-"""Budget del prompt con ISTAT acceso sulle 4 zone di valutazione (#345, D14).
+"""Prompt budget with ISTAT on, on the 4 evaluation zones (#345, D14).
 
-Usa l'ontologia reale (ghost): in CI il test salta. Si esegue in locale prima della
-PR e a ogni cambio di budget, prompt o dati.
+Uses the real ontology (ghost): in CI the test is skipped. Run it locally before the
+PR and at every change of budget, prompt or data.
 """
 
 from __future__ import annotations
 
 import pytest
-from scripts.istat_budget import ONTOLOGIA, contesti, misura
+from scripts.istat_budget import ONTOLOGY, contexts, measure
 
 from crime_risk_analyzer.rag.generation import DEFAULT_REQUEST_TOKEN_BUDGET
 
 pytestmark = pytest.mark.skipif(
-    not ONTOLOGIA.exists(), reason="ontologia reale assente (non e' nel repo)"
+    not ONTOLOGY.exists(), reason="real ontology missing (it is not in the repo)"
 )
 
 
-async def test_con_istat_acceso_ogni_zona_ha_il_blocco_e_sta_nel_budget() -> None:
-    casi = await contesti()
-    assert len(casi) == 4
-    for zona, ctx in casi:
-        spento = misura(zona, ctx, istat=False)
-        acceso = misura(zona, ctx, istat=True)
-        assert acceso.voci_istat > 0, zona  # la riserva tiene il blocco nel prompt
-        assert acceso.stima_totale <= DEFAULT_REQUEST_TOKEN_BUDGET, zona
-        assert spento.stima_totale <= DEFAULT_REQUEST_TOKEN_BUDGET, zona
-        assert acceso.poi_inclusi <= spento.poi_inclusi, zona
+async def test_with_istat_on_every_zone_has_the_block_and_fits_the_budget() -> None:
+    cases = await contexts()
+    assert len(cases) == 4
+    for zone, ctx in cases:
+        off = measure(zone, ctx, istat=False)
+        on = measure(zone, ctx, istat=True)
+        assert on.istat_items > 0, zone  # the reserve keeps the block in the prompt
+        assert on.estimated_total <= DEFAULT_REQUEST_TOKEN_BUDGET, zone
+        assert off.estimated_total <= DEFAULT_REQUEST_TOKEN_BUDGET, zone
+        assert on.pois_included <= off.pois_included, zone

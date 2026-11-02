@@ -19,8 +19,8 @@ from crime_risk_analyzer.eval.metrics import (
     risk_anchoring,
 )
 from crime_risk_analyzer.eval.schema import ExperimentConfig, Mode, RunCase, RunRecord
-from crime_risk_analyzer.istat.blocco import blocco_istat_poi
-from crime_risk_analyzer.istat.cifre import controlla_cifre
+from crime_risk_analyzer.istat.block import istat_block_for_poi
+from crime_risk_analyzer.istat.figures import check_figures
 from crime_risk_analyzer.models.vocab import ConfidenceSummary
 from crime_risk_analyzer.orchestrator import AnalyzeResponse, PoiOut, ZonaGeo
 from crime_risk_analyzer.rag.generation import (
@@ -30,7 +30,7 @@ from crime_risk_analyzer.rag.generation import (
     source_block_spans,
 )
 from crime_risk_analyzer.rag.no_ontology_generation import LLM_SYNTHESIS_BLOCK_HEADER
-from tests.istat._fattorie import RAPINE_IN_BANCA, istat_poi, riga
+from tests.istat._factories import BANK_ROBBERIES, istat_poi, make_row
 
 
 def _resp(
@@ -454,7 +454,7 @@ def test_cost_usd_of_zero_when_no_llm() -> None:
 
 # --- M1 con i dati ISTAT nel prompt (#345, #368, #369) ---------------------------
 
-_BLOCCO_ISTAT = blocco_istat_poi(istat_poi(riga(), RAPINE_IN_BANCA))
+_BLOCCO_ISTAT = istat_block_for_poi(istat_poi(make_row(), BANK_ROBBERIES))
 _ANCORATA = "Banca A: rapina in banca."
 _NON_ANCORATA = "La zona e' molto affollata."
 _ISTAT = "Secondo l'ISTAT nel Comune di Roma i furti sono in calo."
@@ -463,12 +463,12 @@ _ISTAT = "Secondo l'ISTAT nel Comune di Roma i furti sono in calo."
 def _resp_istat(grezzo: str, *, poi: str = "Banca A") -> AnalyzeResponse:
     """Risposta con i dati ISTAT nel prompt: ``grezzo`` e' il testo del modello,
     la narrativa quella filtrata dal controllo (come in ``generate_analysis``)."""
-    esito = controlla_cifre(
+    esito = check_figures(
         grezzo,
-        blocchi=source_block_spans(grezzo),
-        blocco_istat=_BLOCCO_ISTAT.testo,
-        contesto_senza_istat="ZONA: Colosseo",
-        righe=_BLOCCO_ISTAT.righe,
+        blocks=source_block_spans(grezzo),
+        istat_block=_BLOCCO_ISTAT.testo,
+        context_without_istat="ZONA: Colosseo",
+        rows=_BLOCCO_ISTAT.righe,
     )
     resp = _resp(esito.testo_filtrato)
     return resp.model_copy(
@@ -745,7 +745,7 @@ def test_m1_istat_senza_grezzo_solleva() -> None:
 
 # --- Parita' fra le frasi di M1 e quelle del controllo ISTAT (#369) -------------
 #
-# M1 (``_measured_spans``) e il controllo (``EsitoControllo.frasi_istat_m1``)
+# M1 (``_measured_spans``) e il controllo (``CheckOutcome.frasi_istat_m1``)
 # devono dividere lo stesso blocco nelle stesse frasi: se divergessero, gli
 # intervalli del controllo non coinciderebbero con nessuna frase di M1 e nessuna
 # frase sarebbe esclusa, senza errore.

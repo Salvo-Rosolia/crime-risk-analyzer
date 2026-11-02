@@ -32,7 +32,7 @@ from crime_risk_analyzer.context_fingerprint import (
 )
 from crime_risk_analyzer.geocoding import ZoneNotFoundError
 from crime_risk_analyzer.i18n.terminus_labels import label_it
-from crime_risk_analyzer.istat.campi_risposta import CampiIstatRisposta
+from crime_risk_analyzer.istat.response_fields import IstatResponseFields
 from crime_risk_analyzer.llm.client import LLMError
 from crime_risk_analyzer.orchestrator import (
     GeoSource,
@@ -94,11 +94,11 @@ class PoiNarrativeRequest(BaseModel):
     contesto_hash: ContestoHash
 
 
-class PoiNarrativeResponse(CampiIstatRisposta):
+class PoiNarrativeResponse(IstatResponseFields):
     """Narrativa del singolo POI: prosa, fonti, rischi citabili, provenienza.
 
     I tre campi ``istat_*`` arrivano da
-    :class:`~crime_risk_analyzer.istat.campi_risposta.CampiIstatRisposta`, la
+    :class:`~crime_risk_analyzer.istat.response_fields.IstatResponseFields`, la
     base condivisa con ``AnalyzeResponse``/``ZoneNarrativeResponse`` (#345).
     """
 

@@ -12,8 +12,8 @@ import pytest as _pytest
 
 from crime_risk_analyzer.geocoding import GeoResult
 from crime_risk_analyzer.geocoding import GeoResult as _GeoResult
-from crime_risk_analyzer.istat import righe as _righe_mod
-from crime_risk_analyzer.istat.righe import IstatPoi as _IstatPoi
+from crime_risk_analyzer.istat import rows as _rows_mod
+from crime_risk_analyzer.istat.rows import IstatPoi as _IstatPoi
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.models.geo import Bbox as _Bbox
 from crime_risk_analyzer.models.risk import PoiRiskProfile
@@ -436,7 +436,7 @@ def test_ground_senza_righe_istat_fuori_dai_poligoni_o_senza_voci() -> None:
 
 
 def test_ground_senza_dati_istat_non_fallisce(monkeypatch: _pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(_righe_mod, "dati_istat_o_none", lambda: None)
+    monkeypatch.setattr(_rows_mod, "istat_data_or_none", lambda: None)
     out = _ground(_contesto_istat(41.8902, 12.4922, ["Bank_robbery"]))
     assert out["validated_risks"][0].get("istat") is None
     assert out["validated_risks"][0]["risks"][0]["hazard"] == "Bank_robbery"

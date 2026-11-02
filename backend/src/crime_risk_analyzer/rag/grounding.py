@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from typing import NotRequired, TypedDict
 
-from crime_risk_analyzer.istat.righe import IstatPoi, istat_per_poi
+from crime_risk_analyzer.istat.rows import IstatPoi, istat_for_poi
 from crime_risk_analyzer.models.risk import PoiRiskProfile
 from crime_risk_analyzer.models.vocab import Confidence, Tag
 from crime_risk_analyzer.rag.retrieval import RetrievalContext
@@ -230,7 +230,7 @@ def ground(context: RetrievalContext) -> GroundedContext:
                     profile, props_stakeholder, profile.stakeholders
                 ),
                 "sparql_path": risks[0]["source"] if risks else None,
-                "istat": istat_per_poi(poi["lat"], poi["lon"], profile.hazards),
+                "istat": istat_for_poi(poi["lat"], poi["lon"], profile.hazards),
             }
         )
     return {
