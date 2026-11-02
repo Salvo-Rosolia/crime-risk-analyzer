@@ -7,12 +7,12 @@ import zoneNarrativeFixture from './fixtures/analyze.narrative.json';
 import type { AnalyzeResponse, ZoneNarrativeResponse } from '../src/app/core/models/models';
 
 /**
- * Narrativa di ZONA generata in due fasi (#259, #292): `/analyze` risponde SUBITO con mappa/POI/
- * rischi/badge Copertura e `narrativa: null`; il testo arriva poco dopo da una chiamata separata
- * a `/analyze/narrativa`. Sopra lo stesso fixture `analyze.happy.json` di `results.spec.ts`, con
- * `narrativa`/`narrativa_fonti` azzerati per rappresentare fedelmente la fase 1: la fase 2 usa un
- * fixture DISTINTO (`analyze.narrative.json`) apposta, così un'asserzione sul testo finale prova
- * che è davvero arrivato dalla seconda chiamata, non che era già lì dalla prima.
+ * ZONE narrative generated in two phases (#259, #292): `/analyze` answers IMMEDIATELY with map/POIs/
+ * risks/Copertura badge and `narrativa: null`; the text arrives shortly after from a separate call
+ * to `/analyze/narrativa`. On top of the same `analyze.happy.json` fixture of `results.spec.ts`, with
+ * `narrativa`/`narrativa_fonti` cleared to faithfully represent phase 1: phase 2 uses a
+ * DISTINCT fixture (`analyze.narrative.json`) on purpose, so an assertion on the final text proves
+ * that it really arrived from the second call, not that it was already there from the first.
  */
 const fastAnalyze: AnalyzeResponse = {
   ...(analyzeFixture as AnalyzeResponse),
@@ -21,13 +21,13 @@ const fastAnalyze: AnalyzeResponse = {
 };
 const zoneNarrative = zoneNarrativeFixture as ZoneNarrativeResponse;
 
-test.describe('narrativa di ZONA in due fasi (#259, #292)', () => {
-  test('ACCEPTANCE: mappa/POI/rischi sono subito visibili con narrativa=null, il testo arriva poco dopo dalla fase 2', async ({
+test.describe('ZONE narrative in two phases (#259, #292)', () => {
+  test('ACCEPTANCE: map/POIs/risks are immediately visible with narrativa=null, the text arrives shortly after from phase 2', async ({
     page,
   }) => {
     await mockApi(page, { analyze: fastAnalyze });
-    // Sovrascrive la rotta di zona con un ritardo artificiale (#292): rende osservabile la
-    // finestra in cui la narrativa è ancora null, senza affidarsi al timing implicito del mock.
+    // Overrides the zone route with an artificial delay (#292): it makes observable the
+    // window in which the narrative is still null, without relying on the implicit timing of the mock.
     await page.unroute('**/analyze/narrativa');
     await page.route('**/analyze/narrativa', async (route) => {
       await new Promise((r) => setTimeout(r, 300));
@@ -38,22 +38,22 @@ test.describe('narrativa di ZONA in due fasi (#259, #292)', () => {
     await drawSearchCircle(page);
     await S.submitButton(page).click();
 
-    // Fase 1: mappa/POI/rischi già completi, prima ancora che la fase 2 risolva.
+    // Phase 1: map/POIs/risks already complete, even before phase 2 resolves.
     await expect(S.poiPanel(page)).toBeVisible();
     await expect(S.mapMarkers(page)).toHaveCount(fastAnalyze.poi.length);
     await expect(S.poiCards(page)).toHaveCount(fastAnalyze.poi.length);
 
-    // Il pannello narrativa dichiara il caricamento (indicatore leggero, non un errore) mentre la
-    // fase 2 è ancora in volo.
+    // The narrative panel declares the loading state (light indicator, not an error) while
+    // phase 2 is still in flight.
     await expect(S.narrativeLoading(page)).toBeVisible();
     await expect(S.narrativeError(page)).toHaveCount(0);
 
-    // Fase 2 risolta: il testo arriva, l'indicatore di caricamento sparisce.
+    // Phase 2 resolved: the text arrives, the loading indicator disappears.
     await expect(S.narrativeLead(page)).toHaveText(zoneNarrative.narrativa_fonti.overview);
     await expect(S.narrativeLoading(page)).toHaveCount(0);
   });
 
-  test('la narrativa di zona è chiesta al backend con città/zona e l’impronta del contesto della fase 1', async ({
+  test('the zone narrative is requested from the backend with city/zone and the context fingerprint of phase 1', async ({
     page,
   }) => {
     await mockApi(page, { analyze: fastAnalyze, zoneNarrative });
@@ -74,10 +74,10 @@ test.describe('narrativa di ZONA in due fasi (#259, #292)', () => {
     });
   });
 
-  test('#345: la narrativa di zona con dati ISTAT mostra la scheda [ISTAT] con la sua prosa', async ({
+  test('#345: the zone narrative with ISTAT data shows the [ISTAT] tab with its prose', async ({
     page,
   }) => {
-    const conIstat: ZoneNarrativeResponse = {
+    const withIstat: ZoneNarrativeResponse = {
       ...zoneNarrative,
       narrativa_fonti: {
         ...zoneNarrative.narrativa_fonti,
@@ -88,14 +88,14 @@ test.describe('narrativa di ZONA in due fasi (#259, #292)', () => {
       istat_versione_dati: '2026-10-06',
       istat_frasi_scartate: 0,
     };
-    await mockApi(page, { analyze: fastAnalyze, zoneNarrative: conIstat });
+    await mockApi(page, { analyze: fastAnalyze, zoneNarrative: withIstat });
     await page.goto('/');
     await drawSearchCircle(page);
     await S.submitButton(page).click();
 
-    const scheda = S.narrativeTabs(page).filter({ hasText: 'ISTAT' });
-    await expect(scheda).toHaveCount(1);
-    await scheda.click();
+    const tab = S.narrativeTabs(page).filter({ hasText: 'ISTAT' });
+    await expect(tab).toHaveCount(1);
+    await tab.click();
     await expect(S.narrativeTabPanels(page).filter({ hasText: 'fonte ISTAT' })).toBeVisible();
   });
 });

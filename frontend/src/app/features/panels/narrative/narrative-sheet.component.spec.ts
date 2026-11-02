@@ -1,9 +1,9 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { NarrativeSheetComponent } from './narrative-sheet.component';
 import type { SourceProse } from '@core/models/models';
-import { istatPoi, istatRiga } from '@core/testing/istat-fixtures';
+import { istatPoi, istatRow } from '@core/testing/istat-fixtures';
 
-const narrativaFonti: SourceProse = {
+const narrativeSources: SourceProse = {
   overview: 'Sintesi generale della zona.',
   ontologia: 'Prosa ancorata alla ontologia formale.',
   contesto: 'Prosa dal contesto ambientale osservato.',
@@ -17,10 +17,10 @@ describe('NarrativeSheetComponent', () => {
 
   function setup(
     inputs: {
-      citta?: string;
-      zona?: string;
-      narrativa?: string;
-      narrativaFonti?: SourceProse | null;
+      city?: string;
+      zone?: string;
+      narrative?: string;
+      narrativeSources?: SourceProse | null;
       open?: boolean;
       loading?: boolean;
       error?: string | null;
@@ -28,12 +28,12 @@ describe('NarrativeSheetComponent', () => {
     } = {},
   ): void {
     fixture = TestBed.createComponent(NarrativeSheetComponent);
-    fixture.componentRef.setInput('citta', inputs.citta ?? 'Roma');
-    fixture.componentRef.setInput('zona', inputs.zona ?? 'Colosseo');
-    fixture.componentRef.setInput('narrativa', inputs.narrativa ?? 'Testo narrativo di prova.');
+    fixture.componentRef.setInput('city', inputs.city ?? 'Roma');
+    fixture.componentRef.setInput('zone', inputs.zone ?? 'Colosseo');
+    fixture.componentRef.setInput('narrative', inputs.narrative ?? 'Testo narrativo di prova.');
     fixture.componentRef.setInput(
-      'narrativaFonti',
-      inputs.narrativaFonti !== undefined ? inputs.narrativaFonti : narrativaFonti,
+      'narrativeSources',
+      inputs.narrativeSources !== undefined ? inputs.narrativeSources : narrativeSources,
     );
     fixture.componentRef.setInput('open', inputs.open ?? true);
     if (inputs.loading !== undefined) fixture.componentRef.setInput('loading', inputs.loading);
@@ -48,22 +48,22 @@ describe('NarrativeSheetComponent', () => {
     }).compileComponents();
   });
 
-  it('mostra il titolo con città e zona', () => {
-    setup({ citta: 'Milano', zona: 'Duomo' });
+  it('shows the title with city and zone', () => {
+    setup({ city: 'Milano', zone: 'Duomo' });
     expect(fixture.nativeElement.textContent).toContain('Milano · Duomo');
   });
 
-  it('ACCEPTANCE: il banner anti-hallucination è presente quando aperto', () => {
+  it('ACCEPTANCE: the anti-hallucination banner is present when open', () => {
     setup({ open: true });
     expect(fixture.nativeElement.textContent).toContain(ANTI_HALLUCINATION_TEXT);
   });
 
-  it('ACCEPTANCE (fail-if-removed): il banner anti-hallucination resta presente anche da collassato — non deve mai sparire', () => {
+  it('ACCEPTANCE (fail-if-removed): the anti-hallucination banner stays present even when collapsed — it must never disappear', () => {
     setup({ open: false });
     expect(fixture.nativeElement.textContent).toContain(ANTI_HALLUCINATION_TEXT);
   });
 
-  it("click sull'header emette toggleNarrative", () => {
+  it('click on the header emits toggleNarrative', () => {
     setup();
     const spy = jest.fn();
     fixture.componentInstance.toggleNarrative.subscribe(spy);
@@ -71,7 +71,7 @@ describe('NarrativeSheetComponent', () => {
     expect(spy).toHaveBeenCalled();
   });
 
-  it('click su Rigenera emette regenerate e NON anche toggleNarrative (stopPropagation)', () => {
+  it('click on Rigenera emits regenerate and NOT also toggleNarrative (stopPropagation)', () => {
     setup();
     const toggleSpy = jest.fn();
     const regenSpy = jest.fn();
@@ -82,7 +82,7 @@ describe('NarrativeSheetComponent', () => {
     expect(toggleSpy).not.toHaveBeenCalled();
   });
 
-  it('da aperto mostra overview + tab per fonte in ordine ONTOLOGIA→CONTESTO→SPECULATIVO, il primo attivo', () => {
+  it('when open shows overview + one tab per source in ONTOLOGIA→CONTESTO→SPECULATIVO order, the first active', () => {
     setup();
     expect(fixture.nativeElement.textContent).toContain('Sintesi generale della zona.');
     const tabs = fixture.nativeElement.querySelectorAll('[role="tab"]');
@@ -90,8 +90,8 @@ describe('NarrativeSheetComponent', () => {
     expect(tabs[0].getAttribute('aria-selected')).toBe('true');
     expect(tabs[1].getAttribute('aria-selected')).toBe('false');
     expect(tabs[2].getAttribute('aria-selected')).toBe('false');
-    // FIX 1 (review Task 4): tutti i pannelli sono nel DOM (aria-controls dei tab non attivi
-    // deve risolvere a un id esistente), solo quello attivo è visibile (non `hidden`).
+    // FIX 1 (review Task 4): all the panels are in the DOM (the aria-controls of the inactive tabs
+    // must resolve to an existing id), only the active one is visible (not `hidden`).
     const panels: HTMLElement[] = Array.from(
       fixture.nativeElement.querySelectorAll('[role="tabpanel"]'),
     );
@@ -101,7 +101,7 @@ describe('NarrativeSheetComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Prosa ancorata alla ontologia formale.');
   });
 
-  it('a11y: ogni aria-controls dei tab risolve a un id di tabpanel esistente; il pannello attivo ha tabindex 0, gli altri sono hidden', () => {
+  it('a11y: every tab aria-controls resolves to an existing tabpanel id; the active panel has tabindex 0, the others are hidden', () => {
     setup();
     const tabs: HTMLElement[] = Array.from(fixture.nativeElement.querySelectorAll('[role="tab"]'));
     for (const tab of tabs) {
@@ -122,7 +122,7 @@ describe('NarrativeSheetComponent', () => {
     }
   });
 
-  it('click sul secondo tab lo attiva e mostra la sua prosa', () => {
+  it('click on the second tab activates it and shows its prose', () => {
     setup();
     const tabs: HTMLElement[] = Array.from(fixture.nativeElement.querySelectorAll('[role="tab"]'));
     tabs[1].click();
@@ -135,7 +135,7 @@ describe('NarrativeSheetComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Prosa dal contesto ambientale osservato.');
   });
 
-  it('ArrowRight sul primo tab sposta il focus/attivo al secondo', () => {
+  it('ArrowRight on the first tab moves the focus/active to the second', () => {
     setup();
     const tabs: HTMLElement[] = Array.from(fixture.nativeElement.querySelectorAll('[role="tab"]'));
     tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
@@ -147,7 +147,7 @@ describe('NarrativeSheetComponent', () => {
     expect(tabsAfter[0].getAttribute('aria-selected')).toBe('false');
   });
 
-  it("ArrowLeft sul primo tab avvolge (wrap) e attiva l'ultimo", () => {
+  it('ArrowLeft on the first tab wraps and activates the last', () => {
     setup();
     const tabs: HTMLElement[] = Array.from(fixture.nativeElement.querySelectorAll('[role="tab"]'));
     tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
@@ -158,7 +158,7 @@ describe('NarrativeSheetComponent', () => {
     expect(tabsAfter[2].getAttribute('aria-selected')).toBe('true');
   });
 
-  it("End sul primo tab attiva l'ultimo, Home lo riporta al primo", () => {
+  it('End on the first tab activates the last, Home brings it back to the first', () => {
     setup();
     const tabs: HTMLElement[] = Array.from(fixture.nativeElement.querySelectorAll('[role="tab"]'));
     tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
@@ -174,7 +174,7 @@ describe('NarrativeSheetComponent', () => {
     expect(tabsAfter[0].getAttribute('aria-selected')).toBe('true');
   });
 
-  it('un tasto non gestito sul tab non cambia il tab attivo', () => {
+  it('an unhandled key on the tab does not change the active tab', () => {
     setup();
     const tabs: HTMLElement[] = Array.from(fixture.nativeElement.querySelectorAll('[role="tab"]'));
     tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
@@ -185,7 +185,7 @@ describe('NarrativeSheetComponent', () => {
     expect(tabsAfter[0].getAttribute('aria-selected')).toBe('true');
   });
 
-  it("premere Spazio sull'header emette toggleNarrative e previene il default (scroll pagina)", () => {
+  it('pressing Space on the header emits toggleNarrative and prevents the default (page scroll)', () => {
     setup();
     const spy = jest.fn();
     fixture.componentInstance.toggleNarrative.subscribe(spy);
@@ -195,41 +195,41 @@ describe('NarrativeSheetComponent', () => {
     expect(spy).toHaveBeenCalled();
   });
 
-  it('senza risk_models e senza narrativaFonti non fallisce e non mostra tab', () => {
+  it('without risk_models and without narrativeSources it does not fail and shows no tab', () => {
     expect(() =>
       setup({
-        narrativaFonti: { overview: '', ontologia: '', contesto: '', speculativo: '' },
+        narrativeSources: { overview: '', ontologia: '', contesto: '', speculativo: '' },
       }),
     ).not.toThrow();
     expect(fixture.nativeElement.querySelectorAll('[role="tab"]').length).toBe(0);
   });
 
-  it('FIX 3: overview vuoto ma tab presenti — nessun lead (niente duplicazione della prosa)', () => {
+  it('FIX 3: empty overview but tabs present — no lead (no duplication of the prose)', () => {
     setup({
-      narrativaFonti: {
+      narrativeSources: {
         overview: '',
         ontologia: 'Prosa ancorata alla ontologia formale.',
         contesto: 'Prosa dal contesto ambientale osservato.',
         speculativo: 'Ipotesi speculativa non ancorata.',
       },
-      narrativa: 'Testo narrativo di prova.',
+      narrative: 'Testo narrativo di prova.',
     });
     expect(fixture.nativeElement.querySelector('.cra-narr-lead')).toBeNull();
     expect(fixture.nativeElement.querySelectorAll('[role="tab"]').length).toBe(3);
   });
 
-  it('FIX 4: se il tag attivo scompare dal nuovo set di tab, activeTab degrada al primo del nuovo set (nessun pannello vuoto)', () => {
+  it('FIX 4: if the active tag disappears from the new tab set, activeTab degrades to the first of the new set (no empty panel)', () => {
     setup();
     const tabs: HTMLElement[] = Array.from(fixture.nativeElement.querySelectorAll('[role="tab"]'));
-    tabs[1].click(); // seleziona CONTESTO (secondo tab)
+    tabs[1].click(); // selects CONTESTO (second tab)
     fixture.detectChanges();
     let tabsAfter: HTMLElement[] = Array.from(
       fixture.nativeElement.querySelectorAll('[role="tab"]'),
     );
     expect(tabsAfter[1].getAttribute('aria-selected')).toBe('true');
 
-    // Nuovo set di dati: solo SPECULATIVO (CONTESTO, il tag attivo, sparisce).
-    fixture.componentRef.setInput('narrativaFonti', {
+    // New data set: only SPECULATIVO (CONTESTO, the active tag, disappears).
+    fixture.componentRef.setInput('narrativeSources', {
       overview: '',
       ontologia: '',
       contesto: '',
@@ -248,10 +248,10 @@ describe('NarrativeSheetComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('Nuova prosa speculativa.');
   });
 
-  it('fallback: senza overview/prosa mostra narrativa() legacy e nessun tab', () => {
+  it('fallback: without overview/prose it shows the legacy narrative() and no tab', () => {
     setup({
-      narrativaFonti: { overview: '', ontologia: '', contesto: '', speculativo: '' },
-      narrativa: 'Narrativa legacy senza fonti strutturate.',
+      narrativeSources: { overview: '', ontologia: '', contesto: '', speculativo: '' },
+      narrative: 'Narrativa legacy senza fonti strutturate.',
     });
     expect(fixture.nativeElement.textContent).toContain(
       'Narrativa legacy senza fonti strutturate.',
@@ -259,24 +259,24 @@ describe('NarrativeSheetComponent', () => {
     expect(fixture.nativeElement.querySelectorAll('[role="tab"]').length).toBe(0);
   });
 
-  it('da collassato non rende il corpo (overview/tab nascosti, altezza ridotta)', () => {
+  it('when collapsed it does not render the body (overview/tabs hidden, reduced height)', () => {
     setup({ open: false });
     expect(fixture.nativeElement.querySelector('.cra-narr-body')).toBeNull();
   });
 
-  it('#218: la classe host cra-narr-collapsed riflette lo stato collassato (guida il CSS pannello-destro vs full-height)', () => {
+  it('#218: the host class cra-narr-collapsed reflects the collapsed state (drives the right-panel vs full-height CSS)', () => {
     setup({ open: false });
     expect(fixture.nativeElement.classList.contains('cra-narr-collapsed')).toBe(true);
   });
 
-  it('#218: da aperto il pannello NON ha la classe collapsed', () => {
+  it('#218: when open the panel does NOT have the collapsed class', () => {
     setup({ open: true });
     expect(fixture.nativeElement.classList.contains('cra-narr-collapsed')).toBe(false);
   });
 
-  it('#345: con la prosa ISTAT mostra la scheda [ISTAT] dopo CONTESTO', () => {
+  it('#345: with the ISTAT prose it shows the [ISTAT] tab after CONTESTO', () => {
     setup({
-      narrativaFonti: {
+      narrativeSources: {
         overview: 'Sintesi.',
         ontologia: 'Prosa onto.',
         contesto: 'Prosa ctx.',
@@ -288,69 +288,67 @@ describe('NarrativeSheetComponent', () => {
     expect(tabs.map((t) => t.textContent?.trim())).toEqual(['ONTOLOGIA', 'CONTESTO', 'ISTAT']);
     tabs[2].click();
     fixture.detectChanges();
-    const attivo: HTMLElement = fixture.nativeElement.querySelector(
+    const active: HTMLElement = fixture.nativeElement.querySelector(
       '[role="tabpanel"]:not([hidden])',
     );
-    expect(attivo.textContent).toContain('[ISTAT]');
-    expect(attivo.textContent).toContain('fonte ISTAT, Comune di Roma, 2024');
+    expect(active.textContent).toContain('[ISTAT]');
+    expect(active.textContent).toContain('fonte ISTAT, Comune di Roma, 2024');
   });
 
-  describe('#365: indicatori ISTAT in linea nel tab ONTOLOGIA', () => {
-    const NOTA =
+  describe('#365: inline ISTAT indicators in the ONTOLOGIA tab', () => {
+    const NOTE =
       "I riquadri ISTAT sono calcolati dall'app dai dati ufficiali, non scritti dal modello.";
-    const fonti = (ontologia: string, contesto = 'Il Furto di contesto.'): SourceProse => ({
+    const makeSources = (ontologia: string, contesto = 'Il Furto di contesto.'): SourceProse => ({
       overview: '',
       ontologia,
       contesto,
       speculativo: '',
     });
-    const dati = istatPoi(
-      istatRiga('THEFT', ['Theft'], { voce_label: 'furti', variazione_pct: 5 }),
-    );
-    const occ = [{ hazardLabel: 'Furto', hazard: 'Theft', istat: dati }];
+    const data = istatPoi(istatRow('THEFT', ['Theft'], { voce_label: 'furti', variazione_pct: 5 }));
+    const occ = [{ hazardLabel: 'Furto', hazard: 'Theft', istat: data }];
 
-    function conIstat(f: SourceProse, occorrenze = occ): void {
-      setup({ narrativaFonti: f });
-      fixture.componentRef.setInput('istatOccurrences', occorrenze);
+    function withIstat(f: SourceProse, occurrences = occ): void {
+      setup({ narrativeSources: f });
+      fixture.componentRef.setInput('istatOccurrences', occurrences);
       fixture.detectChanges();
     }
 
-    function pannello(tag: string): HTMLElement {
+    function panel(tag: string): HTMLElement {
       return fixture.nativeElement.querySelector(`#cra-narr-panel-${tag}`);
     }
 
-    it('dopo la prima menzione del rischio compare l’indicatore, con la freccia aria-hidden', () => {
-      conIstat(fonti('Il Furto è alto. Il furto cala.'));
-      const ind = pannello('ONTOLOGIA').querySelectorAll('.cra-narr-istat');
+    it('after the first mention of the risk the indicator appears, with the arrow aria-hidden', () => {
+      withIstat(makeSources('Il Furto è alto. Il furto cala.'));
+      const ind = panel('ONTOLOGIA').querySelectorAll('.cra-narr-istat');
       expect(ind.length).toBe(1);
       expect(ind[0].textContent?.replace(/\s+/g, ' ').trim()).toContain(
         'ISTAT · Comune di Roma 2024 · furti: 100,0 ogni 100.000 ab. (Italia 100,0) · ▲ +5% dal 2014 · voce più ampia del rischio',
       );
       expect(ind[0].querySelector('[aria-hidden="true"]')?.textContent?.trim()).toBe('▲');
-      expect(pannello('ONTOLOGIA').querySelector('.cra-narr-prose')?.textContent).toContain(
+      expect(panel('ONTOLOGIA').querySelector('.cra-narr-prose')?.textContent).toContain(
         'Il Furto',
       );
     });
 
-    it('l’indicatore sta subito dopo la parola giusta e il testo (senza marcatori) resta intatto', () => {
-      conIstat(fonti('Il **Furto** è alto e il furto cala.'));
-      const p = pannello('ONTOLOGIA').querySelector('.cra-narr-prose') as HTMLElement;
-      const figli = Array.from(p.children) as HTMLElement[];
-      const i = figli.findIndex((f) => f.classList.contains('cra-narr-istat'));
-      expect(figli[i - 1].tagName).toBe('STRONG');
-      expect(figli[i - 1].textContent).toBe('Furto');
-      expect(figli[i - 2].textContent).toBe('Il ');
-      expect(figli[i + 1].textContent).toBe(' è alto e il furto cala.');
-      const testoOriginale = figli
+    it('the indicator sits right after the right word and the text (without markers) stays intact', () => {
+      withIstat(makeSources('Il **Furto** è alto e il furto cala.'));
+      const p = panel('ONTOLOGIA').querySelector('.cra-narr-prose') as HTMLElement;
+      const children = Array.from(p.children) as HTMLElement[];
+      const i = children.findIndex((f) => f.classList.contains('cra-narr-istat'));
+      expect(children[i - 1].tagName).toBe('STRONG');
+      expect(children[i - 1].textContent).toBe('Furto');
+      expect(children[i - 2].textContent).toBe('Il ');
+      expect(children[i + 1].textContent).toBe(' è alto e il furto cala.');
+      const originalText = children
         .filter((f) => !f.classList.contains('cra-narr-istat'))
         .map((f) => f.textContent)
         .join('');
-      expect(testoOriginale).toBe('Il Furto è alto e il furto cala.');
+      expect(originalText).toBe('Il Furto è alto e il furto cala.');
     });
 
-    it('markdown: nessun asterisco visibile in nessun tab né nel lead; strong ed em presenti', () => {
+    it('markdown: no visible asterisk in any tab nor in the lead; strong and em present', () => {
       setup({
-        narrativaFonti: {
+        narrativeSources: {
           overview: 'Sintesi con **grassetto** e *corsivo*.',
           ontologia: 'L’**impennata** e *Aggressione* con **il furto cala** e furto.',
           contesto: '* **Luce** – scarsa\n* *Strade* buie',
@@ -360,89 +358,89 @@ describe('NarrativeSheetComponent', () => {
       });
       fixture.componentRef.setInput('istatOccurrences', occ);
       fixture.detectChanges();
-      const corpo = fixture.nativeElement.querySelector('.cra-narr-body') as HTMLElement;
-      expect(corpo.textContent).not.toMatch(/[*_#]/);
-      expect(corpo.querySelectorAll('strong').length).toBeGreaterThan(3);
-      expect(corpo.querySelectorAll('em').length).toBeGreaterThan(2);
-      expect(pannello('CONTESTO').textContent).toContain('• Luce');
+      const body = fixture.nativeElement.querySelector('.cra-narr-body') as HTMLElement;
+      expect(body.textContent).not.toMatch(/[*_#]/);
+      expect(body.querySelectorAll('strong').length).toBeGreaterThan(3);
+      expect(body.querySelectorAll('em').length).toBeGreaterThan(2);
+      expect(panel('CONTESTO').textContent).toContain('• Luce');
     });
 
-    it('un U+E000 scritto dal modello non rompe il pannello né sposta gli indicatori (#387)', () => {
+    it('a U+E000 written by the model does not break the panel nor move the indicators', () => {
       const pua = String.fromCharCode(0xe000);
-      const dueRischi = [
+      const twoRisks = [
         ...occ,
         {
           hazardLabel: 'Danno',
           hazard: 'Damage',
-          istat: istatPoi(istatRiga('DAMAGE', ['Damage'], { voce_label: 'danni' })),
+          istat: istatPoi(istatRow('DAMAGE', ['Damage'], { voce_label: 'danni' })),
         },
       ];
-      conIstat(fonti(`Il furto ${pua} qui e il${pua} danno cala.`), dueRischi);
-      const p = pannello('ONTOLOGIA').querySelector('.cra-narr-prose') as HTMLElement;
-      const figli = Array.from(p.children) as HTMLElement[];
-      const testo = figli
+      withIstat(makeSources(`Il furto ${pua} qui e il${pua} danno cala.`), twoRisks);
+      const p = panel('ONTOLOGIA').querySelector('.cra-narr-prose') as HTMLElement;
+      const children = Array.from(p.children) as HTMLElement[];
+      const testo = children
         .filter((f) => !f.classList.contains('cra-narr-istat'))
         .map((f) => f.textContent)
         .join('');
       expect(testo).toBe('Il furto  qui e il danno cala.');
       expect(p.textContent).not.toContain(pua);
       expect(
-        figli[figli.findIndex((f) => f.classList.contains('cra-narr-istat')) - 1].textContent,
+        children[children.findIndex((f) => f.classList.contains('cra-narr-istat')) - 1].textContent,
       ).toMatch(/furto$/);
     });
 
-    it('un indicatore dentro una coppia ** non la spezza', () => {
-      conIstat(fonti('Il **furto cala** ancora.'));
-      const p = pannello('ONTOLOGIA').querySelector('.cra-narr-prose') as HTMLElement;
+    it('an indicator inside a ** pair does not split it', () => {
+      withIstat(makeSources('Il **furto cala** ancora.'));
+      const p = panel('ONTOLOGIA').querySelector('.cra-narr-prose') as HTMLElement;
       expect(p.textContent).not.toContain('*');
       expect(p.querySelectorAll('.cra-narr-istat')).toHaveLength(1);
     });
 
-    it('a11y: «ISTAT» visibile in testa fa da prefisso, separatore finale leggibile e nascosto', () => {
-      conIstat(fonti('Il Furto è alto.'));
-      const ind = pannello('ONTOLOGIA').querySelector('.cra-narr-istat') as HTMLElement;
-      const nascosti = ind.querySelectorAll('.cra-vh');
+    it('a11y: visible "ISTAT" at the head acts as a prefix, readable and hidden closing separator', () => {
+      withIstat(makeSources('Il Furto è alto.'));
+      const ind = panel('ONTOLOGIA').querySelector('.cra-narr-istat') as HTMLElement;
+      const hiddenEls = ind.querySelectorAll('.cra-vh');
       expect(ind.textContent?.trim().startsWith('ISTAT ·')).toBe(true);
-      expect(nascosti).toHaveLength(1);
-      expect(nascosti[0].textContent).toContain('Fine dato ISTAT');
-      expect(ind.lastElementChild).toBe(nascosti[0]);
+      expect(hiddenEls).toHaveLength(1);
+      expect(hiddenEls[0].textContent).toContain('Fine dato ISTAT');
+      expect(ind.lastElementChild).toBe(hiddenEls[0]);
     });
 
-    it('gli altri tab non hanno indicatori anche se citano il rischio', () => {
-      conIstat(fonti('Il Furto è alto.'));
-      expect(pannello('CONTESTO').querySelector('.cra-narr-istat')).toBeNull();
+    it('the other tabs have no indicators even if they cite the risk', () => {
+      withIstat(makeSources('Il Furto è alto.'));
+      expect(panel('CONTESTO').querySelector('.cra-narr-istat')).toBeNull();
     });
 
-    it('la riga di nota c’è solo con almeno un indicatore', () => {
-      conIstat(fonti('Il Furto è alto.'));
-      expect(pannello('ONTOLOGIA').querySelector('.cra-narr-istat-note')?.textContent?.trim()).toBe(
-        NOTA,
+    it('the row of the note is there only with at least one indicator', () => {
+      withIstat(makeSources('Il Furto è alto.'));
+      expect(panel('ONTOLOGIA').querySelector('.cra-narr-istat-note')?.textContent?.trim()).toBe(
+        NOTE,
       );
-      expect(pannello('CONTESTO').querySelector('.cra-narr-istat-note')).toBeNull();
+      expect(panel('CONTESTO').querySelector('.cra-narr-istat-note')).toBeNull();
     });
 
-    it('senza dati ISTAT o senza menzione: testo intatto e nessuna nota', () => {
-      conIstat(fonti('Il Furto è alto.'), []);
+    it('without ISTAT data or without mention: text intact and no note', () => {
+      withIstat(makeSources('Il Furto è alto.'), []);
       expect(fixture.nativeElement.querySelector('.cra-narr-istat')).toBeNull();
       expect(fixture.nativeElement.querySelector('.cra-narr-istat-note')).toBeNull();
-      expect(pannello('ONTOLOGIA').querySelector('.cra-narr-prose')?.textContent).toContain(
+      expect(panel('ONTOLOGIA').querySelector('.cra-narr-prose')?.textContent).toContain(
         'Il Furto è alto.',
       );
-      conIstat(fonti('Nessuna menzione.'));
+      withIstat(makeSources('Nessuna menzione.'));
       expect(fixture.nativeElement.querySelector('.cra-narr-istat-note')).toBeNull();
     });
 
-    it('il tab ISTAT resta mostrato solo se ha prosa (narrative vecchie)', () => {
-      conIstat(fonti('Il Furto.'));
+    it('the ISTAT tab stays shown only if it has prose (old narratives)', () => {
+      withIstat(makeSources('Il Furto.'));
       expect(fixture.nativeElement.querySelector('#cra-narr-tab-ISTAT')).toBeNull();
-      conIstat({ ...fonti('Il Furto.'), istat: 'Vecchia prosa ISTAT.' });
+      withIstat({ ...makeSources('Il Furto.'), istat: 'Vecchia prosa ISTAT.' });
       expect(fixture.nativeElement.querySelector('#cra-narr-tab-ISTAT')).not.toBeNull();
     });
   });
 
-  describe('#292: i tre stati del dato (narrativa in arrivo / arrivata / errore-fallback)', () => {
-    it('loading: mostra un indicatore leggero, non un errore, anche se la narrativa è ancora vuota', () => {
-      setup({ loading: true, narrativa: '', narrativaFonti: null });
+  describe('#292: the three data states (narrative arriving / arrived / error-fallback)', () => {
+    it('loading: shows a light indicator, not an error, even if the narrative is still empty', () => {
+      setup({ loading: true, narrative: '', narrativeSources: null });
       const loadingEl = fixture.nativeElement.querySelector('.cra-narr-loading');
       expect(loadingEl).toBeTruthy();
       expect(loadingEl.getAttribute('role')).toBe('status');
@@ -450,13 +448,13 @@ describe('NarrativeSheetComponent', () => {
       expect(fixture.nativeElement.querySelector('.cra-narr-fallback')).toBeNull();
     });
 
-    it('loading ha priorità sull’errore: se entrambi sono presenti si vede solo il caricamento', () => {
+    it('loading has priority over the error: if both are present only the loading is seen', () => {
       setup({ loading: true, error: 'boom' });
       expect(fixture.nativeElement.querySelector('.cra-narr-loading')).toBeTruthy();
       expect(fixture.nativeElement.querySelector('.cra-narr-error')).toBeNull();
     });
 
-    it('narrativa arrivata (loading false, nessun errore/fallback): mostra il testo, nessun indicatore né alert', () => {
+    it('narrative arrived (loading false, no error/fallback): shows the text, no indicator nor alert', () => {
       setup({ loading: false, error: null, fallback: false });
       expect(fixture.nativeElement.querySelector('.cra-narr-loading')).toBeNull();
       expect(fixture.nativeElement.querySelector('.cra-narr-error')).toBeNull();
@@ -464,7 +462,7 @@ describe('NarrativeSheetComponent', () => {
       expect(fixture.nativeElement.textContent).toContain('Sintesi generale della zona.');
     });
 
-    it('errore: mostra il messaggio in un alert, non l’indicatore di caricamento', () => {
+    it('error: shows the message in an alert, not the loading indicator', () => {
       setup({ error: 'Errore nella generazione della narrativa di zona.' });
       const errEl = fixture.nativeElement.querySelector('.cra-narr-error');
       expect(errEl).toBeTruthy();
@@ -473,7 +471,7 @@ describe('NarrativeSheetComponent', () => {
       expect(fixture.nativeElement.querySelector('.cra-narr-loading')).toBeNull();
     });
 
-    it('fallback: mostra il messaggio di fallback già gestito oggi, non un errore generico', () => {
+    it('fallback: shows the message of fallback already handled today, not a generic error', () => {
       setup({ fallback: true });
       const fallbackEl = fixture.nativeElement.querySelector('.cra-narr-fallback');
       expect(fallbackEl).toBeTruthy();

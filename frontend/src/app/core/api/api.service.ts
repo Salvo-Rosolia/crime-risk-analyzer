@@ -14,34 +14,33 @@ import {
 } from '@core/models/models';
 
 /**
- * Serializza l'area nel body atteso dal backend. Un solo posto in cui la forma viene decisa:
- * `/analyze` e `/analyze/baseline` condividono lo stesso contratto di area, e due copie
- * divergerebbero al primo che ne tocca una.
+ * Serializes the area into the body expected by the backend (whose field names are Italian: the
+ * API contract). The one place where the shape is decided: `/analyze` and `/analyze/baseline`
+ * share the same area contract, and two copies would diverge as soon as one is touched.
  */
 function areaBody(area: SearchArea): Record<string, unknown> {
   return area.kind === 'circle'
     ? { center: area.center, radius_m: area.radiusM }
-    : { citta: area.citta, zona: area.zona };
+    : { citta: area.city, zona: area.zone };
 }
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private readonly http = inject(HttpClient);
 
-  /** Promise memoizzata di `cities()` (reperto review): sia `InputPanelComponent` sia
-   * `BasePanelComponent` la chiamano al proprio `ngOnInit`, e un giro Completo↔Base o un remount
-   * INPUT→ERROR ne rimonta uno dei due a ogni cambio — senza memoizzazione, ogni rimonto
-   * ripeterebbe la stessa GET per una lista che non cambia in sessione. */
+  /** Memoized Promise of `cities()` (review finding): both `InputPanelComponent` and
+   * `BasePanelComponent` call it in their own `ngOnInit`, and a Full↔Base round trip or an
+   * INPUT→ERROR remount remounts one of the two at every change — without memoization, each
+   * remount would repeat the same GET for a list that does not change within a session. */
   private citiesPromise: Promise<string[]> | null = null;
-  /** Stessa memoizzazione di `citiesPromise`, per `poiTypes()` (#143). */
+  /** Same memoization as `citiesPromise`, for `poiTypes()` (#143). */
   private poiTypesPromise: Promise<PoiType[]> | null = null;
 
   /**
-   * Elenco delle città suggerite per il datalist dei pannelli di ricerca (`GET /cities`): UNA sola
-   * chiamata HTTP per sessione, le chiamate successive (da qualunque pannello) riusano la stessa
-   * Promise. Se la richiesta fallisce la memoizzazione si azzera, così un rimonto successivo
-   * (es. dopo che la rete è tornata) può ritentare invece di restare bloccato su un fallimento
-   * vecchio.
+   * List of cities suggested for the search panels' datalist (`GET /cities`): a SINGLE HTTP call
+   * per session, later calls (from any panel) reuse the same Promise. If the request fails the
+   * memoization is cleared, so a later remount (e.g. after the network is back) can retry instead
+   * of staying stuck on an old failure.
    */
   cities(): Promise<string[]> {
     if (!this.citiesPromise) {
@@ -54,9 +53,9 @@ export class ApiService {
   }
 
   /**
-   * Tipi POI selezionabili nel filtro opzionale del pannello Sistema base (`GET /poi-types`, #143):
-   * già ordinati per `label_it` dal backend. Stessa memoizzazione di `cities()` (una sola chiamata
-   * HTTP per sessione, azzerata su errore così un rimonto successivo può ritentare).
+   * POI types selectable in the optional filter of the base-system panel (`GET /poi-types`, #143):
+   * already sorted by `label_it` by the backend. Same memoization as `cities()` (a single HTTP
+   * call per session, cleared on error so a later remount can retry).
    */
   poiTypes(): Promise<PoiType[]> {
     if (!this.poiTypesPromise) {
@@ -69,10 +68,10 @@ export class ApiService {
   }
 
   /**
-   * Fase 1 (`POST /analyze`): manda l'AREA nella modalita' scelta dall'utente — il cerchio
-   * disegnato (centro+raggio) oppure città e zona digitate. Il backend accetta
-   * esattamente una delle due forme e risponde 422 se ne arrivano zero o due: qui non si
-   * compone mai un body ambiguo perche' `SearchArea` non lo permette.
+   * Phase 1 (`POST /analyze`): sends the AREA in the mode chosen by the user — the drawn circle
+   * (center+radius) or the typed city and zone. The backend accepts exactly one of the two
+   * forms and answers 422 if zero or two arrive: an ambiguous body is never composed here
+   * because `SearchArea` does not allow it.
    */
   analyze(area: SearchArea): Promise<AnalyzeResponse> {
     return firstValueFrom(this.http.post<AnalyzeResponse>('/analyze', areaBody(area)));
@@ -80,7 +79,7 @@ export class ApiService {
 
   analyzeBaseline(params: BaselineParams): Promise<AnalyzeResponse> {
     const body: Record<string, unknown> = { ...areaBody(params.area) };
-    if (params.tipo_poi) body['tipo_poi'] = params.tipo_poi;
+    if (params.poiType) body['tipo_poi'] = params.poiType;
     return firstValueFrom(this.http.post<AnalyzeResponse>('/analyze/baseline', body));
   }
 
@@ -91,57 +90,58 @@ export class ApiService {
   }
 
   /**
-   * Narrativa del singolo POI selezionato (`POST /analyze/poi`, #197). Il client manda solo l'id e
-   * l'impronta del contesto che sta mostrando (#242): classe, rischi e percorso ontologico sono
-   * ri-derivati dal server, e l'impronta è confrontata dal backend, mai usata per il prompt.
+   * Narrative of the single selected POI (`POST /analyze/poi`, #197). The client sends only the id
+   * and the fingerprint of the context it is showing (#242): class, risks and ontology path are
+   * re-derived by the server, and the fingerprint is compared by the backend, never used for the
+   * prompt.
    */
   poiNarrative(
-    citta: string,
-    zona: string,
+    city: string,
+    zone: string,
     poiId: string,
-    contestoHash: string,
+    contextHash: string,
   ): Promise<PoiNarrativeResponse> {
     return firstValueFrom(
       this.http.post<PoiNarrativeResponse>('/analyze/poi', {
-        citta,
-        zona,
+        citta: city,
+        zona: zone,
         poi_id: poiId,
-        contesto_hash: contestoHash,
+        contesto_hash: contextHash,
       }),
     );
   }
 
   /**
-   * Narrativa di ZONA in fase 2 (`POST /analyze/narrativa`, #259/#292): la fase 1 di `/analyze`
-   * non chiama più l'LLM, quindi `domanda` va qui — mandarla alla fase 1 non avrebbe alcun effetto,
-   * il backend la ignorerebbe silenziosamente. `contestoHash` è l'impronta ricevuta dalla fase 1,
-   * rimandata verbatim (#242): il backend la confronta, mai per costruire il prompt.
+   * ZONE narrative in phase 2 (`POST /analyze/narrativa`, #259/#292): phase 1 of `/analyze`
+   * no longer calls the LLM, so `question` goes here — sending it to phase 1 would have no
+   * effect, the backend would silently ignore it. `contextHash` is the fingerprint received from
+   * phase 1, sent back verbatim (#242): the backend compares it, never uses it to build the prompt.
    */
   zoneNarrative(
-    citta: string,
-    zona: string,
-    contestoHash: string,
-    domanda: string | null = null,
+    city: string,
+    zone: string,
+    contextHash: string,
+    question: string | null = null,
   ): Promise<ZoneNarrativeResponse> {
     const payload: { citta: string; zona: string; domanda?: string; contesto_hash: string } = {
-      citta,
-      zona,
-      contesto_hash: contestoHash,
+      citta: city,
+      zona: zone,
+      contesto_hash: contextHash,
     };
-    if (domanda && domanda.trim()) payload.domanda = domanda.trim();
+    if (question && question.trim()) payload.domanda = question.trim();
 
     return firstValueFrom(this.http.post<ZoneNarrativeResponse>('/analyze/narrativa', payload));
   }
 
-  /** Stato delle fonti della sessione (`GET /sources`): default, attive o scadute. */
+  /** State of the session's sources (`GET /sources`): default, active or expired. */
   sourcesStatus(): Promise<SourcesStatus> {
     return firstValueFrom(this.http.get<SourcesStatus>('/sources'));
   }
 
   /**
-   * Carica i file e, se il controllo li accetta, attiva il set per la sessione (`POST /sources`,
-   * multipart). Con errori il backend risponde 422 con il report completo e non tocca il set già
-   * attivo. I campi del vocabolario lasciati vuoti non si mandano: valgono quelli TERMINUS.
+   * Uploads the files and, if the check accepts them, activates the set for the session (`POST
+   * /sources`, multipart). With errors the backend answers 422 with the full report and does not
+   * touch the already active set. Empty vocabulary fields are not sent: the TERMINUS ones apply.
    */
   uploadSources(upload: SourceUpload): Promise<SourcesStatus> {
     const body = new FormData();
@@ -161,17 +161,17 @@ export class ApiService {
     return firstValueFrom(this.http.post<SourcesStatus>('/sources', body));
   }
 
-  /** Attiva il set d'esempio senza caricare file (`POST /sources/example`). */
+  /** Activates the example set without uploading files (`POST /sources/example`). */
   useExampleSources(): Promise<SourcesStatus> {
     return firstValueFrom(this.http.post<SourcesStatus>('/sources/example', null));
   }
 
-  /** Torna alle fonti predefinite (`DELETE /sources`, idempotente). */
+  /** Goes back to the default sources (`DELETE /sources`, idempotent). */
   resetSources(): Promise<SourcesStatus> {
     return firstValueFrom(this.http.delete<SourcesStatus>('/sources'));
   }
 
-  /** URL del modello CSV scaricabile: un link `download` basta, il backend manda l'allegato. */
+  /** URL of the downloadable CSV template: a `download` link is enough, the backend sends the attachment. */
   templateUrl(name: SourceTemplate): string {
     return `/sources/templates/${name}`;
   }

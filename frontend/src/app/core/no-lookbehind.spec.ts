@@ -2,9 +2,9 @@ import { readdirSync, readFileSync } from 'fs';
 import { join, sep } from 'path';
 
 /**
- * Il lookbehind regex (`(?<=` / `(?<!`) non esiste su Safari 16.0-16.3 (e iOS equivalente), che
- * Angular 20 dichiara ancora supportati. Costruita con `new RegExp(stringa)` la build non
- * avverte: il SyntaxError scatta a runtime e, in un `computed`, il pannello non si rende (#387).
+ * Regex lookbehind (`(?<=` / `(?<!`) does not exist on Safari 16.0-16.3 (and the iOS equivalent), which
+ * Angular 20 still declares supported. Built with `new RegExp(string)` the build does not
+ * warn: the SyntaxError fires at runtime and, inside a `computed`, the panel does not render (#387).
  */
 const ROOT = join(__dirname, '..');
 const LOOKBEHIND = /\(\?<[=!]/;
@@ -17,13 +17,13 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-describe('compatibilità Safari 16.0-16.3: niente lookbehind nelle regex (#387)', () => {
-  it('nessun sorgente non-spec usa (?<= o (?<!', () => {
+describe('Safari 16.0-16.3 compatibility: no lookbehind in regexes (#387)', () => {
+  it('no non-spec source uses (?<= or (?<!', () => {
     const offenders = sourceFiles(ROOT).filter((f) => LOOKBEHIND.test(readFileSync(f, 'utf-8')));
     expect(offenders).toEqual([]);
   });
 
-  it('la scansione vede davvero i sorgenti (guardia contro un falso verde)', () => {
+  it('the scan really sees the sources (guard against a false green)', () => {
     const files = sourceFiles(ROOT).map((f) => f.split(sep).join('/'));
     expect(files.some((f) => f.endsWith('/core/ui-helpers.ts'))).toBe(true);
     expect(files.some((f) => f.endsWith('/core/inline-markdown.ts'))).toBe(true);

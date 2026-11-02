@@ -8,12 +8,12 @@ export interface ConfMeta {
 }
 
 /**
- * Etichette dei 2 livelli di confidence (#258): dicono il SEGNALE reale — la sola presenza del
- * tag `name` su OSM (#202) — non un processo di verifica più ampio. I nomi precedenti
- * ("Verificato"/"Da confermare") lasciavano intendere un controllo che il sistema non fa; qui
- * sono rinominati per onestà (coerenti con `MEANINGS` in `confidence-filter.component.ts`, già
- * formulato in questi termini). I valori letterali del tipo `Confidence` (`verificato`/
- * `da_confermare`, contratto API/eval) restano invariati: cambia solo il testo mostrato.
+ * Labels of the 2 confidence levels (#258): they state the real SIGNAL — merely the presence of
+ * the `name` tag on OSM (#202) — not a broader verification process. The previous names
+ * ("Verificato"/"Da confermare") hinted at a check the system does not perform; here they are
+ * renamed for honesty (consistent with `MEANINGS` in `confidence-filter.component.ts`, already
+ * phrased in these terms). The literal values of the `Confidence` type (`verificato`/
+ * `da_confermare`, API/eval contract) stay unchanged: only the displayed text changes.
  */
 export const CONF: Readonly<Record<Confidence, ConfMeta>> = Object.freeze({
   verificato: { color: '#1a7a40', bg: '#eef7f1', dot: '●', label: 'Identificato' },
@@ -23,19 +23,19 @@ export const CONF: Readonly<Record<Confidence, ConfMeta>> = Object.freeze({
 export const DIM_COLOR = '#b6b3a9';
 
 /**
- * Colore del tag fonte SPECULATIVO (sezioni per-fonte Stato B/C, badge, chip). In precedenza
- * "presa in prestito" da `CONF.ipotesi` (livello di confidence rimosso, #220): il vocabolario dei
- * `SourceTag` (ONTOLOGIA/CONTESTO/SPECULATIVO) è un asse ORTOGONALE alla confidence (un rischio
- * SPECULATIVO oggi porta comunque `confidence: 'da_confermare'`, mai `null`) e non deve dipendere
- * dai suoi livelli. Costante nominata dedicata: la palette dei tag-fonte resta invariata anche se
- * cambiano i livelli di confidence.
+ * Color of the SPECULATIVO source tag (per-source sections State B/C, badge, chip). It used to
+ * be "borrowed" from `CONF.ipotesi` (confidence level removed, #220): the vocabulary of the
+ * `SourceTag` (ONTOLOGIA/CONTESTO/SPECULATIVO) is an axis ORTHOGONAL to confidence (a
+ * SPECULATIVO risk today still carries `confidence: 'da_confermare'`, never `null`) and must not
+ * depend on its levels. Dedicated named constant: the palette of the source tags stays unchanged
+ * even if the confidence levels change.
  */
 export const SPECULATIVE_TAG_COLOR = '#c2620a';
 
 /**
- * Colore + descrizione breve per i titoli di sezione dei tag fonte (Stato C "Fattori di rischio
- * · per fonte", Stato B narrativa strutturata per fonte): ONTOLOGIA/CONTESTO ricalcano il colore
- * del livello di confidence analogo, SPECULATIVO usa la propria costante dedicata (vedi sopra).
+ * Color + short description for the section titles of the source tags (State C "Fattori di
+ * rischio · per fonte", State B narrative structured by source): ONTOLOGIA/CONTESTO mirror the
+ * color of the analogous confidence level, SPECULATIVO uses its own dedicated constant (see above).
  */
 export const SRC_TAG_META: Readonly<Record<SourceTag, { color: string; description: string }>> =
   Object.freeze({
@@ -44,12 +44,12 @@ export const SRC_TAG_META: Readonly<Record<SourceTag, { color: string; descripti
     SPECULATIVO: { color: SPECULATIVE_TAG_COLOR, description: 'inferenza non verificata' },
   });
 
-/** Colore della fonte ISTAT (#345): un blu distinto dalla palette dei livelli di confidence. */
+/** Color of the ISTAT source (#345): a blue distinct from the palette of the confidence levels. */
 export const ISTAT_TAG_COLOR = '#2f5d8a';
 
 /**
- * Meta delle fonti della NARRATIVA (#345): quelle dei rischi più ISTAT. `SRC_TAG_META` resta
- * limitato ai tag dei rischi (Stato C), che non possono essere ISTAT.
+ * Meta of the NARRATIVE sources (#345): those of the risks plus ISTAT. `SRC_TAG_META` stays
+ * limited to the risk tags (State C), which cannot be ISTAT.
  */
 export const NARRATIVE_TAG_META: Readonly<
   Record<NarrativeSourceTag, { color: string; description: string }>
@@ -61,11 +61,11 @@ export const NARRATIVE_TAG_META: Readonly<
 const UNKNOWN_TAG_META = { color: SPECULATIVE_TAG_COLOR, description: '' };
 
 /**
- * Variante di `NARRATIVE_TAG_META` sicura per tag generici (`string`, non ristretti a
- * `NarrativeSourceTag`): usata dai componenti (`DetailPanelComponent`, `NarrativeSheetComponent`)
- * che iterano i gruppi di `orderGroupsByTag` o i tab di `buildSourceTabs`, dove un tag fuori
- * contratto è ammesso e deve degradare allo stesso fallback difensivo di `pinColor` invece di
- * lanciare.
+ * Variant of `NARRATIVE_TAG_META` safe for generic tags (`string`, not restricted to
+ * `NarrativeSourceTag`): used by the components (`DetailPanelComponent`, `NarrativeSheetComponent`)
+ * that iterate the groups of `orderGroupsByTag` or the tabs of `buildSourceTabs`, where an
+ * out-of-contract tag is allowed and must degrade to the same defensive fallback as `pinColor`
+ * instead of throwing.
  */
 export function srcTagMeta(tag: string): { color: string; description: string } {
   return (
@@ -82,12 +82,12 @@ const UNKNOWN_CONF_META: ConfMeta = Object.freeze({
 });
 
 /**
- * Variante di `CONF` sicura per un livello di confidence potenzialmente fuori contratto O assente
- * (difesa in profondità, story #207/#220): un valore non riconosciuto (typo, dato legacy, mismatch
- * di migrazione del vocabolario) o `null`/`undefined` (POI fuori ontologia, #220: nessun rischio da
- * qualificare) degrada a un placeholder — pin neutro — invece di far collassare il template in un
- * TypeError di change detection (`CONF[level]` indicizzato direttamente sarebbe `undefined`).
- * Stesso pattern di `srcTagMeta` per i tag fonte.
+ * Variant of `CONF` safe for a confidence level potentially out of contract OR absent
+ * (defense in depth, story #207/#220): an unrecognized value (typo, legacy data, vocabulary
+ * migration mismatch) or `null`/`undefined` (POI outside the ontology, #220: no risk to
+ * qualify) degrades to a placeholder — neutral pin — instead of making the template collapse
+ * into a change detection TypeError (`CONF[level]` indexed directly would be `undefined`).
+ * Same pattern as `srcTagMeta` for the source tags.
  */
 export function confMeta(level: string | null | undefined): ConfMeta {
   return (
@@ -112,11 +112,11 @@ export function coverageBadgeText(total: number, anchored: number): string {
 }
 
 /**
- * Conteggio dei POI per il proprio livello di confidence (campo `Poi.confidence`, non i rischi
- * di `confidence_summary`): fonte sia dei chip filtro di `PoiPanelComponent` sia di quelli in
- * `HeaderControlsComponent` — un solo posto per la stessa regola di conteggio (DRY). I POI fuori
- * ontologia (`confidence: null`, #220) non sono filtrabili come categoria: non contribuiscono a
- * nessuna delle 2 chiavi (niente chip/riga dedicata, coerente con `LEVELS` a 2 valori).
+ * Count of POIs per their confidence level (`Poi.confidence` field, not the risks
+ * of `confidence_summary`): source of both the filter chips of `PoiPanelComponent` and those in
+ * `HeaderControlsComponent` — one place for the same counting rule (DRY). POIs outside the
+ * ontology (`confidence: null`, #220) are not filterable as a category: they contribute to
+ * neither of the 2 keys (no dedicated chip/row, consistent with the 2-valued `LEVELS`).
  */
 export function poiConfidenceCounts(pois: Poi[] | null | undefined): Record<Confidence, number> {
   const counts: Record<Confidence, number> = { verificato: 0, da_confermare: 0 };

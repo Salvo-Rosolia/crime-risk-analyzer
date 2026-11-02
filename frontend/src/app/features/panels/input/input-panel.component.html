@@ -16,22 +16,22 @@
 
 <form (submit)="onSubmit($event)">
   <div class="cra-field">
-    <label for="cra-citta">Città <span class="cra-required" aria-hidden="true">*</span></label>
+    <label for="cra-city">Città <span class="cra-required" aria-hidden="true">*</span></label>
     <input
-      id="cra-citta"
+      id="cra-city"
       type="text"
-      list="cra-citta-options"
+      list="cra-city-options"
       autocomplete="off"
       maxlength="100"
       placeholder="es. Roma"
       aria-required="true"
-      [value]="citta()"
-      [class.cra-field-error]="cittaHasError()"
-      [attr.aria-invalid]="cittaHasError() ? true : null"
-      [attr.aria-describedby]="cittaHasError() ? 'cra-input-error' : null"
-      (input)="onCittaInput($event)"
+      [value]="city()"
+      [class.cra-field-error]="cityHasError()"
+      [attr.aria-invalid]="cityHasError() ? true : null"
+      [attr.aria-describedby]="cityHasError() ? 'cra-input-error' : null"
+      (input)="onCityInput($event)"
     />
-    <datalist id="cra-citta-options">
+    <datalist id="cra-city-options">
       @for (c of cities(); track c) {
         <option [value]="c"></option>
       }
@@ -39,31 +39,31 @@
   </div>
 
   <div class="cra-field">
-    <label for="cra-zona">Zona <span class="cra-required" aria-hidden="true">*</span></label>
+    <label for="cra-zone">Zona <span class="cra-required" aria-hidden="true">*</span></label>
     <input
-      id="cra-zona"
+      id="cra-zone"
       type="text"
       autocomplete="off"
       placeholder="es. Colosseo, Trastevere…"
       aria-required="true"
       maxlength="200"
-      [value]="zona()"
-      [class.cra-field-error]="zonaHasError()"
-      [attr.aria-invalid]="zonaHasError() ? true : null"
-      [attr.aria-describedby]="zonaHasError() ? 'cra-input-error' : null"
-      (input)="onZonaInput($event)"
+      [value]="zone()"
+      [class.cra-field-error]="zoneHasError()"
+      [attr.aria-invalid]="zoneHasError() ? true : null"
+      [attr.aria-describedby]="zoneHasError() ? 'cra-input-error' : null"
+      (input)="onZoneInput($event)"
     />
   </div>
 
   <div class="cra-field">
-    <label for="cra-domanda">
+    <label for="cra-question">
       Domanda <span class="cra-optional">(opzionale · linguaggio naturale)</span>
     </label>
     <textarea
-      id="cra-domanda"
+      id="cra-question"
       placeholder="es. Quali rischi di sera?"
-      [value]="domanda()"
-      (input)="onDomandaInput($event)"
+      [value]="question()"
+      (input)="onQuestionInput($event)"
     ></textarea>
   </div>
 

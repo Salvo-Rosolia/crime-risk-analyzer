@@ -8,10 +8,10 @@ import poiFixture from './fixtures/analyze.poi.json';
 import type { AnalyzeResponse, PoiNarrativeResponse } from '../src/app/core/models/models';
 
 /**
- * Narrativa specifica del POI selezionato (#197), sopra il fixture `analyze.happy.json` già usato
- * da `results.spec.ts`/`detail-filter.spec.ts` (POI 0 = Colosseo). La risposta per-POI viene da
- * `analyze.poi.json`: nessun testo atteso è hardcodato qui, tutto deriva dai fixture, così se una
- * fixture cambia il test resta corretto invece di diventare una bugia verde.
+ * Narrative specific to the selected POI (#197), on top of the `analyze.happy.json` fixture already used
+ * by `results.spec.ts`/`detail-filter.spec.ts` (POI 0 = Colosseo). The per-POI response comes from
+ * `analyze.poi.json`: no expected text is hardcoded here, everything derives from the fixtures, so if a
+ * fixture changes the test stays correct instead of becoming a green lie.
  */
 const analyze = analyzeFixture as AnalyzeResponse;
 const poiNarrative = poiFixture as PoiNarrativeResponse;
@@ -25,24 +25,24 @@ async function gotoResults(page: Page, opts: Parameters<typeof mockApi>[1] = {})
   await expect(S.poiPanel(page)).toBeVisible();
 }
 
-test.describe('narrativa specifica del POI (#197)', () => {
-  test('ACCEPTANCE: cliccando un POI compare la sua narrativa, tornando indietro quella di zona', async ({
+test.describe('POI-specific narrative (#197)', () => {
+  test('ACCEPTANCE: clicking a POI shows its narrative, going back shows the zone one', async ({
     page,
   }) => {
     await gotoResults(page, { poiNarrative });
 
-    // In RESULTS il pannello mostra la narrativa di ZONA.
+    // In RESULTS the panel shows the ZONE narrative.
     await expect(S.narrativeLead(page)).toHaveText(analyze.narrativa_fonti.overview);
 
     await S.poiCards(page).nth(0).click();
 
-    // In DETAIL la stessa area mostra la narrativa del PUNTO, rigenerata per la selezione,
-    // e l'intestazione dichiara lo scope invece di spacciarla per narrativa di zona.
+    // In DETAIL the same area shows the POINT narrative, regenerated for the selection,
+    // and the heading declares the scope instead of passing it off as a zone narrative.
     await expect(S.detailPanel(page)).toBeVisible();
     await expect(S.narrativeLead(page)).toHaveText(poiNarrative.narrativa_fonti.overview);
     await expect(S.narrativeHeader(page)).toContainText(analyze.poi[0].name);
 
-    // La prosa per fonte del POI alimenta i tab come quella di zona.
+    // The POI's per-source prose feeds the tabs like the zone one.
     await expect(S.narrativeTabPanels(page).first()).toContainText(
       poiNarrative.narrativa_fonti.ontologia,
     );
@@ -51,7 +51,7 @@ test.describe('narrativa specifica del POI (#197)', () => {
     await expect(S.narrativeLead(page)).toHaveText(analyze.narrativa_fonti.overview);
   });
 
-  test('la narrativa del POI è chiesta al backend con l’id del punto e l’impronta del contesto', async ({
+  test('the POI narrative is requested from the backend with the point id and the context fingerprint', async ({
     page,
   }) => {
     await gotoResults(page, { poiNarrative });
@@ -61,8 +61,8 @@ test.describe('narrativa specifica del POI (#197)', () => {
       S.poiCards(page).nth(0).click(),
     ]);
 
-    // L'impronta è quella ricevuta dall'analisi di zona, rimandata verbatim (#242): il backend la
-    // confronta col contesto che userebbe, quindi la narrativa non può nascere su un altro intorno.
+    // The fingerprint is the one received from the zone analysis, sent back verbatim (#242): the backend
+    // compares it with the context it would use, so the narrative cannot be born on another neighborhood.
     expect(request.postDataJSON()).toEqual({
       citta: analyze.citta,
       zona: analyze.zona_normalizzata,
@@ -71,7 +71,7 @@ test.describe('narrativa specifica del POI (#197)', () => {
     });
   });
 
-  test('ri-selezionare lo stesso POI non rispende una seconda generazione', async ({ page }) => {
+  test('re-selecting the same POI does not spend a second generation', async ({ page }) => {
     await gotoResults(page, { poiNarrative });
     let calls = 0;
     page.on('request', (r) => {
@@ -87,9 +87,7 @@ test.describe('narrativa specifica del POI (#197)', () => {
     expect(calls).toBe(1);
   });
 
-  test('«Rigenera» in Vista Dettaglio richiede una nuova narrativa per QUEL punto', async ({
-    page,
-  }) => {
+  test('«Rigenera» in Detail view requests a new narrative for THAT point', async ({ page }) => {
     await gotoResults(page, { poiNarrative });
     await S.poiCards(page).nth(0).click();
     await expect(S.narrativeLead(page)).toHaveText(poiNarrative.narrativa_fonti.overview);
@@ -103,7 +101,7 @@ test.describe('narrativa specifica del POI (#197)', () => {
     await expect(S.detailPanel(page)).toBeVisible();
   });
 
-  test('un 404 sul POI è mostrato nel pannello senza perdere la narrativa di zona', async ({
+  test('a 404 on the POI is shown in the panel without losing the zone narrative', async ({
     page,
   }) => {
     await gotoResults(page, {
@@ -119,7 +117,7 @@ test.describe('narrativa specifica del POI (#197)', () => {
     await expect(S.narrativeLead(page)).toHaveText(analyze.narrativa_fonti.overview);
   });
 
-  test('un 409 di contesto disallineato è mostrato nel pannello senza perdere la narrativa di zona', async ({
+  test('a 409 of misaligned context is shown in the panel without losing the zone narrative', async ({
     page,
   }) => {
     await gotoResults(page, {
@@ -134,8 +132,8 @@ test.describe('narrativa specifica del POI (#197)', () => {
 
     await S.poiCards(page).nth(0).click();
 
-    // La narrativa del punto non arriva: al suo posto il pannello dichiara il conflitto e la
-    // narrativa di ZONA resta leggibile, invece di essere sostituita da prosa non verificata.
+    // The point narrative does not arrive: in its place the panel declares the conflict and the
+    // ZONE narrative stays readable, instead of being replaced by unverified prose.
     await expect(S.narrativeError(page)).toContainText('rilancia l’analisi di zona');
     await expect(S.narrativeLead(page)).toHaveText(analyze.narrativa_fonti.overview);
   });

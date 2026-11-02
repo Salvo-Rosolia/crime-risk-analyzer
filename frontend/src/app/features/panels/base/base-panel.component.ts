@@ -15,24 +15,24 @@ import { AnalyzeResponse, BaselineParams, PoiType, SearchArea } from '@core/mode
 import { buildBaseRows, validateInputPanel } from '@core/ui-helpers';
 
 /**
- * Pannello "Sistema base" (ablation study, Stato Sistema base — spec-frontend.md): form
- * strutturato (Tipo POI opzionale + Città/Zona) → tabella "POI · Hazard · Categoria" via
- * `POST /analyze/baseline`, deliberatamente spartana (niente NL, narrativa, confidence, path
- * SPARQL, mappa: il contrasto con il sistema completo è esso stesso argomento di tesi).
+ * "Sistema base" panel (ablation study, Base-system State — spec-frontend.md): structured
+ * form (optional POI type + City/Zone) → "POI · Hazard · Categoria" table via
+ * `POST /analyze/baseline`, deliberately spartan (no NL, narrative, confidence, SPARQL
+ * path, map: the contrast with the full system is itself a thesis topic).
  *
- * L'area si sceglie in una delle DUE modalità che coesistono (#335, stesso schema di
- * `InputPanelComponent`): il cerchio disegnato su `MapComponent`, oppure città e zona digitate
- * QUI — `citta`/`zona` sono stato condiviso nello shell (`App`), così sopravvivono sia al remount
- * di questo componente sia a un giro Completo↔Base (lo stesso valore digitato resta visibile in
- * entrambi i pannelli).
+ * The area is chosen in one of the TWO modes that coexist (#335, same scheme as
+ * `InputPanelComponent`): the circle drawn on `MapComponent`, or city and zone typed
+ * HERE — `city`/`zone` are state shared in the shell (`App`), so they survive both the remount
+ * of this component and a Full↔Base round trip (the same typed value stays visible in
+ * both panels).
  *
- * Punto morto altrimenti (reperto review finale C1): `:host` (base-panel.component.css) è un
- * overlay opaco che coincide, sopra, con l'intera mappa — se l'utente passa a "Sistema base" PRIMA
- * di aver mai disegnato un cerchio in modalità completo E senza aver digitato città/zona, la mappa
- * per disegnare il cerchio resta nascosta/non cliccabile. `!area()` mostra quindi un messaggio che
- * ricorda ENTRAMBE le vie (digitare qui, o tornare a Completo per il cerchio) più un bottone che
- * emette `backToCompleto`, cablato in `app.html` sulla stessa `onToggleMode('completo')` che già
- * esiste per l'header.
+ * Dead end otherwise (final review finding C1): `:host` (base-panel.component.css) is an
+ * opaque overlay that coincides, above, with the whole map — if the user switches to "Sistema base" BEFORE
+ * ever having drawn a circle in full mode AND without having typed city/zone, the map
+ * to draw the circle stays hidden/unclickable. `!area()` therefore shows a message that
+ * recalls BOTH ways (type here, or go back to Full for the circle) plus a button that
+ * emits `backToFull`, wired in `app.html` to the same `onToggleMode('full')` that already
+ * exists for the header.
  */
 @Component({
   selector: 'cra-base-panel',
@@ -42,29 +42,29 @@ import { buildBaseRows, validateInputPanel } from '@core/ui-helpers';
 })
 export class BasePanelComponent implements OnInit {
   readonly data = input<AnalyzeResponse | null>(null);
-  /** Area scelta (cerchio disegnato o città/zona digitate), combinata dallo shell; `null` finché
-   * non ne è stata scelta una in nessuna delle due modalità. */
+  /** Chosen area (drawn circle or typed city/zone), combined by the shell; `null` until
+   * one has been chosen in either of the two modes. */
   readonly area = input<SearchArea | null>(null);
-  /** Città/zona correnti (stato condiviso nello shell, #335): riflesse nei campi, non possedute qui. */
-  readonly citta = input<string>('');
-  readonly zona = input<string>('');
-  readonly cittaChange = output<string>();
-  readonly zonaChange = output<string>();
-  /** `terminus_class` selezionato nel select "Tipo POI", o stringa vuota per "Tutti i tipi"
-   * (nessun filtro): stesso stato condiviso nello shell di `citta`/`zona` (#143, reperto review),
-   * così sopravvive al remount Completo↔Base e si azzera con "+ Nuova richiesta" insieme al resto
-   * dell'area, invece di una copia locale che un giro di modalità perderebbe in silenzio. */
-  readonly tipoPoi = input<string>('');
-  readonly tipoPoiChange = output<string>();
-  /** Emesso dal bottone "Torna a Completo" (visibile solo senza area, #318 C1): lo shell lo
-   * cabla su `onToggleMode('completo')`, la stessa transizione già raggiungibile dal toggle
-   * dell'header. */
-  readonly backToCompleto = output<void>();
+  /** Current city/zone (state shared in the shell, #335): reflected in the fields, not owned here. */
+  readonly city = input<string>('');
+  readonly zone = input<string>('');
+  readonly cityChange = output<string>();
+  readonly zoneChange = output<string>();
+  /** `terminus_class` selected in the "Tipo POI" select, or empty string for "Tutti i tipi"
+   * (no filter): same state shared in the shell as `city`/`zone` (#143, review finding),
+   * so it survives the Full↔Base remount and is cleared with "+ Nuova richiesta" together with the rest
+   * of the area, instead of a local copy that a mode round trip would silently lose. */
+  readonly poiType = input<string>('');
+  readonly poiTypeChange = output<string>();
+  /** Emitted by the "Torna a Completo" button (visible only without an area, #318 C1): the shell
+   * wires it to `onToggleMode('full')`, the same transition already reachable from the header
+   * toggle. */
+  readonly backToFull = output<void>();
   /**
-   * Messaggio d'errore dal server (`store.error()` quando `LOAD_ERROR` arriva in modalità base —
-   * transition.ts instrada qui invece che sullo Stato Errore condiviso col form del sistema
-   * completo): l'errore e il retry restano dentro questo stesso pannello, il cui form persiste
-   * indipendentemente dall'esito (bloccante 2 review #67).
+   * Error message from the server (`store.error()` when `LOAD_ERROR` arrives in base mode —
+   * transition.ts routes here instead of the Error State shared with the full-system
+   * form): the error and the retry stay inside this same panel, whose form persists
+   * regardless of the outcome (blocker 2 review #67).
    */
   readonly serverError = input<string | null>(null);
 
@@ -73,26 +73,26 @@ export class BasePanelComponent implements OnInit {
   private readonly api = inject(ApiService);
 
   protected readonly cities = signal<string[]>([]);
-  /** Opzioni del select "Tipo POI" (`GET /poi-types`, #143), già ordinate per `label_it` dal
-   * backend. Vuoto se la richiesta fallisce: il select mostra solo "Tutti i tipi" — il filtro è
-   * opzionale, non deve bloccare la ricerca. */
+  /** Options of the "Tipo POI" select (`GET /poi-types`, #143), already sorted by `label_it` by the
+   * backend. Empty if the request fails: the select shows only "Tutti i tipi" — the filter is
+   * optional, it must not block the search. */
   protected readonly poiTypes = signal<PoiType[]>([]);
   protected readonly validationError = signal<string | null>(null);
-  protected readonly validationField = signal<'citta' | 'zona' | null>(null);
-  /** L'area per cui è arrivato l'ultimo errore server (reperto review, stessa convenzione di
-   * InputPanelComponent.serverErrorArea): confronto per riferimento, affidabile perché `area()`
-   * (lo shell combina circle/citta/zona in un `computed`) cambia referenza solo quando una di
-   * quelle sorgenti cambia davvero. */
+  protected readonly validationField = signal<'city' | 'zone' | null>(null);
+  /** The area for which the last server error arrived (review finding, same convention as
+   * InputPanelComponent.serverErrorArea): comparison by reference, reliable because `area()`
+   * (the shell combines circle/city/zone in a `computed`) changes reference only when one of
+   * those sources really changes. */
   private readonly serverErrorArea = signal<SearchArea | null>(null);
-  /** Validazione client sempre in priorità sull'errore server, stessa convenzione di InputPanelComponent. */
+  /** Client validation always takes priority over the server error, same convention as InputPanelComponent. */
   protected readonly displayError = computed(() => this.validationError() ?? this.serverError());
-  protected readonly cittaHasError = computed(() => this.validationField() === 'citta');
-  /** Bordo d'errore sulla zona: validazione client su di lei, oppure — senza errore client attivo,
-   * solo se l'area rifiutata era in modalità città/zona E l'area ATTUALE è ancora quella per cui
-   * l'errore è arrivato (stessa convenzione di InputPanelComponent.zonaHasError). */
-  protected readonly zonaHasError = computed(
+  protected readonly cityHasError = computed(() => this.validationField() === 'city');
+  /** Error border on the zone: client validation on it, or — without an active client error,
+   * only if the rejected area was in city/zone mode AND the CURRENT area is still the one for which
+   * the error arrived (same convention as InputPanelComponent.zoneHasError). */
+  protected readonly zoneHasError = computed(
     () =>
-      this.validationField() === 'zona' ||
+      this.validationField() === 'zone' ||
       (!this.validationError() &&
         !!this.serverError() &&
         this.area()?.kind === 'zone' &&
@@ -104,10 +104,10 @@ export class BasePanelComponent implements OnInit {
   );
 
   constructor() {
-    // Stessa coppia di effetti di InputPanelComponent: il cambio di area azzera la validazione
-    // client ancora visibile, e l'area di un errore server si cattura SOLO al momento in cui
-    // l'errore arriva (letta senza tracciarla, altrimenti l'effetto scatterebbe a ogni cambio di
-    // area vanificando il confronto in `zonaHasError`).
+    // Same pair of effects as InputPanelComponent: the area change clears the client
+    // validation still visible, and the area of a server error is captured ONLY at the moment
+    // the error arrives (read without tracking it, otherwise the effect would fire at every
+    // area change defeating the comparison in `zoneHasError`).
     effect(() => {
       this.area();
       untracked(() => this.clearValidation());
@@ -123,18 +123,18 @@ export class BasePanelComponent implements OnInit {
     void this.loadPoiTypes();
   }
 
-  protected onCittaInput(event: Event): void {
-    this.cittaChange.emit((event.target as HTMLInputElement).value);
+  protected onCityInput(event: Event): void {
+    this.cityChange.emit((event.target as HTMLInputElement).value);
     this.clearValidation();
   }
 
-  protected onZonaInput(event: Event): void {
-    this.zonaChange.emit((event.target as HTMLInputElement).value);
+  protected onZoneInput(event: Event): void {
+    this.zoneChange.emit((event.target as HTMLInputElement).value);
     this.clearValidation();
   }
 
-  protected onTipoPoiChange(event: Event): void {
-    this.tipoPoiChange.emit((event.target as HTMLSelectElement).value);
+  protected onPoiTypeChange(event: Event): void {
+    this.poiTypeChange.emit((event.target as HTMLSelectElement).value);
   }
 
   protected onSubmit(event: Event): void {
@@ -142,7 +142,7 @@ export class BasePanelComponent implements OnInit {
 
     const area = this.area();
     if (!area) {
-      const { ok, error, field } = validateInputPanel({ citta: this.citta(), zona: this.zona() });
+      const { ok, error, field } = validateInputPanel({ city: this.city(), zone: this.zone() });
       if (!ok) {
         this.validationError.set(error);
         this.validationField.set(field);
@@ -151,9 +151,9 @@ export class BasePanelComponent implements OnInit {
     }
 
     this.clearValidation();
-    const tipoPoi = this.tipoPoi().trim();
+    const poiType = this.poiType().trim();
     const params: BaselineParams = { area };
-    if (tipoPoi) params.tipo_poi = tipoPoi;
+    if (poiType) params.poiType = poiType;
     this.analyzeBaseline.emit(params);
   }
 
@@ -170,8 +170,8 @@ export class BasePanelComponent implements OnInit {
     }
   }
 
-  /** Fallisce senza bloccare la ricerca (#143): il filtro Tipo POI è opzionale, un elenco vuoto
-   * lascia solo "Tutti i tipi" nel select invece di mostrare un errore. */
+  /** Fails without blocking the search (#143): the Tipo POI filter is optional, an empty list
+   * leaves only "Tutti i tipi" in the select instead of showing an error. */
   private async loadPoiTypes(): Promise<void> {
     try {
       this.poiTypes.set(await this.api.poiTypes());

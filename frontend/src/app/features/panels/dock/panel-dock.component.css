@@ -1,24 +1,24 @@
 /*
- * Dock unico a sinistra (#199): a differenza dei vecchi wrapper `.cra-panel-poi`/`.cra-panel-detail`
- * in app.css (ancoraggio via classi esterne), questo componente gestisce da sé posizione/chrome —
- * stesso pattern di `narrative-sheet.component.css` — perché la sua altezza deve reagire a
- * `narrOpen` (criteri d'accettazione #199: dock e narrativa non si sovrappongono mai) e la sua
- * larghezza deve reagire al collasso (`open`).
+ * Single dock on the left (#199): unlike the old `.cra-panel-poi`/`.cra-panel-detail` wrappers
+ * in app.css (anchoring via external classes), this component handles position/chrome itself —
+ * same pattern as `narrative-sheet.component.css` — because its height must react to
+ * `narrOpen` (acceptance criteria #199: dock and narrative never overlap) and its
+ * width must react to the collapse (`open`).
  */
 :host {
-  /* Stessa ragione di `.cra-panel` (app.css): `--panel-max-width` deve essere la larghezza
-     ESTERNA, bordo incluso, perché il corridoio libero a destra dei pannelli — dove si ancora
-     `.cra-radius-control` — è calcolato da quel token. Qui lo scarto era solo il bordo
-     (2 × var(--panel-border)), non abbastanza da sovrapporsi, ma tenere i due pannelli sullo
-     stesso box model evita che l'invariante regga per caso. */
+  /* Same reason as `.cra-panel` (app.css): `--panel-max-width` must be the OUTER width,
+     border included, because the free corridor to the right of the panels — where
+     `.cra-radius-control` anchors — is computed from that token. Here the gap was only the border
+     (2 × var(--panel-border)), not enough to overlap, but keeping the two panels on the
+     same box model avoids the invariant holding by chance. */
   box-sizing: border-box;
   position: absolute;
   top: var(--space-4);
   left: var(--space-4);
   z-index: 1;
   width: var(--panel-max-width);
-  /* A layout largo (#218) la narrativa è a destra, non sotto: il dock è a TUTTA ALTEZZA (riserva 0).
-     Sotto 1100px la riserva viene ripristinata dalla media query in fondo. */
+  /* On a wide layout (#218) the narrative is on the right, not below: the dock is FULL HEIGHT (reserve 0).
+     Below 1100px the reserve is restored by the media query at the bottom. */
   --dock-narr-reserve: 0px;
   max-height: calc(
     100vh - var(--header-height) - var(--space-4) * 2 - var(--dock-narr-reserve, 56px)
@@ -34,11 +34,11 @@
 }
 
 /*
- * Coordinamento altezza dock↔narrativa SOLO sotto 1100px (#218): a layout largo la narrativa è un
- * pannello a destra (non sotto), quindi il dock resta a tutta altezza (`--dock-narr-reserve: 0`
- * sopra). Sotto 1100px la narrativa torna bottom-sheet full-width e il dock deve accorciarsi per
- * non coprirla — si ripristina la riserva storica (#199): 45vh + margini quando la narrativa è
- * aperta, un minimo fisso (~header collassato + bordo) quando è chiusa.
+ * Dock↔narrative height coordination ONLY below 1100px (#218): on a wide layout the narrative is a
+ * right-hand panel (not below), so the dock stays full height (`--dock-narr-reserve: 0`
+ * above). Below 1100px the narrative goes back to a full-width bottom sheet and the dock must shorten so as
+ * not to cover it — the historical reserve is restored (#199): 45vh + margins when the narrative is
+ * open, a fixed minimum (~collapsed header + border) when it is closed.
  */
 @media (max-width: 1099px) {
   :host {
@@ -49,8 +49,8 @@
   }
 }
 
-/* Dock collassato (`TOGGLE_POI_PANEL`/`poiPanelOpen`, #199 decisione 3): si riduce a una
-   barretta con solo il controllo di espansione, liberando la mappa. */
+/* Collapsed dock (`TOGGLE_POI_PANEL`/`poiPanelOpen`, #199 decision 3): shrinks to a
+   thin bar with only the expand control, freeing the map. */
 :host.cra-dock-collapsed {
   width: auto;
   max-height: none;
@@ -99,8 +99,8 @@
   background: var(--accent-2);
 }
 
-/* Conferma leggera IN-APP (#199 decisione 4, mai `window.confirm`): sostituisce il pulsante
-   "+ Nuova richiesta" fino alla scelta esplicita Sì/Annulla. */
+/* Light IN-APP confirmation (#199 decision 4, never `window.confirm`): replaces the
+   "+ Nuova richiesta" button until the explicit Sì/Annulla choice. */
 .cra-reset-confirm {
   display: flex;
   align-items: center;
@@ -138,8 +138,8 @@
   overflow: hidden;
 }
 
-/* `[hidden]` deve vincere sulle regole `display` sotto (stessa specificità dello UA stylesheet,
-   l'ordine di sorgente altrimenti farebbe vincere le nostre) — vale per body/list/detail-view. */
+/* `[hidden]` must win over the `display` rules below (same specificity as the UA stylesheet,
+   source order would otherwise make ours win) — applies to body/list/detail-view. */
 .cra-dock-body[hidden] {
   display: none;
 }
@@ -155,9 +155,9 @@
   display: none;
 }
 
-/* Vista Dettaglio (#199): stesso pattern flex-column a tutta altezza già usato da
-   `detail-panel.component.css` (header/footer fissi, `.cra-detail-body` scrolla da sola) — qui
-   solo il contenimento in altezza via flex, la logica di scroll interno resta nel componente. */
+/* Detail view (#199): same full-height flex-column pattern already used by
+   `detail-panel.component.css` (fixed header/footer, `.cra-detail-body` scrolls on its own) — here
+   only the height containment via flex, the internal scroll logic stays in the component. */
 .cra-dock-detail-view {
   flex: 1 1 auto;
   min-height: 0;

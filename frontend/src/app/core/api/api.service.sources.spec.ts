@@ -17,7 +17,7 @@ const attivo: SourcesStatus = {
   },
 };
 
-describe('ApiService - fonti', () => {
+describe('ApiService - sources', () => {
   let api: ApiService;
   let ctrl: HttpTestingController;
 
@@ -55,7 +55,7 @@ describe('ApiService - fonti', () => {
     expect((await p).stato).toBe('default');
   });
 
-  it('uploadSources: POST multipart con i file e solo i campi del vocabolario indicati', async () => {
+  it('uploadSources: multipart POST with the files and only the indicated vocabulary fields', async () => {
     const f = (n: string) => new File(['x'], n);
     const p = api.uploadSources({
       ontology: f('o.ttl'),
@@ -77,7 +77,7 @@ describe('ApiService - fonti', () => {
     await p;
   });
 
-  it('uploadSources: allega i confini se presenti', async () => {
+  it('uploadSources: attaches the boundaries if present', async () => {
     const f = (n: string) => new File(['x'], n);
     const p = api.uploadSources({
       ontology: f('o.ttl'),
@@ -92,7 +92,7 @@ describe('ApiService - fonti', () => {
     await p;
   });
 
-  it('templateUrl: percorso relativo del modello', () => {
+  it('templateUrl: relative path of the template', () => {
     expect(api.templateUrl('osm_table')).toBe('/sources/templates/osm_table');
   });
 });

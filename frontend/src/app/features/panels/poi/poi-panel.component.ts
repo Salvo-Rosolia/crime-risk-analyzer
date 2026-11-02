@@ -5,10 +5,10 @@ import { matchesFilter, poiDisplayLabel, poiNameDisplayLabel } from '@core/ui-he
 import { ConfidenceFilterComponent } from '@features/panels/confidence-filter/confidence-filter.component';
 
 /**
- * Pannello "Lista POI" (Stato B / B·Filtro): card numerate accoppiate ai marker della mappa
- * (stesso numero, stesso ordine dell'array `pois`) + controllo unificato "Confidenza"
- * (legenda + filtro in un solo elemento, story #207: `SET_FILTER`/`CLEAR_FILTER`,
- * spec-frontend.md §Stato B·Filtro).
+ * "Lista POI" panel (State B / B·Filter): numbered cards paired with the map markers
+ * (same number, same order as the `pois` array) + unified "Confidenza" control
+ * (legend + filter in a single element, story #207: `SET_FILTER`/`CLEAR_FILTER`,
+ * spec-frontend.md §State B·Filter).
  */
 @Component({
   selector: 'cra-poi-panel',
@@ -27,9 +27,9 @@ export class PoiPanelComponent {
   readonly clearFilter = output<void>();
 
   /**
-   * Accesso via funzione pura anziché indicizzazione diretta `CONF[poi.confidence]` (#220): un POI
-   * fuori ontologia ha `confidence: null` — `pinColor`/`confMeta` degradano al fallback "pin
-   * neutro" invece di lanciare un TypeError di change detection su una chiave `null`.
+   * Access via a pure function instead of direct indexing `CONF[poi.confidence]` (#220): a POI
+   * outside the ontology has `confidence: null` — `pinColor`/`confMeta` degrade to the "neutral
+   * pin" fallback instead of throwing a change detection TypeError on a `null` key.
    */
   protected readonly pinColor = pinColor;
   protected readonly confMeta = confMeta;

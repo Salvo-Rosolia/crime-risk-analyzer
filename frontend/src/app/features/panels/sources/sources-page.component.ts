@@ -90,13 +90,13 @@ const VOCABULARY_FIELDS = [
 
 type VocabularyKey = (typeof VOCABULARY_FIELDS)[number]['key'];
 
-/** Lunghezza massima di un messaggio del controllo mostrato in pagina. */
+/** Maximum length of a check message shown on the page. */
 const MAX_MESSAGE = 320;
 
 /**
- * Rende leggibile un messaggio del controllo: toglie il frammento di file che il parser include
- * dopo `in: "b'…` (illeggibile e inutile all'utente) e accorcia i testi troppo lunghi. La riga e la
- * causa restano; il messaggio completo resta nella risposta del server.
+ * Makes a check message readable: removes the file fragment that the parser includes
+ * after `in: "b'…` (unreadable and useless to the user) and shortens texts that are too long. The line and the
+ * cause remain; the full message remains in the server response.
  */
 function shortMessage(message: string): string {
   const text = message
@@ -111,17 +111,17 @@ function plural(n: number, one: string, many: string): string {
 }
 
 /**
- * Pagina Fonti (#419): carica i file dell'ontologia e dei dati, mostra gli errori e gli avvisi del
- * controllo agganciati al file a cui si riferiscono, scarica i modelli CSV, attiva l'esempio o
- * torna al default. Si apre sopra la mappa (dialog modale) da qualunque schermata. Lo stato vive in
- * `SourcesStore`; qui restano solo i file scelti e i campi del vocabolario, che sono del modulo.
+ * Fonti page (#419): uploads the ontology and data files, shows the check's errors and warnings
+ * attached to the file they refer to, downloads the CSV templates, activates the example or
+ * goes back to the default. It opens above the map (modal dialog) from any screen. The state lives in
+ * `SourcesStore`; only the chosen files and the vocabulary fields stay here, which belong to the form.
  */
 @Component({
   selector: 'cra-sources-page',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [NgTemplateOutlet],
-  // Tastiera a livello di documento: un pulsante disabilitato durante l'operazione fa perdere il
-  // focus al body, e un handler sul solo dialog non riceverebbe più Esc né Tab.
+  // Document-level keyboard: a button disabled during the operation makes the body lose
+  // focus, and a handler on the dialog alone would no longer receive Esc or Tab.
   host: { '(document:keydown)': 'onKeydown($event)' },
   templateUrl: './sources-page.component.html',
   styleUrl: './sources-page.component.css',
@@ -130,10 +130,10 @@ export class SourcesPageComponent {
   protected readonly store = inject(SourcesStore);
   private readonly api = inject(ApiService);
   private readonly doc = inject(DOCUMENT);
-  /** Chi aveva il focus all'apertura (di solito l'indicatore): gli si rende il focus alla chiusura. */
+  /** Who had the focus at opening (usually the indicator): the focus is handed back to it on closing. */
   private readonly opener = this.doc.activeElement as HTMLElement | null;
 
-  /** Richiesta di chiusura (Chiudi o Esc): mai emessa mentre un'operazione è in volo. */
+  /** Close request (Chiudi or Esc): never emitted while an operation is in flight. */
   readonly closed = output<void>();
 
   protected readonly ontologySlots = ONTOLOGY_SLOTS;
@@ -148,7 +148,7 @@ export class SourcesPageComponent {
     () => REQUIRED.every((key) => this.files()[key]) && this.store.busy() === null,
   );
 
-  /** Errori e avvisi da mostrare: quelli dell'ultimo rifiuto, altrimenti gli avvisi del set attivo. */
+  /** Errors and warnings to show: those of the last rejection, otherwise the warnings of the active set. */
   private readonly problems = computed(() => {
     const report = this.store.report();
     return {
@@ -169,7 +169,7 @@ export class SourcesPageComponent {
     }
   });
 
-  /** Problemi che non si agganciano a nessun file visibile: non devono sparire. */
+  /** Problems that attach to no visible file: they must not disappear. */
   protected readonly generalProblems = computed(() => {
     const known = new Set<string>(SLOT_KEYS);
     const { errors, warnings } = this.problems();
@@ -194,7 +194,7 @@ export class SourcesPageComponent {
     return parts.join(' · ');
   });
 
-  /** Tanti errori sui nomi dell'ontologia: quasi sempre il vocabolario non è quello TERMINUS. */
+  /** Many errors on the ontology names: almost always the vocabulary is not the TERMINUS one. */
   protected readonly vocabularyHint = computed(() => {
     const errors = this.store.report()?.errors ?? [];
     return (
@@ -210,7 +210,7 @@ export class SourcesPageComponent {
   });
 
   constructor() {
-    // Il focus va al dialog all'apertura: da tastiera si prosegue da lì, e Esc lo chiude.
+    // The focus goes to the dialog on opening: from the keyboard one continues from there, and Esc closes it.
     afterNextRender(() => this.dialog().nativeElement.focus());
     inject(DestroyRef).onDestroy(() => {
       if (this.opener && this.opener !== this.doc.body && this.opener.isConnected) {
@@ -228,7 +228,7 @@ export class SourcesPageComponent {
     else if (event.key === 'Tab') this.trapTab(event);
   }
 
-  /** Focus trap: Tab non esce dal dialog (aria-modal da solo non lo impedisce). */
+  /** Focus trap: Tab does not leave the dialog (aria-modal alone does not prevent it). */
   private trapTab(event: KeyboardEvent): void {
     const root = this.dialog().nativeElement;
     const items = Array.from(

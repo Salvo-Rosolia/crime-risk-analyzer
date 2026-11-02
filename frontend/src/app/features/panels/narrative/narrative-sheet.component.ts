@@ -22,12 +22,12 @@ import {
   withIstatProseIndicators,
 } from '@core/ui-helpers';
 
-/** Nodo di prosa reso dal template: testo stilato (markdown inline) o indicatore ISTAT. */
+/** Prose node rendered by the template: styled text (inline markdown) or ISTAT indicator. */
 export type ProseNode =
   | { kind: 'text'; text: string; bold: boolean; italic: boolean }
   | { kind: 'istat'; indicator: IstatProseIndicator };
 
-/** Markdown inline → nodi (niente innerHTML); gli indicatori ISTAT sono slot dentro il testo. */
+/** Inline markdown → nodes (no innerHTML); the ISTAT indicators are slots inside the text. */
 function toNodes(segments: ProseSegment[]): ProseNode[] {
   const parts = segments.map((s) => (s.kind === 'text' ? s.text : { slot: s.indicator }));
   return parseInlineMarkdownWithSlots(parts).map((p) =>
@@ -36,13 +36,13 @@ function toNodes(segments: ProseSegment[]): ProseNode[] {
 }
 
 /**
- * "Narrativa generata" (Stato B): a layout largo è un PANNELLO A DESTRA a tutta altezza (#218),
- * sotto 1100px torna bottom-sheet full-width (posizionamento in `narrative-sheet.component.css`).
- * Contenuto: overview discorsivo + un tab per fonte (ONTOLOGIA → CONTESTO → ISTAT → SPECULATIVO,
- * via `buildSourceTabs`) con la sola prosa (`narrativa_fonti`), banner anti-hallucination SEMPRE
- * visibile (anche da collassato — vive nell'header, non nel corpo collassabile) e bottone
- * "Rigenera" (re-POST `/analyze`, nessun endpoint nuovo). Componente "thin": nessuna chiamata
- * store/http diretta, solo output verso lo shell; il collasso è guidato da `open()` (classe host
+ * "Narrativa generata" (State B): on a wide layout it is a full-height RIGHT-HAND PANEL (#218),
+ * below 1100px it goes back to a full-width bottom sheet (positioning in `narrative-sheet.component.css`).
+ * Content: discursive overview + one tab per source (ONTOLOGIA → CONTESTO → ISTAT → SPECULATIVO,
+ * via `buildSourceTabs`) with the prose alone (`narrativa_fonti`), anti-hallucination banner ALWAYS
+ * visible (even when collapsed — it lives in the header, not in the collapsible body) and
+ * "Rigenera" button (re-POST `/analyze`, no new endpoint). "Thin" component: no direct
+ * store/http call, only outputs towards the shell; the collapse is driven by `open()` (host class
  * `cra-narr-collapsed`).
  */
 @Component({
@@ -52,39 +52,39 @@ function toNodes(segments: ProseSegment[]): ProseNode[] {
   templateUrl: './narrative-sheet.component.html',
   styleUrl: './narrative-sheet.component.css',
   host: {
-    // Layout pannello-destro (#218): classe host quando collassato, così il CSS riduce l'altezza
-    // al solo header (il corpo è già sfilato via `@if(open())`) senza stirare il pannello a
-    // tutta altezza. Il banner di sicurezza resta comunque nell'header, sempre visibile.
+    // Right-panel layout (#218): host class when collapsed, so the CSS reduces the height
+    // to the header alone (the body is already removed via `@if(open())`) without stretching the panel to
+    // full height. The safety banner stays in the header anyway, always visible.
     '[class.cra-narr-collapsed]': '!open()',
   },
 })
 export class NarrativeSheetComponent {
-  readonly citta = input<string | null>(null);
-  readonly zona = input<string | null>(null);
-  readonly narrativa = input<string>('');
-  readonly narrativaFonti = input<SourceProse | null>(null);
+  readonly city = input<string | null>(null);
+  readonly zone = input<string | null>(null);
+  readonly narrative = input<string>('');
+  readonly narrativeSources = input<SourceProse | null>(null);
   readonly open = input<boolean>(true);
-  /** Generazione in corso (#197): il corpo lo dichiara, il contenuto precedente resta visibile. */
+  /** Generation in progress (#197): the body declares it, the previous content stays visible. */
   readonly loading = input<boolean>(false);
-  /** Errore dell'ultima generazione (#197); `null` quando non c'è nulla da segnalare. */
+  /** Error of the last generation (#197); `null` when there is nothing to report. */
   readonly error = input<string | null>(null);
-  /** Nome del punto quando il pannello mostra la narrativa di UN POI (#197); `null` in scope zona. */
+  /** Name of the point when the panel shows the narrative of ONE POI (#197); `null` in zone scope. */
   readonly poiName = input<string | null>(null);
-  /** Il punto mostrato non ha rischi ancorati all'ontologia (#197): la prosa è tutta inferenza. */
+  /** The displayed point has no risks anchored to the ontology (#197): the prose is all inference. */
   readonly ungrounded = input<boolean>(false);
-  /** L'LLM è caduto sul punto mostrato (#197): restano i soli dati strutturati. */
+  /** The LLM failed on the displayed point (#197): only the structured data remain. */
   readonly fallback = input<boolean>(false);
 
   /**
-   * Rischi dello scope mostrato col dato ISTAT del loro POI (#365): zona → tutti i POI, punto → il
-   * POI selezionato. Alimenta gli indicatori in linea del tab ONTOLOGIA.
+   * Risks of the displayed scope with the ISTAT datum of their POI (#365): zone → all POIs, point → the
+   * selected POI. Feeds the inline indicators of the ONTOLOGIA tab.
    */
   readonly istatOccurrences = input<IstatHazardOccurrence[]>([]);
 
   readonly toggleNarrative = output<void>();
   readonly regenerate = output<void>();
 
-  protected readonly model = computed(() => buildSourceTabs(this.narrativaFonti()));
+  protected readonly model = computed(() => buildSourceTabs(this.narrativeSources()));
   protected readonly activeTag = signal<NarrativeSourceTag | null>(null);
   protected readonly activeTab = computed<SourceTab | null>(() => {
     const tabs = this.model().tabs;
@@ -92,22 +92,22 @@ export class NarrativeSheetComponent {
     return tabs.find((t) => t.tag === this.activeTag()) ?? tabs[0];
   });
   /**
-   * Lead discorsivo sopra i tab: mostra `overview` quando presente; se `overview` è vuoto ma
-   * ci sono tab, non mostra nulla (la prosa è già nei pannelli — evita di duplicare `narrativa()`
-   * per intero sopra i tab, review Task 4 FIX 3); fallback a `narrativa()` legacy solo quando non
-   * ci sono tab (nessuna fonte strutturata da mostrare).
+   * Discursive lead above the tabs: shows `overview` when present; if `overview` is empty but
+   * there are tabs, it shows nothing (the prose is already in the panels — avoids duplicating `narrative()`
+   * in full above the tabs, review Task 4 FIX 3); falls back to the legacy `narrative()` only when there
+   * are no tabs (no structured source to show).
    */
   protected readonly leadText = computed(() => {
     const m = this.model();
-    return m.overview || (m.tabs.length === 0 ? this.narrativa() : '');
+    return m.overview || (m.tabs.length === 0 ? this.narrative() : '');
   });
-  /** Lead a nodi (markdown inline). */
+  /** Lead as nodes (inline markdown). */
   protected readonly leadNodes = computed(() => toNodes([{ kind: 'text', text: this.leadText() }]));
   /**
-   * Prosa di ogni tab a nodi: markdown inline ovunque; nel tab ONTOLOGIA anche gli indicatori
-   * ISTAT in linea (#365). L'indicatore si inserisce PRIMA sul testo coi marcatori (dopo i `**`/`*`
-   * di chiusura) e il markdown è interpretato sull'intero testo con gli indicatori come slot: una
-   * coppia `**…**` non viene mai spezzata.
+   * Prose of each tab as nodes: inline markdown everywhere; in the ONTOLOGIA tab also the inline
+   * ISTAT indicators (#365). The indicator is inserted FIRST on the text with the markers (after the closing `**`/`*`)
+   * and the markdown is interpreted on the whole text with the indicators as slots: a
+   * `**…**` pair is never split.
    */
   protected readonly tabNodes = computed(() => {
     const occurrences = this.istatOccurrences();
@@ -153,8 +153,8 @@ export class NarrativeSheetComponent {
     this.regenerate.emit();
   }
 
-  /** Spazio su un elemento `role="button"` non nativo: previene lo scroll pagina (comportamento
-   * di default del browser per lo spazio) prima di attivare il toggle, come farebbe un bottone reale. */
+  /** Space on a non-native `role="button"` element: prevents the page scroll (browser default
+   * behavior for space) before activating the toggle, as a real button would. */
   protected onHeaderSpace(event: Event): void {
     event.preventDefault();
     this.toggleNarrative.emit();

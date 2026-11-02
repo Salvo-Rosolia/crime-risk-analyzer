@@ -15,20 +15,20 @@ import { PoiPanelComponent } from '@features/panels/poi/poi-panel.component';
 import { DetailPanelComponent } from '@features/panels/detail/detail-panel.component';
 
 /**
- * Dock unico a sinistra (Approccio A, variante 1, #199): Lista POI e Dettaglio non sono più
- * pannelli flottanti separati (Lista top-left + Dettaglio top-right), ma due VISTE mutuamente
- * esclusive di questo stesso contenitore — drill-down `Lista → clic POI → Dettaglio → "‹
- * indietro"` (`cra-detail-back`, dentro `cra-detail-panel`). Riusa `cra-poi-panel`/
- * `cra-detail-panel` così come sono, nessuna logica di filtro/dettaglio riscritta qui.
+ * Single dock on the left (Approach A, variant 1, #199): POI List and Detail are no longer
+ * separate floating panels (List top-left + Detail top-right), but two mutually
+ * exclusive VIEWS of this same container — drill-down `List → POI click → Detail → "‹
+ * indietro"` (`cra-detail-back`, inside `cra-detail-panel`). It reuses `cra-poi-panel`/
+ * `cra-detail-panel` as they are, no filter/detail logic rewritten here.
  *
- * La Vista Lista resta MONTATA (`[hidden]`, non `@if`) quando si passa alla Vista Dettaglio: il
- * dock non si smonta passando tra le viste, per preservare scroll/stato — coerente con i test di
- * non-rimonta esistenti (`app.spec.ts`).
+ * The List view stays MOUNTED (`[hidden]`, not `@if`) when switching to the Detail view: the
+ * dock does not unmount when moving between views, to preserve scroll/state — consistent with the existing
+ * non-remount tests (`app.spec.ts`).
  *
- * Altezza coordinata con `narrOpen` (la narrativa bottom-sheet è a tutta larghezza sotto: dock e
- * narrativa non devono mai sovrapporsi, criteri d'accettazione #199) via classe host
- * `cra-dock-narr-open` letta da `panel-dock.component.css`. Collassabile (`open`, cablato su
- * `TOGGLE_POI_PANEL`/`poiPanelOpen`, dormiente in FSM finché nessun controllo UI lo invocava).
+ * Height coordinated with `narrOpen` (the narrative bottom sheet is full-width below: dock and
+ * narrative must never overlap, acceptance criteria #199) via host class
+ * `cra-dock-narr-open` read by `panel-dock.component.css`. Collapsible (`open`, wired to
+ * `TOGGLE_POI_PANEL`/`poiPanelOpen`, dormant in the FSM until no UI control invoked it).
  */
 @Component({
   selector: 'cra-panel-dock',
@@ -45,40 +45,40 @@ export class PanelDockComponent {
   readonly pois = input<Poi[]>([]);
   readonly filter = input<Confidence | null>(null);
   readonly selectedId = input<string | null>(null);
-  /** POI selezionato + numero (Vista Dettaglio): `null` → mostra la Vista Lista. */
+  /** Selected POI + number (Detail view): `null` → shows the List view. */
   readonly detail = input<NumberedPoi | null>(null);
   readonly riskModels = input<RiskModel[]>([]);
-  /** Collasso del dock (`store.poiPanelOpen()`). */
+  /** Collapse of the dock (`store.poiPanelOpen()`). */
   readonly open = input<boolean>(true);
-  /** Stato del bottom-sheet narrativa (`store.narrOpen()`): guida l'altezza del dock via CSS. */
+  /** State of the narrative bottom sheet (`store.narrOpen()`): drives the dock height via CSS. */
   readonly narrOpen = input<boolean>(true);
 
   readonly selectPoi = output<string>();
   readonly setFilter = output<Confidence>();
   readonly clearFilter = output<void>();
-  /** "‹ indietro" dalla Vista Dettaglio (`cra-detail-panel`): lo shell dispatcha `DESELECT_POI`. */
+  /** "‹ indietro" from the Detail view (`cra-detail-panel`): the shell dispatches `DESELECT_POI`. */
   readonly closeDetail = output<void>();
   readonly toggleOpen = output<void>();
-  /** Emesso solo DOPO la conferma leggera in-app (mai `window.confirm`, #199 decisione 4). Nome
-   * non `reset` per `@angular-eslint/no-output-native` (collide con l'evento DOM `reset`). */
+  /** Emitted only AFTER the light in-app confirmation (never `window.confirm`, #199 decision 4). Name
+   * not `reset` because of `@angular-eslint/no-output-native` (it collides with the DOM `reset` event). */
   readonly resetConfirmed = output<void>();
 
-  /** Conferma leggera IN-APP: "+ Nuova richiesta" si trasforma in
-   * "Ricominciare? Perderai i risultati [Sì] [Annulla]" prima di emettere `resetConfirmed`. */
+  /** Light IN-APP confirmation: "+ Nuova richiesta" turns into
+   * "Ricominciare? Perderai i risultati [Sì] [Annulla]" before emitting `resetConfirmed`. */
   protected readonly confirmingReset = signal(false);
 
   private readonly newRequestButtonRef = viewChild<ElementRef<HTMLButtonElement>>('newRequestBtn');
   private readonly confirmYesButtonRef = viewChild<ElementRef<HTMLButtonElement>>('confirmYesBtn');
-  /** Necessario per chiamare `afterNextRender` fuori dal contesto di iniezione della costruzione
-   * (dentro i click handler sotto), per-`options.injector` come previsto dall'API. */
+  /** Needed to call `afterNextRender` outside the construction injection context
+   * (inside the click handlers below), per-`options.injector` as the API provides. */
   private readonly injector = inject(Injector);
 
   protected onNewRequestClick(): void {
     this.confirmingReset.set(true);
-    // Focus management (a11y, fix review #199, stesso principio di `detail-panel.component.ts`):
-    // sposta il focus sul pulsante "Sì" DOPO che Angular ha aggiornato il DOM per il nuovo valore
-    // di `confirmingReset` (altrimenti la query `confirmYesButtonRef` leggerebbe ancora `undefined`
-    // — il blocco `@else` con "Sì"/"Annulla" non esiste finché quel render non è avvenuto).
+    // Focus management (a11y, review #199 fix, same principle as `detail-panel.component.ts`):
+    // moves the focus to the "Sì" button AFTER Angular has updated the DOM for the new value
+    // of `confirmingReset` (otherwise the `confirmYesButtonRef` query would still read `undefined`
+    // — the `@else` block with "Sì"/"Annulla" does not exist until that render has happened).
     afterNextRender(() => this.confirmYesButtonRef()?.nativeElement.focus(), {
       injector: this.injector,
     });
@@ -91,8 +91,8 @@ export class PanelDockComponent {
 
   protected onCancelReset(): void {
     this.confirmingReset.set(false);
-    // "Annulla" (a11y, fix review #199): riporta il focus su "+ Nuova richiesta" dopo che il DOM
-    // è tornato al pulsante normale (stesso motivo di `onNewRequestClick`).
+    // "Annulla" (a11y, review #199 fix): puts the focus back on "+ Nuova richiesta" after the DOM
+    // has gone back to the normal button (same reason as `onNewRequestClick`).
     afterNextRender(() => this.newRequestButtonRef()?.nativeElement.focus(), {
       injector: this.injector,
     });

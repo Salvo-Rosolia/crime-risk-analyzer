@@ -4,16 +4,16 @@ import { S } from './support/selectors';
 import { drawSearchCircle } from './support/map';
 import error422 from './fixtures/error-422.json';
 
-test('INPUT→ERROR mostra il messaggio del backend, non il fallback generico', async ({ page }) => {
+test('INPUT→ERROR shows the backend message, not the generic fallback', async ({ page }) => {
   await mockApi(page, { analyze: error422, analyzeStatus: 422 });
   await page.goto('/');
   await expect(S.inputPanel(page)).toBeVisible();
 
-  // Il centro/raggio non si digitano più (#318): si disegna un cerchio sulla mappa reale.
+  // Center/radius are no longer typed (#318): a circle is drawn on the real map.
   await drawSearchCircle(page);
   await S.submitButton(page).click();
 
-  // Stato ERROR: stesso cra-input-panel, con [serverError]=store.error() mostrato inline.
+  // ERROR state: same cra-input-panel, with [serverError]=store.error() shown inline.
   await expect(S.inputPanel(page)).toBeVisible();
   await expect(S.inputError(page)).toHaveText(error422.detail.messaggio);
 });

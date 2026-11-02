@@ -74,7 +74,7 @@ describe('SourcesPageComponent', () => {
     fixture.detectChanges();
   });
 
-  it('ha le sezioni Ontologia e Dati e i tre modelli da scaricare', () => {
+  it('has the Ontologia and Dati sections and the three templates to download', () => {
     expect(qa('h3').map((h) => h.textContent?.trim())).toEqual(['Ontologia', 'Dati']);
     const links = qa('a[download]');
     expect(links.map((a) => a.getAttribute('href'))).toEqual([
@@ -84,7 +84,7 @@ describe('SourcesPageComponent', () => {
     ]);
   });
 
-  it('Carica resta disabilitato finche mancano i file obbligatori', () => {
+  it('Carica stays disabled until the mandatory files are there', () => {
     const btn = q<HTMLButtonElement>('button[type=submit]')!;
     expect(btn.disabled).toBe(true);
     pick('cra-src-ontology', 'o.ttl');
@@ -93,7 +93,7 @@ describe('SourcesPageComponent', () => {
     expect(btn.disabled).toBe(false);
   });
 
-  it('il caricamento manda i file allo store', async () => {
+  it('the upload sends the files to the store', async () => {
     pickRequired();
     q<HTMLInputElement>('#cra-src-namespace')!.value = 'http://x/#';
     q<HTMLInputElement>('#cra-src-namespace')!.dispatchEvent(new Event('input'));
@@ -106,7 +106,7 @@ describe('SourcesPageComponent', () => {
     expect(arg.vocabulary.namespace).toBe('http://x/#');
   });
 
-  it('Usa l esempio e Torna al default chiamano lo store', async () => {
+  it('Usa l esempio and Torna al default call the store', async () => {
     qa('button')
       .find((b) => b.textContent?.includes("Usa l'esempio"))!
       .click();
@@ -119,7 +119,7 @@ describe('SourcesPageComponent', () => {
     expect(reset).toHaveBeenCalled();
   });
 
-  it('con errori di vocabolario in massa suggerisce le Impostazioni avanzate senza nascondere gli errori', () => {
+  it('with mass vocabulary errors it suggests the Impostazioni avanzate without hiding the errors', () => {
     report.set({
       errors: [
         { code: 'ontologia_senza_restrizioni', file: 'ontology', message: 'nessuna', line: null },
@@ -139,7 +139,7 @@ describe('SourcesPageComponent', () => {
     expect(qa('.cra-problem-error').length).toBe(4);
   });
 
-  it('un errore di altro tipo non mostra il suggerimento sul vocabolario', () => {
+  it('an error of another kind does not show the vocabulary hint', () => {
     report.set({
       errors: [{ code: 'colonna_mancante', file: 'data', message: 'manca anno', line: 1 }],
       warnings: [],
@@ -148,7 +148,7 @@ describe('SourcesPageComponent', () => {
     expect(q('.cra-sources-hint')).toBeNull();
   });
 
-  it('accorcia il dump tecnico dell ontologia illeggibile, tenendo riga e causa', () => {
+  it('shortens the technical dump of the unreadable ontology, keeping line and cause', () => {
     const dump =
       "ontologia non leggibile come turtle: at line 2 of <>: Bad syntax (Keyword 'this' was ancient N3.) at ^ in:\n\"b'@prefix : <x> .\\n '^b'this is not turtle ;;;\\n'\"";
     report.set({
@@ -162,7 +162,7 @@ describe('SourcesPageComponent', () => {
     expect(text).not.toContain("b'@prefix");
   });
 
-  it('tronca un messaggio lunghissimo', () => {
+  it('truncates a very long message', () => {
     report.set({
       errors: [{ code: 'x', file: 'data', message: 'a'.repeat(900), line: 1 }],
       warnings: [],
@@ -171,13 +171,13 @@ describe('SourcesPageComponent', () => {
     expect(q('[data-slot=data] .cra-problem-error')!.textContent!.length).toBeLessThan(400);
   });
 
-  it('il riepilogo etichetta la versione dei dati', () => {
+  it('the summary labels the data version', () => {
     current.set(status('custom'));
     fixture.detectChanges();
     expect(q('.cra-active-summary')?.textContent).toContain('versione dei dati 2024');
   });
 
-  it('mostra errori e avvisi del controllo sotto il file giusto, con la riga', () => {
+  it('shows the check errors and warnings under the right file, with the line', () => {
     report.set({
       errors: [{ code: 'c', file: 'data', message: 'Colonna mancante: anno', line: 1 }],
       warnings: [{ code: 'w', file: 'osm_table', message: 'Selettore duplicato', line: 4 }],
@@ -192,7 +192,7 @@ describe('SourcesPageComponent', () => {
     expect(q('[role=alert]')?.textContent).toContain('non sono stati accettati');
   });
 
-  it('mostra gli avvisi del set attivo e il suo riepilogo', () => {
+  it('shows the warnings of the active set and its summary', () => {
     current.set(
       status('custom', [
         { code: 'w', file: 'ontology', message: 'Classe senza etichetta', line: null },
@@ -204,20 +204,20 @@ describe('SourcesPageComponent', () => {
     expect(q('[data-slot=ontology]')?.textContent).toContain('Classe senza etichetta');
   });
 
-  it('mostra il messaggio di errore generico del backend', () => {
+  it('shows the generic error message of the backend', () => {
     message.set('troppi caricamenti');
     fixture.detectChanges();
     expect(q('[role=alert]')?.textContent).toContain('troppi caricamenti');
   });
 
-  it('Chiudi emette closed', () => {
+  it('Chiudi emits closed', () => {
     const closed = jest.fn();
     fixture.componentInstance.closed.subscribe(closed);
     q<HTMLButtonElement>('button[aria-label="Chiudi"]')!.click();
     expect(closed).toHaveBeenCalledTimes(1);
   });
 
-  it('Esc sul document emette closed (anche col focus sul body)', () => {
+  it('Esc on the document emits closed (even with the focus on the body)', () => {
     const closed = jest.fn();
     fixture.componentInstance.closed.subscribe(closed);
     (document.activeElement as HTMLElement | null)?.blur();
@@ -225,7 +225,7 @@ describe('SourcesPageComponent', () => {
     expect(closed).toHaveBeenCalledTimes(1);
   });
 
-  it('durante un operazione Chiudi e disabilitato ed Esc e ignorato', () => {
+  it('during an operation Chiudi is disabled and Esc is ignored', () => {
     const closed = jest.fn();
     fixture.componentInstance.closed.subscribe(closed);
     busy.set('upload');
@@ -235,11 +235,11 @@ describe('SourcesPageComponent', () => {
     expect(closed).not.toHaveBeenCalled();
   });
 
-  it('avvisa che cambiando le fonti le analisi vengono azzerate', () => {
+  it('warns that changing the sources clears the analyses', () => {
     expect(el.textContent).toContain('Cambiando le fonti le analisi in corso verranno azzerate');
   });
 
-  it('annuncia l operazione in corso (aria-busy + live region)', () => {
+  it('announces the operation in progress (aria-busy + live region)', () => {
     expect(q('[role=status]')!.textContent!.trim()).toBe('');
     busy.set('upload');
     fixture.detectChanges();
@@ -247,7 +247,7 @@ describe('SourcesPageComponent', () => {
     expect(q('[role=status]')!.textContent).toContain('Controllo in corso');
   });
 
-  it('un problema senza slot visibile finisce nell elenco generale', () => {
+  it('a problem without a visible slot ends up in the general list', () => {
     report.set({
       errors: [{ code: 'x', file: 'altro' as never, message: 'File non previsto', line: null }],
       warnings: [],
@@ -256,7 +256,7 @@ describe('SourcesPageComponent', () => {
     expect(q('.cra-problems-general')!.textContent).toContain('File non previsto');
   });
 
-  it('un rifiuto con soli avvisi (errors vuoto) mostra comunque l esito', () => {
+  it('a rejection with only warnings (empty errors) still shows the outcome', () => {
     report.set({
       errors: [],
       warnings: [{ code: 'w', file: 'data', message: 'Riga vuota', line: 2 }],
@@ -267,12 +267,12 @@ describe('SourcesPageComponent', () => {
   });
 
   describe('focus', () => {
-    it('il focus entra nel dialog all apertura', async () => {
+    it('the focus enters the dialog on opening', async () => {
       await fixture.whenStable();
       expect(document.activeElement).toBe(q('[role=dialog]'));
     });
 
-    it('Tab dall ultimo elemento torna al primo, Shift+Tab dal primo va all ultimo', () => {
+    it('Tab from the last element goes back to the first, Shift+Tab from the first goes to the last', () => {
       const focusables = qa('button:not([disabled]), input, summary, a[href]') as HTMLElement[];
       const first = focusables[0];
       const last = focusables[focusables.length - 1];
@@ -286,13 +286,13 @@ describe('SourcesPageComponent', () => {
       expect(document.activeElement).toBe(last);
     });
 
-    it('Tab col focus fuori dal dialog lo riporta dentro', () => {
+    it('Tab with the focus outside the dialog brings it back in', () => {
       (document.activeElement as HTMLElement | null)?.blur();
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', cancelable: true }));
       expect(el.contains(document.activeElement)).toBe(true);
     });
 
-    it('alla chiusura il focus torna a chi aveva aperto la pagina', () => {
+    it('on closing the focus goes back to whoever opened the page', () => {
       const opener = document.createElement('button');
       document.body.appendChild(opener);
       fixture.destroy();
@@ -305,7 +305,7 @@ describe('SourcesPageComponent', () => {
     });
   });
 
-  it('durante un operazione i pulsanti sono disabilitati', () => {
+  it('during an operation the buttons are disabled', () => {
     busy.set('example');
     fixture.detectChanges();
     expect(qa('button').filter((b) => b.textContent?.includes("Usa l'esempio"))[0]).toHaveProperty(

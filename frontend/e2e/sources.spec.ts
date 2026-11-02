@@ -4,13 +4,13 @@ import { mockApi, mockSources } from './support/mocking';
 const indicator = (page: import('@playwright/test').Page) =>
   page.getByRole('button', { name: /Apri la pagina Fonti/ });
 
-test('indicatore sempre visibile: dice quali fonti sono attive', async ({ page }) => {
+test('always visible indicator: says which sources are active', async ({ page }) => {
   await mockApi(page);
   await page.goto('/');
   await expect(indicator(page)).toContainText('Fonti: Predefinite');
 });
 
-test("Usa l'esempio e Torna al default aggiornano l'indicatore", async ({ page }) => {
+test("Usa l'esempio and Torna al default update the indicator", async ({ page }) => {
   await mockApi(page);
   await page.goto('/');
   await indicator(page).click();
@@ -24,7 +24,7 @@ test("Usa l'esempio e Torna al default aggiornano l'indicatore", async ({ page }
   await expect(dialog).toBeHidden();
 });
 
-test('caricamento rifiutato: gli errori compaiono sotto il file e le fonti non cambiano', async ({
+test('rejected upload: the errors appear under the file and the sources do not change', async ({
   page,
 }) => {
   await mockApi(page);
@@ -50,7 +50,7 @@ test('caricamento rifiutato: gli errori compaiono sotto il file e le fonti non c
   await expect(indicator(page)).toContainText('Fonti: Predefinite');
 });
 
-test('caricamento riuscito: indicatore Personalizzate e pagina ancora aperta', async ({ page }) => {
+test('successful upload: indicator Personalizzate and page still open', async ({ page }) => {
   await mockApi(page);
   await page.goto('/');
   await indicator(page).click();
@@ -65,7 +65,7 @@ test('caricamento riuscito: indicatore Personalizzate e pagina ancora aperta', a
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
 
-test('focus: entra nel dialog, Tab non esce, Esc lo restituisce all indicatore', async ({
+test('focus: enters the dialog, Tab does not leave, Esc gives it back to the indicator', async ({
   page,
 }) => {
   await mockApi(page);
@@ -88,7 +88,7 @@ test('focus: entra nel dialog, Tab non esce, Esc lo restituisce all indicatore',
 });
 
 for (const width of [390, 600]) {
-  test(`a ${width}px l'indicatore e il toggle di modalità sono visibili e cliccabili, senza scroll orizzontale`, async ({
+  test(`at ${width}px the indicator and the mode toggle are visible and clickable, without horizontal scroll`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 844 });

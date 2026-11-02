@@ -257,9 +257,9 @@ a:focus-visible,
   outline-offset: 2px;
 }
 
-/* Annuncio per gli screen reader dell'operazione in corso; a vista c'è già il pulsante "Controllo
-   in corso…" e i controlli disabilitati. Nascosto visivamente (non con display:none, che lo
-   toglierebbe dall'albero di accessibilità) e fuori dal flusso, così non lascia uno spazio vuoto. */
+/* Announcement for screen readers of the operation in progress; visually there is already the "Controllo
+   in corso…" button and the disabled controls. Visually hidden (not with display:none, which would
+   remove it from the accessibility tree) and out of the flow, so it leaves no empty space. */
 .cra-sr-status {
   position: absolute;
   width: 1px;

@@ -9,14 +9,14 @@
   (keydown.space)="onHeaderSpace($event)"
 >
   <span class="cra-narr-chevron" aria-hidden="true">{{ open() ? '▾' : '▸' }}</span>
-  <!-- L'intestazione dichiara lo SCOPE del testo mostrato (#197): senza, la narrativa di un
-       singolo punto si presenterebbe con lo stesso titolo di quella di zona. -->
+  <!-- The heading declares the SCOPE of the text shown (#197): without it, the narrative of a
+       single point would present itself with the same title as the zone one. -->
   @if (poiName()) {
     <h2 class="cra-eyebrow">
-      ◇ Narrativa del punto — {{ poiName() }} · {{ citta() }} · {{ zona() }}
+      ◇ Narrativa del punto — {{ poiName() }} · {{ city() }} · {{ zone() }}
     </h2>
   } @else {
-    <h2 class="cra-eyebrow">◇ Narrativa generata — {{ citta() }} · {{ zona() }}</h2>
+    <h2 class="cra-eyebrow">◇ Narrativa generata — {{ city() }} · {{ zone() }}</h2>
   }
   <span class="cra-hallucination-banner">⚠ supporto decisionale · valuta con fonti primarie</span>
   <span class="cra-narr-spacer"></span>
@@ -103,13 +103,13 @@
   @for (n of nodes; track $index) {
     @if (n.kind === 'istat') {
       <span class="cra-narr-istat" [style.--istat-color]="istatColor"
-        >{{ n.indicator.dati }} ·
-        @if (n.indicator.freccia) {
-          <span aria-hidden="true">{{ n.indicator.freccia }}&nbsp;</span>
+        >{{ n.indicator.data }} ·
+        @if (n.indicator.arrow) {
+          <span aria-hidden="true">{{ n.indicator.arrow }}&nbsp;</span>
         }
-        <span>{{ n.indicator.tendenza }}</span>
-        @if (n.indicator.nota) {
-          · <span>{{ n.indicator.nota }}</span>
+        <span>{{ n.indicator.trend }}</span>
+        @if (n.indicator.note) {
+          · <span>{{ n.indicator.note }}</span>
         }
         <span class="cra-vh">. Fine dato ISTAT.</span>
       </span>

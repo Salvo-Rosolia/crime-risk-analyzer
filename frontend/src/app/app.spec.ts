@@ -31,9 +31,9 @@ import type {
 } from '@core/models/models';
 
 /**
- * Simula MapComponent che emette `circleChange` (#318): il cerchio disegnato vive fuori dalla FSM,
- * alimentato dall'output reale del componente mappa — niente mock di `circle` sullo shell, si passa
- * dallo stesso percorso che userebbe l'utente (due clic sulla mappa).
+ * Simulates MapComponent emitting `circleChange` (#318): the drawn circle lives outside the FSM,
+ * fed by the real output of the map component — no mock of `circle` on the shell, it goes through
+ * the same path the user would use (two clicks on the map).
  */
 function emitCircle(f: ComponentFixture<App>, circle: Circle | null): void {
   const mapDebugEl = f.debugElement.query(By.directive(MapComponent));
@@ -41,9 +41,9 @@ function emitCircle(f: ComponentFixture<App>, circle: Circle | null): void {
 }
 
 /**
- * Cede un macrotask vero (un timer): serve ai test che aspettano l'esito di una richiesta che si
- * rifiuta subito, dove `whenStable` passa solo per l'ordine dei microtask e si romperebbe al primo
- * `await` aggiunto nel codice sotto test. Fa anche scattare subito eventuali rifiuti orfani.
+ * Yields a real macrotask (a timer): needed by the tests that wait for the outcome of a request that
+ * is rejected immediately, where `whenStable` goes only through the microtask order and would break at the first
+ * `await` added to the code under test. It also immediately triggers any orphan rejections.
  */
 const nextMacrotask = (): Promise<void> => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
@@ -83,13 +83,13 @@ describe('App shell', () => {
       analyzeBaseline: jest.fn(),
       geocodePlace: jest.fn(),
       poiNarrative: jest.fn(),
-      // Default: mai risolve, così i test estranei alla narrativa di zona in background (#292)
-      // non devono preoccuparsene; i test dedicati sovrascrivono esplicitamente.
+      // Default: never resolves, so the tests unrelated to the zone narrative in the background (#292)
+      // do not have to care about it; the dedicated tests override it explicitly.
       zoneNarrative: jest.fn().mockReturnValue(new Promise<ZoneNarrativeResponse>(() => undefined)),
-      // Valori realistici (reperto review #143): senza un mock esplicito la chiamata sarebbe
-      // "api.cities/poiTypes is not a function", ma `loadCities`/`loadPoiTypes` la inghiottono nel
-      // proprio try/catch (fallback a `[]`) — i test passerebbero comunque senza verificare nulla
-      // sul contenuto reale del select/datalist.
+      // Realistic values (review finding #143): without an explicit mock the call would be
+      // "api.cities/poiTypes is not a function", but `loadCities`/`loadPoiTypes` swallow it in their
+      // own try/catch (fallback to `[]`) — the tests would pass anyway without checking
+      // anything about the real content of the select/datalist.
       cities: jest.fn().mockResolvedValue(['Roma', 'Milano']),
       poiTypes: jest.fn().mockResolvedValue([
         { terminus_class: 'Bank', label_it: 'Banca' },
@@ -103,7 +103,7 @@ describe('App shell', () => {
     store = TestBed.inject(StateStore);
   });
 
-  it("Stato INPUT all'avvio: pannello input + cra-map presenti", async () => {
+  it('INPUT state at startup: input panel + cra-map present', async () => {
     const f = TestBed.createComponent(App);
     f.detectChanges();
     await f.whenStable();
@@ -111,7 +111,7 @@ describe('App shell', () => {
     expect(f.nativeElement.querySelector('cra-map')).toBeTruthy();
   });
 
-  it('Stato LOADING: overlay presente durante il caricamento (cosmetico)', async () => {
+  it('LOADING state: overlay present during loading (cosmetic)', async () => {
     const f = TestBed.createComponent(App);
     f.detectChanges();
     await f.whenStable();
@@ -119,29 +119,29 @@ describe('App shell', () => {
     store.dispatch({
       type: 'ANALYZE',
       area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 300 },
-      pipeline: 'completo',
+      pipeline: 'full',
     });
     f.detectChanges();
 
-    // #318: l'overlay non nomina più una zona digitata (non ne esiste una finché il backend non
-    // la risolve dal cerchio); resta puramente cosmetico, cablato sulle fasi fisse della pipeline.
+    // #318: the overlay no longer names a typed zone (there is none until the backend
+    // resolves it from the circle); it stays purely cosmetic, wired to the fixed phases of the pipeline.
     expect(f.nativeElement.querySelector('cra-loading-overlay')).toBeTruthy();
     expect(f.nativeElement.textContent).toContain("Analizzando l'area selezionata");
   });
 
-  it('Stato RESULTS dopo LOAD_SUCCESS: pannello POI presente', async () => {
+  it('RESULTS state after LOAD_SUCCESS: POI panel present', async () => {
     const f = TestBed.createComponent(App);
     f.detectChanges();
     await f.whenStable();
 
-    store.dispatch({ type: 'LOAD_SUCCESS', data: emptyResp, pipeline: 'completo' });
+    store.dispatch({ type: 'LOAD_SUCCESS', data: emptyResp, pipeline: 'full' });
     f.detectChanges();
 
     expect(f.nativeElement.querySelector('cra-poi-panel')).toBeTruthy();
   });
 
-  it('ACCEPTANCE: Stato RESULTS con narrativa_fonti popolato mostra overview + tab per fonte (≥2) nel narrative-sheet', async () => {
-    const respWithNarrativaFonti: AnalyzeResponse = {
+  it('ACCEPTANCE: RESULTS state with narrativa_fonti populated shows overview + one tab per source (≥2) in the narrative-sheet', async () => {
+    const respWithNarrativeSources: AnalyzeResponse = {
       ...emptyResp,
       risk_models: [
         {
@@ -176,7 +176,7 @@ describe('App shell', () => {
     f.detectChanges();
     await f.whenStable();
 
-    store.dispatch({ type: 'LOAD_SUCCESS', data: respWithNarrativaFonti, pipeline: 'completo' });
+    store.dispatch({ type: 'LOAD_SUCCESS', data: respWithNarrativeSources, pipeline: 'full' });
     f.detectChanges();
 
     expect(f.nativeElement.textContent).toContain(
@@ -191,7 +191,7 @@ describe('App shell', () => {
     );
   });
 
-  it("Stato ERROR: pannello input riappare con il messaggio d'errore del backend", async () => {
+  it('ERROR state: the input panel reappears with the backend error message', async () => {
     const f = TestBed.createComponent(App);
     f.detectChanges();
     await f.whenStable();
@@ -199,7 +199,7 @@ describe('App shell', () => {
     store.dispatch({
       type: 'LOAD_ERROR',
       message: '"Atlantide" non corrisponde ad alcuna area.',
-      pipeline: 'completo',
+      pipeline: 'full',
     });
     f.detectChanges();
 
@@ -207,19 +207,19 @@ describe('App shell', () => {
     expect(f.nativeElement.textContent).toContain('non corrisponde ad alcuna area');
   });
 
-  it('Stato FILTER dopo SET_FILTER: pannello POI presente', async () => {
+  it('FILTER state after SET_FILTER: POI panel present', async () => {
     const f = TestBed.createComponent(App);
     f.detectChanges();
     await f.whenStable();
 
-    store.dispatch({ type: 'LOAD_SUCCESS', data: emptyResp, pipeline: 'completo' });
+    store.dispatch({ type: 'LOAD_SUCCESS', data: emptyResp, pipeline: 'full' });
     store.dispatch({ type: 'SET_FILTER', level: 'verificato' });
     f.detectChanges();
 
     expect(f.nativeElement.querySelector('cra-poi-panel')).toBeTruthy();
   });
 
-  it('click su una card POI (evento selectPoi del pannello) dispatcha SELECT_POI ed evidenzia la card', async () => {
+  it('click on a POI card (selectPoi event of the panel) dispatches SELECT_POI and highlights the card', async () => {
     const respWithPoi: AnalyzeResponse = {
       ...emptyResp,
       poi: [
@@ -240,7 +240,7 @@ describe('App shell', () => {
     f.detectChanges();
     await f.whenStable();
 
-    store.dispatch({ type: 'LOAD_SUCCESS', data: respWithPoi, pipeline: 'completo' });
+    store.dispatch({ type: 'LOAD_SUCCESS', data: respWithPoi, pipeline: 'full' });
     f.detectChanges();
 
     const card: HTMLElement = f.nativeElement.querySelector('.cra-poi-card');
@@ -250,27 +250,27 @@ describe('App shell', () => {
     expect(store.screen()).toBe('DETAIL');
   });
 
-  it('percorso reale: submit da InputPanel (Stato A) → LOAD_ERROR → domanda e cerchio sopravvivono al remount (MAJOR fix)', async () => {
+  it('real path: submit from InputPanel (State A) → LOAD_ERROR → question and circle survive the remount (MAJOR fix)', async () => {
     const f = TestBed.createComponent(App);
     f.detectChanges();
 
-    // #318: il centro/raggio non si digitano più, arrivano dal cerchio disegnato sulla mappa.
+    // #318: center/radius are no longer typed, they come from the circle drawn on the map.
     const circle: Circle = { lat: 41.9, lon: 12.5, radiusM: 300 };
     emitCircle(f, circle);
     f.detectChanges();
 
-    const domandaInput: HTMLTextAreaElement = f.nativeElement.querySelector('#cra-domanda');
-    domandaInput.value = 'di sera?';
-    domandaInput.dispatchEvent(new Event('input'));
+    const questionInput: HTMLTextAreaElement = f.nativeElement.querySelector('#cra-question');
+    questionInput.value = 'di sera?';
+    questionInput.dispatchEvent(new Event('input'));
     f.detectChanges();
 
-    // Rifiuto differito: la promise si rifiuta DOPO che il test ha verificato LOADING (e dopo che
-    // lo store ha agganciato il proprio handler), come farebbe l'HTTP reale.
+    // Deferred rejection: the promise is rejected AFTER the test has verified LOADING (and after
+    // the store has attached its own handler), as the real HTTP would.
     let rejectAnalyze!: (e: unknown) => void;
     api.analyze.mockImplementation(() => new Promise((_res, rej) => (rejectAnalyze = rej)));
-    // Cattura la Promise reale ritornata da startAnalysis (chiamata "void" dallo shell su
-    // onAnalyze): la attendiamo direttamente, senza affidarci all'euristica di stabilità
-    // della zone su un evento DOM sparato manualmente.
+    // Captures the real Promise returned by startAnalysis (called "void" by the shell on
+    // onAnalyze): we await it directly, without relying on the stability heuristic
+    // of zone.js on a DOM event fired manually.
     const startAnalysisSpy = jest.spyOn(store, 'startAnalysis');
 
     const form: HTMLFormElement = f.nativeElement.querySelector('form');
@@ -288,23 +288,23 @@ describe('App shell', () => {
     expect(store.screen()).toBe('ERROR');
     expect(f.nativeElement.textContent).toContain('non corrisponde ad alcuna area');
 
-    // cra-input-panel è stato smontato (Stato A) e RIMONTATO (Stato Errore, @case distinto): la
-    // domanda arriva dai selettori pending dello store (comportamento invariato), il cerchio dal
-    // segnale `circle` dello shell — MapComponent stesso non si smonta mai, quindi non serve
-    // reseeding esterno per farlo sopravvivere al remount.
-    const domandaAfterError: HTMLTextAreaElement = f.nativeElement.querySelector('#cra-domanda');
-    expect(domandaAfterError.value).toBe('di sera?');
+    // cra-input-panel was unmounted (State A) and REMOUNTED (Error State, distinct @case): the
+    // question comes from the store's pending selectors (behavior unchanged), the circle from the
+    // shell's `circle` signal — MapComponent itself never unmounts, so no external
+    // reseeding is needed to make it survive the remount.
+    const questionAfterError: HTMLTextAreaElement = f.nativeElement.querySelector('#cra-question');
+    expect(questionAfterError.value).toBe('di sera?');
     const submitAfterError: HTMLButtonElement =
       f.nativeElement.querySelector('button[type=submit]');
     expect(submitAfterError.disabled).toBe(false);
   });
 
-  it('toggle RESULTS↔FILTER non rimonta cra-poi-panel (stesso nodo DOM, niente reset scroll)', async () => {
+  it('RESULTS↔FILTER toggle does not remount cra-poi-panel (same DOM node, no scroll reset)', async () => {
     const f = TestBed.createComponent(App);
     f.detectChanges();
     await f.whenStable();
 
-    store.dispatch({ type: 'LOAD_SUCCESS', data: emptyResp, pipeline: 'completo' });
+    store.dispatch({ type: 'LOAD_SUCCESS', data: emptyResp, pipeline: 'full' });
     f.detectChanges();
     const panelInResults = f.nativeElement.querySelector('cra-poi-panel');
     expect(panelInResults).toBeTruthy();
@@ -320,7 +320,7 @@ describe('App shell', () => {
     expect(f.nativeElement.querySelector('cra-poi-panel')).toBe(panelInResults);
   });
 
-  it('ACCEPTANCE (#199): Stato DETAIL mostra cra-detail-panel coi gruppi ordinati ONTOLOGIA→CONTESTO→SPECULATIVO DENTRO il dock, senza rimontare cra-panel-dock/cra-poi-panel/cra-narrative-sheet', async () => {
+  it('ACCEPTANCE (#199): DETAIL state shows cra-detail-panel with the groups ordered ONTOLOGIA→CONTESTO→SPECULATIVO INSIDE the dock, without remounting cra-panel-dock/cra-poi-panel/cra-narrative-sheet', async () => {
     const respWithPoi: AnalyzeResponse = {
       ...emptyResp,
       poi: [
@@ -363,7 +363,7 @@ describe('App shell', () => {
     f.detectChanges();
     await f.whenStable();
 
-    store.dispatch({ type: 'LOAD_SUCCESS', data: respWithPoi, pipeline: 'completo' });
+    store.dispatch({ type: 'LOAD_SUCCESS', data: respWithPoi, pipeline: 'full' });
     f.detectChanges();
     const dockBeforeSelect = f.nativeElement.querySelector('cra-panel-dock');
     const poiPanelBeforeSelect = f.nativeElement.querySelector('cra-poi-panel');
@@ -377,8 +377,8 @@ describe('App shell', () => {
     f.detectChanges();
 
     expect(store.screen()).toBe('DETAIL');
-    // il dock (Approccio A, variante 1, #199) non si smonta passando da Vista Lista a Vista
-    // Dettaglio: stesso nodo cra-panel-dock/cra-poi-panel, solo la Vista Lista si nasconde.
+    // the dock (Approach A, variant 1, #199) does not unmount when going from List view to
+    // Detail view: same cra-panel-dock/cra-poi-panel node, only the List view hides.
     expect(f.nativeElement.querySelector('cra-panel-dock')).toBe(dockBeforeSelect);
     expect(f.nativeElement.querySelector('cra-poi-panel')).toBe(poiPanelBeforeSelect);
     expect(f.nativeElement.querySelector('cra-narrative-sheet')).toBe(narrSheetBeforeSelect);
@@ -388,7 +388,7 @@ describe('App shell', () => {
       'supporto decisionale · valuta con fonti primarie',
     );
 
-    // scope al cra-detail-panel: cra-narrative-sheet mostra gli stessi tag fonte nel suo stesso markup
+    // scope to cra-detail-panel: cra-narrative-sheet shows the same source tags in its own markup
     const detailPanel = f.nativeElement.querySelector('cra-detail-panel');
     const tags = detailPanel.querySelectorAll('.cra-source-tag');
     expect(Array.from(tags).map((t) => (t as Element).textContent?.trim())).toEqual([
@@ -407,7 +407,7 @@ describe('App shell', () => {
     expect(listWrapper.hidden).toBe(false);
   });
 
-  it('ACCEPTANCE: Rigenera re-invoca startAnalysis con lastQuery (center+radiusM+domanda) e SOSTITUISCE i risultati (non li duplica)', async () => {
+  it('ACCEPTANCE: Rigenera re-invokes startAnalysis with lastQuery (center+radiusM+question) and REPLACES the results (does not duplicate them)', async () => {
     const f = TestBed.createComponent(App);
     f.detectChanges();
     await f.whenStable();
@@ -431,15 +431,15 @@ describe('App shell', () => {
     });
     await store.startAnalysis({ kind: 'circle', center: center, radiusM: 300 }, 'di sera?');
     f.detectChanges();
-    expect(store.completoData()?.poi).toHaveLength(1);
-    // #318: citta/zona in lastQuery sono le etichette RISOLTE dalla risposta (emptyResp.citta/
-    // zona_normalizzata), non un testo digitato — l'area e la domanda sono invece quelle
-    // dell'azione originale, la coppia che "Rigenera" deve rilanciare identica.
+    expect(store.fullData()?.poi).toHaveLength(1);
+    // #318: city/zone in lastQuery are the labels RESOLVED from the response (emptyResp.citta/
+    // zona_normalizzata), not a typed text — the area and the question are instead those
+    // of the original action, the pair that "Rigenera" must relaunch identically.
     expect(store.lastQuery()).toEqual({
       area: { kind: 'circle', center, radiusM: 300 },
-      citta: 'Roma',
-      zona: 'Centro',
-      domanda: 'di sera?',
+      city: 'Roma',
+      zone: 'Centro',
+      question: 'di sera?',
     });
 
     const startAnalysisSpy = jest.spyOn(store, 'startAnalysis');
@@ -471,10 +471,10 @@ describe('App shell', () => {
       ],
     });
 
-    // Copre il fix del bug segnalato dal Task 11 (onRegenerate chiamava startAnalysis con
-    // query.citta/query.zona, stringhe, invece di query.center/query.radiusM): senza il fix
-    // questa asserzione fallisce, perché lastQuery non ha più campi citta/zona come primi due
-    // argomenti posizionali.
+    // Covers the fix for the bug reported by Task 11 (onRegenerate called startAnalysis with
+    // query.city/query.zone, strings, instead of query.center/query.radiusM): without the fix
+    // this assertion fails, because lastQuery no longer has city/zone fields as the first two
+    // positional arguments.
     (f.nativeElement.querySelector('.cra-btn-regen') as HTMLElement).click();
     expect(startAnalysisSpy).toHaveBeenCalledWith(
       { kind: 'circle', center: center, radiusM: 300 },
@@ -484,10 +484,10 @@ describe('App shell', () => {
     await startAnalysisSpy.mock.results[0].value;
     f.detectChanges();
 
-    expect(store.completoData()?.poi).toHaveLength(2);
+    expect(store.fullData()?.poi).toHaveLength(2);
   });
 
-  it("ACCEPTANCE: toggle Base nell'header porta a Stato BASE; la ricerca chiama /analyze/baseline e resta su BASE con la tabella popolata", async () => {
+  it('ACCEPTANCE: Base toggle in the header goes to BASE State; the search calls /analyze/baseline and stays on BASE with the table populated', async () => {
     const f = TestBed.createComponent(App);
     f.detectChanges();
     await f.whenStable();
@@ -504,7 +504,7 @@ describe('App shell', () => {
     expect(store.screen()).toBe('BASE');
     expect(f.nativeElement.querySelector('cra-base-panel')).toBeTruthy();
 
-    // #318: il centro/raggio non si digitano più, arrivano dal cerchio disegnato sulla mappa.
+    // #318: center/radius are no longer typed, they come from the circle drawn on the map.
     emitCircle(f, { lat: 41.9, lon: 12.5, radiusM: 300 });
     f.detectChanges();
 
@@ -550,7 +550,7 @@ describe('App shell', () => {
     await startBaselineSpy.mock.results[0].value;
     f.detectChanges();
 
-    // resta in Stato BASE (non salta su RESULTS del sistema completo) e mostra la tabella spartana
+    // stays in BASE State (does not jump to RESULTS of the full system) and shows the spartan table
     expect(store.screen()).toBe('BASE');
     expect(f.nativeElement.querySelector('cra-base-panel')).toBeTruthy();
     expect(f.nativeElement.textContent).toContain('Furto');
@@ -559,13 +559,13 @@ describe('App shell', () => {
     );
   });
 
-  describe('BLOCCANTI review: isolamento dati Completo↔Base', () => {
-    it('(a) analisi Completo riuscita → toggle a Base NON mostra i dati LLM nella tabella base (vuota/form finché non si esegue la ricerca Base)', async () => {
+  describe('BLOCKERS review: Full↔Base data isolation', () => {
+    it('(a) successful Full analysis → toggle to Base does NOT show the LLM data in the base table (empty/form until the Base search is run)', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
 
-      const completoResp: AnalyzeResponse = {
+      const fullResp: AnalyzeResponse = {
         ...emptyResp,
         poi: [
           {
@@ -596,7 +596,7 @@ describe('App shell', () => {
           },
         ],
       };
-      store.dispatch({ type: 'LOAD_SUCCESS', data: completoResp, pipeline: 'completo' });
+      store.dispatch({ type: 'LOAD_SUCCESS', data: fullResp, pipeline: 'full' });
       f.detectChanges();
       expect(store.screen()).toBe('RESULTS');
 
@@ -611,12 +611,12 @@ describe('App shell', () => {
       expect(basePanel.textContent).toContain('Inserisci i parametri');
     });
 
-    it("(b) ricerca Base riuscita dopo un'analisi Completo → toggle a Completo mostra ANCORA i dati completo (RESULTS/mappa NON mostrano i dati baseline)", async () => {
+    it('(b) successful Base search after a Full analysis → toggle to Full still shows the full data (RESULTS/map do NOT show the baseline data)', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
 
-      const completoResp: AnalyzeResponse = {
+      const fullResp: AnalyzeResponse = {
         ...emptyResp,
         poi: [
           {
@@ -632,7 +632,7 @@ describe('App shell', () => {
           },
         ],
       };
-      store.dispatch({ type: 'LOAD_SUCCESS', data: completoResp, pipeline: 'completo' });
+      store.dispatch({ type: 'LOAD_SUCCESS', data: fullResp, pipeline: 'full' });
       f.detectChanges();
       expect(store.screen()).toBe('RESULTS');
 
@@ -661,7 +661,7 @@ describe('App shell', () => {
       f.detectChanges();
       expect(store.screen()).toBe('BASE');
 
-      store.dispatch({ type: 'TOGGLE_MODE', mode: 'completo' });
+      store.dispatch({ type: 'TOGGLE_MODE', mode: 'full' });
       f.detectChanges();
 
       expect(store.screen()).toBe('RESULTS');
@@ -669,7 +669,7 @@ describe('App shell', () => {
       expect(f.nativeElement.textContent).not.toContain('BaselinePOI');
     });
 
-    it('(d) BLOCCANTE (#199 fix review): RESULTS→DETAIL→toggle Base→toggle Completo NON deve rimostrare la Vista Dettaglio in RESULTS (selectedPoiId sopravvive a TOGGLE_MODE, ma la vista del dock deve dipendere solo da screen)', async () => {
+    it('(d) BLOCKER (#199 review fix): RESULTS→DETAIL→toggle Base→toggle Full must NOT show the Detail view again in RESULTS (selectedPoiId survives TOGGLE_MODE, but the dock view must depend only on screen)', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
@@ -690,7 +690,7 @@ describe('App shell', () => {
           },
         ],
       };
-      store.dispatch({ type: 'LOAD_SUCCESS', data: respWithPoi, pipeline: 'completo' });
+      store.dispatch({ type: 'LOAD_SUCCESS', data: respWithPoi, pipeline: 'full' });
       f.detectChanges();
 
       (f.nativeElement.querySelector('.cra-poi-card') as HTMLElement).click();
@@ -701,11 +701,11 @@ describe('App shell', () => {
       store.dispatch({ type: 'TOGGLE_MODE', mode: 'base' });
       f.detectChanges();
       expect(store.screen()).toBe('BASE');
-      // TOGGLE_MODE non azzera selectedPoiId (comportamento FSM invariato, transition.ts): il
-      // residuo NON deve però confondere il dock quando si torna a RESULTS.
+      // TOGGLE_MODE does not clear selectedPoiId (FSM behavior unchanged, transition.ts): the
+      // leftover must NOT confuse the dock when going back to RESULTS, though.
       expect(store.selectedPoiId()).toBe('poi-1');
 
-      store.dispatch({ type: 'TOGGLE_MODE', mode: 'completo' });
+      store.dispatch({ type: 'TOGGLE_MODE', mode: 'full' });
       f.detectChanges();
 
       expect(store.screen()).toBe('RESULTS');
@@ -714,7 +714,7 @@ describe('App shell', () => {
       expect(listWrapper.hidden).toBe(false);
     });
 
-    it('(c) errore in modalità Base → resta in Stato BASE (niente cra-input-panel del sistema completo) e il retry invoca /analyze/baseline, non /analyze', async () => {
+    it('(c) error in Base mode → stays in BASE State (no cra-input-panel of the full system) and the retry invokes /analyze/baseline, not /analyze', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
@@ -725,7 +725,7 @@ describe('App shell', () => {
       await f.whenStable();
       f.detectChanges();
 
-      // #318: il centro/raggio non si digitano più, arrivano dal cerchio disegnato sulla mappa.
+      // #318: center/radius are no longer typed, they come from the circle drawn on the map.
       emitCircle(f, { lat: 41.9, lon: 12.5, radiusM: 300 });
       f.detectChanges();
 
@@ -745,7 +745,7 @@ describe('App shell', () => {
       expect(f.nativeElement.querySelector('cra-input-panel')).toBeNull();
       expect(f.nativeElement.textContent).toContain('non corrisponde ad alcuna area');
 
-      // retry: il form persiste nello stesso schermo BASE, reinvia → deve richiamare startBaselineAnalysis, MAI store.startAnalysis
+      // retry: the form persists on the same BASE screen, resubmits → must call startBaselineAnalysis again, NEVER store.startAnalysis
       api.analyzeBaseline.mockResolvedValueOnce({ ...emptyResp, poi: [] });
       const formAfterError: HTMLFormElement = f.nativeElement.querySelector(
         '.cra-base-form-panel form',
@@ -757,8 +757,8 @@ describe('App shell', () => {
     });
   });
 
-  describe('BLOCCANTI review #67-bis: race condition sul routing + lastQuery non isolato', () => {
-    it('BLOCCANTE A: durante LOADING i bottoni del toggle Completo/Base sono disabilitati nel DOM reale (wiring end-to-end)', async () => {
+  describe('BLOCKERS review #67-bis: race condition on routing + non-isolated lastQuery', () => {
+    it('BLOCKER A: during LOADING the Full/Base toggle buttons are disabled in the real DOM (end-to-end wiring)', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
@@ -766,7 +766,7 @@ describe('App shell', () => {
       store.dispatch({
         type: 'ANALYZE',
         area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 300 },
-        pipeline: 'completo',
+        pipeline: 'full',
       });
       f.detectChanges();
 
@@ -777,7 +777,7 @@ describe('App shell', () => {
       expect(modeButtons.every((b) => b.disabled)).toBe(true);
     });
 
-    it('BLOCCANTE A: la guardia in onToggleMode blocca il cambio di modalità durante LOADING anche bypassando il disabled del bottone', async () => {
+    it('BLOCKER A: the guard in onToggleMode blocks the mode change during LOADING even bypassing the button disabled', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
@@ -785,25 +785,25 @@ describe('App shell', () => {
       store.dispatch({
         type: 'ANALYZE',
         area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 300 },
-        pipeline: 'completo',
+        pipeline: 'full',
       });
       f.detectChanges();
-      expect(store.mode()).toBe('completo');
+      expect(store.mode()).toBe('full');
 
       (
-        f.componentInstance as unknown as { onToggleMode(mode: 'completo' | 'base'): void }
+        f.componentInstance as unknown as { onToggleMode(mode: 'full' | 'base'): void }
       ).onToggleMode('base');
 
-      expect(store.mode()).toBe('completo');
+      expect(store.mode()).toBe('full');
       expect(store.screen()).toBe('LOADING');
     });
 
-    it('BLOCCANTE B: una ricerca Base non sovrascrive lastQuery — "Rigenera" dopo un giro Completo→Base→Completo rilancia ancora la query Completo originale, non l\'ultima Base', async () => {
+    it('BLOCKER B: a Base search does not overwrite lastQuery — "Rigenera" after a Full→Base→Full round trip relaunches the original Full query again, not the last Base one', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
 
-      // 1) analisi Completo Roma/Colosseo
+      // 1) Full analysis Roma/Colosseo
       const romaCenter = { lat: 41.89, lon: 12.49 };
       api.analyze.mockResolvedValueOnce({
         ...emptyResp,
@@ -814,7 +814,7 @@ describe('App shell', () => {
       f.detectChanges();
       expect(store.screen()).toBe('RESULTS');
 
-      // 2) toggle a Base + ricerca Base Milano/Duomo
+      // 2) toggle to Base + Base search Milano/Duomo
       const modeButtons: HTMLButtonElement[] = Array.from(
         f.nativeElement.querySelectorAll('.cra-mode-btn'),
       );
@@ -830,16 +830,16 @@ describe('App shell', () => {
       f.detectChanges();
       expect(store.screen()).toBe('BASE');
 
-      // 3) torna a Completo: RESULTS deve mostrare ancora Roma/Colosseo (completoData intatto)
+      // 3) back to Full: RESULTS must still show Roma/Colosseo (fullData intact)
       const modeButtonsAfter: HTMLButtonElement[] = Array.from(
         f.nativeElement.querySelectorAll('.cra-mode-btn'),
       );
       modeButtonsAfter.find((b) => b.textContent?.trim() === 'Completo')!.click();
       f.detectChanges();
       expect(store.screen()).toBe('RESULTS');
-      expect(store.completoData()?.citta).toBe('Roma');
+      expect(store.fullData()?.citta).toBe('Roma');
 
-      // 4) Rigenera deve rilanciare /analyze per il centro di Roma, MAI per quello di Milano
+      // 4) Rigenera must relaunch /analyze for the center of Roma, NEVER for that of Milano
       const startAnalysisSpy = jest.spyOn(store, 'startAnalysis');
       api.analyze.mockResolvedValueOnce({
         ...emptyResp,
@@ -855,15 +855,15 @@ describe('App shell', () => {
     });
   });
 
-  describe('#199: dock unico Lista/Dettaglio — collasso, coordinamento con narrOpen, Nuova richiesta', () => {
+  describe('#199: single List/Detail dock — collapse, coordination with narrOpen, New request', () => {
     async function setupResults(f: ComponentFixture<App>): Promise<void> {
       f.detectChanges();
       await f.whenStable();
-      store.dispatch({ type: 'LOAD_SUCCESS', data: emptyResp, pipeline: 'completo' });
+      store.dispatch({ type: 'LOAD_SUCCESS', data: emptyResp, pipeline: 'full' });
       f.detectChanges();
     }
 
-    it('collasso del dock: click sul controllo dispatcha TOGGLE_POI_PANEL, il corpo diventa [hidden] e riclic lo riespande', async () => {
+    it('dock collapse: click on the control dispatches TOGGLE_POI_PANEL, the body becomes [hidden] and clicking again expands it', async () => {
       const f = TestBed.createComponent(App);
       await setupResults(f);
 
@@ -885,7 +885,7 @@ describe('App shell', () => {
       expect(body.hidden).toBe(false);
     });
 
-    it('coordinamento altezza dock↔narrativa: la classe cra-dock-narr-open sul dock segue narrOpen (TOGGLE_NARR)', async () => {
+    it('dock↔narrative height coordination: the cra-dock-narr-open class on the dock follows narrOpen (TOGGLE_NARR)', async () => {
       const f = TestBed.createComponent(App);
       await setupResults(f);
 
@@ -900,18 +900,18 @@ describe('App shell', () => {
       expect(dock.classList.contains('cra-dock-narr-open')).toBe(false);
     });
 
-    it('"+ Nuova richiesta": conferma leggera IN-APP → "Sì" dispatcha RESET, torna a Stato INPUT col form vuoto E azzera il cerchio (#318/#335: bisogna ridisegnare o ridigitare)', async () => {
+    it('"+ Nuova richiesta": light IN-APP confirmation → "Sì" dispatches RESET, goes back to INPUT State with an empty form AND clears the circle (#318/#335: one must redraw or retype)', async () => {
       const f = TestBed.createComponent(App);
       await setupResults(f);
       expect(store.screen()).toBe('RESULTS');
 
-      // un cerchio era già stato disegnato per la ricerca precedente.
+      // a circle had already been drawn for the previous search.
       emitCircle(f, { lat: 41.9, lon: 12.5, radiusM: 300 });
 
       (f.nativeElement.querySelector('.cra-btn-new-request') as HTMLElement).click();
       f.detectChanges();
 
-      // conferma leggera in-app, non window.confirm: il pulsante si trasforma, RESET non è ancora dispatchato.
+      // light in-app confirmation, not window.confirm: the button turns into, RESET is not dispatched yet.
       expect(f.nativeElement.textContent).toContain('Ricominciare?');
       expect(store.screen()).toBe('RESULTS');
 
@@ -919,21 +919,21 @@ describe('App shell', () => {
       f.detectChanges();
 
       expect(store.screen()).toBe('INPUT');
-      expect(store.completoData()).toBeNull();
+      expect(store.fullData()).toBeNull();
       expect(f.nativeElement.querySelector('cra-input-panel')).toBeTruthy();
       expect(f.nativeElement.querySelector('cra-panel-dock')).toBeNull();
 
-      // #318/#335: il cerchio E città/zona locali dello shell si azzerano al RESET — il form non
-      // riusa implicitamente l'area della ricerca precedente (il bottone resta comunque sempre
-      // abilitato, UX pre-#318: un submit senza area mostra l'errore client, non un controllo
-      // disabilitato senza spiegazione).
-      const cittaField: HTMLInputElement = f.nativeElement.querySelector('#cra-citta');
-      expect(cittaField.value).toBe('');
+      // #318/#335: the shell's local circle AND city/zone are cleared at RESET — the form does not
+      // implicitly reuse the area of the previous search (the button stays always
+      // enabled anyway, pre-#318 UX: a submit without an area shows the client error, not a
+      // disabled control without explanation).
+      const cityField: HTMLInputElement = f.nativeElement.querySelector('#cra-city');
+      expect(cityField.value).toBe('');
       const submitBtn: HTMLButtonElement = f.nativeElement.querySelector('button[type=submit]');
       expect(submitBtn.disabled).toBe(false);
     });
 
-    it('"+ Nuova richiesta" → "Annulla": resta in RESULTS, nessun RESET dispatchato', async () => {
+    it('"+ Nuova richiesta" → "Annulla": stays in RESULTS, no RESET dispatched', async () => {
       const f = TestBed.createComponent(App);
       await setupResults(f);
 
@@ -943,25 +943,25 @@ describe('App shell', () => {
       f.detectChanges();
 
       expect(store.screen()).toBe('RESULTS');
-      expect(store.completoData()).toBe(emptyResp);
+      expect(store.fullData()).toBe(emptyResp);
       expect(f.nativeElement.querySelector('.cra-btn-new-request')).toBeTruthy();
     });
 
-    it('"+ Nuova richiesta" azzera anche il tipo POI selezionato in Base (#143, stesso trattamento di città/zona)', async () => {
+    it('"+ Nuova richiesta" also clears the POI type selected in Base (#143, same treatment as city/zone)', async () => {
       const f = TestBed.createComponent(App);
       await setupResults(f);
 
       const modeButtons = (): HTMLButtonElement[] =>
         Array.from(f.nativeElement.querySelectorAll('.cra-mode-btn'));
 
-      // Sceglie un tipo POI in Base, poi torna a Completo (resta in RESULTS: completoData c'è già).
+      // Chooses a POI type in Base, then goes back to Full (stays in RESULTS: fullData is already there).
       modeButtons()
         .find((b) => b.textContent?.trim() === 'Base')!
         .click();
       f.detectChanges();
       await f.whenStable();
       f.detectChanges();
-      const select: HTMLSelectElement = f.nativeElement.querySelector('#cra-base-tipo-poi');
+      const select: HTMLSelectElement = f.nativeElement.querySelector('#cra-base-poi-type');
       select.value = 'Bank';
       select.dispatchEvent(new Event('change'));
       f.detectChanges();
@@ -976,8 +976,8 @@ describe('App shell', () => {
       (f.nativeElement.querySelector('.cra-btn-confirm-yes') as HTMLElement).click();
       f.detectChanges();
 
-      // Dopo RESET (Stato INPUT, completoData nullo): tornando in Base il select è di nuovo su
-      // "Tutti i tipi" — la selezione precedente non sopravvive a "+ Nuova richiesta".
+      // After RESET (INPUT State, null fullData): going back to Base the select is again on
+      // "Tutti i tipi" — the previous selection does not survive "+ Nuova richiesta".
       modeButtons()
         .find((b) => b.textContent?.trim() === 'Base')!
         .click();
@@ -985,16 +985,16 @@ describe('App shell', () => {
       await f.whenStable();
       f.detectChanges();
       const selectAfterReset: HTMLSelectElement =
-        f.nativeElement.querySelector('#cra-base-tipo-poi');
+        f.nativeElement.querySelector('#cra-base-poi-type');
       expect(selectAfterReset.value).toBe('');
     });
   });
 
-  describe('narrativa del POI selezionato (#197)', () => {
+  describe('narrative of the selected POI (#197)', () => {
     const zoneResp: AnalyzeResponse = {
       ...emptyResp,
-      // #318: zona_normalizzata è risolta dal BACKEND dal cerchio, non digitata — qui è un
-      // letterale della fixture di risposta, non un argomento di startAnalysis.
+      // #318: zona_normalizzata is resolved by the BACKEND from the circle, not typed — here it is a
+      // literal of the response fixture, not an argument of startAnalysis.
       zona_normalizzata: 'Colosseo',
       narrativa: 'panoramica di zona',
       narrativa_fonti: {
@@ -1027,8 +1027,8 @@ describe('App shell', () => {
         contesto: '',
         speculativo: '',
       },
-      // Il BE restituisce SEMPRE esattamente un RiskModel, quello del POI richiesto
-      // (`poi_narrative.run_poi_narrative`): la fixture deve rispettarlo.
+      // The BE ALWAYS returns exactly one RiskModel, that of the requested POI
+      // (`poi_narrative.run_poi_narrative`): the fixture must respect it.
       risk_models: [
         {
           poi_id: 'poi-1',
@@ -1052,10 +1052,10 @@ describe('App shell', () => {
     };
 
     /**
-     * Risposta della fase 2 di zona (#259/#292) usata come default in questo blocco: ECHO dello
-     * stesso testo già presente nella fase 1 (`zoneResp`), così i test che ispezionano il DOM
-     * subito dopo `analyzed()` (prima che la fase 2 sia settled) non vedono alcuna differenza —
-     * qui l'interesse è tutto sulla narrativa del POI, non su quella di zona.
+     * Phase 2 zone response (#259/#292) used as the default in this block: ECHO of the
+     * same text already present in phase 1 (`zoneResp`), so the tests that inspect the DOM
+     * right after `analyzed()` (before phase 2 has settled) see no difference —
+     * here the interest is all in the POI narrative, not in the zone one.
      */
     const zoneNarrativeResp: ZoneNarrativeResponse = {
       narrativa: zoneResp.narrativa ?? '',
@@ -1072,7 +1072,7 @@ describe('App shell', () => {
       api.zoneNarrative.mockResolvedValue(zoneNarrativeResp);
     });
 
-    /** Shell montata e già in RESULTS con una zona analizzata (quindi `lastQuery` valorizzato). */
+    /** Shell mounted and already in RESULTS with an analyzed zone (so `lastQuery` is set). */
     async function analyzed(): Promise<ComponentFixture<App>> {
       const f = TestBed.createComponent(App);
       f.detectChanges();
@@ -1086,7 +1086,7 @@ describe('App shell', () => {
       return f;
     }
 
-    it('selezionando un POI ne chiede la narrativa', async () => {
+    it('selecting a POI requests its narrative', async () => {
       const f = await analyzed();
       api.poiNarrative.mockResolvedValue(poiResp);
       const spy = jest.spyOn(store, 'loadPoiNarrative');
@@ -1096,7 +1096,7 @@ describe('App shell', () => {
       expect(spy).toHaveBeenCalledWith('poi-1');
     });
 
-    it('ACCEPTANCE: la narrativa mostrata segue lo scope — POI se selezionato, zona se deselezionato', async () => {
+    it('ACCEPTANCE: the narrative shown follows the scope — POI if selected, zone if deselected', async () => {
       const f = await analyzed();
       expect(f.nativeElement.textContent).toContain('panoramica di zona');
 
@@ -1105,8 +1105,8 @@ describe('App shell', () => {
       await f.whenStable();
       f.detectChanges();
 
-      // L'impronta viene dalla risposta di zona mostrata (#242), non da un letterale a parte:
-      // se il fixture cambia, il test resta corretto invece di diventare una bugia verde.
+      // The fingerprint comes from the zone response shown (#242), not from a separate literal:
+      // if the fixture changes, the test stays correct instead of becoming a green lie.
       expect(api.poiNarrative).toHaveBeenCalledWith(
         'Roma',
         'Colosseo',
@@ -1121,7 +1121,7 @@ describe('App shell', () => {
       expect(f.nativeElement.textContent).toContain('panoramica di zona');
     });
 
-    it('«Rigenera» con un POI selezionato rigenera QUEL POI e non rilancia l’analisi di zona', async () => {
+    it('«Rigenera» with a selected POI regenerates THAT POI and does not relaunch the zone analysis', async () => {
       const f = await analyzed();
       api.poiNarrative.mockResolvedValue(poiResp);
       (f.nativeElement.querySelector('.cra-poi-card') as HTMLElement).click();
@@ -1136,7 +1136,7 @@ describe('App shell', () => {
       expect(zoneSpy).not.toHaveBeenCalled();
     });
 
-    it('«Rigenera» senza selezione rilancia l’analisi di zona (comportamento invariato)', async () => {
+    it('«Rigenera» without a selection relaunches the zone analysis (behavior unchanged)', async () => {
       const f = await analyzed();
       const zoneSpy = jest.spyOn(store, 'startAnalysis');
 
@@ -1148,7 +1148,7 @@ describe('App shell', () => {
       );
     });
 
-    it('durante la generazione il pannello dichiara il caricamento', async () => {
+    it('during generation the panel declares the loading state', async () => {
       const f = await analyzed();
       store.dispatch({ type: 'SELECT_POI', id: 'poi-1' });
       store.dispatch({ type: 'POI_NARRATIVE_START', poiId: 'poi-1' });
@@ -1156,7 +1156,7 @@ describe('App shell', () => {
       expect(f.nativeElement.querySelector('.cra-narr-loading')).toBeTruthy();
     });
 
-    it('l’intestazione nomina il punto solo quando mostra la sua narrativa', async () => {
+    it('the heading names the point only when it shows its narrative', async () => {
       const f = await analyzed();
       const header = () => f.nativeElement.querySelector('cra-narrative-sheet .cra-eyebrow');
       expect(header().textContent).not.toContain('Banca A');
@@ -1169,7 +1169,7 @@ describe('App shell', () => {
       expect(header().textContent).toContain('Banca A');
     });
 
-    it('un punto fuori ontologia dichiara di non avere ancoraggio ontologico', async () => {
+    it('a point outside the ontology declares it has no ontology anchoring', async () => {
       const f = await analyzed();
       api.poiNarrative.mockResolvedValue({
         ...poiResp,
@@ -1184,7 +1184,7 @@ describe('App shell', () => {
       expect(notice.textContent).toContain('ontolog');
     });
 
-    it('il fallback dell’LLM sul punto è dichiarato invece di lasciare il pannello muto', async () => {
+    it('the LLM fallback on the point is declared instead of leaving the panel mute', async () => {
       const f = await analyzed();
       api.poiNarrative.mockResolvedValue({ ...poiResp, narrativa: '', fallback: true });
       (f.nativeElement.querySelector('.cra-poi-card') as HTMLElement).click();
@@ -1194,10 +1194,10 @@ describe('App shell', () => {
       expect(f.nativeElement.querySelector('.cra-narr-fallback')).toBeTruthy();
     });
 
-    it('tornando alla lista sparisce il caricamento di una generazione ancora in volo', async () => {
+    it('going back to the list the loading of a still in-flight generation disappears', async () => {
       const f = await analyzed();
-      // Lascia settare la narrativa di ZONA in background (#292, echo neutro): il test riguarda
-      // solo il caricamento del POI, non deve dipendere dal timing di quel giro indipendente.
+      // Lets the ZONE narrative settle in the background (#292, neutral echo): the test concerns
+      // only the POI loading, it must not depend on the timing of that independent round.
       await f.whenStable();
       store.dispatch({ type: 'SELECT_POI', id: 'poi-1' });
       store.dispatch({ type: 'POI_NARRATIVE_START', poiId: 'poi-1' });
@@ -1209,7 +1209,7 @@ describe('App shell', () => {
       expect(f.nativeElement.querySelector('.cra-narr-loading')).toBeFalsy();
     });
 
-    it('un errore di generazione è mostrato nel pannello', async () => {
+    it('a generation error is shown in the panel', async () => {
       const f = await analyzed();
       store.dispatch({ type: 'SELECT_POI', id: 'poi-1' });
       store.dispatch({ type: 'POI_NARRATIVE_ERROR', message: 'rilancia l’analisi' });
@@ -1219,22 +1219,22 @@ describe('App shell', () => {
       expect(err.textContent).toContain('rilancia l’analisi');
     });
 
-    it('un errore arrivato dopo il ritorno alla lista non invade la narrativa di zona', async () => {
+    it('an error that arrived after the return to the list does not invade the zone narrative', async () => {
       const f = await analyzed();
-      // La generazione fallisce quando l'utente è già tornato alla Vista Lista.
+      // The generation fails when the user has already gone back to the List view.
       store.dispatch({ type: 'POI_NARRATIVE_ERROR', message: 'boom' });
       f.detectChanges();
       expect(f.nativeElement.querySelector('.cra-narr-error')).toBeFalsy();
     });
   });
 
-  describe('#318/#335: cerchio disegnato condiviso fra i pannelli + "vai a un luogo"', () => {
-    it('circleChange di MapComponent alimenta il segnale locale, passato sia a InputPanel sia a BasePanel', async () => {
+  describe('#318/#335: drawn circle shared between the panels + "go to a place"', () => {
+    it('circleChange of MapComponent feeds the local signal, passed both to InputPanel and to BasePanel', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
 
-      // Stato INPUT: senza cerchio l'hint invita a scegliere l'area (cerchio o città/zona).
+      // INPUT State: without a circle the hint invites choosing the area (circle or city/zone).
       const hint = (): string =>
         (f.nativeElement.querySelector('#cra-circle-hint') as HTMLElement).textContent ?? '';
       expect(hint()).toContain("Scegli l'area");
@@ -1243,7 +1243,7 @@ describe('App shell', () => {
       f.detectChanges();
       expect(hint()).toContain('il cerchio disegnato sulla mappa');
 
-      // Stesso segnale raggiunge anche BasePanel dopo il toggle di modalità.
+      // The same signal also reaches BasePanel after the mode toggle.
       const modeButtons: HTMLButtonElement[] = Array.from(
         f.nativeElement.querySelectorAll('.cra-mode-btn'),
       );
@@ -1258,7 +1258,7 @@ describe('App shell', () => {
       expect(baseHint).toContain('il cerchio disegnato sulla mappa');
     });
 
-    it('in modalità Base il select "Tipo POI" è popolato da ApiService.poiTypes() (#143)', async () => {
+    it('in Base mode the "Tipo POI" select is populated by ApiService.poiTypes() (#143)', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
@@ -1272,7 +1272,7 @@ describe('App shell', () => {
       f.detectChanges();
 
       const options: HTMLOptionElement[] = Array.from(
-        f.nativeElement.querySelectorAll('#cra-base-tipo-poi option'),
+        f.nativeElement.querySelectorAll('#cra-base-poi-type option'),
       );
       expect(options.map((o) => o.value)).toEqual(['', 'Bank', 'Railway_station']);
       expect(options.map((o) => o.textContent?.trim())).toEqual([
@@ -1282,7 +1282,7 @@ describe('App shell', () => {
       ]);
     });
 
-    it('il tipo POI selezionato in Base sopravvive a un giro Base→Completo→Base (#143, stesso stato condiviso di città/zona)', async () => {
+    it('the POI type selected in Base survives a Base→Full→Base round trip (#143, same shared state as city/zone)', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
@@ -1297,7 +1297,7 @@ describe('App shell', () => {
       await f.whenStable();
       f.detectChanges();
 
-      const select: HTMLSelectElement = f.nativeElement.querySelector('#cra-base-tipo-poi');
+      const select: HTMLSelectElement = f.nativeElement.querySelector('#cra-base-poi-type');
       select.value = 'Railway_station';
       select.dispatchEvent(new Event('change'));
       f.detectChanges();
@@ -1313,17 +1313,17 @@ describe('App shell', () => {
       await f.whenStable();
       f.detectChanges();
 
-      const selectAfter: HTMLSelectElement = f.nativeElement.querySelector('#cra-base-tipo-poi');
+      const selectAfter: HTMLSelectElement = f.nativeElement.querySelector('#cra-base-poi-type');
       expect(selectAfter.value).toBe('Railway_station');
     });
 
-    it('un secondo cerchio disegnato (nuovo centro) sostituisce quello corrente', async () => {
+    it('a second drawn circle (new center) replaces the current one', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
 
       emitCircle(f, { lat: 41.9, lon: 12.5, radiusM: 300 });
-      emitCircle(f, null); // MapComponent lo emette lui stesso al nuovo clic di centro (vedi onMapClick).
+      emitCircle(f, null); // MapComponent emits it itself at the new center click (see onMapClick).
       f.detectChanges();
 
       const hint =
@@ -1331,7 +1331,7 @@ describe('App shell', () => {
       expect(hint).toContain("Scegli l'area");
     });
 
-    it('digitare città/zona dopo un cerchio disegnato rimuove il cerchio, anche dalla mappa', async () => {
+    it('typing city/zone after a drawn circle removes the circle, even from the map', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
@@ -1342,19 +1342,19 @@ describe('App shell', () => {
       emitCircle(f, { lat: 41.9, lon: 12.5, radiusM: 300 });
       f.detectChanges();
 
-      const cittaInput: HTMLInputElement = f.nativeElement.querySelector('#cra-citta');
-      cittaInput.value = 'Milano';
-      cittaInput.dispatchEvent(new Event('input'));
+      const cityInput: HTMLInputElement = f.nativeElement.querySelector('#cra-city');
+      cityInput.value = 'Milano';
+      cityInput.dispatchEvent(new Event('input'));
       f.detectChanges();
 
-      // Il cerchio è già rimosso al primo carattere non vuoto (anche con zona ancora vuota, cioè
-      // prima che l'area diventi una coppia città/zona completa): "vince l'ultima scelta" scatta
-      // sulla digitazione, non solo quando l'area testuale è già valida.
+      // The circle is already removed at the first non-empty character (even with the zone still empty, i.e.
+      // before the area becomes a complete city/zone pair): "the last choice wins" fires
+      // on typing, not only when the text area is already valid.
       expect(clearCircleSpy).toHaveBeenCalled();
 
-      const zonaInput: HTMLInputElement = f.nativeElement.querySelector('#cra-zona');
-      zonaInput.value = 'Duomo';
-      zonaInput.dispatchEvent(new Event('input'));
+      const zoneInput: HTMLInputElement = f.nativeElement.querySelector('#cra-zone');
+      zoneInput.value = 'Duomo';
+      zoneInput.dispatchEvent(new Event('input'));
       f.detectChanges();
 
       const hint =
@@ -1362,27 +1362,27 @@ describe('App shell', () => {
       expect(hint).toContain('città e zona inserite qui sotto');
     });
 
-    it('disegnare un cerchio dopo aver digitato città/zona svuota i campi', async () => {
+    it('drawing a circle after typing city/zone clears the fields', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
 
-      const cittaInput: HTMLInputElement = f.nativeElement.querySelector('#cra-citta');
-      const zonaInput: HTMLInputElement = f.nativeElement.querySelector('#cra-zona');
-      cittaInput.value = 'Roma';
-      cittaInput.dispatchEvent(new Event('input'));
-      zonaInput.value = 'Colosseo';
-      zonaInput.dispatchEvent(new Event('input'));
+      const cityInput: HTMLInputElement = f.nativeElement.querySelector('#cra-city');
+      const zoneInput: HTMLInputElement = f.nativeElement.querySelector('#cra-zone');
+      cityInput.value = 'Roma';
+      cityInput.dispatchEvent(new Event('input'));
+      zoneInput.value = 'Colosseo';
+      zoneInput.dispatchEvent(new Event('input'));
       f.detectChanges();
 
       emitCircle(f, { lat: 41.9, lon: 12.5, radiusM: 300 });
       f.detectChanges();
 
-      expect((f.nativeElement.querySelector('#cra-citta') as HTMLInputElement).value).toBe('');
-      expect((f.nativeElement.querySelector('#cra-zona') as HTMLInputElement).value).toBe('');
+      expect((f.nativeElement.querySelector('#cra-city') as HTMLInputElement).value).toBe('');
+      expect((f.nativeElement.querySelector('#cra-zone') as HTMLInputElement).value).toBe('');
     });
 
-    it('"vai a un luogo": la casella ha maxlength=200 (stesso limite di città/zona nei pannelli di ricerca)', async () => {
+    it('"go to a place": the box has maxlength=200 (same limit as city/zone in the search panels)', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
@@ -1391,7 +1391,7 @@ describe('App shell', () => {
       expect(input.maxLength).toBe(200);
     });
 
-    it('"vai a un luogo": submit → geocodePlace → MapComponent.flyTo col risultato', async () => {
+    it('"go to a place": submit → geocodePlace → MapComponent.flyTo with the result', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
@@ -1414,16 +1414,16 @@ describe('App shell', () => {
       expect(f.nativeElement.querySelector('.cra-place-error')).toBeNull();
     });
 
-    it('"vai a un luogo": luogo non trovato (404, detail stringa come da backend reale) → messaggio generico inline, niente flyTo', async () => {
+    it('"go to a place": place not found (404, string detail as in the real backend) → generic inline message, no flyTo', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
 
       const mapDebugEl = f.debugElement.query(By.directive(MapComponent));
       const flyToSpy = jest.spyOn(mapDebugEl.componentInstance, 'flyTo');
-      // Stessa forma della risposta reale del backend per "nessun risultato" (main.py:geocode,
-      // HTTPException(404, detail="luogo non trovato") — `detail` STRINGA, non `{messaggio}`):
-      // errorMessage() non la spacchetta e cade sul fallback generico passato da onGoToPlace.
+      // Same shape as the real backend response for "no result" (main.py:geocode,
+      // HTTPException(404, detail="luogo non trovato") — STRING `detail`, not `{messaggio}`):
+      // errorMessage() does not unpack it and falls back to the generic fallback passed by onGoToPlace.
       api.geocodePlace.mockRejectedValue(
         new HttpErrorResponse({ status: 404, error: { detail: 'luogo non trovato' } }),
       );
@@ -1443,14 +1443,14 @@ describe('App shell', () => {
       expect(err.textContent).toContain('Luogo non trovato');
     });
 
-    it('"vai a un luogo": guasto del backend (503, fix reperto review) → mostra il messaggio REALE del backend, non "Luogo non trovato" (che implicherebbe un luogo inesistente, non un servizio giù)', async () => {
+    it('"go to a place": backend failure (503, review finding fix) → shows the REAL backend message, not "Luogo non trovato" (which would imply a nonexistent place, not a service down)', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
 
       const mapDebugEl = f.debugElement.query(By.directive(MapComponent));
       const flyToSpy = jest.spyOn(mapDebugEl.componentInstance, 'flyTo');
-      // Stessa forma di errors.py:_handle_geocoding_error (GeocodingError -> 503).
+      // Same shape as errors.py:_handle_geocoding_error (GeocodingError -> 503).
       api.geocodePlace.mockRejectedValue(
         new HttpErrorResponse({
           status: 503,
@@ -1478,15 +1478,15 @@ describe('App shell', () => {
       expect(err.textContent).not.toContain('Luogo non trovato');
     });
 
-    it('"vai a un luogo": 500 senza corpo (backend giù, proxy Vite → corpo vuoto) → messaggio generico, non "Luogo non trovato"', async () => {
+    it('"go to a place": 500 without a body (backend down, Vite proxy → empty body) → generic message, not "Luogo non trovato"', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
 
       const mapDebugEl = f.debugElement.query(By.directive(MapComponent));
       const flyToSpy = jest.spyOn(mapDebugEl.componentInstance, 'flyTo');
-      // Stesso scenario del reperto review: backend giù sotto `ng serve`, il proxy Vite risponde
-      // 500 a corpo vuoto (nessun `detail` spacchettabile).
+      // Same scenario as the review finding: backend down under `ng serve`, the Vite proxy answers
+      // 500 with an empty body (no unpackable `detail`).
       api.geocodePlace.mockRejectedValue(
         new HttpErrorResponse({ status: 500, statusText: 'Internal Server Error', error: null }),
       );
@@ -1506,7 +1506,7 @@ describe('App shell', () => {
       expect(err.textContent).not.toContain('Luogo non trovato');
     });
 
-    it('"vai a un luogo": status 0 (rete irraggiungibile) → messaggio generico, non "Luogo non trovato"', async () => {
+    it('"go to a place": status 0 (network unreachable) → generic message, not "Luogo non trovato"', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
@@ -1532,15 +1532,15 @@ describe('App shell', () => {
       expect(err.textContent).not.toContain('Luogo non trovato');
     });
 
-    it('"vai a un luogo": 422 con detail lista (validazione pydantic, es. query oltre i 200 caratteri) → messaggio generico, non "Luogo non trovato"', async () => {
+    it('"go to a place": 422 with list detail (pydantic validation, e.g. query over 200 characters) → generic message, not "Luogo non trovato"', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
 
       const mapDebugEl = f.debugElement.query(By.directive(MapComponent));
       const flyToSpy = jest.spyOn(mapDebugEl.componentInstance, 'flyTo');
-      // Forma reale di un errore di validazione pydantic: `detail` è una LISTA, non un oggetto con
-      // `messaggio` — `errorMessage` non la spacchetta (giustamente: sarebbe un testo tecnico lungo).
+      // Real shape of a pydantic validation error: `detail` is a LIST, not an object with
+      // `messaggio` — `errorMessage` does not unpack it (rightly: it would be a long technical text).
       api.geocodePlace.mockRejectedValue(
         new HttpErrorResponse({
           status: 422,
@@ -1571,17 +1571,17 @@ describe('App shell', () => {
       expect(err.textContent).not.toContain('Luogo non trovato');
     });
 
-    it('"vai a un luogo": 200 con corpo non-JSON (proxy mancante, risposta HTML → errore di parsing) → messaggio generico, non "Luogo non trovato"', async () => {
+    it('"go to a place": 200 with non-JSON body (missing proxy, HTML response → parsing error) → generic message, not "Luogo non trovato"', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
 
       const mapDebugEl = f.debugElement.query(By.directive(MapComponent));
       const flyToSpy = jest.spyOn(mapDebugEl.componentInstance, 'flyTo');
-      // HttpClient, quando il body non è JSON valido (es. l'HTML di `index.html` servito da un
-      // proxy mancante), costruisce un HttpErrorResponse con status 200 ma `ok: false` e
-      // `error` = l'errore di parsing — niente `detail.messaggio` spacchettabile, e lo status non è
-      // 404: non deve mai cadere su "Luogo non trovato".
+      // HttpClient, when the body is not valid JSON (e.g. the `index.html` HTML served by a
+      // missing proxy), builds an HttpErrorResponse with status 200 but `ok: false` and
+      // `error` = the parsing error — no unpackable `detail.messaggio`, and the status is not
+      // 404: it must never fall on "Luogo non trovato".
       api.geocodePlace.mockRejectedValue(
         new HttpErrorResponse({
           status: 200,
@@ -1605,7 +1605,7 @@ describe('App shell', () => {
       expect(err.textContent).not.toContain('Luogo non trovato');
     });
 
-    it('"vai a un luogo": testo vuoto non chiama geocodePlace', async () => {
+    it('"go to a place": empty text does not call geocodePlace', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
@@ -1616,7 +1616,7 @@ describe('App shell', () => {
       expect(api.geocodePlace).not.toHaveBeenCalled();
     });
 
-    describe('#344: niente richieste ridondanti a /geocode', () => {
+    describe('#344: no redundant requests to /geocode', () => {
       async function setup() {
         const f = TestBed.createComponent(App);
         f.detectChanges();
@@ -1636,7 +1636,7 @@ describe('App shell', () => {
         return { f, flyToSpy, type, enter };
       }
 
-      it('la ripetizione del tasto (event.repeat) è ignorata: tenere premuto Invio non rilancia nulla', async () => {
+      it('key repeat (event.repeat) is ignored: holding Enter relaunches nothing', async () => {
         const { f, type, enter } = await setup();
         api.geocodePlace.mockResolvedValue({ lat: 45.4642, lon: 9.19 });
         type('Duomo di Milano');
@@ -1649,7 +1649,7 @@ describe('App shell', () => {
         expect(api.geocodePlace).toHaveBeenCalledTimes(1);
       });
 
-      it('un Invio con repeat=true come PRIMO evento non lancia la richiesta', async () => {
+      it('an Enter with repeat=true as the FIRST event does not launch the request', async () => {
         const { type, enter } = await setup();
         type('Duomo di Milano');
 
@@ -1658,7 +1658,7 @@ describe('App shell', () => {
         expect(api.geocodePlace).not.toHaveBeenCalled();
       });
 
-      it('Invio ripetuto sullo stesso testo mentre la richiesta è in corso → una sola chiamata, un solo flyTo', async () => {
+      it('repeated Enter on the same text while the request is in progress → a single call, a single flyTo', async () => {
         const { f, flyToSpy, type, enter } = await setup();
         let resolve!: (v: { lat: number; lon: number }) => void;
         api.geocodePlace.mockImplementationOnce(() => new Promise((res) => (resolve = res)));
@@ -1676,7 +1676,7 @@ describe('App shell', () => {
         expect(flyToSpy).toHaveBeenCalledWith(45.4642, 9.19);
       });
 
-      it('il confronto è sul testo normalizzato (trim): spazi ai bordi non creano una richiesta nuova', async () => {
+      it('the comparison is on the normalized (trim) text: spaces at the edges do not create a new request', async () => {
         const { f, type, enter } = await setup();
         let resolve!: (v: { lat: number; lon: number }) => void;
         api.geocodePlace.mockImplementationOnce(() => new Promise((res) => (resolve = res)));
@@ -1691,7 +1691,7 @@ describe('App shell', () => {
         await f.whenStable();
       });
 
-      it('a richiesta conclusa lo stesso testo può essere ricercato di nuovo (nessuna cache: è solo dedup in-flight)', async () => {
+      it('once the request has finished the same text can be searched again (no cache: it is only in-flight dedup)', async () => {
         const { f, type, enter } = await setup();
         api.geocodePlace.mockResolvedValue({ lat: 45.4642, lon: 9.19 });
         type('Duomo di Milano');
@@ -1704,7 +1704,7 @@ describe('App shell', () => {
         expect(api.geocodePlace).toHaveBeenCalledTimes(2);
       });
 
-      it('dopo un errore lo stesso testo può essere ritentato', async () => {
+      it('after an error the same text can be retried', async () => {
         const { type, enter } = await setup();
         api.geocodePlace
           .mockRejectedValueOnce(new HttpErrorResponse({ status: 503, error: {} }))
@@ -1719,7 +1719,7 @@ describe('App shell', () => {
         expect(api.geocodePlace).toHaveBeenCalledTimes(2);
       });
 
-      it('testo diverso mentre una richiesta è in corso → nuova richiesta (la guardia sulle risposte obsolete resta)', async () => {
+      it('different text while a request is in progress → new request (the guard on stale responses remains)', async () => {
         const { f, flyToSpy, type, enter } = await setup();
         let resolveA!: (v: { lat: number; lon: number }) => void;
         let resolveB!: (v: { lat: number; lon: number }) => void;
@@ -1741,7 +1741,7 @@ describe('App shell', () => {
         expect(flyToSpy).toHaveBeenCalledWith(45.4642, 9.19);
       });
 
-      it('la conclusione di una richiesta superata (A) non azzera il dedup di quella più recente ancora in volo (B)', async () => {
+      it('the conclusion of an overtaken request (A) does not clear the dedup of the more recent one (B) still in flight', async () => {
         const { f, type, enter } = await setup();
         let resolveA!: (v: { lat: number; lon: number }) => void;
         api.geocodePlace
@@ -1759,7 +1759,7 @@ describe('App shell', () => {
         expect(api.geocodePlace).toHaveBeenCalledTimes(2);
       });
 
-      it('A, poi B, poi di nuovo A mentre B è ancora in corso → A viene rilanciata (la richiesta A originale è già superata)', async () => {
+      it('A, then B, then A again while B is still in progress → A is relaunched (the original request A is already overtaken)', async () => {
         const { f, flyToSpy, type, enter } = await setup();
         let resolveA2!: (v: { lat: number; lon: number }) => void;
         api.geocodePlace
@@ -1780,12 +1780,12 @@ describe('App shell', () => {
       });
     });
 
-    describe('#375: Invio durante la composizione e geocoding in volo al reset', () => {
+    describe('#375: Enter during composition and geocoding in flight at reset', () => {
       async function setup() {
         const f = TestBed.createComponent(App);
         f.detectChanges();
         await f.whenStable();
-        store.dispatch({ type: 'LOAD_SUCCESS', data: emptyResp, pipeline: 'completo' });
+        store.dispatch({ type: 'LOAD_SUCCESS', data: emptyResp, pipeline: 'full' });
         f.detectChanges();
         const flyToSpy = jest.spyOn(
           f.debugElement.query(By.directive(MapComponent)).componentInstance,
@@ -1808,7 +1808,7 @@ describe('App shell', () => {
         return { f, flyToSpy, input, type, enter, newRequest };
       }
 
-      it("l'Invio che conferma una composizione (isComposing) non lancia la richiesta", async () => {
+      it('the Enter that confirms a composition (isComposing) does not launch the request', async () => {
         const { type, enter } = await setup();
         type('Citt');
 
@@ -1817,18 +1817,18 @@ describe('App shell', () => {
         expect(api.geocodePlace).not.toHaveBeenCalled();
       });
 
-      it("l'Invio con key 'Enter', keyCode 229 e isComposing false (Safari, fine composizione) non lancia la richiesta", async () => {
+      it("the Enter with key 'Enter', keyCode 229 and isComposing false (Safari, end of composition) does not launch the request", async () => {
         const { type, enter } = await setup();
         type('Citt');
 
-        // Compromesso noto (vedi `isCompositionEnter`): vale anche per un eventuale secondo Invio
-        // di alcune tastiere Android con composizione attiva, non verificato su dispositivo reale.
+        // Known trade-off (see `isCompositionEnter`): it also holds for a possible second Enter
+        // of some Android keyboards with an active composition, not verified on a real device.
         enter({ key: 'Enter', keyCode: 229, isComposing: false });
 
         expect(api.geocodePlace).not.toHaveBeenCalled();
       });
 
-      it("un Invio normale subito dopo l'Invio di composizione lancia la richiesta sul testo completo", async () => {
+      it('a normal Enter right after the composition Enter launches the request on the full text', async () => {
         const { f, type, enter } = await setup();
         api.geocodePlace.mockResolvedValue({ lat: 45.4642, lon: 9.19 });
         type('Citt');
@@ -1843,7 +1843,7 @@ describe('App shell', () => {
         expect(api.geocodePlace).toHaveBeenCalledWith('Città di Milano');
       });
 
-      it('reset con richiesta in volo: la risoluzione tardiva non fa flyTo', async () => {
+      it('reset with a request in flight: the late resolution does not flyTo', async () => {
         const { f, flyToSpy, type, enter, newRequest } = await setup();
         let resolve!: (v: { lat: number; lon: number }) => void;
         api.geocodePlace.mockImplementationOnce(() => new Promise((res) => (resolve = res)));
@@ -1858,7 +1858,7 @@ describe('App shell', () => {
         expect(flyToSpy).not.toHaveBeenCalled();
       });
 
-      it('reset con richiesta in volo: il rifiuto tardivo non mostra errore', async () => {
+      it('reset with a request in flight: the late rejection does not show an error', async () => {
         const { f, flyToSpy, type, enter, newRequest } = await setup();
         let reject!: (e: unknown) => void;
         api.geocodePlace.mockImplementationOnce(() => new Promise((_res, rej) => (reject = rej)));
@@ -1866,8 +1866,8 @@ describe('App shell', () => {
         enter();
 
         newRequest();
-        // Dentro la zona, come farebbe una risposta HTTP reale: un rifiuto non gestito verrebbe
-        // rilevato da zone.js invece di restare invisibile fuori dalla zona.
+        // Inside the zone, as a real HTTP response would: an unhandled rejection would be
+        // detected by zone.js instead of staying invisible outside the zone.
         f.ngZone!.run(() => reject(new HttpErrorResponse({ status: 404, error: {} })));
         await f.whenStable();
         f.detectChanges();
@@ -1876,7 +1876,7 @@ describe('App shell', () => {
         expect(flyToSpy).not.toHaveBeenCalled();
       });
 
-      it('il reset elimina un errore di ricerca già mostrato (404 -> reset -> nessun .cra-place-error)', async () => {
+      it('the reset removes an already shown search error (404 -> reset -> no .cra-place-error)', async () => {
         const { f, type, enter, newRequest } = await setup();
         api.geocodePlace.mockRejectedValueOnce(new HttpErrorResponse({ status: 404, error: {} }));
         type('Atlantide');
@@ -1890,7 +1890,7 @@ describe('App shell', () => {
         expect(f.nativeElement.querySelector('.cra-place-error')).toBeNull();
       });
 
-      it('dopo il reset lo stesso testo riscritto lancia una richiesta nuova (il dedup in-flight è azzerato)', async () => {
+      it('after the reset the same text retyped launches a new request (the in-flight dedup is cleared)', async () => {
         const { f, flyToSpy, type, enter, newRequest } = await setup();
         let resolveOld!: (v: { lat: number; lon: number }) => void;
         api.geocodePlace
@@ -1908,13 +1908,13 @@ describe('App shell', () => {
         expect(flyToSpy).toHaveBeenCalledTimes(1);
         expect(flyToSpy).toHaveBeenCalledWith(41.9, 12.5);
 
-        // La vecchia richiesta, risolta dopo, resta scartata.
+        // The old request, resolved afterwards, stays discarded.
         resolveOld({ lat: 45.4642, lon: 9.19 });
         for (let i = 0; i < 5; i++) await Promise.resolve();
         expect(flyToSpy).toHaveBeenCalledTimes(1);
       });
 
-      it('la conclusione della richiesta pre-reset non cancella il dedup di quella post-reset ancora in volo', async () => {
+      it('the conclusion of the pre-reset request does not clear the dedup of the post-reset one still in flight', async () => {
         const { f, type, enter, newRequest } = await setup();
         let resolveOld!: (v: { lat: number; lon: number }) => void;
         api.geocodePlace
@@ -1934,7 +1934,7 @@ describe('App shell', () => {
       });
     });
 
-    it('"vai a un luogo": race condition (fix reperto review) — submit rapido A poi B con A che risolve DOPO B → lo stato finale riflette SOLO B', async () => {
+    it('"go to a place": race condition (review finding fix) — quick submit A then B with A resolving AFTER B → the final state reflects ONLY B', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
@@ -1962,8 +1962,8 @@ describe('App shell', () => {
 
       expect(api.geocodePlace).toHaveBeenCalledTimes(2);
 
-      // B (l'ultima richiesta) risolve PRIMA, poi A (superata) arriva in ritardo — l'ordine
-      // realistico di una race persa dalla richiesta più vecchia.
+      // B (the last request) resolves FIRST, then A (overtaken) arrives late — the realistic
+      // order of a race lost by the older request.
       resolveB({ lat: 45.4642, lon: 9.19 });
       await f.whenStable();
       f.detectChanges();
@@ -1971,13 +1971,13 @@ describe('App shell', () => {
       await f.whenStable();
       f.detectChanges();
 
-      // Solo l'effetto di B deve essere applicato: un solo flyTo, con le coordinate di B.
+      // Only the effect of B must be applied: a single flyTo, with the coordinates of B.
       expect(flyToSpy).toHaveBeenCalledTimes(1);
       expect(flyToSpy).toHaveBeenCalledWith(45.4642, 9.19);
       expect(f.nativeElement.querySelector('.cra-place-error')).toBeNull();
     });
 
-    it('"vai a un luogo": race condition sull\'errore — A (superata) fallisce DOPO che B è già riuscita, l\'errore tardivo di A non deve invadere lo stato', async () => {
+    it('"go to a place": race condition on the error — A (overtaken) fails AFTER B has already succeeded, the late error of A must not invade the state', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
@@ -2016,8 +2016,8 @@ describe('App shell', () => {
     });
   });
 
-  describe("#318 (reperto review C1): via d'uscita dal Sistema base senza cerchio disegnato", () => {
-    it('toggle a Base PRIMA di aver mai disegnato un cerchio: "Torna a Completo" nel pannello riporta a INPUT (dove la mappa torna visibile/cliccabile)', async () => {
+  describe('#318 (review finding C1): exit route from the Base system without a drawn circle', () => {
+    it('toggle to Base BEFORE ever drawing a circle: "Torna a Completo" in the panel goes back to INPUT (where the map becomes visible/clickable again)', async () => {
       const f = TestBed.createComponent(App);
       f.detectChanges();
       await f.whenStable();
@@ -2042,13 +2042,13 @@ describe('App shell', () => {
     });
   });
 
-  it('canarino #383: un macrotask dopo il mount non fa esplodere rifiuti orfani dei test precedenti', async () => {
-    // Un rifiuto di zona che nessuno ha ancora sottoscritto viene rilanciato da ComponentFixture con
-    // un setTimeout, quindi esplode al primo macrotask successivo (es. un `whenStable` dopo una
-    // risoluzione tardiva) e fallisce a cascata test che non c'entrano. Questo test cede un
-    // macrotask su un fixture montato: fallisce subito se un test qui sopra lascia un rifiuto
-    // orfano, o se qualcuno riporta il target di `tsconfig.spec.json` a ES2022 (async/await nativo,
-    // che zone.js non traccia: ogni mock rifiutato sincrono nel task DOM diventerebbe orfano).
+  it('canary #383: a macrotask after the mount does not blow up orphan rejections of the previous tests', async () => {
+    // An orphan zone rejection that nobody has subscribed to yet is rethrown by ComponentFixture with
+    // a setTimeout, so it blows up at the first later macrotask (e.g. a `whenStable` after a
+    // late resolution) and fails unrelated tests in cascade. This test yields a
+    // macrotask on a mounted fixture: it fails immediately if a test above leaves an orphan
+    // rejection, or if someone brings the `tsconfig.spec.json` target back to ES2022 (native async/await,
+    // which zone.js does not track: every synchronously rejected mock in the DOM task would become orphan).
     const f = TestBed.createComponent(App);
     f.detectChanges();
     await f.whenStable();

@@ -10,13 +10,13 @@ describe('SourcesIndicatorComponent', () => {
     fixture = TestBed.createComponent(SourcesIndicatorComponent);
   });
 
-  it('mostra "Fonti: Predefinite" di default', () => {
+  it('shows "Fonti: Predefinite" by default', () => {
     fixture.detectChanges();
     expect(btn().textContent).toContain('Fonti: Predefinite');
     expect(btn().getAttribute('data-kind')).toBe('default');
   });
 
-  it('mostra l etichetta e il tipo ricevuti', () => {
+  it('shows the received label and kind', () => {
     fixture.componentRef.setInput('label', 'Personalizzate');
     fixture.componentRef.setInput('kind', 'custom');
     fixture.detectChanges();
@@ -24,14 +24,14 @@ describe('SourcesIndicatorComponent', () => {
     expect(btn().getAttribute('data-kind')).toBe('custom');
   });
 
-  it('il nome accessibile contiene il testo visibile (WCAG 2.5.3)', () => {
+  it('the accessible name contains the visible text (WCAG 2.5.3)', () => {
     fixture.detectChanges();
     const label = btn().getAttribute('aria-label')!;
     expect(label).toContain('Fonti: Predefinite');
     expect(label).toContain('Apri la pagina Fonti');
   });
 
-  it('il clic emette openPage', () => {
+  it('the click emits openPage', () => {
     const spy = jest.fn();
     fixture.componentInstance.openPage.subscribe(spy);
     fixture.detectChanges();

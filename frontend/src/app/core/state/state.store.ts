@@ -8,11 +8,11 @@ import {
   poiNameDisplayLabel,
 } from '@core/ui-helpers';
 
-/** Esportata (fix reperto review): riusata da `App.onGoToPlace` per lo stesso spacchettamento
- * dell'errore backend, invece di duplicare qui la stessa logica in due file. */
+/** Exported (review finding fix): reused by `App.onGoToPlace` for the same unpacking of the
+ * backend error, instead of duplicating the same logic here in two files. */
 export function errorMessage(err: unknown, fallback: string): string {
-  // Angular HttpErrorResponse NON è instanceof Error a runtime (angular#22762):
-  // il messaggio del backend vive in err.error.detail.messaggio ({"detail":{...}}).
+  // Angular HttpErrorResponse is NOT instanceof Error at runtime (angular#22762):
+  // the backend message lives in err.error.detail.messaggio ({"detail":{...}}).
   if (err && typeof err === 'object') {
     const body = (err as { error?: unknown }).error;
     if (body && typeof body === 'object') {
@@ -33,71 +33,71 @@ export class StateStore {
 
   readonly state = this._state.asReadonly();
   readonly screen = computed(() => this._state().screen);
-  /** Risultato dell'ultima `/analyze` (sistema completo): mappa, poi-panel, narrativa, dettaglio,
-   * badge Copertura/chip confidence leggono SEMPRE questo campo, mai `baselineData`. */
-  readonly completoData = computed(() => this._state().completoData);
-  /** Risultato dell'ultima `/analyze/baseline` (Sistema base): solo `BasePanelComponent` lo legge. */
+  /** Result of the last `/analyze` (full system): map, poi-panel, narrative, detail,
+   * Copertura badge/confidence chips ALWAYS read this field, never `baselineData`. */
+  readonly fullData = computed(() => this._state().fullData);
+  /** Result of the last `/analyze/baseline` (base system): only `BasePanelComponent` reads it. */
   readonly baselineData = computed(() => this._state().baselineData);
   readonly selectedPoiId = computed(() => this._state().selectedPoiId);
   readonly filter = computed(() => this._state().filter);
   readonly error = computed(() => this._state().error);
-  /** Ultima domanda NL inviata: sopravvive a LOADING/ERROR per ripopolare l'InputPanel dopo un errore. */
-  readonly pendingDomanda = computed(() => this._state().pendingDomanda);
-  // pendingCitta/pendingZona rimossi (#318, nessun consumatore dopo la rimozione dei campi
-  // testuali dai pannelli): il cerchio disegnato vive in MapComponent, che sopravvive da solo al
-  // remount tra schermi e non richiede reseeding esterno.
+  /** Last NL question sent: survives LOADING/ERROR to repopulate the InputPanel after an error. */
+  readonly pendingQuestion = computed(() => this._state().pendingQuestion);
+  // pendingCity/pendingZone removed (#318, no consumer after the text fields were removed from the
+  // panels): the drawn circle lives in MapComponent, which survives on its own across screen
+  // remounts and needs no external reseeding.
   readonly mode = computed(() => this._state().mode);
-  readonly fromCache = computed(() => this._state().completoData?.cache_hit ?? false);
-  /** Ultima query completa (center+radiusM+domanda dell'azione, citta+zona RISOLTE dalla risposta,
-   * #318): sopravvive in RESULTS/DETAIL/FILTER, sorgente di "Rigenera" e del contesto per
-   * /analyze/poi e /analyze/narrativa. */
+  readonly fromCache = computed(() => this._state().fullData?.cache_hit ?? false);
+  /** Last full query (center+radiusM+question from the action, city+zone RESOLVED from the
+   * response, #318): survives in RESULTS/DETAIL/FILTER, source of "Rigenera" and of the context
+   * for /analyze/poi and /analyze/narrativa. */
   readonly lastQuery = computed(() => this._state().lastQuery);
-  /** Stato aperto/chiuso del bottom-sheet della narrativa (Stato B, collassabile). */
+  /** Open/closed state of the narrative bottom sheet (State B, collapsible). */
   readonly narrOpen = computed(() => this._state().narrOpen);
-  /** Stato aperto/chiuso del dock Lista/Dettaglio POI (`TOGGLE_POI_PANEL`, #199): collassabile per
-   * liberare completamente la mappa. */
+  /** Open/closed state of the POI List/Detail dock (`TOGGLE_POI_PANEL`, #199): collapsible to
+   * free the map completely. */
   readonly poiPanelOpen = computed(() => this._state().poiPanelOpen);
-  /** Id del POI la cui narrativa è in generazione (#197), `null` se nessuna. */
+  /** Id of the POI whose narrative is being generated (#197), `null` if none. */
   readonly poiNarrativeLoading = computed(() => this._state().poiNarrativeLoading);
-  /** Errore dell'ultima generazione POI fallita (#197), stato grezzo. */
+  /** Error of the last failed POI generation (#197), raw state. */
   readonly poiNarrativeError = computed(() => this._state().poiNarrativeError);
-  /** Narrativa di ZONA (#259 fase 2, #292) in caricamento in background, stato grezzo. */
+  /** ZONE narrative (#259 phase 2, #292) loading in the background, raw state. */
   readonly zoneNarrativeLoading = computed(() => this._state().zoneNarrativeLoading);
-  /** Errore dell'ultima generazione di narrativa di ZONA fallita (#292), stato grezzo. */
+  /** Error of the last failed ZONE narrative generation (#292), raw state. */
   readonly zoneNarrativeError = computed(() => this._state().zoneNarrativeError);
 
   /**
-   * Narrativa del POI selezionato, se c'è una selezione E la sua narrativa è già arrivata (#197).
-   * Finché è in volo resta `null`, così il pannello mostra la narrativa di zona invece di
-   * svuotarsi: la vista non sfarfalla e l'operatore non perde il testo che stava leggendo.
+   * Narrative of the selected POI, if there is a selection AND its narrative has already arrived
+   * (#197). While it is in flight it stays `null`, so the panel shows the zone narrative instead
+   * of going blank: the view does not flicker and the operator does not lose the text being read.
    */
   private readonly currentPoiNarrative = computed(() => {
-    // Guardia su DETAIL, come `selectedDetail` in app.ts (#199): `TOGGLE_MODE` non azzera
-    // `selectedPoiId`, quindi un giro Completo→Base→Completo tornerebbe in RESULTS con una
-    // selezione residua e il pannello mostrerebbe la narrativa di un POI mentre il dock mostra
-    // la lista. Lo scope deve dipendere dallo schermo, non dal solo id residuo.
+    // Guard on DETAIL, like `selectedDetail` in app.ts (#199): `TOGGLE_MODE` does not clear
+    // `selectedPoiId`, so a Full→Base→Full round trip would return to RESULTS with a leftover
+    // selection and the panel would show a POI's narrative while the dock shows the list. The
+    // scope must depend on the screen, not on the leftover id alone.
     const s = this._state();
     if (s.screen !== 'DETAIL') return null;
     return s.selectedPoiId ? (s.poiNarratives[s.selectedPoiId] ?? null) : null;
   });
   /**
-   * Narrativa dello SCOPE corrente (#197): quella del POI se disponibile, altrimenti quella di
-   * zona. Il pannello destro legge da qui e non sa nulla della selezione.
+   * Narrative of the current SCOPE (#197): the POI's if available, otherwise the zone's. The
+   * right-hand panel reads from here and knows nothing about the selection.
    */
-  readonly currentNarrativa = computed(
-    () => this.currentPoiNarrative()?.narrativa ?? this._state().completoData?.narrativa ?? '',
+  readonly currentNarrative = computed(
+    () => this.currentPoiNarrative()?.narrative ?? this._state().fullData?.narrativa ?? '',
   );
-  readonly currentNarrativaFonti = computed(
-    () => this.currentPoiNarrative()?.fonti ?? this._state().completoData?.narrativa_fonti ?? null,
+  readonly currentNarrativeSources = computed(
+    () => this.currentPoiNarrative()?.sources ?? this._state().fullData?.narrativa_fonti ?? null,
   );
   /**
-   * Rischi dello SCOPE mostrato col dato ISTAT del loro POI (#365), per gli indicatori in linea
-   * della narrativa: col punto mostrato solo quel POI (il suo `istat` sta su `completoData.poi`,
-   * i suoi rischi nella risposta della narrativa); altrimenti tutti i POI della zona.
+   * Risks of the displayed SCOPE with the ISTAT datum of their POI (#365), for the inline
+   * indicators of the narrative: with only one point shown, just that POI (its `istat` lives on
+   * `fullData.poi`, its risks in the narrative response); otherwise all the POIs of the zone.
    */
   readonly currentNarrativeIstatOccurrences = computed<IstatHazardOccurrence[]>(() => {
     const s = this._state();
-    const data = s.completoData;
+    const data = s.fullData;
     const narrative = this.currentPoiNarrative();
     if (narrative) {
       const poi = data?.poi.find((p) => p.id === s.selectedPoiId);
@@ -106,14 +106,15 @@ export class StateStore {
     return flattenIstatOccurrences(data?.poi, data?.risk_models);
   });
   /**
-   * Nome del punto CHE IL PANNELLO STA MOSTRANDO (#197), `null` in scope zona. Deriva dalla
-   * stessa risposta della prosa (`riskModels[0].poi`, sempre presente lato BE), non dalla lista
-   * POI: così l'intestazione non può nominare un punto mentre il corpo mostra ancora la zona —
-   * è esattamente il caso della narrativa richiesta ma non ancora arrivata.
+   * Name of the point THE PANEL IS SHOWING (#197), `null` in zone scope. It derives from the same
+   * response as the prose (`riskModels[0].poi`, always present on the BE), not from the POI
+   * list: so the heading cannot name a point while the body still shows the zone — which is
+   * exactly the case of a narrative requested but not yet arrived.
    *
-   * Ripiego sulla classe (#261) se il POI è una feature OSM anonima (`riskModels[0].poi` vuoto):
-   * il nome grezzo non porta la classe, quindi si guarda `completoData.poi` (per `id`, mai per
-   * nome) solo per costruire l'etichetta di ripiego — non cambia la fonte del nome quando c'è.
+   * Fallback on the class (#261) if the POI is an anonymous OSM feature (`riskModels[0].poi`
+   * empty): the raw name does not carry the class, so `fullData.poi` is consulted (by `id`, never
+   * by name) only to build the fallback label — it does not change the source of the name when
+   * there is one.
    */
   readonly currentScopePoiName = computed(() => {
     const narrative = this.currentPoiNarrative();
@@ -121,24 +122,24 @@ export class StateStore {
     const raw = narrative.riskModels[0]?.poi;
     if (raw) return raw;
     const id = this._state().selectedPoiId;
-    const poi = this._state().completoData?.poi.find((p) => p.id === id);
+    const poi = this._state().fullData?.poi.find((p) => p.id === id);
     return poi ? poiNameDisplayLabel(poi) : null;
   });
   /**
-   * Generazione in corso PER LA SELEZIONE CORRENTE (#197). Deselezionando durante il volo la
-   * richiesta prosegue (il risultato finirà comunque in cache), ma non è più lo scope mostrato:
-   * dichiararla ancora metterebbe «generazione in corso» sopra la narrativa di zona.
+   * Generation in progress FOR THE CURRENT SELECTION (#197). Deselecting during the flight lets
+   * the request continue (the result will still end up in the cache), but it is no longer the
+   * scope shown: still declaring it would put "generation in progress" above the zone narrative.
    */
   readonly poiNarrativePending = computed(() => {
     const s = this._state();
     return s.screen === 'DETAIL' && s.poiNarrativeLoading === s.selectedPoiId;
   });
-  /** L'LLM è caduto sul punto mostrato (#197): niente prosa, restano i rischi strutturati. */
+  /** The LLM failed on the displayed point (#197): no prose, the structured risks remain. */
   readonly poiNarrativeFallback = computed(() => this.currentPoiNarrative()?.fallback ?? false);
   /**
-   * Il punto mostrato non ha alcun rischio ancorato all'ontologia (#197/#220: classe fuori
-   * ontologia). La narrativa esiste ma è interamente inferenza contestuale: il pannello deve
-   * dirlo, altrimenti un testo senza ancoraggio si presenta come tutti gli altri.
+   * The displayed point has no risk anchored to the ontology (#197/#220: class outside the
+   * ontology). The narrative exists but is entirely contextual inference: the panel must say so,
+   * otherwise an unanchored text looks like all the others.
    */
   readonly poiNarrativeUngrounded = computed(() => {
     const narrative = this.currentPoiNarrative();
@@ -147,31 +148,29 @@ export class StateStore {
   });
 
   /**
-   * "narrativa in caricamento" dello SCOPE corrente (#292): in Vista Dettaglio segue il POI
-   * selezionato (`poiNarrativePending`), altrimenti la narrativa di ZONA in volo dopo la fase 1 di
-   * `/analyze` (#259). Stesso pattern di `currentNarrativa`/`currentNarrativaFonti`: il
-   * pannello legge solo da qui, non sa nulla della selezione.
+   * "narrative loading" of the current SCOPE (#292): in Detail view it follows the selected POI
+   * (`poiNarrativePending`), otherwise the ZONE narrative in flight after phase 1 of
+   * `/analyze` (#259). Same pattern as `currentNarrative`/`currentNarrativeSources`: the
+   * panel reads only from here, it knows nothing about the selection.
    */
   readonly currentNarrativeLoading = computed(() => {
     const s = this._state();
     return s.screen === 'DETAIL' ? this.poiNarrativePending() : s.zoneNarrativeLoading;
   });
-  /** Errore dello SCOPE corrente (#292): quello del POI in Vista Dettaglio, quello di ZONA altrove. */
+  /** Error of the current SCOPE (#292): the POI's in Detail view, the ZONE's elsewhere. */
   readonly currentNarrativeError = computed(() => {
     const s = this._state();
     return s.screen === 'DETAIL' ? s.poiNarrativeError : s.zoneNarrativeError;
   });
   /**
-   * Fallback LLM dello SCOPE corrente (#292): quello del POI in Vista Dettaglio (`poiNarrativeFallback`),
-   * altrimenti quello riportato dall'ultima generazione di narrativa di ZONA riuscita
-   * (`completoData.fallback`, aggiornato da `ZONE_NARRATIVE_SUCCESS` — `false` di default nella
-   * fase 1, che non ha ancora tentato l'LLM).
+   * LLM fallback of the current SCOPE (#292): the POI's in Detail view (`poiNarrativeFallback`),
+   * otherwise the one reported by the last successful ZONE narrative generation
+   * (`fullData.fallback`, updated by `ZONE_NARRATIVE_SUCCESS` — `false` by default in
+   * phase 1, which has not yet tried the LLM).
    */
   readonly currentNarrativeFallback = computed(() => {
     const s = this._state();
-    return s.screen === 'DETAIL'
-      ? this.poiNarrativeFallback()
-      : (s.completoData?.fallback ?? false);
+    return s.screen === 'DETAIL' ? this.poiNarrativeFallback() : (s.fullData?.fallback ?? false);
   });
 
   dispatch(action: Action): void {
@@ -179,57 +178,57 @@ export class StateStore {
   }
 
   /**
-   * Pipeline 'completo': ogni azione dispatchata qui porta `pipeline: 'completo'` come letterale
-   * fisso, mai letto da `state.mode` — così un `TOGGLE_MODE` dispatchato mentre questa richiesta è
-   * ancora in volo non può dirottarne la risposta su `baselineData` (review #67-bis, bloccante A).
+   * 'full' pipeline: every action dispatched here carries `pipeline: 'full'` as a fixed literal,
+   * never read from `state.mode` — so a `TOGGLE_MODE` dispatched while this request is still in
+   * flight cannot hijack its response onto `baselineData` (review #67-bis, blocker A).
    *
-   * Fase 1/2 (#259, #292): `/analyze` risponde SUBITO con `narrativa: null` (mappa, POI, rischi,
-   * badge Copertura sono già completi) e la FSM passa a RESULTS; la narrativa di ZONA arriva poi in
-   * background (`loadZoneNarrative`, non attesa qui) e aggiorna solo il campo narrativa dello stato
-   * già in RESULTS — mai un giro extra della FSM.
+   * Phase 1/2 (#259, #292): `/analyze` answers IMMEDIATELY with `narrativa: null` (map, POIs,
+   * risks, Copertura badge are already complete) and the FSM moves to RESULTS; the ZONE narrative
+   * then arrives in the background (`loadZoneNarrative`, not awaited here) and updates only the
+   * narrative field of the state already in RESULTS — never an extra FSM round.
    *
-   * `area` è una delle due modalità che coesistono (#335): il cerchio disegnato (centro+raggio)
-   * oppure città/zona digitate. In entrambi i casi `loadZoneNarrative` (e con essa `lastQuery`,
-   * popolato da `transition()` su `LOAD_SUCCESS`) usa le etichette `citta`/`zona_normalizzata`
-   * della RISPOSTA, mai quelle della richiesta: un cerchio disegnato non ha equivalente testuale
-   * prima che la risposta arrivi (il backend lo risolve lui, reverse geocode), e anche in modalità
-   * città/zona è più semplice leggere sempre dallo stesso punto (la risposta) che diramare la
-   * fonte per modalità — anche se qui il valore coincide con quanto digitato, perché il backend
-   * riporta in risposta il testo dell'utente dopo lo strip, non un reverse geocode.
+   * `area` is one of the two modes that coexist (#335): the drawn circle (center+radius) or
+   * typed city/zone. In both cases `loadZoneNarrative` (and with it `lastQuery`, populated by
+   * `transition()` on `LOAD_SUCCESS`) uses the `citta`/`zona_normalizzata` labels of the
+   * RESPONSE, never those of the request: a drawn circle has no textual equivalent before the
+   * response arrives (the backend resolves it itself, reverse geocode), and even in city/zone
+   * mode it is simpler to always read from the same place (the response) than to branch the
+   * source by mode — even if here the value matches what was typed, because the backend reports
+   * in the response the user's text after the strip, not a reverse geocode.
    */
-  async startAnalysis(area: SearchArea, domanda?: string | null): Promise<void> {
-    this.dispatch({ type: 'ANALYZE', area, domanda, pipeline: 'completo' });
+  async startAnalysis(area: SearchArea, question?: string | null): Promise<void> {
+    this.dispatch({ type: 'ANALYZE', area, question, pipeline: 'full' });
     try {
-      // Niente `domanda` qui (#292): la fase 1 non chiama più l'LLM, va solo a `loadZoneNarrative`.
+      // No `question` here (#292): phase 1 no longer calls the LLM, it goes only to `loadZoneNarrative`.
       const result = await this.api.analyze(area);
       this.dispatch({
         type: 'LOAD_SUCCESS',
         data: result,
-        pipeline: 'completo',
+        pipeline: 'full',
         area,
-        domanda: domanda ?? null,
+        question: question ?? null,
       });
-      // citta/zona qui sono le etichette della RISPOSTA (result.citta/zona_normalizzata), non
-      // quelle eventualmente presenti nella richiesta (#335: in modalità cerchio non esistono
-      // affatto; in modalità città/zona il backend le riporta già uguali a quanto digitato, dopo
-      // lo strip) — stesso valore che `transition()` ha appena scritto in `lastQuery`, usato da
-      // /analyze/poi e /analyze/narrativa.
+      // city/zone here are the labels of the RESPONSE (result.citta/zona_normalizzata), not
+      // those possibly present in the request (#335: in circle mode they do not exist at all;
+      // in city/zone mode the backend already reports them equal to what was typed, after the
+      // strip) — same value that `transition()` has just written into `lastQuery`, used by
+      // /analyze/poi and /analyze/narrativa.
       void this.loadZoneNarrative(
         result.contesto_hash,
         result.citta,
         result.zona_normalizzata,
-        domanda ?? null,
+        question ?? null,
       );
     } catch (err) {
       this.dispatch({
         type: 'LOAD_ERROR',
         message: errorMessage(err, "Errore durante l'analisi."),
-        pipeline: 'completo',
+        pipeline: 'full',
       });
     }
   }
 
-  /** Pipeline 'base': stessa logica di `startAnalysis`, letterale `pipeline: 'base'` fisso. */
+  /** 'base' pipeline: same logic as `startAnalysis`, fixed literal `pipeline: 'base'`. */
   async startBaselineAnalysis(params: BaselineParams): Promise<void> {
     this.dispatch({ type: 'ANALYZE', area: params.area, pipeline: 'base' });
     try {
@@ -245,46 +244,46 @@ export class StateStore {
   }
 
   /**
-   * Genera la narrativa di un POI, se non è già in cache di sessione (#197).
+   * Generates a POI's narrative, if it is not already in the session cache (#197).
    *
-   * Ogni generazione è una chiamata LLM: ricliccare un POI già visto non rispende, e la cache si
-   * invalida da sé alla ANALYZE successiva (il contesto di zona cambia). `force` serve al bottone
-   * «rigenera». Senza `lastQuery` non c'è una zona a cui riferire il POI, quindi non si chiama
-   * nulla: la richiesta sarebbe un 404 annunciato.
+   * Each generation is an LLM call: re-clicking an already seen POI does not spend again, and the
+   * cache invalidates itself at the next ANALYZE (the zone context changes). `force` serves the
+   * "regenerate" button. Without `lastQuery` there is no zone to refer the POI to, so nothing is
+   * called: the request would be a foretold 404.
    *
-   * L'impronta del contesto (#242) viene dalla risposta di zona MOSTRATA: se non corrispondesse
-   * alla coppia città/zona inviata, il backend risponderebbe 409 invece di generare prosa su un
-   * vicinato diverso da quello in mappa.
+   * The context fingerprint (#242) comes from the zone response SHOWN: if it did not match the
+   * city/zone pair sent, the backend would answer 409 instead of generating prose on a
+   * neighborhood different from the one on the map.
    *
-   * La verifica server-side però copre solo ciò che passa dalla rete: un risultato che arriva
-   * DOPO una nuova analisi della zona verrebbe depositato in `poiNarratives` e poi servito dalla
-   * cache di sessione senza alcuna richiesta, quindi senza che il backend possa più confrontare
-   * nulla. Per questo il risultato è scartato se, quando arriva, l'impronta mostrata non è più
-   * quella con cui la richiesta è partita.
+   * The server-side check, however, covers only what goes over the network: a result that arrives
+   * AFTER a new zone analysis would be deposited in `poiNarratives` and then served from the
+   * session cache without any request, hence without the backend being able to compare anything
+   * anymore. For this reason the result is discarded if, when it arrives, the fingerprint shown
+   * is no longer the one the request started with.
    */
   async loadPoiNarrative(poiId: string, options?: { force?: boolean }): Promise<void> {
     const query = this._state().lastQuery;
     if (!query) return;
-    // Senza impronta non esiste una richiesta che il backend possa verificare: non si chiama.
-    const contestoHash = this._state().completoData?.contesto_hash;
-    if (!contestoHash) return;
+    // Without a fingerprint there is no request the backend could verify: no call is made.
+    const contextHash = this._state().fullData?.contesto_hash;
+    if (!contextHash) return;
     if (!options?.force && this._state().poiNarratives[poiId]) return;
     this.dispatch({ type: 'POI_NARRATIVE_START', poiId });
     try {
-      const res = await this.api.poiNarrative(query.citta, query.zona, poiId, contestoHash);
-      if (this.contestoCambiato(contestoHash)) return;
+      const res = await this.api.poiNarrative(query.city, query.zone, poiId, contextHash);
+      if (this.contextChanged(contextHash)) return;
       this.dispatch({
         type: 'POI_NARRATIVE_SUCCESS',
         poiId,
         data: {
-          narrativa: res.narrativa,
-          fonti: res.narrativa_fonti,
+          narrative: res.narrativa,
+          sources: res.narrativa_fonti,
           riskModels: res.risk_models,
           fallback: res.fallback,
         },
       });
     } catch (err) {
-      if (this.contestoCambiato(contestoHash)) return;
+      if (this.contextChanged(contextHash)) return;
       this.dispatch({
         type: 'POI_NARRATIVE_ERROR',
         message: errorMessage(err, 'Errore nella generazione della narrativa del punto.'),
@@ -293,36 +292,38 @@ export class StateStore {
   }
 
   /**
-   * Genera la narrativa di ZONA in background dopo che la fase 1 di `/analyze` ha già risposto e
-   * portato la FSM in RESULTS (#259, #292): non è chiamata da un componente (a differenza di
-   * `loadPoiNarrative`, cablata alla selezione), ma da `startAnalysis` stesso, senza essere attesa.
+   * Generates the ZONE narrative in the background after phase 1 of `/analyze` has already
+   * answered and moved the FSM to RESULTS (#259, #292): it is not called by a component (unlike
+   * `loadPoiNarrative`, wired to the selection), but by `startAnalysis` itself, without being
+   * awaited.
    *
-   * `domanda` va qui e non alla fase 1 (che non chiama più l'LLM, la ignorerebbe silenziosamente).
-   * `contestoHash` è l'impronta della risposta appena arrivata: senza, non c'è nulla che il backend
-   * possa verificare (stesso trattamento di `loadPoiNarrative`, #242). Un risultato (successo o
-   * errore) che arriva dopo che l'utente ha rifatto un'analisi di zona viene scartato — altrimenti
-   * finirebbe su un vicinato che non è più quello a schermo, aggirando la verifica server-side.
+   * `question` goes here and not to phase 1 (which no longer calls the LLM, it would silently
+   * ignore it). `contextHash` is the fingerprint of the response that has just arrived: without
+   * it, there is nothing the backend can verify (same treatment as `loadPoiNarrative`, #242). A
+   * result (success or error) that arrives after the user has redone a zone analysis is
+   * discarded — otherwise it would end up on a neighborhood that is no longer the one on screen,
+   * bypassing the server-side check.
    */
   private async loadZoneNarrative(
-    contestoHash: string,
-    citta: string,
-    zona: string,
-    domanda: string | null,
+    contextHash: string,
+    city: string,
+    zone: string,
+    question: string | null,
   ): Promise<void> {
-    if (!contestoHash) return;
+    if (!contextHash) return;
     this.dispatch({ type: 'ZONE_NARRATIVE_START' });
     try {
-      const res = await this.api.zoneNarrative(citta, zona, contestoHash, domanda);
-      if (this.contestoCambiato(contestoHash)) return;
+      const res = await this.api.zoneNarrative(city, zone, contextHash, question);
+      if (this.contextChanged(contextHash)) return;
       this.dispatch({
         type: 'ZONE_NARRATIVE_SUCCESS',
-        narrativa: res.narrativa,
-        narrativaFonti: res.narrativa_fonti,
+        narrative: res.narrativa,
+        narrativeSources: res.narrativa_fonti,
         fallback: res.fallback,
         llmUsed: res.llm_used,
       });
     } catch (err) {
-      if (this.contestoCambiato(contestoHash)) return;
+      if (this.contextChanged(contextHash)) return;
       this.dispatch({
         type: 'ZONE_NARRATIVE_ERROR',
         message: errorMessage(err, 'Errore nella generazione della narrativa di zona.'),
@@ -331,19 +332,20 @@ export class StateStore {
   }
 
   /**
-   * L'impronta mostrata è cambiata da quando la generazione è partita? (#242)
+   * Has the fingerprint shown changed since the generation started? (#242)
    *
-   * Succede quando una nuova analisi COMPLETO della zona arriva mentre la generazione di un punto
-   * è ancora in volo: `ANALYZE` svuota `poiNarratives` e `completoData` porta un'altra impronta.
-   * Il risultato tardivo riguarda un contesto che non è più a schermo, quindi non va depositato né
-   * dichiarato: la cache di sessione lo servirebbe poi SENZA richiesta, aggirando la verifica
-   * server-side. `poiNarrativeLoading` è già stato azzerato da quella `ANALYZE`, quindi non resta
-   * appeso nulla — l'impronta cambia solo passando da lì. Una `ANALYZE` della pipeline base non fa
-   * scattare questo guardiano: non tocca `completoData` (l'impronta non cambia) né azzera
-   * `poiNarrativeLoading` (#245), quindi una generazione partita prima del giro in base si deposita
-   * comunque al ritorno — comportamento corretto, perché il contesto a schermo è ancora lo stesso.
+   * It happens when a new FULL analysis of the zone arrives while a point's generation is still
+   * in flight: `ANALYZE` empties `poiNarratives` and `fullData` carries another fingerprint. The
+   * late result concerns a context that is no longer on screen, so it must be neither deposited
+   * nor declared: the session cache would then serve it WITHOUT a request, bypassing the
+   * server-side check. `poiNarrativeLoading` has already been cleared by that `ANALYZE`, so
+   * nothing is left hanging — the fingerprint changes only by going through there. An `ANALYZE`
+   * of the base pipeline does not trigger this guard: it does not touch `fullData` (the
+   * fingerprint does not change) nor clear `poiNarrativeLoading` (#245), so a generation started
+   * before the round trip to base is deposited anyway on return — correct behavior, because the
+   * context on screen is still the same.
    */
-  private contestoCambiato(contestoHash: string): boolean {
-    return this._state().completoData?.contesto_hash !== contestoHash;
+  private contextChanged(contextHash: string): boolean {
+    return this._state().fullData?.contesto_hash !== contextHash;
   }
 }

@@ -14,20 +14,20 @@
   --c-da-confermare: #b8870a;
   --c-error: #b3261e;
   --c-error-bg: #fbeceb;
-  /* Sfondo chiaro amber (famiglia --c-da-confermare) + testo scuro per contrasto: banner/avvisi non
-     bloccanti (es. anti-hallucination). Stessa coppia bordo/bg di --c-error/--c-error-bg. */
+  /* Light amber background (--c-da-confermare family) + dark text for contrast: non-blocking banners/warnings
+     (e.g. anti-hallucination). Same border/bg pair as --c-error/--c-error-bg. */
   --c-da-confermare-bg: #fbf4e4;
   --c-da-confermare-ink: #7a5800;
-  /* Sfondo chiaro teal per badge "in evidenza ma non urgenti" (badge Copertura): testo in
-     --accent-2, mai il teal pieno invertito (bassa leggibilità su sfondo header scuro). */
+  /* Light teal background for "highlighted but not urgent" badges (Copertura badge): text in
+     --accent-2, never the inverted solid teal (low legibility on a dark header background). */
   --accent-bg: #e6f0f0;
-  /* Grigi neutri (bordi/testo secondario) riusati da più pannelli — allineati al prototipo hi-fi
-     (cra-tokens.jsx: T.ink2/T.hair) invece di ripetere hex sparsi per componente. */
+  /* Neutral grays (borders/secondary text) reused by several panels — aligned with the hi-fi prototype
+     (cra-tokens.jsx: T.ink2/T.hair) instead of repeating scattered hex per component. */
   --ink-2: #56524a;
   --hair: #e1ddd3;
   --hair-strong: #c4c0b6;
   --table-header-bg: #f0efe9;
-  /* Toni scuri dell'header (charcoal): testo/bordi dei controlli su sfondo --ink. */
+  /* Dark tones of the header (charcoal): text/borders of the controls on the --ink background. */
   --header-ink-muted: #9b968c;
   --header-divider: #4a463d;
   --header-border: #5a564d;
@@ -42,16 +42,16 @@
   --space-4: 16px;
   --header-height: 50px;
   --panel-max-width: 340px;
-  /* Larghezza del pannello narrativa a destra (#218, layout largo); accanto a --panel-max-width
-     del dock così le due larghezze dei pannelli laterali stanno in un solo posto. */
+  /* Width of the narrative panel on the right (#218, wide layout); next to --panel-max-width
+     of the dock so the two widths of the side panels sit in a single place. */
   --narr-panel-width: 300px;
   --panel-bg: rgba(251, 250, 246, 0.98);
-  /* Scrim dietro il LoadingOverlay: blocca visivamente pan/zoom della mappa durante il caricamento. */
+  /* Scrim behind the LoadingOverlay: visually blocks map pan/zoom during loading. */
   --scrim: rgba(33, 31, 27, 0.4);
 }
 
-/* Schermi stretti: l'header va su due righe (titolo + Fonti, poi ricerca + modalità), così nulla
-   esce dal viewport. Il token resta l'unica fonte dell'altezza per mappa, pannelli e dialog. */
+/* Narrow screens: the header goes on two rows (title + Fonti, then search + mode), so nothing
+   overflows the viewport. The token remains the only source of the height for map, panels and dialog. */
 @media (max-width: 767px) {
   :root {
     --header-height: 88px;
@@ -71,9 +71,9 @@ body {
 }
 
 /*
- * Popup dei marker Leaflet (MapComponent, markup costruito da `poiPopupHTML`): Leaflet inietta
- * questo HTML fuori dalla view encapsulation di Angular (append diretto sul DOM del popup pane),
- * quindi i CSS di componente scoped non lo raggiungono. Le regole restano globali di proposito.
+ * Leaflet marker popups (MapComponent, markup built by `poiPopupHTML`): Leaflet injects
+ * this HTML outside Angular's view encapsulation (direct append on the popup pane DOM),
+ * so scoped component CSS does not reach it. The rules stay global on purpose.
  */
 .cra-poi-popup {
   font-family: var(--font-sans);

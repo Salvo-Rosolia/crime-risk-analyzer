@@ -16,17 +16,17 @@
       Inserisci città e zona qui sotto, oppure torna a Completo per disegnare un cerchio sulla mappa
       (qui nascosta dietro questo pannello).
     </p>
-    <button type="button" class="cra-btn-solid" (click)="backToCompleto.emit()">
+    <button type="button" class="cra-btn-solid" (click)="backToFull.emit()">
       Torna a Completo
     </button>
   }
   <form (submit)="onSubmit($event)">
     <div class="cra-field">
-      <label for="cra-base-tipo-poi">Tipo POI <span class="cra-optional">(opzionale)</span></label>
-      <select id="cra-base-tipo-poi" (change)="onTipoPoiChange($event)">
-        <option value="" [selected]="tipoPoi() === ''">Tutti i tipi</option>
+      <label for="cra-base-poi-type">Tipo POI <span class="cra-optional">(opzionale)</span></label>
+      <select id="cra-base-poi-type" (change)="onPoiTypeChange($event)">
+        <option value="" [selected]="poiType() === ''">Tutti i tipi</option>
         @for (t of poiTypes(); track t.terminus_class) {
-          <option [value]="t.terminus_class" [selected]="t.terminus_class === tipoPoi()">
+          <option [value]="t.terminus_class" [selected]="t.terminus_class === poiType()">
             {{ t.label_it }}
           </option>
         }
@@ -34,24 +34,24 @@
     </div>
 
     <div class="cra-field">
-      <label for="cra-base-citta"
+      <label for="cra-base-city"
         >Città <span class="cra-required" aria-hidden="true">*</span></label
       >
       <input
-        id="cra-base-citta"
+        id="cra-base-city"
         type="text"
         autocomplete="off"
-        list="cra-base-citta-options"
+        list="cra-base-city-options"
         aria-required="true"
         maxlength="100"
         placeholder="es. Roma"
-        [class.cra-field-error]="cittaHasError()"
-        [value]="citta()"
-        [attr.aria-invalid]="cittaHasError() ? true : null"
-        [attr.aria-describedby]="cittaHasError() ? 'cra-base-input-error' : null"
-        (input)="onCittaInput($event)"
+        [class.cra-field-error]="cityHasError()"
+        [value]="city()"
+        [attr.aria-invalid]="cityHasError() ? true : null"
+        [attr.aria-describedby]="cityHasError() ? 'cra-base-input-error' : null"
+        (input)="onCityInput($event)"
       />
-      <datalist id="cra-base-citta-options">
+      <datalist id="cra-base-city-options">
         @for (c of cities(); track c) {
           <option [value]="c"></option>
         }
@@ -59,19 +59,19 @@
     </div>
 
     <div class="cra-field">
-      <label for="cra-base-zona">Zona <span class="cra-required" aria-hidden="true">*</span></label>
+      <label for="cra-base-zone">Zona <span class="cra-required" aria-hidden="true">*</span></label>
       <input
-        id="cra-base-zona"
+        id="cra-base-zone"
         type="text"
         autocomplete="off"
         aria-required="true"
         maxlength="200"
         placeholder="es. Colosseo"
-        [class.cra-field-error]="zonaHasError()"
-        [value]="zona()"
-        [attr.aria-invalid]="zonaHasError() ? true : null"
-        [attr.aria-describedby]="zonaHasError() ? 'cra-base-input-error' : null"
-        (input)="onZonaInput($event)"
+        [class.cra-field-error]="zoneHasError()"
+        [value]="zone()"
+        [attr.aria-invalid]="zoneHasError() ? true : null"
+        [attr.aria-describedby]="zoneHasError() ? 'cra-base-input-error' : null"
+        (input)="onZoneInput($event)"
       />
     </div>
 
