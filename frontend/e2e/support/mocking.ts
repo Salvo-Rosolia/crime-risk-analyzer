@@ -8,41 +8,41 @@ import type {
 } from '../../src/app/core/models/models';
 
 /**
- * Helper di mocking a livello browser (`page.route`) per gli E2E di parità (#69): nessuna
- * chiamata reale al backend FastAPI, tutte le risposte vengono dai fixture JSON versionati in
- * `e2e/fixtures/`. Registra sempre `/cities` (di default dal fixture condiviso, sovrascrivibile);
- * `/analyze` e `/analyze/baseline` solo se lo scenario li richiede.
+ * Browser-level mocking helpers (`page.route`) for the parity E2Es (#69): no real
+ * call to the FastAPI backend, all the responses come from the versioned JSON fixtures in
+ * `e2e/fixtures/`. It always registers `/cities` (by default from the shared fixture, overridable);
+ * `/analyze` and `/analyze/baseline` only if the scenario requires them.
  */
 export interface MockOpts {
   cities?: unknown;
-  /** Risposta di `GET /poi-types` (#143, select "Tipo POI" del pannello Sistema base): di default
-   * il fixture condiviso `poi-types.json`, sovrascrivibile per scenario. */
+  /** Response of `GET /poi-types` (#143, "Tipo POI" select of the base-system panel): by default
+   * the shared fixture `poi-types.json`, overridable per scenario. */
   poiTypes?: unknown;
-  /** Status HTTP della risposta `/poi-types` (default 200; usare un 4xx/5xx per verificare il
-   * fallback — select con sola "Tutti i tipi", nessun errore bloccante). */
+  /** HTTP status of the `/poi-types` response (default 200; use a 4xx/5xx to verify the
+   * fallback — select with only "Tutti i tipi", no blocking error). */
   poiTypesStatus?: number;
   analyze?: unknown;
   baseline?: unknown;
-  /** Status HTTP della risposta `/analyze/baseline` (default 200; usare 4xx/5xx — es. 422 "Tipo
-   * POI non riconosciuto", #143 — per verificare che l'errore resti dentro il pannello Base). */
+  /** HTTP status of the `/analyze/baseline` response (default 200; use 4xx/5xx — e.g. 422 "Tipo
+   * POI non riconosciuto", #143 — to verify that the error stays inside the Base panel). */
   baselineStatus?: number;
-  /** Status HTTP della risposta `/analyze` (default 200; usare 4xx/5xx per lo stato ERROR). */
+  /** HTTP status of the `/analyze` response (default 200; use 4xx/5xx for the ERROR state). */
   analyzeStatus?: number;
-  /** Risposta di `POST /analyze/poi` (#197): narrativa del singolo POI selezionato. */
+  /** Response of `POST /analyze/poi` (#197): narrative of the single selected POI. */
   poiNarrative?: unknown;
   /**
-   * Status HTTP della risposta `/analyze/poi` (default 200; 404 = POI fuori dal contesto,
-   * 409 = contesto disallineato rispetto a quello mostrato, #242).
+   * HTTP status of the `/analyze/poi` response (default 200; 404 = POI outside the context,
+   * 409 = context misaligned with the one shown, #242).
    */
   poiNarrativeStatus?: number;
   /**
-   * Risposta esplicita di `POST /analyze/narrativa` (#259 fase 2, #292): narrativa di ZONA
-   * generata in background dopo la fase 1 di `/analyze`. Se omessa ma `analyze` è fornito, si
-   * deriva da lì (stesso narrativa/narrativa_fonti/fallback/llm_used): i fixture "happy" esistenti
-   * restano validi senza doverli duplicare, come se il testo fosse "già arrivato" alla fase 2.
+   * Explicit response of `POST /analyze/narrativa` (#259 phase 2, #292): ZONE narrative
+   * generated in the background after phase 1 of `/analyze`. If omitted but `analyze` is provided, it is
+   * derived from there (same narrativa/narrativa_fonti/fallback/llm_used): the existing "happy" fixtures
+   * stay valid without having to duplicate them, as if the text had "already arrived" at phase 2.
    */
   zoneNarrative?: unknown;
-  /** Status HTTP della risposta `/analyze/narrativa` (default 200; 409 = contesto disallineato). */
+  /** HTTP status of the `/analyze/narrativa` response (default 200; 409 = context misaligned). */
   zoneNarrativeStatus?: number;
 }
 
@@ -65,8 +65,8 @@ export async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
     );
   }
 
-  // `**/analyze` sopra non intercetta `/analyze/poi` (il glob àncora il suffisso), quindi la rotta
-  // per-POI va registrata a parte, come già per `/analyze/baseline`.
+  // `**/analyze` above does not intercept `/analyze/poi` (the glob anchors the suffix), so the route
+  // per-POI must be registered separately, as already for `/analyze/baseline`.
   if (opts.poiNarrative !== undefined || opts.poiNarrativeStatus !== undefined) {
     await page.route('**/analyze/poi', (route) =>
       route.fulfill({
@@ -76,8 +76,8 @@ export async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
     );
   }
 
-  // `/analyze/narrativa` (#259 fase 2, #292): stesso trattamento di `/analyze/poi` sopra, con
-  // l'ECHO di default descritto sull'opzione `zoneNarrative`.
+  // `/analyze/narrativa` (#259 phase 2, #292): same treatment as `/analyze/poi` above, with
+  // the default ECHO described on the `zoneNarrative` option.
   const analyzeObj = opts.analyze as Partial<AnalyzeResponse> | undefined;
   if (
     opts.zoneNarrative !== undefined ||
@@ -112,7 +112,7 @@ export async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
 }
 
 export interface MockSourcesOpts {
-  /** Se valorizzato `POST /sources` risponde 422 con questo report, come il backend. */
+  /** If set `POST /sources` answers 422 with this report, as the backend does. */
   rejectUpload?: { errors: SourceProblem[]; warnings?: SourceProblem[] };
 }
 
@@ -134,9 +134,9 @@ function activeSet(kind: 'example' | 'custom'): SourcesStatus {
 }
 
 /**
- * Mock stateful delle rotte `/sources` (#419): GET riflette l'ultimo esito di POST/DELETE, come il
- * backend per la stessa sessione. Registrato da `mockApi` così nessuno scenario chiama il server
- * statico per l'indicatore delle fonti.
+ * Stateful mock of the `/sources` routes (#419): GET reflects the last outcome of POST/DELETE, as the
+ * backend does for the same session. Registered by `mockApi` so no scenario calls the
+ * static server for the sources indicator.
  */
 export async function mockSources(page: Page, opts: MockSourcesOpts = {}): Promise<void> {
   let current: SourcesStatus = DEFAULT_SOURCES;

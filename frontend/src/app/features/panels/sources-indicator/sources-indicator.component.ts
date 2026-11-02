@@ -2,9 +2,9 @@ import { ChangeDetectionStrategy, Component, input, output } from '@angular/core
 import type { IndicatorKind } from '@core/state/sources.store';
 
 /**
- * Indicatore sempre visibile delle fonti attive (#419): vive nell'header, quindi resta in vista in
- * qualunque stato della mappa. È anche il modo di aprire la pagina Fonti. Componente "thin":
- * nessun accesso allo store, solo `input()`/`output()`.
+ * Always-visible indicator of the active sources (#419): it lives in the header, so it stays in view in
+ * any state of the map. It is also the way to open the Fonti page. "Thin" component:
+ * no access to the store, only `input()`/`output()`.
  */
 @Component({
   selector: 'cra-sources-indicator',

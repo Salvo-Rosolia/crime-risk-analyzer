@@ -39,7 +39,7 @@ const EXAMPLE: SourcesStatus = {
   },
 };
 
-describe('App shell - fonti (#419)', () => {
+describe('App shell - sources (#419)', () => {
   let api: Record<string, jest.Mock>;
 
   beforeEach(async () => {
@@ -59,7 +59,7 @@ describe('App shell - fonti (#419)', () => {
     }).compileComponents();
   });
 
-  it("l'indicatore e' nell'header, sempre, e riflette lo stato letto all'avvio", async () => {
+  it('the indicator is in the header, always, and reflects the state read at startup', async () => {
     const f = TestBed.createComponent(App);
     f.detectChanges();
     await f.whenStable();
@@ -68,7 +68,7 @@ describe('App shell - fonti (#419)', () => {
     expect(ind.textContent).toContain('Fonti: Esempio');
   });
 
-  it("senza backend l'indicatore dice Predefinite", async () => {
+  it('without a backend the indicator says Predefinite', async () => {
     api['sourcesStatus'].mockRejectedValue(new Error('down'));
     const f = TestBed.createComponent(App);
     f.detectChanges();
@@ -79,7 +79,7 @@ describe('App shell - fonti (#419)', () => {
     );
   });
 
-  it("il clic sull'indicatore apre la pagina, Chiudi la chiude", async () => {
+  it('the click on the indicator opens the page, Chiudi closes it', async () => {
     const f = TestBed.createComponent(App);
     f.detectChanges();
     await f.whenStable();
@@ -101,8 +101,8 @@ describe('App shell - fonti (#419)', () => {
     await f.whenStable();
     state.dispatch({
       type: 'ANALYZE',
-      area: { kind: 'zone', citta: 'Roma', zona: 'Centro' },
-      pipeline: 'completo',
+      area: { kind: 'zone', city: 'Roma', zone: 'Centro' },
+      pipeline: 'full',
     });
     expect(state.screen()).toBe('LOADING');
     return state;
@@ -116,9 +116,9 @@ describe('App shell - fonti (#419)', () => {
       .click();
   }
 
-  // Niente `whenStable` dopo ANALYZE: in LOADING l'overlay cosmetico tiene dei timer pendenti.
+  // No `whenStable` after ANALYZE: in LOADING the cosmetic overlay keeps pending timers.
 
-  it('cambiare davvero le fonti (esempio -> default) azzera i risultati', async () => {
+  it('really changing the sources (example -> default) clears the results', async () => {
     const f = TestBed.createComponent(App);
     const state = await startLoading(f);
     clickInPage(f, 'Torna al default');
@@ -128,7 +128,7 @@ describe('App shell - fonti (#419)', () => {
     expect(state.screen()).toBe('INPUT');
   });
 
-  it('Torna al default a fonti gia default NON azzera nulla', async () => {
+  it('Torna al default with sources already at default clears NOTHING', async () => {
     api['sourcesStatus'].mockResolvedValue(DEFAULT);
     const f = TestBed.createComponent(App);
     const state = await startLoading(f);
@@ -138,7 +138,7 @@ describe('App shell - fonti (#419)', () => {
     expect(state.screen()).toBe('LOADING');
   });
 
-  it("Usa l'esempio a esempio gia attivo NON azzera nulla", async () => {
+  it("Usa l'esempio with the example already active clears NOTHING", async () => {
     const f = TestBed.createComponent(App);
     const state = await startLoading(f);
     clickInPage(f, "Usa l'esempio");
@@ -147,18 +147,18 @@ describe('App shell - fonti (#419)', () => {
     expect(state.screen()).toBe('LOADING');
   });
 
-  it('chiudere la pagina durante un caricamento lento non perde il cambio del set', async () => {
+  it('closing the page during a slow upload does not lose the set change', async () => {
     api['sourcesStatus'].mockResolvedValue(DEFAULT);
     let done!: (s: SourcesStatus) => void;
     api['useExampleSources'].mockReturnValue(new Promise<SourcesStatus>((r) => (done = r)));
     const f = TestBed.createComponent(App);
     const state = await startLoading(f);
     clickInPage(f, "Usa l'esempio");
-    // Esc durante l'operazione e' ignorato: il dialog resta.
+    // Esc during the operation is ignored: the dialog stays.
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     f.detectChanges();
     expect(f.nativeElement.querySelector('cra-sources-page')).not.toBeNull();
-    // Anche chiudendo la pagina dall'esterno, la notifica vive nello store/shell.
+    // Even when closing the page from the outside, the notification lives in the store/shell.
     TestBed.inject(SourcesStore).closePage();
     f.detectChanges();
     expect(f.nativeElement.querySelector('cra-sources-page')).toBeNull();
@@ -170,7 +170,7 @@ describe('App shell - fonti (#419)', () => {
 });
 
 describe('App shell - 410 fonti_scadute (#419)', () => {
-  it("un'analisi che risponde 410 porta l'indicatore su Scadute", async () => {
+  it('a 410 that answers an analysis brings the indicator to Scadute', async () => {
     await TestBed.configureTestingModule({
       imports: [App],
       providers: [
@@ -186,9 +186,9 @@ describe('App shell - 410 fonti_scadute (#419)', () => {
       .forEach((r) => r.flush({ stato: 'default', scade_tra_secondi: null, set: null }));
     ctrl.match('/cities').forEach((r) => r.flush([]));
     ctrl.match('/poi-types').forEach((r) => r.flush([]));
-    await tick2(); // lascia chiudere la lettura iniziale dello stato fonti
+    await tick2(); // lets the initial read of the sources state finish
     const state = TestBed.inject(StateStore);
-    void state.startAnalysis({ kind: 'zone', citta: 'Roma', zona: 'Centro' });
+    void state.startAnalysis({ kind: 'zone', city: 'Roma', zone: 'Centro' });
     ctrl
       .expectOne('/analyze')
       .flush(

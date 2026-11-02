@@ -2,17 +2,17 @@ export type Confidence = 'verificato' | 'da_confermare';
 export type SourceTag = 'ONTOLOGIA' | 'CONTESTO' | 'SPECULATIVO';
 
 /**
- * Fonti della NARRATIVA (#345): i tag dei rischi più `ISTAT`, il blocco con i delitti denunciati
- * del comune o della provincia. Tipo distinto da `SourceTag` di proposito: `RiskItem.tag` non può
- * mai valere `ISTAT` — i dati ISTAT danno contesto ai rischi dell'ontologia, non ne creano.
+ * Sources of the NARRATIVE (#345): the risk tags plus `ISTAT`, the block with the crimes reported
+ * in the municipality or province. Deliberately a type distinct from `SourceTag`: `RiskItem.tag`
+ * can never be `ISTAT` — ISTAT data gives context to the ontology's risks, it does not create them.
  */
 export type NarrativeSourceTag = SourceTag | 'ISTAT';
 
 /**
- * Tipo POI selezionabile nel filtro opzionale "Tipo POI" del pannello Sistema base (#143): `GET
- * /poi-types` lo ritorna già ordinato per `label_it`. `terminus_class` è il valore canonico
- * (inglese) che il backend confronta esattamente in `/analyze/baseline`; `label_it` è la sola
- * etichetta mostrata nel `<select>`.
+ * POI type selectable in the optional "Tipo POI" filter of the base-system panel (#143): `GET
+ * /poi-types` already returns it sorted by `label_it`. `terminus_class` is the canonical (English)
+ * value the backend compares exactly in `/analyze/baseline`; `label_it` is the only label shown in
+ * the `<select>`.
  */
 export interface PoiType {
   terminus_class: string;
@@ -20,31 +20,31 @@ export interface PoiType {
 }
 
 /**
- * Entità ontologica di un asse non-hazard (#256): eventi critici, vulnerabilità, stakeholder.
- * Nessuna confidenza e nessun tag — la forza probatoria è un bit derivato dal nome del POI,
- * quindi identica per ogni asserzione ontologica su quel punto, e il badge del POI le qualifica
- * tutte insieme; la fonte è l'ontologia per costruzione.
+ * Ontology entity of a non-hazard axis (#256): critical events, vulnerabilities, stakeholders.
+ * No confidence and no tag — the evidential strength is a bit derived from the POI name, hence
+ * identical for every ontology assertion on that point, and the POI badge qualifies them all
+ * together; the source is the ontology by construction.
  */
 export interface OntologyItem {
   name: string;
-  /** Citazione lineare `Classe → property → entità` prodotta dal grounding. */
+  /** Linear citation `Class → property → entity` produced by the grounding. */
   source: string;
   label_it: string;
   label_en: string;
 }
 
-/** Corrispondenza fra hazard e voce ISTAT (#345, D3): la voce misura esattamente il rischio, lo
- * comprende insieme ad altro, o ne copre solo una parte. */
-export type IstatCorrispondenza = 'esatta' | 'piu_larga' | 'piu_stretta';
+/** Match between a hazard and an ISTAT item (#345, D3): the item measures the risk exactly,
+ * includes it together with others, or covers only a part of it. (Values come from the backend.) */
+export type IstatMatchKind = 'esatta' | 'piu_larga' | 'piu_stretta';
 
-export interface IstatCollegamento {
+export interface IstatLink {
   hazard: string;
   hazard_label_it: string;
-  corrispondenza: IstatCorrispondenza;
+  corrispondenza: IstatMatchKind;
 }
 
-/** Valori di una voce ISTAT (o del totale) nel luogo del POI, già calcolati dal backend (#345). */
-export interface IstatRiga {
+/** Values of an ISTAT item (or of the total) in the POI's place, already computed by the backend (#345). */
+export interface IstatRow {
   luogo_codice: string;
   luogo_nome: string;
   luogo_breve: string;
@@ -56,21 +56,21 @@ export interface IstatRiga {
   delitti: number | null;
   delitti_confronto: number | null;
   tasso: number | null;
-  /** ISTAT pubblica «meno di 0,1»: `tasso` è null ma il dato c'è. */
+  /** ISTAT publishes "less than 0.1": `tasso` is null but the datum exists. */
   tasso_sotto_soglia: boolean;
   tasso_italia: number | null;
   tasso_italia_sotto_soglia: boolean;
   variazione_pct: number | null;
   motivo_senza_variazione: string | null;
   rottura_2016: boolean;
-  collegamenti: IstatCollegamento[];
+  collegamenti: IstatLink[];
 }
 
-/** Dati ISTAT di un POI (#345/#346): `cornice` è il totale dei delitti del luogo, `righe` le voci
- * collegate ai suoi hazard. Il dato è del comune o della provincia, mai del POI. */
+/** ISTAT data of a POI (#345/#346): `cornice` is the total of crimes of the place, `righe` the
+ * items linked to its hazards. The datum belongs to the municipality or province, never to the POI. */
 export interface IstatPoi {
-  cornice: IstatRiga;
-  righe: IstatRiga[];
+  cornice: IstatRow;
+  righe: IstatRow[];
 }
 
 export interface Poi {
@@ -79,37 +79,37 @@ export interface Poi {
   terminus_class: string;
   lat: number;
   lon: number;
-  /** `null` se il POI è fuori ontologia (nessun rischio da qualificare, #220): nessun badge di
-   * confidence, pin neutro, non filtrabile come categoria (niente chip/riga di filtro). */
+  /** `null` if the POI is outside the ontology (no risk to qualify, #220): no confidence badge,
+   * neutral pin, not filterable as a category (no filter chip/row). */
   confidence: Confidence | null;
   sparql_path: string | null;
-  /** Etichetta IT controllata della classe (display, #77). Sempre presente lato BE (default ""). */
+  /** Controlled IT label of the class (display, #77). Always present on the BE (default ""). */
   terminus_label_it: string;
-  /** Etichetta EN corretta della classe (display, #77). Sempre presente lato BE (default ""). */
+  /** Corrected EN label of the class (display, #77). Always present on the BE (default ""). */
   terminus_label_en: string;
   /**
-   * Gli assi TERMINUS oltre agli hazard (#256/#270), ciascuno con la propria citazione.
-   * Obbligatori lato backend (sempre serializzati), opzionali qui perché sono additivi e di sola
-   * visualizzazione: se mancano la sezione non compare, non viene mostrato un dato sbagliato.
+   * The TERMINUS axes beyond hazards (#256/#270), each with its own citation.
+   * Mandatory on the backend (always serialized), optional here because they are additive and
+   * display-only: if missing the section does not appear, no wrong datum is shown.
    */
   critical_events?: OntologyItem[];
   vulnerabilities?: OntologyItem[];
   /**
-   * Stakeholder (havingPerformer, #270): dato ontologico citato, non un'indicazione operativa —
-   * vedi la nota mostrata insieme a questo asse in `detail-panel.component.ts`.
+   * Stakeholders (havingPerformer, #270): a cited ontology datum, not an operational indication —
+   * see the note shown together with this axis in `detail-panel.component.ts`.
    */
   stakeholders?: OntologyItem[];
   /**
-   * Dati ISTAT del luogo del POI (#346). Opzionale: assente con backend precedenti e nei fixture,
-   * `null` con interruttore spento o senza dati. Senza, i rischi restano nell'ordine di oggi.
+   * ISTAT data of the POI's place (#346). Optional: absent with older backends and in fixtures,
+   * `null` with the switch off or without data. Without it, risks keep today's order.
    */
   istat?: IstatPoi | null;
 }
 
-/** POI + il suo numero di visualizzazione (stesso ordine/numero del pin e della card accoppiati):
- * tipo condiviso tra shell (`app.ts`), dock (`panel-dock.component.ts`) e Vista Lista
- * (`poi-panel.component.ts`, #199) per evitare che le due informazioni vengano ricalcolate o
- * duplicate in più punti (potenziale desincronizzazione). */
+/** POI + its display number (same order/number as the paired pin and card):
+ * type shared among the shell (`app.ts`), the dock (`panel-dock.component.ts`) and the List view
+ * (`poi-panel.component.ts`, #199) so the two pieces of information are not recomputed or
+ * duplicated in several places (potential desynchronization). */
 export interface NumberedPoi {
   poi: Poi;
   number: number;
@@ -118,19 +118,19 @@ export interface NumberedPoi {
 export interface RiskItem {
   hazard: string;
   confidence: Confidence;
-  /** Tag fonte del citation layer: il BE emette `Tag | None` quando il rischio non è taggato. */
+  /** Source tag of the citation layer: the BE emits `Tag | None` when the risk is not tagged. */
   tag: SourceTag | null;
-  /** Etichetta IT controllata dell'hazard (display, #77). Sempre presente lato BE (default ""). */
+  /** Controlled IT label of the hazard (display, #77). Always present on the BE (default ""). */
   hazard_label_it: string;
-  /** Etichetta EN corretta dell'hazard (display, #77). Sempre presente lato BE (default ""). */
+  /** Corrected EN label of the hazard (display, #77). Always present on the BE (default ""). */
   hazard_label_en: string;
 }
 export interface RiskModel {
-  /** Id OSM del POI: la chiave con cui si attribuiscono i rischi al punto giusto. I nomi OSM non
-   * sono né unici né sempre presenti (le feature anonime arrivano con `name` vuoto), quindi
-   * agganciare per nome fa vedere, sul dettaglio di un punto, i rischi di un altro. */
+  /** OSM id of the POI: the key used to attribute risks to the right point. OSM names are
+   * neither unique nor always present (anonymous features arrive with an empty `name`), so
+   * matching by name would show, on a point's detail, the risks of another one. */
   poi_id: string;
-  /** Nome del POI, per il display: non identifica nulla. */
+  /** POI name, for display: it identifies nothing. */
   poi: string;
   risks: RiskItem[];
 }
@@ -149,69 +149,70 @@ export interface SourceProse {
   ontologia: string;
   contesto: string;
   speculativo: string;
-  /** Prosa del blocco [ISTAT] (#345). Opzionale: assente nelle risposte senza dati ISTAT di
-   * backend precedenti e nei fixture esistenti. */
+  /** Prose of the [ISTAT] block (#345). Optional: absent in responses without ISTAT data from
+   * older backends and in existing fixtures. */
   istat?: string;
 }
 
+/** Backend response: field names are the API contract (Italian), do not rename. */
 export interface AnalyzeResponse {
   citta: string;
   zona_normalizzata: string;
   poi: Poi[];
   risk_models: RiskModel[];
   /**
-   * `null` se non ancora generata (fase 1 di `/analyze`, #259/#292): arriva in un secondo tempo da
-   * `POST /analyze/narrativa`. Stringa vuota in baseline o quando l'LLM è caduto (fallback).
+   * `null` if not yet generated (phase 1 of `/analyze`, #259/#292): it arrives later from
+   * `POST /analyze/narrativa`. Empty string in baseline or when the LLM failed (fallback).
    */
   narrativa: string | null;
-  /** Prosa della narrativa suddivisa per fonte (display, additivo; vuoto in baseline/fallback/in
-   * attesa della fase 2). */
+  /** Narrative prose split by source (display, additive; empty in baseline/fallback/awaiting
+   * phase 2). */
   narrativa_fonti: SourceProse;
   confidence_summary: ConfidenceSummary;
   llm_used: string;
   latenza_ms: number;
-  /** Token di input fatturati (0 in baseline/fallback). */
+  /** Billed input tokens (0 in baseline/fallback). */
   tokens_input: number;
-  /** Token di output generati (0 in baseline/fallback). */
+  /** Generated output tokens (0 in baseline/fallback). */
   tokens_output: number;
   repro: Repro;
   cache_hit: boolean;
   fallback: boolean;
   /**
-   * Impronta del contesto di zona (#242): identifica la lista `poi` di questa risposta. Il client
-   * la rimanda OPACA in `/analyze/poi` — non la interpreta e non la ricalcola — e il backend
-   * risponde 409 se il contesto che userebbe non è questo. Garantisce che la narrativa di un punto
-   * nasca sul contesto mostrato, non su uno ricostruito diverso.
+   * Fingerprint of the zone context (#242): identifies the `poi` list of this response. The client
+   * sends it back OPAQUE to `/analyze/poi` — it does not interpret or recompute it — and the
+   * backend answers 409 if the context it would use is not this one. It guarantees that a point's
+   * narrative is born on the context shown, not on a different rebuilt one.
    */
   contesto_hash: string;
 }
 
-/** Risposta di `POST /analyze/poi` (#197): narrativa del singolo POI selezionato. */
+/** Response of `POST /analyze/poi` (#197): narrative of the single selected POI. */
 export interface PoiNarrativeResponse {
   poi_id: string;
   narrativa: string;
   narrativa_fonti: SourceProse;
-  /** Rischi del SOLO POI richiesto (una voce), per le citazioni nel pannello. */
+  /** Risks of the requested POI ONLY (a single entry), for the citations in the panel. */
   risk_models: RiskModel[];
   tokens_input: number;
   tokens_output: number;
   latenza_ms: number;
   repro: Repro;
-  /** True se l'LLM è caduto: solo dati strutturati, `narrativa` vuota. */
+  /** True if the LLM failed: structured data only, empty `narrativa`. */
   fallback: boolean;
-  /** True se il prompt conteneva i dati ISTAT (#345); assente = false. */
+  /** True if the prompt contained ISTAT data (#345); absent = false. */
   istat_attivo?: boolean;
-  /** Data di estrazione dei dati ISTAT usati (#345); `null` se non attivi. */
+  /** Extraction date of the ISTAT data used (#345); `null` if not active. */
   istat_versione_dati?: string | null;
-  /** Frasi tolte dal controllo delle cifre (#345). */
+  /** Sentences removed by the figures check (#345). */
   istat_frasi_scartate?: number;
 }
 
 /**
- * Risposta di `POST /analyze/narrativa` (#259 fase 2, #292): narrativa di ZONA generata in
- * background dopo che `/analyze` ha già risposto con `narrativa: null`. Gemello di
- * `PoiNarrativeResponse` senza `poi_id`/`risk_models`: i rischi di zona sono già nella fase 1
- * (`AnalyzeResponse.risk_models`), qui arriva solo il testo.
+ * Response of `POST /analyze/narrativa` (#259 phase 2, #292): ZONE narrative generated in the
+ * background after `/analyze` has already answered with `narrativa: null`. Twin of
+ * `PoiNarrativeResponse` without `poi_id`/`risk_models`: the zone risks are already in phase 1
+ * (`AnalyzeResponse.risk_models`), only the text arrives here.
  */
 export interface ZoneNarrativeResponse {
   narrativa: string;
@@ -220,26 +221,26 @@ export interface ZoneNarrativeResponse {
   tokens_output: number;
   latenza_ms: number;
   repro: Repro;
-  /** True se l'LLM è caduto: `narrativa` vuota. */
+  /** True if the LLM failed: empty `narrativa`. */
   fallback: boolean;
-  /** Modello che ha scritto la narrativa (fase 2, #292). */
+  /** Model that wrote the narrative (phase 2, #292). */
   llm_used: string;
-  /** True se il prompt conteneva i dati ISTAT (#345); assente = false. */
+  /** True if the prompt contained ISTAT data (#345); absent = false. */
   istat_attivo?: boolean;
-  /** Data di estrazione dei dati ISTAT usati (#345); `null` se non attivi. */
+  /** Extraction date of the ISTAT data used (#345); `null` if not active. */
   istat_versione_dati?: string | null;
-  /** Frasi tolte dal controllo delle cifre (#345). */
+  /** Sentences removed by the figures check (#345). */
   istat_frasi_scartate?: number;
 }
 
 /**
- * Narrativa di un POI già generata in questa sessione (#197). Tenuta in cache per id perché ogni
- * generazione è una chiamata LLM: ricliccare un POI già visto non deve rispendere. Il bottone
- * «rigenera» bypassa la cache esplicitamente.
+ * Narrative of a POI already generated in this session (#197). Cached by id because each
+ * generation is an LLM call: re-clicking an already seen POI must not spend again. The
+ * "regenerate" button explicitly bypasses the cache.
  */
 export interface PoiNarrative {
-  narrativa: string;
-  fonti: SourceProse;
+  narrative: string;
+  sources: SourceProse;
   riskModels: RiskModel[];
   fallback: boolean;
 }
@@ -252,102 +253,101 @@ export interface Circle {
 
 export interface BaselineParams {
   area: SearchArea;
-  tipo_poi?: string;
+  poiType?: string;
 }
 
 /**
- * L'AREA da analizzare, in una delle DUE modalita' che coesistono: il cerchio disegnato sulla
- * mappa oppure città e zona digitate nel pannello (come prima di #318). Unione discriminata e non
- * due coppie di campi opzionali: cosi' "cerchio a meta'" o "cerchio e citta'/zona insieme" non sono
- * rappresentabili, e il backend (che rifiuta entrambi i casi con 422) non deve fare da rete di
- * sicurezza per il client.
+ * The AREA to analyze, in one of the TWO modes that coexist: the circle drawn on the map or the
+ * city and zone typed in the panel (as before #318). A discriminated union and not two pairs of
+ * optional fields: this way "half a circle" or "circle and city/zone together" are not
+ * representable, and the backend (which rejects both cases with 422) does not have to act as a
+ * safety net for the client.
  */
 export type SearchArea =
   | { kind: 'circle'; center: { lat: number; lon: number }; radiusM: number }
-  | { kind: 'zone'; citta: string; zona: string };
+  | { kind: 'zone'; city: string; zone: string };
 
-/** Payload emesso dal pannello "completo" verso lo shell: l'area scelta + la domanda opzionale. */
+/** Payload emitted by the "full" panel to the shell: the chosen area + the optional question. */
 export interface AnalyzeRequestPayload {
   area: SearchArea;
-  domanda: string | null;
+  question: string | null;
 }
 
 export type Screen = 'INPUT' | 'LOADING' | 'RESULTS' | 'DETAIL' | 'ERROR' | 'FILTER' | 'BASE';
-export type Mode = 'completo' | 'base';
+export type Mode = 'full' | 'base';
 
 /**
- * Ultima query completa (center+radiusM+domanda) inviata a `/analyze`: a differenza di
- * `pendingDomanda` (azzerata da `LOAD_SUCCESS`), sopravvive in RESULTS/DETAIL/FILTER e si azzera
- * solo su RESET — è la fonte per "Rigenera" (re-POST `/analyze`, spec-frontend.md §Stato B),
- * che ripete l'ultima analisi senza introdurre un nuovo endpoint né una nuova azione FSM.
+ * Last full query (center+radiusM+question) sent to `/analyze`: unlike
+ * `pendingQuestion` (cleared by `LOAD_SUCCESS`), it survives in RESULTS/DETAIL/FILTER and is
+ * cleared only on RESET — it is the source for "Rigenera" (re-POST `/analyze`, spec-frontend.md
+ * §State B), which repeats the last analysis without introducing a new endpoint or a new FSM action.
  */
 export interface LastQuery {
   area: SearchArea;
   /**
-   * Etichette per /analyze/poi e /analyze/narrativa. In modalita' cerchio sono il reverse geocode
-   * del centro (il backend le risolve lui, il client non ha un nome da proporre). In modalita'
-   * citta'/zona sono esattamente quanto digitato — stesso valore di `area.citta`/`area.zona`, non
-   * un reverse geocode — perche' il backend, in quella modalita', riporta in risposta il testo
-   * dell'utente dopo lo strip, non una ricerca sul punto.
+   * Labels for /analyze/poi and /analyze/narrativa. In circle mode they are the reverse geocode
+   * of the center (the backend resolves them itself, the client has no name to propose). In
+   * city/zone mode they are exactly what was typed — same value as `area.city`/`area.zone`, not
+   * a reverse geocode — because the backend, in that mode, reports in the response the user's
+   * text after the strip, not a search on the point.
    */
-  citta: string;
-  zona: string;
-  domanda: string | null;
+  city: string;
+  zone: string;
+  question: string | null;
 }
 
 export interface AppState {
   screen: Screen;
   /**
-   * Risultato dell'ultima `POST /analyze` (sistema completo, con LLM). Campo separato da
-   * `baselineData` — condividere un unico campo `data` tra le due pipeline (comune a `LOAD_SUCCESS`
-   * indipendentemente da `mode`) falsificava in silenzio il confronto ablation: un toggle o un
-   * retry mostravano i risultati di una pipeline etichettati come l'altra (review #67, bloccanti 1+2).
+   * Result of the last `POST /analyze` (full system, with LLM). Field separate from
+   * `baselineData` — sharing a single `data` field between the two pipelines (common to
+   * `LOAD_SUCCESS` regardless of `mode`) silently falsified the ablation comparison: a toggle or
+   * a retry showed the results of one pipeline labelled as the other (review #67, blockers 1+2).
    */
-  completoData: AnalyzeResponse | null;
-  /** Risultato dell'ultima `POST /analyze/baseline` (sistema base, ablation, niente LLM). */
+  fullData: AnalyzeResponse | null;
+  /** Result of the last `POST /analyze/baseline` (base system, ablation, no LLM). */
   baselineData: AnalyzeResponse | null;
   selectedPoiId: string | null;
   filter: Confidence | null;
   error: string | null;
   mode: Mode;
-  /** Ultima domanda inviata: sopravvive a LOADING ed ERROR (per il retry con i valori digitati), si azzera solo su RESET. */
-  pendingDomanda: string | null;
+  /** Last question sent: survives LOADING and ERROR (for the retry with the typed values), cleared only on RESET. */
+  pendingQuestion: string | null;
   lastQuery: LastQuery | null;
   poiPanelOpen: boolean;
   narrOpen: boolean;
-  /** Narrative POI già generate in questa sessione, per id (#197). Azzerate da ogni nuova ANALYZE
-   * della pipeline completo: il contesto di zona è cambiato, quindi il vicinato su cui erano
-   * ancorate non vale più. Una ANALYZE della pipeline base le preserva invece intatte: quella
-   * pipeline non le mostra mai e non sostituisce il contesto (completoData) a cui sono ancorate
-   * (#245). */
+  /** POI narratives already generated in this session, by id (#197). Cleared by every new ANALYZE
+   * of the full pipeline: the zone context changed, so the neighborhood they were anchored to no
+   * longer holds. An ANALYZE of the base pipeline preserves them intact instead: that pipeline
+   * never shows them and does not replace the context (fullData) they are anchored to (#245). */
   poiNarratives: Record<string, PoiNarrative>;
-  /** Id del POI la cui narrativa è in caricamento, `null` se nessuna. */
+  /** Id of the POI whose narrative is loading, `null` if none. */
   poiNarrativeLoading: string | null;
-  /** Messaggio d'errore dell'ultima generazione POI fallita. */
+  /** Error message of the last failed POI generation. */
   poiNarrativeError: string | null;
   /**
-   * Narrativa di ZONA (fase 2, #259/#292) in caricamento in background dopo che `/analyze` ha già
-   * risposto con `narrativa: null`. Azzerato da ogni nuova ANALYZE (nuovo contesto in volo).
+   * ZONE narrative (phase 2, #259/#292) loading in the background after `/analyze` has already
+   * answered with `narrativa: null`. Cleared by every new ANALYZE (new context in flight).
    */
   zoneNarrativeLoading: boolean;
-  /** Messaggio d'errore dell'ultima generazione di narrativa di ZONA fallita (#292). */
+  /** Error message of the last failed ZONE narrative generation (#292). */
   zoneNarrativeError: string | null;
 }
 
 export type Action =
   /**
-   * `pipeline` marca la richiesta con la modalità di PARTENZA (fissata da `state.store.ts` in
-   * `startAnalysis`/`startBaselineAnalysis` al momento del dispatch, letterale — mai da
-   * `state.mode`): `transition()` la usa per instradare `completoData`/`baselineData` e lo
-   * schermo di arrivo in `LOAD_SUCCESS`/`LOAD_ERROR`, così un `TOGGLE_MODE` successivo (mentre la
-   * richiesta è ancora in volo) non può dirottare la risposta sulla pipeline sbagliata (review
-   * #67-bis, bloccante A — race condition). Campo obbligatorio apposta: un'omissione futura deve
-   * essere un errore di compilazione, non un default silenzioso su 'completo'.
+   * `pipeline` marks the request with the STARTING mode (set by `state.store.ts` in
+   * `startAnalysis`/`startBaselineAnalysis` at dispatch time, as a literal — never from
+   * `state.mode`): `transition()` uses it to route `fullData`/`baselineData` and the arrival
+   * screen in `LOAD_SUCCESS`/`LOAD_ERROR`, so a later `TOGGLE_MODE` (while the request is still
+   * in flight) cannot hijack the response to the wrong pipeline (review #67-bis, blocker A — race
+   * condition). Mandatory field on purpose: a future omission must be a compile error, not a
+   * silent default to 'full'.
    */
   | {
       type: 'ANALYZE';
       area: SearchArea;
-      domanda?: string | null;
+      question?: string | null;
       pipeline: Mode;
     }
   | {
@@ -355,7 +355,7 @@ export type Action =
       data: AnalyzeResponse;
       pipeline: Mode;
       area?: SearchArea;
-      domanda?: string | null;
+      question?: string | null;
     }
   | { type: 'LOAD_ERROR'; message: string; pipeline: Mode }
   | { type: 'SELECT_POI'; id: string }
@@ -366,29 +366,29 @@ export type Action =
   | { type: 'RESET' }
   | { type: 'TOGGLE_POI_PANEL' }
   | { type: 'TOGGLE_NARR' }
-  /** Generazione della narrativa di un POI avviata (#197): il pannello mostra il caricamento. */
+  /** Generation of a POI's narrative started (#197): the panel shows the loading state. */
   | { type: 'POI_NARRATIVE_START'; poiId: string }
   | { type: 'POI_NARRATIVE_SUCCESS'; poiId: string; data: PoiNarrative }
   | { type: 'POI_NARRATIVE_ERROR'; message: string }
-  /** Generazione della narrativa di ZONA avviata in background (#259 fase 2, #292): il pannello
-   * mostra il caricamento senza lasciare RESULTS (nessun nuovo stato della FSM). */
+  /** Generation of the ZONE narrative started in the background (#259 phase 2, #292): the panel
+   * shows the loading state without leaving RESULTS (no new FSM state). */
   | { type: 'ZONE_NARRATIVE_START' }
   | {
       type: 'ZONE_NARRATIVE_SUCCESS';
-      narrativa: string;
-      narrativaFonti: SourceProse;
+      narrative: string;
+      narrativeSources: SourceProse;
       fallback: boolean;
       llmUsed: string;
     }
   | { type: 'ZONE_NARRATIVE_ERROR'; message: string };
 
-/** Campo di caricamento a cui un problema del controllo si aggancia (`Problem.file` del backend). */
+/** Upload field a check problem attaches to (`Problem.file` of the backend). */
 export type SourceFile = 'ontology' | 'osm_table' | 'data' | 'hazard_table' | 'boundaries';
 
-/** Modelli CSV scaricabili (`GET /sources/templates/{name}`). */
+/** Downloadable CSV templates (`GET /sources/templates/{name}`). */
 export type SourceTemplate = 'osm_table' | 'data' | 'hazard_table';
 
-/** Un errore o avviso del controllo dei file: `message` è già in italiano, `line` solo per i CSV. */
+/** An error or warning from the file check: `message` is already in Italian, `line` only for CSVs. */
 export interface SourceProblem {
   code: string;
   file: SourceFile;
@@ -396,7 +396,7 @@ export interface SourceProblem {
   line: number | null;
 }
 
-/** Riepilogo del set attivo; `kind` distingue "Esempio" da "Personalizzate". */
+/** Summary of the active set; `kind` tells "Example" from "Custom". */
 export interface SourceSetSummary {
   kind: 'example' | 'custom';
   classi: number;
@@ -406,14 +406,14 @@ export interface SourceSetSummary {
   avvisi: SourceProblem[];
 }
 
-/** Risposta di tutte le rotte `/sources` (stato della sessione). */
+/** Response of all `/sources` routes (session state). */
 export interface SourcesStatus {
   stato: 'default' | 'attivo' | 'scaduto';
   scade_tra_secondi: number | null;
   set: SourceSetSummary | null;
 }
 
-/** Vocabolario dell'ontologia caricata: vuoto = quello TERMINUS (lo decide il backend). */
+/** Vocabulary of the loaded ontology: empty = the TERMINUS one (decided by the backend). */
 export interface SourceVocabulary {
   namespace?: string;
   hazard?: string;
@@ -422,7 +422,7 @@ export interface SourceVocabulary {
   vulnerability?: string[];
 }
 
-/** File scelti per il caricamento: i quattro obbligatori più i confini facoltativi. */
+/** Files chosen for upload: the four mandatory ones plus the optional boundaries. */
 export interface SourceUpload {
   ontology: File;
   osm_table: File;

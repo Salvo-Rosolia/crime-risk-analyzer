@@ -57,10 +57,10 @@ const zoneNarrativeResp: ZoneNarrativeResponse = {
 };
 
 /**
- * Mirror minimale (solo i campi rilevanti al contratto) di `AnalyzeRequest`/
+ * Minimal mirror (only the fields relevant to the contract) of `AnalyzeRequest`/
  * `BaselineRequest` (backend/src/crime_risk_analyzer/orchestrator.py):
- * `center` (con `lat` e `lon`) e `radius_m` sono OBBLIGATORI. Verifica
- * quindi PRESENZA della chiave e struttura + tipo.
+ * `center` (with `lat` and `lon`) and `radius_m` are MANDATORY. It therefore checks
+ * the PRESENCE of the key and structure + type.
  */
 function isValidAnalyzeRequestPayload(body: unknown): boolean {
   const b = body as Record<string, unknown> | null;
@@ -100,7 +100,7 @@ describe('ApiService', () => {
   });
   afterEach(() => http.verify());
 
-  it('analyze manda center+radius_m', async () => {
+  it('analyze sends center+radius_m', async () => {
     const promise = api.analyze({ kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 });
     const req = http.expectOne('/analyze');
     expect(req.request.body).toEqual({ center: { lat: 41.9, lon: 12.5 }, radius_m: 500 });
@@ -108,15 +108,15 @@ describe('ApiService', () => {
     await promise;
   });
 
-  it('analyze manda citta+zona quando l’area è in modalità città/zona', async () => {
-    const promise = api.analyze({ kind: 'zone', citta: 'Roma', zona: 'Colosseo' });
+  it('analyze sends citta+zona when the area is in city/zone mode', async () => {
+    const promise = api.analyze({ kind: 'zone', city: 'Roma', zone: 'Colosseo' });
     const req = http.expectOne('/analyze');
     expect(req.request.body).toEqual({ citta: 'Roma', zona: 'Colosseo' });
     req.flush(resp);
     await promise;
   });
 
-  it('cities: GET /cities ritorna l’elenco delle città per il datalist', async () => {
+  it('cities: GET /cities returns the list of cities for the datalist', async () => {
     const promise = api.cities();
     const req = http.expectOne('/cities');
     expect(req.request.method).toBe('GET');
@@ -124,7 +124,7 @@ describe('ApiService', () => {
     expect(await promise).toEqual(['Roma', 'Milano']);
   });
 
-  it('cities: una sola chiamata HTTP per sessione, anche invocando il metodo più volte (reperto review: InputPanel + BasePanel lo chiamano entrambi)', async () => {
+  it('cities: a single HTTP call per session, even when invoking the method several times (review finding: InputPanel + BasePanel both call it)', async () => {
     const p1 = api.cities();
     const p2 = api.cities();
     const req = http.expectOne('/cities');
@@ -132,13 +132,13 @@ describe('ApiService', () => {
     expect(await p1).toEqual(['Roma', 'Milano']);
     expect(await p2).toEqual(['Roma', 'Milano']);
 
-    // Una terza chiamata, anche dopo che la prima è già risolta, riusa ancora la stessa Promise:
-    // nessuna seconda richiesta HTTP in volo (http.verify() in afterEach lo confermerebbe comunque).
+    // A third call, even after the first has already resolved, still reuses the same Promise:
+    // no second in-flight HTTP request (http.verify() in afterEach would confirm it anyway).
     const p3 = api.cities();
     expect(await p3).toEqual(['Roma', 'Milano']);
   });
 
-  it('cities: su errore la memoizzazione si azzera, una chiamata successiva ritenta', async () => {
+  it('cities: on error the memoization is cleared, a later call retries', async () => {
     const p1 = api.cities();
     http.expectOne('/cities').flush('boom', { status: 503, statusText: 'Service Unavailable' });
     await expect(p1).rejects.toBeTruthy();
@@ -149,7 +149,7 @@ describe('ApiService', () => {
     expect(await p2).toEqual(['Roma']);
   });
 
-  it('poiTypes: GET /poi-types ritorna l’elenco dei tipi POI per il select del pannello Sistema base', async () => {
+  it('poiTypes: GET /poi-types returns the list of POI types for the base-system panel select', async () => {
     const promise = api.poiTypes();
     const req = http.expectOne('/poi-types');
     expect(req.request.method).toBe('GET');
@@ -157,7 +157,7 @@ describe('ApiService', () => {
     expect(await promise).toEqual(poiTypes);
   });
 
-  it('poiTypes: una sola chiamata HTTP per sessione, anche invocando il metodo più volte (stessa memoizzazione di cities())', async () => {
+  it('poiTypes: a single HTTP call per session, even when invoking the method several times (same memoization as cities())', async () => {
     const p1 = api.poiTypes();
     const p2 = api.poiTypes();
     const req = http.expectOne('/poi-types');
@@ -169,7 +169,7 @@ describe('ApiService', () => {
     expect(await p3).toEqual(poiTypes);
   });
 
-  it('poiTypes: su errore la memoizzazione si azzera, una chiamata successiva ritenta', async () => {
+  it('poiTypes: on error the memoization is cleared, a later call retries', async () => {
     const p1 = api.poiTypes();
     http.expectOne('/poi-types').flush('boom', { status: 503, statusText: 'Service Unavailable' });
     await expect(p1).rejects.toBeTruthy();
@@ -180,7 +180,7 @@ describe('ApiService', () => {
     expect(await p2).toEqual([poiTypes[0]]);
   });
 
-  it('geocodePlace chiama GET /geocode con la query', async () => {
+  it('geocodePlace calls GET /geocode with the query', async () => {
     const promise = api.geocodePlace('Duomo di Milano');
     const req = http.expectOne((r) => r.url === '/geocode');
     expect(req.request.params.get('query')).toBe('Duomo di Milano');
@@ -188,7 +188,7 @@ describe('ApiService', () => {
     expect(await promise).toEqual({ lat: 41.9, lon: 12.5 });
   });
 
-  it('poiNarrative: POST /analyze/poi con citta, zona, poi_id e impronta del contesto (#242)', async () => {
+  it('poiNarrative: POST /analyze/poi with citta, zona, poi_id and context fingerprint (#242)', async () => {
     const p = api.poiNarrative('Roma', 'Colosseo', 'node/1', 'h-ctx');
     const req = http.expectOne('/analyze/poi');
     expect(req.request.method).toBe('POST');
@@ -202,13 +202,13 @@ describe('ApiService', () => {
     await expect(p).resolves.toEqual(poiResp);
   });
 
-  it('poiNarrative: su errore /analyze/poi rigetta la Promise', async () => {
+  it('poiNarrative: on error /analyze/poi rejects the Promise', async () => {
     const p = api.poiNarrative('Roma', 'Colosseo', 'node/1', 'h-ctx');
     http.expectOne('/analyze/poi').flush('boom', { status: 404, statusText: 'Not Found' });
     await expect(p).rejects.toBeTruthy();
   });
 
-  it('zoneNarrative: POST /analyze/narrativa con citta, zona e impronta del contesto (#259/#292)', async () => {
+  it('zoneNarrative: POST /analyze/narrativa with citta, zona and context fingerprint (#259/#292)', async () => {
     const p = api.zoneNarrative('Roma', 'Colosseo', 'h-ctx');
     const req = http.expectOne('/analyze/narrativa');
     expect(req.request.method).toBe('POST');
@@ -217,7 +217,7 @@ describe('ApiService', () => {
     await expect(p).resolves.toEqual(zoneNarrativeResp);
   });
 
-  it('zoneNarrative: include domanda solo se non vuota (va alla fase 2, non alla fase 1)', async () => {
+  it('zoneNarrative: includes domanda only if non-empty (it goes to phase 2, not phase 1)', async () => {
     const p = api.zoneNarrative('Roma', 'Colosseo', 'h-ctx', '  di sera?  ');
     const req = http.expectOne('/analyze/narrativa');
     expect(req.request.body).toEqual({
@@ -230,13 +230,13 @@ describe('ApiService', () => {
     await p;
   });
 
-  it('zoneNarrative: su errore /analyze/narrativa rigetta la Promise', async () => {
+  it('zoneNarrative: on error /analyze/narrativa rejects the Promise', async () => {
     const p = api.zoneNarrative('Roma', 'Colosseo', 'h-ctx');
     http.expectOne('/analyze/narrativa').flush('boom', { status: 409, statusText: 'Conflict' });
     await expect(p).rejects.toBeTruthy();
   });
 
-  it('analyzeBaseline: POST /analyze/baseline con center, radius_m e tipo_poi opzionale', async () => {
+  it('analyzeBaseline: POST /analyze/baseline with center, radius_m and optional tipo_poi', async () => {
     const params: BaselineParams = {
       area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
     };
@@ -248,10 +248,10 @@ describe('ApiService', () => {
     await p;
   });
 
-  it('analyzeBaseline: include tipo_poi se presente', async () => {
+  it('analyzeBaseline: includes tipo_poi if present', async () => {
     const params: BaselineParams = {
       area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
-      tipo_poi: 'museo',
+      poiType: 'museo',
     };
     const p = api.analyzeBaseline(params);
     const req = http.expectOne('/analyze/baseline');
@@ -264,8 +264,8 @@ describe('ApiService', () => {
     await p;
   });
 
-  describe('contratto AnalyzeRequest/BaselineRequest (backend orchestrator.py)', () => {
-    it('analyze(): il payload emesso è un sottoinsieme valido di AnalyzeRequest (center+radius_m obbligatori)', async () => {
+  describe('AnalyzeRequest/BaselineRequest contract (backend orchestrator.py)', () => {
+    it('analyze(): the emitted payload is a valid subset of AnalyzeRequest (center+radius_m mandatory)', async () => {
       const p = api.analyze({ kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 });
       const req = http.expectOne('/analyze');
       expect(isValidAnalyzeRequestPayload(req.request.body)).toBe(true);
@@ -273,15 +273,15 @@ describe('ApiService', () => {
       await p;
     });
 
-    it('con la struttura center ASSENTE il payload NON sarebbe un AnalyzeRequest valido → il BE risponderebbe 422', () => {
+    it('with the center structure ABSENT the payload would NOT be a valid AnalyzeRequest → the BE would answer 422', () => {
       const payloadPreFix = { radius_m: 500 };
       expect(isValidAnalyzeRequestPayload(payloadPreFix)).toBe(false);
     });
 
-    it('analyzeBaseline(): il payload emesso è un sottoinsieme valido di BaselineRequest (center+radius_m obbligatori)', async () => {
+    it('analyzeBaseline(): the emitted payload is a valid subset of BaselineRequest (center+radius_m mandatory)', async () => {
       const p = api.analyzeBaseline({
         area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
-        tipo_poi: 'museo',
+        poiType: 'museo',
       });
       const req = http.expectOne('/analyze/baseline');
       expect(isValidBaselineRequestPayload(req.request.body)).toBe(true);
@@ -289,19 +289,19 @@ describe('ApiService', () => {
       await p;
     });
 
-    it('con la struttura center ASSENTE il payload baseline NON sarebbe un BaselineRequest valido → il BE risponderebbe 422', () => {
+    it('with the center structure ABSENT the baseline payload would NOT be a valid BaselineRequest → the BE would answer 422', () => {
       const payloadPreFix = { radius_m: 500 };
       expect(isValidBaselineRequestPayload(payloadPreFix)).toBe(false);
     });
   });
 
-  // Guardia contro il drift del proxy (già successo due volte in questo progetto: `/cities` fuori
-  // dal proxy per mesi, poi `/geocode`): `HttpTestingController` (qui) e Playwright (E2E) mockano
-  // l'HTTP, quindi NESSUno dei due passa davvero da `proxy.config.json` — un path mancante nel
-  // proxy non fa fallire nessun test, solo `ng serve` in dev. Questa spec legge le chiavi REALI di
-  // `proxy.config.json` e verifica che ogni metodo pubblico di `ApiService` che fa una richiesta
-  // HTTP la mandi a un path che il proxy di sviluppo inoltrerebbe davvero al backend.
-  describe('guardia contro il drift del proxy (proxy.config.json)', () => {
+  // Guard against proxy drift (already happened twice in this project: `/cities` outside
+  // the proxy for months, then `/geocode`): `HttpTestingController` (here) and Playwright (E2E) mock
+  // HTTP, so NEITHER of the two really goes through `proxy.config.json` — a missing path in the
+  // proxy makes no test fail, only `ng serve` in dev. This spec reads the REAL keys of
+  // `proxy.config.json` and verifies that every public `ApiService` method that makes an
+  // HTTP request sends it to a path that the development proxy would really forward to the backend.
+  describe('proxy drift guard (proxy.config.json)', () => {
     const proxyConfigPath = path.resolve(__dirname, '../../../../proxy.config.json');
     const proxyKeys: string[] = Object.keys(
       JSON.parse(fs.readFileSync(proxyConfigPath, 'utf-8')) as Record<string, unknown>,
@@ -311,9 +311,9 @@ describe('ApiService', () => {
       return proxyKeys.some((key) => url === key || url.startsWith(`${key}/`));
     }
 
-    // Un caso per OGNI metodo pubblico di ApiService che emette una richiesta HTTP: aggiungere un
-    // nuovo metodo senza aggiungerlo qui lascia la guardia cieca su di esso, stessa cosa che è già
-    // successa due volte con un path dimenticato nel proxy.
+    // One case for EVERY public ApiService method that emits an HTTP request: adding a
+    // new method without adding it here leaves the guard blind on it, the same thing that already
+    // happened twice with a path forgotten in the proxy.
     const httpMethods: { name: string; invoke: () => Promise<unknown> }[] = [
       { name: 'cities', invoke: () => api.cities() },
       { name: 'poiTypes', invoke: () => api.poiTypes() },
@@ -338,7 +338,7 @@ describe('ApiService', () => {
     ];
 
     it.each(httpMethods)(
-      '$name: la richiesta HTTP va a un path proxato in sviluppo (proxy.config.json)',
+      '$name: the HTTP request goes to a path proxied in development (proxy.config.json)',
       async ({ invoke }) => {
         const promise = invoke();
         const req = http.expectOne(() => true);

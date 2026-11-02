@@ -1,21 +1,21 @@
-import type { IstatPoi, IstatRiga } from '@core/models/models';
+import type { IstatPoi, IstatRow } from '@core/models/models';
 
 /**
- * Fixture ISTAT condivise fra `ui-helpers.spec.ts` e `detail-panel.component.spec.ts` (#346,
- * dopo /code-review): prima esistevano due copie quasi identiche della stessa riga di comodo.
- * `istatRiga` ha valori di default sopra la soglia O8 (`delitti`/`tasso`/`tasso_italia` tutti
- * a 100, così il peso di default è 1), sovrascrivibili campo per campo; `istatPoi` assembla la
- * `cornice` (default «TOT», nessun collegamento) e le `righe` passate.
+ * ISTAT fixtures shared between `ui-helpers.spec.ts` and `detail-panel.component.spec.ts` (#346,
+ * after /code-review): before, there were two almost identical copies of the same convenience row.
+ * `istatRow` has default values above the O8 threshold (`delitti`/`tasso`/`tasso_italia` all
+ * at 100, so the default weight is 1), overridable field by field; `istatPoi` assembles the
+ * `cornice` (default "TOT", no links) and the `righe` passed.
  *
- * Solo per gli spec: il file vive sotto `core/testing/`, escluso da `tsconfig.app.json` così non
- * entra mai nel grafo di `ng build` (è comunque raggiungibile dal programma di `tsconfig.spec.json`
- * solo transitivamente, via gli import dagli `*.spec.ts`).
+ * Specs only: the file lives under `core/testing/`, excluded from `tsconfig.app.json` so it
+ * never enters the `ng build` graph (it is in any case reachable from the `tsconfig.spec.json`
+ * program only transitively, via the imports from the `*.spec.ts`).
  */
-export function istatRiga(
+export function istatRow(
   voce: string,
   hazards: string[],
-  overrides: Partial<IstatRiga> = {},
-): IstatRiga {
+  overrides: Partial<IstatRow> = {},
+): IstatRow {
   return {
     luogo_codice: '058091',
     luogo_nome: 'Comune di Roma',
@@ -43,6 +43,6 @@ export function istatRiga(
   };
 }
 
-export function istatPoi(...righe: IstatRiga[]): IstatPoi {
-  return { cornice: istatRiga('TOT', []), righe };
+export function istatPoi(...righe: IstatRow[]): IstatPoi {
+  return { cornice: istatRow('TOT', []), righe };
 }

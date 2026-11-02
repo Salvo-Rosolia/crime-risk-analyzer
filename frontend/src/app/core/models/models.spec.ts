@@ -8,8 +8,8 @@ import {
   RiskItem,
 } from '@core/models/models';
 
-describe('models (contratto /analyze)', () => {
-  it('un oggetto conforme alla fixture demo è assegnabile a AnalyzeResponse', () => {
+describe('models (/analyze contract)', () => {
+  it('an object conforming to the demo fixture is assignable to AnalyzeResponse', () => {
     const sample: AnalyzeResponse = {
       citta: 'Roma',
       zona_normalizzata: 'Colosseo',
@@ -56,7 +56,7 @@ describe('models (contratto /analyze)', () => {
     expect(sample.poi[0].confidence).toBe('verificato');
   });
 
-  it('RiskItem.tag accetta null (il BE emette Tag|None quando il rischio non è ancorato/taggato)', () => {
+  it('RiskItem.tag accepts null (the BE emits Tag|None when the risk is not anchored/tagged)', () => {
     const ri: RiskItem = {
       hazard: 'x',
       confidence: 'da_confermare',
@@ -67,7 +67,7 @@ describe('models (contratto /analyze)', () => {
     expect(ri.tag).toBeNull();
   });
 
-  it('Poi.confidence accetta null (POI fuori ontologia, #220: nessun rischio da qualificare — nessun badge, pin neutro)', () => {
+  it('Poi.confidence accepts null (POI outside the ontology, #220: no risk to qualify — no badge, neutral pin)', () => {
     const poi: Poi = {
       id: '2',
       name: 'Vicolo Oscuro',
@@ -82,22 +82,22 @@ describe('models (contratto /analyze)', () => {
     expect(poi.confidence).toBeNull();
   });
 
-  it('Action è un discriminated union restringibile per type', () => {
+  it('Action is a discriminated union narrowable by type', () => {
     const a: Action = { type: 'SET_FILTER', level: 'da_confermare' };
     const narrowed = a.type === 'SET_FILTER' ? a.level : null;
     expect(narrowed).toBe('da_confermare');
   });
 
-  it('AppState iniziale è costruibile con i campi attesi (completoData/baselineData separati)', () => {
+  it('the initial AppState is constructible with the expected fields (fullData/baselineData separate)', () => {
     const s: AppState = {
       screen: 'INPUT',
-      completoData: null,
+      fullData: null,
       baselineData: null,
       selectedPoiId: null,
       filter: null,
       error: null,
-      mode: 'completo',
-      pendingDomanda: null,
+      mode: 'full',
+      pendingQuestion: null,
       lastQuery: null,
       poiPanelOpen: true,
       narrOpen: true,
@@ -110,34 +110,34 @@ describe('models (contratto /analyze)', () => {
     expect(s.screen).toBe('INPUT');
   });
 
-  it("Action ANALYZE porta l'area, non la geometria sciolta (contratto startAnalysis)", () => {
+  it('Action ANALYZE carries the area, not loose geometry (startAnalysis contract)', () => {
     const a: Action = {
       type: 'ANALYZE',
       area: { kind: 'circle', center: { lat: 41.8908, lon: 12.4918 }, radiusM: 1000 },
-      pipeline: 'completo',
+      pipeline: 'full',
     };
     expect(a.type === 'ANALYZE' && a.area.kind === 'circle' ? a.area.center.lat : null).toBe(
       41.8908,
     );
   });
 
-  it("Action ANALYZE accetta anche l'area in modalita' citta'/zona (le due coesistono)", () => {
+  it('Action ANALYZE also accepts the area in city/zone mode (the two coexist)', () => {
     const a: Action = {
       type: 'ANALYZE',
-      area: { kind: 'zone', citta: 'Roma', zona: 'Colosseo' },
-      pipeline: 'completo',
+      area: { kind: 'zone', city: 'Roma', zone: 'Colosseo' },
+      pipeline: 'full',
     };
-    expect(a.type === 'ANALYZE' && a.area.kind === 'zone' ? a.area.zona : null).toBe('Colosseo');
+    expect(a.type === 'ANALYZE' && a.area.kind === 'zone' ? a.area.zone : null).toBe('Colosseo');
   });
 
-  it('parametri baseline sono assegnabili a BaselineParams', () => {
+  it('baseline parameters are assignable to BaselineParams', () => {
     const params: BaselineParams = {
       area: { kind: 'circle', center: { lat: 41.8908, lon: 12.4918 }, radiusM: 1000 },
     };
     expect(params.area.kind === 'circle' ? params.area.center.lat : null).toBe(41.8908);
   });
 
-  it('ANALYZE/LOAD_SUCCESS/LOAD_ERROR richiedono pipeline (review #67-bis, bloccante A: obbligatorio apposta, nessun default silenzioso)', () => {
+  it('ANALYZE/LOAD_SUCCESS/LOAD_ERROR require pipeline (review #67-bis, blocker A: mandatory on purpose, no silent default)', () => {
     const minimalResponse: AnalyzeResponse = {
       citta: 'Roma',
       zona_normalizzata: 'Colosseo',
@@ -161,14 +161,14 @@ describe('models (contratto /analyze)', () => {
       pipeline: 'base',
     };
     const success: Action = { type: 'LOAD_SUCCESS', data: minimalResponse, pipeline: 'base' };
-    const error: Action = { type: 'LOAD_ERROR', message: 'x', pipeline: 'completo' };
+    const error: Action = { type: 'LOAD_ERROR', message: 'x', pipeline: 'full' };
     expect(analyze.type === 'ANALYZE' ? analyze.pipeline : null).toBe('base');
     expect(success.type === 'LOAD_SUCCESS' ? success.pipeline : null).toBe('base');
-    expect(error.type === 'LOAD_ERROR' ? error.pipeline : null).toBe('completo');
+    expect(error.type === 'LOAD_ERROR' ? error.pipeline : null).toBe('full');
   });
 
-  it('#345: un rischio non può avere fonte ISTAT (tipo distinto per la narrativa)', () => {
-    // @ts-expect-error -- ISTAT è una fonte della narrativa, mai di un rischio.
+  it('#345: a risk cannot have an ISTAT source (distinct type for the narrative)', () => {
+    // @ts-expect-error -- ISTAT is a source of the narrative, never of a risk.
     const tag: RiskItem['tag'] = 'ISTAT';
     const fonte: NarrativeSourceTag = 'ISTAT';
     expect([tag, fonte]).toEqual(['ISTAT', 'ISTAT']);

@@ -1,7 +1,7 @@
 /*
- * :host è un flex-column a tutta altezza del contenitore (`.cra-dock-detail-view` in
- * `panel-dock.component.css`, #199, ne fissa la max-height tramite il flex del dock): l'header
- * resta fisso, solo `.cra-detail-body` scrolla internamente (spec-frontend.md §Stato C).
+ * :host is a full-height flex-column of the container (`.cra-dock-detail-view` in
+ * `panel-dock.component.css`, #199, fixes its max-height through the dock's flex): the header
+ * stays fixed, only `.cra-detail-body` scrolls internally (spec-frontend.md §State C).
  */
 :host {
   display: flex;
@@ -10,8 +10,8 @@
   min-height: 0;
 }
 
-/* Il pannello riceve focus programmatico all'apertura/al cambio POI (a11y, review #67 #8):
-   outline visibile per gli utenti da tastiera vedenti, coerente con l'accento teal del design. */
+/* The panel receives programmatic focus on opening/on POI change (a11y, review #67 #8):
+   outline visible for sighted keyboard users, consistent with the design's teal accent. */
 :host:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
@@ -34,9 +34,9 @@
 }
 
 /*
- * Header a blocchi verticali (rework UI): "‹ indietro" su riga propria, poi il blocco identità
- * [pin | nome+badge / sottotitolo classe]. Evita la collisione della vecchia riga unica, dove il
- * sottotitolo `tc:…` andava a capo finendo sotto il badge di confidence.
+ * Header in vertical blocks (UI rework): "‹ indietro" on its own row, then the identity block
+ * [pin | name+badge / class subtitle]. Avoids the collision of the old single row, where the
+ * `tc:…` subtitle wrapped ending up under the confidence badge.
  */
 .cra-detail-header {
   flex: 0 0 auto;
@@ -48,8 +48,8 @@
   margin-bottom: var(--space-3);
 }
 
-/* Vista Dettaglio del dock (#199): riporta alla Vista Lista (`closeDetail` → `DESELECT_POI`),
-   su una riga propria in cima all'header. */
+/* Detail view of the dock (#199): goes back to the List view (`closeDetail` → `DESELECT_POI`),
+   on its own row at the top of the header. */
 .cra-detail-back {
   align-self: flex-start;
   border: none;
@@ -66,9 +66,9 @@
   text-decoration: underline;
 }
 
-/* Focus da tastiera coerente col resto dell'app (outline teal, cfr. poi-panel): sia il link
-   "‹ indietro" sia le intestazioni-accordion sono <button>, qui esplicitiamo il ring invece di
-   affidarci a quello nativo del browser. */
+/* Keyboard focus consistent with the rest of the app (teal outline, cf. poi-panel): both the
+   "‹ indietro" link and the accordion headings are <button>, here we make the ring explicit instead of
+   relying on the browser's native one. */
 .cra-detail-back:focus-visible,
 .cra-source-header:focus-visible {
   outline: 2px solid var(--accent);
@@ -102,8 +102,8 @@
   min-width: 0;
 }
 
-/* Nome e badge confidence sulla stessa riga (nome a sinistra, badge a destra come nelle card
-   della lista); il sottotitolo classe vive SOTTO, nella sola colonna del nome → mai sotto il badge. */
+/* Name and confidence badge on the same row (name on the left, badge on the right as in the cards
+   of the list); the class subtitle lives BELOW, in the name column only → never under the badge. */
 .cra-detail-name-row {
   display: flex;
   align-items: baseline;
@@ -150,11 +150,11 @@
 }
 
 /*
- * Intestazione-fonte come accordion (rework UI): è un <button> a tutta larghezza (tastiera +
- * `aria-expanded`), non più un semplice div. Il conteggio e il chevron sono spinti a destra così
- * il gruppo comunica quanti fattori contiene anche da chiuso. Default adattivo in
- * `detail-panel.component.ts` (openTags): ONTOLOGIA aperto, il meno-certo collassato quando i
- * fattori sono tanti.
+ * Source heading as an accordion (UI rework): it is a full-width <button> (keyboard +
+ * `aria-expanded`), no longer a simple div. The count and the chevron are pushed to the right so
+ * the group communicates how many factors it contains even when closed. Adaptive default in
+ * `detail-panel.component.ts` (openTags): ONTOLOGIA open, the least certain collapsed when
+ * the factors are many.
  */
 .cra-source-header {
   display: flex;
@@ -207,10 +207,10 @@
 }
 
 /*
- * Riga fattore come le card della lista: etichetta a sinistra (info primaria), badge di
- * confidence a destra allineato a colonna e, se c'è, l'indicatore ISTAT (#347) sotto, a tutta
- * larghezza. Grid ad aree invece di un wrapper: nel DOM l'ordine resta etichetta → badge →
- * indicatore, lo stesso dell'ordine di lettura (a11y), senza `order:` che separi DOM e vista.
+ * Factor row like the list cards: label on the left (primary info), confidence badge
+ * on the right aligned to a column and, if present, the ISTAT indicator (#347) below, at full
+ * width. Grid by areas instead of a wrapper: in the DOM the order stays label → badge →
+ * indicator, the same as the reading order (a11y), without an `order:` that separates DOM and view.
  */
 .cra-factor-row {
   display: grid;
@@ -233,9 +233,9 @@
 }
 
 /*
- * #347: indicatore ISTAT sotto il rischio. Colore neutro (ink-2), mai rosso/verde: una tendenza
- * colorata si leggerebbe come un giudizio di pericolosità sul luogo (D9). Le frecce ▲/▼ sono nel
- * testo, che dice già «in crescita»/«in calo».
+ * #347: ISTAT indicator under the risk. Neutral color (ink-2), never red/green: a colored
+ * trend would read as a dangerousness judgment on the place (D9). The ▲/▼ arrows are in the
+ * text, which already says "in crescita"/"in calo".
  */
 .cra-istat-indicator {
   grid-area: indicator;
@@ -245,12 +245,12 @@
 }
 
 /*
- * Provenienza (rework UI): la citazione SPARQL scende in secondo piano rispetto ai fattori — sta
- * DOPO, separata da un filo, in mono più piccolo e attenuato (ink-2). Non è nascosta (è il cuore
- * della tesi: tracciabilità ontologica), solo de-enfatizzata come "da dove viene il dato".
+ * Provenance (UI rework): the SPARQL citation moves to the background relative to the factors — it sits
+ * AFTER, separated by a thin rule, in smaller mono and muted (ink-2). It is not hidden (it is the heart
+ * of the thesis: ontology traceability), only de-emphasized as "where the datum comes from".
  */
-/* #256: i tre assi TERMINUS oltre agli hazard. Registro visivo volutamente più sobrio
-   dei fattori di rischio: sono contesto ontologico verificabile, non rischi. */
+/* #256: the three TERMINUS axes beyond hazards. Visual register deliberately more sober
+   than the risk factors: they are verifiable ontology context, not risks. */
 .cra-axis-group {
   margin-bottom: 0.6rem;
 }
@@ -263,9 +263,9 @@
 }
 
 /*
- * Note dei gruppi, stesso registro sobrio (#270 asse Stakeholder, #346 ordine ISTAT): solo il
- * `margin` differisce, perché le due note vivono in punti diversi del layout (sotto il titolo
- * asse la prima, sotto l'intestazione-fonte la seconda).
+ * Notes of the groups, same sober register (#270 Stakeholder axis, #346 ISTAT order): only the
+ * `margin` differs, because the two notes live in different points of the layout (under the axis
+ * title the first, under the source heading the second).
  */
 .cra-axis-note,
 .cra-istat-order-note {
@@ -275,7 +275,7 @@
   opacity: 0.85;
 }
 
-/* #270: precisazione mostrata solo sull'asse Stakeholder — dato citato, non operativo. */
+/* #270: clarification shown only on the Stakeholder axis — cited datum, not operational. */
 .cra-axis-note {
   margin: 0 0 0.35rem;
 }
@@ -285,10 +285,10 @@
 }
 
 /*
- * #346 (O9): separatore testuale fra i rischi con dato ISTAT e quelli senza, dentro un gruppo
- * misto («Dato ISTAT assente o troppo esiguo») — senza, la coda si leggerebbe come il fondo di
- * una classifica di pericolosità. Più piccolo e attenuato della nota d'ordine qui sopra: non è
- * un'informazione nuova, è un confine dentro una lista già annunciata.
+ * #346 (O9): textual separator between the risks with ISTAT data and those without, within a
+ * mixed group ("Dato ISTAT assente o troppo esiguo") — without it, the tail would read as the bottom of
+ * a dangerousness ranking. Smaller and more muted than the order note above: it is not
+ * new information, it is a boundary within an already announced list.
  */
 .cra-istat-tail-label {
   margin: 0.35rem 0 0.25rem;

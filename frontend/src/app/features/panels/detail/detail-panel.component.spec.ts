@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { DetailPanelComponent, STAKEHOLDER_AXIS_NOTE } from './detail-panel.component';
 import type { Poi, RiskModel } from '@core/models/models';
 import { istatOrderNote } from '@core/ui-helpers';
-import { istatPoi, istatRiga } from '@core/testing/istat-fixtures';
+import { istatPoi, istatRow } from '@core/testing/istat-fixtures';
 
 function makePoi(overrides: Partial<Poi> = {}): Poi {
   return {
@@ -57,8 +57,8 @@ describe('DetailPanelComponent', () => {
     fixture.componentRef.setInput('poi', poi);
     fixture.componentRef.setInput('number', number);
     fixture.componentRef.setInput('riskModels', models);
-    // in document.body: senza essere connesso al DOM reale, jsdom non aggiorna
-    // document.activeElement quando si chiama .focus() (necessario per i test di focus management).
+    // in document.body: without being connected to the real DOM, jsdom does not update
+    // document.activeElement when .focus() is called (needed for the focus management tests).
     document.body.appendChild(fixture.nativeElement);
     fixture.detectChanges();
   }
@@ -71,7 +71,7 @@ describe('DetailPanelComponent', () => {
     fixture?.nativeElement.remove();
   });
 
-  it('mostra nome POI, terminus class con prefisso tc: + etichetta IT, e il numero del pin', () => {
+  it('shows POI name, terminus class with tc: prefix + IT label, and the pin number', () => {
     setup(makePoi(), riskModels, 3);
     const text = fixture.nativeElement.textContent;
     expect(text).toContain('Colosseo');
@@ -79,19 +79,19 @@ describe('DetailPanelComponent', () => {
     expect(fixture.nativeElement.querySelector('.cra-detail-pin').textContent.trim()).toBe('3');
   });
 
-  it("mostra il badge di confidence del POI nell'header", () => {
+  it('shows the POI confidence badge in the header', () => {
     setup(makePoi({ confidence: 'da_confermare' }));
     const text = fixture.nativeElement.textContent;
     expect(text).toContain('Anonimo');
   });
 
-  it("#220: un POI fuori ontologia (confidence null) non mostra il badge di confidence nell'header, ma il pin resta neutro", () => {
+  it('#220: a POI outside the ontology (confidence null) does not show the confidence badge in the header, but the pin stays neutral', () => {
     setup(makePoi({ confidence: null, sparql_path: null }), []);
     expect(fixture.nativeElement.querySelector('.cra-badge-confidence')).toBeNull();
     expect(fixture.nativeElement.querySelector('.cra-detail-pin')).not.toBeNull();
   });
 
-  it('mostra il pulsante "‹ indietro" (Vista Dettaglio del dock, #199) e il click emette closeDetail', () => {
+  it('shows the "‹ indietro" button (Detail view of the dock, #199) and the click emits closeDetail', () => {
     setup(makePoi());
     const spy = jest.fn();
     fixture.componentInstance.closeDetail.subscribe(spy);
@@ -101,7 +101,7 @@ describe('DetailPanelComponent', () => {
     expect(spy).toHaveBeenCalled();
   });
 
-  it('rende la citazione SPARQL come catena lineare Classe → proprietà → entità', () => {
+  it('renders the SPARQL citation as a linear chain Class → property → entity', () => {
     setup(makePoi());
     const parts = fixture.nativeElement.querySelectorAll('.cra-citation-part');
     expect(Array.from(parts).map((p) => (p as HTMLElement).textContent)).toEqual([
@@ -112,13 +112,13 @@ describe('DetailPanelComponent', () => {
     expect(fixture.nativeElement.querySelector('.cra-citation-line').textContent).toContain('→');
   });
 
-  it('senza sparql_path mostra un fallback esplicito (nessuna citazione), non un crash', () => {
+  it('without sparql_path it shows an explicit fallback (no citation), not a crash', () => {
     expect(() => setup(makePoi({ sparql_path: null }))).not.toThrow();
     expect(fixture.nativeElement.textContent).toContain('Nessuna citazione');
     expect(fixture.nativeElement.querySelector('.cra-citation-part')).toBeNull();
   });
 
-  it("acceptance: raggruppa i fattori di rischio per tag fonte nell'ordine ONTOLOGIA → CONTESTO → SPECULATIVO", () => {
+  it('acceptance: groups the risk factors by source tag in the order ONTOLOGIA → CONTESTO → SPECULATIVO', () => {
     setup(makePoi());
     const headers = fixture.nativeElement.querySelectorAll('.cra-source-tag');
     expect(Array.from(headers).map((h) => (h as HTMLElement).textContent?.trim())).toEqual([
@@ -128,7 +128,7 @@ describe('DetailPanelComponent', () => {
     ]);
   });
 
-  it('ogni fattore mostra la propria etichetta IT (fallback a hazard) e badge di confidence', () => {
+  it('each factor shows its own IT label (fallback to hazard) and confidence badge', () => {
     setup(makePoi());
     const rows = fixture.nativeElement.querySelectorAll('.cra-factor-row');
     expect(rows.length).toBe(3);
@@ -138,9 +138,9 @@ describe('DetailPanelComponent', () => {
     expect(text).toContain('Ipotesi speculativa');
   });
 
-  it('mostra gli assi ontologici oltre agli hazard, ciascuno con la propria citazione', () => {
-    // #256: l'ontologia dà quattro assi e il pannello ne mostrava uno. Eventi critici e
-    // stakeholder non li leggeva nessuno, le vulnerabilità finivano solo nel prompt.
+  it('shows the ontology axes beyond hazards, each with its own citation', () => {
+    // #256: the ontology gives four axes and the panel showed one. Critical events and
+    // stakeholders were read by nobody, the vulnerabilities only ended up in the prompt.
     setup(
       makePoi({
         critical_events: [
@@ -166,18 +166,18 @@ describe('DetailPanelComponent', () => {
     expect(fixture.nativeElement.querySelectorAll('.cra-axis-group').length).toBe(2);
     expect(text).toContain('Colpo in banca');
     expect(text).toContain('Sorveglianza scarsa');
-    // la citazione accompagna la voce: senza, l'asse non è verificabile
+    // the citation accompanies the entry: without it, the axis is not verifiable
     expect(text).toContain('havingCriticalEvent');
   });
 
-  it('non mostra alcun asse ontologico se il POI non ne ha', () => {
+  it('does not show any ontology axis if the POI has none', () => {
     setup(makePoi());
     expect(fixture.nativeElement.querySelectorAll('.cra-axis-group').length).toBe(0);
   });
 
-  it('mostra solo gli assi popolati, non tutti o nessuno', () => {
-    // Il filtro è PER ASSE: un test con tutti e tre popolati non distinguerebbe questo
-    // comportamento da un tutto-o-niente sull'unione.
+  it('shows only the populated axes, not all or none', () => {
+    // The filter is PER AXIS: a test with all three populated would not tell this
+    // behavior apart from an all-or-nothing on the union.
     setup(
       makePoi({
         vulnerabilities: [
@@ -197,7 +197,7 @@ describe('DetailPanelComponent', () => {
     expect(fixture.nativeElement.textContent).not.toContain('Stakeholder');
   });
 
-  it("ACCEPTANCE (fail-if-removed): l'asse Stakeholder mostra la nota che lo distingue da un'indicazione operativa (#270)", () => {
+  it('ACCEPTANCE (fail-if-removed): the Stakeholder axis shows the note that distinguishes it from an operational indication (#270)', () => {
     setup(
       makePoi({
         stakeholders: [
@@ -218,7 +218,7 @@ describe('DetailPanelComponent', () => {
     expect(text).toContain(STAKEHOLDER_AXIS_NOTE);
   });
 
-  it('non mostra la nota Stakeholder sugli altri assi', () => {
+  it('does not show the Stakeholder note on the other axes', () => {
     setup(
       makePoi({
         vulnerabilities: [
@@ -235,10 +235,10 @@ describe('DetailPanelComponent', () => {
     expect(fixture.nativeElement.textContent).not.toContain(STAKEHOLDER_AXIS_NOTE);
   });
 
-  it('un POI fuori ontologia con assi popolati li mostra, senza badge da cui ereditare un livello', () => {
-    // #220: `confidence: null` significa «nessun rischio da qualificare», non «ignoto», quindi il
-    // badge in testa non c'è. Gli altri tre assi vengono da property OWL indipendenti dagli hazard,
-    // quindi possono esserci comunque: le voci restano nude, sono fatti sulla classe TERMINUS.
+  it('a POI outside the ontology with populated axes shows them, without a badge from which to inherit a level', () => {
+    // #220: `confidence: null` means "no risk to qualify", not "unknown", so the
+    // badge at the top is not there. The other three axes come from OWL properties independent of the hazards,
+    // so they may be there anyway: the entries stay bare, they are facts about the TERMINUS class.
     setup(
       makePoi({
         confidence: null,
@@ -255,15 +255,15 @@ describe('DetailPanelComponent', () => {
 
     expect(fixture.nativeElement.querySelectorAll('.cra-axis-group').length).toBe(1);
     expect(fixture.nativeElement.textContent).toContain('Danneggiamento del patrimonio');
-    // Il badge da cui le voci dovrebbero «ereditare» la qualifica è quello dell'INTESTAZIONE:
-    // `.cra-badge-confidence` compare anche sulle righe dei fattori di rischio, quindi la query
-    // va ristretta o passerebbe (o fallirebbe) per il motivo sbagliato.
+    // The badge from which the entries would "inherit" the qualification is the HEADER one:
+    // `.cra-badge-confidence` also appears on the risk factor rows, so the query
+    // must be narrowed or it would pass (or fail) for the wrong reason.
     expect(
       fixture.nativeElement.querySelector('.cra-detail-name-row .cra-badge-confidence'),
     ).toBeNull();
   });
 
-  it("usa l'identificatore grezzo quando l'etichetta IT manca", () => {
+  it('uses the raw identifier when the IT label is missing', () => {
     setup(
       makePoi({
         critical_events: [
@@ -282,26 +282,26 @@ describe('DetailPanelComponent', () => {
     );
   });
 
-  it('omette i gruppi senza fattori e non fallisce se il POI non ha risk_models corrispondenti', () => {
-    // Il non-match si costruisce sull'id, che è la chiave di aggancio: un nome diverso
-    // non basta più (e non doveva bastare, era il difetto).
+  it('omits the groups without factors and does not fail if the POI has no matching risk_models', () => {
+    // The non-match is built on the id, which is the join key: a different name
+    // is no longer enough (and it should not have been, it was the defect).
     setup(makePoi({ id: 'id-senza-rischi' }), riskModels);
     expect(fixture.nativeElement.querySelectorAll('.cra-source-tag').length).toBe(0);
     expect(fixture.nativeElement.querySelectorAll('.cra-factor-row').length).toBe(0);
   });
 
-  it("a11y (focus management, Stato C): all'apertura sposta il focus sul pannello per utenti da tastiera/screen reader", () => {
+  it('a11y (focus management, State C): on opening it moves the focus to the panel for keyboard/screen reader users', () => {
     setup(makePoi());
     expect(document.activeElement).toBe(fixture.nativeElement);
   });
 
-  it('a11y: il pannello è una region etichettata col nome del POI corrente (annuncio screen reader)', () => {
+  it('a11y: the panel is a region labelled with the current POI name (screen reader announcement)', () => {
     setup(makePoi({ name: 'Colosseo' }));
     expect(fixture.nativeElement.getAttribute('role')).toBe('region');
     expect(fixture.nativeElement.getAttribute('aria-label')).toContain('Colosseo');
   });
 
-  it('a11y: rifocalizza il pannello quando cambia il POI selezionato, anche se nel frattempo il focus era altrove (navigazione fra POI senza richiudere)', () => {
+  it('a11y: refocuses the panel when the selected POI changes, even if the focus was elsewhere in the meantime (navigation between POIs without closing)', () => {
     setup(makePoi({ id: '1', name: 'Colosseo' }));
     const dummy = document.createElement('input');
     document.body.appendChild(dummy);
@@ -315,7 +315,7 @@ describe('DetailPanelComponent', () => {
     dummy.remove();
   });
 
-  it('difesa: confidence fuori-contratto (POI o rischio) non fa collassare la vista, mostra un fallback placeholder', () => {
+  it('defense: out-of-contract confidence (POI or risk) does not collapse the view, shows a placeholder fallback', () => {
     const outOfContractPoi = makePoi({ confidence: 'boh' as unknown as Poi['confidence'] });
     const outOfContractRiskModels: RiskModel[] = [
       {
@@ -339,7 +339,7 @@ describe('DetailPanelComponent', () => {
     expect(text).toContain('Fattore ignoto');
   });
 
-  it('rework UI: il footer con le azioni non operative è stato rimosso (niente placeholder disabilitati)', () => {
+  it('UI rework: the footer with the non-operational actions has been removed (no disabled placeholders)', () => {
     setup(makePoi());
     expect(fixture.nativeElement.querySelector('.cra-detail-footer')).toBeNull();
     const text = fixture.nativeElement.textContent;
@@ -347,7 +347,7 @@ describe('DetailPanelComponent', () => {
     expect(text).not.toContain('Esporta scheda');
   });
 
-  it("#261: un POI senza nome (feature OSM anonima) mostra il ripiego sulla classe nell'header e nell'aria-label, non una riga bianca", () => {
+  it('#261: a POI without a name (anonymous OSM feature) shows the class fallback in the header and in the aria-label, not a blank row', () => {
     setup(makePoi({ name: '', terminus_class: 'Bank', terminus_label_it: 'Banca' }));
     expect(fixture.nativeElement.querySelector('.cra-detail-name').textContent.trim()).toBe(
       'Banca (senza nome su OSM)',
@@ -355,7 +355,7 @@ describe('DetailPanelComponent', () => {
     expect(fixture.nativeElement.getAttribute('aria-label')).toContain('Banca (senza nome su OSM)');
   });
 
-  it('rework UI: la Provenienza (citazione SPARQL) è mostrata DOPO i Fattori di rischio', () => {
+  it('UI rework: the Provenienza (SPARQL citation) is shown AFTER the Risk factors', () => {
     setup(makePoi());
     const eyebrows = Array.from(
       fixture.nativeElement.querySelectorAll('.cra-detail-body .cra-detail-section .cra-eyebrow'),
@@ -364,8 +364,8 @@ describe('DetailPanelComponent', () => {
     expect(eyebrows[1]).toContain('Provenienza');
   });
 
-  it('accordion (default adattivo): con ≤3 fattori totali tutti i gruppi partono aperti', () => {
-    setup(makePoi()); // riskModels: 3 rischi, 1 per gruppo → total 3
+  it('accordion (adaptive default): with ≤3 total factors all the groups start open', () => {
+    setup(makePoi()); // riskModels: 3 risks, 1 per group → total 3
     expect(fixture.nativeElement.querySelectorAll('.cra-source-group').length).toBe(3);
     expect(fixture.nativeElement.querySelectorAll('.cra-factor-row').length).toBe(3);
     const headers = Array.from(
@@ -374,7 +374,7 @@ describe('DetailPanelComponent', () => {
     headers.forEach((h) => expect(h.getAttribute('aria-expanded')).toBe('true'));
   });
 
-  it('accordion (default adattivo): con >3 fattori resta aperto solo il primo gruppo (ONTOLOGIA), gli altri collassati ma col conteggio', () => {
+  it('accordion (adaptive default): with >3 factors only the first group (ONTOLOGIA) stays open, the others collapsed but with the count', () => {
     const richModels: RiskModel[] = [
       {
         poi_id: '1',
@@ -420,7 +420,7 @@ describe('DetailPanelComponent', () => {
     ];
     setup(makePoi(), richModels);
     expect(fixture.nativeElement.querySelectorAll('.cra-source-group').length).toBe(3);
-    expect(fixture.nativeElement.querySelectorAll('.cra-factor-row').length).toBe(2); // solo ONTOLOGIA
+    expect(fixture.nativeElement.querySelectorAll('.cra-factor-row').length).toBe(2); // ONTOLOGIA only
     const headers = Array.from(
       fixture.nativeElement.querySelectorAll('.cra-source-header'),
     ) as HTMLElement[];
@@ -431,7 +431,7 @@ describe('DetailPanelComponent', () => {
     expect(counts).toEqual(['2', '1', '2']);
   });
 
-  it("accordion: cliccando un'intestazione-fonte si collassa/espande il suo elenco di fattori", () => {
+  it('accordion: clicking a source heading collapses/expands its list of factors', () => {
     setup(makePoi());
     expect(fixture.nativeElement.querySelectorAll('.cra-factor-row').length).toBe(3);
     const first = fixture.nativeElement.querySelector('.cra-source-header') as HTMLElement;
@@ -444,7 +444,7 @@ describe('DetailPanelComponent', () => {
     expect(fixture.nativeElement.querySelectorAll('.cra-factor-row').length).toBe(3);
   });
 
-  it('accordion: cambiando POI lo stato di apertura si resetta al default adattivo del nuovo POI (nessuno stato residuo)', () => {
+  it('accordion: changing POI the open state resets to the adaptive default of the new POI (no leftover state)', () => {
     const r = (
       hazard: string,
       tag: RiskModel['risks'][number]['tag'],
@@ -476,21 +476,21 @@ describe('DetailPanelComponent', () => {
     const aria = (el: Element) => el.getAttribute('aria-expanded');
 
     setup(makePoi({ id: '1', name: 'Colosseo' }), models);
-    // POI A (>3 fattori): default adattivo → solo ONTOLOGIA aperto
+    // POI A (>3 factors): adaptive default → only ONTOLOGIA open
     expect(
       Array.from(fixture.nativeElement.querySelectorAll('.cra-source-header')).map(aria),
     ).toEqual(['true', 'false', 'false']);
-    // l'utente espande manualmente SPECULATIVO (stato divergente dal default)
+    // the user manually expands SPECULATIVO (state diverging from the default)
     (fixture.nativeElement.querySelectorAll('.cra-source-header')[2] as HTMLElement).click();
     fixture.detectChanges();
     expect(aria(fixture.nativeElement.querySelectorAll('.cra-source-header')[2])).toBe('true');
 
-    // cambio POI SENZA rimontare il componente (come la navigazione reale tra POI)
+    // POI change WITHOUT remounting the component (like real navigation between POIs)
     fixture.componentRef.setInput('poi', makePoi({ id: '2', name: 'Duomo' }));
     fixture.detectChanges();
 
-    // POI B segue il SUO default adattivo (>3 → solo ONTOLOGIA): SPECULATIVO di nuovo chiuso,
-    // nessuno stato residuo del POI precedente.
+    // POI B follows ITS adaptive default (>3 → only ONTOLOGIA): SPECULATIVO closed again,
+    // no leftover state of the previous POI.
     expect(
       Array.from(fixture.nativeElement.querySelectorAll('.cra-source-header')).map(aria),
     ).toEqual(['true', 'false', 'false']);
@@ -516,7 +516,7 @@ describe('DetailPanelComponent', () => {
     ).map((el) => el.textContent?.trim() ?? '');
   }
 
-  /** Le due `<ul class="cra-factor-list">` del primo gruppo-fonte (#346, O9: con dato/senza dato). */
+  /** The two `<ul class="cra-factor-list">` of the first source group (#346, O9: with data/without data). */
   function factorLists(): HTMLUListElement[] {
     return Array.from(
       fixture.nativeElement.querySelectorAll(
@@ -531,42 +531,42 @@ describe('DetailPanelComponent', () => {
     );
   }
 
-  it('#346: ordina i rischi del gruppo col dato ISTAT e mostra la nota con luogo e anno', () => {
-    const dati = istatPoi(
-      istatRiga('LOW', ['h-b'], { tasso: 50 }),
-      istatRiga('HIGH', ['h-c'], { tasso: 300 }),
+  it('#346: orders the group risks with the ISTAT datum and shows the note with place and year', () => {
+    const data = istatPoi(
+      istatRow('LOW', ['h-b'], { tasso: 50 }),
+      istatRow('HIGH', ['h-c'], { tasso: 300 }),
     );
-    setup(makePoi({ istat: dati }), ontoModels);
+    setup(makePoi({ istat: data }), ontoModels);
     expect(labels()).toEqual(['H-C', 'H-B', 'H-A']);
-    const nota = fixture.nativeElement.querySelector('.cra-istat-order-note');
-    expect(nota?.textContent?.trim()).toBe(istatOrderNote(dati));
+    const note = fixture.nativeElement.querySelector('.cra-istat-order-note');
+    expect(note?.textContent?.trim()).toBe(istatOrderNote(data));
   });
 
-  it('#346: senza istat (assente o null) ordine di oggi e nessuna nota, nessuna coda ISTAT', () => {
+  it("#346: without istat (absent or null) today's order and no note, no ISTAT tail", () => {
     for (const poi of [makePoi(), makePoi({ istat: null })]) {
       setup(poi, ontoModels);
       expect(labels()).toEqual(['H-A', 'H-B', 'H-C']);
       expect(fixture.nativeElement.querySelector('.cra-istat-order-note')).toBeNull();
       expect(fixture.nativeElement.querySelector('.cra-istat-tail-label')).toBeNull();
-      expect(factorLists().length).toBe(1); // ontoModels: un solo gruppo-fonte (ONTOLOGIA), non misto
+      expect(factorLists().length).toBe(1); // ontoModels: a single source group (ONTOLOGIA), not mixed
       fixture.nativeElement.remove();
     }
   });
 
-  it('#346: nota solo sui gruppi che hanno almeno un rischio con dato', () => {
-    setup(makePoi({ istat: istatPoi(istatRiga('HIGH', ['h-onto'], { tasso: 300 })) }), riskModels);
-    const gruppi = Array.from(
+  it('#346: note only on the groups that have at least one risk with data', () => {
+    setup(makePoi({ istat: istatPoi(istatRow('HIGH', ['h-onto'], { tasso: 300 })) }), riskModels);
+    const groups = Array.from(
       fixture.nativeElement.querySelectorAll('.cra-source-group') as NodeListOf<HTMLElement>,
     );
-    const conNota = gruppi.map((g) => g.querySelector('.cra-istat-order-note') !== null);
-    // riskModels: un rischio per gruppo (ONTOLOGIA, CONTESTO, SPECULATIVO), solo h-onto ha dato.
-    expect(conNota).toEqual([true, false, false]);
+    const withNote = groups.map((g) => g.querySelector('.cra-istat-order-note') !== null);
+    // riskModels: one risk per group (ONTOLOGIA, CONTESTO, SPECULATIVO), only h-onto has data.
+    expect(withNote).toEqual([true, false, false]);
   });
 
-  it('#346 (O9): gruppo misto (dato + senza dato) mostra «Dato ISTAT assente o troppo esiguo» fra due liste distinte, la coda nell’ordine di arrivo', () => {
-    // Solo h-c ha una voce ISTAT: h-a e h-b restano "senza dato", nell'ordine in cui arrivano
-    // da ontoModels (h-a prima di h-b).
-    setup(makePoi({ istat: istatPoi(istatRiga('HIGH', ['h-c'], { tasso: 300 })) }), ontoModels);
+  it('#346 (O9): mixed group (data + no data) shows "Dato ISTAT assente o troppo esiguo" between two distinct lists, the tail in arrival order', () => {
+    // Only h-c has an ISTAT item: h-a and h-b stay "without data", in the order in which they arrive
+    // from ontoModels (h-a before h-b).
+    setup(makePoi({ istat: istatPoi(istatRow('HIGH', ['h-c'], { tasso: 300 })) }), ontoModels);
 
     const lists = factorLists();
     expect(lists.length).toBe(2);
@@ -575,18 +575,18 @@ describe('DetailPanelComponent', () => {
 
     const tailLabel = fixture.nativeElement.querySelector('.cra-istat-tail-label');
     expect(tailLabel?.textContent?.trim()).toBe('Dato ISTAT assente o troppo esiguo');
-    // L'etichetta sta FRA le due liste (struttura accessibile richiesta da O9).
+    // The label sits BETWEEN the two lists (accessible structure required by O9).
     expect(tailLabel.previousElementSibling).toBe(lists[0]);
     expect(tailLabel.nextElementSibling).toBe(lists[1]);
   });
 
-  it('#346 (O9): gruppo interamente con dato ISTAT → una sola lista, nessuna etichetta "Dato ISTAT assente o troppo esiguo"', () => {
+  it('#346 (O9): group entirely with ISTAT data → a single list, no "Dato ISTAT assente o troppo esiguo" label', () => {
     setup(
       makePoi({
         istat: istatPoi(
-          istatRiga('A', ['h-a'], { tasso: 50 }),
-          istatRiga('B', ['h-b'], { tasso: 80 }),
-          istatRiga('C', ['h-c'], { tasso: 300 }),
+          istatRow('A', ['h-a'], { tasso: 50 }),
+          istatRow('B', ['h-b'], { tasso: 80 }),
+          istatRow('C', ['h-c'], { tasso: 300 }),
         ),
       }),
       ontoModels,
@@ -594,7 +594,7 @@ describe('DetailPanelComponent', () => {
 
     expect(factorLists().length).toBe(1);
     expect(fixture.nativeElement.querySelector('.cra-istat-tail-label')).toBeNull();
-    // #347: gruppo tutto ordinato → un indicatore su ogni riga.
+    // #347: fully ordered group → an indicator on every row.
     expect(indicators(factorLists()[0]).every((t) => t !== null)).toBe(true);
   });
 
@@ -605,14 +605,14 @@ describe('DetailPanelComponent', () => {
     );
   }
 
-  /** Classi dei figli diretti di una riga, nell'ordine del DOM (ordine di lettura). */
+  /** Classes of the direct children of a row, in DOM order (reading order). */
   function rowStructure(row: Element): string[] {
     return Array.from(row.children).map((el) => el.className.split(' ')[0]);
   }
 
-  it('#347: riga completa — testo intero dell’indicatore, freccia decorativa', () => {
-    const dati = istatPoi(
-      istatRiga('THEFT', ['h-c'], {
+  it('#347: full row — whole indicator text, decorative arrow', () => {
+    const data = istatPoi(
+      istatRow('THEFT', ['h-c'], {
         voce_label: 'furti',
         delitti: 134169,
         delitti_confronto: 22,
@@ -621,7 +621,7 @@ describe('DetailPanelComponent', () => {
         variazione_pct: 2114,
       }),
     );
-    setup(makePoi({ istat: dati }), ontoModels);
+    setup(makePoi({ istat: data }), ontoModels);
 
     const lists = factorLists();
     expect(indicators(lists[0])).toEqual([
@@ -631,8 +631,8 @@ describe('DetailPanelComponent', () => {
     expect(freccia?.textContent?.trim()).toBe('▲');
   });
 
-  it('#347 (a11y): nel DOM il badge viene subito dopo l’etichetta e prima dell’indicatore; la coda ha la stessa struttura senza indicatore', () => {
-    setup(makePoi({ istat: istatPoi(istatRiga('HIGH', ['h-c'], { tasso: 300 })) }), ontoModels);
+  it('#347 (a11y): in the DOM the badge comes right after the label and before the indicator; the tail has the same structure without an indicator', () => {
+    setup(makePoi({ istat: istatPoi(istatRow('HIGH', ['h-c'], { tasso: 300 })) }), ontoModels);
 
     const [ranked, tail] = factorLists();
     expect(rowStructure(ranked.querySelector('.cra-factor-row')!)).toEqual([
@@ -645,9 +645,9 @@ describe('DetailPanelComponent', () => {
     }
   });
 
-  it('#347: due rischi sulla stessa voce ISTAT → il primo completo, il secondo «stessa voce ISTAT: …»', () => {
-    const dati = istatPoi(
-      istatRiga('DAMAGE', ['h-a', 'h-b'], {
+  it('#347: two risks on the same ISTAT item → the first full, the second "stessa voce ISTAT: …"', () => {
+    const data = istatPoi(
+      istatRow('DAMAGE', ['h-a', 'h-b'], {
         voce_label: 'danneggiamenti',
         collegamenti: [
           { hazard: 'h-a', hazard_label_it: 'A', corrispondenza: 'esatta' },
@@ -655,23 +655,23 @@ describe('DetailPanelComponent', () => {
         ],
       }),
     );
-    setup(makePoi({ istat: dati }), ontoModels);
+    setup(makePoi({ istat: data }), ontoModels);
 
     const [ranked] = factorLists();
     expect(listLabels(ranked)).toEqual(['H-A', 'H-B']);
-    const [primo, secondo] = indicators(ranked);
-    expect(primo).toBe(
+    const [first, second] = indicators(ranked);
+    expect(first).toBe(
       'danneggiamenti · 100 delitti denunciati nel 2024 · 100,0 ogni 100.000 ab. (Italia: 100,0) · stabile (0% dal 2014, erano 100)',
     );
-    expect(secondo).toBe('stessa voce ISTAT: danneggiamenti (voce ISTAT più ampia del rischio)');
+    expect(second).toBe('stessa voce ISTAT: danneggiamenti (voce ISTAT più ampia del rischio)');
   });
 
-  it('#347: istat presente ma nessun rischio con peso (tutte le voci sotto 20 delitti) → niente indicatore, nota né coda', () => {
-    const dati = istatPoi(
-      istatRiga('A', ['h-a'], { delitti: 19 }),
-      istatRiga('C', ['h-c'], { delitti: 3 }),
+  it('#347: istat present but no risk with weight (all items under 20 crimes) → no indicator, note or tail', () => {
+    const data = istatPoi(
+      istatRow('A', ['h-a'], { delitti: 19 }),
+      istatRow('C', ['h-c'], { delitti: 3 }),
     );
-    setup(makePoi({ istat: dati }), ontoModels);
+    setup(makePoi({ istat: data }), ontoModels);
 
     expect(labels()).toEqual(['H-A', 'H-B', 'H-C']);
     expect(factorLists().length).toBe(1);
@@ -680,7 +680,7 @@ describe('DetailPanelComponent', () => {
     expect(fixture.nativeElement.querySelector('.cra-istat-tail-label')).toBeNull();
   });
 
-  it('#347: senza istat nessun indicatore', () => {
+  it('#347: without istat no indicator', () => {
     setup(makePoi(), ontoModels);
     expect(fixture.nativeElement.querySelector('.cra-istat-indicator')).toBeNull();
   });

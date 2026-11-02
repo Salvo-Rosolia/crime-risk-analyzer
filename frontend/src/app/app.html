@@ -2,9 +2,9 @@
   <span class="cra-title">◆ Crime Risk Analyzer</span>
   <span class="cra-tagline">supporto decisionale · human-in-the-loop</span>
   <span class="cra-header-spacer"></span>
-  <!-- "Vai a un luogo": puro aiuto di navigazione sulla mappa (Nominatim + flyTo). Non sceglie
-       l'area da analizzare: quella si sceglie col cerchio disegnato o con città/zona nel pannello
-       di ricerca (#335). -->
+  <!-- "Go to a place": pure map navigation aid (Nominatim + flyTo). It does not choose
+       the area to analyze: that is chosen with the drawn circle or with city/zone in the search
+       panel (#335). -->
   <div class="cra-place-search">
     <input
       type="text"
@@ -25,7 +25,7 @@
     (openPage)="sources.openPage()"
   />
   <cra-header-controls
-    [data]="store.completoData()"
+    [data]="store.fullData()"
     [mode]="store.mode()"
     [filter]="store.filter()"
     [loading]="store.screen() === 'LOADING'"
@@ -36,7 +36,7 @@
 </header>
 
 <cra-map
-  [data]="store.completoData()"
+  [data]="store.fullData()"
   [filter]="store.filter()"
   [selectedId]="store.selectedPoiId()"
   (poiClick)="onPoiClick($event)"
@@ -46,20 +46,20 @@
 <section class="cra-panels">
   @if (store.screen() === 'RESULTS' || store.screen() === 'FILTER' || store.screen() === 'DETAIL') {
     <!--
-      RESULTS, FILTER e DETAIL condividono lo stesso dock (Lista POI + Vista Dettaglio, #199) e
-      bottom-sheet narrativa (anziché @case distinti): selezionare/deselezionare un POI o cambiare
-      filtro non deve smontare/rimontare cra-panel-dock o cra-narrative-sheet (niente reset dello
-      scroll/collasso — stessa ragione dell'unificazione RESULTS/FILTER di #66, estesa qui a
-      DETAIL). Il Dettaglio non è più un pannello flottante separato: è una VISTA dentro il dock,
-      mostrata quando c'è un POI selezionato (`selectedDetail`), che il dock stesso alterna con la
-      Vista Lista senza smontarsi (`panel-dock.component.ts`).
+      RESULTS, FILTER and DETAIL share the same dock (POI List + Detail view, #199) and
+      narrative bottom sheet (instead of distinct @case): selecting/deselecting a POI or changing the
+      filter must not unmount/remount cra-panel-dock or cra-narrative-sheet (no reset of
+      scroll/collapse — same reason as the RESULTS/FILTER unification of #66, extended here to
+      DETAIL). The Detail is no longer a separate floating panel: it is a VIEW inside the dock,
+      shown when there is a selected POI (`selectedDetail`), which the dock itself alternates with
+      the List view without unmounting (`panel-dock.component.ts`).
     -->
     <cra-panel-dock
-      [pois]="store.completoData()?.poi ?? []"
+      [pois]="store.fullData()?.poi ?? []"
       [filter]="store.filter()"
       [selectedId]="store.selectedPoiId()"
       [detail]="selectedDetail()"
-      [riskModels]="store.completoData()?.risk_models ?? []"
+      [riskModels]="store.fullData()?.risk_models ?? []"
       [open]="store.poiPanelOpen()"
       [narrOpen]="store.narrOpen()"
       (selectPoi)="onPoiClick($event)"
@@ -71,16 +71,16 @@
     />
 
     <!--
-      Il pannello è legato allo SCOPE corrente (#197), non più direttamente a `completoData`:
-      i selettori `current*` dello store restituiscono la narrativa del POI quando c'è una
-      selezione con narrativa pronta, quella di zona altrimenti. Il componente resta "thin" e
-      non sa nulla della selezione.
+      The panel is bound to the current SCOPE (#197), no longer directly to `fullData`:
+      the `current*` selectors of the store return the POI's narrative when there is a
+      selection with a narrative ready, the zone's otherwise. The component stays "thin" and
+      knows nothing about the selection.
     -->
     <cra-narrative-sheet
-      [citta]="store.completoData()?.citta ?? null"
-      [zona]="store.completoData()?.zona_normalizzata ?? null"
-      [narrativa]="store.currentNarrativa()"
-      [narrativaFonti]="store.currentNarrativaFonti()"
+      [city]="store.fullData()?.citta ?? null"
+      [zone]="store.fullData()?.zona_normalizzata ?? null"
+      [narrative]="store.currentNarrative()"
+      [narrativeSources]="store.currentNarrativeSources()"
       [istatOccurrences]="store.currentNarrativeIstatOccurrences()"
       [open]="store.narrOpen()"
       [poiName]="store.currentScopePoiName()"
@@ -96,12 +96,12 @@
       @case ('INPUT') {
         <div class="cra-panel">
           <cra-input-panel
-            [initialDomanda]="store.pendingDomanda()"
+            [initialQuestion]="store.pendingQuestion()"
             [area]="area()"
-            [citta]="citta()"
-            [zona]="zona()"
-            (cittaChange)="onCittaChange($event)"
-            (zonaChange)="onZonaChange($event)"
+            [city]="city()"
+            [zone]="zone()"
+            (cityChange)="onCityChange($event)"
+            (zoneChange)="onZoneChange($event)"
             (analyze)="onAnalyze($event)"
           />
         </div>
@@ -112,12 +112,12 @@
       @case ('ERROR') {
         <div class="cra-panel">
           <cra-input-panel
-            [initialDomanda]="store.pendingDomanda()"
+            [initialQuestion]="store.pendingQuestion()"
             [area]="area()"
-            [citta]="citta()"
-            [zona]="zona()"
-            (cittaChange)="onCittaChange($event)"
-            (zonaChange)="onZonaChange($event)"
+            [city]="city()"
+            [zone]="zone()"
+            (cityChange)="onCityChange($event)"
+            (zoneChange)="onZoneChange($event)"
             [serverError]="store.error()"
             (analyze)="onAnalyze($event)"
           />
@@ -125,23 +125,23 @@
       }
       @case ('BASE') {
         <!--
-          Stato Sistema base gestisce errore + retry da sé (bloccante 2 review #67): niente
-          Stato Errore condiviso col form del sistema completo, che ritenterebbe su /analyze
-          invece che su /analyze/baseline. `error` arriva da LOAD_ERROR quando mode==='base'
-          (transition.ts la instrada qui invece che su ERROR).
+          Base-system State handles error + retry on its own (blocker 2 review #67): no
+          Error State shared with the full-system form, which would retry on /analyze
+          instead of /analyze/baseline. `error` comes from LOAD_ERROR when mode==='base'
+          (transition.ts routes it here instead of ERROR).
         -->
         <cra-base-panel
           [data]="store.baselineData()"
           [serverError]="store.error()"
           [area]="area()"
-          [citta]="citta()"
-          [zona]="zona()"
-          [tipoPoi]="tipoPoi()"
-          (cittaChange)="onCittaChange($event)"
-          (zonaChange)="onZonaChange($event)"
-          (tipoPoiChange)="onTipoPoiChange($event)"
+          [city]="city()"
+          [zone]="zone()"
+          [poiType]="poiType()"
+          (cityChange)="onCityChange($event)"
+          (zoneChange)="onZoneChange($event)"
+          (poiTypeChange)="onPoiTypeChange($event)"
           (analyzeBaseline)="onBaseSearch($event)"
-          (backToCompleto)="onToggleMode('completo')"
+          (backToFull)="onToggleMode('full')"
         />
       }
     }

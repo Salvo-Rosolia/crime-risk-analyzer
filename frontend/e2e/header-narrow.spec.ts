@@ -6,14 +6,14 @@ import analyzeFixture from './fixtures/analyze.happy.json';
 import type { AnalyzeResponse } from '../src/app/core/models/models';
 
 /**
- * #441: sotto i 768px, con i risultati a schermo (badge Copertura + chip di confidenza), l'header
- * deve contenere TUTTI i suoi controlli: nessun elemento fuori dal viewport né dall'header, e
- * nessuno scroll orizzontale. Test di geometria reale (jsdom non calcola layout).
+ * #441: below 768px, with the results on screen (Copertura badge + confidence chips), the header
+ * must contain ALL its controls: no element outside the viewport or the header, and
+ * no horizontal scroll. Real-geometry test (jsdom does not compute layout).
  */
 const analyze = analyzeFixture as AnalyzeResponse;
 
 for (const width of [390, 600]) {
-  test(`header con risultati a ${width}px: nessun elemento esce dal viewport o dall'header`, async ({
+  test(`header with results at ${width}px: no element leaves the viewport or the header`, async ({
     page,
   }) => {
     await mockApi(page, { analyze });
@@ -21,8 +21,8 @@ for (const width of [390, 600]) {
     await drawSearchCircle(page);
     await S.submitButton(page).click();
     await expect(S.poiPanel(page)).toBeVisible();
-    // Il cerchio si disegna a viewport desktop (a 390px il form di ricerca copre la mappa); poi si
-    // restringe la finestra mantenendo lo stato RESULTS.
+    // The circle is drawn at desktop viewport (at 390px the search form covers the map); then the
+    // window is narrowed keeping the RESULTS state.
     await page.setViewportSize({ width, height: 800 });
 
     const header = S.header(page);

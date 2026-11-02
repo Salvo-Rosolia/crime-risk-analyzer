@@ -1,8 +1,8 @@
 /*
- * :host copre l'intero riquadro mappa (scrim semi-trasparente): oltre a comunicare che
- * l'interfaccia è occupata, essendo sopra la mappa nello stacking order e con
- * pointer-events:auto assorbe click/drag/scroll destinati a Leaflet, impedendo pan/zoom
- * della mappa durante il caricamento (spec-frontend.md §Stato Loading).
+ * :host covers the whole map box (semi-transparent scrim): besides communicating that
+ * the interface is busy, being above the map in the stacking order and with
+ * pointer-events:auto it absorbs click/drag/scroll meant for Leaflet, preventing map pan/zoom
+ * during loading (spec-frontend.md §Loading State).
  */
 :host {
   position: absolute;

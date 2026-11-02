@@ -25,25 +25,25 @@ import {
 } from '@core/ui-helpers';
 
 /**
- * Nota dell'asse Stakeholder (#270): un elenco di attori accanto a hazard/vulnerabilità si presta
- * a essere letto come «chi allertare» — le direttive operative sono vietate (_project.md
- * §Vincoli). È un dato ontologico citato, non un'indicazione operativa: la nota lo dichiara.
+ * Note of the Stakeholder axis (#270): a list of actors next to hazards/vulnerabilities lends itself
+ * to being read as "who to alert" — operational directives are forbidden (_project.md
+ * §Constraints). It is a cited ontology datum, not an operational indication: the note says so.
  */
 export const STAKEHOLDER_AXIS_NOTE =
   "Dato citato dall'ontologia: non è un'indicazione su chi contattare o allertare.";
 
 /**
- * Scheda "Dettaglio POI" (Stato C, spec-frontend.md §Stato C): citazione SPARQL lineare
- * (Classe → proprietà → entità) + fattori di rischio raggruppati per tag fonte, nell'ordine
- * ONTOLOGIA → CONTESTO → SPECULATIVO; dentro ogni gruppo i rischi collegati a una voce ISTAT
- * vengono prima (#346). Componente "thin": consuma gli helper puri già testati
- * (`buildDetailModel`, `orderGroupsByTag`) senza reimplementarne la logica.
+ * "Dettaglio POI" card (State C, spec-frontend.md §State C): linear SPARQL citation
+ * (Class → property → entity) + risk factors grouped by source tag, in the order
+ * ONTOLOGIA → CONTESTO → SPECULATIVO; within each group the risks linked to an ISTAT item
+ * come first (#346). "Thin" component: it consumes the already tested pure helpers
+ * (`buildDetailModel`, `orderGroupsByTag`) without reimplementing their logic.
  *
- * Focus management (a11y, richiesto da frontend-dev.md/reviewer-frontend.md — review #67,
- * non-bloccante #8): il pannello stesso è il target del focus programmatico (`tabindex="-1"`,
- * non nel tab order naturale) — niente wrapper aggiuntivo nel template. L'`effect()` dipende da
- * `poi()`, quindi rifocalizza sia all'apertura sia passando da un POI all'altro senza richiudere
- * (lo `@if` dello shell non rimonta il componente in quel caso, solo gli input cambiano).
+ * Focus management (a11y, required by frontend-dev.md/reviewer-frontend.md — review #67,
+ * non-blocking #8): the panel itself is the target of the programmatic focus (`tabindex="-1"`,
+ * not in the natural tab order) — no additional wrapper in the template. The `effect()` depends on
+ * `poi()`, so it refocuses both on opening and when going from one POI to another without closing
+ * (the shell's `@if` does not remount the component in that case, only the inputs change).
  */
 @Component({
   selector: 'cra-detail-panel',
@@ -58,7 +58,7 @@ export const STAKEHOLDER_AXIS_NOTE =
 })
 export class DetailPanelComponent {
   readonly poi = input.required<Poi>();
-  /** Posizione del POI nell'array `store.completoData()?.poi` (+1): stesso numero del pin/card accoppiati. */
+  /** Position of the POI in the `store.fullData()?.poi` array (+1): same number as the paired pin/card. */
   readonly number = input.required<number>();
   readonly riskModels = input<RiskModel[]>([]);
 
@@ -67,14 +67,14 @@ export class DetailPanelComponent {
   private readonly elementRef = inject(ElementRef<HTMLElement>);
 
   /**
-   * Accesso difensivo alla confidence (story #207/#220, fix-review): un valore fuori contratto
-   * (mismatch di migrazione, dato legacy) o `null` (POI fuori ontologia, #220) degrada a un
-   * placeholder — pin neutro sul `.cra-detail-pin` (sempre renderizzato) — invece di far
-   * collassare la vista in un TypeError di change detection — `conf[livello]` indicizzato
-   * direttamente sarebbe `undefined`. Il badge testuale dell'header (`.cra-badge-confidence`)
-   * viene invece OMESSO del tutto per un POI `null` (nessun badge, template), non degradato al
-   * placeholder "Sconosciuto": quel fallback resta per i soli valori fuori contratto. `pinColor`
-   * per il colore, `confMeta` per dot/label: stesso pattern difensivo già usato altrove in
+   * Defensive access to the confidence (story #207/#220, fix-review): an out-of-contract value
+   * (migration mismatch, legacy data) or `null` (POI outside the ontology, #220) degrades to a
+   * placeholder — neutral pin on `.cra-detail-pin` (always rendered) — instead of making
+   * the view collapse into a change detection TypeError — `conf[level]` indexed
+   * directly would be `undefined`. The header's text badge (`.cra-badge-confidence`)
+   * is instead OMITTED altogether for a `null` POI (no badge, template), not degraded to the
+   * "Sconosciuto" placeholder: that fallback remains for out-of-contract values only. `pinColor`
+   * for the color, `confMeta` for dot/label: same defensive pattern already used elsewhere in
    * `core/confidence.ts`.
    */
   protected readonly pinColor = pinColor;
@@ -84,19 +84,19 @@ export class DetailPanelComponent {
   protected readonly detailModel = computed(() => buildDetailModel(this.poi(), this.riskModels()));
 
   /**
-   * Gruppi-fonte nell'ordine canonico (`orderGroupsByTag`) e, dentro ciascuno, rischi ordinati col
-   * dato ISTAT del luogo del POI (#346): prima quelli con dato, per tasso locale rispetto alla
-   * media italiana, poi gli altri. Ordine e indicatori ISTAT (#347) escono dallo stesso passaggio
-   * (`orderRisksByIstat` + `withIstatIndicators`, stesso aggancio), una volta per POI e non a ogni
-   * refresh del template; la prima occorrenza di una voce si decide qui, sull'ordine finale.
+   * Source groups in canonical order (`orderGroupsByTag`) and, within each, risks ordered with the
+   * ISTAT datum of the POI's place (#346): first those with data, by local rate relative to the
+   * Italian average, then the others. Order and ISTAT indicators (#347) come out of the same pass
+   * (`orderRisksByIstat` + `withIstatIndicators`, same matching), once per POI and not at every
+   * template refresh; the first occurrence of an item is decided here, on the final order.
    *
-   * `lists` sono le liste di righe del gruppo: una sola, oppure due quando il gruppo è misto (#346
-   * O9: rischi con dato, poi la coda senza; con tutti/nessuno la coda non esiste) — il template
-   * le rende con lo stesso markup di riga e mette l'etichetta «Dato ISTAT assente o troppo
-   * esiguo» prima della seconda. `istatNote` dichiara
-   * da dove viene l'ordine — senza, un ordine che cambia senza motivo si leggerebbe come una
-   * graduatoria di pericolosità del POI. `null` se il gruppo non ha rischi con dato o il POI non
-   * porta `istat` (interruttore spento).
+   * `lists` are the group's row lists: just one, or two when the group is mixed (#346
+   * O9: risks with data, then the tail without; with all/none the tail does not exist) — the template
+   * renders them with the same row markup and puts the label "Dato ISTAT assente o troppo
+   * esiguo" before the second one. `istatNote` declares
+   * where the order comes from — without it, an order that changes for no reason would read as a
+   * dangerousness ranking of the POI. `null` if the group has no risks with data or the POI does not
+   * carry `istat` (switch off).
    */
   protected readonly orderedGroups = computed<
     (TagGroup & { istatNote: string | null; lists: IstatEntry[][] })[]
@@ -117,59 +117,59 @@ export class DetailPanelComponent {
   });
 
   protected readonly srcMeta = srcTagMeta;
-  /** Nome del POI con ripiego sulla classe se manca su OSM (#261). */
+  /** POI name with fallback on the class if missing on OSM (#261). */
   protected readonly poiName = computed(() => poiNameDisplayLabel(this.poi()));
   protected readonly panelAriaLabel = computed(() => `Dettaglio POI: ${this.poiName()}`);
 
   protected readonly axisLabel = ontologyDisplayLabel;
 
   /**
-   * Gli assi TERMINUS oltre agli hazard (#256/#270), pronti per il template: solo quelli non
-   * vuoti, nell'ordine in cui l'executor SPARQL li interroga. Sono elenchi qualitativi con la
-   * propria citazione: nessun conteggio presentato come misura e nessuna gradazione per voce,
-   * perché la forza probatoria è un bit derivato dal nome del POI e vale identica per ogni sua
-   * asserzione ontologica — il badge in testa al pannello la dichiara una volta per tutte.
+   * The TERMINUS axes beyond hazards (#256/#270), ready for the template: only the non-empty
+   * ones, in the order in which the SPARQL executor queries them. They are qualitative lists with their
+   * own citation: no count presented as a measure and no per-entry grading,
+   * because the evidential strength is a bit derived from the POI name and holds identically for each of its
+   * ontology assertions — the badge at the top of the panel declares it once for all.
    *
-   * Caso limite dichiarato: un POI senza hazard ha `confidence: null` (#220 — «nessun rischio da
-   * qualificare», non «ignoto») e quindi NESSUN badge, ma può avere gli altri tre assi popolati,
-   * perché vengono da property OWL indipendenti. Lì le voci restano nude: sono fatti sulla classe
-   * TERMINUS, veri quanto il mapping del POI, e non c'è un livello da ereditare.
+   * Declared edge case: a POI without hazards has `confidence: null` (#220 — "no risk to
+   * qualify", not "unknown") and therefore NO badge, but it may have the other three axes populated,
+   * because they come from independent OWL properties. There the entries stay bare: they are facts about the
+   * TERMINUS class, as true as the POI's mapping, and there is no level to inherit.
    *
-   * L'asse Stakeholder porta in più `nota` (#270): solo lui si presta alla lettura fuorviante
-   * «chi allertare», quindi solo lui mostra la precisazione nel template.
+   * The Stakeholder axis additionally carries `note` (#270): only it lends itself to the misleading
+   * reading "who to alert", so only it shows the clarification in the template.
    */
   protected readonly ontologyAxes = computed<
-    { titolo: string; voci: OntologyItem[]; nota?: string }[]
+    { title: string; entries: OntologyItem[]; note?: string }[]
   >(() => {
     const poi = this.poi();
     return [
-      { titolo: 'Eventi critici', voci: poi.critical_events ?? [] },
-      { titolo: 'Vulnerabilità', voci: poi.vulnerabilities ?? [] },
+      { title: 'Eventi critici', entries: poi.critical_events ?? [] },
+      { title: 'Vulnerabilità', entries: poi.vulnerabilities ?? [] },
       {
-        titolo: 'Stakeholder',
-        voci: poi.stakeholders ?? [],
-        nota: STAKEHOLDER_AXIS_NOTE,
+        title: 'Stakeholder',
+        entries: poi.stakeholders ?? [],
+        note: STAKEHOLDER_AXIS_NOTE,
       },
-    ].filter((asse) => asse.voci.length > 0);
+    ].filter((axis) => axis.entries.length > 0);
   });
 
   /**
-   * Soglia dell'accordion adattivo (rework UI): con pochi fattori totali i gruppi-fonte partono
-   * tutti aperti (nessun attrito); oltre soglia resta aperto solo il gruppo più affidabile presente
-   * (ONTOLOGIA è primo in `orderGroupsByTag`) e gli altri si collassano, ma sempre col conteggio
-   * visibile — così si tuck il meno-certo, non il verificato.
+   * Threshold of the adaptive accordion (UI rework): with few total factors the source groups start
+   * all open (no friction); beyond the threshold only the most reliable group present stays open
+   * (ONTOLOGIA is first in `orderGroupsByTag`) and the others collapse, but always with the count
+   * visible — so the least certain is tucked away, not the verified one.
    */
   private static readonly ADAPTIVE_OPEN_THRESHOLD = 3;
 
   /**
-   * Tag dei gruppi-fonte attualmente espansi. `linkedSignal` (non `signal`) perché lo stato di
-   * apertura deve RESETTARSI al default adattivo quando cambia il POI selezionato — il componente
-   * non si rimonta navigando tra POI, cambia solo `poi()` (vedi l'effect di focus sotto) — pur
-   * restando modificabile dai click dell'utente sullo stesso POI. La chiave di reset è `poi().id`
-   * (identità del POI); da notare che `computation` legge anche `orderedGroups()` (che dipende da
-   * `riskModels()`), quindi in teoria pure un cambio di riferimento dei risk_models a parità di POI
-   * resetterebbe i toggle — oggi non raggiungibile perché `transition.ts` azzera `selectedPoiId`
-   * (smontando questa vista) ogni volta che i dati potrebbero cambiare.
+   * Tags of the source groups currently expanded. `linkedSignal` (not `signal`) because the open
+   * state must RESET to the adaptive default when the selected POI changes — the component
+   * does not remount when navigating between POIs, only `poi()` changes (see the focus effect below) — while
+   * remaining modifiable by the user's clicks on the same POI. The reset key is `poi().id`
+   * (identity of the POI); note that `computation` also reads `orderedGroups()` (which depends on
+   * `riskModels()`), so in theory even a change of reference of the risk_models for the same POI
+   * would reset the toggles — today not reachable because `transition.ts` clears `selectedPoiId`
+   * (unmounting this view) every time the data might change.
    */
   protected readonly openTags = linkedSignal<string, Set<string>>({
     source: () => this.poi().id,

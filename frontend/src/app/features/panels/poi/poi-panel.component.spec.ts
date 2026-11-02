@@ -45,19 +45,19 @@ describe('PoiPanelComponent', () => {
     fixture.detectChanges();
   });
 
-  it('elenca una card per ogni POI con etichetta IT (fallback a terminus_class se assente)', () => {
+  it('lists one card for each POI with IT label (fallback to terminus_class if absent)', () => {
     const text = fixture.nativeElement.textContent;
     expect(text).toContain('Colosseo');
     expect(text).toContain('Banca');
     expect(text).toContain('Alley');
   });
 
-  it('#207: il controllo unificato "Confidenza" (cra-confidence-filter) è sempre montato', () => {
+  it('#207: the unified "Confidenza" control (cra-confidence-filter) is always mounted', () => {
     const control = fixture.nativeElement.querySelector('cra-confidence-filter');
     expect(control).toBeTruthy();
   });
 
-  it("numera le card in base all'ordine originale dell'array POI", () => {
+  it('numbers the cards based on the original order of the POI array', () => {
     const badges = fixture.nativeElement.querySelectorAll('.cra-poi-pin-badge');
     expect(Array.from(badges).map((b) => (b as HTMLElement).textContent?.trim())).toEqual([
       '1',
@@ -66,7 +66,7 @@ describe('PoiPanelComponent', () => {
     ]);
   });
 
-  it("click su una card emette selectPoi con l'id del POI", () => {
+  it('click on a card emits selectPoi with the POI id', () => {
     const spy = jest.fn();
     fixture.componentInstance.selectPoi.subscribe(spy);
     const cards = fixture.nativeElement.querySelectorAll('.cra-poi-card');
@@ -74,7 +74,7 @@ describe('PoiPanelComponent', () => {
     expect(spy).toHaveBeenCalledWith('2');
   });
 
-  it('evidenzia la card corrispondente a selectedId (classe + aria-current)', () => {
+  it('highlights the card matching selectedId (class + aria-current)', () => {
     fixture.componentRef.setInput('selectedId', '2');
     fixture.detectChanges();
     const cards = fixture.nativeElement.querySelectorAll('.cra-poi-card');
@@ -84,7 +84,7 @@ describe('PoiPanelComponent', () => {
     expect(cards[0].getAttribute('aria-current')).toBeNull();
   });
 
-  it('click su una riga del controllo Confidenza emette setFilter con il livello scelto', () => {
+  it('click on a row of the Confidenza control emits setFilter with the chosen level', () => {
     const spy = jest.fn();
     fixture.componentInstance.setFilter.subscribe(spy);
     const rows = fixture.nativeElement.querySelectorAll('.cra-confidence-row');
@@ -92,7 +92,7 @@ describe('PoiPanelComponent', () => {
     expect(spy).toHaveBeenCalledWith('da_confermare');
   });
 
-  it('aria-pressed sulle righe riflette il livello di filtro attivo (toggle)', () => {
+  it('aria-pressed on the rows reflects the active filter level (toggle)', () => {
     const rows = fixture.nativeElement.querySelectorAll('.cra-confidence-row');
     expect(rows[0].getAttribute('aria-pressed')).toBe('false');
 
@@ -102,7 +102,7 @@ describe('PoiPanelComponent', () => {
     expect(rows[1].getAttribute('aria-pressed')).toBe('false');
   });
 
-  it('riclic sulla riga già attiva emette clearFilter', () => {
+  it('clicking the already active row again emits clearFilter', () => {
     fixture.componentRef.setInput('filter', 'da_confermare');
     fixture.detectChanges();
     const spy = jest.fn();
@@ -112,7 +112,7 @@ describe('PoiPanelComponent', () => {
     expect(spy).toHaveBeenCalled();
   });
 
-  it('con filtro attivo mostra solo i POI corrispondenti e la barra "N nascosti"', () => {
+  it('with an active filter shows only the matching POIs and the "N nascosti" bar', () => {
     fixture.componentRef.setInput('filter', 'verificato');
     fixture.detectChanges();
     const cards = fixture.nativeElement.querySelectorAll('.cra-poi-card');
@@ -120,33 +120,33 @@ describe('PoiPanelComponent', () => {
     expect(fixture.nativeElement.textContent).toContain('2 nascosti');
   });
 
-  it('senza filtro nessuna barra "nascosti"', () => {
+  it('without a filter no "nascosti" bar', () => {
     expect(fixture.nativeElement.textContent).not.toContain('nascosti');
   });
 
-  it("la numerazione delle card resta quella dell'array originale anche filtrando", () => {
+  it('the card numbering stays that of the original array even when filtering', () => {
     fixture.componentRef.setInput('filter', 'da_confermare');
     fixture.detectChanges();
     const badge = fixture.nativeElement.querySelector('.cra-poi-pin-badge');
     expect(badge.textContent.trim()).toBe('2');
   });
 
-  it('mostra il conteggio per ciascun livello di confidence nel controllo Confidenza (#220: solo 2 livelli, il POI fuori ontologia non è conteggiato)', () => {
+  it('shows the count for each confidence level in the Confidenza control (#220: only 2 levels, the POI outside the ontology is not counted)', () => {
     const counts = Array.from(
       fixture.nativeElement.querySelectorAll('.cra-confidence-row-count'),
     ).map((el) => (el as HTMLElement).textContent?.trim());
     expect(counts).toEqual(['1', '1']);
   });
 
-  it('#220: un POI fuori ontologia (confidence null) resta visibile senza filtro attivo, senza badge testuale di confidence', () => {
+  it('#220: a POI outside the ontology (confidence null) stays visible without an active filter, without a text confidence badge', () => {
     const cards = fixture.nativeElement.querySelectorAll('.cra-poi-card');
-    const vicoloCard = cards[2] as HTMLElement;
-    expect(vicoloCard.textContent).toContain('Vicolo Y');
-    expect(vicoloCard.querySelector('.cra-badge-confidence')).toBeNull();
-    expect(vicoloCard.querySelector('.cra-poi-pin-badge')).not.toBeNull();
+    const alleyCard = cards[2] as HTMLElement;
+    expect(alleyCard.textContent).toContain('Vicolo Y');
+    expect(alleyCard.querySelector('.cra-badge-confidence')).toBeNull();
+    expect(alleyCard.querySelector('.cra-poi-pin-badge')).not.toBeNull();
   });
 
-  it('#220: un POI fuori ontologia (confidence null) non è filtrabile come categoria: con un filtro attivo scompare dalla lista come i livelli non corrispondenti', () => {
+  it('#220: a POI outside the ontology (confidence null) is not filterable as a category: with an active filter it disappears from the list like the non-matching levels', () => {
     fixture.componentRef.setInput('filter', 'verificato');
     fixture.detectChanges();
     const names = Array.from(fixture.nativeElement.querySelectorAll('.cra-poi-name')).map((el) =>
@@ -155,7 +155,7 @@ describe('PoiPanelComponent', () => {
     expect(names).not.toContain('Vicolo Y');
   });
 
-  it('#261: un POI senza nome (feature OSM anonima) mostra il ripiego sulla classe invece di una riga bianca', () => {
+  it('#261: a POI without a name (anonymous OSM feature) shows the class fallback instead of a blank row', () => {
     fixture.componentRef.setInput('pois', [
       ...pois,
       makePoi({

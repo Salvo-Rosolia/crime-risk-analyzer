@@ -3,27 +3,27 @@ import { mockApi } from './support/mocking';
 import { S } from './support/selectors';
 
 /**
- * Il controllo del raggio (`.cra-radius-control`, `map.component.ts`) è ancorato in alto, nel
- * corridoio che dovrebbe restare libero a destra del pannello di ricerca. L'ancoraggio è calcolato
- * da `--panel-max-width`, cioè assume che quel token sia la larghezza ESTERNA del pannello.
+ * The radius control (`.cra-radius-control`, `map.component.ts`) is anchored at the top, in the
+ * corridor that should stay free to the right of the search panel. The anchoring is computed
+ * from `--panel-max-width`, i.e. it assumes that token is the OUTER width of the panel.
  *
- * L'assunzione non regge da sola: senza `box-sizing: border-box`, padding e bordo del pannello si
- * sommano FUORI dal token e il pannello arriva più a destra di quanto la formula preveda,
- * coprendo l'inizio della barra (l'etichetta "Raggio (m)" risultava tagliata).
+ * The assumption does not hold on its own: without `box-sizing: border-box`, the panel's padding and border
+ * add up OUTSIDE the token and the panel ends up further right than the formula predicts,
+ * covering the start of the bar (the "Raggio (m)" label came out cut).
  *
- * Questo scenario esiste per tenere onesta quell'assunzione: è una verifica di GEOMETRIA REALE,
- * quindi vive negli E2E e non in uno unit test — jsdom non calcola layout e non potrebbe vedere
- * la sovrapposizione. Se qualcuno cambia il box model dei pannelli, il token, o la formula di
- * ancoraggio, è qui che il progetto se ne accorge.
+ * This scenario exists to keep that assumption honest: it is a REAL GEOMETRY check,
+ * so it lives in the E2Es and not in a unit test — jsdom does not compute layout and could not see
+ * the overlap. If someone changes the panels' box model, the token, or the anchoring
+ * formula, this is where the project notices.
  */
-test('il controllo del raggio non è coperto dal pannello di ricerca', async ({ page }) => {
+test('the radius control is not covered by the search panel', async ({ page }) => {
   await mockApi(page);
   await page.goto('/');
   await expect(S.searchPanel(page)).toBeVisible();
 
-  // Basta fissare il CENTRO (idle -> drawing-radius) perché la barra venga montata: non serve
-  // confermare il raggio. Punto di clic scelto come in `support/map.ts` (70%/60% della mappa),
-  // lontano dall'angolo occupato dal pannello.
+  // It is enough to fix the CENTER (idle -> drawing-radius) for the bar to be mounted: there is no need to
+  // confirm the radius. Click point chosen as in `support/map.ts` (70%/60% of the map),
+  // far from the corner occupied by the panel.
   const map = await S.mapEl(page).boundingBox();
   expect(map, 'cra-map deve avere una bounding box').not.toBeNull();
   await page.mouse.click(map!.x + map!.width * 0.7, map!.y + map!.height * 0.6);
@@ -36,8 +36,8 @@ test('il controllo del raggio non è coperto dal pannello di ricerca', async ({ 
   expect(ctrlBox).not.toBeNull();
   expect(panelBox).not.toBeNull();
 
-  // L'invariante: la barra comincia dove il pannello è FINITO davvero (bordo e padding inclusi),
-  // non dove finirebbe la sua sola area di contenuto.
+  // The invariant: the bar starts where the panel REALLY ended (border and padding included),
+  // not where its content area alone would end.
   const panelRight = panelBox!.x + panelBox!.width;
   expect(
     ctrlBox!.x,
@@ -45,8 +45,8 @@ test('il controllo del raggio non è coperto dal pannello di ricerca', async ({ 
       `x=${Math.round(panelRight)}: si sovrappongono di ${Math.round(panelRight - ctrlBox!.x)}px`,
   ).toBeGreaterThanOrEqual(panelRight);
 
-  // E deve restare interamente dentro il viewport: un ancoraggio "sicuro" che esce a destra
-  // sarebbe invisibile quanto uno coperto.
+  // And it must stay entirely inside the viewport: a "safe" anchoring that overflows on the right
+  // would be as invisible as a covered one.
   const viewport = page.viewportSize();
   expect(ctrlBox!.x + ctrlBox!.width).toBeLessThanOrEqual(viewport!.width);
 });

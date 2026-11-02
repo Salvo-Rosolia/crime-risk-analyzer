@@ -21,10 +21,10 @@ const pois: Poi[] = [makePoi(), makePoi({ id: '2', name: 'Duomo', confidence: 'd
 const riskModels: RiskModel[] = [];
 
 /**
- * Dock unico a sinistra (Approccio A, variante 1, #199): riusa `cra-poi-panel`/`cra-detail-panel`
- * come due VISTE mutuamente esclusive (Lista di default, Dettaglio quando `detail()` è impostato).
- * Nessuna logica di filtro/dettaglio è riscritta qui — solo forwarding + orchestrazione del
- * drill-down/collasso/reset (già coperti singolarmente dai rispettivi `.spec.ts`).
+ * Single dock on the left (Approach A, variant 1, #199): reuses `cra-poi-panel`/`cra-detail-panel`
+ * as two mutually exclusive VIEWS (List by default, Detail when `detail()` is set).
+ * No filter/detail logic is rewritten here — only forwarding + orchestration of the
+ * drill-down/collapse/reset (already covered individually by the respective `.spec.ts`).
  */
 describe('PanelDockComponent', () => {
   let fixture: ComponentFixture<PanelDockComponent>;
@@ -51,19 +51,19 @@ describe('PanelDockComponent', () => {
   });
 
   afterEach(() => {
-    // alcuni test di focus management collegano `fixture.nativeElement` a `document.body` (jsdom
-    // non aggiorna `document.activeElement` su elementi disconnessi, stesso motivo di
-    // `detail-panel.component.spec.ts`): `.remove()` su un nodo già disconnesso è un no-op sicuro.
+    // some focus management tests attach `fixture.nativeElement` to `document.body` (jsdom
+    // does not update `document.activeElement` on disconnected elements, same reason as
+    // `detail-panel.component.spec.ts`): `.remove()` on an already disconnected node is a safe no-op.
     fixture?.nativeElement.remove();
   });
 
-  it('mostra la Vista Lista (cra-poi-panel) di default, senza Vista Dettaglio', () => {
+  it('shows the List view (cra-poi-panel) by default, without the Detail view', () => {
     setup();
     expect(fixture.nativeElement.querySelector('cra-poi-panel')).toBeTruthy();
     expect(fixture.nativeElement.querySelector('cra-detail-panel')).toBeNull();
   });
 
-  it('drill-down: con "detail" impostato mostra cra-detail-panel e nasconde (senza smontare) cra-poi-panel', () => {
+  it('drill-down: with "detail" set it shows cra-detail-panel and hides (without unmounting) cra-poi-panel', () => {
     setup();
     const listPanel = fixture.nativeElement.querySelector('cra-poi-panel');
     const listWrapper: HTMLElement = fixture.nativeElement.querySelector('.cra-dock-list-view');
@@ -73,23 +73,23 @@ describe('PanelDockComponent', () => {
     fixture.detectChanges();
 
     expect(fixture.nativeElement.querySelector('cra-detail-panel')).toBeTruthy();
-    // stesso nodo: la Vista Lista NON si smonta, solo si nasconde (preserva scroll/stato, #199).
+    // same node: the List view is NOT unmounted, only hidden (preserves scroll/state, #199).
     expect(fixture.nativeElement.querySelector('cra-poi-panel')).toBe(listPanel);
     expect(listWrapper.hidden).toBe(true);
   });
 
-  it('"‹ indietro" di cra-detail-panel emette closeDetail dal dock e torna alla Vista Lista visibile', () => {
+  it('"‹ indietro" of cra-detail-panel emits closeDetail from the dock and goes back to the visible List view', () => {
     setup({ detail: { poi: pois[0], number: 1 } });
     const spy = jest.fn();
     fixture.componentInstance.closeDetail.subscribe(spy);
     (fixture.nativeElement.querySelector('.cra-detail-back') as HTMLElement).click();
     expect(spy).toHaveBeenCalled();
 
-    // il dock non decide da sé di tornare alla lista (lo fa lo shell dispatchando DESELECT_POI):
-    // qui verifichiamo solo che l'evento sia stato inoltrato correttamente.
+    // the dock does not decide on its own to go back to the list (the shell does it by dispatching DESELECT_POI):
+    // here we only verify that the event was forwarded correctly.
   });
 
-  it('inoltra selectPoi/setFilter/clearFilter dalla Vista Lista', () => {
+  it('forwards selectPoi/setFilter/clearFilter from the List view', () => {
     setup();
     const selectSpy = jest.fn();
     const filterSpy = jest.fn();
@@ -103,7 +103,7 @@ describe('PanelDockComponent', () => {
     expect(filterSpy).toHaveBeenCalled();
   });
 
-  it('collasso (#199 decisione 3): click sul controllo emette toggleOpen; con open=false il corpo è [hidden]', () => {
+  it('collapse (#199 decision 3): click on the control emits toggleOpen; with open=false the body is [hidden]', () => {
     setup({ open: false });
     const body: HTMLElement = fixture.nativeElement.querySelector('.cra-dock-body');
     expect(body.hidden).toBe(true);
@@ -116,7 +116,7 @@ describe('PanelDockComponent', () => {
     expect(spy).toHaveBeenCalled();
   });
 
-  it('con open=true il corpo NON è [hidden] e aria-expanded è true', () => {
+  it('with open=true the body is NOT [hidden] and aria-expanded is true', () => {
     setup({ open: true });
     const body: HTMLElement = fixture.nativeElement.querySelector('.cra-dock-body');
     expect(body.hidden).toBe(false);
@@ -124,7 +124,7 @@ describe('PanelDockComponent', () => {
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
   });
 
-  it("coordinamento altezza con narrOpen (#199 decisione 2): la classe cra-dock-narr-open sull'host riflette narrOpen()", () => {
+  it('height coordination with narrOpen (#199 decision 2): the cra-dock-narr-open class on the host reflects narrOpen()', () => {
     setup({ narrOpen: true });
     expect(fixture.nativeElement.classList.contains('cra-dock-narr-open')).toBe(true);
 
@@ -133,7 +133,7 @@ describe('PanelDockComponent', () => {
     expect(fixture.nativeElement.classList.contains('cra-dock-narr-open')).toBe(false);
   });
 
-  it('"+ Nuova richiesta": il clic mostra la conferma leggera IN-APP (non dispatcha subito reset)', () => {
+  it('"+ Nuova richiesta": the click shows the light IN-APP confirmation (does not dispatch reset right away)', () => {
     setup();
     const resetSpy = jest.fn();
     fixture.componentInstance.resetConfirmed.subscribe(resetSpy);
@@ -146,7 +146,7 @@ describe('PanelDockComponent', () => {
     expect(resetSpy).not.toHaveBeenCalled();
   });
 
-  it('"+ Nuova richiesta" → conferma "Sì" emette reset', () => {
+  it('"+ Nuova richiesta" → confirm "Sì" emits reset', () => {
     setup();
     const resetSpy = jest.fn();
     fixture.componentInstance.resetConfirmed.subscribe(resetSpy);
@@ -158,7 +158,7 @@ describe('PanelDockComponent', () => {
     expect(resetSpy).toHaveBeenCalled();
   });
 
-  it('"+ Nuova richiesta" → "Annulla" torna al pulsante iniziale senza emettere reset', () => {
+  it('"+ Nuova richiesta" → "Annulla" goes back to the initial button without emitting reset', () => {
     setup();
     const resetSpy = jest.fn();
     fixture.componentInstance.resetConfirmed.subscribe(resetSpy);
@@ -173,8 +173,8 @@ describe('PanelDockComponent', () => {
     expect(fixture.nativeElement.textContent).not.toContain('Ricominciare?');
   });
 
-  describe('a11y: focus management nel flusso di conferma "+ Nuova richiesta" (fix review #199)', () => {
-    it('quando compare la conferma il focus si sposta sul pulsante "Sì"', () => {
+  describe('a11y: focus management in the "+ Nuova richiesta" confirmation flow (review #199 fix)', () => {
+    it('when the confirmation appears the focus moves to the "Sì" button', () => {
       setup();
       document.body.appendChild(fixture.nativeElement);
 
@@ -186,7 +186,7 @@ describe('PanelDockComponent', () => {
       );
     });
 
-    it('"Annulla" richiude la conferma e riporta il focus su "+ Nuova richiesta"', () => {
+    it('"Annulla" closes the confirmation and brings the focus back to "+ Nuova richiesta"', () => {
       setup();
       document.body.appendChild(fixture.nativeElement);
 
@@ -200,7 +200,7 @@ describe('PanelDockComponent', () => {
       );
     });
 
-    it('al montaggio del dock il focus NON viene rubato su "+ Nuova richiesta" (nessun autofocus indesiderato)', () => {
+    it('on dock mount the focus is NOT stolen onto "+ Nuova richiesta" (no unwanted autofocus)', () => {
       const dummy = document.createElement('input');
       document.body.appendChild(dummy);
       dummy.focus();

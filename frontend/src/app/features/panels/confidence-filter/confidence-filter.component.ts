@@ -10,10 +10,10 @@ const ZERO_COUNTS: Readonly<Record<Confidence, number>> = Object.freeze({
 });
 
 /**
- * Significato breve di ciascun livello di confidence (story #207): distinto dalla `label` di
- * `CONF` (nome del livello) — qui è la spiegazione mostrata accanto al nome, non riusata altrove.
- * I POI fuori ontologia (`confidence: null`, #220) non sono una categoria filtrabile: nessuna riga
- * dedicata in questo elenco (niente chip, niente riga di filtro).
+ * Short meaning of each confidence level (story #207): distinct from the `label` of
+ * `CONF` (name of the level) — here it is the explanation shown next to the name, not reused elsewhere.
+ * POIs outside the ontology (`confidence: null`, #220) are not a filterable category: no dedicated
+ * row in this list (no chip, no filter row).
  */
 const MEANINGS: Readonly<Record<Confidence, string>> = Object.freeze({
   verificato: 'entità identificata in mappa',
@@ -21,21 +21,21 @@ const MEANINGS: Readonly<Record<Confidence, string>> = Object.freeze({
 });
 
 /**
- * Nota chiave (story #207): il livello di confidence NON è un punteggio di pericolosità — vincolo
- * di posizionamento non negoziabile (_project.md §Vincoli). Testo esatto richiesto dalla story.
+ * Key note (story #207): the confidence level is NOT a dangerousness score — non-negotiable
+ * positioning constraint (_project.md §Constraints). Exact text required by the story.
  */
 export const CONFIDENCE_FILTER_NOTE =
   "Il livello indica quanto il POI è ancorato a un'entità verificabile in mappa — non è un " +
   'livello di pericolosità.';
 
 /**
- * Controllo unificato "Confidenza" (story #207, opzione A): sostituisce la vecchia coppia
- * legenda + barra chip-filtro (duplicava i 3 livelli). Ogni riga è insieme legenda (nome +
- * significato) e filtro (toggle): click su una riga chiede al genitore di attivarla come filtro,
- * click sulla riga già attiva chiede di azzerarlo. Il componente non decide da sé
- * set/clear — resta "thin": emette solo il livello cliccato (`rowClick`), il genitore
- * (`PoiPanelComponent`) applica la logica di toggle già esistente (`onChipClick`), cambia solo
- * come viene attivata/renderizzata, non la logica di filtering.
+ * Unified "Confidenza" control (story #207, option A): replaces the old pair
+ * legend + chip-filter bar (it duplicated the 3 levels). Each row is both legend (name +
+ * meaning) and filter (toggle): clicking a row asks the parent to activate it as a filter,
+ * clicking the already active row asks to clear it. The component does not decide on its own
+ * set/clear — it stays "thin": it only emits the clicked level (`rowClick`), the parent
+ * (`PoiPanelComponent`) applies the already existing toggle logic (`onChipClick`), only
+ * how it is activated/rendered changes, not the filtering logic.
  */
 @Component({
   selector: 'cra-confidence-filter',

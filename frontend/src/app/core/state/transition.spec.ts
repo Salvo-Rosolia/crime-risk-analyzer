@@ -43,27 +43,27 @@ const data: AnalyzeResponse = {
 };
 
 describe('transition (FSM)', () => {
-  it('ANALYZE → LOADING, azzera selezione/filtro, salva la domanda pending; NON popola più lastQuery (lo fa LOAD_SUCCESS, #318)', () => {
+  it('ANALYZE → LOADING, clears selection/filter, saves the pending question; NO LONGER populates lastQuery (LOAD_SUCCESS does, #318)', () => {
     const s = transition(initialState, {
       type: 'ANALYZE',
       area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
-      domanda: 'di sera?',
-      pipeline: 'completo',
+      question: 'di sera?',
+      pipeline: 'full',
     });
     expect(s.screen).toBe('LOADING');
-    expect(s.pendingDomanda).toBe('di sera?');
+    expect(s.pendingQuestion).toBe('di sera?');
     expect(s.lastQuery).toBeNull();
     expect(s.selectedPoiId).toBeNull();
   });
 
-  it('ANALYZE pipeline base NON tocca lastQuery preesistente (nessuna pipeline lo scrive da ANALYZE, lo fa solo LOAD_SUCCESS non-base — bloccante B review #67-bis)', () => {
+  it('ANALYZE base pipeline does NOT touch a pre-existing lastQuery (no pipeline writes it from ANALYZE, only non-base LOAD_SUCCESS does — blocker B review #67-bis)', () => {
     const withPreviousQuery: AppState = {
       ...initialState,
       lastQuery: {
         area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
-        citta: 'Roma',
-        zona: 'Colosseo',
-        domanda: null,
+        city: 'Roma',
+        zone: 'Colosseo',
+        question: null,
       },
     };
     const s = transition(withPreviousQuery, {
@@ -75,104 +75,104 @@ describe('transition (FSM)', () => {
     expect(s.lastQuery).toEqual(withPreviousQuery.lastQuery);
   });
 
-  it("LOAD_SUCCESS (completo) popola lastQuery da center/radiusM/domanda dell'azione + citta/zona_normalizzata della risposta (#318)", () => {
-    const dataConEtichetteRisolte: AnalyzeResponse = {
+  it('LOAD_SUCCESS (full) populates lastQuery from center/radiusM/question of the action + citta/zona_normalizzata of the response (#318)', () => {
+    const dataWithResolvedLabels: AnalyzeResponse = {
       ...data,
       citta: 'Roma',
       zona_normalizzata: 'Trastevere',
     };
     const s = transition(initialState, {
       type: 'LOAD_SUCCESS',
-      data: dataConEtichetteRisolte,
-      pipeline: 'completo',
+      data: dataWithResolvedLabels,
+      pipeline: 'full',
       area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
-      domanda: 'di sera?',
+      question: 'di sera?',
     });
     expect(s.lastQuery).toEqual({
       area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
-      citta: 'Roma',
-      zona: 'Trastevere',
-      domanda: 'di sera?',
+      city: 'Roma',
+      zone: 'Trastevere',
+      question: 'di sera?',
     });
   });
 
-  it('LOAD_SUCCESS (base) non tocca lastQuery', () => {
+  it('LOAD_SUCCESS (base) does not touch lastQuery', () => {
     const prev: AppState = {
       ...initialState,
       lastQuery: {
         area: { kind: 'circle', center: { lat: 1, lon: 1 }, radiusM: 1 },
-        citta: 'X',
-        zona: 'Y',
-        domanda: null,
+        city: 'X',
+        zone: 'Y',
+        question: null,
       },
     };
     const s = transition(prev, { type: 'LOAD_SUCCESS', data, pipeline: 'base' });
     expect(s.lastQuery).toBe(prev.lastQuery);
   });
 
-  it('LOAD_SUCCESS in modalità completo → RESULTS, scrive completoData, NON tocca baselineData, NON azzera pendingDomanda', () => {
-    const loading: AppState = { ...initialState, screen: 'LOADING', pendingDomanda: 'q' };
-    const s = transition(loading, { type: 'LOAD_SUCCESS', data, pipeline: 'completo' });
+  it('LOAD_SUCCESS in full mode → RESULTS, writes fullData, does NOT touch baselineData, does NOT clear pendingQuestion', () => {
+    const loading: AppState = { ...initialState, screen: 'LOADING', pendingQuestion: 'q' };
+    const s = transition(loading, { type: 'LOAD_SUCCESS', data, pipeline: 'full' });
     expect(s.screen).toBe('RESULTS');
-    expect(s.completoData).toBe(data);
+    expect(s.fullData).toBe(data);
     expect(s.baselineData).toBeNull();
-    expect(s.pendingDomanda).toBe('q');
+    expect(s.pendingQuestion).toBe('q');
   });
 
-  it('LOAD_SUCCESS pipeline base → screen BASE (non RESULTS), scrive baselineData, NON tocca completoData (bloccante 1 review #67: isolamento dati)', () => {
+  it('LOAD_SUCCESS base pipeline → screen BASE (not RESULTS), writes baselineData, does NOT touch fullData (blocker 1 review #67: data isolation)', () => {
     const loadingBase: AppState = { ...initialState, screen: 'LOADING', mode: 'base' };
     const s = transition(loadingBase, { type: 'LOAD_SUCCESS', data, pipeline: 'base' });
     expect(s.screen).toBe('BASE');
     expect(s.baselineData).toBe(data);
-    expect(s.completoData).toBeNull();
+    expect(s.fullData).toBeNull();
   });
 
-  it('LOAD_SUCCESS pipeline base NON sovrascrive un completoData preesistente (i due campi restano indipendenti)', () => {
-    const completo: AnalyzeResponse = { ...data, citta: 'Milano' };
+  it('LOAD_SUCCESS base pipeline does NOT overwrite a pre-existing fullData (the two fields stay independent)', () => {
+    const fullResult: AnalyzeResponse = { ...data, citta: 'Milano' };
     const loadingBase: AppState = {
       ...initialState,
       screen: 'LOADING',
       mode: 'base',
-      completoData: completo,
+      fullData: fullResult,
     };
     const s = transition(loadingBase, { type: 'LOAD_SUCCESS', data, pipeline: 'base' });
     expect(s.baselineData).toBe(data);
-    expect(s.completoData).toBe(completo);
+    expect(s.fullData).toBe(fullResult);
   });
 
-  it('BLOCCANTE A (review #67-bis, transition puro): LOAD_SUCCESS instrada su action.pipeline, MAI su state.mode — immune al toggle in volo', () => {
-    // state.mode è già 'base' (l'utente ha togglato), ma la risposta appartiene alla richiesta
-    // Completo partita PRIMA del toggle: deve finire in completoData, non in baselineData.
-    const stateModeGiaBase: AppState = { ...initialState, screen: 'LOADING', mode: 'base' };
-    const s = transition(stateModeGiaBase, { type: 'LOAD_SUCCESS', data, pipeline: 'completo' });
-    expect(s.completoData).toBe(data);
+  it('BLOCKER A (review #67-bis, pure transition): LOAD_SUCCESS routes on action.pipeline, NEVER on state.mode — immune to the in-flight toggle', () => {
+    // state.mode is already 'base' (the user toggled), but the response belongs to the
+    // Full request that started BEFORE the toggle: it must end up in fullData, not in baselineData.
+    const stateModeAlreadyBase: AppState = { ...initialState, screen: 'LOADING', mode: 'base' };
+    const s = transition(stateModeAlreadyBase, { type: 'LOAD_SUCCESS', data, pipeline: 'full' });
+    expect(s.fullData).toBe(data);
     expect(s.baselineData).toBeNull();
     expect(s.screen).toBe('RESULTS');
-    expect(s.mode).toBe('completo');
+    expect(s.mode).toBe('full');
   });
 
-  it('BLOCCANTE A (review #67-bis, transition puro): stesso per la direzione opposta (state.mode completo, action.pipeline base)', () => {
-    const stateModeGiaCompleto: AppState = { ...initialState, screen: 'LOADING', mode: 'completo' };
-    const s = transition(stateModeGiaCompleto, { type: 'LOAD_SUCCESS', data, pipeline: 'base' });
+  it('BLOCKER A (review #67-bis, pure transition): same for the opposite direction (state.mode full, action.pipeline base)', () => {
+    const stateModeAlreadyFull: AppState = { ...initialState, screen: 'LOADING', mode: 'full' };
+    const s = transition(stateModeAlreadyFull, { type: 'LOAD_SUCCESS', data, pipeline: 'base' });
     expect(s.baselineData).toBe(data);
-    expect(s.completoData).toBeNull();
+    expect(s.fullData).toBeNull();
     expect(s.screen).toBe('BASE');
     expect(s.mode).toBe('base');
   });
 
-  it('LOAD_ERROR in modalità completo → ERROR, setta messaggio e PRESERVA pendingDomanda (retry con la domanda digitata)', () => {
+  it('LOAD_ERROR in full mode → ERROR, sets message and PRESERVES pendingQuestion (retry with the typed question)', () => {
     const loading: AppState = {
       ...initialState,
       screen: 'LOADING',
-      pendingDomanda: 'q',
+      pendingQuestion: 'q',
     };
-    const s = transition(loading, { type: 'LOAD_ERROR', message: 'boom', pipeline: 'completo' });
+    const s = transition(loading, { type: 'LOAD_ERROR', message: 'boom', pipeline: 'full' });
     expect(s.screen).toBe('ERROR');
     expect(s.error).toBe('boom');
-    expect(s.pendingDomanda).toBe('q');
+    expect(s.pendingQuestion).toBe('q');
   });
 
-  it('LOAD_ERROR pipeline base → resta su BASE (non ERROR): il cerchio disegnato non ha bisogno di reseeding, il MapComponent sopravvive da solo al remount (#318)', () => {
+  it('LOAD_ERROR base pipeline → stays on BASE (not ERROR): the drawn circle needs no reseeding, MapComponent survives the remount on its own (#318)', () => {
     const loadingBase: AppState = {
       ...initialState,
       screen: 'LOADING',
@@ -187,23 +187,23 @@ describe('transition (FSM)', () => {
     expect(s.error).toBe('"Atlantide" non trovata.');
   });
 
-  it('percorso reale: submit del cerchio → ANALYZE → LOAD_ERROR conserva la domanda digitata per il retry', () => {
+  it('real path: circle submit → ANALYZE → LOAD_ERROR keeps the typed question for the retry', () => {
     const afterAnalyze = transition(initialState, {
       type: 'ANALYZE',
       area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
-      domanda: 'di sera?',
-      pipeline: 'completo',
+      question: 'di sera?',
+      pipeline: 'full',
     });
     const afterError = transition(afterAnalyze, {
       type: 'LOAD_ERROR',
       message: 'Il cerchio non contiene alcuna area riconosciuta.',
-      pipeline: 'completo',
+      pipeline: 'full',
     });
     expect(afterError.screen).toBe('ERROR');
-    expect(afterError.pendingDomanda).toBe('di sera?');
+    expect(afterError.pendingQuestion).toBe('di sera?');
   });
 
-  it('DESELECT_POI torna a FILTER se filtro attivo, altrimenti RESULTS', () => {
+  it('DESELECT_POI goes back to FILTER if a filter is active, otherwise RESULTS', () => {
     const withFilter: AppState = {
       ...initialState,
       screen: 'DETAIL',
@@ -220,11 +220,11 @@ describe('transition (FSM)', () => {
     expect(transition(noFilter, { type: 'DESELECT_POI' }).screen).toBe('RESULTS');
   });
 
-  it('SET_FILTER (regola m3): deseleziona il POI se il nuovo filtro lo esclude', () => {
+  it('SET_FILTER (rule m3): deselects the POI if the new filter excludes it', () => {
     const detail: AppState = {
       ...initialState,
       screen: 'DETAIL',
-      completoData: data,
+      fullData: data,
       selectedPoiId: '1',
     };
     const s = transition(detail, { type: 'SET_FILTER', level: 'da_confermare' });
@@ -232,11 +232,11 @@ describe('transition (FSM)', () => {
     expect(s.screen).toBe('FILTER');
   });
 
-  it('SET_FILTER mantiene DETAIL se il POI selezionato resta visibile', () => {
+  it('SET_FILTER keeps DETAIL if the selected POI stays visible', () => {
     const detail: AppState = {
       ...initialState,
       screen: 'DETAIL',
-      completoData: data,
+      fullData: data,
       selectedPoiId: '1',
     };
     const s = transition(detail, { type: 'SET_FILTER', level: 'verificato' });
@@ -244,35 +244,31 @@ describe('transition (FSM)', () => {
     expect(s.screen).toBe('DETAIL');
   });
 
-  it("TOGGLE_MODE: base→BASE; completo→RESULTS se c'è completoData altrimenti INPUT; azzera error", () => {
+  it('TOGGLE_MODE: base→BASE; full→RESULTS if fullData exists otherwise INPUT; clears error', () => {
     expect(
-      transition({ ...initialState, completoData: data }, { type: 'TOGGLE_MODE', mode: 'base' })
-        .screen,
+      transition({ ...initialState, fullData: data }, { type: 'TOGGLE_MODE', mode: 'base' }).screen,
     ).toBe('BASE');
     expect(
-      transition({ ...initialState, completoData: data }, { type: 'TOGGLE_MODE', mode: 'completo' })
-        .screen,
+      transition({ ...initialState, fullData: data }, { type: 'TOGGLE_MODE', mode: 'full' }).screen,
     ).toBe('RESULTS');
-    expect(transition(initialState, { type: 'TOGGLE_MODE', mode: 'completo' }).screen).toBe(
-      'INPUT',
-    );
+    expect(transition(initialState, { type: 'TOGGLE_MODE', mode: 'full' }).screen).toBe('INPUT');
 
     const withError: AppState = { ...initialState, screen: 'ERROR', error: 'boom' };
     expect(transition(withError, { type: 'TOGGLE_MODE', mode: 'base' }).error).toBeNull();
   });
 
-  it('TOGGLE_MODE non mescola mai completoData/baselineData: passare a base non tocca completoData e viceversa', () => {
-    const withCompleto: AppState = { ...initialState, completoData: data };
-    const s = transition(withCompleto, { type: 'TOGGLE_MODE', mode: 'base' });
-    expect(s.completoData).toBe(data);
+  it('TOGGLE_MODE never mixes fullData/baselineData: switching to base does not touch fullData and vice versa', () => {
+    const withFull: AppState = { ...initialState, fullData: data };
+    const s = transition(withFull, { type: 'TOGGLE_MODE', mode: 'base' });
+    expect(s.fullData).toBe(data);
     expect(s.baselineData).toBeNull();
   });
 
-  it('RESET ritorna allo stato iniziale', () => {
+  it('RESET returns to the initial state', () => {
     const dirty: AppState = {
       ...initialState,
       screen: 'DETAIL',
-      completoData: data,
+      fullData: data,
       baselineData: data,
       selectedPoiId: '1',
       filter: 'verificato',
@@ -280,7 +276,7 @@ describe('transition (FSM)', () => {
     expect(transition(dirty, { type: 'RESET' })).toEqual(initialState);
   });
 
-  it('è puro: non muta lo stato in ingresso e restituisce un nuovo oggetto', () => {
+  it('is pure: does not mutate the input state and returns a new object', () => {
     const before = { ...initialState };
     const out = transition(initialState, { type: 'TOGGLE_NARR' });
     expect(initialState).toEqual(before);
@@ -288,84 +284,84 @@ describe('transition (FSM)', () => {
     expect(out.narrOpen).toBe(false);
   });
 
-  it('SELECT_POI → DETAIL con selectedPoiId impostato', () => {
+  it('SELECT_POI → DETAIL with selectedPoiId set', () => {
     const s = transition(initialState, { type: 'SELECT_POI', id: '2' });
     expect(s.screen).toBe('DETAIL');
     expect(s.selectedPoiId).toBe('2');
   });
 
-  it('CLEAR_FILTER → RESULTS e azzera il filtro', () => {
+  it('CLEAR_FILTER → RESULTS and clears the filter', () => {
     const filtered: AppState = { ...initialState, screen: 'FILTER', filter: 'da_confermare' };
     const s = transition(filtered, { type: 'CLEAR_FILTER' });
     expect(s.screen).toBe('RESULTS');
     expect(s.filter).toBeNull();
   });
 
-  it('TOGGLE_POI_PANEL inverte poiPanelOpen', () => {
+  it('TOGGLE_POI_PANEL flips poiPanelOpen', () => {
     expect(transition(initialState, { type: 'TOGGLE_POI_PANEL' }).poiPanelOpen).toBe(false);
   });
 
-  it('SET_FILTER da RESULTS: va in FILTER e imposta il livello', () => {
-    const results: AppState = { ...initialState, screen: 'RESULTS', completoData: data };
+  it('SET_FILTER from RESULTS: goes to FILTER and sets the level', () => {
+    const results: AppState = { ...initialState, screen: 'RESULTS', fullData: data };
     const s = transition(results, { type: 'SET_FILTER', level: 'verificato' });
     expect(s.screen).toBe('FILTER');
     expect(s.filter).toBe('verificato');
   });
 
-  it('ANALYZE da RESULTS: va in LOADING, azzera selectedPoiId e filter; completoData NON viene toccato, lastQuery resta quello preesistente (nullo)', () => {
+  it('ANALYZE from RESULTS: goes to LOADING, clears selectedPoiId and filter; fullData is NOT touched, lastQuery stays the pre-existing one (null)', () => {
     const results: AppState = {
       ...initialState,
       screen: 'RESULTS',
-      completoData: data,
+      fullData: data,
       selectedPoiId: '1',
       filter: 'da_confermare',
     };
     const s = transition(results, {
       type: 'ANALYZE',
       area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 800 },
-      pipeline: 'completo',
+      pipeline: 'full',
     });
     expect(s.screen).toBe('LOADING');
     expect(s.selectedPoiId).toBeNull();
     expect(s.filter).toBeNull();
-    expect(s.completoData).toBe(data);
+    expect(s.fullData).toBe(data);
     expect(s.lastQuery).toBeNull();
   });
 
-  it('ANALYZE da ERROR: va in LOADING, azzera error e sovrascrive pendingDomanda col nuovo valore (retry); NON tocca lastQuery preesistente', () => {
+  it('ANALYZE from ERROR: goes to LOADING, clears error and overwrites pendingQuestion with the new value (retry); does NOT touch the pre-existing lastQuery', () => {
     const error: AppState = {
       ...initialState,
       screen: 'ERROR',
       error: 'zona non trovata',
-      pendingDomanda: 'vecchia domanda',
+      pendingQuestion: 'vecchia domanda',
       lastQuery: {
         area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
-        citta: 'Roma',
-        zona: 'Colosseo',
-        domanda: null,
+        city: 'Roma',
+        zone: 'Colosseo',
+        question: null,
       },
     };
     const s = transition(error, {
       type: 'ANALYZE',
       area: { kind: 'circle', center: { lat: 45.4, lon: 9.2 }, radiusM: 700 },
-      domanda: 'nuova domanda',
-      pipeline: 'completo',
+      question: 'nuova domanda',
+      pipeline: 'full',
     });
     expect(s.screen).toBe('LOADING');
     expect(s.error).toBeNull();
-    expect(s.pendingDomanda).toBe('nuova domanda');
+    expect(s.pendingQuestion).toBe('nuova domanda');
     expect(s.lastQuery).toEqual(error.lastQuery);
   });
 
-  describe('narrativa POI (#197)', () => {
-    const narrativa: PoiNarrative = {
-      narrativa: 'testo',
-      fonti: { overview: '', ontologia: 'testo', contesto: '', speculativo: '' },
+  describe('POI narrative (#197)', () => {
+    const cachedNarrative: PoiNarrative = {
+      narrative: 'testo',
+      sources: { overview: '', ontologia: 'testo', contesto: '', speculativo: '' },
       riskModels: [],
       fallback: false,
     };
 
-    it('POI_NARRATIVE_START segna il POI in caricamento e pulisce l’errore', () => {
+    it('POI_NARRATIVE_START marks the POI as loading and clears the error', () => {
       const s = transition(
         { ...initialState, poiNarrativeError: 'vecchio' },
         { type: 'POI_NARRATIVE_START', poiId: 'node/1' },
@@ -374,19 +370,19 @@ describe('transition (FSM)', () => {
       expect(s.poiNarrativeError).toBeNull();
     });
 
-    it('POI_NARRATIVE_SUCCESS memorizza la narrativa e azzera il caricamento', () => {
+    it('POI_NARRATIVE_SUCCESS stores the narrative and clears the loading state', () => {
       const s = transition(
         { ...initialState, poiNarrativeLoading: 'node/1' },
-        { type: 'POI_NARRATIVE_SUCCESS', poiId: 'node/1', data: narrativa },
+        { type: 'POI_NARRATIVE_SUCCESS', poiId: 'node/1', data: cachedNarrative },
       );
-      expect(s.poiNarratives['node/1']).toEqual(narrativa);
+      expect(s.poiNarratives['node/1']).toEqual(cachedNarrative);
       expect(s.poiNarrativeLoading).toBeNull();
     });
 
-    it('POI_NARRATIVE_ERROR conserva le narrative già in cache', () => {
+    it('POI_NARRATIVE_ERROR keeps the narratives already in cache', () => {
       const before: AppState = {
         ...initialState,
-        poiNarratives: { 'node/9': narrativa },
+        poiNarratives: { 'node/9': cachedNarrative },
         poiNarrativeLoading: 'node/1',
       };
       const s = transition(before, { type: 'POI_NARRATIVE_ERROR', message: 'boom' });
@@ -395,27 +391,27 @@ describe('transition (FSM)', () => {
       expect(s.poiNarratives['node/9']).toBeDefined();
     });
 
-    it('ANALYZE invalida le narrative POI: il contesto è cambiato', () => {
+    it('ANALYZE invalidates the POI narratives: the context has changed', () => {
       const before: AppState = {
         ...initialState,
-        poiNarratives: { 'node/1': narrativa },
+        poiNarratives: { 'node/1': cachedNarrative },
         poiNarrativeLoading: 'node/1',
         poiNarrativeError: 'boom',
       };
       const s = transition(before, {
         type: 'ANALYZE',
         area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
-        pipeline: 'completo',
+        pipeline: 'full',
       });
       expect(s.poiNarratives).toEqual({});
       expect(s.poiNarrativeLoading).toBeNull();
       expect(s.poiNarrativeError).toBeNull();
     });
 
-    it('ANALYZE pipeline base NON invalida le narrative POI: la pipeline base non le mostra mai e non tocca completoData (#245)', () => {
+    it('ANALYZE base pipeline does NOT invalidate the POI narratives: the base pipeline never shows them and does not touch fullData (#245)', () => {
       const before: AppState = {
         ...initialState,
-        poiNarratives: { 'node/1': narrativa },
+        poiNarratives: { 'node/1': cachedNarrative },
         poiNarrativeLoading: 'node/1',
         poiNarrativeError: 'boom',
       };
@@ -424,19 +420,19 @@ describe('transition (FSM)', () => {
         area: { kind: 'circle', center: { lat: 45.4, lon: 9.2 }, radiusM: 300 },
         pipeline: 'base',
       });
-      expect(s.poiNarratives).toEqual({ 'node/1': narrativa });
+      expect(s.poiNarratives).toEqual({ 'node/1': cachedNarrative });
       expect(s.poiNarrativeLoading).toBe('node/1');
       expect(s.poiNarrativeError).toBe('boom');
     });
 
-    it('RESET riporta le narrative POI allo stato iniziale', () => {
-      const before: AppState = { ...initialState, poiNarratives: { 'node/1': narrativa } };
+    it('RESET brings the POI narratives back to the initial state', () => {
+      const before: AppState = { ...initialState, poiNarratives: { 'node/1': cachedNarrative } };
       expect(transition(before, { type: 'RESET' }).poiNarratives).toEqual({});
     });
   });
 
-  describe('narrativa di ZONA (#259 fase 2, #292)', () => {
-    it('ZONE_NARRATIVE_START segna la zona in caricamento e pulisce l’errore', () => {
+  describe('ZONE narrative (#259 phase 2, #292)', () => {
+    it('ZONE_NARRATIVE_START marks the zone as loading and clears the error', () => {
       const s = transition(
         { ...initialState, zoneNarrativeError: 'vecchio' },
         { type: 'ZONE_NARRATIVE_START' },
@@ -445,17 +441,17 @@ describe('transition (FSM)', () => {
       expect(s.zoneNarrativeError).toBeNull();
     });
 
-    it('ZONE_NARRATIVE_SUCCESS aggiorna SOLO narrativa/narrativa_fonti/fallback/llm_used di completoData, senza cambiare screen', () => {
+    it('ZONE_NARRATIVE_SUCCESS updates ONLY narrativa/narrativa_fonti/fallback/llm_used of fullData, without changing screen', () => {
       const results: AppState = {
         ...initialState,
         screen: 'RESULTS',
-        completoData: data,
+        fullData: data,
         zoneNarrativeLoading: true,
       };
       const s = transition(results, {
         type: 'ZONE_NARRATIVE_SUCCESS',
-        narrativa: 'narrativa di zona generata',
-        narrativaFonti: {
+        narrative: 'narrativa di zona generata',
+        narrativeSources: {
           overview: 'narrativa di zona generata',
           ontologia: 'x',
           contesto: 'y',
@@ -465,42 +461,42 @@ describe('transition (FSM)', () => {
         llmUsed: 'llama-3.3-70b-versatile',
       });
       expect(s.screen).toBe('RESULTS');
-      expect(s.completoData?.narrativa).toBe('narrativa di zona generata');
-      expect(s.completoData?.narrativa_fonti.ontologia).toBe('x');
-      expect(s.completoData?.fallback).toBe(false);
-      // Diverso dal placeholder di fase 1 (`data.llm_used = 'test-model'`): prova che il valore
-      // riflette davvero chi ha scritto la narrativa, non è rimasto quello della fase 1.
-      expect(s.completoData?.llm_used).toBe('llama-3.3-70b-versatile');
-      // Il resto della fase 1 non viene toccato (stesso oggetto POI/risk_models).
-      expect(s.completoData?.poi).toBe(data.poi);
-      expect(s.completoData?.risk_models).toBe(data.risk_models);
+      expect(s.fullData?.narrativa).toBe('narrativa di zona generata');
+      expect(s.fullData?.narrativa_fonti.ontologia).toBe('x');
+      expect(s.fullData?.fallback).toBe(false);
+      // Different from the phase 1 placeholder (`data.llm_used = 'test-model'`): proves that the value
+      // really reflects who wrote the narrative, it did not stay the phase 1 one.
+      expect(s.fullData?.llm_used).toBe('llama-3.3-70b-versatile');
+      // The rest of phase 1 is not touched (same POI/risk_models object).
+      expect(s.fullData?.poi).toBe(data.poi);
+      expect(s.fullData?.risk_models).toBe(data.risk_models);
       expect(s.zoneNarrativeLoading).toBe(false);
     });
 
-    it('ZONE_NARRATIVE_SUCCESS senza completoData non fallisce (guardia difensiva)', () => {
+    it('ZONE_NARRATIVE_SUCCESS without fullData does not fail (defensive guard)', () => {
       const s = transition(initialState, {
         type: 'ZONE_NARRATIVE_SUCCESS',
-        narrativa: 'x',
-        narrativaFonti: { overview: '', ontologia: '', contesto: '', speculativo: '' },
+        narrative: 'x',
+        narrativeSources: { overview: '', ontologia: '', contesto: '', speculativo: '' },
         fallback: false,
         llmUsed: 'llama-3.3-70b-versatile',
       });
-      expect(s.completoData).toBeNull();
+      expect(s.fullData).toBeNull();
     });
 
-    it('ZONE_NARRATIVE_ERROR conserva la narrativa già mostrata', () => {
+    it('ZONE_NARRATIVE_ERROR keeps the narrative already shown', () => {
       const before: AppState = {
         ...initialState,
-        completoData: { ...data, narrativa: 'narrativa già mostrata' },
+        fullData: { ...data, narrativa: 'narrativa già mostrata' },
         zoneNarrativeLoading: true,
       };
       const s = transition(before, { type: 'ZONE_NARRATIVE_ERROR', message: 'boom' });
       expect(s.zoneNarrativeError).toBe('boom');
       expect(s.zoneNarrativeLoading).toBe(false);
-      expect(s.completoData?.narrativa).toBe('narrativa già mostrata');
+      expect(s.fullData?.narrativa).toBe('narrativa già mostrata');
     });
 
-    it('ANALYZE invalida la narrativa di zona in volo: il contesto è cambiato', () => {
+    it('ANALYZE invalidates the in-flight zone narrative: the context has changed', () => {
       const before: AppState = {
         ...initialState,
         zoneNarrativeLoading: true,
@@ -509,13 +505,13 @@ describe('transition (FSM)', () => {
       const s = transition(before, {
         type: 'ANALYZE',
         area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
-        pipeline: 'completo',
+        pipeline: 'full',
       });
       expect(s.zoneNarrativeLoading).toBe(false);
       expect(s.zoneNarrativeError).toBeNull();
     });
 
-    it('ANALYZE pipeline base NON invalida la narrativa di zona in volo: la pipeline base non la mostra mai e non tocca completoData (#245)', () => {
+    it('ANALYZE base pipeline does NOT invalidate the in-flight zone narrative: the base pipeline never shows it and does not touch fullData (#245)', () => {
       const before: AppState = {
         ...initialState,
         zoneNarrativeLoading: true,

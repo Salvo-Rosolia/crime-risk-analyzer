@@ -23,8 +23,8 @@
   outline-offset: 2px;
 }
 
-/* Fonti diverse dal default: l'indicatore si distingue a colpo d'occhio, senza usare i colori
-   della confidence (verde/ambra) che qui significherebbero altro. */
+/* Sources other than the default: the indicator stands out at a glance, without using the colors
+   of the confidence (green/amber) which here would mean something else. */
 .cra-sources-indicator:is([data-kind='example'], [data-kind='custom']) {
   background: var(--accent);
   border-color: var(--accent);

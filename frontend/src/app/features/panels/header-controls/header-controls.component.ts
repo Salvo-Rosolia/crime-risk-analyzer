@@ -9,17 +9,17 @@ interface ModeOption {
   label: string;
 }
 const MODE_OPTIONS: readonly ModeOption[] = [
-  { value: 'completo', label: 'Completo' },
+  { value: 'full', label: 'Completo' },
   { value: 'base', label: 'Base' },
 ];
 
 /**
- * Controlli dell'header (Stato B, spec-frontend.md §Layout/§Stato B): badge Copertura
- * qualitativo + chip filtro confidence (visibili solo con dati in modalità completo — in Base
- * non si applicano, spec: "assente nel base: confidence") e toggle Completo/Base, SEMPRE
- * visibile: `TOGGLE_MODE` deve poter portare in Stato Sistema base anche da Stato A, prima di
- * qualunque analisi (transition.ts gestisce esplicitamente il caso "nessun dato ancora").
- * Componente "thin": nessun accesso allo store, solo `input()`/`output()`.
+ * Header controls (State B, spec-frontend.md §Layout/§State B): qualitative Copertura
+ * badge + confidence filter chips (visible only with data in full mode — in Base
+ * they do not apply, spec: "absent in base: confidence") and Full/Base toggle, ALWAYS
+ * visible: `TOGGLE_MODE` must be able to bring to the Base-system State even from State A, before
+ * any analysis (transition.ts explicitly handles the "no data yet" case).
+ * "Thin" component: no access to the store, only `input()`/`output()`.
  */
 @Component({
   selector: 'cra-header-controls',
@@ -29,14 +29,14 @@ const MODE_OPTIONS: readonly ModeOption[] = [
 })
 export class HeaderControlsComponent {
   readonly data = input<AnalyzeResponse | null>(null);
-  readonly mode = input<Mode>('completo');
+  readonly mode = input<Mode>('full');
   readonly filter = input<Confidence | null>(null);
   /**
-   * `true` mentre una richiesta è in volo (`store.screen()==='LOADING'`): disabilita il toggle
-   * Completo/Base — hardening UX in profondità (review #67-bis, bloccante A). La difesa primaria
-   * resta strutturale (`transition.ts` instrada su `action.pipeline`, non su `state.mode`), ma
-   * impedire il cambio di modalità mentre la risposta non è ancora arrivata chiude comunque la
-   * finestra temporale in cui la race condition potrebbe manifestarsi.
+   * `true` while a request is in flight (`store.screen()==='LOADING'`): disables the
+   * Full/Base toggle — in-depth UX hardening (review #67-bis, blocker A). The primary defense
+   * remains structural (`transition.ts` routes on `action.pipeline`, not on `state.mode`), but
+   * preventing the mode change while the response has not yet arrived still closes the
+   * time window in which the race condition could manifest.
    */
   readonly loading = input<boolean>(false);
 
@@ -48,9 +48,9 @@ export class HeaderControlsComponent {
   protected readonly modeOptions = MODE_OPTIONS;
   protected readonly conf = CONF;
 
-  /** Badge + chip hanno senso solo col sistema completo e con un'analisi già completata. */
+  /** Badge + chips make sense only with the full system and with an analysis already completed. */
   protected readonly showResultsControls = computed(
-    () => this.mode() === 'completo' && this.data() != null,
+    () => this.mode() === 'full' && this.data() != null,
   );
 
   protected readonly coverage = computed(() => deriveCoverage(this.data()?.poi));
