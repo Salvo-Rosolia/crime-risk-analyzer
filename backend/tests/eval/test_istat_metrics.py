@@ -11,21 +11,21 @@ from crime_risk_analyzer.eval.istat_metrics import (
     somma_istat_metrics,
 )
 from crime_risk_analyzer.eval.schema import IstatMetrics
-from crime_risk_analyzer.istat.blocco import blocco_istat_poi
-from crime_risk_analyzer.istat.cifre import EsitoControllo, controlla_cifre
+from crime_risk_analyzer.istat.block import istat_block_for_poi
+from crime_risk_analyzer.istat.figures import CheckOutcome, check_figures
 from crime_risk_analyzer.rag.generation import source_block_spans
-from tests.istat._fattorie import RAPINE_IN_BANCA, istat_poi, riga
+from tests.istat._factories import BANK_ROBBERIES, istat_poi, make_row
 
-_BLOCCO = blocco_istat_poi(istat_poi(riga(), RAPINE_IN_BANCA))
+_BLOCCO = istat_block_for_poi(istat_poi(make_row(), BANK_ROBBERIES))
 
 
 def _metriche(testo: str, frasi_escluse_m1: int = 0) -> IstatMetrics:
-    esito = controlla_cifre(
+    esito = check_figures(
         testo,
-        blocchi=source_block_spans(testo),
-        blocco_istat=_BLOCCO.testo,
-        contesto_senza_istat="ZONA: Colosseo",
-        righe=_BLOCCO.righe,
+        blocks=source_block_spans(testo),
+        istat_block=_BLOCCO.testo,
+        context_without_istat="ZONA: Colosseo",
+        rows=_BLOCCO.righe,
     )
     return compute_istat_metrics(esito, frasi_escluse_m1=frasi_escluse_m1)
 
@@ -166,13 +166,13 @@ _ESCLUSE = [
 ]
 
 
-def _esito(testo: str = "Rischi da ontologia [ONTOLOGIA]\nRapina.\n") -> EsitoControllo:
-    return controlla_cifre(
+def _esito(testo: str = "Rischi da ontologia [ONTOLOGIA]\nRapina.\n") -> CheckOutcome:
+    return check_figures(
         testo,
-        blocchi=source_block_spans(testo),
-        blocco_istat=_BLOCCO.testo,
-        contesto_senza_istat="ZONA: Colosseo",
-        righe=_BLOCCO.righe,
+        blocks=source_block_spans(testo),
+        istat_block=_BLOCCO.testo,
+        context_without_istat="ZONA: Colosseo",
+        rows=_BLOCCO.righe,
     )
 
 

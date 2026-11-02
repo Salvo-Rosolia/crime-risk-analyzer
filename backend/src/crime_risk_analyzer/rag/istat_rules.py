@@ -36,7 +36,7 @@ ESEMPIO_ISTAT = (
 #: Come si usano i dati ISTAT, IDENTICO nella zona e nel POI: una sola costante.
 #: Dove si usano lo dice ciascun prompt (:data:`RULE_ISTAT_A_PAROLE`,
 #: :data:`POI_ISTAT_SECTION`): il prompt del POI non ha una sintesi iniziale. Ogni
-#: richiesta ha il suo controllo dopo la generazione (``istat.cifre``): cifre
+#: richiesta ha il suo controllo dopo la generazione (``istat.figures``): cifre
 #: ISTAT, luogo del dato, confronto e tendenza contrari alle righe.
 ISTAT_REGOLE_USO = (
     "dai piu' spazio ai rischi che hanno una voce ISTAT collegata. Sono delitti "

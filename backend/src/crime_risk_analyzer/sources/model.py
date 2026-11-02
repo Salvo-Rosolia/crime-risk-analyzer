@@ -15,8 +15,8 @@ from typing import Literal
 
 from rdflib import Graph
 
-from crime_risk_analyzer.istat.dati import DatiIstat
-from crime_risk_analyzer.istat.mappatura import Mappatura
+from crime_risk_analyzer.istat.data import IstatData
+from crime_risk_analyzer.istat.mapping import HazardMapping
 from crime_risk_analyzer.ontology_namespaces import TERMINUS_IRI
 from crime_risk_analyzer.sparql_module.osm_mapping import GENERIC_FALLBACK
 from crime_risk_analyzer.sparql_module.query_executor import RiskQueryExecutor
@@ -83,8 +83,8 @@ class IstatSource:
     ``dati`` e' ``None`` se non disponibili (il grounding prosegue senza).
     """
 
-    dati: DatiIstat | None
-    mappatura: Mapping[str, Mappatura]
+    dati: IstatData | None
+    mappatura: Mapping[str, HazardMapping]
     voci_rottura: frozenset[str]
     versione: str | None
 

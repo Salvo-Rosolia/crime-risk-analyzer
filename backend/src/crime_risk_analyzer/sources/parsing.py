@@ -4,7 +4,7 @@ Entrata unica: :func:`check_sources` (non solleva, restituisce il report) e
 :func:`read_sources` (solleva :class:`SourceValidationError` se ci sono errori).
 Prendono i byte dei file caricati (:class:`UploadedFiles`) e il vocabolario OWL
 (:class:`OntologyVocabulary`); producono un :class:`ParsedSources` con i dati gia'
-nei tipi del progetto (``DatiIstat`` e ``Mappatura`` degli stessi modelli che usa
+nei tipi del progetto (``IstatData`` e ``HazardMapping`` degli stessi modelli che usa
 oggi l'ISTAT), pronto per essere impacchettato in un set di fonti. Il modulo non
 conosce il set attivo, le sessioni o il contesto di richiesta: e' puro.
 
@@ -41,16 +41,16 @@ from typing import cast
 
 from rdflib import Graph
 
-from crime_risk_analyzer.istat.dati import (
-    CODICE_ITALIA,
-    VOCE_TOTALE,
-    DatiIstat,
-    FileDelitti,
-    Luogo,
-    TipoLuogo,
-    ValoreAnno,
+from crime_risk_analyzer.istat.data import (
+    ITALY_CODE,
+    TOTAL_ITEM,
+    IstatData,
+    OffencesFile,
+    Place,
+    PlaceType,
+    YearValue,
 )
-from crime_risk_analyzer.istat.mappatura import Corrispondenza, Mappatura
+from crime_risk_analyzer.istat.mapping import HazardMapping, MatchKind
 from crime_risk_analyzer.models.geo import (
     CityBoundary,
     Polygon,
@@ -105,8 +105,8 @@ DATA_OPTIONAL_COLUMNS = ("tasso_sotto_soglia",)
 HAZARD_COLUMNS = ("hazard", "voce", "corrispondenza")
 HAZARD_OPTIONAL_COLUMNS = ("serie_non_confrontabile", "nota")
 
-_CORRISPONDENZE: tuple[Corrispondenza, ...] = ("esatta", "piu_larga", "piu_stretta")
-_TIPI_LUOGO: tuple[TipoLuogo, ...] = ("comune", "provincia")
+_CORRISPONDENZE: tuple[MatchKind, ...] = ("esatta", "piu_larga", "piu_stretta")
+_TIPI_LUOGO: tuple[PlaceType, ...] = ("comune", "provincia")
 _OSM_TAG = re.compile(r"[A-Za-z0-9_:\-]+=[A-Za-z0-9_:.\-]+")
 _CODICE_LUOGO = re.compile(r"[A-Za-z0-9_\-]{1,20}")
 _CODICE_VOCE = re.compile(r"[A-Za-z0-9_]{1,40}")
@@ -143,11 +143,11 @@ class ParsedSources:
     osm_to_class: dict[str, str]
     #: Famiglie di chiavi OSM nell'ordine di prima comparsa nella tabella.
     ordine_famiglie: tuple[str, ...]
-    #: Dati e luoghi con confini (solo luoghi che hanno dati), come ``carica_dati``.
-    istat: DatiIstat
-    #: Hazard -> voce (stessa forma di ``istat.mappatura.MAPPATURA``).
-    mappatura: dict[str, Mappatura]
-    #: Voci con serie non confrontabile (equivalente di ``VOCI_ROTTURA_2016``).
+    #: Dati e luoghi con confini (solo luoghi che hanno dati), come ``load_data``.
+    istat: IstatData
+    #: Hazard -> voce (stessa forma di ``istat.mapping.HAZARD_MAPPING``).
+    mappatura: dict[str, HazardMapping]
+    #: Voci con serie non confrontabile (equivalente di ``BREAK_ITEMS_2016``).
     voci_rottura: frozenset[str]
     #: Primi 12 caratteri dello SHA-256 del file dei dati.
     versione: str
@@ -157,7 +157,7 @@ def read_sources(
     files: UploadedFiles,
     vocabulary: OntologyVocabulary = TERMINUS_VOCABULARY,
     *,
-    fallback_luoghi: Sequence[Luogo] = (),
+    fallback_luoghi: Sequence[Place] = (),
 ) -> tuple[ParsedSources, ValidationReport]:
     """Come :func:`check_sources`, ma solleva se il caricamento non e' valido.
 
@@ -174,7 +174,7 @@ def check_sources(
     files: UploadedFiles,
     vocabulary: OntologyVocabulary = TERMINUS_VOCABULARY,
     *,
-    fallback_luoghi: Sequence[Luogo] = (),
+    fallback_luoghi: Sequence[Place] = (),
 ) -> tuple[ParsedSources | None, ValidationReport]:
     """Legge e controlla i file; ``ParsedSources`` e' ``None`` se ci sono errori.
 
@@ -233,7 +233,7 @@ def check_sources(
             labels=ontologia.labels,
             osm_to_class=dict(osm.tag_classe),
             ordine_famiglie=osm.famiglie,
-            istat=DatiIstat(delitti=delitti, luoghi=luoghi),
+            istat=IstatData(delitti=delitti, luoghi=luoghi),
             mappatura=per_hazard,
             voci_rottura=voci_rottura,
             versione=versione,
@@ -327,7 +327,7 @@ def _leggi_osm(
 class _Dati:
     anno: int
     voci: dict[str, str]
-    valori: dict[str, dict[str, dict[str, ValoreAnno | None]]]
+    valori: dict[str, dict[str, dict[str, YearValue | None]]]
 
 
 def _si_no(valore: str) -> bool | None:
@@ -351,16 +351,16 @@ def _leggi_dati(content: bytes, report: ValidationReport) -> _Dati | None:
     if righe is None:
         return None
     voci: dict[str, str] = {}
-    valori: dict[str, dict[str, dict[str, ValoreAnno | None]]] = {}
+    valori: dict[str, dict[str, dict[str, YearValue | None]]] = {}
     for riga in righe:
         _riga_dati(riga, voci, valori, report)
     if not valori:
         return None
-    if CODICE_ITALIA not in valori:
+    if ITALY_CODE not in valori:
         report.error(
             "riga_nazionale_mancante",
             "data",
-            f"manca la riga nazionale (luogo={CODICE_ITALIA}), serve per il "
+            f"manca la riga nazionale (luogo={ITALY_CODE}), serve per il "
             "confronto con il tasso nazionale",
         )
     anni = [
@@ -379,13 +379,13 @@ def _leggi_dati(content: bytes, report: ValidationReport) -> _Dati | None:
             "la tendenza non si calcola",
         )
     senza_totale = sorted(
-        luogo for luogo, per_voce in valori.items() if VOCE_TOTALE not in per_voce
+        luogo for luogo, per_voce in valori.items() if TOTAL_ITEM not in per_voce
     )
     if senza_totale:
         report.warning(
             "totale_mancante",
             "data",
-            f"nessuna riga della voce {VOCE_TOTALE} (totale) per: "
+            f"nessuna riga della voce {TOTAL_ITEM} (totale) per: "
             f"{', '.join(senza_totale)}",
         )
     return _Dati(anno=anno, voci=voci, valori=valori)
@@ -394,7 +394,7 @@ def _leggi_dati(content: bytes, report: ValidationReport) -> _Dati | None:
 def _riga_dati(
     riga: CsvRow,
     voci: dict[str, str],
-    valori: dict[str, dict[str, dict[str, ValoreAnno | None]]],
+    valori: dict[str, dict[str, dict[str, YearValue | None]]],
     report: ValidationReport,
 ) -> None:
     c = riga.cells
@@ -481,7 +481,7 @@ def _riga_dati(
         return
     voci.setdefault(voce, etichetta)
     per_anno[anno] = (
-        ValoreAnno(
+        YearValue(
             delitti=int(delitti),
             tasso=tasso,
             tasso_sotto_soglia=bool(sotto),
@@ -504,9 +504,9 @@ def _numero(testo: str) -> float | None:
     return float(testo)
 
 
-def _file_delitti(dati: _Dati, contenuto: bytes) -> FileDelitti:
+def _file_delitti(dati: _Dati, contenuto: bytes) -> OffencesFile:
     versione = hashlib.sha256(contenuto).hexdigest()[:12]
-    return FileDelitti(
+    return OffencesFile(
         dataset="caricato",
         titolo="Dati statistici caricati dall'utente",
         url="",
@@ -527,7 +527,7 @@ def _leggi_hazard(
     ontologia: OntologyReading | None,
     dati: _Dati | None,
     report: ValidationReport,
-) -> tuple[frozenset[str], dict[str, Mappatura]] | None:
+) -> tuple[frozenset[str], dict[str, HazardMapping]] | None:
     righe = read_csv(
         content,
         "hazard_table",
@@ -538,7 +538,7 @@ def _leggi_hazard(
     if righe is None:
         return None
     visti: set[str] = set()
-    validi: list[tuple[str, str | None, Corrispondenza | None, bool, str]] = []
+    validi: list[tuple[str, str | None, MatchKind | None, bool, str]] = []
     for riga in righe:
         esito = _riga_hazard(riga, ontologia, dati, visti, report)
         if esito is not None:
@@ -556,7 +556,7 @@ def _leggi_hazard(
             "righe e no in altre: vale si per tutta la voce",
         )
     mappatura = {
-        hazard: Mappatura(
+        hazard: HazardMapping(
             voce_istat=voce,
             corrispondenza=corrispondenza,
             rottura_2016=voce in voci_rottura if voce is not None else False,
@@ -573,7 +573,7 @@ def _riga_hazard(
     dati: _Dati | None,
     visti: set[str],
     report: ValidationReport,
-) -> tuple[str, str | None, Corrispondenza | None, bool, str] | None:
+) -> tuple[str, str | None, MatchKind | None, bool, str] | None:
     c = riga.cells
     hazard, voce, corr = c["hazard"], c["voce"], c["corrispondenza"]
     ok = True
@@ -625,7 +625,7 @@ def _riga_hazard(
     return (
         hazard,
         voce or None,
-        cast("Corrispondenza", corr) if corr else None,
+        cast("MatchKind", corr) if corr else None,
         rottura,
         nota,
     )
@@ -634,7 +634,7 @@ def _riga_hazard(
 # --- confini ---
 
 
-def _leggi_confini(content: bytes, report: ValidationReport) -> dict[str, Luogo]:
+def _leggi_confini(content: bytes, report: ValidationReport) -> dict[str, Place]:
     try:
         radice = cast("object", json.loads(content.decode("utf-8-sig")))
     except (UnicodeDecodeError, ValueError, RecursionError) as exc:
@@ -656,7 +656,7 @@ def _leggi_confini(content: bytes, report: ValidationReport) -> dict[str, Luogo]
         )
         return {}
     features = cast("list[object]", cast("dict[str, object]", radice)["features"])
-    luoghi: dict[str, Luogo] = {}
+    luoghi: dict[str, Place] = {}
     for indice, feature in enumerate(features, start=1):
         luogo = _feature(indice, feature, report)
         if luogo is None:
@@ -672,7 +672,7 @@ def _leggi_confini(content: bytes, report: ValidationReport) -> dict[str, Luogo]
     return luoghi
 
 
-def _feature(indice: int, feature: object, report: ValidationReport) -> Luogo | None:
+def _feature(indice: int, feature: object, report: ValidationReport) -> Place | None:
     def errore(codice: str, messaggio: str) -> None:
         report.error(codice, "boundaries", f"feature {indice}: {messaggio}")
 
@@ -727,9 +727,9 @@ def _feature(indice: int, feature: object, report: ValidationReport) -> Luogo | 
             "non si trova un punto interno al poligono: geometria degenere",
         )
         return None
-    return Luogo(
+    return Place(
         codice=testi["codice"],
-        tipo=cast("TipoLuogo", testi["tipo"]),
+        tipo=cast("PlaceType", testi["tipo"]),
         nome=testi["nome"],
         nome_breve=testi["nome_breve"],
         provincia=provincia,
@@ -876,14 +876,14 @@ def _incroci_orizzontali(poligono: Polygon, y: float) -> list[float]:
 
 def _scegli_luoghi(
     dati: _Dati,
-    caricati: Mapping[str, Luogo],
-    fallback: Sequence[Luogo],
+    caricati: Mapping[str, Place],
+    fallback: Sequence[Place],
     report: ValidationReport,
-) -> tuple[Luogo, ...] | None:
+) -> tuple[Place, ...] | None:
     """Luoghi dei dati con confini (caricati, poi nostri); avvisi per gli altri."""
     nostri = {luogo.codice: luogo for luogo in fallback}
-    codici = sorted(set(dati.valori) - {CODICE_ITALIA})
-    scelti: list[Luogo] = []
+    codici = sorted(set(dati.valori) - {ITALY_CODE})
+    scelti: list[Place] = []
     senza: list[str] = []
     for codice in codici:
         luogo = caricati.get(codice) or nostri.get(codice)

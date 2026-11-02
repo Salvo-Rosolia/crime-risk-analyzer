@@ -20,8 +20,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from crime_risk_analyzer.config import Settings, get_settings
-from crime_risk_analyzer.istat import dati as istat_dati
-from crime_risk_analyzer.istat.dati import IstatDatiError, svuota_cache
+from crime_risk_analyzer.istat import data as istat_data_mod
+from crime_risk_analyzer.istat.data import IstatDataError, clear_cache
 from crime_risk_analyzer.llm.client import LLMError, get_llm_client
 from crime_risk_analyzer.main import app
 from crime_risk_analyzer.ontology import get_ontology
@@ -83,29 +83,29 @@ def test_lifespan_fallisce_senza_dati_istat_con_interruttore_acceso(
 ) -> None:
     """Review Focus 5: acceso, i dati mancanti fermano l'avvio."""
     monkeypatch.setenv("ISTAT_CONTEXT_ENABLED", "true")
-    monkeypatch.setattr(istat_dati, "_CARTELLA", tmp_path)
+    monkeypatch.setattr(istat_data_mod, "_DATA_DIR", tmp_path)
     get_settings.cache_clear()
-    svuota_cache()
+    clear_cache()
     try:
-        with pytest.raises(IstatDatiError):
+        with pytest.raises(IstatDataError):
             with TestClient(app):
                 pass
     finally:
-        svuota_cache()
+        clear_cache()
 
 
 def test_lifespan_parte_senza_dati_istat_con_interruttore_spento(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("ISTAT_CONTEXT_ENABLED", "false")
-    monkeypatch.setattr(istat_dati, "_CARTELLA", tmp_path)
+    monkeypatch.setattr(istat_data_mod, "_DATA_DIR", tmp_path)
     get_settings.cache_clear()
-    svuota_cache()
+    clear_cache()
     try:
         with TestClient(app):
             pass
     finally:
-        svuota_cache()
+        clear_cache()
 
 
 def test_lifespan_precarica_i_dati_istat_con_interruttore_spento(
@@ -116,9 +116,9 @@ def test_lifespan_precarica_i_dati_istat_con_interruttore_spento(
     loop."""
     monkeypatch.setenv("ISTAT_CONTEXT_ENABLED", "false")
     get_settings.cache_clear()
-    svuota_cache()
+    clear_cache()
     try:
         with TestClient(app):
-            assert istat_dati._esito.cache_info().currsize == 1  # pyright: ignore[reportPrivateUsage]
+            assert istat_data_mod._outcome.cache_info().currsize == 1  # pyright: ignore[reportPrivateUsage]
     finally:
-        svuota_cache()
+        clear_cache()

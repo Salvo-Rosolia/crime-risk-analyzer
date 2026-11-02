@@ -44,7 +44,7 @@ altrimenti il confronto tra i bracci misurerebbe l'etichetta invece dell'ancorag
 filtro, senza le frasi che parlano del dato ISTAT e non nominano un POI ne' un rischio
 (:func:`frasi_escluse_m1`). Le frasi sono le stesse di M1: il controllo ISTAT le
 divide con lo stesso splitter
-(:func:`~crime_risk_analyzer.istat.cifre.dividi_frasi_m1`). Le frasi ancorate si
+(:func:`~crime_risk_analyzer.istat.figures.split_sentences_m1`). Le frasi ancorate si
 misurano come in ogni braccio, anche se citano ISTAT.
 """
 
@@ -55,7 +55,7 @@ from dataclasses import dataclass
 
 from crime_risk_analyzer.eval.pricing import cost_usd
 from crime_risk_analyzer.eval.schema import Metrics, Mode
-from crime_risk_analyzer.istat.cifre import blocco_misurato, dividi_frasi_m1
+from crime_risk_analyzer.istat.figures import measured_block, split_sentences_m1
 from crime_risk_analyzer.orchestrator import AnalyzeResponse
 from crime_risk_analyzer.rag.generation import (
     ONTOLOGY_TOKEN,
@@ -168,14 +168,15 @@ def _measured_spans(narrativa: str, mode: Mode) -> list[tuple[int, int]]:
     (-> gold umano). Quale riga-etichetta lo apra dipende dal braccio
     (:data:`_MEASURED_TOKEN_BY_MODE`): ``[ONTOLOGIA]`` dove l'ontologia c'e'
     davvero, ``[SINTESI-LLM]`` nel braccio ablato (#236). Le frasi sono divise da
-    :func:`~crime_risk_analyzer.istat.cifre.dividi_frasi_m1`, lo stesso splitter con
-    cui il controllo ISTAT segna le sue frasi (#369). ``[]`` se il blocco manca.
+    :func:`~crime_risk_analyzer.istat.figures.split_sentences_m1`, lo stesso
+    splitter con cui il controllo ISTAT segna le sue frasi (#369). ``[]`` se il
+    blocco manca.
     """
     spans = source_block_spans(narrativa, measured_token=_MEASURED_TOKEN_BY_MODE[mode])
-    blocco = blocco_misurato(spans)
+    blocco = measured_block(spans)
     if blocco is None:
         return []
-    return dividi_frasi_m1(narrativa, blocco.inizio, blocco.fine)
+    return split_sentences_m1(narrativa, blocco.inizio, blocco.fine)
 
 
 def _measured_sentences(narrativa: str | None, mode: Mode) -> list[str]:
@@ -221,7 +222,7 @@ def _asserzioni(
     asserzioni di M1 e le frasi ISTAT escluse (#369).
 
     E' esclusa una frase che il controllo ISTAT segna come frase che parla del
-    dato (``EsitoControllo.frasi_istat_m1``, stesse frasi e stesso testo di M1) e
+    dato (``CheckOutcome.frasi_istat_m1``, stesse frasi e stesso testo di M1) e
     che non nomina un ancoraggio: non attribuisce un rischio a un punto, quindi
     contarla come non ancorata misurerebbe quanto il modello parla di ISTAT. Una
     frase ISTAT che nomina un POI o un rischio resta un'asserzione come le altre.

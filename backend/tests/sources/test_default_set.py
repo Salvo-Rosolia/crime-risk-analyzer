@@ -1,7 +1,7 @@
 """Il set di fonti di default raggruppa le costanti TERMINUS+ISTAT esistenti (#411)."""
 
-from crime_risk_analyzer.istat.catalogo import VOCI_ROTTURA_2016
-from crime_risk_analyzer.istat.mappatura import MAPPATURA
+from crime_risk_analyzer.istat.catalog import BREAK_ITEMS_2016
+from crime_risk_analyzer.istat.mapping import HAZARD_MAPPING
 from crime_risk_analyzer.ontology import get_ontology
 from crime_risk_analyzer.ontology_namespaces import TERMINUS
 from crime_risk_analyzer.sources.context import default_set
@@ -83,7 +83,7 @@ def test_osm_binding_proprio() -> None:
 
 def test_default_set_istat() -> None:
     istat = default_set().istat
-    assert istat.mappatura is MAPPATURA
-    assert istat.voci_rottura == VOCI_ROTTURA_2016
+    assert istat.mappatura is HAZARD_MAPPING
+    assert istat.voci_rottura == BREAK_ITEMS_2016
     assert istat.dati is not None
     assert istat.versione == istat.dati.versione

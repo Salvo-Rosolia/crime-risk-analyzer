@@ -194,7 +194,7 @@ def test_rotta_analyze_passa_l_interruttore(
     qualunque sia il valore di ``Settings.istat_context_enabled``."""
     from crime_risk_analyzer import analyze_narrative
     from crime_risk_analyzer.rag.grounding import ground as ground_reale
-    from tests.istat._fattorie import BANKROB, istat_poi
+    from tests.istat._factories import BANKROB, istat_poi
 
     _patch_io(monkeypatch)
     dati = istat_poi(BANKROB)

@@ -11,9 +11,9 @@ from typing import Any
 
 import pytest
 
-from crime_risk_analyzer.istat.cifre import SpanBlocco, applica_controllo
-from crime_risk_analyzer.istat.righe import IstatPoi
-from crime_risk_analyzer.istat.scelta import RULE_ISTAT_SCELTA, ScartiScelta
+from crime_risk_analyzer.istat.figures import BlockSpan, apply_check
+from crime_risk_analyzer.istat.rows import IstatPoi
+from crime_risk_analyzer.istat.selection import RULE_ISTAT_SELECTION, SelectionDiscards
 from crime_risk_analyzer.llm.client import LLMResponse
 from crime_risk_analyzer.rag import generation as generation_mod
 from crime_risk_analyzer.rag.generation import (
@@ -32,7 +32,7 @@ from crime_risk_analyzer.rag.generation import (
 )
 from crime_risk_analyzer.sources.context import bind, default_set
 from crime_risk_analyzer.sources.model import IstatSource
-from tests.istat._fattorie import BANKROB, RAPINE_IN_BANCA, istat_poi, riga
+from tests.istat._factories import BANK_ROBBERIES, BANKROB, istat_poi, make_row
 
 #: Narrativa nella forma di #345, col terzo blocco [ISTAT] (record vecchi, D4).
 _NARRATIVA = (
@@ -76,7 +76,7 @@ def test_narrative_senza_istat_restano_identiche() -> None:
 def test_spans_dei_blocchi() -> None:
     spans = source_block_spans(_NARRATIVA)
     assert [s.campo for s in spans] == ["ontologia", "contesto", "istat"]
-    assert all(isinstance(s, SpanBlocco) for s in spans)
+    assert all(isinstance(s, BlockSpan) for s in spans)
     istat = spans[2]
     assert _NARRATIVA[istat.inizio_riga : istat.inizio] == f"{ISTAT_BLOCK_HEADER}\n"
     assert istat.fine == len(_NARRATIVA)
@@ -138,7 +138,7 @@ async def test_istat_spento_prompt_identico_anche_con_righe_in_cache() -> None:
     """Review Focus 3: il contesto in cache porta le righe, l'interruttore e' spento."""
     con_righe, senza = _Spia(), _Spia()
     out = await generate_analysis(
-        _ctx(_poi(istat=istat_poi(RAPINE_IN_BANCA))), con_righe, istat=False
+        _ctx(_poi(istat=istat_poi(BANK_ROBBERIES))), con_righe, istat=False
     )
     await generate_analysis(_ctx(_poi()), senza)
     assert con_righe.calls == senza.calls
@@ -157,7 +157,7 @@ async def test_istat_acceso_mette_il_blocco_fra_vocabolario_e_poi(
     monkeypatch.setattr(generation_mod, "versione_dati", lambda: "2026-10-06")
     spia = _Spia()
     out = await generate_analysis(
-        _ctx(_poi(istat=istat_poi(RAPINE_IN_BANCA))), spia, istat=True
+        _ctx(_poi(istat=istat_poi(BANK_ROBBERIES))), spia, istat=True
     )
     system, user = spia.calls[0]
     assert system == SYSTEM_PROMPT_ISTAT
@@ -205,7 +205,7 @@ async def test_controllo_cifre_filtra_la_narrativa_e_conserva_il_grezzo() -> Non
         "Secondo l'ISTAT, nel Comune di Roma le rapine in banca sono in calo.\n"
     )
     out = await generate_analysis(
-        _ctx(_poi(istat=istat_poi(RAPINE_IN_BANCA))), _Spia(testo), istat=True
+        _ctx(_poi(istat=istat_poi(BANK_ROBBERIES))), _Spia(testo), istat=True
     )
     assert out.narrativa_grezza == testo
     assert "conta 46" not in out.narrativa
@@ -222,8 +222,8 @@ async def test_controllo_cifre_filtra_la_narrativa_e_conserva_il_grezzo() -> Non
 def test_una_voce_condivisa_da_due_poi_compare_una_volta() -> None:
     contesto = build_context(
         _ctx(
-            _poi("node/1", istat_poi(RAPINE_IN_BANCA)),
-            _poi("node/2", istat_poi(RAPINE_IN_BANCA)),
+            _poi("node/1", istat_poi(BANK_ROBBERIES)),
+            _poi("node/2", istat_poi(BANK_ROBBERIES)),
         ),
         istat=True,
     )
@@ -231,15 +231,15 @@ def test_una_voce_condivisa_da_due_poi_compare_una_volta() -> None:
     assert "POI coinvolti" not in contesto.testo
     assert contesto.testo_senza_istat == build_context_str(
         _ctx(
-            _poi("node/1", istat_poi(RAPINE_IN_BANCA)),
-            _poi("node/2", istat_poi(RAPINE_IN_BANCA)),
+            _poi("node/1", istat_poi(BANK_ROBBERIES)),
+            _poi("node/2", istat_poi(BANK_ROBBERIES)),
         )
     )
 
 
 def test_riserva_lascia_spazio_al_blocco_su_un_contesto_troncato() -> None:
     """Decisione 10: senza riserva il blocco sparirebbe sulle zone gia' troncate."""
-    pois = [_poi(f"node/{i}", istat_poi(RAPINE_IN_BANCA)) for i in range(30)]
+    pois = [_poi(f"node/{i}", istat_poi(BANK_ROBBERIES)) for i in range(30)]
     budget = 1500
     spento = build_context(_ctx(*pois), context_budget_tokens=budget)
     acceso = build_context(_ctx(*pois), context_budget_tokens=budget, istat=True)
@@ -259,7 +259,7 @@ async def test_righe_perse_nel_troncamento_torna_al_ramo_spento() -> None:
     avrebbe un run con l'interruttore spento fin dall'inizio: la richiesta intera
     va rifatta con l'allowance di SYSTEM_PROMPT, non solo il blocco."""
     pois = [_poi(f"node/{i}") for i in range(5)] + [
-        _poi("node/5", istat_poi(RAPINE_IN_BANCA))
+        _poi("node/5", istat_poi(BANK_ROBBERIES))
     ]
     acceso, spento = _Spia(), _Spia()
     out = await generate_analysis(
@@ -274,14 +274,14 @@ async def test_righe_perse_nel_troncamento_torna_al_ramo_spento() -> None:
 
 
 def test_nota_taglio_delle_voci_non_tocca_la_cifra_citata() -> None:
-    """Fix round 1 - MINOR 2: quando ``blocco_istat_zona`` taglia delle voci per
+    """Fix round 1 - MINOR 2: quando ``istat_block_for_zone`` taglia delle voci per
     budget, la nota "NB: per limiti di lunghezza ..." finisce nello user_content
     di zona e il suo numero resta una cifra AMMESSA (compare nel blocco DATI ISTAT
     stesso): una frase che lo cita non viene scartata dal controllo cifre."""
     pois = [
         # #365: 22 voci, una in piu' di quelle che stanno nella riserva (righe a
         # parole, D7: piu' corte di quelle con le cifre).
-        _poi(f"node/{i}", istat_poi(riga(f"V{i:02d}", label=f"voce numero {i}")))
+        _poi(f"node/{i}", istat_poi(make_row(f"V{i:02d}", label=f"voce numero {i}")))
         for i in range(22)
     ]
     budget = _estimate_tokens(build_context_str(_ctx(*pois))) + 1200
@@ -296,11 +296,11 @@ def test_nota_taglio_delle_voci_non_tocca_la_cifra_citata() -> None:
         "Rischio di rapina per Banca node/0. "
         "Nel Comune di Roma 1 voce ISTAT non compare per limiti di spazio.\n"
     )
-    filtrata, esito = applica_controllo(
+    filtrata, esito = apply_check(
         narrativa,
-        blocco=contesto.blocco_istat,
+        block=contesto.blocco_istat,
         spans=source_block_spans(narrativa),
-        contesto=contesto.testo_senza_istat,
+        context=contesto.testo_senza_istat,
     )
     assert esito is not None
     assert filtrata == narrativa
@@ -322,7 +322,7 @@ async def test_versione_dati_dal_set_legato_senza_monkeypatch() -> None:
     )
     with bind(custom):
         out = await generate_analysis(
-            _ctx(_poi(istat=istat_poi(RAPINE_IN_BANCA))), _Spia(), istat=True
+            _ctx(_poi(istat=istat_poi(BANK_ROBBERIES))), _Spia(), istat=True
         )
     assert (out.istat_attivo, out.istat_versione_dati) == (True, "X")
 
@@ -335,7 +335,7 @@ _SCELTA = "SCELTA DATI ISTAT:\nRapina in banca | rapine in banca | alto\n"
 async def test_scelta_prompt_e_richiesta_senza_regola_a_parole() -> None:
     spia = _Spia()
     await generate_analysis(
-        _ctx(_poi(istat=istat_poi(RAPINE_IN_BANCA))),
+        _ctx(_poi(istat=istat_poi(BANK_ROBBERIES))),
         spia,
         istat=True,
         istat_scelta=True,
@@ -343,14 +343,14 @@ async def test_scelta_prompt_e_richiesta_senza_regola_a_parole() -> None:
     system, user = spia.calls[0]
     assert system == SYSTEM_PROMPT_ISTAT_SCELTA
     assert system != SYSTEM_PROMPT_ISTAT
-    assert RULE_ISTAT_SCELTA in system
+    assert RULE_ISTAT_SELECTION in system
     assert "NON scrivere frasi sui dati ISTAT" in system
     assert "DATI ISTAT" in user
 
 
 async def test_scelta_spenta_o_istat_spento_non_cambia_nulla() -> None:
     base, scelta_senza_istat, istat_senza_scelta = _Spia(), _Spia(), _Spia()
-    ctx = _ctx(_poi(istat=istat_poi(RAPINE_IN_BANCA)))
+    ctx = _ctx(_poi(istat=istat_poi(BANK_ROBBERIES)))
     await generate_analysis(ctx, base, istat=False)
     await generate_analysis(ctx, scelta_senza_istat, istat=False, istat_scelta=True)
     await generate_analysis(ctx, istat_senza_scelta, istat=True)
@@ -364,7 +364,7 @@ async def test_scelta_l_app_compone_la_frase_e_toglie_il_blocco() -> None:
         "node/1.\n\nRischi dal contesto [CONTESTO]\nZona di transito.\n\n" + _SCELTA
     )
     out = await generate_analysis(
-        _ctx(_poi(istat=istat_poi(RAPINE_IN_BANCA))),
+        _ctx(_poi(istat=istat_poi(BANK_ROBBERIES))),
         _Spia(testo),
         istat=True,
         istat_scelta=True,
@@ -380,7 +380,7 @@ async def test_scelta_l_app_compone_la_frase_e_toglie_il_blocco() -> None:
     )
     assert fonti.contesto == "Zona di transito."
     assert [s.hazard for s in out.istat_scelta] == ["Bank_robbery"]
-    assert out.istat_scelta_scarti == ScartiScelta()
+    assert out.istat_scelta_scarti == SelectionDiscards()
     assert "istat_scelta_scarti" not in out.model_dump()
     assert "istat_scelta" not in out.model_dump()
 
@@ -391,7 +391,7 @@ async def test_scelta_non_ancorata_non_produce_frasi() -> None:
         "SCELTA DATI ISTAT:\nRapina in banca | furti d'auto | alto\n"
     )
     out = await generate_analysis(
-        _ctx(_poi(istat=istat_poi(RAPINE_IN_BANCA))),
+        _ctx(_poi(istat=istat_poi(BANK_ROBBERIES))),
         _Spia(testo),
         istat=True,
         istat_scelta=True,
@@ -410,7 +410,7 @@ async def test_scelta_il_controllo_resta_rete_di_sicurezza_sul_testo_del_modello
         "Rischio di rapina per Banca node/1.\n\n" + _SCELTA
     )
     out = await generate_analysis(
-        _ctx(_poi(istat=istat_poi(RAPINE_IN_BANCA))),
+        _ctx(_poi(istat=istat_poi(BANK_ROBBERIES))),
         _Spia(testo),
         istat=True,
         istat_scelta=True,

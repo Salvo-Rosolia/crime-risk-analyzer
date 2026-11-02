@@ -1500,7 +1500,7 @@ async def _run_case_istat(tmp_path: Path, testo: str) -> RunRecord:
 async def test_run_case_con_istat_scrive_provenienza_grezzo_e_metriche(
     tmp_path: Path,
 ) -> None:
-    from crime_risk_analyzer.istat.dati import dati_istat
+    from crime_risk_analyzer.istat.data import istat_data
 
     istat = (
         "Secondo i dati ISTAT del Comune di Roma i furti hanno un tasso piu' alto "
@@ -1512,7 +1512,7 @@ async def test_run_case_con_istat_scrive_provenienza_grezzo_e_metriche(
     )
     rec = await _run_case_istat(tmp_path, testo)
     assert rec.provenance.istat is True
-    assert rec.provenance.istat_versione_dati == dati_istat().versione
+    assert rec.provenance.istat_versione_dati == istat_data().versione
     assert rec.narrativa_grezza == testo
     assert "999" not in rec.narrativa
     assert rec.istat_frasi_scartate == 1
@@ -1592,13 +1592,13 @@ async def test_m1_su_record_istat_grada_il_grezzo_senza_le_frasi_istat_escluse(
     cifra ISTAT (tolta dal filtro ed esclusa da M1). Solo cosi' 1 ancorata su 2:
     il filtrato darebbe 1/1, il grezzo intero 1/3.
     """
-    from crime_risk_analyzer.istat.dati import dati_istat
+    from crime_risk_analyzer.istat.data import istat_data
     from crime_risk_analyzer.rag.generation import (
         DEFAULT_MAX_TOKENS,
         DEFAULT_REQUEST_TOKEN_BUDGET,
     )
 
-    dati = dati_istat()
+    dati = istat_data()
     totale = dati.delitti.valore("058091", "TOT", dati.delitti.anno)
     assert totale is not None and totale.delitti is not None
     # Senza separatore delle migliaia: M1 spezza le frasi a ogni punto.

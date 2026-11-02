@@ -1,13 +1,14 @@
-"""Misura il budget del prompt di zona con i dati ISTAT (#345, D14).
+"""Measures the zone prompt budget with ISTAT data (#345, D14).
 
-Costruisce il prompt REALE (system + user_content) sugli snapshot delle 4 zone di
-valutazione con l'ontologia vera, a ISTAT spento e acceso, e stampa per ciascuno:
-POI inclusi, voci ISTAT incluse e tagliate, stima dei token (la stessa euristica
-del troncamento) e, se ``tiktoken`` e' disponibile, i token REALI col tokenizer di
-gpt-oss (``o200k_harmony``) piu' i ``max_tokens`` riservati all'output: cio' che
-Groq conta contro il limite di token al minuto (TPM 8.000 per gpt-oss-120b).
+Builds the REAL prompt (system + user_content) on the snapshots of the 4 evaluation
+zones with the real ontology, with ISTAT off and on, and prints for each of them:
+POIs included, ISTAT items included and cut, token estimate (the same heuristic
+used by the truncation) and, if ``tiktoken`` is available, the REAL tokens with the
+gpt-oss tokenizer (``o200k_harmony``) plus the ``max_tokens`` reserved for the
+output: what Groq counts against the tokens-per-minute limit (TPM 8,000 for
+gpt-oss-120b).
 
-Uso (da ``backend``; tiktoken NON e' una dipendenza del progetto)::
+Usage (from ``backend``; tiktoken is NOT a project dependency)::
 
     uv run --with tiktoken python scripts/istat_budget.py
     uv run --with tiktoken python scripts/istat_budget.py --suggerisci-budget
@@ -30,7 +31,7 @@ from crime_risk_analyzer.eval.snapshots import (
     replay_source,
     snapshot_path,
 )
-from crime_risk_analyzer.istat.dati import VOCE_TOTALE
+from crime_risk_analyzer.istat.data import TOTAL_ITEM
 from crime_risk_analyzer.ontology import load_ontology
 from crime_risk_analyzer.rag.generation import (
     DEFAULT_MAX_TOKENS,
@@ -43,136 +44,136 @@ from crime_risk_analyzer.rag.retrieval import retrieve
 from crime_risk_analyzer.sparql_module.query_executor import RiskQueryExecutor
 
 BACKEND = Path(__file__).resolve().parents[1]
-ONTOLOGIA = BACKEND / "ontology" / "terminus_crime_materialized.ttl"
-RISULTATI = BACKEND / "results"
-#: TPM di gpt-oss-120b su Groq (D14) e margine del 5% per l'errore residuo.
-TPM_GROQ = 8000
-LIMITE_REALE = int(TPM_GROQ * 0.95)
-#: Intervallo della ricerca del budget, attorno al default (passi di 100).
-BUDGET_MIN, BUDGET_MAX, BUDGET_PASSO = 6000, 12000, 100
+ONTOLOGY = BACKEND / "ontology" / "terminus_crime_materialized.ttl"
+RESULTS = BACKEND / "results"
+#: TPM of gpt-oss-120b on Groq (D14) and a 5% margin for the residual error.
+GROQ_TPM = 8000
+REAL_LIMIT = int(GROQ_TPM * 0.95)
+#: Range of the budget search, around the default (steps of 100).
+BUDGET_MIN, BUDGET_MAX, BUDGET_STEP = 6000, 12000, 100
 
-Contatore = Callable[[str], int]
+Counter = Callable[[str], int]
 
 
-class Misura(NamedTuple):
-    zona: str
+class Measurement(NamedTuple):
+    zone: str
     istat: bool
-    stima_totale: int
-    reali_totale: int | None
-    poi_inclusi: int
-    poi_totali: int
-    voci_istat: int
-    voci_tagliate: int
+    estimated_total: int
+    real_total: int | None
+    pois_included: int
+    pois_total: int
+    istat_items: int
+    items_cut: int
 
 
-async def contesti() -> list[tuple[str, dict[str, Any]]]:
-    """Contesti grounded delle 4 zone di valutazione, dagli snapshot (nessuna rete)."""
-    executor = RiskQueryExecutor(load_ontology(str(ONTOLOGIA)))
+async def contexts() -> list[tuple[str, dict[str, Any]]]:
+    """Grounded contexts of the 4 evaluation zones, from snapshots (no network)."""
+    executor = RiskQueryExecutor(load_ontology(str(ONTOLOGY)))
     out: list[tuple[str, dict[str, Any]]] = []
-    for caso in ROSTER[:4]:
-        chiave = make_snapshot_key(caso.citta, caso.zona)
+    for case in ROSTER[:4]:
+        key = make_snapshot_key(case.citta, case.zona)
         ctx = await retrieve(
-            caso.citta,
-            caso.zona,
+            case.citta,
+            case.zona,
             executor=executor,
-            poi_source=replay_source(snapshot_path(RISULTATI, chiave)),
+            poi_source=replay_source(snapshot_path(RESULTS, key)),
             geo_source=offline_geo_source(),
         )
-        out.append((chiave, dict(ground(ctx))))
+        out.append((key, dict(ground(ctx))))
     return out
 
 
-def misura(
-    zona: str,
+def measure(
+    zone: str,
     ctx: dict[str, Any],
     *,
     istat: bool,
     budget: int = DEFAULT_REQUEST_TOKEN_BUDGET,
     max_tokens: int = DEFAULT_MAX_TOKENS,
-    reali: Contatore | None = None,
-) -> Misura:
-    """La richiesta che ``generate_analysis`` invierebbe, senza chiamare il modello.
+    real: Counter | None = None,
+) -> Measurement:
+    """The request that ``generate_analysis`` would send, without calling the model.
 
-    Stessa funzione (:func:`prepara_richiesta_zona`): gate sulle righe ISTAT e
-    ritorno al percorso spento quando il blocco non si materializza compresi.
+    Same function (:func:`prepara_richiesta_zona`): gate on the ISTAT rows and
+    fallback to the off path when the block does not materialize, included.
     """
-    system, contesto = prepara_richiesta_zona(
+    system, context = prepara_richiesta_zona(
         ctx, request_token_budget=budget, max_tokens=max_tokens, istat=istat
     )
-    return Misura(
-        zona=zona,
+    return Measurement(
+        zone=zone,
         istat=istat,
-        stima_totale=_estimate_tokens(system)
-        + _estimate_tokens(contesto.testo)
+        estimated_total=_estimate_tokens(system)
+        + _estimate_tokens(context.testo)
         + max_tokens,
-        reali_totale=(
-            reali(system) + reali(contesto.testo) + max_tokens
-            if reali is not None
+        real_total=(
+            real(system) + real(context.testo) + max_tokens
+            if real is not None
             else None
         ),
-        poi_inclusi=contesto.poi_inclusi,
-        poi_totali=len(ctx.get("validated_risks", [])),
-        voci_istat=sum(1 for r in contesto.blocco_istat.righe if r.voce != VOCE_TOTALE),
-        voci_tagliate=contesto.blocco_istat.voci_tagliate,
+        pois_included=context.poi_inclusi,
+        pois_total=len(ctx.get("validated_risks", [])),
+        istat_items=sum(1 for r in context.blocco_istat.righe if r.voce != TOTAL_ITEM),
+        items_cut=context.blocco_istat.voci_tagliate,
     )
 
 
-def contatore_reale() -> Contatore | None:
-    """Conteggio reale col tokenizer di gpt-oss, se ``tiktoken`` e' installato."""
+def real_counter() -> Counter | None:
+    """Real count with the gpt-oss tokenizer, if ``tiktoken`` is installed."""
     try:
         tiktoken: Any = importlib.import_module("tiktoken")
     except ImportError:
         return None
-    codifica: Any = tiktoken.get_encoding("o200k_harmony")
+    encoding: Any = tiktoken.get_encoding("o200k_harmony")
 
-    def conta(testo: str) -> int:
-        return len(codifica.encode(testo))
+    def count(text: str) -> int:
+        return len(encoding.encode(text))
 
-    return conta
+    return count
 
 
-def budget_suggerito(
-    casi: list[tuple[str, dict[str, Any]]], *, reali: Contatore
+def suggested_budget(
+    cases: list[tuple[str, dict[str, Any]]], *, real: Counter
 ) -> int | None:
-    """Il budget piu' alto con tutte le richieste sotto il limite.
+    """The highest budget with all requests under the limit.
 
-    Cerca in :data:`BUDGET_MIN`..:data:`BUDGET_MAX` (passi di
-    :data:`BUDGET_PASSO`), sopra e sotto il default: partire dal default e
-    scendere non direbbe mai che c'e' margine per alzarlo.
+    Searches :data:`BUDGET_MIN`..:data:`BUDGET_MAX` (steps of
+    :data:`BUDGET_STEP`), above and below the default: starting from the default
+    and going down would never say there is room to raise it.
     """
-    for budget in range(BUDGET_MAX, BUDGET_MIN - 1, -BUDGET_PASSO):
-        richieste = [
-            misura(zona, ctx, istat=istat, budget=budget, reali=reali)
-            for zona, ctx in casi
+    for budget in range(BUDGET_MAX, BUDGET_MIN - 1, -BUDGET_STEP):
+        requests = [
+            measure(zone, ctx, istat=istat, budget=budget, real=real)
+            for zone, ctx in cases
             for istat in (False, True)
         ]
-        if all((m.reali_totale or 0) <= LIMITE_REALE for m in richieste):
+        if all((m.real_total or 0) <= REAL_LIMIT for m in requests):
             return budget
     return None
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Budget del prompt con ISTAT (D14)")
+    parser = argparse.ArgumentParser(description="Prompt budget with ISTAT (D14)")
     parser.add_argument("--suggerisci-budget", action="store_true")
     args = parser.parse_args(argv)
-    casi = asyncio.run(contesti())
-    reali = contatore_reale()
-    print(f"budget {DEFAULT_REQUEST_TOKEN_BUDGET}, limite reale {LIMITE_REALE}")
-    print("zona | istat | stima | reali | POI | voci | tagliate")
-    for zona, ctx in casi:
+    cases = asyncio.run(contexts())
+    real = real_counter()
+    print(f"budget {DEFAULT_REQUEST_TOKEN_BUDGET}, real limit {REAL_LIMIT}")
+    print("zone | istat | estimate | real | POI | items | cut")
+    for zone, ctx in cases:
         for istat in (False, True):
-            m = misura(zona, ctx, istat=istat, reali=reali)
+            m = measure(zone, ctx, istat=istat, real=real)
             print(
-                f"{m.zona} | {m.istat} | {m.stima_totale} | {m.reali_totale} | "
-                f"{m.poi_inclusi}/{m.poi_totali} | {m.voci_istat} | {m.voci_tagliate}"
+                f"{m.zone} | {m.istat} | {m.estimated_total} | {m.real_total} | "
+                f"{m.pois_included}/{m.pois_total} | {m.istat_items} | {m.items_cut}"
             )
     if args.suggerisci_budget:
-        if reali is None:
+        if real is None:
             print(
-                "serve tiktoken: uv run --with tiktoken python scripts/istat_budget.py"
+                "tiktoken needed: uv run --with tiktoken python scripts/istat_budget.py"
             )
             return 1
-        print(f"budget suggerito: {budget_suggerito(casi, reali=reali)}")
+        print(f"suggested budget: {suggested_budget(cases, real=real)}")
     return 0
 
 

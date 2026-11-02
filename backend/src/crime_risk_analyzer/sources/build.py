@@ -8,7 +8,7 @@ from typing import Literal
 
 from rdflib import Graph
 
-from crime_risk_analyzer.istat.dati import Luogo, dati_istat_o_none
+from crime_risk_analyzer.istat.data import Place, istat_data_or_none
 from crime_risk_analyzer.poi_types import alias_table, poi_types
 from crime_risk_analyzer.sources.context import DEFAULT_ID, bind
 from crime_risk_analyzer.sources.model import (
@@ -135,7 +135,7 @@ def _controlla_alias_tipo_poi(source_set: SourceSet) -> None:
     raise SourceValidationError(report)
 
 
-def fallback_luoghi() -> tuple[Luogo, ...]:
+def fallback_luoghi() -> tuple[Place, ...]:
     """Confini nostri, per i luoghi dei dati che il file dei confini non copre."""
-    dati = dati_istat_o_none()
+    dati = istat_data_or_none()
     return dati.luoghi if dati is not None else ()

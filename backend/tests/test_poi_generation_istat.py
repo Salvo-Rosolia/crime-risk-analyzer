@@ -6,8 +6,8 @@ import dataclasses
 
 import pytest
 
-from crime_risk_analyzer.istat.blocco import INTESTAZIONE_DATI_ISTAT
-from crime_risk_analyzer.istat.righe import IstatPoi
+from crime_risk_analyzer.istat.block import ISTAT_DATA_HEADER
+from crime_risk_analyzer.istat.rows import IstatPoi
 from crime_risk_analyzer.llm.client import LLMResponse
 from crime_risk_analyzer.rag import poi_generation as poi_mod
 from crime_risk_analyzer.rag.grounding import GroundedRisk
@@ -20,7 +20,7 @@ from crime_risk_analyzer.rag.poi_generation import (
 )
 from crime_risk_analyzer.sources.context import bind, default_set
 from crime_risk_analyzer.sources.model import IstatSource
-from tests.istat._fattorie import RAPINE_IN_BANCA, istat_poi
+from tests.istat._factories import BANK_ROBBERIES, istat_poi
 
 
 class _Spia:
@@ -104,8 +104,8 @@ def test_contesto_senza_istat_invariato() -> None:
 
 
 def test_contesto_con_istat_prima_del_vicinato_senza_poi_coinvolti() -> None:
-    testo = _contesto(istat_poi(RAPINE_IN_BANCA))
-    assert testo.index(INTESTAZIONE_DATI_ISTAT) < testo.index("VICINATO")
+    testo = _contesto(istat_poi(BANK_ROBBERIES))
+    assert testo.index(ISTAT_DATA_HEADER) < testo.index("VICINATO")
     assert "- Comune di Roma, 2024: rapine in banca: " in testo
     assert "BANKROB" not in testo
     assert "POI coinvolti" not in testo
@@ -120,7 +120,7 @@ async def test_generazione_con_istat_usa_la_variante_e_filtra(
         "Secondo i dati ISTAT del Comune di Roma le rapine in banca hanno un tasso "
         "piu' alto di quello italiano.\n\n[CONTESTO]\nZona di transito.\n"
     )
-    spia, out = await _genera(testo, istat_poi(RAPINE_IN_BANCA))
+    spia, out = await _genera(testo, istat_poi(BANK_ROBBERIES))
     assert spia.calls[0][0] == POI_SYSTEM_PROMPT_ISTAT
     assert out.narrativa_grezza == testo
     assert "46" not in out.narrativa
@@ -156,6 +156,6 @@ async def test_versione_dati_dal_set_legato_senza_monkeypatch() -> None:
     )
     with bind(custom):
         _, out = await _genera(
-            "[ONTOLOGIA]\nRischio di rapina.\n", istat_poi(RAPINE_IN_BANCA)
+            "[ONTOLOGIA]\nRischio di rapina.\n", istat_poi(BANK_ROBBERIES)
         )
     assert (out.istat_attivo, out.istat_versione_dati) == (True, "X")

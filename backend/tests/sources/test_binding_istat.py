@@ -9,14 +9,14 @@ from crime_risk_analyzer.context_fingerprint import (
     fonti_attive_id,
     istat_versione_per,
 )
-from crime_risk_analyzer.istat.catalogo import VOCI_ROTTURA_2016
-from crime_risk_analyzer.istat.dati import DatiIstat, dati_istat, versione_dati
-from crime_risk_analyzer.istat.luoghi import luogo_di
-from crime_risk_analyzer.istat.mappatura import MAPPATURA, Mappatura
-from crime_risk_analyzer.istat.righe import (
-    MOTIVO_ROTTURA_2016,
-    istat_per_poi,
-    riga_istat,
+from crime_risk_analyzer.istat.catalog import BREAK_ITEMS_2016
+from crime_risk_analyzer.istat.data import IstatData, data_version, istat_data
+from crime_risk_analyzer.istat.mapping import HAZARD_MAPPING, HazardMapping
+from crime_risk_analyzer.istat.places import place_of
+from crime_risk_analyzer.istat.rows import (
+    REASON_BREAK_2016,
+    istat_for_poi,
+    istat_row,
 )
 from crime_risk_analyzer.overpass_client import Poi
 from crime_risk_analyzer.sources import context
@@ -29,8 +29,8 @@ ROMA = (41.8902, 12.4922)
 def _set(
     id_: str,
     *,
-    dati: DatiIstat | None,
-    mappatura: dict[str, Mappatura] | None = None,
+    dati: IstatData | None,
+    mappatura: dict[str, HazardMapping] | None = None,
     voci_rottura: frozenset[str] = frozenset(),
     versione: str | None = "v-custom",
 ) -> SourceSet:
@@ -40,16 +40,16 @@ def _set(
         kind="custom",
         istat=IstatSource(
             dati=dati,
-            mappatura=MAPPATURA if mappatura is None else mappatura,
+            mappatura=HAZARD_MAPPING if mappatura is None else mappatura,
             voci_rottura=voci_rottura,
             versione=versione,
         ),
     )
 
 
-def _dati_con_anno(delitti_attuale: int) -> DatiIstat:
+def _dati_con_anno(delitti_attuale: int) -> IstatData:
     """Copia dei dati reali in cui Roma/BANKROB ha un altro conteggio."""
-    reali = dati_istat()
+    reali = istat_data()
     valori = {
         k: {v: dict(a) for v, a in voci.items()}
         for k, voci in reali.delitti.valori.items()
@@ -63,12 +63,12 @@ def _dati_con_anno(delitti_attuale: int) -> DatiIstat:
     delitti = reali.delitti.model_copy(
         update={"valori": valori, "estratto_il": "2030-01-01"}
     )
-    return DatiIstat(delitti=delitti, luoghi=reali.luoghi)
+    return IstatData(delitti=delitti, luoghi=reali.luoghi)
 
 
 def _delitti_bankrob(poi_set: SourceSet | None) -> int | None:
     def calcola() -> int | None:
-        istat = istat_per_poi(*ROMA, ["Bank_robbery"])
+        istat = istat_for_poi(*ROMA, ["Bank_robbery"])
         assert istat is not None
         return istat.righe[0].delitti
 
@@ -80,16 +80,16 @@ def _delitti_bankrob(poi_set: SourceSet | None) -> int | None:
 
 def test_default_identico() -> None:
     attivo = default_set().istat
-    assert attivo.versione == versione_dati()
-    assert context.versione_dati() == versione_dati()
-    assert attivo.mappatura is MAPPATURA
-    assert attivo.voci_rottura is VOCI_ROTTURA_2016
-    assert istat_versione_per(True) == versione_dati()
+    assert attivo.versione == data_version()
+    assert context.versione_dati() == data_version()
+    assert attivo.mappatura is HAZARD_MAPPING
+    assert attivo.voci_rottura is BREAK_ITEMS_2016
+    assert istat_versione_per(True) == data_version()
     hazards = ["Bank_robbery", "Landslide"]
-    dati = dati_istat()
-    roma = luogo_di(*ROMA, dati=dati)
+    dati = istat_data()
+    roma = place_of(*ROMA, data=dati)
     assert roma is not None
-    voci = ["BANKROB", *VOCI_ROTTURA_2016]  # include le serie non confrontabili
+    voci = ["BANKROB", *BREAK_ITEMS_2016]  # include le serie non confrontabili
     pois: list[Poi] = [
         {
             "id": "node/1",
@@ -104,8 +104,8 @@ def test_default_identico() -> None:
 
     def calcola() -> tuple[object, list[object], str, str | None]:
         return (
-            istat_per_poi(*ROMA, hazards),
-            [riga_istat(dati, roma, voce) for voce in voci],
+            istat_for_poi(*ROMA, hazards),
+            [istat_row(dati, roma, voce) for voce in voci],
             fingerprint(pois, istat_versione=istat_versione_per(True)),
             fonti_attive_id(),
         )
@@ -120,7 +120,7 @@ def test_default_identico() -> None:
 
 
 def test_righe_dai_dati_del_set() -> None:
-    custom = _set("c1", dati=_dati_con_anno(7), mappatura=MAPPATURA)
+    custom = _set("c1", dati=_dati_con_anno(7), mappatura=HAZARD_MAPPING)
     reale = _delitti_bankrob(None)
     assert reale != 7
     assert _delitti_bankrob(custom) == 7
@@ -129,40 +129,40 @@ def test_righe_dai_dati_del_set() -> None:
 
 def test_set_senza_dati_non_ricade_sul_default() -> None:
     with bind(_set("c2", dati=None, versione=None)):
-        assert istat_per_poi(*ROMA, ["Bank_robbery"]) is None
+        assert istat_for_poi(*ROMA, ["Bank_robbery"]) is None
         assert context.versione_dati() is None
 
 
 def test_mappatura_dal_set() -> None:
     mappatura = {
-        "Landslide": Mappatura(
+        "Landslide": HazardMapping(
             voce_istat="BANKROB",
             corrispondenza="piu_stretta",
             rottura_2016=False,
             nota="",
         )
     }
-    with bind(_set("c3", dati=dati_istat(), mappatura=mappatura)):
-        assert istat_per_poi(*ROMA, ["Bank_robbery"]) is None  # non e' nel set
-        istat = istat_per_poi(*ROMA, ["Landslide"])
+    with bind(_set("c3", dati=istat_data(), mappatura=mappatura)):
+        assert istat_for_poi(*ROMA, ["Bank_robbery"]) is None  # non e' nel set
+        istat = istat_for_poi(*ROMA, ["Landslide"])
     assert istat is not None
     assert [r.voce for r in istat.righe] == ["BANKROB"]
     assert istat.righe[0].collegamenti[0].corrispondenza == "piu_stretta"
-    assert istat_per_poi(*ROMA, ["Landslide"]) is None  # default invariato
+    assert istat_for_poi(*ROMA, ["Landslide"]) is None  # default invariato
 
 
 def test_voci_a_serie_non_confrontabile_dal_set() -> None:
-    dati = dati_istat()
-    roma = luogo_di(*ROMA, dati=dati)
+    dati = istat_data()
+    roma = place_of(*ROMA, data=dati)
     assert roma is not None
-    assert not riga_istat(dati, roma, "BANKROB").rottura_2016
+    assert not istat_row(dati, roma, "BANKROB").rottura_2016
     with bind(_set("c4", dati=dati, voci_rottura=frozenset({"BANKROB"}))):
-        riga = riga_istat(dati, roma, "BANKROB")
-        via_poi = istat_per_poi(*ROMA, ["Bank_robbery"])
+        riga = istat_row(dati, roma, "BANKROB")
+        via_poi = istat_for_poi(*ROMA, ["Bank_robbery"])
     assert riga.rottura_2016
-    assert riga.motivo_senza_variazione == MOTIVO_ROTTURA_2016
+    assert riga.motivo_senza_variazione == REASON_BREAK_2016
     assert via_poi is not None and via_poi.righe[0].rottura_2016
-    assert not riga_istat(dati, roma, "BANKROB").rottura_2016
+    assert not istat_row(dati, roma, "BANKROB").rottura_2016
 
 
 def test_impronta_cambia_con_la_versione_del_set() -> None:
@@ -178,9 +178,9 @@ def test_impronta_cambia_con_la_versione_del_set() -> None:
         }
     ]
     base = fingerprint(pois, istat_versione=istat_versione_per(True))
-    with bind(_set("stesso", dati=dati_istat(), versione="A")):
+    with bind(_set("stesso", dati=istat_data(), versione="A")):
         a = fingerprint(pois, istat_versione=istat_versione_per(True))
-    with bind(_set("stesso", dati=dati_istat(), versione="B")):
+    with bind(_set("stesso", dati=istat_data(), versione="B")):
         b = fingerprint(pois, istat_versione=istat_versione_per(True))
         spento = istat_versione_per(False)
     assert len({base, a, b}) == 3
@@ -197,18 +197,18 @@ def test_due_set_non_si_mescolano() -> None:
 
 
 def test_dati_espliciti_con_mappatura_e_rotture_del_set_attivo() -> None:
-    """Fonte mista voluta: ``dati=`` prende i dati dall'argomento, il resto dal set."""
+    """Fonte mista voluta: ``data=`` prende i dati dall'argomento, il resto dal set."""
     custom = _set(
         "mista",
         dati=_dati_con_anno(7),
         voci_rottura=frozenset({"BANKROB"}),
     )
-    reali = dati_istat()
+    reali = istat_data()
     with bind(custom):
-        istat = istat_per_poi(*ROMA, ["Bank_robbery"], dati=reali)
+        istat = istat_for_poi(*ROMA, ["Bank_robbery"], data=reali)
     assert istat is not None
     riga = istat.righe[0]
     assert riga.delitti == _delitti_bankrob(None)  # dati dall'argomento, non dal set
     assert riga.delitti != 7
     assert riga.rottura_2016  # rotture dal set attivo
-    assert istat_per_poi(*ROMA, ["Bank_robbery"], dati=reali) is not None
+    assert istat_for_poi(*ROMA, ["Bank_robbery"], data=reali) is not None
