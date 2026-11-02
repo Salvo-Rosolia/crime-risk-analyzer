@@ -1,10 +1,10 @@
 """Test del mapping OSM tag -> classe TERMINUS Crime (#13)."""
 
 from crime_risk_analyzer.sparql_module.osm_mapping import (
-    ORDINE_FAMIGLIE,
+    FAMILY_ORDER,
     OSM_SELECTORS,
     OSM_TO_TERMINUS,
-    SELETTORI_CEDEVOLI,
+    YIELDING_SELECTORS,
     map_to_terminus,
 )
 
@@ -151,8 +151,8 @@ def test_osm_selectors_mirror_mapping_keys() -> None:
 
 
 def test_ordine_famiglie_matches_mapping_families() -> None:
-    """ORDINE_FAMIGLIE copre esattamente le famiglie di chiavi presenti nel dict."""
-    assert set(ORDINE_FAMIGLIE) == {k.split("=")[0] for k in OSM_TO_TERMINUS}
+    """FAMILY_ORDER copre esattamente le famiglie di chiavi presenti nel dict."""
+    assert set(FAMILY_ORDER) == {k.split("=")[0] for k in OSM_TO_TERMINUS}
 
 
 def test_spec_bindings_present_real_attraction() -> None:
@@ -163,14 +163,14 @@ def test_spec_bindings_present_real_attraction() -> None:
 
 def test_selettori_cedevoli_cedono_a_una_famiglia_successiva_mappata() -> None:
     """Ogni selettore generico e' nel binding e cede a una famiglia del mapping che
-    in ORDINE_FAMIGLIE viene DOPO la sua (altrimenti vincerebbe gia' per ordine)."""
-    for selettore, famiglia in SELETTORI_CEDEVOLI.items():
+    in FAMILY_ORDER viene DOPO la sua (altrimenti vincerebbe gia' per ordine)."""
+    for selettore, famiglia in YIELDING_SELECTORS.items():
         assert selettore in OSM_TO_TERMINUS
         propria = selettore.split("=")[0]
-        assert ORDINE_FAMIGLIE.index(famiglia) > ORDINE_FAMIGLIE.index(propria)
+        assert FAMILY_ORDER.index(famiglia) > FAMILY_ORDER.index(propria)
 
 
 def test_tourism_attraction_cede_a_historic() -> None:
     """#373: sullo stesso elemento ``historic=*`` mappato prevale su
     ``tourism=attraction`` (Colosseo -> Archaeological_site)."""
-    assert SELETTORI_CEDEVOLI == {"tourism=attraction": "historic"}
+    assert YIELDING_SELECTORS == {"tourism=attraction": "historic"}

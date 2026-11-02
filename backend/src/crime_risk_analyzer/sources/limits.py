@@ -1,11 +1,11 @@
-"""Limiti e regole di sicurezza dei file caricati (#415, "regole restrittive").
+"""Limits and security rules of the uploaded files (#415, "restrictive rules").
 
-Etichette e nomi finiscono nel prompt del modello: per questo accettano solo
-lettere, cifre, spazi e punteggiatura semplice, con una lunghezza massima. Una
-riga a capo, una parentesi angolare o un backtick non passano, quindi un file non
-puo' portare nel prompt un blocco di testo che sembri un'istruzione strutturata.
-Il controllo NON capisce il significato di una frase: un'etichetta fatta di sole
-parole ammesse passa anche se suona come un ordine.
+Labels and names end up in the model's prompt: for this reason they accept only
+letters, digits, spaces and simple punctuation, with a maximum length. A
+newline, an angle bracket or a backtick do not pass, so a file cannot
+bring into the prompt a block of text that looks like a structured instruction.
+The check does NOT understand the meaning of a sentence: a label made only of
+allowed words passes even if it sounds like an order.
 """
 
 from __future__ import annotations
@@ -15,49 +15,49 @@ import re
 __all__ = [
     "MAX_BYTES_CSV",
     "MAX_BYTES_GEOJSON",
-    "MAX_BYTES_ONTOLOGIA",
-    "MAX_BYTES_RICHIESTA",
-    "MAX_FILE_MULTIPART",
-    "MAX_CAMPI_MULTIPART",
-    "MAX_PARTE_CAMPO",
-    "MAX_LUNGHEZZA_NOTA",
-    "MAX_LUNGHEZZA_TESTO",
-    "controlla_nota",
-    "controlla_testo",
+    "MAX_BYTES_ONTOLOGY",
+    "MAX_BYTES_REQUEST",
+    "MAX_MULTIPART_FILES",
+    "MAX_MULTIPART_FIELDS",
+    "MAX_FIELD_PART_BYTES",
+    "MAX_NOTE_LENGTH",
+    "MAX_TEXT_LENGTH",
+    "check_note",
+    "check_text",
 ]
 
-MAX_BYTES_ONTOLOGIA = 20 * 1024 * 1024
+MAX_BYTES_ONTOLOGY = 20 * 1024 * 1024
 MAX_BYTES_GEOJSON = 10 * 1024 * 1024
 MAX_BYTES_CSV = 5 * 1024 * 1024
-#: Tetto del corpo di ``POST /sources`` (``Content-Length``), controllato prima di
-#: leggerlo: somma dei tetti dei file piu' 1 MB per intestazioni dei campi e form.
-MAX_BYTES_RICHIESTA = (
-    MAX_BYTES_ONTOLOGIA + MAX_BYTES_GEOJSON + 3 * MAX_BYTES_CSV + 1024 * 1024
+#: Cap on the body of ``POST /sources`` (``Content-Length``), checked before
+#: reading it: sum of the file caps plus 1 MB for field headers and form.
+MAX_BYTES_REQUEST = (
+    MAX_BYTES_ONTOLOGY + MAX_BYTES_GEOJSON + 3 * MAX_BYTES_CSV + 1024 * 1024
 )
-#: Limiti del multipart (Starlette ``request.form``): 5 file (ontologia, 3 CSV,
-#: confini), pochi campi di testo (vocabolario + le proprieta' di vulnerabilita').
-MAX_FILE_MULTIPART = 5
-MAX_CAMPI_MULTIPART = 20
-#: Dimensione massima di un campo di testo (non dei file).
-MAX_PARTE_CAMPO = 64 * 1024
+#: Multipart limits (Starlette ``request.form``): 5 files (ontology, 3 CSVs,
+#: boundaries), few text fields (vocabulary + the vulnerability properties).
+MAX_MULTIPART_FILES = 5
+MAX_MULTIPART_FIELDS = 20
+#: Maximum size of a text field (not of the files).
+MAX_FIELD_PART_BYTES = 64 * 1024
 
-MAX_LUNGHEZZA_TESTO = 120
-#: Le note della tabella hazard-voce non entrano nel prompt: solo lunghezza e
-#: caratteri di controllo.
-MAX_LUNGHEZZA_NOTA = 500
+MAX_TEXT_LENGTH = 120
+#: The notes of the hazard-item table do not enter the prompt: only length and
+#: control characters.
+MAX_NOTE_LENGTH = 500
 
-#: Lettere Unicode, cifre, ``_``, spazio e ``. , ' ’ ( ) / - : ; &``.
-_TESTO_AMMESSO = re.compile(r"[\w .,'’()/\-:;&]+")
-_CONTROLLO = re.compile(r"[\x00-\x1f\x7f-\x9f  ]")
+#: Unicode letters, digits, ``_``, space and ``. , ' ’ ( ) / - : ; &``.
+_ALLOWED_TEXT = re.compile(r"[\w .,'’()/\-:;&]+")
+_CHECK = re.compile(r"[\x00-\x1f\x7f-\x9f  ]")
 
 
-def controlla_testo(testo: str) -> str | None:
-    """Motivo per cui ``testo`` non e' ammesso come etichetta o nome, o ``None``."""
-    if not testo.strip():
+def check_text(text: str) -> str | None:
+    """Reason why ``text`` is not allowed as a label or name, or ``None``."""
+    if not text.strip():
         return "il testo e' vuoto"
-    if len(testo) > MAX_LUNGHEZZA_TESTO:
-        return f"il testo supera {MAX_LUNGHEZZA_TESTO} caratteri ({len(testo)})"
-    if _TESTO_AMMESSO.fullmatch(testo) is None:
+    if len(text) > MAX_TEXT_LENGTH:
+        return f"il testo supera {MAX_TEXT_LENGTH} caratteri ({len(text)})"
+    if _ALLOWED_TEXT.fullmatch(text) is None:
         return (
             "il testo contiene caratteri non ammessi: sono ammessi solo lettere, "
             "cifre, spazi e . , ' ( ) / - : ; &"
@@ -65,10 +65,10 @@ def controlla_testo(testo: str) -> str | None:
     return None
 
 
-def controlla_nota(nota: str) -> str | None:
-    """Motivo per cui ``nota`` non e' ammessa, o ``None`` (testo libero, corto)."""
-    if len(nota) > MAX_LUNGHEZZA_NOTA:
-        return f"la nota supera {MAX_LUNGHEZZA_NOTA} caratteri ({len(nota)})"
-    if _CONTROLLO.search(nota):
+def check_note(note: str) -> str | None:
+    """Reason why ``note`` is not allowed, or ``None`` (free text, short)."""
+    if len(note) > MAX_NOTE_LENGTH:
+        return f"la nota supera {MAX_NOTE_LENGTH} caratteri ({len(note)})"
+    if _CHECK.search(note):
         return "la nota contiene caratteri di controllo"
     return None

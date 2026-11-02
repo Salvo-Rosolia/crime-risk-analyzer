@@ -22,12 +22,12 @@ from crime_risk_analyzer.overpass_client import (
     MAX_POIS,
     OFFLINE_RETRY,
     PER_SELECTOR_CAP,
+    OsmCut,
     OverpassError,
     Poi,
-    TaglioOsm,
     fetch_pois,
     fetch_pois_with_cut,
-    remark_segnala_risposta_incompleta,
+    remark_signals_incomplete_response,
 )
 from crime_risk_analyzer.sparql_module.osm_mapping import map_to_terminus
 
@@ -304,7 +304,7 @@ async def test_fetch_pois_maps_contract_fields() -> None:
 
 @respx.mock
 async def test_fetch_pois_with_cut_estrae_il_taglio_osm_dal_payload() -> None:
-    """#251: il taglio dichiarato da Overpass in ``osm3s`` diventa TaglioOsm."""
+    """#251: il taglio dichiarato da Overpass in ``osm3s`` diventa OsmCut."""
     payload = {**_sample(), "osm3s": {"timestamp_osm_base": "2026-07-26T17:42:03Z"}}
     respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(200, json=payload)
@@ -600,7 +600,7 @@ async def test_ritentativi_lasciano_traccia_nei_log(
         await fetch_pois(_BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep([]))
 
     messaggi = [r.getMessage() for r in caplog.records]
-    assert any("504" in m and "ritentativo 1/4" in m for m in messaggi), messaggi
+    assert any("504" in m and "retry 1/4" in m for m in messaggi), messaggi
 
 
 @respx.mock
@@ -710,7 +710,7 @@ def test_il_tetto_non_accorcia_le_pause_dichiarate() -> None:
     assert OFFLINE_RETRY.retry_after_cap_s is not None
     lunga = replace(OFFLINE_RETRY, pause_s=(300.0,), retry_after_cap_s=60.0)
     assert (
-        overpass_client._attesa_prima_del_ritentativo(  # pyright: ignore[reportPrivateUsage]
+        overpass_client._wait_before_retry(  # pyright: ignore[reportPrivateUsage]
             None, lunga.pause_s[0], lunga.retry_after_cap_s
         )
         == 300.0
@@ -761,7 +761,7 @@ async def test_query_interroga_anche_le_relation_per_ogni_selettore() -> None:
         ) in body
     # Ogni tipo dichiarato come interrogato compare davvero nella query: la
     # costante registrata nella provenienza degli snapshot non puo' divergere.
-    for tipo in overpass_client.TIPI_ELEMENTO:
+    for tipo in overpass_client.ELEMENT_TYPES:
         assert f"{tipo}[" in body
 
 
@@ -1076,7 +1076,7 @@ def test_stesso_nome_ma_valore_di_famiglia_diverso_non_si_fondono() -> None:
 
 def test_stesso_nome_e_tag_ma_lontani_non_si_fondono() -> None:
     """Oltre la soglia di vicinanza sono due siti omonimi, non un doppione."""
-    soglia = overpass_client.DISTANZA_MAX_DOPPIONE_M
+    soglia = overpass_client.MAX_DUPLICATE_DISTANCE_M
     rel = cast(dict[str, float], _AMBIENTE_4_REL["center"])
     way = _variante(_AMBIENTE_4_REL, nord_m=soglia + 5, elem_id=597452722)
     way["type"] = "way"
@@ -1335,9 +1335,7 @@ async def test_ritentativo_su_errore_di_trasporto_lascia_traccia_nei_log(
         await fetch_pois(_BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep([]))
 
     messaggi = [r.getMessage() for r in caplog.records]
-    trovato = any(
-        "errore di trasporto" in m and "ritentativo 1/4" in m for m in messaggi
-    )
+    trovato = any("errore di trasporto" in m and "retry 1/4" in m for m in messaggi)
     assert trovato, messaggi
 
 
@@ -1609,7 +1607,7 @@ async def test_fetch_pois_skips_non_dict_elements() -> None:
 # 200 con un campo ``remark`` e gli elementi trovati FINO A LI': i selettori in
 # fondo alla query mancano. Le forme d'interruzione sotto seguono il prefisso
 # ``runtime error:``; quelle senza prefisso esercitano le frasi di riserva di
-# ``_INDIZI_INTERRUZIONE`` nel caso il prefisso cambiasse.
+# ``_TRUNCATION_HINTS`` nel caso il prefisso cambiasse.
 
 _REMARK_TIMEOUT = (
     'runtime error: Query timed out in "query" at line 3 after 26 seconds.'
@@ -1643,12 +1641,12 @@ _REMARK_INFORMATIVI = (
 
 @pytest.mark.parametrize("remark", _REMARK_INCOMPLETI)
 def test_remark_di_interruzione_segnala_risposta_incompleta(remark: str) -> None:
-    assert remark_segnala_risposta_incompleta(remark) is True
+    assert remark_signals_incomplete_response(remark) is True
 
 
 @pytest.mark.parametrize("remark", _REMARK_INFORMATIVI)
 def test_remark_informativo_non_segnala_risposta_incompleta(remark: str) -> None:
-    assert remark_segnala_risposta_incompleta(remark) is False
+    assert remark_signals_incomplete_response(remark) is False
 
 
 #: Id del campione completo dopo ``select_pois`` (node/1004 non ha nome); la
@@ -1740,9 +1738,9 @@ async def test_remark_di_timeout_poi_risposta_completa_ritenta_e_usa_la_seconda(
     # Il campione e' quello della seconda risposta, non quello troncato.
     assert sorted(p["id"] for p in pois) == _ID_CAMPIONE_COMPLETO
     messaggi = [r.getMessage() for r in caplog.records]
-    assert any(
-        "risposta incompleta" in m and "ritentativo 1/1" in m for m in messaggi
-    ), messaggi
+    assert any("risposta incompleta" in m and "retry 1/1" in m for m in messaggi), (
+        messaggi
+    )
 
 
 @respx.mock
@@ -1780,7 +1778,7 @@ async def test_capture_non_scrive_snapshot_da_una_risposta_troncata(
         return_value=httpx.Response(200, json=_troncata())
     )
 
-    async def inner(bbox: Bbox, citta: str) -> tuple[list[Poi], TaglioOsm | None]:
+    async def inner(bbox: Bbox, citta: str) -> tuple[list[Poi], OsmCut | None]:
         return await fetch_pois_with_cut(
             bbox, citta, retry=OFFLINE_RETRY, sleep=_recording_sleep([])
         )

@@ -1,9 +1,9 @@
-"""Layer RAG: retrieval, grounding e generation.
+"""RAG layer: retrieval, grounding and generation.
 
-Espone il generation layer (#23): costruzione del prompt, chiamata al client
-LLM (#20) e output JSON strutturato con confidence e metadati di
-riproducibilita'. Retrieval e grounding sono step adiacenti (moduli separati);
-qui il context_dict arriva gia' validato.
+Exposes the generation layer (#23): prompt construction, call to the LLM
+client (#20) and structured JSON output with confidence and reproducibility
+metadata. Retrieval and grounding are adjacent steps (separate modules);
+here the context_dict arrives already validated.
 """
 
 from crime_risk_analyzer.rag.generation import (

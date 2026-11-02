@@ -1,14 +1,14 @@
-"""Cache limitata del contesto di zona già calcolato (#197).
+"""Bounded cache of the already computed zone context (#197).
 
-``/analyze/poi`` ha bisogno del vicinato del POI, che vive nel contesto di zona.
-Ricostruirlo a ogni clic significherebbe una chiamata Overpass per clic, contro
-un servizio pubblico gratuito il cui retry e' gia' insufficiente (#232); farlo
-rimandare dal client significherebbe far guidare il prompt da dati non
-verificati. Quindi si conserva quello che ``/analyze`` ha appena calcolato.
+``/analyze/poi`` needs the POI's neighbourhood, which lives in the zone context.
+Rebuilding it on every click would mean one Overpass call per click, against a
+free public service whose retry is already insufficient (#232); having the
+client send it back would mean letting the prompt be driven by unverified
+data. So what ``/analyze`` has just computed is kept.
 
-Stesso modello del ``_CACHE`` di :mod:`~crime_risk_analyzer.geocoding`: modulo
-con stato limitato, non un servizio. TTL perche' OpenStreetMap e' una sorgente
-viva. Il tempo e' iniettabile (``now``) per test senza attese reali.
+Same model as the ``_CACHE`` of :mod:`~crime_risk_analyzer.geocoding`: a
+module with bounded state, not a service. TTL because OpenStreetMap is a live
+source. Time is injectable (``now``) for tests without real waits.
 """
 
 from __future__ import annotations
@@ -22,15 +22,15 @@ from crime_risk_analyzer.sources.context import current_id
 
 __all__ = ["MAX_ZONES", "TTL_SECONDS", "ZoneContext", "clear", "get", "purge", "put"]
 
-#: Numero massimo di zone conservate: oltre, si sfratta la più vecchia.
+#: Maximum number of zones kept: beyond it, the oldest is evicted.
 MAX_ZONES = 32
 
-#: Validità di una voce, in secondi (30 minuti).
+#: Validity of an entry, in seconds (30 minutes).
 TTL_SECONDS = 1800.0
 
 
 class ZoneContext(TypedDict):
-    """Contesto di zona riusabile: output di ``retrieve`` + output di ``ground``."""
+    """Reusable zone context: output of ``retrieve`` + output of ``ground``."""
 
     retrieval: RetrievalContext
     grounded: GroundedContext
@@ -40,25 +40,25 @@ _STORE: dict[tuple[str, str, str], tuple[float, ZoneContext]] = {}
 
 
 def _key(citta: str, zona: str) -> tuple[str, str, str]:
-    """Chiave tollerante: il client rimanda la zona come l'ha ricevuta.
+    """Tolerant key: the client sends the zone back as it received it.
 
-    La chiave e' l'ETICHETTA, non l'area: un cerchio la cui etichetta di reverse
-    geocode e' ("Roma", "Monti") e la modalita' citta + zona con "Roma"/"Monti"
-    digitati condividono lo stesso slot, pur essendo aree diverse. Preesistente
-    da #318 (due cerchi diversi con la stessa etichetta collidevano gia'). Non
-    produce narrative su un'area sbagliata: la fase 2 confronta
-    ``contesto_hash`` con l'impronta del contesto in slot, e un contesto
-    sovrascritto dall'altra area da' ``ContextMismatchError`` -> 409, che invita a
-    rilanciare l'analisi.
+    The key is the LABEL, not the area: a circle whose reverse-geocode label
+    is ("Roma", "Monti") and the city + zone mode with "Roma"/"Monti"
+    typed share the same slot, although they are different areas. Pre-existing
+    since #318 (two different circles with the same label already collided). It
+    does not produce narratives on a wrong area: phase 2 compares
+    ``contesto_hash`` with the fingerprint of the context in the slot, and a
+    context overwritten by the other area gives ``ContextMismatchError`` -> 409,
+    which invites re-running the analysis.
 
-    Il primo elemento e' l'id del set di fonti attivo (#416): due sessioni con
-    fonti diverse non si vedono mai, nemmeno se analizzano la stessa zona.
+    The first element is the id of the active source set (#416): two sessions with
+    different sources never see each other, even if they analyse the same zone.
     """
     return (current_id(), citta.strip().casefold(), zona.strip().casefold())
 
 
 def put(citta: str, zona: str, ctx: ZoneContext, *, now: float | None = None) -> None:
-    """Memorizza il contesto, sfrattando la voce più vecchia oltre il tetto."""
+    """Stores the context, evicting the oldest entry beyond the cap."""
     stamp = time.monotonic() if now is None else now
     key = _key(citta, zona)
     if len(_STORE) >= MAX_ZONES and key not in _STORE:
@@ -68,7 +68,7 @@ def put(citta: str, zona: str, ctx: ZoneContext, *, now: float | None = None) ->
 
 
 def get(citta: str, zona: str, *, now: float | None = None) -> ZoneContext | None:
-    """Il contesto se presente e non scaduto, altrimenti ``None`` (miss)."""
+    """The context if present and not expired, otherwise ``None`` (miss)."""
     stamp = time.monotonic() if now is None else now
     key = _key(citta, zona)
     entry = _STORE.get(key)
@@ -82,15 +82,15 @@ def get(citta: str, zona: str, *, now: float | None = None) -> ZoneContext | Non
 
 
 def purge(set_id: str) -> None:
-    """Toglie le voci di un set di fonti (sostituito, azzerato o scaduto)."""
+    """Removes the entries of a source set (replaced, reset or expired)."""
     for key in [k for k in _STORE if k[0] == set_id]:
         _STORE.pop(key, None)
 
 
 def clear() -> None:
-    """Svuota la cache: serve ai test, che condividono il processo.
+    """Empties the cache: needed by the tests, which share the process.
 
-    Non e' agganciata al ``lifespan``: un processo appena avviato ha gia' la
-    cache vuota, quindi la' non avrebbe nulla da fare.
+    It is not hooked to the ``lifespan``: a freshly started process already has
+    an empty cache, so there it would have nothing to do.
     """
     _STORE.clear()

@@ -13,7 +13,7 @@ from dataclasses import replace
 import pytest
 
 from crime_risk_analyzer.sources import parsing
-from crime_risk_analyzer.sources.csv_reader import MAX_ERRORI_RIGA, MAX_RIGHE, read_csv
+from crime_risk_analyzer.sources.csv_reader import MAX_ROW_ERRORS, MAX_ROWS, read_csv
 from crime_risk_analyzer.sources.parsing import UploadedFiles, check_sources
 from crime_risk_analyzer.sources.report import (
     CODE_OTHER_PROBLEMS,
@@ -147,7 +147,7 @@ def test_nessun_punto_interno_e_un_errore(monkeypatch: pytest.MonkeyPatch) -> No
     def nessun_incrocio(_poligono: object, _y: float) -> list[float]:
         return []
 
-    monkeypatch.setattr(parsing, "_incroci_orizzontali", nessun_incrocio)
+    monkeypatch.setattr(parsing, "_horizontal_crossings", nessun_incrocio)
     anello = [[0.0, 0.0], [4.0, 0.0], [4.0, 1.0], [1.0, 1.0], [1.0, 3.0]]
     anello += [[4.0, 3.0], [4.0, 4.0], [0.0, 4.0], [0.0, 0.0]]
     report = _report(_con_geometria({"type": "Polygon", "coordinates": [anello]}))
@@ -186,7 +186,7 @@ def test_report_con_tetto_per_file_e_conteggio_reale() -> None:
     assert len(report.errors) <= MAX_PROBLEMS_PER_FILE + 1
     assert report.errors[-1].code == "lettura_interrotta"
     assert report.errors[-1].file == "osm_table"
-    assert len(report.errors) == MAX_ERRORI_RIGA + 1
+    assert len(report.errors) == MAX_ROW_ERRORS + 1
 
 
 def test_tetto_per_file_con_codici_diversi() -> None:
@@ -384,9 +384,9 @@ def test_tetto_righe_confine_n_e_n_piu_uno() -> None:
 
 
 def test_file_con_200001_righe_rifiutato_subito() -> None:
-    assert MAX_RIGHE == 200_000
+    assert MAX_ROWS == 200_000
     osm = "osm_tag,classe\n" + "".join(
-        f"amenity=a{n},Banca\n" for n in range(MAX_RIGHE + 1)
+        f"amenity=a{n},Banca\n" for n in range(MAX_ROWS + 1)
     )
     inizio = time.monotonic()
     report = _report(con(osm_table=osm.encode()))
@@ -395,10 +395,8 @@ def test_file_con_200001_righe_rifiutato_subito() -> None:
 
 
 def test_file_con_200000_righe_valide_accettato() -> None:
-    osm = "osm_tag,classe\n" + "".join(
-        f"amenity=a{n},Banca\n" for n in range(MAX_RIGHE)
-    )
+    osm = "osm_tag,classe\n" + "".join(f"amenity=a{n},Banca\n" for n in range(MAX_ROWS))
     parsed, report = check_sources(con(osm_table=osm.encode()), VOCABOLARIO)
     assert report.ok
     assert parsed is not None
-    assert len(parsed.osm_to_class) == MAX_RIGHE
+    assert len(parsed.osm_to_class) == MAX_ROWS

@@ -1,1 +1,1 @@
-"""Vocabolario controllato EN→IT dell'ontologia TERMINUS (#77)."""
+"""Controlled EN→IT vocabulary of the TERMINUS ontology (#77)."""

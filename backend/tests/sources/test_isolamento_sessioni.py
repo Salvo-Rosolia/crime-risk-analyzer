@@ -4,7 +4,7 @@ import dataclasses
 from typing import Any, cast
 
 from crime_risk_analyzer import zone_context_cache as cache
-from crime_risk_analyzer.context_fingerprint import fingerprint, fonti_attive_id
+from crime_risk_analyzer.context_fingerprint import active_sources_id, fingerprint
 from crime_risk_analyzer.overpass_client import Poi
 from crime_risk_analyzer.sources.context import bind, current_id, default_set
 from crime_risk_analyzer.sources.model import SourceSet
@@ -72,26 +72,26 @@ def test_purge_toglie_solo_le_voci_del_set() -> None:
 
 
 def test_fonti_attive_id_none_per_il_default() -> None:
-    assert fonti_attive_id() is None
+    assert active_sources_id() is None
     with bind(_altro("a")):
-        assert fonti_attive_id() == "a"
+        assert active_sources_id() == "a"
 
 
 def test_impronta_senza_fonti_e_identica_a_prima() -> None:
-    assert fingerprint(_pois()) == fingerprint(_pois(), fonti=None)
+    assert fingerprint(_pois()) == fingerprint(_pois(), sources_id=None)
 
 
 def test_impronta_dipende_dal_set() -> None:
     base = fingerprint(_pois())
-    a = fingerprint(_pois(), fonti="a")
-    b = fingerprint(_pois(), fonti="b")
+    a = fingerprint(_pois(), sources_id="a")
+    b = fingerprint(_pois(), sources_id="b")
     assert len({base, a, b}) == 3
 
 
 def test_impronta_con_istat_e_fonti_non_collide() -> None:
-    assert fingerprint(_pois(), istat_versione="v1", fonti="a") != fingerprint(
-        _pois(), istat_versione="v1"
+    assert fingerprint(_pois(), istat_version="v1", sources_id="a") != fingerprint(
+        _pois(), istat_version="v1"
     )
-    assert fingerprint(_pois(), istat_versione="v1", fonti="a") != fingerprint(
-        _pois(), istat_versione="v1", fonti="b"
+    assert fingerprint(_pois(), istat_version="v1", sources_id="a") != fingerprint(
+        _pois(), istat_version="v1", sources_id="b"
     )

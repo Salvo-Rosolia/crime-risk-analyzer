@@ -52,7 +52,7 @@ _RISCHI = [
 ]
 
 
-def _contesto(istat: IstatPoi | None = None) -> str:
+def _context(istat: IstatPoi | None = None) -> str:
     return build_poi_context_str(
         citta="Roma",
         zona="Colosseo",
@@ -88,7 +88,7 @@ async def _genera(
 
 
 def test_contesto_senza_istat_invariato() -> None:
-    senza = _contesto()
+    senza = _context()
     assert "DATI ISTAT" not in senza
     assert senza == build_poi_context_str(
         citta="Roma",
@@ -104,7 +104,7 @@ def test_contesto_senza_istat_invariato() -> None:
 
 
 def test_contesto_con_istat_prima_del_vicinato_senza_poi_coinvolti() -> None:
-    testo = _contesto(istat_poi(BANK_ROBBERIES))
+    testo = _context(istat_poi(BANK_ROBBERIES))
     assert testo.index(ISTAT_DATA_HEADER) < testo.index("VICINATO")
     assert "- Comune di Roma, 2024: rapine in banca: " in testo
     assert "BANKROB" not in testo
@@ -114,7 +114,7 @@ def test_contesto_con_istat_prima_del_vicinato_senza_poi_coinvolti() -> None:
 async def test_generazione_con_istat_usa_la_variante_e_filtra(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(poi_mod, "versione_dati", lambda: "2026-10-06")
+    monkeypatch.setattr(poi_mod, "istat_data_version", lambda: "2026-10-06")
     testo = (
         "[ONTOLOGIA]\nLa Banca A conta 46 rapine in banca. Rischio di rapina. "
         "Secondo i dati ISTAT del Comune di Roma le rapine in banca hanno un tasso "

@@ -743,7 +743,7 @@ def test_rotta_di_zona_con_scelta_del_modello_usa_il_prompt_di_scelta(
     """#366: ``istat_scelta_modello`` arriva fino al prompt, solo con ISTAT acceso."""
     from crime_risk_analyzer.rag.generation import (
         SYSTEM_PROMPT,
-        SYSTEM_PROMPT_ISTAT_SCELTA,
+        SYSTEM_PROMPT_ISTAT_SELECTION,
     )
 
     _patch_io(monkeypatch)
@@ -753,7 +753,7 @@ def test_rotta_di_zona_con_scelta_del_modello_usa_il_prompt_di_scelta(
         settings=Settings(istat_context_enabled=True, istat_scelta_modello=True),
     )
     assert _narrativa(client, _analizza(client)).status_code == 200
-    assert llm.calls[0][0] == SYSTEM_PROMPT_ISTAT_SCELTA
+    assert llm.calls[0][0] == SYSTEM_PROMPT_ISTAT_SELECTION
 
     llm_spento = _RecordingLLMClient()
     spento = _client(

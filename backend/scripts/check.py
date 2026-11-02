@@ -1,15 +1,15 @@
-"""Runner unico dei controlli di qualità del backend.
+"""Single runner of the backend quality checks.
 
-Esegue in sequenza format-check, lint, type-check e test ESEGUENDO TUTTI gli
-step (non si ferma al primo errore), stampa un riepilogo e aggrega l'esito in
-un solo exit code.
+Runs in sequence format-check, lint, type-check and tests RUNNING ALL the
+steps (it does not stop at the first error), prints a summary and aggregates the outcome
+into a single exit code.
 
-Uso:
-    uv run python scripts/check.py          # bundle completo (verifica)
-    uv run python scripts/check.py format   # applica `ruff format`
+Usage:
+    uv run python scripts/check.py          # full bundle (verification)
+    uv run python scripts/check.py format   # applies `ruff format`
 
-I tool sono invocati come moduli (`sys.executable -m <tool>`) per evitare il bug
-del trampoline uv con gli spazi nel path (i console-script .exe falliscono).
+The tools are invoked as modules (`sys.executable -m <tool>`) to avoid the uv
+trampoline bug with spaces in the path (the .exe console-scripts fail).
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ import subprocess
 import sys
 from collections.abc import Sequence
 
-# (etichetta, comando) di ogni controllo, nell'ordine di esecuzione.
+# (label, command) of each check, in execution order.
 CHECKS: tuple[tuple[str, list[str]], ...] = (
     ("ruff format --check", [sys.executable, "-m", "ruff", "format", "--check", "."]),
     ("ruff check", [sys.executable, "-m", "ruff", "check", "."]),
@@ -28,18 +28,18 @@ CHECKS: tuple[tuple[str, list[str]], ...] = (
 
 
 def _run(cmd: Sequence[str]) -> int:
-    """Esegue un comando ereditando stdout/stderr; ritorna il suo exit code."""
+    """Runs a command inheriting stdout/stderr; returns its exit code."""
     return subprocess.run(list(cmd)).returncode
 
 
 def main() -> int:
-    """Esegue tutti i controlli; ritorna 0 se e solo se passano tutti."""
+    """Runs all the checks; returns 0 if and only if they all pass."""
     results: list[tuple[str, int]] = []
     for label, cmd in CHECKS:
         print(f"\n=== {label} ===", flush=True)
         results.append((label, _run(cmd)))
 
-    print("\n=== riepilogo ===", flush=True)
+    print("\n=== summary ===", flush=True)
     for label, code in results:
         marker = "[PASS]" if code == 0 else "[FAIL]"
         print(f"{marker} {label}")
@@ -48,7 +48,7 @@ def main() -> int:
 
 
 def format_cmd() -> int:
-    """Applica `ruff format` al codice (sottocomando `format`)."""
+    """Applies `ruff format` to the code (`format` subcommand)."""
     return _run([sys.executable, "-m", "ruff", "format", "."])
 
 

@@ -12,7 +12,7 @@ import pytest
 from crime_risk_analyzer.eval import metrics
 from crime_risk_analyzer.eval.metrics import RiskAnchoring, risk_anchoring
 from crime_risk_analyzer.models.vocab import ConfidenceSummary
-from crime_risk_analyzer.orchestrator import AnalyzeResponse, PoiOut, ZonaGeo
+from crime_risk_analyzer.orchestrator import AnalyzeResponse, GeoZone, PoiOut
 from crime_risk_analyzer.rag.generation import Repro, RiskItem, RiskModel
 
 
@@ -218,7 +218,7 @@ def _response(narrativa: str) -> AnalyzeResponse:
         repro=Repro(temperature=0.0, seed=0, prompt_hash="h"),
         cache_hit=False,
         contesto_hash="h-ctx",
-        zona_geo=ZonaGeo(
+        zona_geo=GeoZone(
             lat=41.0,
             lon=12.0,
             bbox_min_lat=40.9,

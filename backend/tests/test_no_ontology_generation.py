@@ -221,8 +221,8 @@ def test_module_warns_that_this_prose_is_not_a_product_example() -> None:
     import crime_risk_analyzer.rag.no_ontology_generation as modulo
 
     doc = (modulo.__doc__ or "").lower()
-    assert "mai" in doc
-    assert "esempio di output" in doc
+    assert "never" in doc
+    assert "example of real system output" in doc
 
 
 def test_both_arms_share_the_same_citation_limit() -> None:
@@ -346,7 +346,7 @@ def test_no_ontology_truncation_note_is_the_shared_one_without_criterion() -> No
     """#349: una sola nota di taglio, quella di ``generation`` senza criterio."""
     ctx = _context_dict()
     out = build_no_ontology_context_str(ctx, poi_nel_prompt=[ctx["validated_risks"][1]])
-    assert _truncation_note(1, 2, con_criterio=False) in out
+    assert _truncation_note(1, 2, with_criterion=False) in out
     assert righe_poi(out) == ["  POI:  (Bank)"]
 
 

@@ -1,30 +1,31 @@
-"""Grounding e citation layer -> context validato (#24).
+"""Grounding and citation layer -> validated context (#24).
 
-Secondo layer della pipeline /analyze (retrieval #22 -> grounding #24 ->
-generation #23). :func:`ground` trasforma il ``RetrievalContext`` grezzo (#22) nel
-``context_dict`` VALIDATO che
-:func:`~crime_risk_analyzer.rag.generation.generate_analysis` gia' si aspetta.
+Second layer of the /analyze pipeline (retrieval #22 -> grounding #24 ->
+generation #23). :func:`ground` transforms the raw ``RetrievalContext`` (#22) into the
+VALIDATED ``context_dict`` that
+:func:`~crime_risk_analyzer.rag.generation.generate_analysis` already expects.
 
-Grounding DETERMINISTICO pre-LLM: i rischi strutturati sono costruiti dai profili
-ontologici, non dall'output del modello -> non allucinabili. Poiche' il
-``RetrievalContext`` contiene solo hazard ontologici (da SPARQL/OWL restriction),
-ogni rischio strutturato ha ``tag="ONTOLOGIA"``: la FONTE e' sempre l'ontologia.
+DETERMINISTIC pre-LLM grounding: the structured risks are built from the
+ontological profiles, not from the model output -> not hallucinable. Since the
+``RetrievalContext`` contains only ontological hazards (from SPARQL/OWL restriction),
+every structured risk has ``tag="ONTOLOGIA"``: the SOURCE is always the ontology.
 
-La ``confidence`` gradua invece la FORZA PROBATORIA del rischio in base alla
-verificabilita' del POI in OSM (#202):
+The ``confidence`` instead grades the EVIDENTIAL STRENGTH of the risk based on the
+verifiability of the POI in OSM (#202):
 
-- ``verificato`` = hazard ontologico su un POI con ``name`` OSM non vuoto (doppio
-  ancoraggio: ontologia + entita' OSM verificabile).
-- ``da_confermare`` = hazard ontologico su una feature OSM anonima (``name`` vuoto/
-  whitespace): l'ancoraggio OSM e' debole, il supporto poggia sulla sola ontologia.
+- ``verificato`` = ontological hazard on a POI with a non-empty OSM ``name`` (double
+  anchoring: ontology + verifiable OSM entity).
+- ``da_confermare`` = ontological hazard on an anonymous OSM feature (empty/
+  whitespace ``name``): the OSM anchoring is weak, the support rests on the ontology
+  alone.
 
-Il ``tag`` resta ``ONTOLOGIA`` per entrambi i livelli (la fonte non cambia, cambia
-solo la forza probatoria). La confidence qualifica la prova, MAI la pericolosita'
-(vincolo legale, _project.md §Vincoli). ``CONTESTO``/``SPECULATIVO`` restano
-vocabolario per la narrativa LLM, non prodotti qui.
+The ``tag`` stays ``ONTOLOGIA`` for both levels (the source does not change, only the
+evidential strength changes). The confidence qualifies the evidence, NEVER the
+dangerousness (legal constraint, _project.md §Vincoli). ``CONTESTO``/``SPECULATIVO``
+remain vocabulary for the LLM narrative, not produced here.
 
-Funzione sincrona e deterministica: nessun accesso al grafo/executor. L'unico I/O
-e' la lettura, una volta per processo e poi in cache, dei dati ISTAT del package
+Synchronous and deterministic function: no access to the graph/executor. The only I/O
+is the reading, once per process and then cached, of the package's ISTAT data
 (#345).
 """
 
@@ -46,42 +47,42 @@ __all__ = [
     "ground",
 ]
 
-#: La fonte di ogni rischio strutturato e' sempre l'ontologia (vedi docstring): il
-#: tag non gradua la forza probatoria, quella e' compito della ``confidence``.
+#: The source of every structured risk is always the ontology (see docstring): the
+#: tag does not grade the evidential strength, that is the job of the ``confidence``.
 _TAG: Tag = "ONTOLOGIA"
-#: Confidence per un hazard su POI con nome OSM (doppio ancoraggio: ontologia +
-#: entita' OSM verificabile).
+#: Confidence for a hazard on a POI with an OSM name (double anchoring: ontology +
+#: verifiable OSM entity).
 _CONFIDENCE_NAMED: Confidence = "verificato"
-#: Confidence per un hazard su feature OSM anonima (ancoraggio OSM debole): il
-#: supporto poggia sulla sola ontologia, la fonte (tag) resta comunque ONTOLOGIA.
+#: Confidence for a hazard on an anonymous OSM feature (weak OSM anchoring): the
+#: support rests on the ontology alone, the source (tag) stays ONTOLOGIA anyway.
 _CONFIDENCE_ANONYMOUS: Confidence = "da_confermare"
 
 
 def confidence_from_poi_name(name: str) -> Confidence:
-    """Grada la confidence dalla verificabilita' del POI in OSM (#202).
+    """Grades the confidence from the verifiability of the POI in OSM (#202).
 
-    ``verificato`` se ``name`` (strip) e' non vuoto (entita' OSM verificabile,
-    doppio ancoraggio ontologia + OSM), ``da_confermare`` se vuoto/whitespace
-    (feature anonima, ancoraggio OSM debole). Il tag della fonte resta ONTOLOGIA
-    in entrambi i casi.
+    ``verificato`` if ``name`` (stripped) is non-empty (verifiable OSM entity,
+    double anchoring ontology + OSM), ``da_confermare`` if empty/whitespace
+    (anonymous feature, weak OSM anchoring). The source tag stays ONTOLOGIA
+    in both cases.
 
-    Helper CONDIVISO (unica sorgente della regola nome->verificabilita', M1): il
-    grounding lo applica per-rischio, l'orchestrator per la ``confidence``
-    per-POI, cosi' il badge del POI non diverge dai livelli dei suoi rischi.
+    SHARED helper (single source of the name->verifiability rule, M1): the
+    grounding applies it per risk, the orchestrator for the per-POI ``confidence``,
+    so the POI badge does not diverge from the levels of its risks.
 
-    Segnale UNICO e deterministico (#258): la sola presenza del tag ``name``
-    OSM, nessun'altra fonte (``wikidata``/``operator``/``brand``, tipo di
-    elemento, fedelta' del mapping) concorre al livello. I valori letterali
-    (``verificato``/``da_confermare``) restano il contratto stabile fra
-    backend/frontend/eval; il frontend mostra invece le etichette oneste
-    "Identificato"/"Anonimo" (:mod:`core/confidence.ts`) per non lasciare
-    intendere un processo di verifica piu' ampio di questo singolo bit.
+    SINGLE and deterministic signal (#258): only the presence of the OSM ``name``
+    tag, no other source (``wikidata``/``operator``/``brand``, element type,
+    mapping fidelity) contributes to the level. The literal values
+    (``verificato``/``da_confermare``) remain the stable contract between
+    backend/frontend/eval; the frontend instead shows the honest labels
+    "Identificato"/"Anonimo" (:mod:`core/confidence.ts`) so as not to suggest
+    a verification process wider than this single bit.
     """
     return _CONFIDENCE_NAMED if name.strip() else _CONFIDENCE_ANONYMOUS
 
 
 class GroundedRisk(TypedDict):
-    """Singolo rischio ancorato: hazard + tag/confidence + citazione SPARQL."""
+    """Single anchored risk: hazard + tag/confidence + SPARQL citation."""
 
     hazard: str
     tag: Tag
@@ -90,13 +91,13 @@ class GroundedRisk(TypedDict):
 
 
 class OntologyEntity(TypedDict):
-    """Entita' ontologica di un asse non-hazard, con la propria citazione (#256).
+    """Ontological entity of a non-hazard axis, with its own citation (#256).
 
-    Non porta ``confidence``: la forza probatoria e' un bit derivato dal NOME del
-    POI, quindi identica per ogni asserzione ontologica su quel punto — il badge
-    del POI le qualifica tutte, e ripeterlo per voce aggiungerebbe rumore invece di
-    informazione. Non porta ``tag`` per la stessa ragione: la fonte e' l'ontologia
-    per costruzione.
+    It does not carry ``confidence``: the evidential strength is a bit derived from the
+    NAME of the POI, hence identical for every ontological assertion on that point — the
+    POI badge qualifies them all, and repeating it per item would add noise instead of
+    information. It does not carry ``tag`` for the same reason: the source is the
+    ontology by construction.
     """
 
     name: str
@@ -104,48 +105,48 @@ class OntologyEntity(TypedDict):
 
 
 class ValidatedRisk(TypedDict):
-    """Rischi validati per un POI (forma letta da generation).
+    """Validated risks for a POI (shape read by generation).
 
-    ``poi_id`` e' l'id OSM del punto: e' la chiave con cui un consumatore attribuisce
-    questi rischi al POI giusto. Il ``poi`` (nome) resta per il display, ma i nomi OSM
-    non sono ne' unici ne' sempre presenti (le feature anonime arrivano con
-    ``name=""``), quindi non identificano nulla.
+    ``poi_id`` is the OSM id of the point: it is the key by which a consumer attributes
+    these risks to the right POI. The ``poi`` (name) stays for display, but the OSM
+    names are neither unique nor always present (anonymous features arrive with
+    ``name=""``), so they identify nothing.
 
-    Limite noto dell'id, pre-esistente e non chiuso qui: ``overpass_client`` lo
-    costruisce dal solo ``element["id"]`` senza il tipo di elemento, e node e way
-    vivono in namespace OSM separati — ``node/123`` e ``way/123`` collasserebbero
-    sulla stessa stringa. Sui 4 snapshot committati non ci sono collisioni, ma
-    l'unicita' e' un fatto osservato, non garantito per costruzione.
+    Known limit of the id, pre-existing and not closed here: ``overpass_client`` builds
+    it from ``element["id"]`` alone without the element type, and node and way
+    live in separate OSM namespaces — ``node/123`` and ``way/123`` would collapse
+    onto the same string. On the 4 committed snapshots there are no collisions, but
+    uniqueness is an observed fact, not guaranteed by construction.
     """
 
     poi_id: str
     poi: str
     terminus_class: str
     risks: list[GroundedRisk]
-    #: Gli assi TERMINUS oltre agli hazard (#256): l'executor li estraeva gia' a ogni
-    #: richiesta, ma ``critical_events`` non lo leggeva nessuno e le vulnerabilita'
-    #: arrivavano al prompt come stringhe nude, senza la citazione che le ancora. Ora
-    #: ognuno porta il proprio path, ``stakeholders`` incluso da quando il vocabolario
-    #: controllato copre anche quella categoria (#270).
+    #: The TERMINUS axes beyond the hazards (#256): the executor already extracted them
+    #: on every request, but nobody read ``critical_events`` and the vulnerabilities
+    #: reached the prompt as bare strings, without the citation that anchors them. Now
+    #: each carries its own path, ``stakeholders`` included since the controlled
+    #: vocabulary also covers that category (#270).
     critical_events: list[OntologyEntity]
     vulnerabilities: list[OntologyEntity]
     stakeholders: list[OntologyEntity]
     sparql_path: str | None
-    #: Dati ISTAT del luogo del POI collegati ai suoi hazard (#345, spec 4.3):
-    #: comune capoluogo o provincia ricavati dalle COORDINATE del POI, mai dal centro
-    #: dell'area (in valutazione il ``geo`` e' un segnaposto). Calcolato SEMPRE: la
-    #: cache di zona lo porta gia' e la ricostruzione a cache fredda e' deterministica;
-    #: l'interruttore agisce solo su prompt e controllo delle cifre. Da #346 decide
-    #: anche se ``poi[].istat`` arriva al client nella fase 1 di ``/analyze`` (il
-    #: filtro e' in ``orchestrator._build_poi_list``): cioe' l'ordine dei rischi
-    #: nel Dettaglio POI. ``None`` fuori da ogni poligono, senza voci collegate o
-    #: senza dati. ``NotRequired``: i contesti costruiti a mano (test, doppi)
-    #: restano validi senza il campo.
+    #: ISTAT data of the POI's place linked to its hazards (#345, spec 4.3):
+    #: capoluogo municipality or province derived from the POI's COORDINATES, never from
+    #: the centre of the area (in evaluation the ``geo`` is a placeholder). ALWAYS
+    #: computed: the zone cache already carries it and the cold-cache reconstruction is
+    #: deterministic; the switch acts only on the prompt and the figures check. Since
+    #: #346 it also decides whether ``poi[].istat`` reaches the client in phase 1 of
+    #: ``/analyze`` (the filter is in ``orchestrator._build_poi_list``): i.e. the order
+    #: of the risks in the POI Detail. ``None`` outside every polygon, without linked
+    #: items or without data. ``NotRequired``: the hand-built contexts (tests, doubles)
+    #: remain valid without the field.
     istat: NotRequired[IstatPoi | None]
 
 
 class GroundedContext(TypedDict):
-    """Context validato: input di ``generate_analysis`` (#23)."""
+    """Validated context: input of ``generate_analysis`` (#23)."""
 
     zona: str
     validated_risks: list[ValidatedRisk]
@@ -153,12 +154,13 @@ class GroundedContext(TypedDict):
 
 
 def _source_for(profile: PoiRiskProfile, props: tuple[str, ...], filler: str) -> str:
-    """Path SPARQL reale di ``filler`` per una delle ``props``, dai ``sparql_paths``.
+    """Real SPARQL path of ``filler`` for one of the ``props``, from the
+    ``sparql_paths``.
 
-    Un filler puo' essere ereditato da una superclasse via ``rdfs:subClassOf*``: il
-    path reale cita quella classe, quindi va PRESO dai ``sparql_paths`` (non
-    sintetizzato da ``terminus_class``). Fallback sintetizzato sulla prima property
-    solo se nessun path combacia (non atteso: ``sparql_paths`` ha un path per
+    A filler can be inherited from a superclass via ``rdfs:subClassOf*``: the real
+    path cites that class, so it must be TAKEN from the ``sparql_paths`` (not
+    synthesised from ``terminus_class``). Fallback synthesised on the first property
+    only if no path matches (not expected: ``sparql_paths`` has a path per
     filler).
     """
     for path in profile.sparql_paths:
@@ -171,7 +173,7 @@ def _source_for(profile: PoiRiskProfile, props: tuple[str, ...], filler: str) ->
 def _entities(
     profile: PoiRiskProfile, props: tuple[str, ...], fillers: list[str]
 ) -> list[OntologyEntity]:
-    """Filler di un asse, ciascuno con la propria citazione."""
+    """Fillers of an axis, each with its own citation."""
     return [
         OntologyEntity(name=filler, source=_source_for(profile, props, filler))
         for filler in fillers
@@ -179,25 +181,25 @@ def _entities(
 
 
 def ground(context: RetrievalContext) -> GroundedContext:
-    """Trasforma il ``RetrievalContext`` grezzo (#22) nel context validato (#23).
+    """Transforms the raw ``RetrievalContext`` (#22) into the validated context (#23).
 
-    Per ogni POI costruisce i rischi ontologici (tag ``ONTOLOGIA``) con la
-    citazione SPARQL per-hazard; la ``confidence`` di TUTTI i rischi del POI e'
-    ``verificato`` se il POI ha un nome OSM, ``da_confermare`` se e' una feature
-    anonima (:func:`confidence_from_poi_name`, #202). I POI fuori ontologia
-    (``GenericUrbanPOI``/profilo vuoto) restano con ``risks=[]``. Il
-    ``confidence_summary`` conta i livelli reali.
+    For each POI it builds the ontological risks (tag ``ONTOLOGIA``) with the
+    per-hazard SPARQL citation; the ``confidence`` of ALL the risks of the POI is
+    ``verificato`` if the POI has an OSM name, ``da_confermare`` if it is an
+    anonymous feature (:func:`confidence_from_poi_name`, #202). POIs outside the
+    ontology (``GenericUrbanPOI``/empty profile) stay with ``risks=[]``. The
+    ``confidence_summary`` counts the real levels.
     """
-    # Le proprieta' sono quelle dell'ontologia attiva (#434), non TERMINUS fisse:
-    # una citazione con una proprieta' che nel suo grafo non esiste non e' ancorata.
+    # The properties are those of the active ontology (#434), not fixed TERMINUS:
+    # a citation with a property that does not exist in its graph is not anchored.
     ontology = current_ontology()
     props_hazard = (ontology.hazard,)
     props_critical_event = (ontology.critical_event,)
     props_vulnerability = ontology.vulnerability
     props_stakeholder = (ontology.performer,)
     validated: list[ValidatedRisk] = []
-    n_verificato = 0
-    n_da_confermare = 0
+    n_verified = 0
+    n_to_confirm = 0
     for poi in context["pois"]:
         profile = context["profiles"][poi["terminus_class"]]
         confidence = confidence_from_poi_name(poi["name"])
@@ -211,9 +213,9 @@ def ground(context: RetrievalContext) -> GroundedContext:
             for hazard in profile.hazards
         ]
         if confidence == _CONFIDENCE_NAMED:
-            n_verificato += len(risks)
+            n_verified += len(risks)
         else:
-            n_da_confermare += len(risks)
+            n_to_confirm += len(risks)
         validated.append(
             {
                 "poi_id": poi["id"],
@@ -237,7 +239,7 @@ def ground(context: RetrievalContext) -> GroundedContext:
         "zona": context["zona"],
         "validated_risks": validated,
         "confidence_summary": {
-            "verificato": n_verificato,
-            "da_confermare": n_da_confermare,
+            "verificato": n_verified,
+            "da_confermare": n_to_confirm,
         },
     }

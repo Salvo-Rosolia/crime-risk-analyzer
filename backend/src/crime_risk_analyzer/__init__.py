@@ -1,3 +1,3 @@
-"""Crime Risk Analyzer — package applicativo del backend FastAPI."""
+"""Crime Risk Analyzer — application package of the FastAPI backend."""
 
 __version__ = "0.1.0"

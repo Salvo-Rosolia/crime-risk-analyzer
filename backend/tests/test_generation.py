@@ -611,7 +611,7 @@ def test_truncation_note_without_criterion_is_neutral() -> None:
     La versione con criterio resta byte-identica (test sopra): cambia solo la
     variante neutra, che non dice "piu' rilevanti" e non dice "i".
     """
-    assert _truncation_note(9, 20, con_criterio=False) == (
+    assert _truncation_note(9, 20, with_criterion=False) == (
         "NB: per limiti di lunghezza sono analizzati 9 POI su 20; "
         "gli altri sono comunque in mappa e nella lista."
     )

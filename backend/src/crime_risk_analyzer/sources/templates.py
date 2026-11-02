@@ -1,9 +1,9 @@
-"""Modelli CSV scaricabili (#415): intestazione giusta e qualche riga d'esempio.
+"""Downloadable CSV templates (#415): the right header and a few example rows.
 
-Le colonne sono quelle lette da :mod:`~crime_risk_analyzer.sources.parsing`
-(stesse costanti, nessuna copia). Le righe d'esempio mostrano il formato dei
-valori con nomi generici: vanno sostituite con quelle dell'ontologia caricata.
-Virgola come separatore, UTF-8, righe LF.
+The columns are those read by :mod:`~crime_risk_analyzer.sources.parsing`
+(same constants, no copy). The example rows show the format of the
+values with generic names: they must be replaced with those of the uploaded ontology.
+Comma as separator, UTF-8, LF rows.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ __all__ = ["TEMPLATE_NAMES", "TemplateName", "template_csv", "template_filename"
 TemplateName = Literal["osm_table", "data", "hazard_table"]
 TEMPLATE_NAMES: tuple[TemplateName, ...] = get_args(TemplateName)
 
-_MODELLI: dict[TemplateName, tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]] = {
+_MODELS: dict[TemplateName, tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]] = {
     "osm_table": (
         OSM_COLUMNS,
         (("amenity=bank", "Bank"), ("amenity=hospital", "Hospital")),
@@ -54,17 +54,17 @@ _MODELLI: dict[TemplateName, tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]
 
 
 def template_csv(name: TemplateName) -> str:
-    """Testo del modello ``name``: intestazione piu' righe d'esempio."""
-    if name not in _MODELLI:
+    """Text of the template ``name``: header plus example rows."""
+    if name not in _MODELS:
         raise ValueError(f"modello sconosciuto: {name!r}")
-    intestazione, righe = _MODELLI[name]
+    header, rows = _MODELS[name]
     buffer = io.StringIO()
-    scrittore = csv.writer(buffer, lineterminator="\n")
-    scrittore.writerow(intestazione)
-    scrittore.writerows(righe)
+    writer = csv.writer(buffer, lineterminator="\n")
+    writer.writerow(header)
+    writer.writerows(rows)
     return buffer.getvalue()
 
 
 def template_filename(name: TemplateName) -> str:
-    """Nome del file proposto per il download del modello."""
+    """File name proposed for the download of the template."""
     return f"modello_{name}.csv"

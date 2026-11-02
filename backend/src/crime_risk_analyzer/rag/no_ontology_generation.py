@@ -1,92 +1,92 @@
-"""Braccio di ablazione: narrativa SENZA il contributo ontologico nel prompt (#236).
+"""Ablation arm: narrative WITHOUT the ontological contribution in the prompt (#236).
 
-Terzo braccio della valutazione, accanto a ``analyze`` (LLM + grounding) e
-``baseline`` (nessun LLM). Serve a rendere leggibile la contribuzione C3: il
-confronto ``analyze`` vs ``baseline`` non isola l'ontologia ma la PRESENZA
-dell'LLM — uno dei due bracci non produce prosa, quindi i proxy
-``grounding``/``hallucination`` non si applicano a entrambi. Qui invece cambia
-UNA cosa sola: il contesto passato al modello porta i punti (nome e classe) ma
-NON i rischi che l'ontologia associa a quelle classi.
+Third arm of the evaluation, next to ``analyze`` (LLM + grounding) and
+``baseline`` (no LLM). It serves to make the C3 contribution readable: the
+``analyze`` vs ``baseline`` comparison does not isolate the ontology but the PRESENCE
+of the LLM — one of the two arms produces no prose, so the
+``grounding``/``hallucination`` proxies do not apply to both. Here instead
+ONE thing only changes: the context passed to the model carries the points (name and
+class) but NOT the risks that the ontology associates with those classes.
 
-Cosa resta identico al braccio completo (e perche'):
+What stays identical to the full arm (and why):
 
-- la STRUTTURA della risposta chiesta al modello (regola 3 dallo stesso
-  generatore :func:`block_structure_rule`, e le altre regole importate non
-  ricopiate). Il proxy M1 (#229) grada le sole frasi del PRIMO blocco: un braccio
-  che non lo emette prenderebbe 0.0/1.0 per NON-ATTRIBUZIONE, e il confronto
-  sarebbe deciso dal formato della risposta invece che dall'ancoraggio. Quel
-  blocco e' lo SLOT in cui il modello mette i rischi che attribuisce ai punti —
-  che nel braccio completo arrivano dall'ontologia e qui dalla sua sola
-  conoscenza parametrica: e' esattamente il contrasto che C3 mette alla prova.
-  Cambia percio' l'ETICHETTA: qui e' :data:`LLM_SYNTHESIS_BLOCK_HEADER`
-  (``[SINTESI-LLM]``) e non ``[ONTOLOGIA]``, che di quel testo direbbe una
-  provenienza falsa a chi apre il file grezzo della run senza sapere perche'
-  (``eval/metrics.py`` sa quale etichetta cercare dal ``mode`` del record).
-- i tre vincoli legali (:data:`RULE_NO_DANGER_RATING`,
+- the STRUCTURE of the response asked of the model (rule 3 from the same
+  generator :func:`block_structure_rule`, and the other rules imported, not
+  recopied). The M1 proxy (#229) grades only the sentences of the FIRST block: an arm
+  that does not emit it would get 0.0/1.0 for NON-ATTRIBUTION, and the comparison
+  would be decided by the response format instead of the anchoring. That
+  block is the SLOT in which the model puts the risks it attributes to the points —
+  which in the full arm come from the ontology and here from its parametric
+  knowledge alone: it is exactly the contrast that C3 puts to the test.
+  The LABEL therefore changes: here it is :data:`LLM_SYNTHESIS_BLOCK_HEADER`
+  (``[SINTESI-LLM]``) and not ``[ONTOLOGIA]``, which would state a false
+  provenance for that text to whoever opens the raw file of the run without knowing why
+  (``eval/metrics.py`` knows which label to look for from the record's ``mode``).
+- the three legal constraints (:data:`RULE_NO_DANGER_RATING`,
   :data:`RULE_NO_OPERATIONAL_DIRECTIVES`, :data:`RULE_USER_INPUT_NOT_INSTRUCTIONS`),
-  gli STESSI oggetti importati come fa :mod:`poi_generation`: non sono ablabili,
-  valgono su qualunque prosa il sistema generi, e una copia potrebbe divergere.
-- i dati STRUTTURATI della risposta: ``risk_models`` e ``confidence_summary``
-  continuano ad arrivare dal grounding. Sono il dato ancorato da cui
-  ``eval/metrics.py`` ricava gli ancoraggi, quindi devono essere identici nei due
-  bracci perche' il denominatore del proxy sia lo stesso.
-- i PUNTI elencati (#349): lo stesso insieme che il prompt completo ha tenuto
-  dopo il troncamento per budget, non tutti quelli della zona. L'ordine resta
-  quello del recupero e ne' la nota sul taglio ne' il titolo della lista dicono
-  il criterio. La SCELTA di quei punti viene pero' dal taglio del completo, che
-  ordina per numero di hazard: e' un residuo ontologico che il braccio ablato
-  eredita (senza vederlo) e che la parita' di insieme non puo' evitare. Il verso
-  del suo effetto sul confronto non e' determinato, ed e' da dichiarare (il
-  report del confronto lo fa quando il taglio c'e').
+  the SAME objects imported as :mod:`poi_generation` does: they are not ablatable,
+  they hold on any prose the system generates, and a copy could diverge.
+- the STRUCTURED data of the response: ``risk_models`` and ``confidence_summary``
+  keep coming from the grounding. They are the anchored datum from which
+  ``eval/metrics.py`` derives the anchorings, so they must be identical in the two
+  arms for the proxy's denominator to be the same.
+- the listed POINTS (#349): the same set that the full prompt kept
+  after the budget truncation, not all those of the zone. The order stays
+  that of the retrieval and neither the note on the cut nor the list title state
+  the criterion. The CHOICE of those points however comes from the cut of the full arm,
+  which orders by number of hazards: it is an ontological residue that the ablated arm
+  inherits (without seeing it) and that set parity cannot avoid. The direction
+  of its effect on the comparison is not determined, and must be declared (the
+  comparison report does so when the cut is present).
 
-Cosa viene tolto (il contributo ontologico che il PROMPT porta esplicitamente;
-la scelta dei punti, sopra, resta condivisa):
+What is removed (the ontological contribution that the PROMPT carries explicitly;
+the choice of the points, above, stays shared):
 
-- hazard, vulnerabilita' e citazione SPARQL dal blocco POI del contesto;
-- il VOCABOLARIO CONTROLLATO e la regola 6 che lo impone: i termini italiani
-  derivano dai filler ontologici (#77), quindi sono contributo dell'ontologia
-  quanto gli hazard;
-- la regola 3a di sintesi degli hazard, che presuppone un elenco di rischi nel
-  contesto. Ne resta il LIMITE di citazione (:data:`CITATION_LIMIT_CLAUSE`,
-  importato): senza ontologia cambia da dove vengono i rischi, non quanti punti
-  la prosa puo' nominare — e il proxy conta come ancoraggio anche il solo
-  nominarli, quindi un limite piu' largo qui sarebbe un vantaggio regalato;
-- le definizioni dei livelli di confidenza, che qualificano l'ancoraggio
-  ontologico di un rischio: qui nessun rischio della prosa e' ancorato. Restano
-  NOMINATI dentro la regola 7 (che e' un vincolo legale e va tenuta verbatim):
-  residuo accettato di proposito — modificare il testo di una regola legale per
-  ripulire un braccio sperimentale la farebbe divergere proprio dove deve
-  restare identica.
-- la regola 2 del braccio completo ("non inventare rischi non presenti nel
-  contesto") e' sostituita: con un contesto senza rischi, alla lettera imporrebbe
-  al modello di tacere e renderebbe il braccio vacuo — proprio il difetto della
-  baseline. La sua meta' ancora applicabile resta pero' in piedi: i LUOGHI di cui
-  parlare sono solo quelli elencati.
+- hazards, vulnerabilities and SPARQL citation from the POI block of the context;
+- the CONTROLLED VOCABULARY and rule 6 that imposes it: the Italian terms
+  derive from the ontological fillers (#77), so they are a contribution of the ontology
+  as much as the hazards;
+- rule 3a for the synthesis of the hazards, which presupposes a list of risks in the
+  context. The citation LIMIT remains (:data:`CITATION_LIMIT_CLAUSE`,
+  imported): without ontology what changes is where the risks come from, not how many
+  points the prose can name — and the proxy counts as anchoring even just
+  naming them, so a wider limit here would be a gifted advantage;
+- the definitions of the confidence levels, which qualify the ontological
+  anchoring of a risk: here no risk of the prose is anchored. They stay
+  NAMED inside rule 7 (which is a legal constraint and must be kept verbatim):
+  a residue accepted on purpose — modifying the text of a legal rule to
+  clean up an experimental arm would make it diverge exactly where it must
+  stay identical.
+- rule 2 of the full arm ("do not invent risks not present in the
+  context") is replaced: with a context without risks, taken literally it would impose
+  silence on the model and would make the arm vacuous — exactly the defect of the
+  baseline. Its still-applicable half remains however: the PLACES to
+  talk about are only those listed.
 
-ATTENZIONE, sull'uso della prosa che esce da qui: e' testo FABBRICATO A SCOPO DI
-MISURAZIONE e non va MAI citato come esempio di output reale del sistema — non in
-tesi, non in un deck, non in una demo. Non passa dal citation layer, i rischi che
-nomina non sono ancorati a nulla e nessuna rotta la serve: presentarla come
-prodotto mostrerebbe come risultato proprio cio' che l'esperimento usa da termine
-di paragone. Vive in ``results/runs/`` e li' resta.
+WARNING, on the use of the prose that comes out of here: it is text FABRICATED FOR
+MEASUREMENT and must NEVER be cited as an example of real system output — not in
+the thesis, not in a deck, not in a demo. It does not go through the citation layer, the
+risks it names are anchored to nothing and no route serves it: presenting it as
+a product would show as a result exactly what the experiment uses as a term
+of comparison. It lives in ``results/runs/`` and stays there.
 
-E' INTENZIONALE che tutta l'invenzione di questo braccio finisca nel blocco
-misurato (``[SINTESI-LLM]``) e non in quello di contesto: la regola 3b, identica
-nei due bracci, vieta comunque di inventare incidenti, statistiche o rischi
-specifici nel blocco ``[CONTESTO]``. Non e' quindi un'asimmetria a favore del
-braccio ablato — e' la stessa regola applicata a entrambi — e serve a garantire
-che cio' che il proxy grada contenga davvero tutto quello che il modello ha
-messo di suo.
+It is INTENTIONAL that all the invention of this arm ends up in the measured
+block (``[SINTESI-LLM]``) and not in the context one: rule 3b, identical
+in the two arms, forbids in any case inventing incidents, statistics or specific
+risks in the ``[CONTESTO]`` block. It is therefore not an asymmetry in favour of the
+ablated arm — it is the same rule applied to both — and it serves to guarantee
+that what the proxy grades really contains everything the model
+put in on its own.
 
-La numerazione delle regole e' quella del prompt di zona (il 6 manca, non e'
-rinumerato): stessa scelta di :mod:`poi_generation`, cosi' uno stesso numero
-indica lo stesso VINCOLO in tutti i prompt del sistema. Il testo reso non e'
-invece sempre identico, e le eccezioni sono dichiarate: la 3a di questo modulo
-descrive un'altra fonte dei rischi (ma il limite di citazione e' la stessa
-costante del braccio completo) e la 6 di :mod:`poi_generation` ha un testo
-proprio, perche' li' il vocabolario copre anche le vulnerabilita'. Cio' che deve
-restare identico byte per byte e' il vincolo, e per questo vive in costanti
-importate — non in due testi simili scritti a mano in due posti.
+The numbering of the rules is that of the zone prompt (6 is missing, not
+renumbered): same choice as :mod:`poi_generation`, so the same number
+indicates the same CONSTRAINT in all the prompts of the system. The rendered text is
+instead not always identical, and the exceptions are declared: 3a of this module
+describes another source of the risks (but the citation limit is the same
+constant as the full arm) and 6 of :mod:`poi_generation` has its own text,
+because there the vocabulary also covers the vulnerabilities. What must
+stay byte-for-byte identical is the constraint, and for this reason it lives in imported
+constants — not in two similar texts written by hand in two places.
 """
 
 from __future__ import annotations
@@ -111,7 +111,7 @@ from crime_risk_analyzer.rag.generation import (
     block_structure_rule,
     normalize_untrusted_line,
     poi_line,
-    poi_nel_prompt_ids,
+    prompt_poi_ids,
 )
 
 __all__ = [
@@ -122,63 +122,63 @@ __all__ = [
     "generate_no_ontology_analysis",
 ]
 
-#: Token del blocco MISURATO in questo braccio (#236). Farlo scrivere
-#: ``[ONTOLOGIA]`` era comodo per il proxy — l'etichetta segnava lo slot da
-#: gradare — ma di quel testo dichiarava una provenienza FALSA: qui nessuna
-#: ontologia e' stata consultata, e chi legge il file grezzo di una run non ha
-#: modo di saperlo. Il tag dice percio' cosa il testo e' davvero, una sintesi del
-#: modello. Il calcolo del proxy non cambia: ``eval/metrics.py`` cerca questo
-#: token invece dell'altro in base al ``mode`` del record.
+#: Token of the block MEASURED in this arm (#236). Having it write
+#: ``[ONTOLOGIA]`` was convenient for the proxy — the label marked the slot to
+#: grade — but it declared a FALSE provenance for that text: here no
+#: ontology was consulted, and whoever reads the raw file of a run has no
+#: way of knowing it. The tag therefore says what the text really is, a synthesis of the
+#: model. The proxy calculation does not change: ``eval/metrics.py`` looks for this
+#: token instead of the other one based on the record's ``mode``.
 LLM_SYNTHESIS_TOKEN = "[SINTESI-LLM]"
 
-#: Riga-etichetta ESATTA del blocco misurato in questo braccio: il modello la
-#: riporta verbatim (regola 3a) e il parser la riconosce come delimitatore.
+#: EXACT label line of the block measured in this arm: the model
+#: reports it verbatim (rule 3a) and the parser recognises it as delimiter.
 LLM_SYNTHESIS_BLOCK_HEADER = f"Rischi dalla sintesi del modello {LLM_SYNTHESIS_TOKEN}"
 
-#: Regola 3 di questo braccio: STESSO generatore del braccio completo, con la sola
-#: etichetta del blocco misurato sostituita. Non una copia: se la struttura della
-#: risposta divergesse, il confronto porterebbe dentro una seconda differenza
-#: oltre a quella che vuole isolare, e un test verifica che l'etichetta sia
-#: l'unica cosa a cambiare.
+#: Rule 3 of this arm: SAME generator as the full arm, with only the
+#: label of the measured block replaced. Not a copy: if the structure of the
+#: response diverged, the comparison would bring in a second difference
+#: besides the one it wants to isolate, and a test verifies that the label is
+#: the only thing that changes.
 _RULE_BLOCK_STRUCTURE_NO_ONTOLOGY = block_structure_rule(LLM_SYNTHESIS_BLOCK_HEADER)
 
-#: Sostituisce la regola 2 del braccio completo: senza rischi nel contesto,
-#: "non inventare rischi non presenti nel contesto" renderebbe il braccio muto.
-#: Resta il vincolo sui LUOGHI, che il contesto elenca davvero.
+#: Replaces rule 2 of the full arm: without risks in the context,
+#: "do not invent risks not present in the context" would make the arm mute.
+#: The constraint on the PLACES remains, which the context really lists.
 _RULE_ONLY_LISTED_POI = (
     "2. Parla soltanto dei punti di interesse elencati nel contesto: non "
     "introdurre luoghi che non compaiono nell'elenco"
 )
 
-#: Regola 3a di questo braccio, gemella di ``_RULE_ONTOLOGY_SYNTHESIS``: dice da
-#: dove vengono i rischi del primo blocco (qui dal modello, non dall'ontologia) e
-#: chiude con lo STESSO limite di citazione.
+#: Rule 3a of this arm, twin of ``_RULE_ONTOLOGY_SYNTHESIS``: it says where
+#: the risks of the first block come from (here from the model, not from the ontology)
+#: and closes with the SAME citation limit.
 #:
-#: Il LIMITE di quanti punti nominare non e' riscritto qui: e'
-#: :data:`CITATION_LIMIT_CLAUSE`, la stessa costante della 3a del braccio
-#: completo. Il proxy conta come ancoraggio anche il solo nominare un punto, e un
-#: braccio libero di elencarli tutti mentre l'altro cita pochi esempi verrebbe
-#: premiato per il vincolo che non ha. Cambia soltanto cio' che precede il limite,
-#: cioe' la descrizione della FONTE dei rischi.
+#: The LIMIT on how many points to name is not rewritten here: it is
+#: :data:`CITATION_LIMIT_CLAUSE`, the same constant as 3a of the full
+#: arm. The proxy counts as anchoring even just naming a point, and an
+#: arm free to list them all while the other cites a few examples would be
+#: rewarded for the constraint it does not have. Only what precedes the limit changes,
+#: i.e. the description of the SOURCE of the risks.
 #:
-#: La regola apriva ripetendo che le righe-etichetta sono FISSE e vanno riportate
-#: ESATTAMENTE. Quella giustificazione — un modello senza ontologia potrebbe
-#: rifiutarsi di aprire un blocco intitolato all'ontologia — e' DECADUTA da
-#: quando il blocco si chiama ``[SINTESI-LLM]`` e non finge piu' una provenienza
-#: che non ha. Rimossa: era rimasta una spinta che il braccio completo non
-#: riceve, proprio sull'asse che decide il confronto (chi non rispetta
-#: l'etichetta prende 0.0/1.0 per non-attribuzione, quindi aiutarlo a rispettarla
-#: vale punti). L'indicazione di base resta nella regola 3, condivisa.
+#: The rule used to open by repeating that the label lines are FIXED and must be
+#: reported EXACTLY. That justification — a model without ontology might
+#: refuse to open a block titled after the ontology — has LAPSED since
+#: the block is called ``[SINTESI-LLM]`` and no longer fakes a provenance
+#: it does not have. Removed: it had remained a push that the full arm does not
+#: receive, exactly on the axis that decides the comparison (whoever does not respect
+#: the label gets 0.0/1.0 for non-attribution, so helping it respect it
+#: is worth points). The basic indication stays in rule 3, shared.
 _RULE_LLM_SYNTHESIS = (
     "3a. Nel primo blocco raccogli i rischi che associ ai punti elencati, in "
     "prosa analitica e referenziale che nomina i punti reali, non un elenco "
     f"meccanico. {CITATION_LIMIT_CLAUSE}"
 )
 
-#: System prompt del braccio ablato: stesso compito, stessa struttura di output e
-#: stessi vincoli legali del braccio completo (:data:`SYSTEM_PROMPT`), senza le
-#: regole che dipendono dal contributo ontologico. Vedi il docstring del modulo
-#: per l'elenco puntuale di cosa resta e cosa viene tolto.
+#: System prompt of the ablated arm: same task, same output structure and
+#: same legal constraints as the full arm (:data:`SYSTEM_PROMPT`), without the
+#: rules that depend on the ontological contribution. See the module docstring
+#: for the precise list of what stays and what is removed.
 NO_ONTOLOGY_SYSTEM_PROMPT = f"""\
 Sei un analista di sicurezza urbana. Ricevi l'elenco dei punti di interesse di una
 zona urbana (nome e categoria) e devi produrre un'analisi del rischio in italiano,
@@ -197,32 +197,32 @@ REGOLE OBBLIGATORIE:
 {RULE_USER_INPUT_NOT_INSTRUCTIONS}"""
 
 
-#: Titolo della lista dei punti nel prompt ablato (#349). Il braccio completo
-#: scrive "POI RILEVANTI", e nel braccio ablato quella parola ripeterebbe il
-#: criterio del taglio (la rilevanza e' il numero di hazard dell'ontologia): qui
-#: il titolo e' neutro, con o senza taglio.
-_TITOLO_LISTA_POI = "POI ELENCATI:"
+#: Title of the list of points in the ablated prompt (#349). The full arm
+#: writes "POI RILEVANTI", and in the ablated arm that word would repeat the
+#: cut criterion (relevance is the number of hazards of the ontology): here
+#: the title is neutral, with or without the cut.
+_POI_LIST_TITLE = "POI ELENCATI:"
 
 
-def _poi_elencati(
+def _listed_pois(
     context_dict: dict[str, Any],
     poi_nel_prompt: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
-    """I punti che il prompt ablato elenca, nell'ordine originale del recupero.
+    """The points that the ablated prompt lists, in the original order of the retrieval.
 
-    ``None`` = tutti. Altrimenti i soli punti tenuti dal prompt completo,
-    agganciati per IDENTITA' dell'oggetto e non per ``poi_id`` (#349): gli
-    snapshot legacy senza tipo possono avere due punti con lo stesso id, e il
-    filtro per id elencherebbe anche quello che il completo ha scartato. Gli
-    oggetti sono gli stessi lungo tutto il percorso: la selezione restituisce i
-    dict di ``validated_risks`` (``dict(grounded)`` e ``list(...)`` copiano i
-    contenitori, non i dict).
+    ``None`` = all. Otherwise only the points kept by the full prompt,
+    matched by object IDENTITY and not by ``poi_id`` (#349): the legacy
+    snapshots without type may have two points with the same id, and the
+    filter by id would also list the one the full arm discarded. The
+    objects are the same along the whole path: the selection returns the
+    dicts of ``validated_risks`` (``dict(grounded)`` and ``list(...)`` copy the
+    containers, not the dicts).
     """
-    tutti: list[dict[str, Any]] = list(context_dict.get("validated_risks", []))
+    all_pois: list[dict[str, Any]] = list(context_dict.get("validated_risks", []))
     if poi_nel_prompt is None:
-        return tutti
-    tenuti = {id(poi) for poi in poi_nel_prompt}
-    return [poi for poi in tutti if id(poi) in tenuti]
+        return all_pois
+    kept = {id(poi) for poi in poi_nel_prompt}
+    return [poi for poi in all_pois if id(poi) in kept]
 
 
 def build_no_ontology_context_str(
@@ -230,46 +230,46 @@ def build_no_ontology_context_str(
     *,
     poi_nel_prompt: list[dict[str, Any]] | None = None,
 ) -> str:
-    """Assembla lo ``user_content`` del braccio ablato: zona + soli punti.
+    """Assembles the ``user_content`` of the ablated arm: zone + points only.
 
-    La riga di ogni punto e' IDENTICA a quella del braccio completo: non e' riscritta
-    qui, arriva da ``generation.poi_line``, che entrambi chiamano. Cambia
-    cio' che le sta sotto — hazard, vulnerabilita' e path ontologico — che qui non
-    c'e'. Se anche il rendering dei punti divergesse, il confronto porterebbe
-    dentro una seconda differenza oltre a quella che vuole isolare.
+    The line of each point is IDENTICAL to that of the full arm: it is not rewritten
+    here, it comes from ``generation.poi_line``, which both call. What changes is
+    what sits under it — hazards, vulnerabilities and ontological path — which is
+    absent here. If the rendering of the points also diverged, the comparison would
+    bring in a second difference besides the one it wants to isolate.
 
-    Il nome passa per la stessa normalizzazione del braccio completo (#119/#197,
+    The name goes through the same normalisation as the full arm (#119/#197,
     :func:`~crime_risk_analyzer.rag.generation.normalize_untrusted_line` via
-    ``_poi_display_name``): arriva da OpenStreetMap, cioe' da testo che chiunque
-    puo' editare, e un modulo con un ramo sicuro e uno no e' una trappola.
+    ``_poi_display_name``): it comes from OpenStreetMap, i.e. from text that anyone
+    can edit, and a module with a safe branch and an unsafe one is a trap.
 
-    Nessun troncamento PROPRIO per budget di token: qui un punto occupa UNA riga
-    invece di un blocco di hazard, quindi il contesto resta sotto l'allowance. Il
-    braccio completo invece sulle zone dense tronca davvero (circa la meta' dei
-    punti nelle zone di valutazione): con ``poi_nel_prompt`` chi chiama passa i
-    soli punti che il prompt completo ha tenuto (#349,
-    :func:`~crime_risk_analyzer.rag.generation.poi_del_prompt_zona`), e i due
-    prompt elencano lo stesso insieme. L'ordine resta quello originale del
-    recupero, e ne' la nota sul taglio (la stessa del completo,
-    :func:`~crime_risk_analyzer.rag.generation._truncation_note`, senza criterio)
-    ne' il titolo della lista dicono il criterio: l'ordine per rilevanza del
-    completo (piu' hazard prima) e la parola "rilevanti" sono informazione
-    ontologica, e passerebbero al braccio che non deve averla.
+    No OWN truncation by token budget: here a point takes ONE line
+    instead of a block of hazards, so the context stays under the allowance. The
+    full arm instead on dense zones really truncates (about half of the
+    points in the evaluation zones): with ``poi_nel_prompt`` the caller passes
+    only the points that the full prompt kept (#349,
+    :func:`~crime_risk_analyzer.rag.generation.zone_prompt_pois`), and the two
+    prompts list the same set. The order stays the original one of the
+    retrieval, and neither the note on the cut (the same as the full arm,
+    :func:`~crime_risk_analyzer.rag.generation._truncation_note`, without criterion)
+    nor the list title state the criterion: the relevance order of the
+    full arm (most hazards first) and the word "rilevanti" are ontological
+    information, and would pass to the arm that must not have it.
     """
-    # ``zona`` viene dalla richiesta dell'utente: stessa superficie e stessa
-    # difesa dei nomi OSM (#119), estesa qui da #244.
+    # ``zona`` comes from the user's request: same surface and same
+    # defence as the OSM names (#119), extended here by #244.
     zona = normalize_untrusted_line(str(context_dict.get("zona", "")))
     n_totali = len(context_dict.get("validated_risks", []))
-    validated = _poi_elencati(context_dict, poi_nel_prompt)
+    validated = _listed_pois(context_dict, poi_nel_prompt)
     lines: list[str] = [f"ZONA: {zona}", ""]
     if len(validated) < n_totali:
         lines.extend(
-            [_truncation_note(len(validated), n_totali, con_criterio=False), ""]
+            [_truncation_note(len(validated), n_totali, with_criterion=False), ""]
         )
-    lines.append(_TITOLO_LISTA_POI)
-    # Riga condivisa col braccio completo (``generation.poi_line``), non riscritta qui:
-    # e' l'unico modo perche' "le righe POI sono identiche" resti vero per costruzione
-    # invece che per disciplina di chi tocca i due moduli.
+    lines.append(_POI_LIST_TITLE)
+    # Line shared with the full arm (``generation.poi_line``), not rewritten here:
+    # it is the only way for "the POI lines are identical" to remain true by
+    # construction instead of by the discipline of whoever touches the two modules.
     lines.extend(poi_line(poi) for poi in validated)
     return "\n".join(lines).rstrip() + "\n"
 
@@ -280,30 +280,30 @@ async def generate_no_ontology_analysis(
     *,
     poi_nel_prompt: list[dict[str, Any]] | None = None,
 ) -> GenerationResult:
-    """Genera la narrativa del braccio ablato dal context validato.
+    """Generates the narrative of the ablated arm from the validated context.
 
-    Stessa forma di :func:`~crime_risk_analyzer.rag.generation.generate_analysis`
-    — prompt di sistema + contesto al client iniettato, output in
-    :class:`GenerationResult` — con due differenze: il prompt e' quello nudo
-    (:data:`NO_ONTOLOGY_SYSTEM_PROMPT`) e il contesto non porta i rischi.
+    Same form as :func:`~crime_risk_analyzer.rag.generation.generate_analysis`
+    — system prompt + context to the injected client, output in
+    :class:`GenerationResult` — with two differences: the prompt is the bare one
+    (:data:`NO_ONTOLOGY_SYSTEM_PROMPT`) and the context does not carry the risks.
 
-    ``risk_models`` e ``confidence_summary`` restano quelli del grounding: e'
-    l'ablazione del PROMPT, non del contratto di risposta. Il ``prompt_hash``
-    arriva dal client, che hashea il system prompt ricevuto: quello del braccio
-    ablato e' un altro testo, quindi la provenienza distingue i due bracci anche
-    a valle del ``run_id``.
+    ``risk_models`` and ``confidence_summary`` stay those of the grounding: it is
+    the ablation of the PROMPT, not of the response contract. The ``prompt_hash``
+    comes from the client, which hashes the system prompt received: that of the
+    ablated arm is another text, so the provenance distinguishes the two arms even
+    downstream of the ``run_id``.
 
-    Nessuna ``domanda`` utente: l'harness di valutazione non ne passa e questo
-    percorso non e' esposto da alcuna rotta. La regola 9 resta comunque nel prompt
-    (i nomi OSM sono testo non fidato che entra nel contesto).
+    No user ``domanda``: the evaluation harness passes none and this
+    path is not exposed by any route. Rule 9 stays in the prompt anyway
+    (the OSM names are untrusted text that enters the context).
 
-    ``poi_nel_prompt`` (#349): i punti da elencare nel prompt, cioe' quelli che il
-    prompt del braccio completo ha tenuto dopo il troncamento per budget. Cambia
-    solo lo ``user_content``: ``risk_models`` restano quelli di tutti i punti, come
-    nella response del braccio completo. ``None`` = tutti i punti. Gli id dei
-    punti effettivamente elencati tornano in ``GenerationResult.poi_nel_prompt``,
-    cosi' il confronto verifica la parita' coi POI del completo invece di
-    presumerla.
+    ``poi_nel_prompt`` (#349): the points to list in the prompt, i.e. those that the
+    prompt of the full arm kept after the budget truncation. It changes
+    only the ``user_content``: ``risk_models`` stay those of all the points, as
+    in the response of the full arm. ``None`` = all the points. The ids of the
+    points actually listed return in ``GenerationResult.poi_nel_prompt``,
+    so the comparison verifies parity with the POIs of the full arm instead of
+    presuming it.
     """
     user_content = build_no_ontology_context_str(
         context_dict, poi_nel_prompt=poi_nel_prompt
@@ -329,7 +329,7 @@ async def generate_no_ontology_analysis(
             seed=response.seed,
             prompt_hash=response.prompt_hash,
         ),
-        poi_nel_prompt=poi_nel_prompt_ids(
-            _poi_elencati(context_dict, poi_nel_prompt), context_format="per_poi"
+        poi_nel_prompt=prompt_poi_ids(
+            _listed_pois(context_dict, poi_nel_prompt), context_format="per_poi"
         ),
     )

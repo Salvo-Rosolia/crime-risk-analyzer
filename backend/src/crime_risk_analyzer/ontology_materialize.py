@@ -1,22 +1,22 @@
-"""Materializzazione offline dell'ontologia OWL (RDF/XML) -> Turtle (#74).
+"""Offline materialisation of the OWL ontology (RDF/XML) -> Turtle (#74).
 
-PURA conversione di sintassi con ``rdflib``: parse del file OWL fornito dal
-relatore, bind di un prefisso leggibile per l'IRI ENEA reale, serializzazione a
-Turtle. **Niente reasoner, niente owlready2/HermiT, niente Java** (spec-root
-§Stack: zero-Java a runtime; qui e' comunque solo conversione sintattica).
+PURE syntax conversion with ``rdflib``: parse of the OWL file supplied by the
+supervisor, bind of a readable prefix for the real ENEA IRI, serialisation to
+Turtle. **No reasoner, no owlready2/HermiT, no Java** (spec-root
+§Stack: zero-Java at runtime; here it is anyway only a syntactic conversion).
 
-Il file OWL sorgente e il TTL prodotto sono entrambi *ghost*: gitignored, non
-vanno su GitHub (licenza/riuso da chiarire — vedi ``.gitignore``). Questo modulo
-e' lo strumento offline che un operatore esegue una tantum per produrre il
-``.ttl`` che il loader di runtime (:mod:`~crime_risk_analyzer.ontology`)
-carichera'.
+The source OWL file and the produced TTL are both *ghost*: gitignored, they do
+not go to GitHub (licence/reuse to be clarified — see ``.gitignore``). This
+module is the offline tool that an operator runs once to produce the
+``.ttl`` that the runtime loader (:mod:`~crime_risk_analyzer.ontology`)
+will load.
 
-Uso da CLI::
+CLI usage::
 
     uv run python -m crime_risk_analyzer.ontology_materialize
     uv run python -m crime_risk_analyzer.ontology_materialize --src in.owl --out out.ttl
 
-Il default sorgente e' ``ontology/terminus-crime.owl`` (ghost, gitignored).
+The default source is ``ontology/terminus-crime.owl`` (ghost, gitignored).
 """
 
 from __future__ import annotations
@@ -34,85 +34,85 @@ from crime_risk_analyzer.ontology_namespaces import (
 
 logger = logging.getLogger(__name__)
 
-#: Sorgente/destinazione di default (entrambi gitignored, ghost). L'output
-#: coincide con ``Settings.ontology_path`` (config.py) cosi' che il loader di
-#: runtime trovi il TTL prodotto dal tool senza ulteriore configurazione.
+#: Default source/destination (both gitignored, ghost). The output
+#: coincides with ``Settings.ontology_path`` (config.py) so that the runtime
+#: loader finds the TTL produced by the tool without further configuration.
 DEFAULT_SRC = "ontology/terminus-crime.owl"
 DEFAULT_OUT = "ontology/terminus_crime_materialized.ttl"
 
 
 class MaterializeError(RuntimeError):
-    """Materializzazione fallita: sorgente mancante, non-RDF/XML o grafo vuoto."""
+    """Materialisation failed: missing source, non-RDF/XML or empty graph."""
 
 
 def materialize_owl_to_ttl(src: str, out: str) -> str:
-    """Converte l'OWL (RDF/XML) in ``src`` in Turtle, scrivendolo in ``out``.
+    """Converts the OWL (RDF/XML) in ``src`` to Turtle, writing it to ``out``.
 
-    Conversione sintattica pura: parse RDF/XML -> bind del prefisso ENEA ->
-    serialize Turtle. Solleva :class:`MaterializeError` se il sorgente non esiste,
-    non e' RDF/XML valido o il grafo risultante e' vuoto (0 triple). Ritorna il
-    path di output scritto.
+    Pure syntactic conversion: parse RDF/XML -> bind the ENEA prefix ->
+    serialize Turtle. Raises :class:`MaterializeError` if the source does not
+    exist, is not valid RDF/XML or the resulting graph is empty (0 triples). Returns
+    the output path written.
     """
     if not Path(src).is_file():
         raise MaterializeError(f"File OWL sorgente non trovato: {src!r}")
 
     graph = Graph()
     try:
-        # Il sorgente e' atteso in RDF/XML (OWL serializzato dal relatore). Un
-        # input in altra sintassi (Turtle, JSON-LD, ...) fallisce qui: il
-        # messaggio lo dichiara esplicitamente per non sviare la diagnosi.
+        # The source is expected in RDF/XML (OWL serialised by the supervisor). An
+        # input in another syntax (Turtle, JSON-LD, ...) fails here: the
+        # message declares it explicitly so as not to mislead the diagnosis.
         graph.parse(src, format="xml")
-    except Exception as exc:  # rdflib solleva diversi tipi su RDF/XML malformato
+    except Exception as exc:  # rdflib raises several types on malformed RDF/XML
         raise MaterializeError(
             f"Parse RDF/XML fallito (sorgente non e' OWL/RDF-XML valido): {src!r}"
         ) from exc
 
     if len(graph) == 0:
-        # Contratto simmetrico al loader di runtime (:mod:`ontology` rifiuta un
-        # grafo vuoto): un TTL senza triple non e' un'ontologia utilizzabile.
+        # Contract symmetric to the runtime loader (:mod:`ontology` rejects an
+        # empty graph): a TTL without triples is not a usable ontology.
         raise MaterializeError(f"Ontologia vuota (0 triple) dopo il parse: {src!r}")
 
-    # Prefisso leggibile ``tc`` per l'IRI ENEA reale, cosi' il Turtle prodotto
-    # usa ``tc:Bank`` invece dell'IRI esteso. ``override``/``replace`` rimpiazzano
-    # un eventuale binding ``tc`` preesistente — NON toccano il prefisso vuoto.
+    # Readable ``tc`` prefix for the real ENEA IRI, so the produced Turtle
+    # uses ``tc:Bank`` instead of the expanded IRI. ``override``/``replace``
+    # replace any pre-existing ``tc`` binding — they do NOT touch the empty prefix.
     #
-    # Nota onesta (verificata empiricamente sul file reale): il namespace legacy
-    # ``untitled-ontology-34`` (default xmlns del sorgente) NON compare
-    # nell'output non per via di questo bind, ma semplicemente perche' nessuna
-    # entita' lo usa e rdflib non emette prefissi inutilizzati. Se un'entita' lo
-    # usasse davvero, rdflib lo serializzerebbe comunque (come prefisso vuoto o
-    # IRI esteso) e questo bind non lo neutralizzerebbe; nasconderlo
-    # falsificherebbe i dati, quindi non c'e' codice per "rimuoverlo".
+    # Honest note (empirically verified on the real file): the legacy namespace
+    # ``untitled-ontology-34`` (default xmlns of the source) does NOT appear in
+    # the output not because of this bind, but simply because no
+    # entity uses it and rdflib does not emit unused prefixes. If an entity
+    # really used it, rdflib would serialise it anyway (as an empty prefix or
+    # expanded IRI) and this bind would not neutralise it; hiding it
+    # would falsify the data, so there is no code to "remove it".
     graph.namespace_manager.bind(TERMINUS_PREFIX, TERMINUS, override=True, replace=True)
 
     out_path = Path(out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     graph.serialize(destination=str(out_path), format="turtle")
 
-    logger.info("Ontologia materializzata: %s -> %s (%d triple)", src, out, len(graph))
+    logger.info("Ontology materialised: %s -> %s (%d triples)", src, out, len(graph))
     return str(out_path)
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="crime_risk_analyzer.ontology_materialize",
-        description="Converte l'ontologia OWL (RDF/XML) in Turtle.",
+        description="Converts the OWL ontology (RDF/XML) to Turtle.",
     )
     parser.add_argument(
         "--src",
         default=DEFAULT_SRC,
-        help=f"File OWL/RDF-XML sorgente (default: {DEFAULT_SRC!r}).",
+        help=f"Source OWL/RDF-XML file (default: {DEFAULT_SRC!r}).",
     )
     parser.add_argument(
         "--out",
         default=DEFAULT_OUT,
-        help=f"File Turtle di output (default: {DEFAULT_OUT!r}).",
+        help=f"Output Turtle file (default: {DEFAULT_OUT!r}).",
     )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Entrypoint CLI: materializza l'OWL in TTL; ritorna 0 se ok, 1 su errore."""
+    """CLI entrypoint: materialises the OWL into TTL; returns 0 if ok, 1 on error."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     args = _parse_args(argv)
     try:
@@ -120,7 +120,7 @@ def main(argv: list[str] | None = None) -> int:
     except MaterializeError as exc:
         logger.error("%s", exc)
         return 1
-    logger.info("Scritto: %s", out)
+    logger.info("Written: %s", out)
     return 0
 
 

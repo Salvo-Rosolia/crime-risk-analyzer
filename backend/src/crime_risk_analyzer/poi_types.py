@@ -1,23 +1,23 @@
-"""Catalogo dei tipi POI selezionabili e normalizzazione di ``tipo_poi`` (#143).
+"""Catalogue of the selectable POI types and normalisation of ``tipo_poi`` (#143).
 
-Il catalogo e' l'insieme delle classi che il sistema puo' davvero produrre: i
-valori distinti del binding OSM del set attivo (per il default, le costanti di
-:mod:`~crime_risk_analyzer.sparql_module.osm_mapping`). Il
-fallback dei tag non coperti (``GENERIC_FALLBACK``) non ne fa parte: non e' una
-classe dell'ontologia e filtrare per "non coperto" non ha senso per l'operatore.
+The catalogue is the set of classes that the system can really produce: the
+distinct values of the OSM binding of the active set (for the default, the
+constants of :mod:`~crime_risk_analyzer.sparql_module.osm_mapping`). The
+fallback for uncovered tags (``GENERIC_FALLBACK``) is not part of it: it is not
+an ontology class and filtering by "not covered" makes no sense for the operator.
 
-L'etichetta e' quella del vocabolario controllato #77 (:func:`label_it`). Oggi
-tutte le classi del mapping hanno un'etichetta IT reale; se un domani ne mancasse
-una, :func:`label_it` degrada all'etichetta EN e poi al nome normalizzato, e la
-classe resta nel catalogo: escluderla la renderebbe non filtrabile pur essendo
-prodotta dal mapping.
+The label is that of the controlled vocabulary #77 (:func:`label_it`). Today
+all the mapping classes have a real IT label; if one were ever missing,
+:func:`label_it` degrades to the EN label and then to the normalised name, and
+the class stays in the catalogue: excluding it would make it unfilterable even
+though it is produced by the mapping.
 
-``tipo_poi`` arriva da un campo di testo libero, quindi la normalizzazione
-accetta, senza distinzione di maiuscole e con spazi/underscore equivalenti, sia
-il nome della classe (``"railway_station"``) sia l'etichetta IT
-(``"stazione ferroviaria"``), e restituisce sempre il nome canonico. Un valore
-che non corrisponde a nulla e' :class:`UnknownPoiTypeError` (422 in
-:mod:`~crime_risk_analyzer.errors`) invece di una lista vuota silenziosa.
+``tipo_poi`` arrives from a free text field, so the normalisation accepts,
+case-insensitively and with equivalent spaces/underscores, both the class name
+(``"railway_station"``) and the IT label (``"stazione ferroviaria"``), and always
+returns the canonical name. A value that matches nothing is
+:class:`UnknownPoiTypeError` (422 in :mod:`~crime_risk_analyzer.errors`) instead
+of a silent empty list.
 """
 
 from __future__ import annotations
@@ -32,10 +32,10 @@ from crime_risk_analyzer.sources.context import DEFAULT_ID, current_id, current_
 
 
 class PoiType(BaseModel):
-    """Voce del catalogo esposto da ``GET /poi-types``.
+    """Entry of the catalogue exposed by ``GET /poi-types``.
 
-    Immutabile: le istanze vivono nella cache di :func:`poi_types`, condivisa fra
-    le richieste.
+    Immutable: the instances live in the cache of :func:`poi_types`, shared among
+    requests.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -45,31 +45,31 @@ class PoiType(BaseModel):
 
 
 class UnknownPoiTypeError(Exception):
-    """``tipo_poi`` non corrisponde a nessuna classe del catalogo (-> 422)."""
+    """``tipo_poi`` does not match any class of the catalogue (-> 422)."""
 
     def __init__(self, raw: str) -> None:
         super().__init__(f"Tipo POI non riconosciuto: {raw!r}")
 
 
-#: Varianti di apostrofo che una tastiera o un correttore possono produrre
-#: (tipografico, modificatore, accento grave/acuto): tutte equivalgono a ``'``.
+#: Apostrophe variants that a keyboard or a spell-checker can produce
+#: (typographic, modifier, grave/acute accent): all equivalent to ``'``.
 _APOSTROPHES = str.maketrans(
     dict.fromkeys(map(chr, (0x2019, 0x2018, 0x02BC, 0x0060, 0x00B4)), "'")
 )
 
 
 def _key(text: str) -> str:
-    """Chiave di confronto: casefold, apostrofi unificati, underscore come spazio,
-    spazi compattati."""
+    """Comparison key: casefold, unified apostrophes, underscore as space,
+    compacted spaces."""
     normalized = text.translate(_APOSTROPHES).replace("_", " ").casefold()
     return " ".join(normalized.split())
 
 
-def _catalogo() -> tuple[PoiType, ...]:
-    """Catalogo del set attivo, ordinato per etichetta IT.
+def _catalog() -> tuple[PoiType, ...]:
+    """Catalogue of the active set, sorted by IT label.
 
-    Ordinamento per ``casefold`` dell'etichetta (spareggio sul nome-classe):
-    deterministico e indipendente dal locale del processo.
+    Sorted by ``casefold`` of the label (tie-break on the class name):
+    deterministic and independent of the process locale.
     """
     entries = [
         PoiType(terminus_class=cls, label_it=label_it(cls))
@@ -81,27 +81,27 @@ def _catalogo() -> tuple[PoiType, ...]:
 
 
 @lru_cache(maxsize=1)
-def _catalogo_default() -> tuple[PoiType, ...]:
-    return _catalogo()
+def _default_catalog() -> tuple[PoiType, ...]:
+    return _catalog()
 
 
-def _e_default() -> bool:
+def _is_default() -> bool:
     return current_id() == DEFAULT_ID
 
 
 def poi_types() -> tuple[PoiType, ...]:
-    """Classi producibili dal binding OSM del set attivo, ordinate per etichetta IT.
+    """Classes producible by the OSM binding of the active set, sorted by IT label.
 
-    Solo il catalogo del default e' in cache (il suo contenuto e' fisso per il
-    processo); quello di un set custom si ricalcola a ogni chiamata, cosi' due
-    set diversi non si mescolano mai e nessun set custom resta agganciato a una
-    cache globale.
+    Only the default's catalogue is cached (its content is fixed for the
+    process); that of a custom set is recomputed on every call, so two different
+    sets never get mixed and no custom set stays attached to a global
+    cache.
     """
-    return _catalogo_default() if _e_default() else _catalogo()
+    return _default_catalog() if _is_default() else _catalog()
 
 
 class AliasConflict(NamedTuple):
-    """Un alias di ``tipo_poi`` che porta a due classi diverse."""
+    """An alias of ``tipo_poi`` that leads to two different classes."""
 
     alias: str
     first: str
@@ -112,19 +112,19 @@ class AliasConflict(NamedTuple):
 
 
 def alias_table(
-    tipi: tuple[PoiType, ...],
+    types: tuple[PoiType, ...],
 ) -> tuple[dict[str, str], list[AliasConflict]]:
-    """Chiave normalizzata (nome-classe o etichetta IT) -> nome-classe canonico,
-    piu' gli alias ambigui.
+    """Normalised key (class name or IT label) -> canonical class name,
+    plus the ambiguous aliases.
 
-    Un alias che porta gia' a una classe DIVERSA e' un conflitto, non una
-    sovrascrittura silenziosa che dirotterebbe il filtro. Un'etichetta che
-    coincide col proprio nome (``Cinema``, ``Silo``) e' invece innocua. Logica
-    unica: la usano sia il lookup a runtime sia il controllo all'upload di un set.
+    An alias that already leads to a DIFFERENT class is a conflict, not a
+    silent overwrite that would hijack the filter. A label that
+    coincides with its own name (``Cinema``, ``Silo``) is instead harmless. Single
+    logic: used both by the runtime lookup and by the check at the upload of a set.
     """
     table: dict[str, str] = {}
     conflicts: list[AliasConflict] = []
-    for t in tipi:
+    for t in types:
         for alias in (t.terminus_class, t.label_it):
             other = table.setdefault(_key(alias), t.terminus_class)
             if other != t.terminus_class:
@@ -132,9 +132,9 @@ def alias_table(
     return table, conflicts
 
 
-def _tabella_alias(tipi: tuple[PoiType, ...]) -> dict[str, str]:
-    """Tabella degli alias; fail-fast sulle ambiguita' (``RuntimeError``)."""
-    table, conflicts = alias_table(tipi)
+def _alias_table(types: tuple[PoiType, ...]) -> dict[str, str]:
+    """Alias table; fail-fast on ambiguities (``RuntimeError``)."""
+    table, conflicts = alias_table(types)
     if conflicts:
         raise RuntimeError(conflicts[0].message())
     return table
@@ -142,25 +142,25 @@ def _tabella_alias(tipi: tuple[PoiType, ...]) -> dict[str, str]:
 
 @lru_cache(maxsize=1)
 def _lookup() -> dict[str, str]:
-    """Tabella degli alias del set di default (in cache, come il suo catalogo)."""
-    return _tabella_alias(poi_types())
+    """Alias table of the default set (cached, like its catalogue)."""
+    return _alias_table(poi_types())
 
 
-def _lookup_attivo() -> dict[str, str]:
-    return _lookup() if _e_default() else _tabella_alias(poi_types())
+def _active_lookup() -> dict[str, str]:
+    return _lookup() if _is_default() else _alias_table(poi_types())
 
 
 def resolve_poi_type(raw: str | None) -> str | None:
-    """Normalizza ``tipo_poi`` al nome-classe canonico.
+    """Normalises ``tipo_poi`` to the canonical class name.
 
-    ``None`` o stringa vuota/di soli spazi -> ``None`` (nessun filtro). Altrimenti
-    il nome-classe canonico, oppure :class:`UnknownPoiTypeError` se il valore non
-    corrisponde ne' a un nome-classe ne' a un'etichetta IT del catalogo.
+    ``None`` or empty/whitespace-only string -> ``None`` (no filter). Otherwise
+    the canonical class name, or :class:`UnknownPoiTypeError` if the value
+    matches neither a class name nor an IT label of the catalogue.
     """
     text = (raw or "").strip()
     if not text:
         return None
-    canonical = _lookup_attivo().get(_key(text))
+    canonical = _active_lookup().get(_key(text))
     if canonical is None:
         raise UnknownPoiTypeError(text)
     return canonical

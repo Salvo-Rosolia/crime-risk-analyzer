@@ -1,20 +1,20 @@
-"""Narrativa del POI selezionato: orchestrazione e contratto (#197).
+"""Narrative of the selected POI: orchestration and contract (#197).
 
-Riusa il contesto di zona dalla cache (:mod:`zone_context_cache`) e a cache
-fredda lo ricostruisce: ``retrieve`` -> ``ground``. Poi restringe al POI
-richiesto, calcola vicinato e composizione, genera la prosa.
+It reuses the zone context from the cache (:mod:`zone_context_cache`) and on a
+cold cache rebuilds it: ``retrieve`` -> ``ground``. Then it narrows down to the
+requested POI, computes neighbourhood and composition, generates the prose.
 
-Il POI e' identificato dal solo ``poi_id`` e tutto il resto — classe, rischi,
-percorso ontologico — e' RI-DERIVATO dal server: il client non puo' iniettare
-rischi, che e' il presupposto del claim di non-allucinabilita' dei dati.
+The POI is identified by ``poi_id`` alone and everything else — class, risks,
+ontological path — is RE-DERIVED by the server: the client cannot inject
+risks, which is the premise of the claim of non-hallucinability of the data.
 
-Il contesto usato e' VERIFICATO contro quello mostrato (#242): il client manda
-l'impronta ricevuta da ``/analyze`` e qui si confronta con quella del contesto
-che si userebbe. Ne' la cache ne' la ricostruzione sono accettate al buio — la
-prima puo' essere stata sovrascritta da una ri-analisi della stessa zona, la
-seconda puo' cadere su una cattura OSM diversa. Se divergono, si rifiuta con
-:class:`ContextMismatchError` (409) invece di ancorare la prosa a punti che a
-schermo non ci sono.
+The context used is VERIFIED against the one shown (#242): the client sends the
+fingerprint received from ``/analyze`` and here it is compared with that of the
+context that would be used. Neither the cache nor the reconstruction are accepted
+blindly — the first may have been overwritten by a re-analysis of the same zone,
+the second may land on a different OSM capture. If they diverge, we refuse with
+:class:`ContextMismatchError` (409) instead of anchoring the prose to points that
+are not on screen.
 """
 
 from __future__ import annotations
@@ -25,10 +25,10 @@ from pydantic import BaseModel, Field
 
 from crime_risk_analyzer import zone_context_cache
 from crime_risk_analyzer.context_fingerprint import (
-    ContestoHash,
+    ContextHash,
+    active_sources_id,
     fingerprint,
-    fonti_attive_id,
-    istat_versione_per,
+    istat_version_for,
 )
 from crime_risk_analyzer.geocoding import ZoneNotFoundError
 from crime_risk_analyzer.i18n.terminus_labels import label_it
@@ -59,21 +59,21 @@ __all__ = [
 
 
 class PoiNotFoundError(Exception):
-    """Il ``poi_id`` non appartiene al contesto della zona indicata."""
+    """The ``poi_id`` does not belong to the context of the indicated zone."""
 
 
 class ContextMismatchError(Exception):
-    """L'impronta del client non identifica il contesto che si userebbe (#242).
+    """The client's fingerprint does not identify the context that would be used (#242).
 
-    Il contesto mostrato all'utente e quello disponibile qui divergono: cache
-    sovrascritta da una ri-analisi della stessa zona, oppure ricostruzione a
-    cache fredda su una cattura OSM diversa. Generare comunque produrrebbe prosa
-    ancorata a punti che a schermo non ci sono.
+    The context shown to the user and the one available here diverge: cache
+    overwritten by a re-analysis of the same zone, or a cold-cache reconstruction
+    on a different OSM capture. Generating anyway would produce prose
+    anchored to points that are not on screen.
     """
 
 
 class PoiNarrativeRequest(BaseModel):
-    """Body di ``POST /analyze/poi``."""
+    """Body of ``POST /analyze/poi``."""
 
     citta: str = Field(
         max_length=100,
@@ -91,15 +91,15 @@ class PoiNarrativeRequest(BaseModel):
             "server, cosi' nessun rischio puo' essere iniettato dall'esterno."
         ),
     )
-    contesto_hash: ContestoHash
+    contesto_hash: ContextHash
 
 
 class PoiNarrativeResponse(IstatResponseFields):
-    """Narrativa del singolo POI: prosa, fonti, rischi citabili, provenienza.
+    """Narrative of the single POI: prose, sources, citable risks, provenance.
 
-    I tre campi ``istat_*`` arrivano da
-    :class:`~crime_risk_analyzer.istat.response_fields.IstatResponseFields`, la
-    base condivisa con ``AnalyzeResponse``/``ZoneNarrativeResponse`` (#345).
+    The three ``istat_*`` fields come from
+    :class:`~crime_risk_analyzer.istat.response_fields.IstatResponseFields`, the
+    base shared with ``AnalyzeResponse``/``ZoneNarrativeResponse`` (#345).
     """
 
     poi_id: str
@@ -117,12 +117,12 @@ class PoiNarrativeResponse(IstatResponseFields):
 
 
 def _risk_model_of(vr: ValidatedRisk) -> RiskModel:
-    """RiskModel del solo POI, per i tag fonte e le citazioni nel frontend.
+    """RiskModel of the POI alone, for the source tags and frontend citations.
 
-    ``RiskModel`` ha esattamente tre campi (``poi_id``, ``poi``, ``risks``): la classe
-    TERMINUS, le vulnerabilita' e il ``sparql_path`` NON vivono qui — il
-    frontend li ha gia' in ``PoiOut`` dall'analisi di zona. Stessa costruzione
-    di ``orchestrator._risk_models_from_grounded``, per un solo POI.
+    ``RiskModel`` has exactly three fields (``poi_id``, ``poi``, ``risks``): the
+    TERMINUS class, the vulnerabilities and the ``sparql_path`` do NOT live here — the
+    frontend already has them in ``PoiOut`` from the zone analysis. Same construction
+    as ``orchestrator._risk_models_from_grounded``, for a single POI.
     """
     return RiskModel(
         poi_id=vr["poi_id"],
@@ -151,41 +151,42 @@ async def run_poi_narrative(
     geo_source: GeoSource | None = None,
     istat_context_enabled: bool = False,
 ) -> PoiNarrativeResponse:
-    """Genera la narrativa del POI ``poi_id`` nella zona indicata.
+    """Generates the narrative of the POI ``poi_id`` in the indicated zone.
 
-    Solleva :class:`ContextMismatchError` (-> 409) se ``contesto_hash`` non
-    identifica il contesto che si userebbe: l'invariante e' che la prosa nasca
-    sul contesto MOSTRATO, e vale sia a cache calda (zona ri-analizzata da un
-    altro tab: la cache non e' piu' quella dell'analisi in corso) sia a cache
-    fredda (ricostruzione su una cattura OSM diversa). Il confronto precede ogni
-    chiamata LLM: un rifiuto non costa token.
+    Raises :class:`ContextMismatchError` (-> 409) if ``contesto_hash`` does not
+    identify the context that would be used: the invariant is that the prose arises
+    on the SHOWN context, and it holds both with a warm cache (zone re-analysed from
+    another tab: the cache is no longer that of the current analysis) and with a
+    cold cache (reconstruction on a different OSM capture). The comparison precedes
+    every LLM call: a rejection costs no tokens.
 
-    Solleva :class:`PoiNotFoundError` se il POI non e' nel contesto (POI
-    scomparso da OSM, o caduto fuori dal cap ``MAX_POIS`` fra due catture): il
-    registro in :mod:`errors` lo traduce in 404. Su :class:`LLMError` ritorna i
-    soli dati strutturati con ``fallback=True``, come il percorso di zona.
+    Raises :class:`PoiNotFoundError` if the POI is not in the context (POI
+    vanished from OSM, or fell outside the ``MAX_POIS`` cap between two captures): the
+    registry in :mod:`errors` translates it to 404. On :class:`LLMError` it returns
+    only the structured data with ``fallback=True``, like the zone path.
 
-    A cache fredda senza ``geo_source`` (il caso reale della rotta: il client
-    rimanda solo ``citta``/``zona``, mai l'area originale) la ricostruzione
-    passa da un geocode FORWARD (:func:`~crime_risk_analyzer.geocoding.geocode_zone`)
-    delle etichette. Nella modalita' citta + zona sono il testo digitato
-    (``area_search.resolve_zone``), quindi la ricostruzione ritrova la stessa
-    area. Nel cerchio invece l'etichetta nasce da un reverse geocode del centro
-    (#318): quasi mai una stringa che Nominatim ritrova cercandola in avanti, e
-    sempre impossibile nel caso di fallback (``"area lat,lon"``/``"zona non
-    identificata"``, D9 del design doc). La conseguente
-    :class:`~crime_risk_analyzer.geocoding.ZoneNotFoundError` diventa qui lo
-    stesso :class:`ContextMismatchError` del ramo ``contesto_hash`` -> 409, non
-    un 422 "zona non geocodificabile": il contesto non e' scritto male, e'
-    semplicemente scaduto/sfrattato, e la via d'uscita e' la stessa, rilanciare
-    l'analisi di zona (che ripassa da ``resolve_circle``/``resolve_zone``).
-    :class:`~crime_risk_analyzer.geocoding.GeocodingError`
-    generico (Nominatim irraggiungibile) resta INVECE un 503 non catturato qui:
-    e' un guasto di servizio reale, non un'etichetta non ricercabile, e
-    rilanciare l'analisi non lo risolverebbe.
+    On a cold cache without ``geo_source`` (the real case of the route: the client
+    sends back only ``citta``/``zona``, never the original area) the reconstruction
+    goes through a FORWARD geocode
+    (:func:`~crime_risk_analyzer.geocoding.geocode_zone`) of the labels. In the
+    city + zone mode they are the typed text (``area_search.resolve_zone``), so
+    the reconstruction finds the same area again. In the circle, instead, the
+    label comes from a reverse geocode of the centre (#318): almost never a string
+    that Nominatim finds when searching forward, and always impossible in the
+    fallback case (``"area lat,lon"``/``"zona non identificata"``, D9 of the
+    design doc). The resulting
+    :class:`~crime_risk_analyzer.geocoding.ZoneNotFoundError` becomes here the
+    same :class:`ContextMismatchError` as the ``contesto_hash`` branch -> 409, not
+    a 422 "zone not geocodable": the context is not badly written, it has simply
+    expired/been evicted, and the way out is the same, re-run the zone analysis
+    (which goes through ``resolve_circle``/``resolve_zone`` again). A generic
+    :class:`~crime_risk_analyzer.geocoding.GeocodingError` (Nominatim
+    unreachable) INSTEAD stays a 503 not caught here: it is a real service
+    failure, not an unsearchable label, and re-running the analysis would not
+    fix it.
     """
     cached = zone_context_cache.get(citta, zona)
-    ricostruito = cached is None
+    rebuilt = cached is None
     if cached is None:
         try:
             retrieval_ctx = await retrieve(
@@ -204,15 +205,15 @@ async def run_poi_narrative(
         cached = ZoneContext(retrieval=retrieval_ctx, grounded=grounded)
 
     pois = cached["retrieval"]["pois"]
-    # Il contesto che si userebbe e' quello mostrato? (#242) Confronto prima del
-    # lookup del POI e prima di qualunque generazione: se l'impronta non
-    # combacia il POI presente e' irrilevante, e un rifiuto non deve costare
-    # token. L'impronta e' solo confrontata: non entra nel prompt.
+    # Is the context that would be used the one shown? (#242) Comparison before the
+    # POI lookup and before any generation: if the fingerprint does not
+    # match, the POI present is irrelevant, and a rejection must not cost
+    # tokens. The fingerprint is only compared: it does not enter the prompt.
     if (
         fingerprint(
             pois,
-            istat_versione=istat_versione_per(istat_context_enabled),
-            fonti=fonti_attive_id(),
+            istat_version=istat_version_for(istat_context_enabled),
+            sources_id=active_sources_id(),
         )
         != contesto_hash
     ):
@@ -220,17 +221,17 @@ async def run_poi_narrative(
             f"il contesto di {citta}/{zona} non e' quello dell'analisi che hai "
             "davanti: rilancia l'analisi di zona"
         )
-    # Il deposito in cache avviene DOPO il confronto: un contesto ricostruito e
-    # rifiutato non e' mai stato davanti a nessuno, e memorizzarlo occuperebbe
-    # uno dei MAX_ZONES slot sfrattando, a cache piena, il contesto valido di
-    # un'altra zona (review backend M1).
-    if ricostruito:
+    # Writing to the cache happens AFTER the comparison: a rebuilt and rejected
+    # context was never in front of anyone, and storing it would take up
+    # one of the MAX_ZONES slots, evicting, with a full cache, the valid context of
+    # another zone (backend review M1).
+    if rebuilt:
         zone_context_cache.put(citta, zona, cached)
-    # NB: da qui alla costruzione del prompt non c'e' alcun ``await``, e ``pois``
-    # e' un riferimento locale a una lista che nessuno muta. Un ``/analyze``
-    # concorrente che sovrascrive la voce di cache non puo' quindi far generare
-    # la prosa su una lista diversa da quella appena confrontata: inserire un
-    # ``await`` qui in mezzo romperebbe questa proprieta'.
+    # NB: from here to the building of the prompt there is no ``await``, and ``pois``
+    # is a local reference to a list that nobody mutates. A concurrent ``/analyze``
+    # that overwrites the cache entry therefore cannot make the prose be generated
+    # on a list different from the one just compared: inserting an
+    # ``await`` in between would break this property.
     index = next((i for i, p in enumerate(pois) if p["id"] == poi_id), None)
     if index is None:
         raise PoiNotFoundError(
@@ -251,8 +252,8 @@ async def run_poi_narrative(
             poi_name=poi["name"],
             poi_label_it=label_it(poi["terminus_class"]),
             risks=vr["risks"],
-            # Al prompt va il solo nome: la citazione che #256 aggiunge serve alla
-            # UI. Cosi' il testo del prompt per-POI resta identico.
+            # Only the name goes to the prompt: the citation that #256 adds is for
+            # the UI. So the text of the per-POI prompt stays identical.
             vulnerabilities=[v["name"] for v in vr["vulnerabilities"]],
             sparql_path=vr["sparql_path"],
             neighbours=neighbours,
@@ -262,8 +263,8 @@ async def run_poi_narrative(
         )
     except LLMError as exc:
         logger.warning(
-            "Generazione narrativa POI fallita per %s/%s poi=%s: fallback "
-            "strutturato (narrativa vuota). Causa: %s",
+            "POI narrative generation failed for %s/%s poi=%s: structured "
+            "fallback (empty narrative). Cause: %s",
             citta,
             zona,
             poi_id,

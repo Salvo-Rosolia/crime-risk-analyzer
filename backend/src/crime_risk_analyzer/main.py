@@ -1,12 +1,12 @@
-"""Entrypoint dell'applicazione FastAPI.
+"""FastAPI application entrypoint.
 
-Espone la factory :func:`create_app` e un'istanza ``app`` pronta per Uvicorn
-(``uvicorn crime_risk_analyzer.main:app``). Registra gli endpoint di dominio —
+Exposes the :func:`create_app` factory and an ``app`` instance ready for Uvicorn
+(``uvicorn crime_risk_analyzer.main:app``). Registers the domain endpoints —
 ``GET /health``, ``GET /cities``, ``GET /poi-types`` (#143), ``GET /geocode``
 (#318), ``POST /analyze`` + ``POST
-/analyze/narrativa`` (le due fasi dell'analisi di zona, #259/#292), ``POST
-/analyze/baseline`` e ``POST /analyze/poi`` (#197) — e configura il CORS (#106)
-e il warm-up delle risorse nel ``lifespan``.
+/analyze/narrativa`` (the two phases of the zone analysis, #259/#292), ``POST
+/analyze/baseline`` and ``POST /analyze/poi`` (#197) — and configures CORS (#106)
+and the resource warm-up in the ``lifespan``.
 """
 
 from collections.abc import AsyncGenerator
@@ -57,7 +57,7 @@ from crime_risk_analyzer.sparql_module.query_executor import (
 
 
 class HealthResponse(BaseModel):
-    """Risposta dell'endpoint di health-check."""
+    """Response of the health-check endpoint."""
 
     status: str
     ontology_triples: int
@@ -66,17 +66,17 @@ class HealthResponse(BaseModel):
 async def _resolve_area(
     request: AnalyzeRequest | BaselineRequest,
 ) -> tuple[str, str, GeoSource]:
-    """Instrada il body sul resolver della modalita' che porta.
+    """Routes the body to the resolver of the mode it carries.
 
-    Le due modalita' di ricerca coesistono e il body ne porta esattamente una
-    (invariante garantita dal validator di ``_AreaRequest``): qui si sceglie solo
-    il resolver. Entrambi ritornano ``(citta, zona, geo_source)``, quindi da qui
-    in giu' la pipeline non sa quale modalita' l'utente abbia usato.
+    The two search modes coexist and the body carries exactly one of them
+    (invariant guaranteed by the validator of ``_AreaRequest``): here we only pick
+    the resolver. Both return ``(citta, zona, geo_source)``, so from here
+    downward the pipeline does not know which mode the user used.
 
-    Il ``cast`` regge sull'invariante del validator, non su un controllo locale:
-    ``is_circle`` implica ``center``/``radius_m`` valorizzati, ed e' la stessa
-    ragione per cui il ramo testuale puo' passare ``citta``/``zona`` senza
-    ri-verificarli.
+    The ``cast`` relies on the validator's invariant, not on a local check:
+    ``is_circle`` implies ``center``/``radius_m`` are set, and it is the same
+    reason why the text branch can pass ``citta``/``zona`` without
+    re-verifying them.
     """
     if request.is_circle:
         center = cast(Center, request.center)
@@ -88,52 +88,52 @@ async def _resolve_area(
 
 router = APIRouter()
 
-#: Lega alla richiesta il set di fonti della sessione (#416), se ne ha uno.
-_SESSIONE = [Depends(sources_routes.activate_session)]
+#: Binds the session's source set (#416) to the request, if it has one.
+_SESSION = [Depends(sources_routes.activate_session)]
 
 
 @router.get("/health")
 async def health(graph: Annotated[Graph, Depends(get_ontology)]) -> HealthResponse:
-    """Health-check: servizio in piedi + numero di triple dell'ontologia caricata.
+    """Health-check: service up + number of triples of the loaded ontology.
 
-    Il grafo arriva via ``Depends(get_ontology)`` (caricato una volta nel
-    ``lifespan``, niente I/O per richiesta): ``ontology_triples`` segnala che
-    l'ontologia e' effettivamente in memoria (vedi backend/orchestrator.md).
+    The graph arrives via ``Depends(get_ontology)`` (loaded once in the
+    ``lifespan``, no per-request I/O): ``ontology_triples`` signals that the
+    ontology is actually in memory (see backend/orchestrator.md).
     """
     return HealthResponse(status="ok", ontology_triples=len(graph))
 
 
 @router.get("/cities")
 async def cities(settings: Annotated[Settings, Depends(get_settings)]) -> list[str]:
-    """Elenca le città suggerite per l'autocomplete del campo città (non un vincolo).
+    """Lists the suggested cities for the city field autocomplete (not a constraint).
 
-    Roma, Milano e Napoli sono garantite e testate end-to-end; le altre sono
-    best-effort (vedi backend/orchestrator.md). La lista vive nella config
-    centralizzata ed è iniettata via ``Depends`` (niente stato globale).
+    Roma, Milano and Napoli are guaranteed and tested end-to-end; the others are
+    best-effort (see backend/orchestrator.md). The list lives in the centralised
+    config and is injected via ``Depends`` (no global state).
     """
     return settings.supported_cities
 
 
 @router.get("/poi-types")
 async def list_poi_types() -> list[PoiType]:
-    """Catalogo dei tipi POI accettati da ``tipo_poi`` di ``/analyze/baseline`` (#143).
+    """Catalogue of the POI types accepted as ``tipo_poi`` (#143).
 
-    Le classi TERMINUS che il mapping OSM puo' produrre, con l'etichetta IT del
-    vocabolario controllato, ordinate per etichetta. Serve sempre l'elenco del set
-    di default (in cache), senza ``_SESSIONE``: non legge ne' valida la sessione
-    delle fonti, quindi non risponde mai 410 ``fonti_scadute`` (#438). Nessuna rete.
+    The TERMINUS classes that the OSM mapping can produce, with the IT label of
+    the controlled vocabulary, sorted by label. It always serves the list of the
+    default set (cached), without ``_SESSION``: it neither reads nor validates the
+    sources session, so it never answers 410 ``fonti_scadute`` (#438). No network.
     """
     return list(poi_types())
 
 
-def _query_non_vuota(query: str) -> str:
-    """Respinge una query senza caratteri utili (#376); la valida torna intatta.
+def _non_empty_query(query: str) -> str:
+    """Rejects a query without useful characters (#376); the valid one returns intact.
 
-    Il criterio e' ``str.split()``, lo stesso con cui
-    ``geocoding._freeform_key`` comprime gli spazi: una query passa solo se la
-    sua chiave di cache non e' vuota. Un ``pattern`` regex non basterebbe: il
-    suo ``\\s`` non conta i separatori U+001C-U+001F, che per ``split`` sono
-    spazi.
+    The criterion is ``str.split()``, the same one with which
+    ``geocoding._freeform_key`` compresses the spaces: a query passes only if its
+    cache key is not empty. A regex ``pattern`` would not be enough: its
+    ``\\s`` does not count the U+001C-U+001F separators, which for ``split`` are
+    spaces.
     """
     if not query.split():
         raise ValueError("la query non puo' essere vuota o di soli spazi")
@@ -142,21 +142,21 @@ def _query_non_vuota(query: str) -> str:
 
 @router.get("/geocode")
 async def geocode(
-    query: Annotated[str, Query(max_length=200), AfterValidator(_query_non_vuota)],
+    query: Annotated[str, Query(max_length=200), AfterValidator(_non_empty_query)],
 ) -> dict[str, float]:
-    """Forward geocode di un luogo libero (#318): sposta solo la mappa, non fa
-    parte dell'analisi.
+    """Forward geocode of a free place (#318): it only moves the map, it is not
+    part of the analysis.
 
-    Serve la casella "vai a un luogo" del frontend: nessun bbox, nessuna
-    zona/citta' — solo un punto per ricentrare la mappa, da cui l'utente
-    disegna poi il cerchio che alimenta ``POST /analyze``. ``GeocodingError``
-    (servizio non raggiungibile) e' gia' mappato centralmente -> 503 (#21); qui
-    si gestisce solo l'esito "nessun risultato", che non e' un errore di
-    servizio.
+    It serves the frontend's "go to a place" box: no bbox, no
+    zone/city — only a point to re-centre the map, from which the user then
+    draws the circle that feeds ``POST /analyze``. ``GeocodingError``
+    (service unreachable) is already mapped centrally -> 503 (#21); here
+    only the "no result" outcome is handled, which is not a service
+    error.
 
-    Una query vuota o di soli spazi (:func:`_query_non_vuota`, #376) e' un 422
-    di validazione, come quella oltre i 200 caratteri, e non arriva a
-    Nominatim. La query valida passa intatta, spazi ai bordi compresi.
+    An empty or whitespace-only query (:func:`_non_empty_query`, #376) is a 422
+    validation error, like one over 200 characters, and does not reach
+    Nominatim. The valid query passes intact, edge spaces included.
     """
     result = await run_in_threadpool(geocoding.geocode_freeform, query)
     if result is None:
@@ -165,34 +165,35 @@ async def geocode(
     return {"lat": lat, "lon": lon}
 
 
-@router.post("/analyze", dependencies=_SESSIONE)
+@router.post("/analyze", dependencies=_SESSION)
 async def analyze(
     request: AnalyzeRequest,
     executor: Annotated[RiskQueryExecutor, Depends(current_executor)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> AnalyzeResponse:
-    """Fase 1 (#259/#292): area -> OSM -> SPARQL -> grounding -> JSON.
+    """Phase 1 (#259/#292): area -> OSM -> SPARQL -> grounding -> JSON.
 
-    **Nessuna chiamata LLM qui.** La rotta risponde con i dati strutturati e
-    ``narrativa=None`` — non un fallback (``fallback`` resta ``False``), ma
-    "testo in arrivo": il client rende subito mappa e lista, poi chiede la prosa a
-    ``POST /analyze/narrativa`` rimandando il ``contesto_hash`` di questa
-    risposta. Prima la mappa compariva solo dopo la generazione, cioe' dopo tutta
-    la latenza del provider.
+    **No LLM call here.** The route answers with the structured data and
+    ``narrativa=None`` — not a fallback (``fallback`` stays ``False``), but
+    "text on the way": the client renders map and list right away, then asks for
+    the prose from ``POST /analyze/narrativa`` sending back the ``contesto_hash``
+    of this response. Before, the map appeared only after the generation, i.e.
+    after the whole latency of the provider.
 
-    Il body porta l'area in UNA delle due modalita' (:func:`_resolve_area`): il
-    cerchio disegnato sulla mappa (#318), di cui ``resolve_circle`` deriva una
-    label citta'/zona best-effort via reverse geocode (mai bloccante), oppure i
-    due campi ``citta``/``zona``, che ``resolve_zone`` geocodifica in un bbox —
-    una zona non trovata e' ``ZoneNotFoundError`` -> 422. Nessuna allowlist di
-    citta' (#191): ``GET /cities`` suggerisce, non vincola. Gli errori di dominio
-    (Overpass giu', ecc.) propagano agli handler centrali (#21).
+    The body carries the area in ONE of the two modes (:func:`_resolve_area`): the
+    circle drawn on the map (#318), from which ``resolve_circle`` derives a
+    best-effort city/zone label via reverse geocode (never blocking), or the
+    two fields ``citta``/``zona``, which ``resolve_zone`` geocodes into a bbox —
+    a zone not found is ``ZoneNotFoundError`` -> 422. No city allowlist
+    (#191): ``GET /cities`` suggests, does not constrain. Domain errors
+    (Overpass down, etc.) propagate to the central handlers (#21).
 
-    La ``domanda`` libera (#119) resta della fase 2, che e' l'unica a costruire
-    un prompt. Per la stessa ragione questa rotta non dipende ne' dal client
-    LLM ne' dai tetti di token: sono argomenti della fase 2. Da ``Settings``
-    legge solo l'interruttore ISTAT (#346), che decide se ``poi[].istat`` arriva
-    al client e se la versione dei dati ISTAT entra in ``contesto_hash`` (#354).
+    The free ``domanda`` (#119) stays with phase 2, which is the only one
+    building a prompt. For the same reason this route depends neither on the LLM
+    client nor on the token caps: they are arguments of phase 2. From ``Settings``
+    it reads only the ISTAT switch (#346), which decides whether ``poi[].istat``
+    reaches the client and whether the ISTAT data version enters
+    ``contesto_hash`` (#354).
     """
     citta, zona, geo_source = await _resolve_area(request)
     return await run_analysis_fast(
@@ -205,40 +206,40 @@ async def analyze(
     )
 
 
-@router.post("/analyze/narrativa", dependencies=_SESSIONE)
+@router.post("/analyze/narrativa", dependencies=_SESSION)
 async def analyze_narrativa(
     request: ZoneNarrativeRequest,
     executor: Annotated[RiskQueryExecutor, Depends(current_executor)],
     llm_client: Annotated[LLMClient, Depends(get_llm_client)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> ZoneNarrativeResponse:
-    """Fase 2 (#259/#292): la narrativa di zona, generata a parte.
+    """Phase 2 (#259/#292): the zone narrative, generated separately.
 
-    Riusa il contesto scaldato dalla fase 1 (cache con TTL); a cache fredda lo
-    ricostruisce, al costo di una chiamata Overpass. ``contesto_hash`` (#242) e'
-    l'impronta del contesto che il client sta mostrando: se non identifica il
-    contesto che l'endpoint userebbe -> ``ContextMismatchError`` -> 409
-    (handler centrale in :mod:`errors`, lo stesso registro di ``/analyze/poi``),
-    cosi' la prosa non puo' nascere su una lista di POI diversa da quella a
-    schermo — e il rifiuto arriva prima di qualunque chiamata LLM, quindi non
-    costa token. ``LLMError`` e' gestito in :func:`run_zone_narrative` come
-    fallback (200 con narrativa vuota e ``fallback=True``): i dati strutturati
-    sono gia' a schermo dalla fase 1.
+    It reuses the context warmed by phase 1 (cache with TTL); on a cold cache it
+    rebuilds it, at the cost of an Overpass call. ``contesto_hash`` (#242) is
+    the fingerprint of the context the client is showing: if it does not identify
+    the context the endpoint would use -> ``ContextMismatchError`` -> 409
+    (central handler in :mod:`errors`, the same registry as ``/analyze/poi``),
+    so the prose cannot arise on a POI list different from the one on
+    screen — and the rejection arrives before any LLM call, so it costs no
+    tokens. ``LLMError`` is handled in :func:`run_zone_narrative` as a
+    fallback (200 with empty narrative and ``fallback=True``): the structured data
+    is already on screen from phase 1.
 
-    ``request.domanda`` (opzionale, #119) e' propagata fino allo ``user_content``
-    del prompt. Il tetto totale di token della richiesta e i ``max_tokens`` di
-    output (#210) arrivano da ``Settings`` (DI): il generation layer ne ricava
-    l'allowance per lo user_content e limita i POI passati all'LLM su zone dense,
-    cosi' l'intera richiesta non sfora il TPM del provider. Questa e' ormai
-    l'unica chiamata a ``generate_analysis`` del prodotto, quindi e' qui che il
-    tetto va rispettato.
+    ``request.domanda`` (optional, #119) is propagated down to the prompt's
+    ``user_content``. The total token cap of the request and the output
+    ``max_tokens`` (#210) come from ``Settings`` (DI): the generation layer
+    derives from them the allowance for user_content and limits the POIs passed
+    to the LLM on dense zones, so the whole request does not exceed the
+    provider's TPM. This is now the only call to ``generate_analysis`` in the
+    product, so it is here that the cap must be respected.
 
-    ``citta`` e ``zona`` restano stringhe del client: a cache fredda la
-    ricostruzione le passa a ``retrieve`` e la zona finisce nello
-    ``user_content``, normalizzata come dato non fidato (``build_context_str``),
-    come nel percorso per-POI. L'impronta non ne verifica la PROVENIENZA:
-    certifica l'identita' della lista di POI, non che le due stringhe siano
-    quelle che la fase 1 ha restituito.
+    ``citta`` and ``zona`` remain client strings: on a cold cache the
+    reconstruction passes them to ``retrieve`` and the zone ends up in the
+    ``user_content``, normalised as untrusted data (``build_context_str``),
+    as in the per-POI path. The fingerprint does not verify their PROVENANCE:
+    it certifies the identity of the POI list, not that the two strings are
+    the ones phase 1 returned.
     """
     return await run_zone_narrative(
         request.citta,
@@ -254,23 +255,23 @@ async def analyze_narrativa(
     )
 
 
-@router.post("/analyze/baseline", dependencies=_SESSIONE)
+@router.post("/analyze/baseline", dependencies=_SESSION)
 async def analyze_baseline(
     request: BaselineRequest,
     executor: Annotated[RiskQueryExecutor, Depends(current_executor)],
 ) -> AnalyzeResponse:
-    """Variante senza LLM per l'ablation: solo dati strutturati dal grounding.
+    """No-LLM variant for the ablation: only structured data from the grounding.
 
-    Stesse due modalita' di ``/analyze`` (cerchio oppure citta + zona), via lo
-    stesso :func:`_resolve_area`: i due bracci dell'ablation analizzano la stessa
-    area scelta nello stesso modo. Nessuna allowlist di citta' (#191).
-    ``request.tipo_poi`` (opzionale, #119) filtra i POI server-side per classe
-    TERMINUS, applicato dopo il filtro per raggio; ``None``/vuoto = nessun filtro.
-    Arriva da un campo di testo libero: :func:`resolve_poi_type` lo normalizza
-    alla classe canonica del catalogo ``GET /poi-types`` (maiuscole, spazi ed
-    etichetta IT indifferenti, #143) PRIMA di geocoding e Overpass, cosi' un tipo
-    sconosciuto e' un 422 (``UnknownPoiTypeError``, handler centrale) che non
-    costa chiamate di rete, invece di una lista vuota silenziosa.
+    Same two modes as ``/analyze`` (circle or city + zone), via the same
+    :func:`_resolve_area`: the two arms of the ablation analyse the same area
+    chosen in the same way. No city allowlist (#191).
+    ``request.tipo_poi`` (optional, #119) filters the POIs server-side by TERMINUS
+    class, applied after the radius filter; ``None``/empty = no filter.
+    It arrives from a free text field: :func:`resolve_poi_type` normalises it
+    to the canonical class of the ``GET /poi-types`` catalogue (case, spaces and
+    IT label indifferent, #143) BEFORE geocoding and Overpass, so an unknown type
+    is a 422 (``UnknownPoiTypeError``, central handler) that costs no network
+    calls, instead of a silent empty list.
     """
     tipo_poi = resolve_poi_type(request.tipo_poi)
     citta, zona, geo_source = await _resolve_area(request)
@@ -284,26 +285,26 @@ async def analyze_baseline(
     )
 
 
-@router.post("/analyze/poi", dependencies=_SESSIONE)
+@router.post("/analyze/poi", dependencies=_SESSION)
 async def analyze_poi(
     request: PoiNarrativeRequest,
     executor: Annotated[RiskQueryExecutor, Depends(current_executor)],
     llm_client: Annotated[LLMClient, Depends(get_llm_client)],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> PoiNarrativeResponse:
-    """Narrativa del singolo POI selezionato (#197).
+    """Narrative of the single selected POI (#197).
 
-    Riusa il contesto di zona calcolato da ``/analyze`` (cache con TTL); a cache
-    fredda lo ricostruisce, al costo di una chiamata Overpass. ``contesto_hash``
-    (#242) e' l'impronta del contesto che il client sta mostrando: se non
-    identifica il contesto che l'endpoint userebbe -> ``ContextMismatchError``
-    -> 409, cosi' la narrativa non puo' nascere su un vicinato diverso da quello
-    a schermo. ``poi_id`` fuori dal contesto -> ``PoiNotFoundError`` -> 404
-    (handler centrale). I dati di RISCHIO sono tutti ri-derivati dal server: del
-    punto il client fornisce solo l'id e un'impronta opaca. ``citta`` e ``zona``
-    restano invece stringhe del client: arrivano al prompt normalizzate come
-    dato non fidato (#119), come nel percorso di zona, ma l'impronta non ne
-    verifica la provenienza.
+    It reuses the zone context computed by ``/analyze`` (cache with TTL); on a
+    cold cache it rebuilds it, at the cost of an Overpass call. ``contesto_hash``
+    (#242) is the fingerprint of the context the client is showing: if it does
+    not identify the context the endpoint would use -> ``ContextMismatchError``
+    -> 409, so the narrative cannot arise on a neighbourhood different from the
+    one on screen. ``poi_id`` outside the context -> ``PoiNotFoundError`` -> 404
+    (central handler). The RISK data is all re-derived by the server: of the
+    point the client supplies only the id and an opaque fingerprint. ``citta`` and
+    ``zona`` instead remain client strings: they reach the prompt normalised as
+    untrusted data (#119), as in the zone path, but the fingerprint does not
+    verify their provenance.
     """
     return await run_poi_narrative(
         request.citta,
@@ -318,31 +319,32 @@ async def analyze_poi(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-    """Warm-up all'avvio (fail-fast): ontologia, executor SPARQL e client LLM.
+    """Startup warm-up (fail-fast): ontology, SPARQL executor and LLM client.
 
-    Pre-costruisce a startup le risorse costose o critiche esposte via
-    ``Depends``, così la prima ``POST /analyze`` non paga il costo lazy e un
-    misconfig esplode subito all'avvio, non alla prima richiesta:
+    Pre-builds at startup the expensive or critical resources exposed via
+    ``Depends``, so the first ``POST /analyze`` does not pay the lazy cost and a
+    misconfig blows up right at startup, not at the first request:
 
-    * :func:`get_ontology` — carica e valida il grafo ``.ttl`` (fail-fast se
-      manca o è invalido);
-    * :func:`get_executor` — costruisce l'indice delle restrizioni SPARQL, parte
-      costosa e POI-indipendente che appartiene allo startup e non alla prima
-      richiesta (vedi docstring di :class:`RiskQueryExecutor`);
-    * :func:`get_llm_client` — istanzia il client LLM dal provider configurato
-      (fail-fast: ``LLMError`` all'avvio se la chiave del provider manca, invece
-      che alla prima ``/analyze``);
-    * :func:`istat_data` — con ``istat_context_enabled``: carica e valida i dati
-      ISTAT (fail-fast); spento, :func:`istat_data_or_none` li precarica senza
-      fallire, perche' il grounding calcola le righe ISTAT comunque (R9, review 2).
+    * :func:`get_ontology` — loads and validates the ``.ttl`` graph (fail-fast if
+      missing or invalid);
+    * :func:`get_executor` — builds the SPARQL restriction index, an expensive
+      and POI-independent part that belongs to startup and not to the first
+      request (see the docstring of :class:`RiskQueryExecutor`);
+    * :func:`get_llm_client` — instantiates the LLM client from the configured
+      provider (fail-fast: ``LLMError`` at startup if the provider key is
+      missing, instead of at the first ``/analyze``);
+    * :func:`istat_data` — with ``istat_context_enabled``: loads and validates
+      the ISTAT data (fail-fast); off, :func:`istat_data_or_none` preloads it
+      without failing, because grounding computes the ISTAT rows anyway (R9,
+      review 2).
     """
     get_ontology()
     get_executor()
     get_llm_client()
-    # Dati ISTAT (#345): con l'interruttore acceso, file mancanti o non validi
-    # fermano l'avvio invece di produrre narrative senza dati in silenzio. Spento,
-    # si caricano lo stesso qui (non fatale): altrimenti il primo grounding li
-    # caricherebbe sull'event loop, bloccandolo per circa mezzo secondo.
+    # ISTAT data (#345): with the switch on, missing or invalid files stop
+    # startup instead of silently producing narratives without data. Off, they
+    # are loaded here anyway (non-fatal): otherwise the first grounding would
+    # load them on the event loop, blocking it for about half a second.
     if get_settings().istat_context_enabled:
         istat_data()
     else:
@@ -351,19 +353,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
 
 def create_app() -> FastAPI:
-    """Costruisce e configura l'istanza FastAPI."""
+    """Builds and configures the FastAPI instance."""
     settings = get_settings()
     app = FastAPI(title="Crime Risk Analyzer", lifespan=lifespan)
     register_exception_handlers(app)
-    # CORS (#106) come DIFESA IN PROFONDITA', per un client su un'origine diversa
-    # da quella dell'API. Oggi nessuna chiamata del frontend ne dipende:
-    # ApiService usa percorsi relativi e in sviluppo passa dal proxy di
-    # ``ng serve`` (``frontend/proxy.config.json`` e' l'unica fonte su cosa e'
-    # proxato, #342). Per questo il CORS non puo' coprire una rotta dimenticata
-    # nel proxy, e un deploy con l'API su un'altra origine richiederebbe anche
-    # un base URL nel frontend. Allowlist ESPLICITA da ``Settings`` (mai
-    # wildcard ``*``); API stateless -> nessun cookie
-    # (``allow_credentials=False``). Copre tutte le rotte.
+    # CORS (#106) as DEFENCE IN DEPTH, for a client on an origin different
+    # from the API's. Today no frontend call depends on it:
+    # ApiService uses relative paths and in development goes through the
+    # ``ng serve`` proxy (``frontend/proxy.config.json`` is the only source of
+    # what is proxied, #342). For this reason CORS cannot cover a route
+    # forgotten in the proxy, and a deploy with the API on another origin
+    # would also require a base URL in the frontend. EXPLICIT allowlist from
+    # ``Settings`` (never wildcard ``*``); stateless API -> no cookie
+    # (``allow_credentials=False``). Covers all routes.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_allow_origins,
@@ -371,10 +373,10 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST", "DELETE"],
         allow_headers=["Content-Type", SESSION_HEADER],
     )
-    # GZip (#346, O10): la fase 1 di /analyze porta un IstatPoi per POI (+50-55%
-    # di byte); nessuna rotta e' in streaming (niente StreamingResponse/SSE), quindi
-    # comprimere l'intero corpo e' sicuro. minimum_size evita l'overhead su risposte
-    # minuscole (es. /health).
+    # GZip (#346, O10): phase 1 of /analyze carries an IstatPoi per POI (+50-55%
+    # bytes); no route is streaming (no StreamingResponse/SSE), so compressing
+    # the whole body is safe. minimum_size avoids the overhead on tiny
+    # responses (e.g. /health).
     app.add_middleware(GZipMiddleware, minimum_size=1000)
     app.include_router(router)
     app.include_router(sources_routes.router)

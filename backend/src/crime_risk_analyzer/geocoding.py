@@ -1,24 +1,24 @@
-"""Geocoding zona -> bbox via Nominatim (#15, hardening #115).
+"""Geocoding zone -> bbox via Nominatim (#15, hardening #115).
 
-Risolve una zona all'interno di una citta' in coordinate e bounding box, usando
-``geopy.geocoders.Nominatim``. Il bbox e' la tupla ``(lat_min, lon_min, lat_max,
-lon_max)`` consumata a valle dal client Overpass.
+Resolves a zone inside a city into coordinates and bounding box, using
+``geopy.geocoders.Nominatim``. The bbox is the tuple ``(lat_min, lon_min, lat_max,
+lon_max)`` consumed downstream by the Overpass client.
 
-Le eccezioni di dominio (:class:`ZoneNotFoundError`, :class:`GeocodingError`)
-sono progettate per essere mappate dall'orchestrator a risposte HTTP esplicite
-(zona non geocodificabile -> 422, servizio non raggiungibile -> 503), alimentando
-lo Stato Errore del frontend. Nominatim e' un servizio HTTP sincrono: le funzioni
-pubbliche (:func:`geocode_zone`, :func:`geocode_freeform`,
-:func:`reverse_geocode_label`) sono percio' sincrone e vanno invocate via
-``run_in_threadpool`` da un handler async.
+The domain exceptions (:class:`ZoneNotFoundError`, :class:`GeocodingError`)
+are designed to be mapped by the orchestrator to explicit HTTP responses
+(zone not geocodable -> 422, service unreachable -> 503), feeding the frontend's
+Error State. Nominatim is a synchronous HTTP service: the public functions
+(:func:`geocode_zone`, :func:`geocode_freeform`,
+:func:`reverse_geocode_label`) are therefore synchronous and must be invoked via
+``run_in_threadpool`` from an async handler.
 
-Nota (decisione 3B): il PRODOTTO filtra i POI col ``bbox`` Nominatim *by design*;
-il filtro poligonale reale e' riservato al gate di valutazione (eval/city_agnostic).
-Il bbox Nominatim resta la base, ma con una dimensione minima garantita (#204,
-:func:`_enforce_min_bbox`): senza pavimento una zona che risolve a un landmark
-puntuale (bbox ~150 m) restituirebbe 0 POI da Overpass e ``/analyze`` un 200
-vuoto. Il "sbavamento" del bbox ai bordi resta cosi' noto e misurato nel gate
-eval, non un difetto qui.
+Note (decision 3B): the PRODUCT filters POIs with the Nominatim ``bbox`` *by
+design*; the real polygonal filter is reserved to the evaluation gate
+(eval/city_agnostic). The Nominatim bbox remains the base, but with a guaranteed
+minimum size (#204, :func:`_enforce_min_bbox`): without a floor, a zone that
+resolves to a point landmark (bbox ~150 m) would return 0 POIs from Overpass and
+``/analyze`` an empty 200. The "bleed" of the bbox at the edges thus remains known
+and measured in the eval gate, not a defect here.
 """
 
 from __future__ import annotations
@@ -51,14 +51,14 @@ __all__ = [
     "reverse_geocode_label",
 ]
 
-#: User-agent dedicato, richiesto dalla usage policy di Nominatim.
+#: Dedicated user-agent, required by Nominatim's usage policy.
 _USER_AGENT = (
     "crime-risk-analyzer (https://github.com/Salvo-Rosolia/crime-risk-analyzer)"
 )
 
 
 class _Location(Protocol):
-    """Vista tipata minimale del ``geopy.location.Location`` (libreria senza stub)."""
+    """Minimal typed view of ``geopy.location.Location`` (library without stubs)."""
 
     @property
     def latitude(self) -> float: ...
@@ -71,12 +71,12 @@ class _Location(Protocol):
 
 
 class _Geocoder(Protocol):
-    """Vista tipata minimale del geocoder (geopy senza stub): ``geocode`` e ``reverse``.
+    """Minimal typed view of the geocoder (geopy has no stubs).
 
-    Dichiarare qui le firme che ci servono (invece di ereditare quella non tipata
-    di ``Nominatim``) mantiene la chiamata verificabile da pyright strict senza
-    ``# pyright: ignore`` sparsi sugli argomenti. ``reverse`` si aggiunge qui
-    (#318) perche' passa per lo stesso dispatcher di ``geocode``.
+    Declaring here the signatures we need (instead of inheriting the untyped one
+    of ``Nominatim``) keeps the call verifiable by pyright strict without
+    scattered ``# pyright: ignore`` on the arguments. ``reverse`` is added here
+    (#318) because it goes through the same dispatcher as ``geocode``.
     """
 
     def geocode(
@@ -99,7 +99,7 @@ class _Geocoder(Protocol):
 
 
 class GeoResult(TypedDict):
-    """Esito del geocoding: punto centrale + bounding box."""
+    """Geocoding outcome: central point + bounding box."""
 
     lat: float
     lon: float
@@ -107,54 +107,53 @@ class GeoResult(TypedDict):
 
 
 class GeocodingError(RuntimeError):
-    """Errore del servizio di geocoding (timeout, HTTP, parsing risposta)."""
+    """Geocoding service error (timeout, HTTP, response parsing)."""
 
 
 class ZoneNotFoundError(GeocodingError):
-    """La zona non e' geocodificabile nella citta' indicata."""
+    """The zone is not geocodable in the given city."""
 
 
-#: Cache in-memory dei risultati di geocoding (#115), gate da Settings.cache_enabled.
-#: Chiave normalizzata (strip+lower) per non duplicare varianti di case/spazi.
+#: In-memory cache of geocoding results (#115), gated by Settings.cache_enabled.
+#: Normalised key (strip+lower) so case/whitespace variants are not duplicated.
 _CACHE: dict[tuple[str, str], GeoResult] = {}
 
-#: Tetto della cache (#170): con ``zona`` user-controlled nella chiave, un dict
-#: illimitato crescerebbe senza freno in un processo longevo. Al riempimento si
-#: evince la entry piu' vecchia (FIFO: i ``dict`` 3.7+ preservano l'ordine di
-#: inserimento). 1024 chiavi (zona, citta') sono ampie per l'uso reale e tengono
-#: la memoria trascurabile. Il tetto vale per CIASCUNO degli store (``_CACHE``,
-#: ``_FREEFORM_CACHE`` dal #344, ``_FREEFORM_NEGATIVE_CACHE`` dal #376): in
-#: totale fino a 3 x 1024 voci.
+#: Cache cap (#170): with a user-controlled ``zona`` in the key, an unbounded dict
+#: would grow without limit in a long-lived process. When full, the oldest entry
+#: is evicted (FIFO: ``dict`` in 3.7+ preserves insertion order). 1024 keys
+#: (zona, citta) are ample for real use and keep memory negligible. The cap
+#: applies to EACH of the stores (``_CACHE``, ``_FREEFORM_CACHE`` since #344,
+#: ``_FREEFORM_NEGATIVE_CACHE`` since #376): in total up to 3 x 1024 entries.
 _CACHE_MAXSIZE = 1024
 
-#: Cache dei punti di :func:`geocode_freeform` (#344, casella "vai a un luogo"):
-#: stesso gate (``cache_enabled``), stesso tetto e stessa eviction FIFO di
-#: ``_CACHE``, ma store separato perche' chiave e valore sono diversi. Il valore
-#: e' una tupla immutabile: niente copia difensiva.
+#: Cache of the points of :func:`geocode_freeform` (#344, "go to a place" box):
+#: same gate (``cache_enabled``), same cap and same FIFO eviction as
+#: ``_CACHE``, but a separate store because key and value are different. The value
+#: is an immutable tuple: no defensive copy.
 _FREEFORM_CACHE: dict[str, tuple[float, float]] = {}
 
-#: Cache negativa di :func:`geocode_freeform` (#376): i "nessun risultato".
-#: Senza, un luogo inesistente torna a Nominatim a ogni invio e si accoda sul
-#: rate limiter condiviso con ``/analyze``. Stesso gate, tetto, eviction FIFO e
-#: lock degli altri store; il valore e' l'istante di scadenza su
-#: :data:`_clock`. Gli errori di servizio non ci entrano mai.
+#: Negative cache of :func:`geocode_freeform` (#376): the "no result" outcomes.
+#: Without it, a non-existent place goes back to Nominatim on every submit and
+#: queues on the rate limiter shared with ``/analyze``. Same gate, cap, FIFO
+#: eviction and lock as the other stores; the value is the expiry instant on
+#: :data:`_clock`. Service errors never enter it.
 _FREEFORM_NEGATIVE_CACHE: dict[str, float] = {}
 
-#: Durata (secondi) di una voce negativa. Breve, a differenza dei successi che
-#: restano per tutta la vita del processo: un luogo appena aggiunto a OSM, o un
-#: "nessun risultato" dovuto a un problema transitorio di Nominatim, torna
-#: trovabile entro dieci minuti senza riavviare il backend.
+#: Lifetime (seconds) of a negative entry. Short, unlike successes which stay for
+#: the whole life of the process: a place just added to OSM, or a "no result" due
+#: to a transient Nominatim problem, becomes findable again within ten minutes
+#: without restarting the backend.
 _FREEFORM_NEGATIVE_TTL_SECONDS = 600.0
 
-#: Orologio della scadenza: monotono, quindi immune ai cambi dell'ora di
-#: sistema. Variabile di modulo cosi' i test lo sostituiscono.
+#: Expiry clock: monotonic, hence immune to system time changes. Module variable
+#: so the tests replace it.
 _clock: Callable[[], float] = time.monotonic
 
-#: Le funzioni pubbliche girano in ``run_in_threadpool``, quindi su piu' thread
-#: insieme. Le singole operazioni sui ``dict`` sono atomiche, la sequenza
-#: "pieno? sfratta la piu' vecchia, poi inserisci" no: due thread potrebbero
-#: sfrattare la stessa chiave (``KeyError``) o iterare mentre l'altro scrive.
-#: Il lock copre solo le operazioni sugli store, mai la chiamata a Nominatim.
+#: The public functions run in ``run_in_threadpool``, hence on several threads at
+#: once. The single operations on the ``dict`` are atomic, the sequence
+#: "full? evict the oldest, then insert" is not: two threads could evict the
+#: same key (``KeyError``) or iterate while the other writes.
+#: The lock covers only the operations on the stores, never the call to Nominatim.
 _CACHE_LOCK = threading.Lock()
 
 _K = TypeVar("_K")
@@ -167,11 +166,11 @@ def _cache_get(store: dict[_K, _V], key: _K) -> _V | None:
 
 
 def _cache_put(store: dict[_K, _V], key: _K, value: _V) -> None:
-    """Inserisce con tetto ``_CACHE_MAXSIZE`` ed eviction FIFO (#170).
+    """Inserts with cap ``_CACHE_MAXSIZE`` and FIFO eviction (#170).
 
-    Al riempimento si rimuove la entry piu' vecchia (i ``dict`` preservano
-    l'ordine di inserimento); aggiornare una chiave gia' presente non fa
-    crescere lo store, quindi non sfratta nulla.
+    When full, the oldest entry is removed (``dict`` preserves insertion
+    order); updating a key already present does not grow the store, so it evicts
+    nothing.
     """
     with _CACHE_LOCK:
         if len(store) >= _CACHE_MAXSIZE and key not in store:
@@ -180,10 +179,10 @@ def _cache_put(store: dict[_K, _V], key: _K, value: _V) -> None:
 
 
 def _negative_cache_hit(key: str) -> bool:
-    """True se ``key`` ha un "nessun risultato" non ancora scaduto (#376).
+    """True if ``key`` has a not yet expired "no result" (#376).
 
-    Una voce scaduta si elimina qui, sotto lo stesso lock: non occupa piu' posto
-    nello store e un nuovo "nessun risultato" la reinserisce in coda.
+    An expired entry is deleted here, under the same lock: it no longer takes
+    room in the store and a new "no result" reinserts it at the tail.
     """
     with _CACHE_LOCK:
         expires_at = _FREEFORM_NEGATIVE_CACHE.get(key)
@@ -200,26 +199,26 @@ def _cache_key(zona: str, citta: str) -> tuple[str, str]:
 
 
 def _freeform_key(query: str) -> str:
-    """Chiave di :data:`_FREEFORM_CACHE` e :data:`_FREEFORM_NEGATIVE_CACHE`.
+    """Key of :data:`_FREEFORM_CACHE` and :data:`_FREEFORM_NEGATIVE_CACHE`.
 
-    Toglie solo le differenze che Nominatim ignora comunque: maiuscole e
-    varianti equivalenti nel confronto senza maiuscole di Unicode (``casefold``,
-    piu' ampio di ``lower``: anche "ß" -> "ss" e legature come "ﬁ" -> "fi"),
-    spazi (ai bordi, multipli o tab interni ridotti a uno, #344) e forma
-    Unicode (#376): "Città" con l'accento precomposto o scomposto e' lo stesso
-    testo.
+    It removes only the differences that Nominatim ignores anyway: capitals and
+    equivalent variants in Unicode's caseless comparison (``casefold``,
+    wider than ``lower``: also "ß" -> "ss" and ligatures like "ﬁ" -> "fi"),
+    spaces (at the edges, multiple or inner tabs reduced to one, #344) and
+    Unicode form (#376): "Città" with the precomposed or decomposed accent is the
+    same text.
 
-    La forma Unicode si fissa con NFC sia prima sia dopo ``casefold``: la
-    chiave rispetta l'equivalenza canonica e, per i testi realistici, coincide
-    con la forma di confronto canonica senza maiuscole di Unicode (NFD prima e
-    dopo ``casefold``). Differisce solo su sequenze greche patologiche con
-    doppio accento e ypogegrammeni. Prima: ``casefold`` non rispetta
-    l'equivalenza canonica, e due ordini equivalenti dei segni diacritici
-    darebbero chiavi diverse. Dopo: ``casefold`` puo' produrre testo non NFC
-    (U+0390 diventa tre code point).
-    NFC, non NFKC: le varianti di compatibilita' (apici, frazioni) restano
-    testo diverso. Cifre e punteggiatura restano: "Via Roma 1" e
-    "Via Roma, 10" sono luoghi diversi.
+    The Unicode form is fixed with NFC both before and after ``casefold``: the
+    key respects canonical equivalence and, for realistic texts, coincides
+    with the canonical caseless comparison form of Unicode (NFD before and
+    after ``casefold``). It differs only on pathological Greek sequences with
+    double accent and ypogegrammeni. Before: ``casefold`` does not respect
+    canonical equivalence, and two equivalent orders of the diacritic marks
+    would give different keys. After: ``casefold`` can produce non-NFC text
+    (U+0390 becomes three code points).
+    NFC, not NFKC: compatibility variants (superscripts, fractions) remain
+    different text. Digits and punctuation remain: "Via Roma 1" and
+    "Via Roma, 10" are different places.
     """
     collapsed = " ".join(query.split())
     folded = unicodedata.normalize("NFC", collapsed).casefold()
@@ -227,29 +226,29 @@ def _freeform_key(query: str) -> str:
 
 
 def _copy_result(result: GeoResult) -> GeoResult:
-    """Copia shallow difensiva di un :class:`GeoResult` (#170).
+    """Defensive shallow copy of a :class:`GeoResult` (#170).
 
-    Ritornare l'oggetto della cache per riferimento esporrebbe la entry
-    condivisa: un consumer che mutasse il dict avvelenerebbe la cache. ``bbox``
-    e' un :class:`Bbox` immutabile, quindi la copia shallow basta.
+    Returning the cache object by reference would expose the shared entry: a
+    consumer that mutated the dict would poison the cache. ``bbox``
+    is an immutable :class:`Bbox`, so the shallow copy is enough.
     """
     return cast("GeoResult", dict(result))
 
 
 @lru_cache(maxsize=1)
 def _get_geolocator() -> Nominatim:
-    """Provider cached del geocoder Nominatim (un'istanza per processo)."""
+    """Cached provider of the Nominatim geocoder (one instance per process)."""
     return Nominatim(user_agent=_USER_AGENT)
 
 
 def _nominatim_dispatch(op: str, arg: str | tuple[float, float]) -> _Location | None:
-    """Chiamata effettiva a geopy (senza stub): dispatcha su ``geocode``/``reverse``.
+    """Actual call to geopy (without stubs): dispatches on ``geocode``/``reverse``.
 
-    Ri-risolve ``_get_geolocator()`` a ogni chiamata cosi' il monkeypatch dei
-    test resta onorato anche dietro il RateLimiter singleton (#115). Un solo
-    dispatcher per le due direzioni (#318): e' quello che permette a
-    :func:`_get_rate_limited_call` di avvolgerle in un unico RateLimiter
-    condiviso, invece di uno per direzione.
+    Re-resolves ``_get_geolocator()`` at every call so the tests' monkeypatch
+    is still honoured even behind the singleton RateLimiter (#115). A single
+    dispatcher for the two directions (#318): it is what lets
+    :func:`_get_rate_limited_call` wrap them in one shared RateLimiter,
+    instead of one per direction.
     """
     settings = get_settings()
     geolocator = cast("_Geocoder", _get_geolocator())
@@ -273,25 +272,25 @@ def _nominatim_dispatch(op: str, arg: str | tuple[float, float]) -> _Location | 
 def _get_rate_limited_call() -> Callable[
     [str, str | tuple[float, float]], _Location | None
 ]:
-    """RateLimiter singleton per processo, condiviso da geocode E reverse (#318).
+    """Per-process singleton RateLimiter, shared by geocode AND reverse (#318).
 
-    La usage policy di Nominatim e' "1 richiesta/secondo, assoluta, sull'intero
-    servizio" -- non "1 req/s per direzione". Prima di questa unificazione
-    (era ``_get_rate_limited_geocode``, solo forward) un reverse geocode
-    avrebbe avuto il proprio RateLimiter indipendente: il traffico combinato
-    delle due direzioni avrebbe potuto superare la policy anche se ciascuna,
-    isolata, la rispettava. Avvolgendo :func:`_nominatim_dispatch` (che
-    smista lui stesso su ``geocode``/``reverse``) in un solo RateLimiter, ogni
-    chiamata -- qualunque sia la direzione -- attraversa lo stesso throttling.
+    Nominatim's usage policy is "1 request/second, absolute, on the whole
+    service" -- not "1 req/s per direction". Before this unification
+    (it was ``_get_rate_limited_geocode``, forward only) a reverse geocode
+    would have had its own independent RateLimiter: the combined traffic
+    of the two directions could have exceeded the policy even if each one,
+    in isolation, respected it. By wrapping :func:`_nominatim_dispatch` (which
+    itself dispatches on ``geocode``/``reverse``) in a single RateLimiter, every
+    call -- whatever the direction -- goes through the same throttling.
 
-    ``min_delay_seconds`` dai setting distanzia le chiamate entro quella
-    policy. ``max_retries=0`` preserva la semantica a chiamata singola (un
-    errore di servizio propaga subito, niente attese di retry);
-    ``swallow_exceptions=False`` fa propagare ``GeocoderServiceError``
-    (altrimenti geopy lo inghiottirebbe restituendo ``None``, confondendolo con
-    "zona non trovata" -> 422 invece di 503). Cached cosi' lo stato di
-    throttling (``_last_call``) persiste tra le chiamate; i test lo resettano
-    con ``cache_clear()``.
+    ``min_delay_seconds`` from the settings spaces calls within that
+    policy. ``max_retries=0`` preserves the single-call semantics (a
+    service error propagates immediately, no retry waits);
+    ``swallow_exceptions=False`` makes ``GeocoderServiceError`` propagate
+    (otherwise geopy would swallow it returning ``None``, confusing it with
+    "zone not found" -> 422 instead of 503). Cached so the throttling state
+    (``_last_call``) persists between calls; the tests reset it with
+    ``cache_clear()``.
     """
     min_delay = get_settings().geocoding_min_delay_seconds
     return cast(
@@ -300,13 +299,13 @@ def _get_rate_limited_call() -> Callable[
             _nominatim_dispatch,
             min_delay_seconds=min_delay,
             max_retries=0,
-            # geopy impone ``error_wait_seconds >= min_delay_seconds`` (assert in
-            # ``RateLimiter.__init__``): con ``max_retries=0`` questo valore e'
-            # inerte (nessun retry, quindi non si attende mai), ma va tenuto >=
-            # min_delay per non far crollare la costruzione lazy con un
-            # ``AssertionError`` (non un ``GeocoderServiceError``, quindi NON
-            # mappato da :func:`geocode_zone` -> 500 anziche' 503) quando un env
-            # configura ``geocoding_min_delay_seconds`` > 5s.
+            # geopy requires ``error_wait_seconds >= min_delay_seconds`` (assert in
+            # ``RateLimiter.__init__``): with ``max_retries=0`` this value is
+            # inert (no retry, so it never waits), but it must be kept >=
+            # min_delay so the lazy construction does not collapse with an
+            # ``AssertionError`` (not a ``GeocoderServiceError``, hence NOT
+            # mapped by :func:`geocode_zone` -> 500 instead of 503) when an env
+            # configures ``geocoding_min_delay_seconds`` > 5s.
             error_wait_seconds=max(5.0, min_delay),
             swallow_exceptions=False,
         ),
@@ -314,34 +313,34 @@ def _get_rate_limited_call() -> Callable[
 
 
 def _parse_bbox(boundingbox: object) -> Bbox:
-    """Converte il ``boundingbox`` Nominatim in :data:`Bbox`.
+    """Converts the Nominatim ``boundingbox`` into :data:`Bbox`.
 
-    Nominatim espone ``raw['boundingbox'] = [lat_min, lat_max, lon_min, lon_max]``
-    come stringhe; qui si riordina in ``(lat_min, lon_min, lat_max, lon_max)``.
-    Solleva ``(ValueError, TypeError)`` se il formato non e' utilizzabile: il
-    chiamante lo traduce in :class:`ZoneNotFoundError`.
+    Nominatim exposes ``raw['boundingbox'] = [lat_min, lat_max, lon_min, lon_max]``
+    as strings; here it is reordered into ``(lat_min, lon_min, lat_max, lon_max)``.
+    Raises ``(ValueError, TypeError)`` if the format is unusable: the
+    caller translates it into :class:`ZoneNotFoundError`.
     """
     if not isinstance(boundingbox, (list, tuple)):
-        raise ValueError("boundingbox assente o malformato")
+        raise ValueError("boundingbox missing or malformed")
     values: list[object] = list(cast("list[object] | tuple[object, ...]", boundingbox))
     if len(values) != 4:
-        raise ValueError("boundingbox di lunghezza inattesa")
+        raise ValueError("boundingbox of unexpected length")
     lat_min, lat_max, lon_min, lon_max = (float(cast(str, v)) for v in values)
     return Bbox(min_lat=lat_min, min_lon=lon_min, max_lat=lat_max, max_lon=lon_max)
 
 
 def _enforce_min_bbox(bbox: Bbox, half_span: float) -> Bbox:
-    """Impone una dimensione minima al ``bbox`` espandendolo simmetricamente (#204).
+    """Imposes a minimum size on ``bbox`` by expanding it symmetrically (#204).
 
-    Quando una zona risolve a un landmark puntuale, Nominatim ritorna un bbox
-    minuscolo (grande quanto l'edificio) in cui Overpass non trova alcun POI.
-    Qui si garantisce che ogni lato misuri almeno ``2 * half_span`` gradi,
-    espandendo attorno al punto medio del bbox originale.
+    When a zone resolves to a point landmark, Nominatim returns a tiny bbox
+    (as big as the building) in which Overpass finds no POI.
+    Here we guarantee that every side measures at least ``2 * half_span`` degrees,
+    expanding around the midpoint of the original bbox.
 
-    E' un'operazione "solo-espandi": un bbox gia' piu' grande della soglia resta
-    invariato (i ``min``/``max`` conservano gli estremi originali) e un asse gia'
-    ampio non viene toccato mentre l'altro, stretto, viene esteso. Il punto medio
-    e' preservato su entrambi gli assi.
+    It is an "expand-only" operation: a bbox already larger than the threshold
+    stays unchanged (the ``min``/``max`` keep the original extremes) and an axis
+    already wide is not touched while the other, narrow one is extended. The
+    midpoint is preserved on both axes.
     """
     lat_mid = (bbox.min_lat + bbox.max_lat) / 2
     lon_mid = (bbox.min_lon + bbox.max_lon) / 2
@@ -354,21 +353,21 @@ def _enforce_min_bbox(bbox: Bbox, half_span: float) -> Bbox:
 
 
 def geocode_zone(zona: str, citta: str) -> GeoResult:
-    """Geocodifica ``zona`` dentro ``citta`` -> ``{lat, lon, bbox}``.
+    """Geocodes ``zona`` inside ``citta`` -> ``{lat, lon, bbox}``.
 
-    Compone la query come "zona, citta". E' il percorso testo -> area di entrambi i
-    consumatori a due campi: la modalita' citta + zona del prodotto (alternativa al
-    cerchio disegnato, :func:`~crime_risk_analyzer.area_search.resolve_zone`) e
-    l'harness di valutazione (``eval/``), che lavora su coppie fisse per
-    riproducibilita'.
+    Composes the query as "zona, citta". It is the text -> area path of both
+    two-field consumers: the product's city + zone mode (alternative to the
+    drawn circle, :func:`~crime_risk_analyzer.area_search.resolve_zone`) and
+    the evaluation harness (``eval/``), which works on fixed pairs for
+    reproducibility.
 
-    Solleva :class:`ZoneNotFoundError` se la zona non e' trovata o e' priva di
-    bounding box utilizzabile, e :class:`GeocodingError` se il servizio Nominatim
-    non e' raggiungibile.
+    Raises :class:`ZoneNotFoundError` if the zone is not found or has no usable
+    bounding box, and :class:`GeocodingError` if the Nominatim service is
+    unreachable.
 
-    Con ``Settings.cache_enabled`` i soli SUCCESSI sono memorizzati per chiave
-    normalizzata (#115): una zona gia' risolta non ri-interroga Nominatim. Gli
-    errori sollevano prima di raggiungere lo store, quindi non vengono cacheati.
+    With ``Settings.cache_enabled`` only SUCCESSES are stored by normalised key
+    (#115): an already resolved zone does not query Nominatim again. Errors
+    raise before reaching the store, so they are not cached.
     """
     settings = get_settings()
     key = _cache_key(zona, citta)
@@ -396,27 +395,26 @@ def geocode_zone(zona: str, citta: str) -> GeoResult:
             f"Zona priva di bounding box: {zona!r} in {citta!r}"
         ) from exc
 
-    # Pavimento minimo (#204): garantisce un'area di ricerca Overpass utilizzabile
-    # anche quando la zona risolve a un landmark puntuale (bbox Nominatim ~150 m).
-    # Applicato PRIMA di costruire il GeoResult (e quindi di popolare la cache);
-    # lat/lon restano quelli di Nominatim.
+    # Minimum floor (#204): guarantees a usable Overpass search area even when
+    # the zone resolves to a point landmark (Nominatim bbox ~150 m).
+    # Applied BEFORE building the GeoResult (and hence before populating the
+    # cache); lat/lon remain those of Nominatim.
     bbox = _enforce_min_bbox(bbox, settings.geocoding_min_bbox_half_span_deg)
 
     result = GeoResult(lat=location.latitude, lon=location.longitude, bbox=bbox)
     if settings.cache_enabled:
         _cache_put(_CACHE, key, result)
-    # Copia difensiva anche sul miss (#170): la entry appena memorizzata e' la
-    # stessa istanza, quindi ritornare ``result`` per riferimento la esporrebbe.
+    # Defensive copy on the miss too (#170): the entry just stored is the same
+    # instance, so returning ``result`` by reference would expose it.
     return _copy_result(result)
 
 
 def reverse_geocode_label(lat: float, lon: float) -> tuple[str, str]:
-    """Etichetta (citta, zona) best-effort per un punto, via reverse geocode (#318).
+    """Best-effort (citta, zona) label for a point, via reverse geocode (#318).
 
-    Mai solleva: un fallimento di Nominatim (errore di servizio, nessun
-    risultato, address mancante) ritorna un fallback su coordinate formattate,
-    perche' l'etichetta e' cosmetica (narrativa/UI) e non deve mai bloccare
-    l'analisi (D9, design doc).
+    Never raises: a Nominatim failure (service error, no result, missing
+    address) returns a fallback on formatted coordinates, because the label is
+    cosmetic (narrative/UI) and must never block the analysis (D9, design doc).
     """
     fallback = (f"area {lat:.4f},{lon:.4f}", "zona non identificata")
     try:
@@ -428,9 +426,9 @@ def reverse_geocode_label(lat: float, lon: float) -> tuple[str, str]:
     address_raw = location.raw.get("address")
     if not isinstance(address_raw, dict):
         return fallback
-    # ``isinstance(x, dict)`` restringe solo a ``dict[Unknown, Unknown]`` (nessun
-    # controllo sui type-arg): il cast esplicito tiene ``citta``/``zona``
-    # verificabili da pyright strict, come in _parse_bbox qui sopra.
+    # ``isinstance(x, dict)`` narrows only to ``dict[Unknown, Unknown]`` (no
+    # check on the type args): the explicit cast keeps ``citta``/``zona``
+    # verifiable by pyright strict, as in _parse_bbox above.
     address = cast("dict[str, object]", address_raw)
     citta = (
         address.get("city")
@@ -448,21 +446,20 @@ def reverse_geocode_label(lat: float, lon: float) -> tuple[str, str]:
 
 
 def geocode_freeform(query: str) -> tuple[float, float] | None:
-    """Forward geocode di una query libera (#318, casella "vai a un luogo").
+    """Forward geocode of a free query (#318, "go to a place" box).
 
-    A differenza di :func:`geocode_zone`: nessuna concatenazione "zona, citta",
-    nessun floor di bbox (qui serve solo un punto per centrare la mappa).
+    Unlike :func:`geocode_zone`: no "zona, citta" concatenation, no bbox floor
+    (here only a point is needed to centre the map).
 
-    Con ``Settings.cache_enabled`` i successi sono memorizzati per chiave
-    normalizzata (#344): ripetere lo stesso luogo non rimette in coda una
-    richiesta sul rate limiter condiviso con ``/analyze``. A Nominatim va
-    comunque il testo cosi' come digitato. Anche il "nessun risultato" e'
-    memorizzato (#376), ma in uno store a parte e solo per
-    :data:`_FREEFORM_NEGATIVE_TTL_SECONDS`: un luogo inesistente ripetuto non
-    torna a Nominatim, uno appena comparso su OSM si ritrova dopo la scadenza.
-    Gli errori di servizio non si memorizzano mai (sollevano prima). Due miss
-    concorrenti sulla stessa chiave interrogano entrambi Nominatim (nessuna
-    deduplica delle richieste in volo).
+    With ``Settings.cache_enabled`` successes are stored by normalised key
+    (#344): repeating the same place does not requeue a request on the rate
+    limiter shared with ``/analyze``. Nominatim still receives the text as
+    typed. The "no result" is also stored (#376), but in a separate store and
+    only for :data:`_FREEFORM_NEGATIVE_TTL_SECONDS`: a repeated non-existent
+    place does not go back to Nominatim, one that has just appeared on OSM is
+    found again after expiry. Service errors are never stored (they raise
+    first). Two concurrent misses on the same key both query Nominatim (no
+    deduplication of in-flight requests).
     """
     settings = get_settings()
     key = _freeform_key(query)

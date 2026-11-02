@@ -1,1 +1,1 @@
-"""Tooling di sviluppo del backend (runner dei controlli di qualità)."""
+"""Backend development tooling (quality-check runner)."""

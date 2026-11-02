@@ -37,7 +37,7 @@ from crime_risk_analyzer.rag.generation import (
     DEFAULT_MAX_TOKENS,
     DEFAULT_REQUEST_TOKEN_BUDGET,
     _estimate_tokens,  # pyright: ignore[reportPrivateUsage]
-    prepara_richiesta_zona,
+    prepare_zone_request,
 )
 from crime_risk_analyzer.rag.grounding import ground
 from crime_risk_analyzer.rag.retrieval import retrieve
@@ -94,10 +94,10 @@ def measure(
 ) -> Measurement:
     """The request that ``generate_analysis`` would send, without calling the model.
 
-    Same function (:func:`prepara_richiesta_zona`): gate on the ISTAT rows and
+    Same function (:func:`prepare_zone_request`): gate on the ISTAT rows and
     fallback to the off path when the block does not materialize, included.
     """
-    system, context = prepara_richiesta_zona(
+    system, context = prepare_zone_request(
         ctx, request_token_budget=budget, max_tokens=max_tokens, istat=istat
     )
     return Measurement(
@@ -111,7 +111,7 @@ def measure(
             if real is not None
             else None
         ),
-        pois_included=context.poi_inclusi,
+        pois_included=context.included_poi_count,
         pois_total=len(ctx.get("validated_risks", [])),
         istat_items=sum(1 for r in context.blocco_istat.righe if r.voce != TOTAL_ITEM),
         items_cut=context.blocco_istat.voci_tagliate,

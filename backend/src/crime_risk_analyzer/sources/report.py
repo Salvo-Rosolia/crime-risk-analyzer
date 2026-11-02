@@ -1,12 +1,12 @@
-"""Esito del controllo dei file delle fonti (#415).
+"""Outcome of the check of the source files (#415).
 
-Il controllo non si ferma al primo problema: raccoglie tutto in un
-:class:`ValidationReport`, cosi' chi carica i file corregge in un solo giro.
-Gli ``errors`` bloccano l'attivazione del set; i ``warnings`` no.
+The check does not stop at the first problem: it collects everything in a
+:class:`ValidationReport`, so whoever uploads the files fixes them in one go.
+The ``errors`` block the activation of the set; the ``warnings`` do not.
 
-``Problem.file`` e' uno dei nomi dei campi di caricamento (:data:`FILE_NAMES`),
-cosi' l'interfaccia puo' agganciare ogni messaggio al suo slot. ``line`` e' il
-numero di riga del file (1 = intestazione) per i CSV, ``None`` altrove.
+``Problem.file`` is one of the names of the upload fields (:data:`FILE_NAMES`),
+so the interface can attach each message to its slot. ``line`` is the
+line number of the file (1 = header) for the CSVs, ``None`` elsewhere.
 """
 
 from __future__ import annotations
@@ -36,16 +36,16 @@ FILE_NAMES: tuple[FileName, ...] = (
 )
 
 
-#: Tetti del report: un file rotto non deve produrre milioni di messaggi. Oltre
-#: il tetto (per file, o per codice dentro un file) i problemi non si elencano:
-#: resta una sola riga ``altri_problemi`` per file con il conteggio reale.
+#: Report caps: a broken file must not produce millions of messages. Beyond
+#: the cap (per file, or per code inside a file) the problems are not listed:
+#: a single ``altri_problemi`` line per file remains with the real count.
 MAX_PROBLEMS_PER_FILE = 100
 MAX_PROBLEMS_PER_CODE = 50
 CODE_OTHER_PROBLEMS = "altri_problemi"
 
 
 class Problem(BaseModel):
-    """Un problema trovato in un file: ``code`` stabile, ``message`` in italiano."""
+    """A problem found in a file: stable ``code``, ``message`` in Italian."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -56,66 +56,66 @@ class Problem(BaseModel):
 
 
 class ValidationReport(BaseModel):
-    """Tutti i problemi di un caricamento, divisi in bloccanti e avvisi."""
+    """All the problems of an upload, divided into blocking and warnings."""
 
     errors: list[Problem] = Field(default_factory=lambda: [])
     warnings: list[Problem] = Field(default_factory=lambda: [])
-    _conteggi: dict[tuple[str, FileName, str], int] = PrivateAttr(
+    _counts: dict[tuple[str, FileName, str], int] = PrivateAttr(
         default_factory=lambda: {}
     )
     _per_file: dict[tuple[str, FileName], int] = PrivateAttr(default_factory=lambda: {})
-    _omessi: dict[tuple[str, FileName], int] = PrivateAttr(default_factory=lambda: {})
+    _omitted: dict[tuple[str, FileName], int] = PrivateAttr(default_factory=lambda: {})
 
     @property
     def ok(self) -> bool:
-        """``True`` se non ci sono problemi bloccanti (gli avvisi non contano)."""
+        """``True`` if there are no blocking problems (warnings do not count)."""
         return not self.errors
 
     def error(
         self, code: str, file: FileName, message: str, line: int | None = None
     ) -> None:
-        self._aggiungi("errors", self.errors, code, file, message, line)
+        self._add("errors", self.errors, code, file, message, line)
 
     def warning(
         self, code: str, file: FileName, message: str, line: int | None = None
     ) -> None:
-        self._aggiungi("warnings", self.warnings, code, file, message, line)
+        self._add("warnings", self.warnings, code, file, message, line)
 
-    def _aggiungi(
+    def _add(
         self,
-        tipo: str,
-        elenco: list[Problem],
+        kind: str,
+        items: list[Problem],
         code: str,
         file: FileName,
         message: str,
         line: int | None,
     ) -> None:
-        """Aggiunge il problema, o lo conta nella riga ``altri_problemi`` del file."""
-        per_codice = self._conteggi.get((tipo, file, code), 0)
-        per_file = self._per_file.get((tipo, file), 0)
-        self._conteggi[(tipo, file, code)] = per_codice + 1
-        self._per_file[(tipo, file)] = per_file + 1
-        if per_file < MAX_PROBLEMS_PER_FILE and per_codice < MAX_PROBLEMS_PER_CODE:
-            elenco.append(Problem(code=code, file=file, message=message, line=line))
+        """Adds the problem, or counts it in the ``altri_problemi`` line of the file."""
+        per_code = self._counts.get((kind, file, code), 0)
+        per_file = self._per_file.get((kind, file), 0)
+        self._counts[(kind, file, code)] = per_code + 1
+        self._per_file[(kind, file)] = per_file + 1
+        if per_file < MAX_PROBLEMS_PER_FILE and per_code < MAX_PROBLEMS_PER_CODE:
+            items.append(Problem(code=code, file=file, message=message, line=line))
             return
-        omessi = self._omessi.get((tipo, file), 0) + 1
-        self._omessi[(tipo, file)] = omessi
-        riepilogo = Problem(
+        omitted = self._omitted.get((kind, file), 0) + 1
+        self._omitted[(kind, file)] = omitted
+        summary = Problem(
             code=CODE_OTHER_PROBLEMS,
             file=file,
-            message=f"e altri {omessi} problemi non elencati in questo file",
+            message=f"e altri {omitted} problemi non elencati in questo file",
         )
-        for indice, p in enumerate(elenco):
+        for index, p in enumerate(items):
             if p.code == CODE_OTHER_PROBLEMS and p.file == file:
-                elenco[indice] = riepilogo
+                items[index] = summary
                 return
-        elenco.append(riepilogo)
+        items.append(summary)
 
 
 class SourceValidationError(Exception):
-    """Il caricamento e' stato rifiutato: ``report`` ha tutti i problemi."""
+    """The upload was rejected: ``report`` has all the problems."""
 
     def __init__(self, report: ValidationReport) -> None:
         self.report = report
-        dettaglio = "; ".join(f"[{p.file}] {p.message}" for p in report.errors)
-        super().__init__(f"fonti non valide: {dettaglio}")
+        detail = "; ".join(f"[{p.file}] {p.message}" for p in report.errors)
+        super().__init__(f"fonti non valide: {detail}")

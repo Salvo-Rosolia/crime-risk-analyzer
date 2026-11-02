@@ -43,7 +43,7 @@ from crime_risk_analyzer.eval.schema import (
 from crime_risk_analyzer.eval.winner import decide_winner
 from crime_risk_analyzer.llm.client import GROQ_MODEL
 from crime_risk_analyzer.models.vocab import ConfidenceSummary
-from crime_risk_analyzer.orchestrator import AnalyzeResponse, PoiOut, ZonaGeo
+from crime_risk_analyzer.orchestrator import AnalyzeResponse, GeoZone, PoiOut
 from crime_risk_analyzer.rag.generation import Repro, RiskItem, RiskModel
 
 #: backend/experiments (test_file → eval → tests → backend).
@@ -330,7 +330,7 @@ def _resp163(narrativa: str) -> AnalyzeResponse:
         cache_hit=False,
         fallback=False,
         contesto_hash="h-ctx",
-        zona_geo=ZonaGeo(
+        zona_geo=GeoZone(
             lat=41.0,
             lon=12.0,
             bbox_min_lat=40.9,

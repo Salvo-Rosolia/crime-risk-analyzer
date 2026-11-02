@@ -1,9 +1,9 @@
-"""Oggetto :class:`SourceSet`: tutto cio' che dipende dalle fonti in uso (#411).
+"""The :class:`SourceSet` object: everything that depends on the sources in use (#411).
 
-Raggruppa quanto oggi vive in costanti di modulo o cache uniche (grafo, executor,
-binding OSM, dati ISTAT, mappatura hazard -> voce, etichette), cosi' che una
-richiesta possa lavorare su un set diverso dal default. Il set e' un valore
-immutabile e condivisibile; quello attivo si legge da
+It groups what today lives in module constants or single caches (graph, executor,
+OSM binding, ISTAT data, hazard -> item mapping, labels), so that a
+request can work on a set different from the default. The set is an
+immutable and shareable value; the active one is read from
 :mod:`crime_risk_analyzer.sources.context`.
 """
 
@@ -35,10 +35,11 @@ SourceKind = Literal["default", "example", "custom"]
 
 @dataclass(frozen=True)
 class OntologyConfig:
-    """Namespace e nomi delle proprieta' con cui l'ontologia lega POI e rischi.
+    """Namespace and names of the properties with which the ontology links POIs and
+    risks.
 
-    ``namespace`` termina con ``#`` o ``/``; le altre voci sono nomi locali.
-    ``vulnerability`` ammette piu' proprieta' (TERMINUS ne usa due).
+    ``namespace`` ends with ``#`` or ``/``; the other entries are local names.
+    ``vulnerability`` admits several properties (TERMINUS uses two).
     """
 
     namespace: str
@@ -48,7 +49,7 @@ class OntologyConfig:
     vulnerability: tuple[str, ...]
 
 
-#: Valori attuali di ``query_executor.py``.
+#: Current values of ``query_executor.py``.
 TERMINUS_CONFIG = OntologyConfig(
     namespace=f"{TERMINUS_IRI}#",
     hazard="havingHazard",
@@ -60,27 +61,27 @@ TERMINUS_CONFIG = OntologyConfig(
 
 @dataclass(frozen=True)
 class OsmBinding:
-    """Binding ``chiave=valore`` OSM -> nome classe dell'ontologia."""
+    """OSM ``key=value`` binding -> ontology class name."""
 
     osm_to_class: Mapping[str, str]
-    ordine_famiglie: tuple[str, ...]
-    selettori_cedevoli: Mapping[str, str]
+    family_order: tuple[str, ...]
+    yielding_selectors: Mapping[str, str]
 
     @property
     def selectors(self) -> tuple[str, ...]:
-        """Selettori da interrogare su Overpass (le chiavi del binding)."""
+        """Selectors to query on Overpass (the keys of the binding)."""
         return tuple(self.osm_to_class)
 
     def map(self, osm_tag: str) -> str:
-        """Classe del tag, o ``GENERIC_FALLBACK`` se non coperto."""
+        """Class of the tag, or ``GENERIC_FALLBACK`` if not covered."""
         return self.osm_to_class.get(osm_tag, GENERIC_FALLBACK)
 
 
 @dataclass(frozen=True)
 class IstatSource:
-    """Dati statistici del set e tabella di mappatura hazard -> voce.
+    """Statistical data of the set and hazard -> item mapping table.
 
-    ``dati`` e' ``None`` se non disponibili (il grounding prosegue senza).
+    ``dati`` is ``None`` if not available (the grounding goes on without).
     """
 
     dati: IstatData | None
@@ -91,11 +92,11 @@ class IstatSource:
 
 @dataclass(frozen=True, eq=False)
 class SourceSet:
-    """Fonti attive per una richiesta. Uguaglianza per identita' (contiene un Graph).
+    """Sources active for a request. Equality by identity (it contains a Graph).
 
-    ``id`` identifica il set nelle chiavi di cache (``"default"`` per quello
-    interno). ``labels`` mappa nome classe -> (etichetta IT, etichetta EN);
-    ``None`` = si usa il JSON TERMINUS.
+    ``id`` identifies the set in the cache keys (``"default"`` for the
+    internal one). ``labels`` maps class name -> (IT label, EN label);
+    ``None`` = the TERMINUS JSON is used.
     """
 
     id: str

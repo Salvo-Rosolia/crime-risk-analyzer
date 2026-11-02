@@ -1,27 +1,27 @@
-"""Narrativa del singolo POI selezionato (#197).
+"""Narrative of the single selected POI (#197).
 
-Stessa modalita' della narrativa di zona (#229): due blocchi, ``[ONTOLOGIA]``
-sintetizza i rischi ancorati e ``[CONTESTO]`` interpreta. Prompt separato da
-quello di zona perche' il compito e' diverso — un POI, il suo vicinato — ma i
-tre vincoli legali sono gli STESSI oggetti importati da :mod:`generation`, non
-copie: una copia potrebbe divergere.
+Same mode as the zone narrative (#229): two blocks, ``[ONTOLOGIA]``
+synthesises the anchored risks and ``[CONTESTO]`` interprets. Prompt separate from
+the zone one because the task is different — one POI, its neighbourhood — but the
+three legal constraints are the SAME objects imported from :mod:`generation`, not
+copies: a copy could diverge.
 
-Rispetto alla zona il divieto e' piu' stretto: qui il testo parla di un luogo
-NOMINATO, quindi graduare la pericolosita' di quel luogo o suggerire misure per
-proteggerlo e' esplicitamente vietato nel blocco interpretativo.
+Compared to the zone the prohibition is stricter: here the text speaks of a NAMED
+place, so grading the dangerousness of that place or suggesting measures to
+protect it is explicitly forbidden in the interpretative block.
 
-La numerazione 7/8/9 delle tre regole e' quella del prompt di zona: sono
-riusate verbatim (non rinumerate) perche' il vincolo legale deve essere lo
-stesso testo in entrambi i percorsi, verificabile da un test. La regola 9 vale
-anche qui: i nomi dei POI arrivano da OpenStreetMap, cioe' testo esterno non
-fidato che entra nel contesto.
+The numbering 7/8/9 of the three rules is that of the zone prompt: they are
+reused verbatim (not renumbered) because the legal constraint must be the
+same text in both paths, verifiable by a test. Rule 9 holds
+here too: the POI names come from OpenStreetMap, i.e. untrusted external text
+that enters the context.
 
-Il vocabolario controllato (#272) e' invece l'unica regola con testo PROPRIO,
-non condiviso: qui il modello nomina anche le vulnerabilita', mentre la regola 6
-di zona parla dei soli hazard. Allineare i due testi vorrebbe dire toccare il
-prompt di zona, cioe' muovere la narrativa su cui poggiano le metriche di
-valutazione — rimandato a #273, che quel prompt lo riscrive comunque. Il numero
-6 resta quello di zona: la numerazione e' condivisa anche quando il testo no.
+The controlled vocabulary (#272) is instead the only rule with its OWN text,
+not shared: here the model also names the vulnerabilities, while rule 6
+of the zone speaks only of hazards. Aligning the two texts would mean touching the
+zone prompt, i.e. moving the narrative on which the evaluation metrics rest
+— postponed to #273, which rewrites that prompt anyway. The number
+6 stays that of the zone: the numbering is shared even when the text is not.
 """
 
 from __future__ import annotations
@@ -48,11 +48,11 @@ from crime_risk_analyzer.rag.generation import (
 from crime_risk_analyzer.rag.grounding import GroundedRisk
 from crime_risk_analyzer.rag.istat_rules import (
     POI_ISTAT_SECTION,
-    RULE_ISTAT_DIVIETI,
-    sostituisci_una_volta,
+    RULE_ISTAT_PROHIBITIONS,
+    replace_once,
 )
 from crime_risk_analyzer.rag.poi_context import NeighbourPoi
-from crime_risk_analyzer.sources.context import versione_dati
+from crime_risk_analyzer.sources.context import istat_data_version
 
 __all__ = [
     "POI_SYSTEM_PROMPT",
@@ -101,15 +101,15 @@ Descrivi la funzione urbana del punto e del suo intorno, non la loro sicurezza.
 Non aggiungere altri blocchi oltre a questi due.
 """
 
-#: Variante con i dati ISTAT (#345, #365): restano DUE blocchi, la 7-bis segue la 7
-#: e la sezione ISTAT chiude la descrizione del blocco [ONTOLOGIA] (i dati si usano
-#: a parole li', senza cifre). Sostituzioni verificate su
-#: :data:`POI_SYSTEM_PROMPT`, che non cambia.
-POI_SYSTEM_PROMPT_ISTAT = sostituisci_una_volta(
-    sostituisci_una_volta(
+#: Variant with the ISTAT data (#345, #365): there stay TWO blocks, 7-bis follows 7
+#: and the ISTAT section closes the description of the [ONTOLOGIA] block (the data are
+#: used in words there, without figures). Verified substitutions on
+#: :data:`POI_SYSTEM_PROMPT`, which does not change.
+POI_SYSTEM_PROMPT_ISTAT = replace_once(
+    replace_once(
         POI_SYSTEM_PROMPT,
         f"{RULE_NO_DANGER_RATING}\n\n",
-        f"{RULE_NO_DANGER_RATING}\n\n{RULE_ISTAT_DIVIETI}\n\n",
+        f"{RULE_NO_DANGER_RATING}\n\n{RULE_ISTAT_PROHIBITIONS}\n\n",
     ),
     "tema e cita quelli caratterizzanti.\n",
     f"tema e cita quelli caratterizzanti.\n{POI_ISTAT_SECTION}\n",
@@ -129,31 +129,31 @@ def build_poi_context_str(
     zone_summary: str,
     istat: IstatPoi | None = None,
 ) -> str:
-    """Serializza il contesto del POI per il prompt.
+    """Serialises the POI context for the prompt.
 
-    Nessun ricalcolo: rischi, tag e confidence arrivano dal grounding, vicinato
-    e sintesi da :mod:`poi_context`. L'ordine e' quello ricevuto, che i
-    produttori garantiscono totale.
+    No recomputation: risks, tag and confidence come from the grounding, neighbourhood
+    and summary from :mod:`poi_context`. The order is the one received, which the
+    producers guarantee to be total.
     """
-    # I nomi (del punto e dei vicini) arrivano da OpenStreetMap, che chiunque puo'
-    # editare: qui il nome e' il SOGGETTO del prompt, non una riga fra tante come
-    # nell'analisi di zona, quindi un nome con a-capo potrebbe forgiare righe e
-    # mimare le sezioni del contesto. Appiattiti su una riga (#119, stessa regola
-    # della domanda utente). ``citta``/``zona`` vengono dalla richiesta
-    # dell'utente, non dall'ontologia: stessa superficie, stessa difesa (#244).
+    # The names (of the point and of the neighbours) come from OpenStreetMap, which
+    # anyone can edit: here the name is the SUBJECT of the prompt, not a line among many
+    # as in the zone analysis, so a name with a newline could forge lines and
+    # mimic the context sections. Flattened onto one line (#119, same rule
+    # as the user question). ``citta``/``zona`` come from the user's
+    # request, not from the ontology: same surface, same defence (#244).
     lines = [
         f"Citta': {normalize_untrusted_line(citta)}",
         f"Zona: {normalize_untrusted_line(zona)}",
         "",
     ]
 
-    # Vocabolario controllato IMPOSTO (#272). Senza di esso al modello arrivavano
-    # solo gli identifier dell'ontologia, e li traduceva da se': su
-    # ``Crime_explosion`` ha scritto «crimini esplosivi» dove l'ontologia dice
-    # «impennata della criminalita'» — non una resa brutta, un'affermazione FALSA
-    # in un percorso che promette verificabilita'. E' lo stesso vincolo che tiene
-    # in italiano la narrativa di zona; qui mancava del tutto. Copre hazard E
-    # vulnerabilita': elencarne una parte lascerebbe scoperto il resto.
+    # CONTROLLED vocabulary IMPOSED (#272). Without it the model received
+    # only the ontology identifiers, and translated them by itself: on
+    # ``Crime_explosion`` it wrote "crimini esplosivi" where the ontology says
+    # "impennata della criminalita'" — not an ugly rendering, a FALSE statement
+    # in a path that promises verifiability. It is the same constraint that keeps
+    # the zone narrative in Italian; here it was missing altogether. It covers hazards
+    # AND vulnerabilities: listing only some would leave the rest uncovered.
     vocab = controlled_vocab_for(
         [r["hazard"] for r in risks] + list(vulnerabilities),
     )
@@ -173,8 +173,8 @@ def build_poi_context_str(
         lines.append(f"Percorso ontologico: {sparql_path}")
     if risks:
         lines.append("Rischi dall'ontologia:")
-        # ``identifier / etichetta IT``, la stessa forma del prompt di zona:
-        # l'identifier regge la citazione, l'etichetta e' il termine da usare.
+        # ``identifier / IT label``, the same form as the zone prompt:
+        # the identifier carries the citation, the label is the term to use.
         lines.extend(
             f"  - {r['hazard']} / {label_it(r['hazard'])} [{r['tag']}] "
             f"(confidence: {r['confidence']}, fonte: {r['source']})"
@@ -189,11 +189,12 @@ def build_poi_context_str(
         )
     lines.append("")
 
-    # Dati ISTAT del luogo del punto (#345): cornice e voci dei suoi rischi, dopo i
-    # dati ontologici e prima del vicinato. Assenti, il testo e' quello di prima.
-    blocco = istat_block_for_poi(istat)
-    if blocco.testo:
-        lines.extend(blocco.testo.split("\n"))
+    # ISTAT data of the point's place (#345): frame and items of its risks, after the
+    # ontological data and before the neighbourhood. When absent, the text is the one
+    # from before.
+    block = istat_block_for_poi(istat)
+    if block.testo:
+        lines.extend(block.testo.split("\n"))
         lines.append("")
 
     lines.append("VICINATO (punti piu' prossimi, in ordine di distanza):")
@@ -211,7 +212,7 @@ def build_poi_context_str(
 
 
 class PoiGenerationResult(BaseModel):
-    """Esito della generazione per un singolo POI."""
+    """Outcome of the generation for a single POI."""
 
     narrativa: str
     narrativa_fonti: SourceProse
@@ -240,20 +241,20 @@ async def generate_poi_narrative(
     llm_client: _LLMClientLike,
     istat: IstatPoi | None = None,
 ) -> PoiGenerationResult:
-    """Genera la narrativa del POI: prompt POI + contesto -> client LLM.
+    """Generates the POI narrative: POI prompt + context -> LLM client.
 
-    Nessun budget di trim (#210): il contesto di un POI e' un ordine di
-    grandezza piu' piccolo di quello di zona (un punto e cinque vicini contro
-    fino a venti POI con tutti i loro rischi), quindi non c'e' nulla da
-    troncare. ``max_tokens`` resta quello del client iniettato.
+    No trim budget (#210): the context of a POI is an order of
+    magnitude smaller than that of the zone (one point and five neighbours against
+    up to twenty POIs with all their risks), so there is nothing to
+    truncate. ``max_tokens`` stays that of the injected client.
 
-    ``istat`` (#345): righe ISTAT del punto; presenti, il prompt e'
-    :data:`POI_SYSTEM_PROMPT_ISTAT` e la prosa passa dal controllo delle
-    cifre. Nessun budget nemmeno con ISTAT: cornice e poche voci di un solo
-    luogo.
+    ``istat`` (#345): ISTAT rows of the point; when present, the prompt is
+    :data:`POI_SYSTEM_PROMPT_ISTAT` and the prose goes through the figures
+    check. No budget even with ISTAT: frame and a few items of a single
+    place.
     """
 
-    def _contesto(istat_data: IstatPoi | None) -> str:
+    def _context(istat_data: IstatPoi | None) -> str:
         return build_poi_context_str(
             citta=citta,
             zona=zona,
@@ -267,17 +268,17 @@ async def generate_poi_narrative(
             istat=istat_data,
         )
 
-    blocco = istat_block_for_poi(istat)
-    istat_attivo = bool(blocco.testo)
+    block = istat_block_for_poi(istat)
+    istat_attivo = bool(block.testo)
     system_prompt = POI_SYSTEM_PROMPT_ISTAT if istat_attivo else POI_SYSTEM_PROMPT
     start = time.perf_counter()
-    response = await llm_client.generate(system_prompt, _contesto(istat))
+    response = await llm_client.generate(system_prompt, _context(istat))
     latenza_ms = int((time.perf_counter() - start) * 1000)
-    narrativa, controllo = apply_check(
+    narrativa, check = apply_check(
         response.text,
-        block=blocco,
+        block=block,
         spans=source_block_spans(response.text),
-        context=_contesto(None),
+        context=_context(None),
     )
     return PoiGenerationResult(
         narrativa=narrativa,
@@ -293,6 +294,6 @@ async def generate_poi_narrative(
         ),
         narrativa_grezza=response.text,
         istat_attivo=istat_attivo,
-        istat_versione_dati=versione_dati() if istat_attivo else None,
-        istat_frasi_scartate=controllo.frasi_scartate if controllo else 0,
+        istat_versione_dati=istat_data_version() if istat_attivo else None,
+        istat_frasi_scartate=check.frasi_scartate if check else 0,
     )

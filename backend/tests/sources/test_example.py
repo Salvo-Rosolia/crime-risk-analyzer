@@ -12,7 +12,7 @@ from crime_risk_analyzer.istat.data import istat_data_or_none
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.orchestrator import run_baseline
 from crime_risk_analyzer.overpass_client import Poi
-from crime_risk_analyzer.sources.build import fallback_luoghi
+from crime_risk_analyzer.sources.build import fallback_places
 from crime_risk_analyzer.sources.context import bind, current_executor
 from crime_risk_analyzer.sources.example import (
     EXAMPLE_VOCABULARY,
@@ -38,7 +38,7 @@ def _classi_poi() -> set[str]:
 
 def test_i_file_d_esempio_non_hanno_errori() -> None:
     parsed, report = check_sources(
-        example_files(), EXAMPLE_VOCABULARY, fallback_luoghi=fallback_luoghi()
+        example_files(), EXAMPLE_VOCABULARY, fallback_places=fallback_places()
     )
     assert report.errors == []
     assert parsed is not None

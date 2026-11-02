@@ -1,16 +1,16 @@
-"""Profilo di rischio per POI estratto dall'ontologia (#76).
+"""Per-POI risk profile extracted from the ontology (#76).
 
-:class:`PoiRiskProfile` e' l'output dell'executor SPARQL
-(:mod:`crime_risk_analyzer.sparql_module.query_executor`): le quattro dimensioni
-TERMINUS Crime associate a una classe POI via il pattern OWL restriction, piu' i
-``sparql_path`` (citazione lineare a un salto) per il citation layer.
+:class:`PoiRiskProfile` is the output of the SPARQL executor
+(:mod:`crime_risk_analyzer.sparql_module.query_executor`): the four TERMINUS Crime
+dimensions associated with a POI class via the OWL restriction pattern, plus the
+``sparql_path`` (one-hop linear citation) for the citation layer.
 
-Schema canonico: ``docs/specs/tree/backend/sparql.md`` §Output. I valori sono
-nomi-classe TERMINUS bare in Underscore_Case inglese (l'ontologia ENEA non ha
-``rdfs:label``); la mappa EN->IT per la UI si costruisce altrove.
+Canonical schema: ``docs/specs/tree/backend/sparql.md`` §Output. The values are
+bare TERMINUS class names in English Underscore_Case (the ENEA ontology has no
+``rdfs:label``); the EN->IT map for the UI is built elsewhere.
 
-**Nessuno scoring** numerico di pericolosita' (vincolo legale ``_project.md``):
-qui ci sono solo insiemi qualitativi di entita' ancorate all'ontologia.
+**No numeric scoring** of dangerousness (legal constraint ``_project.md``):
+here there are only qualitative sets of entities anchored to the ontology.
 """
 
 from __future__ import annotations
@@ -19,11 +19,11 @@ from pydantic import BaseModel, Field
 
 
 class PoiRiskProfile(BaseModel):
-    """Rischi TERMINUS associati a una classe POI via OWL restriction.
+    """TERMINUS risks associated with a POI class via OWL restriction.
 
-    Le liste sono vuote (mai ``None``) quando la classe non ha la corrispondente
-    restrizione o non esiste nell'ontologia: l'assenza di rischio e' una lista
-    vuota, non un errore.
+    The lists are empty (never ``None``) when the class does not have the
+    corresponding restriction or does not exist in the ontology: the absence of
+    risk is an empty list, not an error.
     """
 
     poi_name: str | None = Field(

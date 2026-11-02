@@ -22,7 +22,7 @@ from crime_risk_analyzer.overpass_client import (
     OFFLINE_RETRY,
     PER_CLASS_CAP,
     PER_SELECTOR_CAP,
-    TaglioOsm,
+    OsmCut,
 )
 
 _POIS = [
@@ -283,7 +283,7 @@ async def test_capturing_source_registra_il_bbox_richiesto(tmp_path: Path) -> No
 # ottenuto»: senza il taglio dichiarato da Overpass, «questi sono i POI di
 # quella zona a quell'istante» non è falsificabile contro uno history dump OSM.
 
-_TAGLIO: TaglioOsm = {
+_TAGLIO: OsmCut = {
     "timestamp_osm_base": "2026-07-26T17:42:03Z",
     "overpass_url": "https://overpass-api.de/api/interpreter",
 }

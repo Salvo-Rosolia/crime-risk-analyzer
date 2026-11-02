@@ -1,28 +1,28 @@
-"""Mapping OSM tag -> classe TERMINUS Crime (#13, ri-derivato #79).
+"""Mapping OSM tag -> TERMINUS Crime class (#13, re-derived #79).
 
-Fonte autoritativa unica del binding ``OSM key=value -> classe TERMINUS`` (citata da
-``docs/specs/tree/ontologia/city-agnostic.md`` e ``.../backend/sparql.md``). I valori
-sono **nomi-classe bare reali** in ``Underscore_Case`` (es. ``"Bank"``,
-``"National_police"``), tutti tra le 45 sottoclassi dirette di ``tc:System``
-dell'ontologia ENEA TERMINUS-Crime v01; il prefisso ``tc:`` e' applicato a valle.
+Single authoritative source of the binding ``OSM key=value -> TERMINUS class`` (cited
+by ``docs/specs/tree/ontologia/city-agnostic.md`` and ``.../backend/sparql.md``). The
+values are **real bare class names** in ``Underscore_Case`` (e.g. ``"Bank"``,
+``"National_police"``), all among the 45 direct subclasses of ``tc:System``
+of the ENEA TERMINUS-Crime v01 ontology; the ``tc:`` prefix is applied downstream.
 
-Il binding e' fisso e city-agnostico (``amenity=bank`` e' uguale ovunque). Si mappa
-solo dove il match e' semanticamente difendibile (classe iperonimo/equivalente del
-POI, hazard core applicabili); i tag senza match fedele NON compaiono qui e ricadono
-su ``GENERIC_FALLBACK`` -> profilo rischi vuoto (POI "non coperto"), confidence
-degradata a valle.
+The binding is fixed and city-agnostic (``amenity=bank`` is the same everywhere). It
+maps only where the match is semantically defensible (hypernym/equivalent class of the
+POI, applicable core hazards); tags without a faithful match do NOT appear here and fall
+back to ``GENERIC_FALLBACK`` -> empty risk profile ("uncovered" POI), confidence
+degraded downstream.
 
-Le chiavi del dict SONO i selettori interrogati su Overpass (:data:`OSM_SELECTORS`):
-nessuna divergenza possibile tra "cosa recuperiamo" e "cosa classifichiamo".
+The keys of the dict ARE the selectors queried on Overpass (:data:`OSM_SELECTORS`):
+no divergence is possible between "what we retrieve" and "what we classify".
 """
 
 from __future__ import annotations
 
-#: Classe di fallback per i tag OSM non coperti (non e' una classe reale: a valle
-#: ``RiskQueryExecutor.profile`` ritorna liste vuote senza errore).
+#: Fallback class for uncovered OSM tags (it is not a real class: downstream
+#: ``RiskQueryExecutor.profile`` returns empty lists without error).
 GENERIC_FALLBACK = "GenericUrbanPOI"
 
-#: Binding fisso OSM ``key=value`` -> classe TERMINUS reale bare.
+#: Fixed binding OSM ``key=value`` -> real bare TERMINUS class.
 #: Single source of truth.
 OSM_TO_TERMINUS: dict[str, str] = {
     # --- amenity ---
@@ -105,14 +105,14 @@ OSM_TO_TERMINUS: dict[str, str] = {
     "landuse=forest": "Wooded_area",
 }
 
-#: Lista canonica dei selettori OSM ``key=value`` da interrogare su Overpass.
-#: Derivata DAL dict: non duplicarla. (overpass_client la usa come default.)
+#: Canonical list of the OSM ``key=value`` selectors to query on Overpass.
+#: Derived FROM the dict: do not duplicate it. (overpass_client uses it as default.)
 OSM_SELECTORS: tuple[str, ...] = tuple(OSM_TO_TERMINUS)
 
-#: Ordine di priorita' delle famiglie di chiavi OSM per ``_extract_osm_tag``: a
-#: parita' di POI multi-tag, vince la prima famiglia (funzione umana prima della
-#: struttura fisica). Invariante: copre esattamente le famiglie presenti nel dict.
-ORDINE_FAMIGLIE: tuple[str, ...] = (
+#: Priority order of the OSM key families for ``_extract_osm_tag``: for a
+#: multi-tag POI, the first family wins (human function before
+#: physical structure). Invariant: it covers exactly the families present in the dict.
+FAMILY_ORDER: tuple[str, ...] = (
     "amenity",
     "shop",
     "tourism",
@@ -129,20 +129,20 @@ ORDINE_FAMIGLIE: tuple[str, ...] = (
     "landuse",
 )
 
-#: Selettori generici che, sullo stesso elemento, cedono il passo a un tag mappato
-#: di una famiglia successiva in :data:`ORDINE_FAMIGLIE` (#373).
-#: ``tourism=attraction`` dice solo che il luogo e' visitato, mentre ``historic=*``
-#: dice che cosa e': il Colosseo porta entrambi e va classificato
-#: ``Archaeological_site``, non ``Historical_monument``. Tocca solo questa coppia:
-#: ``tourism=museum``/``gallery`` restano davanti a ``historic``.
-SELETTORI_CEDEVOLI: dict[str, str] = {"tourism=attraction": "historic"}
+#: Generic selectors that, on the same element, yield to a mapped tag
+#: of a later family in :data:`FAMILY_ORDER` (#373).
+#: ``tourism=attraction`` only says that the place is visited, while ``historic=*``
+#: says what it is: the Colosseo carries both and must be classified
+#: ``Archaeological_site``, not ``Historical_monument``. It touches only this pair:
+#: ``tourism=museum``/``gallery`` stay ahead of ``historic``.
+YIELDING_SELECTORS: dict[str, str] = {"tourism=attraction": "historic"}
 
 
 def map_to_terminus(osm_tag: str) -> str:
-    """Mappa un selettore OSM ``chiave=valore`` a una classe TERMINUS bare reale.
+    """Maps an OSM selector ``key=value`` to a real bare TERMINUS class.
 
-    Ritorna il nome-classe corrispondente, oppure :data:`GENERIC_FALLBACK`
-    (``"GenericUrbanPOI"``) per i tag non coperti. Il prefisso ``tc:`` va applicato
-    a valle, nei template SPARQL.
+    Returns the corresponding class name, or :data:`GENERIC_FALLBACK`
+    (``"GenericUrbanPOI"``) for uncovered tags. The ``tc:`` prefix must be applied
+    downstream, in the SPARQL templates.
     """
     return OSM_TO_TERMINUS.get(osm_tag, GENERIC_FALLBACK)

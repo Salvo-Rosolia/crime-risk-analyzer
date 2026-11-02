@@ -1,9 +1,9 @@
-"""Loader del vocabolario controllato EN→IT (#77).
+"""Loader of the controlled EN→IT vocabulary (#77).
 
-Sorgente unica: carica ``terminus_labels.json`` (identifier/label_en/label_it/
-category) ed espone i lookup usati da UI (via API), narrativa ed eval. I lookup
-degradano con grazia (forma normalizzata dell'identifier) se una voce manca, così
-l'assenza di un'etichetta non rompe il flusso a runtime.
+Single source: loads ``terminus_labels.json`` (identifier/label_en/label_it/
+category) and exposes the lookups used by the UI (via API), the narrative and the eval.
+The lookups degrade gracefully (normalised form of the identifier) if an entry is
+missing, so the absence of a label does not break the flow at runtime.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ _DATA_PATH = Path(__file__).parent / "terminus_labels.json"
 
 
 class LabelRecord(TypedDict):
-    """Voce del vocabolario: identifier reale + etichette display + categoria."""
+    """Vocabulary entry: real identifier + display labels + category."""
 
     identifier: str
     label_en: str
@@ -27,7 +27,7 @@ class LabelRecord(TypedDict):
 
 
 def _normalize(identifier: str) -> str:
-    """Forma display di fallback: underscore→spazio, prima lettera maiuscola."""
+    """Fallback display form: underscore→space, first letter capitalised."""
     text = identifier.replace("_", " ").strip()
     if not text:
         return identifier
@@ -42,19 +42,19 @@ def _records() -> dict[str, LabelRecord]:
     return {rec["identifier"]: rec for rec in raw}
 
 
-def _spaziata(identifier: str) -> str:
-    """Nome della classe con gli spazi al posto dei separatori (set custom)."""
+def _spaced(identifier: str) -> str:
+    """Class name with spaces in place of separators (custom set)."""
     text = identifier.replace("_", " ").replace("-", " ").strip()
     return " ".join(text.split()) or identifier
 
 
-def _etichette_del_set(identifier: str) -> tuple[str, str] | None:
-    """Coppia ``(it, en)`` di un set che porta le proprie etichette, altrimenti None.
+def _set_labels(identifier: str) -> tuple[str, str] | None:
+    """``(it, en)`` pair of a set that carries its own labels, otherwise None.
 
-    ``None`` anche quando il set usa il JSON TERMINUS (``labels is None``):
-    in quel caso si prosegue sul vocabolario controllato come per il default.
+    ``None`` also when the set uses the TERMINUS JSON (``labels is None``):
+    in that case we proceed on the controlled vocabulary as for the default.
     """
-    # Import locale: ``sources`` importa moduli che importano queste etichette.
+    # Local import: ``sources`` imports modules that import these labels.
     from crime_risk_analyzer.sources.context import current_labels
 
     labels = current_labels()
@@ -64,14 +64,14 @@ def _etichette_del_set(identifier: str) -> tuple[str, str] | None:
 
 
 def label_it(identifier: str) -> str:
-    """Etichetta IT della classe dal set attivo (JSON TERMINUS per il default).
+    """IT label of the class from the active set (TERMINUS JSON for the default).
 
-    Set con etichette proprie: IT, poi EN, poi il nome con gli spazi. Per il
-    JSON TERMINUS: IT, poi EN, poi il nome normalizzato.
+    Set with its own labels: IT, then EN, then the name with spaces. For the
+    TERMINUS JSON: IT, then EN, then the normalised name.
     """
-    propria = _etichette_del_set(identifier)
-    if propria is not None:
-        return propria[0] or propria[1] or _spaziata(identifier)
+    own_labels = _set_labels(identifier)
+    if own_labels is not None:
+        return own_labels[0] or own_labels[1] or _spaced(identifier)
     rec = _records().get(identifier)
     if rec is not None and rec["label_it"]:
         return rec["label_it"]
@@ -81,10 +81,10 @@ def label_it(identifier: str) -> str:
 
 
 def label_en(identifier: str) -> str:
-    """Etichetta EN della classe dal set attivo (vedi :func:`label_it`)."""
-    propria = _etichette_del_set(identifier)
-    if propria is not None:
-        return propria[1] or _spaziata(identifier)
+    """EN label of the class from the active set (see :func:`label_it`)."""
+    own_labels = _set_labels(identifier)
+    if own_labels is not None:
+        return own_labels[1] or _spaced(identifier)
     rec = _records().get(identifier)
     if rec is not None and rec["label_en"]:
         return rec["label_en"]
@@ -92,7 +92,7 @@ def label_en(identifier: str) -> str:
 
 
 def controlled_vocab_for(identifiers: Iterable[str]) -> list[str]:
-    """Termini IT ammessi (deduplicati, ordine di prima apparizione)."""
+    """Allowed IT terms (deduplicated, order of first appearance)."""
     seen: dict[str, None] = {}
     for ident in identifiers:
         term = label_it(ident)

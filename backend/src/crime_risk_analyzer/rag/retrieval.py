@@ -1,19 +1,20 @@
-"""Retrieval pipeline -> context_dict grezzo (#22).
+"""Retrieval pipeline -> raw context_dict (#22).
 
-Primo dei tre layer della pipeline /analyze (retrieval -> grounding #24 ->
-orchestrazione #18). :func:`retrieve` caba i mattoni a monte gia' pronti
-(geocoding #15, Overpass #16/#79, SPARQL executor #76) e assembla il
-``context_dict`` *grezzo*: POI + profilo di rischio per classe TERMINUS, SENZA
-tag/confidence (quelli sono compito del grounding #24).
+First of the three layers of the /analyze pipeline (retrieval -> grounding #24 ->
+orchestration #18). :func:`retrieve` wires the already-ready upstream building blocks
+(geocoding #15, Overpass #16/#79, SPARQL executor #76) and assembles the *raw*
+``context_dict``: POIs + risk profile per TERMINUS class, WITHOUT
+tag/confidence (those are the job of the grounding #24).
 
-Forma normalizzata: i POI restano il :class:`~crime_risk_analyzer.overpass_client.Poi`
-esistente (riuso verbatim); i profili stanno in una mappa indicizzata PER CLASSE
-(:data:`RetrievalContext` ``profiles``), perche' hazard e vulnerabilita' dipendono
-solo dalla classe TERMINUS. ``profile()`` e' percio' invocato una volta per classe
-distinta (memoizzazione semanticamente corretta, nessuna chiamata ridondante).
+Normalised shape: the POIs remain the existing
+:class:`~crime_risk_analyzer.overpass_client.Poi` (verbatim reuse); the profiles sit
+in a map indexed BY CLASS (:data:`RetrievalContext` ``profiles``), because hazards
+and vulnerabilities depend only on the TERMINUS class. ``profile()`` is therefore
+invoked once per distinct class (semantically correct memoisation, no
+redundant call).
 
-Gli errori di dominio (:class:`ZoneNotFoundError`, :class:`GeocodingError`,
-:class:`OverpassError`) NON sono gestiti qui: risalgono al chiamante (endpoint #18).
+The domain errors (:class:`ZoneNotFoundError`, :class:`GeocodingError`,
+:class:`OverpassError`) are NOT handled here: they rise to the caller (endpoint #18).
 """
 
 from __future__ import annotations
@@ -37,34 +38,34 @@ __all__ = [
     "retrieve",
 ]
 
-#: Sorgente POI iniettabile (capture-and-replay in eval). Default: Overpass live.
+#: Injectable POI source (capture-and-replay in eval). Default: live Overpass.
 PoiSource = Callable[[Bbox, str], Awaitable[list[Poi]]]
 
-#: Sorgente geo iniettabile (replay in eval, #169). Default (None): geocode live.
-#: La firma e' ``(citta, zona) -> GeoResult`` (mirror di :data:`PoiSource`).
+#: Injectable geo source (replay in eval, #169). Default (None): live geocode.
+#: The signature is ``(citta, zona) -> GeoResult`` (mirror of :data:`PoiSource`).
 GeoSource = Callable[[str, str], Awaitable[GeoResult]]
 
 
 class RiskProfiler(Protocol):
-    """Vista strutturale minimale dell'executor SPARQL (#76) usata da retrieve.
+    """Minimal structural view of the SPARQL executor (#76) used by retrieve.
 
-    ``RiskQueryExecutor`` la soddisfa; i test passano un fake che traccia le chiamate.
+    ``RiskQueryExecutor`` satisfies it; the tests pass a fake that traces the calls.
     """
 
     def profile(self, terminus_class: str) -> PoiRiskProfile: ...
 
 
 class RetrievalStats(TypedDict):
-    """Conteggi di sintesi del retrieval."""
+    """Summary counts of the retrieval."""
 
     n_pois: int
     n_classes: int
 
 
 class RetrievalContext(TypedDict):
-    """``context_dict`` grezzo (pre-grounding) prodotto da :func:`retrieve`.
+    """Raw ``context_dict`` (pre-grounding) produced by :func:`retrieve`.
 
-    Il rischio di un POI si ottiene con ``profiles[poi["terminus_class"]]``.
+    The risk of a POI is obtained with ``profiles[poi["terminus_class"]]``.
     """
 
     citta: str
@@ -83,24 +84,24 @@ async def retrieve(
     poi_source: PoiSource | None = None,
     geo_source: GeoSource | None = None,
 ) -> RetrievalContext:
-    """Assembla il context_dict grezzo per ``zona`` dentro ``citta``.
+    """Assembles the raw context_dict for ``zona`` inside ``citta``.
 
-    Caba geocoding -> Overpass -> profilo SPARQL per classe distinta. I POI senza
-    rischi (``GenericUrbanPOI`` o profilo vuoto) sono inclusi; zona senza POI ->
-    context con ``pois=[]`` senza errore. Gli errori di dominio sono propagati.
+    It wires geocoding -> Overpass -> SPARQL profile per distinct class. POIs without
+    risks (``GenericUrbanPOI`` or empty profile) are included; a zone without POIs ->
+    context with ``pois=[]`` without error. Domain errors are propagated.
 
-    ``poi_source`` consente il capture-and-replay nell'harness di eval: se None
-    usa la sorgente live ``fetch_pois`` (Overpass).
+    ``poi_source`` allows capture-and-replay in the eval harness: if None
+    it uses the live source ``fetch_pois`` (Overpass).
 
-    ``geo_source`` (#169) consente il replay del geo nell'harness: se None usa il
-    geocoding live ``geocode_zone`` (Nominatim). Iniettando una source che ritorna
-    un placeholder, la run di eval non chiama mai Nominatim (run ermetica): il geo
-    resta ininfluente per grounding/generation/metriche (nessuno dei tre lo legge;
-    ``replay_source`` ignora il bbox). Dal #260 NON e' pero' piu' dead-downstream
-    in senso assoluto: esce verbatim in ``AnalyzeResponse.zona_geo``, quindi un
-    placeholder di replay comparirebbe, invariato, in quel campo della response —
-    innocuo per le metriche (che non lo guardano) ma non piu' un valore che "non
-    altera alcun output" in senso letterale.
+    ``geo_source`` (#169) allows the geo replay in the harness: if None it uses the
+    live geocoding ``geocode_zone`` (Nominatim). By injecting a source that returns
+    a placeholder, the eval run never calls Nominatim (hermetic run): the geo
+    stays irrelevant for grounding/generation/metrics (none of the three reads it;
+    ``replay_source`` ignores the bbox). Since #260 it is however NO longer
+    dead-downstream in the absolute sense: it comes out verbatim in
+    ``AnalyzeResponse.zona_geo``, so a replay placeholder would appear, unchanged,
+    in that field of the response — harmless for the metrics (which do not look at
+    it) but no longer a value that "alters no output" in the literal sense.
     """
     if geo_source is not None:
         geo = await geo_source(citta, zona)

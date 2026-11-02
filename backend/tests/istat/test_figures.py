@@ -1147,9 +1147,9 @@ def test_item_from_the_risk_with_typographic_apostrophe() -> None:
 
 def test_the_prompt_example_sentence_passes_the_check() -> None:
     """D7: the sentence that the prompt carries as an example must not be removed."""
-    from crime_risk_analyzer.rag.istat_rules import ESEMPIO_ISTAT
+    from crime_risk_analyzer.rag.istat_rules import ISTAT_EXAMPLE
 
-    sentence = ESEMPIO_ISTAT.strip('"')
+    sentence = ISTAT_EXAMPLE.strip('"')
     text = f"Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\n{sentence}\n"
     outcome = _check(text)
     assert [
