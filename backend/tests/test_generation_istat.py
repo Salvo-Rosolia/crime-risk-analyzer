@@ -18,10 +18,10 @@ from crime_risk_analyzer.llm.client import LLMResponse
 from crime_risk_analyzer.rag import generation as generation_mod
 from crime_risk_analyzer.rag.generation import (
     ISTAT_BLOCK_HEADER,
-    ISTAT_RISERVA_MAX_TOKEN,
+    ISTAT_RESERVE_MAX_TOKENS,
     SYSTEM_PROMPT,
     SYSTEM_PROMPT_ISTAT,
-    SYSTEM_PROMPT_ISTAT_SCELTA,
+    SYSTEM_PROMPT_ISTAT_SELECTION,
     SourceProse,
     _estimate_tokens,  # pyright: ignore[reportPrivateUsage]
     build_context,
@@ -61,10 +61,10 @@ def test_parse_riconosce_intestazione_istat_decorata_e_ignora_il_token_in_frase(
         "Rischi da ontologia [ONTOLOGIA]\nRapina.\n\n"
         "**Dati statistici ISTAT [ISTAT]**\nI furti sono 3.\n"
     )
-    fonti = parse_source_prose(testo)
-    assert fonti.overview.startswith("Sintesi: il tag [ISTAT]")
-    assert fonti.ontologia == "Rapina."
-    assert fonti.istat == "I furti sono 3."
+    sources_id = parse_source_prose(testo)
+    assert sources_id.overview.startswith("Sintesi: il tag [ISTAT]")
+    assert sources_id.ontologia == "Rapina."
+    assert sources_id.istat == "I furti sono 3."
 
 
 def test_narrative_senza_istat_restano_identiche() -> None:
@@ -154,7 +154,7 @@ async def test_istat_spento_prompt_identico_anche_con_righe_in_cache() -> None:
 async def test_istat_acceso_mette_il_blocco_fra_vocabolario_e_poi(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(generation_mod, "versione_dati", lambda: "2026-10-06")
+    monkeypatch.setattr(generation_mod, "istat_data_version", lambda: "2026-10-06")
     spia = _Spia()
     out = await generate_analysis(
         _ctx(_poi(istat=istat_poi(BANK_ROBBERIES))), spia, istat=True
@@ -214,9 +214,9 @@ async def test_controllo_cifre_filtra_la_narrativa_e_conserva_il_grezzo() -> Non
     assert out.controllo_istat is not None
     assert "controllo_istat" not in out.model_dump()
     # #365: i dati ISTAT a parole restano nel blocco [ONTOLOGIA], nessun [ISTAT]
-    fonti = parse_source_prose(out.narrativa)
-    assert fonti.istat == ""
-    assert fonti.ontologia.endswith("le rapine in banca sono in calo.")
+    sources_id = parse_source_prose(out.narrativa)
+    assert sources_id.istat == ""
+    assert sources_id.ontologia.endswith("le rapine in banca sono in calo.")
 
 
 def test_una_voce_condivisa_da_due_poi_compare_una_volta() -> None:
@@ -229,7 +229,7 @@ def test_una_voce_condivisa_da_due_poi_compare_una_volta() -> None:
     )
     assert contesto.testo.count("rapine in banca:") == 1
     assert "POI coinvolti" not in contesto.testo
-    assert contesto.testo_senza_istat == build_context_str(
+    assert contesto.text_without_istat == build_context_str(
         _ctx(
             _poi("node/1", istat_poi(BANK_ROBBERIES)),
             _poi("node/2", istat_poi(BANK_ROBBERIES)),
@@ -243,11 +243,11 @@ def test_riserva_lascia_spazio_al_blocco_su_un_contesto_troncato() -> None:
     budget = 1500
     spento = build_context(_ctx(*pois), context_budget_tokens=budget)
     acceso = build_context(_ctx(*pois), context_budget_tokens=budget, istat=True)
-    assert spento.poi_inclusi < 30  # gia' troncato a ISTAT spento
+    assert spento.included_poi_count < 30  # gia' troncato a ISTAT spento
     assert acceso.blocco_istat.testo != ""
-    assert acceso.poi_inclusi < spento.poi_inclusi
+    assert acceso.included_poi_count < spento.included_poi_count
     assert _estimate_tokens(acceso.testo) <= budget
-    assert 0 < ISTAT_RISERVA_MAX_TOKEN <= 1200
+    assert 0 < ISTAT_RESERVE_MAX_TOKENS <= 1200
 
 
 async def test_righe_perse_nel_troncamento_torna_al_ramo_spento() -> None:
@@ -286,7 +286,7 @@ def test_nota_taglio_delle_voci_non_tocca_la_cifra_citata() -> None:
     ]
     budget = _estimate_tokens(build_context_str(_ctx(*pois))) + 1200
     contesto = build_context(_ctx(*pois), context_budget_tokens=budget, istat=True)
-    assert contesto.poi_inclusi == 22  # nessun POI scartato, solo le voci
+    assert contesto.included_poi_count == 22  # nessun POI scartato, solo le voci
     assert contesto.blocco_istat.voci_tagliate == 1
     nota = "NB: per limiti di lunghezza 1 voce ISTAT non e' riportata."
     assert nota in contesto.testo
@@ -300,7 +300,7 @@ def test_nota_taglio_delle_voci_non_tocca_la_cifra_citata() -> None:
         narrativa,
         block=contesto.blocco_istat,
         spans=source_block_spans(narrativa),
-        context=contesto.testo_senza_istat,
+        context=contesto.text_without_istat,
     )
     assert esito is not None
     assert filtrata == narrativa
@@ -341,7 +341,7 @@ async def test_scelta_prompt_e_richiesta_senza_regola_a_parole() -> None:
         istat_scelta=True,
     )
     system, user = spia.calls[0]
-    assert system == SYSTEM_PROMPT_ISTAT_SCELTA
+    assert system == SYSTEM_PROMPT_ISTAT_SELECTION
     assert system != SYSTEM_PROMPT_ISTAT
     assert RULE_ISTAT_SELECTION in system
     assert "NON scrivere frasi sui dati ISTAT" in system
@@ -371,14 +371,14 @@ async def test_scelta_l_app_compone_la_frase_e_toglie_il_blocco() -> None:
     )
     assert "SCELTA DATI ISTAT" not in out.narrativa
     assert out.narrativa_grezza == testo
-    fonti = parse_source_prose(out.narrativa)
-    assert fonti.ontologia.startswith("Rischio di rapina per Banca node/1.")
+    sources_id = parse_source_prose(out.narrativa)
+    assert sources_id.ontologia.startswith("Rischio di rapina per Banca node/1.")
     assert (
         "Secondo i dati ISTAT del Comune di Roma (2024), la voce «rapine in banca» "
         "(rischio: Rapina in banca) ha un tasso più alto di quello italiano e un "
-        "andamento in calo dal 2014." in fonti.ontologia
+        "andamento in calo dal 2014." in sources_id.ontologia
     )
-    assert fonti.contesto == "Zona di transito."
+    assert sources_id.contesto == "Zona di transito."
     assert [s.hazard for s in out.istat_scelta] == ["Bank_robbery"]
     assert out.istat_scelta_scarti == SelectionDiscards()
     assert "istat_scelta_scarti" not in out.model_dump()

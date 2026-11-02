@@ -8,7 +8,7 @@ from dataclasses import replace
 import pytest
 
 from crime_risk_analyzer.istat.data import ITALY_CODE, YearValue
-from crime_risk_analyzer.sources.ontology_reader import _causa_leggibile  # pyright: ignore[reportPrivateUsage]
+from crime_risk_analyzer.sources.ontology_reader import _readable_cause  # pyright: ignore[reportPrivateUsage]
 from crime_risk_analyzer.sources.parsing import (
     ParsedSources,
     UploadedFiles,
@@ -66,7 +66,7 @@ def test_caso_valido_restituisce_le_fonti_lette() -> None:
         "amenity=bank": "Banca",
         "amenity=hospital": "Ospedale",
     }
-    assert parsed.ordine_famiglie == ("amenity",)
+    assert parsed.family_order == ("amenity",)
 
 
 def test_etichette_it_en_dalle_rdfs_label() -> None:
@@ -205,7 +205,7 @@ def test_formati_owl_e_rdfxml() -> None:
 def test_confini_nostri_se_il_file_manca() -> None:
     base, _ = read_sources(file_validi(), VOCABOLARIO)
     parsed, report = read_sources(
-        con(boundaries=None), VOCABOLARIO, fallback_luoghi=base.istat.luoghi
+        con(boundaries=None), VOCABOLARIO, fallback_places=base.istat.luoghi
     )
     assert report.ok
     assert parsed.istat.luoghi == base.istat.luoghi
@@ -216,7 +216,7 @@ def test_luoghi_nostri_senza_dati_non_entrano_nel_set() -> None:
     (luogo,) = base.istat.luoghi
     altro = replace(luogo, codice="999")
     parsed, report = read_sources(
-        con(boundaries=None), VOCABOLARIO, fallback_luoghi=(luogo, altro)
+        con(boundaries=None), VOCABOLARIO, fallback_places=(luogo, altro)
     )
     assert [x.codice for x in parsed.istat.luoghi] == ["001"]
     assert report.warnings == []
@@ -226,7 +226,7 @@ def test_confini_caricati_hanno_la_precedenza_sui_nostri() -> None:
     base, _ = read_sources(file_validi(), VOCABOLARIO)
     (luogo,) = base.istat.luoghi
     nostro = replace(luogo, nome="Nome nostro")
-    parsed, _ = read_sources(file_validi(), VOCABOLARIO, fallback_luoghi=(nostro,))
+    parsed, _ = read_sources(file_validi(), VOCABOLARIO, fallback_places=(nostro,))
     assert parsed.istat.luoghi[0].nome == "Comune di Esempio"
 
 
@@ -267,7 +267,7 @@ def test_turtle_stringa_non_chiusa_messaggio_senza_contenuto() -> None:
         "at line 2 of <>:\nQuote expected in string at ^ in tp://x/> .\n"
         'a:e a:f "^SEGRETO'
     )
-    messaggio = _causa_leggibile(exc)
+    messaggio = _readable_cause(exc)
     assert messaggio == "riga 2: Quote expected in string"
 
 
@@ -282,13 +282,13 @@ def test_turtle_stringa_non_chiusa_messaggio_senza_contenuto() -> None:
     ],
 )
 def test_causa_leggibile_prima_riga_non_vuota(testo: str, atteso: str) -> None:
-    assert _causa_leggibile(Exception(testo)) == atteso
+    assert _readable_cause(Exception(testo)) == atteso
 
 
 def test_unicode_decode_error_messaggio_senza_byte_del_file() -> None:
     with pytest.raises(UnicodeDecodeError) as eccezione:
         b"\xff\xfe\x00bad".decode("utf-8")
-    assert _causa_leggibile(eccezione.value).startswith(
+    assert _readable_cause(eccezione.value).startswith(
         "'utf-8' codec can't decode byte"
     )
     report = _report(con(ontology=b"\xff\xfe\x00bad"))

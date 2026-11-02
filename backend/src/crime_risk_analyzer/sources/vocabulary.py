@@ -1,12 +1,12 @@
-"""Vocabolario OWL di un'ontologia: namespace e nomi delle cinque proprieta' (#415).
+"""OWL vocabulary of an ontology: namespace and names of the five properties (#415).
 
-Il pattern resta quello a restrizioni OWL (``rdfs:subClassOf`` + ``owl:Restriction``
-+ ``owl:onProperty`` + ``owl:someValuesFrom``); cambiano solo namespace e nomi
-delle proprieta' che legano un POI ai suoi rischi. Il default conserva i valori
-TERMINUS letti da ``sparql_module/query_executor.py``.
+The pattern stays the OWL restriction one (``rdfs:subClassOf`` + ``owl:Restriction``
++ ``owl:onProperty`` + ``owl:someValuesFrom``); only the namespace and the names
+of the properties linking a POI to its risks change. The default keeps the TERMINUS
+values read from ``sparql_module/query_executor.py``.
 
-I valori finiscono in IRI e query: :meth:`OntologyVocabulary.problems` li
-controlla PRIMA di usarli (nessuna concatenazione non validata).
+The values end up in IRIs and queries: :meth:`OntologyVocabulary.problems` checks
+them BEFORE using them (no unvalidated concatenation).
 """
 
 from __future__ import annotations
@@ -19,12 +19,12 @@ from crime_risk_analyzer.ontology_namespaces import TERMINUS_IRI
 __all__ = ["TERMINUS_VOCABULARY", "OntologyVocabulary"]
 
 _NAMESPACE = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*:[^\s<>\"{}|\\^`]+[#/]")
-_PROPRIETA = re.compile(r"[A-Za-z_][A-Za-z0-9_.\-]*")
+_PROPERTIES = re.compile(r"[A-Za-z_][A-Za-z0-9_.\-]*")
 
 
 @dataclass(frozen=True)
 class OntologyVocabulary:
-    """Namespace e nomi (locali) delle proprieta' di rischio dell'ontologia."""
+    """Namespace and (local) names of the risk properties of the ontology."""
 
     namespace: str
     hazard: str
@@ -34,7 +34,7 @@ class OntologyVocabulary:
 
     @property
     def properties(self) -> tuple[str, ...]:
-        """Nomi di tutte le proprieta': hazard, evento, vulnerabilita', stakeholder."""
+        """Names of all the properties: hazard, event, vulnerability, stakeholder."""
         return (
             self.hazard,
             self.critical_event,
@@ -43,25 +43,25 @@ class OntologyVocabulary:
         )
 
     def problems(self) -> list[str]:
-        """Motivi per cui il vocabolario non e' utilizzabile (vuota se valido)."""
-        motivi: list[str] = []
+        """Reasons why the vocabulary is unusable (empty if valid)."""
+        reasons: list[str] = []
         if _NAMESPACE.fullmatch(self.namespace) is None:
-            motivi.append(
+            reasons.append(
                 f"namespace {self.namespace!r} non valido: serve un IRI assoluto "
                 "che finisce con # o /"
             )
         if not self.vulnerability:
-            motivi.append("serve almeno una proprieta' di vulnerabilita'")
-        for nome in self.properties:
-            if _PROPRIETA.fullmatch(nome) is None:
-                motivi.append(
-                    f"nome di proprieta' {nome!r} non valido: solo lettere, cifre, "
+            reasons.append("serve almeno una proprieta' di vulnerabilita'")
+        for name in self.properties:
+            if _PROPERTIES.fullmatch(name) is None:
+                reasons.append(
+                    f"nome di proprieta' {name!r} non valido: solo lettere, cifre, "
                     "_ . -"
                 )
-        return motivi
+        return reasons
 
 
-#: Valori TERMINUS (spec fonti dinamiche, "il default conserva i valori TERMINUS").
+#: TERMINUS values (dynamic sources spec, "the default keeps the TERMINUS values").
 TERMINUS_VOCABULARY = OntologyVocabulary(
     namespace=f"{TERMINUS_IRI}#",
     hazard="havingHazard",

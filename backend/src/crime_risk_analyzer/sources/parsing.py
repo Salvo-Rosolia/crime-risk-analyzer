@@ -1,32 +1,32 @@
-"""Lettura e controllo dei cinque file delle fonti (#415).
+"""Reading and checking of the five source files (#415).
 
-Entrata unica: :func:`check_sources` (non solleva, restituisce il report) e
-:func:`read_sources` (solleva :class:`SourceValidationError` se ci sono errori).
-Prendono i byte dei file caricati (:class:`UploadedFiles`) e il vocabolario OWL
-(:class:`OntologyVocabulary`); producono un :class:`ParsedSources` con i dati gia'
-nei tipi del progetto (``IstatData`` e ``HazardMapping`` degli stessi modelli che usa
-oggi l'ISTAT), pronto per essere impacchettato in un set di fonti. Il modulo non
-conosce il set attivo, le sessioni o il contesto di richiesta: e' puro.
+Single entry: :func:`check_sources` (does not raise, returns the report) and
+:func:`read_sources` (raises :class:`SourceValidationError` if there are errors).
+They take the bytes of the uploaded files (:class:`UploadedFiles`) and the OWL
+vocabulary (:class:`OntologyVocabulary`); they produce a :class:`ParsedSources` with the
+data already in the project types (``IstatData`` and ``HazardMapping`` of the same
+models that ISTAT uses today), ready to be packaged into a source set. The module does
+not know the active set, the sessions or the request context: it is pure.
 
-I cinque file:
+The five files:
 
-* **ontologia** (Turtle o OWL/RDF-XML): :mod:`.ontology_reader`;
-* **tabella OSM -> classe** (``osm_table``): ``osm_tag,classe``;
-* **dati statistici** (``data``): ``luogo,voce,voce_etichetta,anno,delitti,tasso``
-  e, opzionale, ``tasso_sotto_soglia`` (``si``/``no``). L'anno piu' recente del
-  file e' l'anno corrente, quello di confronto e' ``anno - 10``; ``IT`` e' la
-  riga nazionale e ``TOT`` la voce del totale (come ``delitti.json``); versione =
-  primi 12 caratteri dello SHA-256 del file;
-* **tabella hazard -> voce** (``hazard_table``): ``hazard,voce,corrispondenza``
-  e, opzionali, ``serie_non_confrontabile`` (``si``/``no``) e ``nota``;
-* **confini** (``boundaries``, opzionale): GeoJSON ``FeatureCollection`` con in
+* **ontology** (Turtle or OWL/RDF-XML): :mod:`.ontology_reader`;
+* **OSM -> class table** (``osm_table``): ``osm_tag,classe``;
+* **statistical data** (``data``): ``luogo,voce,voce_etichetta,anno,delitti,tasso``
+  and, optional, ``tasso_sotto_soglia`` (``si``/``no``). The most recent year of the
+  file is the current year, the comparison one is ``anno - 10``; ``IT`` is the
+  national row and ``TOT`` the total item (like ``delitti.json``); version =
+  first 12 characters of the file's SHA-256;
+* **hazard -> item table** (``hazard_table``): ``hazard,voce,corrispondenza``
+  and, optional, ``serie_non_confrontabile`` (``si``/``no``) and ``nota``;
+* **boundaries** (``boundaries``, optional): GeoJSON ``FeatureCollection`` with in
   ``properties`` ``codice``, ``tipo`` (``comune``/``provincia``), ``nome``,
-  ``nome_breve`` e, opzionale, ``provincia``. Senza il file valgono solo i
-  confini passati in ``fallback_luoghi`` (quelli nostri).
+  ``nome_breve`` and, optional, ``provincia``. Without the file only the
+  boundaries passed in ``fallback_places`` (our own) apply.
 
-Il controllo gira prima di attivare qualunque cosa e raccoglie TUTTI i problemi.
-I controlli incrociati (classi e hazard nell'ontologia, voci nei dati) si
-saltano solo quando il file da cui dipendono non e' leggibile.
+The check runs before activating anything and collects ALL the problems.
+The cross checks (classes and hazards in the ontology, items in the data) are
+skipped only when the file they depend on is not readable.
 """
 
 from __future__ import annotations
@@ -62,9 +62,9 @@ from crime_risk_analyzer.sources.csv_reader import CsvRow, read_csv
 from crime_risk_analyzer.sources.limits import (
     MAX_BYTES_CSV,
     MAX_BYTES_GEOJSON,
-    MAX_BYTES_ONTOLOGIA,
-    controlla_nota,
-    controlla_testo,
+    MAX_BYTES_ONTOLOGY,
+    check_note,
+    check_text,
 )
 from crime_risk_analyzer.sources.ontology_reader import (
     OntologyReading,
@@ -105,23 +105,23 @@ DATA_OPTIONAL_COLUMNS = ("tasso_sotto_soglia",)
 HAZARD_COLUMNS = ("hazard", "voce", "corrispondenza")
 HAZARD_OPTIONAL_COLUMNS = ("serie_non_confrontabile", "nota")
 
-_CORRISPONDENZE: tuple[MatchKind, ...] = ("esatta", "piu_larga", "piu_stretta")
-_TIPI_LUOGO: tuple[PlaceType, ...] = ("comune", "provincia")
+_MATCHES: tuple[MatchKind, ...] = ("esatta", "piu_larga", "piu_stretta")
+_PLACE_TYPES: tuple[PlaceType, ...] = ("comune", "provincia")
 _OSM_TAG = re.compile(r"[A-Za-z0-9_:\-]+=[A-Za-z0-9_:.\-]+")
-_CODICE_LUOGO = re.compile(r"[A-Za-z0-9_\-]{1,20}")
-_CODICE_VOCE = re.compile(r"[A-Za-z0-9_]{1,40}")
-_ANNO = re.compile(r"[0-9]{4}")
-_INTERO = re.compile(r"[0-9]{1,12}")
-_DECIMALE = re.compile(r"[0-9]{1,15}(?:\.[0-9]{1,6})?")
-_ANNI_CONFRONTO = 10
+_PLACE_CODE = re.compile(r"[A-Za-z0-9_\-]{1,20}")
+_ITEM_CODE = re.compile(r"[A-Za-z0-9_]{1,40}")
+_YEAR = re.compile(r"[0-9]{4}")
+_INTEGER = re.compile(r"[0-9]{1,12}")
+_DECIMAL = re.compile(r"[0-9]{1,15}(?:\.[0-9]{1,6})?")
+_COMPARISON_YEARS = 10
 
 
 @dataclass(frozen=True)
 class UploadedFiles:
-    """Byte dei file caricati; ``boundaries`` e' l'unico opzionale."""
+    """Bytes of the uploaded files; ``boundaries`` is the only optional one."""
 
     ontology: bytes
-    #: Nome del file dell'ontologia: l'estensione sceglie il formato.
+    #: Name of the ontology file: the extension chooses the format.
     ontology_name: str
     osm_table: bytes
     data: bytes
@@ -131,25 +131,25 @@ class UploadedFiles:
 
 @dataclass(frozen=True)
 class ParsedSources:
-    """Fonti lette e controllate, nei tipi del progetto."""
+    """Sources read and checked, in the project types."""
 
     graph: Graph
     vocabulary: OntologyVocabulary
-    #: Nomi locali di tutte le classi dell'ontologia nel namespace.
+    #: Local names of all the classes of the ontology in the namespace.
     classes: frozenset[str]
-    #: Classe -> (etichetta IT, etichetta EN); ripiego: nome con ``_`` -> spazio.
+    #: Class -> (IT label, EN label); fallback: name with ``_`` -> space.
     labels: dict[str, tuple[str, str]]
-    #: ``chiave=valore`` OSM -> nome della classe (stessa forma di ``OSM_TO_TERMINUS``).
+    #: OSM ``key=value`` -> class name (same shape as ``OSM_TO_TERMINUS``).
     osm_to_class: dict[str, str]
-    #: Famiglie di chiavi OSM nell'ordine di prima comparsa nella tabella.
-    ordine_famiglie: tuple[str, ...]
-    #: Dati e luoghi con confini (solo luoghi che hanno dati), come ``load_data``.
+    #: Families of OSM keys in order of first appearance in the table.
+    family_order: tuple[str, ...]
+    #: Data and places with boundaries (only places that have data), like ``load_data``.
     istat: IstatData
-    #: Hazard -> voce (stessa forma di ``istat.mapping.HAZARD_MAPPING``).
+    #: Hazard -> item (same shape as ``istat.mapping.HAZARD_MAPPING``).
     mappatura: dict[str, HazardMapping]
-    #: Voci con serie non confrontabile (equivalente di ``BREAK_ITEMS_2016``).
+    #: Items with a non-comparable series (equivalent of ``BREAK_ITEMS_2016``).
     voci_rottura: frozenset[str]
-    #: Primi 12 caratteri dello SHA-256 del file dei dati.
+    #: First 12 characters of the SHA-256 of the data file.
     versione: str
 
 
@@ -157,14 +157,14 @@ def read_sources(
     files: UploadedFiles,
     vocabulary: OntologyVocabulary = TERMINUS_VOCABULARY,
     *,
-    fallback_luoghi: Sequence[Place] = (),
+    fallback_places: Sequence[Place] = (),
 ) -> tuple[ParsedSources, ValidationReport]:
-    """Come :func:`check_sources`, ma solleva se il caricamento non e' valido.
+    """Like :func:`check_sources`, but raises if the upload is not valid.
 
     Raises:
-        SourceValidationError: ``report`` ha tutti i problemi bloccanti.
+        SourceValidationError: ``report`` has all the blocking problems.
     """
-    parsed, report = check_sources(files, vocabulary, fallback_luoghi=fallback_luoghi)
+    parsed, report = check_sources(files, vocabulary, fallback_places=fallback_places)
     if parsed is None:
         raise SourceValidationError(report)
     return parsed, report
@@ -174,65 +174,66 @@ def check_sources(
     files: UploadedFiles,
     vocabulary: OntologyVocabulary = TERMINUS_VOCABULARY,
     *,
-    fallback_luoghi: Sequence[Place] = (),
+    fallback_places: Sequence[Place] = (),
 ) -> tuple[ParsedSources | None, ValidationReport]:
-    """Legge e controlla i file; ``ParsedSources`` e' ``None`` se ci sono errori.
+    """Reads and checks the files; ``ParsedSources`` is ``None`` if there are errors.
 
-    Gli avvisi (``report.warnings``) non bloccano e si riportano anche a esito
-    positivo. ``fallback_luoghi`` sono i confini nostri, usati per i luoghi dei
-    dati che il file dei confini non copre.
+    The warnings (``report.warnings``) do not block and are reported also on a
+    positive outcome. ``fallback_places`` are our own boundaries, used for the places of
+    the data that the boundaries file does not cover.
     """
     report = ValidationReport()
-    ammessi = _controlla_dimensioni(files, report)
+    allowed = _check_sizes(files, report)
 
-    ontologia = (
+    ontology_reading = (
         read_ontology(files.ontology, files.ontology_name, vocabulary, report)
-        if "ontology" in ammessi
+        if "ontology" in allowed
         else None
     )
     osm = (
-        _leggi_osm(files.osm_table, ontologia, report)
-        if "osm_table" in ammessi
+        _read_osm(files.osm_table, ontology_reading, report)
+        if "osm_table" in allowed
         else None
     )
-    dati = _leggi_dati(files.data, report) if "data" in ammessi else None
+    parsed_data = _read_data(files.data, report) if "data" in allowed else None
     mappatura = (
-        _leggi_hazard(files.hazard_table, ontologia, dati, report)
-        if "hazard_table" in ammessi
+        _read_hazard(files.hazard_table, ontology_reading, parsed_data, report)
+        if "hazard_table" in allowed
         else None
     )
-    confini = (
-        _leggi_confini(files.boundaries, report)
-        if files.boundaries is not None and "boundaries" in ammessi
+    boundary_places = (
+        _read_boundaries(files.boundaries, report)
+        if files.boundaries is not None and "boundaries" in allowed
         else {}
     )
     luoghi = (
-        _scegli_luoghi(dati, confini, fallback_luoghi, report)
-        if dati is not None and (files.boundaries is None or "boundaries" in ammessi)
+        _choose_places(parsed_data, boundary_places, fallback_places, report)
+        if parsed_data is not None
+        and (files.boundaries is None or "boundaries" in allowed)
         else None
     )
 
     if (
         not report.ok
-        or ontologia is None
+        or ontology_reading is None
         or osm is None
-        or dati is None
+        or parsed_data is None
         or mappatura is None
         or luoghi is None
     ):
         return None, report
 
-    delitti = _file_delitti(dati, files.data)
+    delitti = _offences_file(parsed_data, files.data)
     versione = delitti.estratto_il
     voci_rottura, per_hazard = mappatura
     return (
         ParsedSources(
-            graph=ontologia.graph,
+            graph=ontology_reading.graph,
             vocabulary=vocabulary,
-            classes=ontologia.classes,
-            labels=ontologia.labels,
-            osm_to_class=dict(osm.tag_classe),
-            ordine_famiglie=osm.famiglie,
+            classes=ontology_reading.classes,
+            labels=ontology_reading.labels,
+            osm_to_class=dict(osm.tag_to_class),
+            family_order=osm.families,
             istat=IstatData(delitti=delitti, luoghi=luoghi),
             mappatura=per_hazard,
             voci_rottura=voci_rottura,
@@ -242,118 +243,116 @@ def check_sources(
     )
 
 
-# --- dimensioni ---
+# --- sizes ---
 
 
-def _controlla_dimensioni(
-    files: UploadedFiles, report: ValidationReport
-) -> set[FileName]:
-    """Segnala i file oltre il limite e restituisce quelli da leggere."""
-    limiti: list[tuple[FileName, bytes | None, int]] = [
-        ("ontology", files.ontology, MAX_BYTES_ONTOLOGIA),
+def _check_sizes(files: UploadedFiles, report: ValidationReport) -> set[FileName]:
+    """Reports the files over the limit and returns the ones to read."""
+    limits: list[tuple[FileName, bytes | None, int]] = [
+        ("ontology", files.ontology, MAX_BYTES_ONTOLOGY),
         ("osm_table", files.osm_table, MAX_BYTES_CSV),
         ("data", files.data, MAX_BYTES_CSV),
         ("hazard_table", files.hazard_table, MAX_BYTES_CSV),
         ("boundaries", files.boundaries, MAX_BYTES_GEOJSON),
     ]
-    ammessi: set[FileName] = set()
-    for nome, contenuto, limite in limiti:
-        if contenuto is not None and len(contenuto) > limite:
+    allowed: set[FileName] = set()
+    for nome, content, limit in limits:
+        if content is not None and len(content) > limit:
             report.error(
                 "file_troppo_grande",
                 nome,
-                f"il file pesa {len(contenuto) / (1024 * 1024):.1f} MB, "
-                f"il massimo e' {limite // (1024 * 1024)} MB",
+                f"il file pesa {len(content) / (1024 * 1024):.1f} MB, "
+                f"il massimo e' {limit // (1024 * 1024)} MB",
             )
         else:
-            ammessi.add(nome)
-    return ammessi
+            allowed.add(nome)
+    return allowed
 
 
-# --- tabella OSM ---
+# --- OSM table ---
 
 
 @dataclass(frozen=True)
 class _Osm:
-    tag_classe: dict[str, str]
-    famiglie: tuple[str, ...]
+    tag_to_class: dict[str, str]
+    families: tuple[str, ...]
 
 
-def _leggi_osm(
-    content: bytes, ontologia: OntologyReading | None, report: ValidationReport
+def _read_osm(
+    content: bytes, ontology_reading: OntologyReading | None, report: ValidationReport
 ) -> _Osm | None:
-    righe = read_csv(content, "osm_table", required=OSM_COLUMNS, report=report)
-    if righe is None:
+    rows = read_csv(content, "osm_table", required=OSM_COLUMNS, report=report)
+    if rows is None:
         return None
-    tag_classe: dict[str, str] = {}
-    visti: set[str] = set()
-    for riga in righe:
-        tag, classe = riga.cells["osm_tag"], riga.cells["classe"]
+    tag_to_class: dict[str, str] = {}
+    seen: set[str] = set()
+    for row in rows:
+        tag, class_name = row.cells["osm_tag"], row.cells["classe"]
         if _OSM_TAG.fullmatch(tag) is None:
             report.error(
                 "osm_tag_non_valido",
                 "osm_table",
                 f"selettore OSM {tag[:40]!r} non valido: serve la forma "
                 "chiave=valore, solo lettere, cifre e _ : . -",
-                line=riga.line,
+                line=row.line,
             )
             continue
-        if tag in visti:
+        if tag in seen:
             report.error(
                 "chiave_duplicata",
                 "osm_table",
                 f"il selettore {tag!r} compare piu' volte",
-                line=riga.line,
+                line=row.line,
             )
             continue
-        visti.add(tag)
-        if ontologia is not None and classe not in ontologia.classes:
+        seen.add(tag)
+        if ontology_reading is not None and class_name not in ontology_reading.classes:
             report.error(
                 "classe_assente_dall_ontologia",
                 "osm_table",
-                f"la classe {classe[:40]!r} non esiste nell'ontologia caricata",
-                line=riga.line,
+                f"la classe {class_name[:40]!r} non esiste nell'ontologia caricata",
+                line=row.line,
             )
             continue
-        tag_classe[tag] = classe
-    famiglie = tuple(dict.fromkeys(t.partition("=")[0] for t in tag_classe))
-    return _Osm(tag_classe=tag_classe, famiglie=famiglie)
+        tag_to_class[tag] = class_name
+    families = tuple(dict.fromkeys(t.partition("=")[0] for t in tag_to_class))
+    return _Osm(tag_to_class=tag_to_class, families=families)
 
 
-# --- dati statistici ---
+# --- statistical data ---
 
 
 @dataclass(frozen=True)
-class _Dati:
+class _Data:
     anno: int
     voci: dict[str, str]
     valori: dict[str, dict[str, dict[str, YearValue | None]]]
 
 
-def _si_no(valore: str) -> bool | None:
-    """``True``/``False`` per ``si``/``no`` (vuoto = ``no``); ``None`` se non valido."""
-    chiaro = valore.strip().lower()
-    if chiaro in ("", "no"):
+def _yes_no(value: str) -> bool | None:
+    """``True``/``False`` for ``si``/``no`` (empty = ``no``); ``None`` if not valid."""
+    cleaned = value.strip().lower()
+    if cleaned in ("", "no"):
         return False
-    if chiaro in ("si", "sì"):
+    if cleaned in ("si", "sì"):
         return True
     return None
 
 
-def _leggi_dati(content: bytes, report: ValidationReport) -> _Dati | None:
-    righe = read_csv(
+def _read_data(content: bytes, report: ValidationReport) -> _Data | None:
+    rows = read_csv(
         content,
         "data",
         required=DATA_COLUMNS,
         optional=DATA_OPTIONAL_COLUMNS,
         report=report,
     )
-    if righe is None:
+    if rows is None:
         return None
     voci: dict[str, str] = {}
     valori: dict[str, dict[str, dict[str, YearValue | None]]] = {}
-    for riga in righe:
-        _riga_dati(riga, voci, valori, report)
+    for row in rows:
+        _data_row(row, voci, valori, report)
     if not valori:
         return None
     if ITALY_CODE not in valori:
@@ -363,192 +362,192 @@ def _leggi_dati(content: bytes, report: ValidationReport) -> _Dati | None:
             f"manca la riga nazionale (luogo={ITALY_CODE}), serve per il "
             "confronto con il tasso nazionale",
         )
-    anni = [
-        int(a) for per_voce in valori.values() for v in per_voce.values() for a in v
+    years = [
+        int(a) for per_item in valori.values() for v in per_item.values() for a in v
     ]
-    anno = max(anni)
+    anno = max(years)
     if not any(
-        str(anno - _ANNI_CONFRONTO) in per_anno
-        for per_voce in valori.values()
-        for per_anno in per_voce.values()
+        str(anno - _COMPARISON_YEARS) in per_year
+        for per_item in valori.values()
+        for per_year in per_item.values()
     ):
         report.warning(
             "anno_confronto_assente",
             "data",
-            f"nessun dato per l'anno di confronto {anno - _ANNI_CONFRONTO}: "
+            f"nessun dato per l'anno di confronto {anno - _COMPARISON_YEARS}: "
             "la tendenza non si calcola",
         )
-    senza_totale = sorted(
-        luogo for luogo, per_voce in valori.items() if TOTAL_ITEM not in per_voce
+    without_total = sorted(
+        place for place, per_item in valori.items() if TOTAL_ITEM not in per_item
     )
-    if senza_totale:
+    if without_total:
         report.warning(
             "totale_mancante",
             "data",
             f"nessuna riga della voce {TOTAL_ITEM} (totale) per: "
-            f"{', '.join(senza_totale)}",
+            f"{', '.join(without_total)}",
         )
-    return _Dati(anno=anno, voci=voci, valori=valori)
+    return _Data(anno=anno, voci=voci, valori=valori)
 
 
-def _riga_dati(
-    riga: CsvRow,
+def _data_row(
+    row: CsvRow,
     voci: dict[str, str],
     valori: dict[str, dict[str, dict[str, YearValue | None]]],
     report: ValidationReport,
 ) -> None:
-    c = riga.cells
+    c = row.cells
     ok = True
 
-    def errore(codice: str, messaggio: str) -> None:
+    def add_error(codice: str, message: str) -> None:
         nonlocal ok
         ok = False
-        report.error(codice, "data", messaggio, line=riga.line)
+        report.error(codice, "data", message, line=row.line)
 
-    luogo, voce, etichetta = c["luogo"], c["voce"], c["voce_etichetta"]
-    if _CODICE_LUOGO.fullmatch(luogo) is None:
-        errore(
+    place, voce, label = c["luogo"], c["voce"], c["voce_etichetta"]
+    if _PLACE_CODE.fullmatch(place) is None:
+        add_error(
             "codice_non_valido",
-            f"codice luogo {luogo[:40]!r} non valido: massimo 20 tra lettere, "
+            f"codice luogo {place[:40]!r} non valido: massimo 20 tra lettere, "
             "cifre, _ e -",
         )
-    if _CODICE_VOCE.fullmatch(voce) is None:
-        errore(
+    if _ITEM_CODE.fullmatch(voce) is None:
+        add_error(
             "codice_non_valido",
             f"codice voce {voce[:40]!r} non valido: massimo 40 tra lettere, cifre e _",
         )
-    motivo = controlla_testo(etichetta)
-    if motivo is not None:
-        errore("testo_non_ammesso", f"etichetta della voce {voce[:40]!r}: {motivo}")
-    elif voce in voci and voci[voce] != etichetta:
-        errore(
+    reason = check_text(label)
+    if reason is not None:
+        add_error("testo_non_ammesso", f"etichetta della voce {voce[:40]!r}: {reason}")
+    elif voce in voci and voci[voce] != label:
+        add_error(
             "etichetta_voce_incoerente",
-            f"la voce {voce!r} ha gia' l'etichetta {voci[voce]!r}, qui {etichetta!r}",
+            f"la voce {voce!r} ha gia' l'etichetta {voci[voce]!r}, qui {label!r}",
         )
 
     anno = c["anno"]
-    if _ANNO.fullmatch(anno) is None or not 1900 <= int(anno) <= 2100:
-        errore(
+    if _YEAR.fullmatch(anno) is None or not 1900 <= int(anno) <= 2100:
+        add_error(
             "valore_non_valido",
             f"anno {anno[:20]!r} non valido: serve un anno a 4 cifre",
         )
 
     delitti = c["delitti"]
-    if delitti and _INTERO.fullmatch(delitti) is None:
-        errore(
+    if delitti and _INTEGER.fullmatch(delitti) is None:
+        add_error(
             "valore_non_valido",
             f"delitti {delitti[:20]!r} non valido: serve un intero non negativo "
             "o vuoto",
         )
     tasso: float | None = None
     try:
-        tasso = _numero(c["tasso"])
+        tasso = _number(c["tasso"])
     except ValueError:
-        errore(
+        add_error(
             "valore_non_valido",
             f"tasso {c['tasso'][:20]!r} non valido: serve un numero non negativo "
             "con il punto decimale, o vuoto",
         )
-    sotto = _si_no(c.get("tasso_sotto_soglia", ""))
-    if sotto is None:
-        errore(
+    below_threshold = _yes_no(c.get("tasso_sotto_soglia", ""))
+    if below_threshold is None:
+        add_error(
             "valore_non_valido",
             f"tasso_sotto_soglia {c['tasso_sotto_soglia'][:20]!r} non valido: "
             "si oppure no",
         )
     if ok:
-        if not delitti and (tasso is not None or sotto):
-            errore(
+        if not delitti and (tasso is not None or below_threshold):
+            add_error(
                 "valore_non_valido",
                 "senza il numero di delitti (dato mancante) tasso e "
                 "tasso_sotto_soglia devono essere vuoti",
             )
-        elif sotto and tasso is not None:
-            errore(
+        elif below_threshold and tasso is not None:
+            add_error(
                 "valore_non_valido",
                 "con tasso_sotto_soglia=si il tasso deve essere vuoto",
             )
     if not ok:
         return
-    per_anno = valori.setdefault(luogo, {}).setdefault(voce, {})
-    if anno in per_anno:
+    per_year = valori.setdefault(place, {}).setdefault(voce, {})
+    if anno in per_year:
         report.error(
             "chiave_duplicata",
             "data",
-            f"luogo {luogo!r}, voce {voce!r}, anno {anno} compaiono piu' volte",
-            line=riga.line,
+            f"luogo {place!r}, voce {voce!r}, anno {anno} compaiono piu' volte",
+            line=row.line,
         )
         return
-    voci.setdefault(voce, etichetta)
-    per_anno[anno] = (
+    voci.setdefault(voce, label)
+    per_year[anno] = (
         YearValue(
             delitti=int(delitti),
             tasso=tasso,
-            tasso_sotto_soglia=bool(sotto),
+            tasso_sotto_soglia=bool(below_threshold),
         )
         if delitti
         else None
     )
 
 
-def _numero(testo: str) -> float | None:
-    """Decimale non negativo col punto (``12`` o ``12.5``); ``None`` se vuoto.
+def _number(testo: str) -> float | None:
+    """Non-negative decimal with the dot (``12`` or ``12.5``); ``None`` if empty.
 
-    Niente separatori ``_``, esponenti, ``nan``/``inf`` o cifre non ASCII:
-    ``ValueError`` per tutto il resto.
+    No ``_`` separators, exponents, ``nan``/``inf`` or non-ASCII digits:
+    ``ValueError`` for everything else.
     """
     if not testo:
         return None
-    if _DECIMALE.fullmatch(testo) is None:
+    if _DECIMAL.fullmatch(testo) is None:
         raise ValueError(testo)
     return float(testo)
 
 
-def _file_delitti(dati: _Dati, contenuto: bytes) -> OffencesFile:
-    versione = hashlib.sha256(contenuto).hexdigest()[:12]
+def _offences_file(parsed_data: _Data, content: bytes) -> OffencesFile:
+    versione = hashlib.sha256(content).hexdigest()[:12]
     return OffencesFile(
         dataset="caricato",
         titolo="Dati statistici caricati dall'utente",
         url="",
         estratto_il=versione,
         licenza="",
-        anno=dati.anno,
-        anno_confronto=dati.anno - _ANNI_CONFRONTO,
-        voci=dict(dati.voci),
-        valori=dati.valori,
+        anno=parsed_data.anno,
+        anno_confronto=parsed_data.anno - _COMPARISON_YEARS,
+        voci=dict(parsed_data.voci),
+        valori=parsed_data.valori,
     )
 
 
-# --- tabella hazard -> voce ---
+# --- hazard -> item table ---
 
 
-def _leggi_hazard(
+def _read_hazard(
     content: bytes,
-    ontologia: OntologyReading | None,
-    dati: _Dati | None,
+    ontology_reading: OntologyReading | None,
+    parsed_data: _Data | None,
     report: ValidationReport,
 ) -> tuple[frozenset[str], dict[str, HazardMapping]] | None:
-    righe = read_csv(
+    rows = read_csv(
         content,
         "hazard_table",
         required=HAZARD_COLUMNS,
         optional=HAZARD_OPTIONAL_COLUMNS,
         report=report,
     )
-    if righe is None:
+    if rows is None:
         return None
-    visti: set[str] = set()
-    validi: list[tuple[str, str | None, MatchKind | None, bool, str]] = []
-    for riga in righe:
-        esito = _riga_hazard(riga, ontologia, dati, visti, report)
-        if esito is not None:
-            validi.append(esito)
-    flag_per_voce: dict[str, set[bool]] = {}
-    for _, voce, _, rottura, _ in validi:
+    seen: set[str] = set()
+    valid: list[tuple[str, str | None, MatchKind | None, bool, str]] = []
+    for row in rows:
+        outcome = _hazard_row(row, ontology_reading, parsed_data, seen, report)
+        if outcome is not None:
+            valid.append(outcome)
+    flags_per_item: dict[str, set[bool]] = {}
+    for _, voce, _, break_flag, _ in valid:
         if voce is not None:
-            flag_per_voce.setdefault(voce, set()).add(rottura)
-    voci_rottura = frozenset(v for v, flag in flag_per_voce.items() if True in flag)
-    for voce in sorted(v for v, flag in flag_per_voce.items() if len(flag) == 2):
+            flags_per_item.setdefault(voce, set()).add(break_flag)
+    voci_rottura = frozenset(v for v, flag in flags_per_item.items() if True in flag)
+    for voce in sorted(v for v, flag in flags_per_item.items() if len(flag) == 2):
         report.warning(
             "serie_non_confrontabile_incoerente",
             "hazard_table",
@@ -562,81 +561,80 @@ def _leggi_hazard(
             rottura_2016=voce in voci_rottura if voce is not None else False,
             nota=nota,
         )
-        for hazard, voce, corrispondenza, _, nota in validi
+        for hazard, voce, corrispondenza, _, nota in valid
     }
     return voci_rottura, mappatura
 
 
-def _riga_hazard(
-    riga: CsvRow,
-    ontologia: OntologyReading | None,
-    dati: _Dati | None,
-    visti: set[str],
+def _hazard_row(
+    row: CsvRow,
+    ontology_reading: OntologyReading | None,
+    parsed_data: _Data | None,
+    seen: set[str],
     report: ValidationReport,
 ) -> tuple[str, str | None, MatchKind | None, bool, str] | None:
-    c = riga.cells
-    hazard, voce, corr = c["hazard"], c["voce"], c["corrispondenza"]
+    c = row.cells
+    hazard, voce, match_kind = c["hazard"], c["voce"], c["corrispondenza"]
     ok = True
 
-    def errore(codice: str, messaggio: str) -> None:
+    def add_error(codice: str, message: str) -> None:
         nonlocal ok
         ok = False
-        report.error(codice, "hazard_table", messaggio, line=riga.line)
+        report.error(codice, "hazard_table", message, line=row.line)
 
-    if hazard in visti:
-        errore("chiave_duplicata", f"l'hazard {hazard[:40]!r} compare piu' volte")
-    elif ontologia is not None and hazard not in ontologia.classes:
-        errore(
+    if hazard in seen:
+        add_error("chiave_duplicata", f"l'hazard {hazard[:40]!r} compare piu' volte")
+    elif ontology_reading is not None and hazard not in ontology_reading.classes:
+        add_error(
             "hazard_assente_dall_ontologia",
             f"l'hazard {hazard[:40]!r} non esiste nell'ontologia caricata",
         )
-    if bool(voce) != bool(corr):
-        errore(
+    if bool(voce) != bool(match_kind):
+        add_error(
             "voce_corrispondenza_incoerenti",
             "voce e corrispondenza vanno compilate insieme o lasciate "
             "entrambe vuote (nessuna voce adeguata)",
         )
     elif voce:
-        if corr not in _CORRISPONDENZE:
-            errore(
+        if match_kind not in _MATCHES:
+            add_error(
                 "corrispondenza_non_valida",
-                f"corrispondenza {corr[:20]!r} non valida: "
-                f"{', '.join(_CORRISPONDENZE)}",
+                f"corrispondenza {match_kind[:20]!r} non valida: {', '.join(_MATCHES)}",
             )
-        if dati is not None and voce not in dati.voci:
-            errore(
+        if parsed_data is not None and voce not in parsed_data.voci:
+            add_error(
                 "voce_assente_dai_dati",
                 f"la voce {voce[:40]!r} non compare nel file dei dati",
             )
-    rottura = _si_no(c.get("serie_non_confrontabile", ""))
-    if rottura is None:
-        errore(
+    break_flag = _yes_no(c.get("serie_non_confrontabile", ""))
+    if break_flag is None:
+        add_error(
             "valore_non_valido",
             f"serie_non_confrontabile {c['serie_non_confrontabile'][:20]!r} "
             "non valido: si oppure no",
         )
     nota = c.get("nota", "")
-    motivo = controlla_nota(nota)
-    if motivo is not None:
-        errore("testo_non_ammesso", motivo)
-    visti.add(hazard)
-    if not ok or rottura is None:
+    reason = check_note(nota)
+    if reason is not None:
+        add_error("testo_non_ammesso", reason)
+    seen.add(hazard)
+    if not ok or break_flag is None:
         return None
     return (
         hazard,
         voce or None,
-        cast("MatchKind", corr) if corr else None,
-        rottura,
+        cast("MatchKind", match_kind) if match_kind else None,
+        break_flag,
         nota,
     )
 
 
-# --- confini ---
+# --- boundaries ---
 
 
-def _leggi_confini(content: bytes, report: ValidationReport) -> dict[str, Place]:
+def _read_boundaries(content: bytes, report: ValidationReport) -> dict[str, Place]:
     try:
-        radice = cast("object", json.loads(content.decode("utf-8-sig")))
+        root = cast("object", json.loads(content.decode("utf-8-sig")))
     except (UnicodeDecodeError, ValueError, RecursionError) as exc:
         report.error(
             "confini_illeggibili",
@@ -645,9 +643,9 @@ def _leggi_confini(content: bytes, report: ValidationReport) -> dict[str, Place]
         )
         return {}
     if (
-        not isinstance(radice, dict)
-        or cast("dict[str, object]", radice).get("type") != "FeatureCollection"
-        or not isinstance(cast("dict[str, object]", radice).get("features"), list)
+        not isinstance(root, dict)
+        or cast("dict[str, object]", root).get("type") != "FeatureCollection"
+        or not isinstance(cast("dict[str, object]", root).get("features"), list)
     ):
         report.error(
             "confini_non_validi",
@@ -655,83 +653,83 @@ def _leggi_confini(content: bytes, report: ValidationReport) -> dict[str, Place]
             "il file dei confini deve essere un GeoJSON di tipo FeatureCollection",
         )
         return {}
-    features = cast("list[object]", cast("dict[str, object]", radice)["features"])
+    features = cast("list[object]", cast("dict[str, object]", root)["features"])
     luoghi: dict[str, Place] = {}
-    for indice, feature in enumerate(features, start=1):
-        luogo = _feature(indice, feature, report)
-        if luogo is None:
+    for index, feature in enumerate(features, start=1):
+        place = _feature(index, feature, report)
+        if place is None:
             continue
-        if luogo.codice in luoghi:
+        if place.codice in luoghi:
             report.error(
                 "chiave_duplicata",
                 "boundaries",
-                f"feature {indice}: il codice {luogo.codice!r} compare piu' volte",
+                f"feature {index}: il codice {place.codice!r} compare piu' volte",
             )
             continue
-        luoghi[luogo.codice] = luogo
+        luoghi[place.codice] = place
     return luoghi
 
 
-def _feature(indice: int, feature: object, report: ValidationReport) -> Place | None:
-    def errore(codice: str, messaggio: str) -> None:
-        report.error(codice, "boundaries", f"feature {indice}: {messaggio}")
+def _feature(index: int, feature: object, report: ValidationReport) -> Place | None:
+    def add_error(codice: str, message: str) -> None:
+        report.error(codice, "boundaries", f"feature {index}: {message}")
 
     if not isinstance(feature, dict):
-        errore("confini_non_validi", "non e' un oggetto GeoJSON")
+        add_error("confini_non_validi", "non e' un oggetto GeoJSON")
         return None
-    campi = cast("dict[str, object]", feature)
-    proprieta_raw = campi.get("properties")
-    proprieta = (
-        cast("dict[str, object]", proprieta_raw)
-        if isinstance(proprieta_raw, dict)
+    fields = cast("dict[str, object]", feature)
+    properties_raw = fields.get("properties")
+    properties = (
+        cast("dict[str, object]", properties_raw)
+        if isinstance(properties_raw, dict)
         else {}
     )
     ok = True
-    testi: dict[str, str] = {}
+    texts: dict[str, str] = {}
     for nome in ("codice", "tipo", "nome", "nome_breve"):
-        valore = proprieta.get(nome)
-        if not isinstance(valore, str) or not valore.strip():
-            errore("confini_non_validi", f"manca la proprieta' {nome!r}")
+        value = properties.get(nome)
+        if not isinstance(value, str) or not value.strip():
+            add_error("confini_non_validi", f"manca la proprieta' {nome!r}")
             ok = False
         else:
-            testi[nome] = valore.strip()
-    provincia_raw = proprieta.get("provincia")
+            texts[nome] = value.strip()
+    provincia_raw = properties.get("provincia")
     provincia = provincia_raw.strip() if isinstance(provincia_raw, str) else None
-    if "codice" in testi and _CODICE_LUOGO.fullmatch(testi["codice"]) is None:
-        errore("codice_non_valido", f"codice {testi['codice'][:40]!r} non valido")
+    if "codice" in texts and _PLACE_CODE.fullmatch(texts["codice"]) is None:
+        add_error("codice_non_valido", f"codice {texts['codice'][:40]!r} non valido")
         ok = False
-    if "tipo" in testi and testi["tipo"] not in _TIPI_LUOGO:
-        errore(
+    if "tipo" in texts and texts["tipo"] not in _PLACE_TYPES:
+        add_error(
             "confini_non_validi",
-            f"tipo {testi['tipo'][:20]!r} non valido: comune o provincia",
+            f"tipo {texts['tipo'][:20]!r} non valido: comune o provincia",
         )
         ok = False
     for nome in ("nome", "nome_breve"):
-        if nome in testi:
-            motivo = controlla_testo(testi[nome])
-            if motivo is not None:
-                errore("testo_non_ammesso", f"proprieta' {nome!r}: {motivo}")
+        if nome in texts:
+            reason = check_text(texts[nome])
+            if reason is not None:
+                add_error("testo_non_ammesso", f"proprieta' {nome!r}: {reason}")
                 ok = False
-    if provincia is not None and _CODICE_LUOGO.fullmatch(provincia) is None:
-        errore("codice_non_valido", f"provincia {provincia[:40]!r} non valida")
+    if provincia is not None and _PLACE_CODE.fullmatch(provincia) is None:
+        add_error("codice_non_valido", f"provincia {provincia[:40]!r} non valida")
         ok = False
-    geometria = campi.get("geometry")
-    confine = _confine(geometria, errore)
+    geometry = fields.get("geometry")
+    confine = _boundary(geometry, add_error)
     if not ok or confine is None:
         return None
     try:
-        punto_interno = _punto_interno(confine)
+        punto_interno = _interior_point(confine)
     except ValueError:
-        errore(
+        add_error(
             "confini_non_validi",
             "non si trova un punto interno al poligono: geometria degenere",
         )
         return None
     return Place(
-        codice=testi["codice"],
-        tipo=cast("PlaceType", testi["tipo"]),
-        nome=testi["nome"],
-        nome_breve=testi["nome_breve"],
+        codice=texts["codice"],
+        tipo=cast("PlaceType", texts["tipo"]),
+        nome=texts["nome"],
+        nome_breve=texts["nome_breve"],
         provincia=provincia,
         bbox=_bbox(confine),
         punto_interno=punto_interno,
@@ -739,22 +737,22 @@ def _feature(indice: int, feature: object, report: ValidationReport) -> Place | 
     )
 
 
-def _confine(
-    geometria: object, errore: Callable[[str, str], None]
+def _boundary(
+    geometry: object, add_error: Callable[[str, str], None]
 ) -> CityBoundary | None:
-    if not isinstance(geometria, dict):
-        errore("confini_non_validi", "manca la geometria")
+    if not isinstance(geometry, dict):
+        add_error("confini_non_validi", "manca la geometria")
         return None
-    geo = cast("dict[str, object]", geometria)
+    geo = cast("dict[str, object]", geometry)
     tipo = geo.get("type")
     if tipo not in ("Polygon", "MultiPolygon"):
-        errore(
+        add_error(
             "confini_non_validi",
             f"geometria {str(tipo)[:20]!r} non supportata: Polygon o MultiPolygon",
         )
         return None
-    if not _coordinate_numeriche(geo.get("coordinates")):
-        errore(
+    if not _numeric_coordinates(geo.get("coordinates")):
+        add_error(
             "confini_non_validi",
             "le coordinate devono essere numeri JSON (non stringhe o booleani)",
         )
@@ -769,39 +767,39 @@ def _confine(
         OverflowError,
         RecursionError,
     ):
-        errore("confini_non_validi", "coordinate della geometria malformate")
+        add_error("confini_non_validi", "coordinate della geometria malformate")
         return None
     if not confine.polygons:
-        errore("confini_non_validi", "la geometria non ha poligoni")
+        add_error("confini_non_validi", "la geometria non ha poligoni")
         return None
-    for poligono in confine.polygons:
-        if not poligono:
-            errore("confini_non_validi", "poligono senza anelli")
+    for polygon in confine.polygons:
+        if not polygon:
+            add_error("confini_non_validi", "poligono senza anelli")
             return None
-        for anello in poligono:
-            if len(anello) < 4:
-                errore(
+        for ring in polygon:
+            if len(ring) < 4:
+                add_error(
                     "confini_non_validi",
                     "ogni anello del poligono deve avere almeno 4 punti",
                 )
                 return None
-            if anello[0] != anello[-1]:
-                errore(
+            if ring[0] != ring[-1]:
+                add_error(
                     "confini_non_validi",
                     "ogni anello deve essere chiuso: primo e ultimo punto uguali",
                 )
                 return None
-            if _area_doppia(anello) == 0:
-                errore("confini_non_validi", "un anello ha area zero")
+            if _double_area(ring) == 0:
+                add_error("confini_non_validi", "un anello ha area zero")
                 return None
-            for lon, lat in anello:
+            for lon, lat in ring:
                 if not (
                     math.isfinite(lon)
                     and math.isfinite(lat)
                     and -180 <= lon <= 180
                     and -90 <= lat <= 90
                 ):
-                    errore(
+                    add_error(
                         "confini_non_validi",
                         "coordinate fuori range: longitudine -180..180, "
                         "latitudine -90..90",
@@ -810,89 +808,88 @@ def _confine(
     return confine
 
 
-def _coordinate_numeriche(coordinate: object) -> bool:
-    """``True`` se tutte le foglie sono numeri JSON (no stringhe, no bool)."""
-    pila: list[object] = [coordinate]
-    while pila:
-        voce = pila.pop()
-        if isinstance(voce, list):
-            pila.extend(cast("list[object]", voce))
-        elif isinstance(voce, bool) or not isinstance(voce, (int, float)):
+def _numeric_coordinates(coordinates: object) -> bool:
+    """``True`` if all the leaves are JSON numbers (no strings, no bool)."""
+    stack: list[object] = [coordinates]
+    while stack:
+        leaf = stack.pop()
+        if isinstance(leaf, list):
+            stack.extend(cast("list[object]", leaf))
+        elif isinstance(leaf, bool) or not isinstance(leaf, (int, float)):
             return False
     return True
 
 
-def _area_doppia(anello: Ring) -> float:
-    """Doppia area con segno dell'anello (formula del lacciaio)."""
+def _double_area(ring: Ring) -> float:
+    """Signed double area of the ring (shoelace formula)."""
     return sum(
-        x1 * y2 - x2 * y1
-        for (x1, y1), (x2, y2) in zip(anello, anello[1:], strict=False)
+        x1 * y2 - x2 * y1 for (x1, y1), (x2, y2) in zip(ring, ring[1:], strict=False)
     )
 
 
 def _bbox(confine: CityBoundary) -> tuple[float, float, float, float]:
-    punti = [p for poly in confine.polygons for p in poly[0]]
-    lons = [p[0] for p in punti]
-    lats = [p[1] for p in punti]
+    points = [p for poly in confine.polygons for p in poly[0]]
+    lons = [p[0] for p in points]
+    lats = [p[1] for p in points]
     return (min(lons), min(lats), max(lons), max(lats))
 
 
-def _punto_interno(confine: CityBoundary) -> tuple[float, float]:
-    """Un punto dentro il poligono piu' esteso (la forma puo' essere concava)."""
-    principale: Polygon = max(
+def _interior_point(confine: CityBoundary) -> tuple[float, float]:
+    """A point inside the largest polygon (the shape can be concave)."""
+    main_polygon: Polygon = max(
         confine.polygons,
         key=lambda poly: (
             (max(p[0] for p in poly[0]) - min(p[0] for p in poly[0]))
             * (max(p[1] for p in poly[0]) - min(p[1] for p in poly[0]))
         ),
     )
-    lats = [p[1] for p in principale[0]]
-    basso, alto = min(lats), max(lats)
-    for frazione in (0.5, 0.25, 0.75, 0.4, 0.6, 0.1, 0.9):
-        y = basso + (alto - basso) * frazione
-        incroci = sorted(_incroci_orizzontali(principale, y))
-        intervalli = list(zip(incroci[0::2], incroci[1::2], strict=False))
-        if not intervalli:
+    lats = [p[1] for p in main_polygon[0]]
+    low, high = min(lats), max(lats)
+    for fraction in (0.5, 0.25, 0.75, 0.4, 0.6, 0.1, 0.9):
+        y = low + (high - low) * fraction
+        crossings = sorted(_horizontal_crossings(main_polygon, y))
+        intervals = list(zip(crossings[0::2], crossings[1::2], strict=False))
+        if not intervals:
             continue
-        x0, x1 = max(intervalli, key=lambda i: i[1] - i[0])
-        candidato = ((x0 + x1) / 2, y)
-        if point_in_polygon(candidato, principale):
-            return candidato
+        x0, x1 = max(intervals, key=lambda i: i[1] - i[0])
+        candidate = ((x0 + x1) / 2, y)
+        if point_in_polygon(candidate, main_polygon):
+            return candidate
     lon_min, lat_min, lon_max, lat_max = _bbox(confine)
-    centro = ((lon_min + lon_max) / 2, (lat_min + lat_max) / 2)
-    if not any(point_in_polygon(centro, poly) for poly in confine.polygons):
+    center = ((lon_min + lon_max) / 2, (lat_min + lat_max) / 2)
+    if not any(point_in_polygon(center, poly) for poly in confine.polygons):
         raise ValueError("nessun punto interno trovato")
-    return centro
+    return center
 
 
-def _incroci_orizzontali(poligono: Polygon, y: float) -> list[float]:
-    incroci: list[float] = []
-    for anello in poligono:
-        for (x1, y1), (x2, y2) in zip(anello, anello[1:], strict=False):
+def _horizontal_crossings(polygon: Polygon, y: float) -> list[float]:
+    crossings: list[float] = []
+    for ring in polygon:
+        for (x1, y1), (x2, y2) in zip(ring, ring[1:], strict=False):
             if (y1 > y) != (y2 > y):
-                incroci.append(x1 + (y - y1) * (x2 - x1) / (y2 - y1))
-    return incroci
+                crossings.append(x1 + (y - y1) * (x2 - x1) / (y2 - y1))
+    return crossings
 
 
-def _scegli_luoghi(
-    dati: _Dati,
-    caricati: Mapping[str, Place],
+def _choose_places(
+    parsed_data: _Data,
+    loaded: Mapping[str, Place],
     fallback: Sequence[Place],
     report: ValidationReport,
 ) -> tuple[Place, ...] | None:
-    """Luoghi dei dati con confini (caricati, poi nostri); avvisi per gli altri."""
-    nostri = {luogo.codice: luogo for luogo in fallback}
-    codici = sorted(set(dati.valori) - {ITALY_CODE})
-    scelti: list[Place] = []
-    senza: list[str] = []
-    for codice in codici:
-        luogo = caricati.get(codice) or nostri.get(codice)
-        if luogo is None:
-            senza.append(codice)
+    """Places of the data with boundaries (uploaded, then own); warns about others."""
+    own_places = {place.codice: place for place in fallback}
+    codes = sorted(set(parsed_data.valori) - {ITALY_CODE})
+    chosen: list[Place] = []
+    missing_boundaries: list[str] = []
+    for codice in codes:
+        place = loaded.get(codice) or own_places.get(codice)
+        if place is None:
+            missing_boundaries.append(codice)
         else:
-            scelti.append(luogo)
-    if not scelti:
-        if not _confini_non_leggibili(report):
+            chosen.append(place)
+    if not chosen:
+        if not _unreadable_boundaries(report):
             report.error(
                 "nessun_luogo_con_confini",
                 "boundaries",
@@ -900,22 +897,23 @@ def _scegli_luoghi(
                 "carica il file dei confini con gli stessi codici dei dati",
             )
         return None
-    if senza:
+    if missing_boundaries:
         report.warning(
             "luogo_senza_confini",
             "data",
             f"luoghi senza confini, i POI al loro interno non avranno dati "
-            f"statistici: {', '.join(senza)}",
+            f"statistici: {', '.join(missing_boundaries)}",
         )
-    senza_dati = sorted(set(caricati) - set(codici))
-    if senza_dati:
+    without_data = sorted(set(loaded) - set(codes))
+    if without_data:
         report.warning(
             "luogo_senza_dati",
             "boundaries",
-            f"confini di luoghi che non hanno dati, ignorati: {', '.join(senza_dati)}",
+            "confini di luoghi che non hanno dati, ignorati: "
+            f"{', '.join(without_data)}",
         )
-    return tuple(sorted(scelti, key=lambda lg: (lg.tipo, lg.codice)))
+    return tuple(sorted(chosen, key=lambda lg: (lg.tipo, lg.codice)))
 
 
-def _confini_non_leggibili(report: ValidationReport) -> bool:
+def _unreadable_boundaries(report: ValidationReport) -> bool:
     return any(p.file == "boundaries" for p in report.errors)

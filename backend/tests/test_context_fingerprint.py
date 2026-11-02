@@ -156,28 +156,28 @@ _DIGEST_DI_MAIN = "15d9ca577fa82f386a3e2192991e326e017f61eba9c0c734dda0e6aa4f4d0
 
 def test_senza_versione_istat_il_digest_e_quello_di_prima() -> None:
     assert fingerprint(_POI_FISSATI) == _DIGEST_DI_MAIN
-    assert fingerprint(_POI_FISSATI, istat_versione=None) == _DIGEST_DI_MAIN
+    assert fingerprint(_POI_FISSATI, istat_version=None) == _DIGEST_DI_MAIN
 
 
 def test_la_versione_istat_cambia_il_digest() -> None:
-    con = fingerprint(_POI_FISSATI, istat_versione="2024@2026-10-06")
+    con = fingerprint(_POI_FISSATI, istat_version="2024@2026-10-06")
     assert con != _DIGEST_DI_MAIN
     assert len(con) == 64
 
 
 def test_versioni_istat_diverse_danno_digest_diversi() -> None:
-    a = fingerprint(_POI_FISSATI, istat_versione="2024@2026-10-06")
-    b = fingerprint(_POI_FISSATI, istat_versione="2024@2026-10-08")
+    a = fingerprint(_POI_FISSATI, istat_version="2024@2026-10-06")
+    b = fingerprint(_POI_FISSATI, istat_version="2024@2026-10-08")
     assert a != b
-    assert a == fingerprint(list(_POI_FISSATI), istat_versione="2024@2026-10-06")
+    assert a == fingerprint(list(_POI_FISSATI), istat_version="2024@2026-10-06")
 
 
 def test_versione_vuota_non_si_confonde_con_l_assenza() -> None:
     """Serializzazione non ambigua: anche la stringa vuota e' una versione."""
-    assert fingerprint(_POI_FISSATI, istat_versione="") != _DIGEST_DI_MAIN
+    assert fingerprint(_POI_FISSATI, istat_version="") != _DIGEST_DI_MAIN
 
 
 def test_la_versione_non_si_confonde_con_un_poi() -> None:
     """La versione non e' un elemento in coda alla lista: una lista di POI non
     puo' produrre lo stesso testo canonico di lista + versione."""
-    assert fingerprint([], istat_versione="x") != fingerprint([])
+    assert fingerprint([], istat_version="x") != fingerprint([])

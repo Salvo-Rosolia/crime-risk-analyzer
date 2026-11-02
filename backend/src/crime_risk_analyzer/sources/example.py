@@ -1,15 +1,15 @@
-"""Set d'esempio delle fonti dinamiche (#417).
+"""Example set of the dynamic sources (#417).
 
-Mini-ontologia inventata (dieci classi POI, namespace ``http://example.org/mini-crime#``,
-proprieta' proprie), tabelle compilate a mano e dati ISTAT ridotti a tre comuni (Roma,
-Milano, Napoli) piu' la riga nazionale: i numeri sono quelli veri di
-``istat/delitti.json``, cambia solo la struttura. I confini sono i nostri
-(``luoghi.json``), quindi non serve un file dei confini.
+Invented mini-ontology (ten POI classes, namespace
+``http://example.org/mini-crime#``, own properties), hand-compiled tables and ISTAT
+data reduced to three municipalities (Roma, Milano, Napoli) plus the national row: the
+numbers are the real ones from ``istat/delitti.json``, only the structure changes. The
+boundaries are our own (``luoghi.json``), so no boundaries file is needed.
 
-I file stanno in ``backend/sources_example/`` e passano dallo stesso percorso di
-lettura e controllo dei file caricati dall'utente: l'esempio e' anche un caso di
-prova dei formati. Il set si costruisce una volta sola e si condivide fra le
-sessioni (e' immutabile); :func:`example_set` e' lo stesso per tutti.
+The files live in ``backend/sources_example/`` and go through the same path of
+reading and checking as the files uploaded by the user: the example is also a test
+case of the formats. The set is built only once and shared between the
+sessions (it is immutable); :func:`example_set` is the same for everyone.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from pathlib import Path
 
 from crime_risk_analyzer.sources.build import (
     build_source_set,
-    fallback_luoghi,
+    fallback_places,
 )
 from crime_risk_analyzer.sources.model import SourceSet
 from crime_risk_analyzer.sources.parsing import UploadedFiles, read_sources
@@ -34,8 +34,8 @@ __all__ = [
     "example_warnings",
 ]
 
-#: ``backend/sources_example``: questo file sta in ``backend/src/<package>/sources``.
-_CARTELLA = Path(__file__).resolve().parents[3] / "sources_example"
+#: ``backend/sources_example``: this file sits in ``backend/src/<package>/sources``.
+_FOLDER = Path(__file__).resolve().parents[3] / "sources_example"
 
 EXAMPLE_VOCABULARY = OntologyVocabulary(
     namespace="http://example.org/mini-crime#",
@@ -47,34 +47,34 @@ EXAMPLE_VOCABULARY = OntologyVocabulary(
 
 
 def example_files() -> UploadedFiles:
-    """Byte dei file d'esempio, come se li avesse caricati l'utente."""
+    """Bytes of the example files, as if the user had uploaded them."""
     return UploadedFiles(
-        ontology=(_CARTELLA / "ontology.ttl").read_bytes(),
+        ontology=(_FOLDER / "ontology.ttl").read_bytes(),
         ontology_name="ontology.ttl",
-        osm_table=(_CARTELLA / "osm_table.csv").read_bytes(),
-        data=(_CARTELLA / "data.csv").read_bytes(),
-        hazard_table=(_CARTELLA / "hazard_table.csv").read_bytes(),
+        osm_table=(_FOLDER / "osm_table.csv").read_bytes(),
+        data=(_FOLDER / "data.csv").read_bytes(),
+        hazard_table=(_FOLDER / "hazard_table.csv").read_bytes(),
     )
 
 
 @lru_cache(maxsize=1)
 def example_bundle() -> tuple[SourceSet, tuple[Problem, ...]]:
-    """Set d'esempio e avvisi della sua lettura, costruiti una volta sola.
+    """Example set and warnings of its reading, built only once.
 
     Raises:
-        SourceValidationError: i file d'esempio non sono validi (un test lo vieta).
+        SourceValidationError: the example files are not valid (a test forbids it).
     """
     parsed, report = read_sources(
-        example_files(), EXAMPLE_VOCABULARY, fallback_luoghi=fallback_luoghi()
+        example_files(), EXAMPLE_VOCABULARY, fallback_places=fallback_places()
     )
     return build_source_set(parsed, kind="example"), tuple(report.warnings)
 
 
 def example_set() -> SourceSet:
-    """Il set d'esempio (``kind="example"``)."""
+    """The example set (``kind="example"``)."""
     return example_bundle()[0]
 
 
 def example_warnings() -> tuple[Problem, ...]:
-    """Avvisi della lettura dei file d'esempio (per esempio le etichette mancanti)."""
+    """Warnings from reading the example files (for example the missing labels)."""
     return example_bundle()[1]

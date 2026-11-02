@@ -1,10 +1,10 @@
-"""Caricamento dell'ontologia TERMINUS Crime a runtime.
+"""Runtime loading of the TERMINUS Crime ontology.
 
-L'ontologia è un file Turtle statico fornito dal relatore, caricato una volta
-in un grafo ``rdflib`` e mantenuto in memoria per tutta la sessione. Tre
-responsabilità separate: ``load_ontology`` (funzione pura), ``get_ontology``
-(provider cached per la dependency injection) e il warm-up fail-fast invocato
-nel ``lifespan`` di ``main.py``.
+The ontology is a static Turtle file supplied by the supervisor, loaded once
+into an ``rdflib`` graph and kept in memory for the whole session. Three
+separate responsibilities: ``load_ontology`` (pure function), ``get_ontology``
+(cached provider for dependency injection) and the fail-fast warm-up invoked
+in the ``lifespan`` of ``main.py``.
 """
 
 from functools import lru_cache
@@ -16,14 +16,14 @@ from crime_risk_analyzer.config import get_settings
 
 
 class OntologyLoadError(RuntimeError):
-    """Ontologia non caricabile: file mancante, Turtle malformato o grafo vuoto."""
+    """Ontology not loadable: missing file, malformed Turtle or empty graph."""
 
 
 def load_ontology(path: str) -> Graph:
-    """Carica e valida l'ontologia ``.ttl`` da ``path``.
+    """Loads and validates the ``.ttl`` ontology from ``path``.
 
-    Funzione pura: nessuno stato, nessuna cache. Solleva :class:`OntologyLoadError`
-    se il file non esiste, se il Turtle è malformato o se il grafo è vuoto.
+    Pure function: no state, no cache. Raises :class:`OntologyLoadError`
+    if the file does not exist, if the Turtle is malformed or if the graph is empty.
     """
     if not Path(path).is_file():
         raise OntologyLoadError(f"Ontologia non trovata: {path!r}")
@@ -31,7 +31,7 @@ def load_ontology(path: str) -> Graph:
     graph = Graph()
     try:
         graph.parse(path, format="turtle")
-    except Exception as exc:  # rdflib solleva diversi tipi su Turtle malformato
+    except Exception as exc:  # rdflib raises several types on malformed Turtle
         raise OntologyLoadError(f"Ontologia .ttl malformata: {path!r}") from exc
 
     if len(graph) == 0:
@@ -42,10 +42,10 @@ def load_ontology(path: str) -> Graph:
 
 @lru_cache
 def get_ontology() -> Graph:
-    """Provider cached del grafo ontologico (singleton).
+    """Cached provider of the ontology graph (singleton).
 
-    Legge il path da :func:`get_settings`, carica una sola volta e riusa lo
-    stesso grafo. Iniettabile con ``Depends(get_ontology)`` e overridabile nei
-    test via ``get_ontology.cache_clear()``.
+    Reads the path from :func:`get_settings`, loads only once and reuses the
+    same graph. Injectable with ``Depends(get_ontology)`` and overridable in
+    tests via ``get_ontology.cache_clear()``.
     """
     return load_ontology(get_settings().ontology_path)

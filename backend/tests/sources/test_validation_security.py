@@ -14,9 +14,9 @@ import pytest
 from crime_risk_analyzer.sources.limits import (
     MAX_BYTES_CSV,
     MAX_BYTES_GEOJSON,
-    MAX_BYTES_ONTOLOGIA,
-    MAX_LUNGHEZZA_TESTO,
-    controlla_testo,
+    MAX_BYTES_ONTOLOGY,
+    MAX_TEXT_LENGTH,
+    check_text,
 )
 from crime_risk_analyzer.sources.parsing import UploadedFiles, check_sources
 from crime_risk_analyzer.sources.report import Problem, ValidationReport
@@ -44,7 +44,7 @@ def _codici(problemi: list[Problem]) -> list[str]:
     return [p.code for p in problemi]
 
 
-# --- controlla_testo ---
+# --- check_text ---
 
 
 @pytest.mark.parametrize(
@@ -58,11 +58,11 @@ def _codici(problemi: list[Problem]) -> list[str]:
         "Società & C. - Città",
         "Perche’ no",
         "Rapina_a_mano_armata",
-        "a" * MAX_LUNGHEZZA_TESTO,
+        "a" * MAX_TEXT_LENGTH,
     ],
 )
 def test_testi_ammessi(testo: str) -> None:
-    assert controlla_testo(testo) is None
+    assert check_text(testo) is None
 
 
 @pytest.mark.parametrize(
@@ -83,11 +83,11 @@ def test_testi_ammessi(testo: str) -> None:
         "back\\slash",
         "nul\x00byte",
         "emoji \U0001f600",
-        "a" * (MAX_LUNGHEZZA_TESTO + 1),
+        "a" * (MAX_TEXT_LENGTH + 1),
     ],
 )
 def test_testi_non_ammessi(testo: str) -> None:
-    assert controlla_testo(testo) is not None
+    assert check_text(testo) is not None
 
 
 # --- testi nei file ---
@@ -111,11 +111,11 @@ def test_etichetta_ontologica_con_caratteri_pericolosi_rifiutata() -> None:
 
 
 def test_etichetta_ontologica_troppo_lunga_rifiutata() -> None:
-    lunga = "x" * (MAX_LUNGHEZZA_TESTO + 1)
+    lunga = "x" * (MAX_TEXT_LENGTH + 1)
     ttl = ONTOLOGIA_TTL.replace('"Banca"@it', f'"{lunga}"@it')
     report = _report(con(ontology=ttl.encode()))
     assert _codici(report.errors) == ["testo_non_ammesso"]
-    assert str(MAX_LUNGHEZZA_TESTO) in report.errors[0].message
+    assert str(MAX_TEXT_LENGTH) in report.errors[0].message
 
 
 def test_etichetta_di_lingua_diversa_viene_controllata_comunque() -> None:
@@ -258,7 +258,7 @@ def test_entita_interne_protege_accettate() -> None:
 
 
 def test_ontologia_oltre_il_limite() -> None:
-    report = _report(con(ontology=b"x" * (MAX_BYTES_ONTOLOGIA + 1)))
+    report = _report(con(ontology=b"x" * (MAX_BYTES_ONTOLOGY + 1)))
     assert _codici(report.errors) == ["file_troppo_grande"]
     assert report.errors[0].file == "ontology"
     assert "20" in report.errors[0].message

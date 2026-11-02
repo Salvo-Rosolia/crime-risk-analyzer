@@ -1,13 +1,13 @@
-"""Contesto spaziale del POI selezionato (#197).
+"""Spatial context of the selected POI (#197).
 
-Funzioni PURE: nessuna I/O, nessun LLM, nessuno stato. Servono a rendere la
-narrativa per-POI diversa fra POI della stessa classe: i rischi derivano solo
-dalla classe TERMINUS, quindi senza contesto ogni banca riceverebbe lo stesso
-testo. Il contesto e' il vicinato spaziale piu' la composizione della zona.
+PURE functions: no I/O, no LLM, no state. They serve to make the per-POI
+narrative different between POIs of the same class: the risks derive only
+from the TERMINUS class, so without context every bank would receive the same
+text. The context is the spatial neighbourhood plus the composition of the zone.
 
-Ogni output ha ordinamento TOTALE dichiarato: due esecuzioni sullo stesso
-contesto devono produrre lo stesso prompt, altrimenti ``repro.prompt_hash``
-diverge e la run non e' ricostruibile.
+Every output has a declared TOTAL ordering: two runs on the same
+context must produce the same prompt, otherwise ``repro.prompt_hash``
+diverges and the run is not reconstructible.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ __all__ = [
 
 
 class NeighbourPoi(TypedDict):
-    """Un POI vicino, come entra nel prompt (nome, classe in IT, distanza)."""
+    """A neighbouring POI, as it enters the prompt (name, class in IT, distance)."""
 
     name: str
     label_it: str
@@ -38,12 +38,12 @@ class NeighbourPoi(TypedDict):
 def nearest_neighbours(
     pois: list[Poi], poi_id: str, *, k: int = 5
 ) -> list[NeighbourPoi]:
-    """I ``k`` POI piu' vicini a ``poi_id``, escluso se stesso.
+    """The ``k`` POIs closest to ``poi_id``, excluding itself.
 
-    Ordinamento totale: distanza crescente, a parita' di distanza ``id``
-    crescente. Solleva :class:`KeyError` se ``poi_id`` non e' nella lista: il
-    chiamante (endpoint) lo traduce in 404, non in una lista vuota che
-    produrrebbe una narrativa senza contesto senza dirlo.
+    Total ordering: increasing distance, at equal distance increasing ``id``.
+    Raises :class:`KeyError` if ``poi_id`` is not in the list: the
+    caller (endpoint) translates it into 404, not into an empty list that
+    would produce a narrative without context without saying so.
     """
     selected = next((p for p in pois if p["id"] == poi_id), None)
     if selected is None:
@@ -65,24 +65,25 @@ def nearest_neighbours(
 
 
 def zone_composition(pois: list[Poi], *, top: int = 3) -> str:
-    """Riga di sintesi del CAMPIONE di POI: quanti sono e le classi piu' frequenti.
+    """Summary line of the SAMPLE of POIs: how many there are and the most frequent
+    classes.
 
-    La riga entra nel prompt, quindi il testo dichiara che parla di una selezione e
-    non della zona (#254): i POI sono i piu' vicini al centro dell'area con un tetto
-    per classe TERMINUS, quindi il totale non e' il totale della zona e «classi
-    prevalenti» sarebbe un artefatto del tetto, che appiattisce i conteggi a un
-    plateau. Affermare un fatto sulla zona a partire dal campione e' esattamente il
-    tipo di asserzione non ancorata che il progetto non vuole mettere nel contesto.
+    The line enters the prompt, so the text declares that it speaks of a selection and
+    not of the zone (#254): the POIs are the closest to the centre of the area with a
+    cap per TERMINUS class, so the total is not the total of the zone and "prevailing
+    classes" would be an artefact of the cap, which flattens the counts to a
+    plateau. Asserting a fact about the zone starting from the sample is exactly the
+    kind of unanchored assertion that the project does not want in the context.
 
-    Ordinamento totale: conteggio decrescente, a parita' di conteggio etichetta in
-    ordine alfabetico.
+    Total ordering: decreasing count, at equal count label in
+    alphabetical order.
     """
     counts = Counter(label_it(p["terminus_class"]) for p in pois)
     ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:top]
     if not ranked:
         return "0 punti di interesse selezionati nel contesto della zona."
-    parti = ", ".join(f"{label} ({n})" for label, n in ranked)
+    parts = ", ".join(f"{label} ({n})" for label, n in ranked)
     return (
         f"{len(pois)} punti di interesse selezionati fra i piu' vicini al centro "
-        f"della zona; classi piu' frequenti fra questi: {parti}."
+        f"della zona; classi piu' frequenti fra questi: {parts}."
     )

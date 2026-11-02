@@ -31,13 +31,13 @@ from typing import NotRequired, TypedDict, cast
 from crime_risk_analyzer.geocoding import GeoResult
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.overpass_client import (
+    ELEMENT_TYPES,
     MAX_POIS,
     OFFLINE_RETRY,
     PER_CLASS_CAP,
     PER_SELECTOR_CAP,
-    TIPI_ELEMENTO,
+    OsmCut,
     Poi,
-    TaglioOsm,
     fetch_pois_with_cut,
 )
 from crime_risk_analyzer.rag.retrieval import GeoSource, PoiSource
@@ -101,7 +101,7 @@ class SnapshotProvenance(TypedDict):
     #: che vuole il taglio anche per zone già catturate deve ri-catturare con
     #: ``--force``, la stessa via già richiesta per qualunque altro aggiornamento
     #: della configurazione canonica.
-    taglio_osm: NotRequired[TaglioOsm | None]
+    taglio_osm: NotRequired[OsmCut | None]
     configurazione_canonica: ConfigurazioneCanonica
 
 
@@ -138,7 +138,7 @@ def _configurazione_canonica_corrente() -> ConfigurazioneCanonica:
         "max_pois": MAX_POIS,
         "per_selector_cap": PER_SELECTOR_CAP,
         "per_class_cap": PER_CLASS_CAP,
-        "tipi_elemento": list(TIPI_ELEMENTO),
+        "tipi_elemento": list(ELEMENT_TYPES),
     }
 
 
@@ -159,7 +159,7 @@ def save_snapshot(
     bbox: Bbox,
     citta: str,
     zona: str | None = None,
-    cut: TaglioOsm | None = None,
+    cut: OsmCut | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> None:
     """Serializza i POI e la loro provenienza su file (crea le cartelle).
@@ -306,12 +306,10 @@ def replay_source(path: Path) -> PoiSource:
 #: nessun vincolo di sequenzialità: sicuro anche se ``_capture`` diventasse
 #: concorrente per case in futuro. ``None`` per chi non conosce il taglio (un
 #: doppio di test, adattato da ``eval.__main__._senza_taglio``).
-PoiSourceConTaglio = Callable[
-    [Bbox, str], Awaitable[tuple[list[Poi], TaglioOsm | None]]
-]
+PoiSourceConTaglio = Callable[[Bbox, str], Awaitable[tuple[list[Poi], OsmCut | None]]]
 
 
-async def offline_fetch_pois(bbox: Bbox, citta: str) -> tuple[list[Poi], TaglioOsm]:
+async def offline_fetch_pois(bbox: Bbox, citta: str) -> tuple[list[Poi], OsmCut]:
     """Sorgente live della cattura: backoff lungo di cortesia (#232) e taglio del
     DB OSM dell'invocazione (#251).
 

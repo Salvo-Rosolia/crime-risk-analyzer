@@ -5,9 +5,9 @@ from __future__ import annotations
 import dataclasses
 
 from crime_risk_analyzer.context_fingerprint import (
+    active_sources_id,
     fingerprint,
-    fonti_attive_id,
-    istat_versione_per,
+    istat_version_for,
 )
 from crime_risk_analyzer.istat.catalog import BREAK_ITEMS_2016
 from crime_risk_analyzer.istat.data import IstatData, data_version, istat_data
@@ -81,10 +81,10 @@ def _delitti_bankrob(poi_set: SourceSet | None) -> int | None:
 def test_default_identico() -> None:
     attivo = default_set().istat
     assert attivo.versione == data_version()
-    assert context.versione_dati() == data_version()
+    assert context.istat_data_version() == data_version()
     assert attivo.mappatura is HAZARD_MAPPING
     assert attivo.voci_rottura is BREAK_ITEMS_2016
-    assert istat_versione_per(True) == data_version()
+    assert istat_version_for(True) == data_version()
     hazards = ["Bank_robbery", "Landslide"]
     dati = istat_data()
     roma = place_of(*ROMA, data=dati)
@@ -106,8 +106,8 @@ def test_default_identico() -> None:
         return (
             istat_for_poi(*ROMA, hazards),
             [istat_row(dati, roma, voce) for voce in voci],
-            fingerprint(pois, istat_versione=istat_versione_per(True)),
-            fonti_attive_id(),
+            fingerprint(pois, istat_version=istat_version_for(True)),
+            active_sources_id(),
         )
 
     fuori = calcola()  # nessun bind: ripiego sul default
@@ -130,7 +130,7 @@ def test_righe_dai_dati_del_set() -> None:
 def test_set_senza_dati_non_ricade_sul_default() -> None:
     with bind(_set("c2", dati=None, versione=None)):
         assert istat_for_poi(*ROMA, ["Bank_robbery"]) is None
-        assert context.versione_dati() is None
+        assert context.istat_data_version() is None
 
 
 def test_mappatura_dal_set() -> None:
@@ -177,12 +177,12 @@ def test_impronta_cambia_con_la_versione_del_set() -> None:
             "citta": "Roma",
         }
     ]
-    base = fingerprint(pois, istat_versione=istat_versione_per(True))
+    base = fingerprint(pois, istat_version=istat_version_for(True))
     with bind(_set("stesso", dati=istat_data(), versione="A")):
-        a = fingerprint(pois, istat_versione=istat_versione_per(True))
+        a = fingerprint(pois, istat_version=istat_version_for(True))
     with bind(_set("stesso", dati=istat_data(), versione="B")):
-        b = fingerprint(pois, istat_versione=istat_versione_per(True))
-        spento = istat_versione_per(False)
+        b = fingerprint(pois, istat_version=istat_version_for(True))
+        spento = istat_version_for(False)
     assert len({base, a, b}) == 3
     assert spento is None
 

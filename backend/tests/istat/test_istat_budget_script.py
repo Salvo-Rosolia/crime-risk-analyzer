@@ -16,7 +16,7 @@ from crime_risk_analyzer.rag.generation import (
     SYSTEM_PROMPT_ISTAT,
     _estimate_tokens,  # pyright: ignore[reportPrivateUsage]
     generate_analysis,
-    prepara_richiesta_zona,
+    prepare_zone_request,
 )
 from tests.istat._factories import BANKROB, istat_poi
 from tests.test_generation_istat import (
@@ -56,7 +56,7 @@ async def test_the_measure_is_the_request_that_generate_analysis_sends() -> None
             await generate_analysis(
                 ctx, spy, istat=istat, request_token_budget=_tight_budget()
             )
-            request = prepara_richiesta_zona(
+            request = prepare_zone_request(
                 ctx, istat=istat, request_token_budget=_tight_budget()
             )
             assert spy.calls == [(request.system_prompt, request.contesto.testo)]
@@ -66,7 +66,7 @@ async def test_the_measure_is_the_request_that_generate_analysis_sends() -> None
                 + _estimate_tokens(request.contesto.testo)
                 + DEFAULT_MAX_TOKENS
             )
-            assert m.pois_included == request.contesto.poi_inclusi
+            assert m.pois_included == request.contesto.included_poi_count
 
 
 def test_suggested_budget_also_searches_above_the_default() -> None:

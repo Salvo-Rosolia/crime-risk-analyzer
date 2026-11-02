@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 
 from crime_risk_analyzer import area_search, context_fingerprint, zone_context_cache
 from crime_risk_analyzer.config import Settings, get_settings
-from crime_risk_analyzer.context_fingerprint import fingerprint, istat_versione_per
+from crime_risk_analyzer.context_fingerprint import fingerprint, istat_version_for
 from crime_risk_analyzer.geocoding import GeoResult
 from crime_risk_analyzer.istat.data import data_version
 from crime_risk_analyzer.llm.client import LLMResponse, get_llm_client
@@ -137,7 +137,9 @@ def _clic(client: TestClient, rotta: str, contesto_hash: str) -> httpx.Response:
 
 def _dati_aggiornati(monkeypatch: pytest.MonkeyPatch) -> None:
     """Simula un aggiornamento dei dati ISTAT dopo la fase 1."""
-    monkeypatch.setattr(context_fingerprint, "versione_dati", lambda: "2025@2027-01-01")
+    monkeypatch.setattr(
+        context_fingerprint, "istat_data_version", lambda: "2025@2027-01-01"
+    )
 
 
 def test_la_versione_dei_dati_esiste_nel_repo() -> None:
@@ -147,8 +149,8 @@ def test_la_versione_dei_dati_esiste_nel_repo() -> None:
 
 
 def test_istat_versione_per_segue_l_interruttore() -> None:
-    assert istat_versione_per(False) is None
-    assert istat_versione_per(True) == data_version()
+    assert istat_version_for(False) is None
+    assert istat_version_for(True) == data_version()
 
 
 def test_fase_1_spenta_ha_l_impronta_di_prima(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -161,7 +163,7 @@ def test_fase_1_accesa_porta_la_versione_dei_dati(
 ) -> None:
     client = _client(monkeypatch, acceso=True)
     contesto_hash = _fase_1(client)
-    assert contesto_hash == fingerprint(_pois("Roma"), istat_versione=data_version())
+    assert contesto_hash == fingerprint(_pois("Roma"), istat_version=data_version())
     assert contesto_hash != fingerprint(_pois("Roma"))
 
 
@@ -214,7 +216,7 @@ async def test_run_analysis_usa_l_interruttore_della_run(acceso: bool) -> None:
         istat_context_enabled=acceso,
     )
     attesa = data_version() if acceso else None
-    assert resp.contesto_hash == fingerprint(_pois("Roma"), istat_versione=attesa)
+    assert resp.contesto_hash == fingerprint(_pois("Roma"), istat_version=attesa)
 
 
 @pytest.mark.parametrize("acceso", [True, False], ids=["istat-acceso", "istat-spento"])
@@ -231,4 +233,4 @@ async def test_braccio_senza_ontologia_usa_l_interruttore_della_run(
         istat_context_enabled=acceso,
     )
     attesa = data_version() if acceso else None
-    assert resp.contesto_hash == fingerprint(_pois("Roma"), istat_versione=attesa)
+    assert resp.contesto_hash == fingerprint(_pois("Roma"), istat_version=attesa)

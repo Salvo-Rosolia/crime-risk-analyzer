@@ -28,7 +28,7 @@ from crime_risk_analyzer.eval.snapshots import (
 from crime_risk_analyzer.llm.client import GROQ_MODEL
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.models.vocab import ConfidenceSummary
-from crime_risk_analyzer.orchestrator import AnalyzeResponse, PoiOut, ZonaGeo
+from crime_risk_analyzer.orchestrator import AnalyzeResponse, GeoZone, PoiOut
 from crime_risk_analyzer.overpass_client import Poi
 from crime_risk_analyzer.rag.generation import RiskModel
 from tests.eval._doubles import default_llm_response, scrivi_snapshot
@@ -1419,7 +1419,7 @@ def test_record_from_response_copies_risk_models() -> None:
         repro=Repro(temperature=0.0, seed=0, prompt_hash="p"),
         cache_hit=False,
         contesto_hash="h",
-        zona_geo=ZonaGeo(
+        zona_geo=GeoZone(
             lat=41.0,
             lon=12.0,
             bbox_min_lat=40.9,

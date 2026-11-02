@@ -8,11 +8,11 @@ from crime_risk_analyzer.sources.context import default_set
 from crime_risk_analyzer.sources.model import TERMINUS_CONFIG, OsmBinding
 from crime_risk_analyzer.sources.vocabulary import TERMINUS_VOCABULARY
 from crime_risk_analyzer.sparql_module.osm_mapping import (
+    FAMILY_ORDER,
     GENERIC_FALLBACK,
-    ORDINE_FAMIGLIE,
     OSM_SELECTORS,
     OSM_TO_TERMINUS,
-    SELETTORI_CEDEVOLI,
+    YIELDING_SELECTORS,
 )
 from crime_risk_analyzer.sparql_module.query_executor import (
     _CRITICAL_EVENT,  # pyright: ignore[reportPrivateUsage]
@@ -63,9 +63,9 @@ def test_terminus_vocabulary_coincide_con_costanti_storiche() -> None:
 def test_default_set_osm() -> None:
     osm = default_set().osm
     assert dict(osm.osm_to_class) == OSM_TO_TERMINUS
-    assert osm.ordine_famiglie == ORDINE_FAMIGLIE
+    assert osm.family_order == FAMILY_ORDER
     assert osm.selectors == OSM_SELECTORS
-    assert dict(osm.selettori_cedevoli) == SELETTORI_CEDEVOLI
+    assert dict(osm.yielding_selectors) == YIELDING_SELECTORS
     assert osm.map("amenity=bank") == "Bank"
     assert osm.map("amenity=boh") == GENERIC_FALLBACK
 
@@ -73,8 +73,8 @@ def test_default_set_osm() -> None:
 def test_osm_binding_proprio() -> None:
     osm = OsmBinding(
         osm_to_class={"amenity=cafe": "Bar"},
-        ordine_famiglie=("amenity",),
-        selettori_cedevoli={},
+        family_order=("amenity",),
+        yielding_selectors={},
     )
     assert osm.selectors == ("amenity=cafe",)
     assert osm.map("amenity=cafe") == "Bar"

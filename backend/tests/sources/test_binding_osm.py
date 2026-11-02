@@ -54,10 +54,10 @@ from crime_risk_analyzer.sources.report import SourceValidationError
 from crime_risk_analyzer.sources.session import SessionStore
 from crime_risk_analyzer.sources.vocabulary import TERMINUS_VOCABULARY
 from crime_risk_analyzer.sparql_module.osm_mapping import (
-    ORDINE_FAMIGLIE,
+    FAMILY_ORDER,
     OSM_SELECTORS,
     OSM_TO_TERMINUS,
-    SELETTORI_CEDEVOLI,
+    YIELDING_SELECTORS,
 )
 
 SID = "sessione-di-prova-AAAA"
@@ -71,8 +71,8 @@ def _custom(id_: str = "c1", **campi: object) -> SourceSet:
             "tourism=attraction": "Monumento",
             "historic=ruins": "Rovina",
         },
-        ordine_famiglie=("shop", "amenity", "tourism", "historic"),
-        selettori_cedevoli={"tourism=attraction": "historic"},
+        family_order=("shop", "amenity", "tourism", "historic"),
+        yielding_selectors={"tourism=attraction": "historic"},
     )
     labels = {
         "Banca": ("Istituto di credito", "Bank"),
@@ -93,7 +93,7 @@ def _parsed_con(labels: dict[str, tuple[str, str]]) -> ParsedSources:
         classes=frozenset(labels),
         labels=labels,
         osm_to_class={f"amenity=t{i}": c for i, c in enumerate(labels)},
-        ordine_famiglie=("amenity",),
+        family_order=("amenity",),
         istat=None,  # pyright: ignore[reportArgumentType]
         mappatura={},
         voci_rottura=frozenset(),
@@ -107,8 +107,8 @@ def _parsed_con(labels: dict[str, tuple[str, str]]) -> ParsedSources:
 def test_default_binding_e_le_costanti() -> None:
     osm = current_osm()
     assert dict(osm.osm_to_class) == OSM_TO_TERMINUS
-    assert osm.ordine_famiglie == ORDINE_FAMIGLIE
-    assert dict(osm.selettori_cedevoli) == SELETTORI_CEDEVOLI
+    assert osm.family_order == FAMILY_ORDER
+    assert dict(osm.yielding_selectors) == YIELDING_SELECTORS
     assert osm.selectors == OSM_SELECTORS
     assert current_labels() is None
 
@@ -236,8 +236,8 @@ def test_catalogo_di_set_diversi_non_si_mescola() -> None:
         "c2",
         osm=OsmBinding(
             osm_to_class={"amenity=bank": "Bank2"},
-            ordine_famiglie=("amenity",),
-            selettori_cedevoli={},
+            family_order=("amenity",),
+            yielding_selectors={},
         ),
         labels={"Bank2": ("Banca due", "Bank two")},
     )

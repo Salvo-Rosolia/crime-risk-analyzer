@@ -1,36 +1,37 @@
-"""Executor SPARQL sul pattern OWL restriction di TERMINUS Crime (#76).
+"""SPARQL executor on the OWL restriction pattern of TERMINUS Crime (#76).
 
-Data una classe POI (es. ``Bank``), estrae dal grafo ontologico i rischi
-associati — hazard, critical event, vulnerabilita', stakeholder — interrogando
-il pattern a **OWL restriction** con cui TERMINUS codifica le associazioni:
+Given a POI class (e.g. ``Bank``), it extracts from the ontology graph the associated
+risks — hazard, critical event, vulnerability, stakeholder — by querying
+the **OWL restriction** pattern with which TERMINUS encodes the associations:
 
     tc:Bank rdfs:subClassOf [ a owl:Restriction ;
         owl:onProperty tc:havingHazard ; owl:someValuesFrom tc:Bank_robbery ] .
 
-I rischi NON sono triple dirette ``?poi tc:havingHazard ?h``: una query a triple
-dirette restituisce 0 risultati. Le associazioni vivono nei nodi
-``owl:Restriction`` agganciati via ``rdfs:subClassOf``, e una classe eredita anche
-le restrizioni dichiarate sulle superclassi (chiusura ``rdfs:subClassOf*``).
-**Nessun reasoner**: l'ontologia e' una TBox pura (0 individui) e la chiusura
-``subClassOf*`` di rdflib basta.
+The risks are NOT direct triples ``?poi tc:havingHazard ?h``: a query on
+direct triples returns 0 results. The associations live in the
+``owl:Restriction`` nodes attached via ``rdfs:subClassOf``, and a class also inherits
+the restrictions declared on the superclasses (``rdfs:subClassOf*`` closure).
+**No reasoner**: the ontology is a pure TBox (0 individuals) and rdflib's
+``subClassOf*`` closure is enough.
 
-Architettura (build-once, query-many — coerente con "il grafo si carica una volta
-nel lifespan, non per richiesta"):
+Architecture (build-once, query-many — consistent with "the graph is loaded once
+in the lifespan, not per request"):
 
-* :class:`RiskQueryExecutor` indicizza **una volta** tutte le restrizioni del
-  grafo con una query SPARQL **parametrizzata** (:func:`prepareQuery`): la classe
-  POI non entra mai per concatenazione di stringa. L'indicizzazione e' l'unica
-  parte costosa (enumera i nodi restrizione) ed e' indipendente dal POI, quindi
-  va fatta a startup, dentro il budget di caricamento del grafo.
-* :meth:`RiskQueryExecutor.profile` risponde per ogni POI con una chiusura
-  ``subClassOf*`` nativa (``rdflib.Graph.transitive_objects``, livello C) piu' una
-  selezione sull'indice: pochi decimi di millisecondo, ben sotto il budget di 100
-  ms per query del criterio di done (sul grafo reale; sulla fixture e' banale).
+* :class:`RiskQueryExecutor` indexes **once** all the restrictions of the
+  graph with a **parametrised** SPARQL query (:func:`prepareQuery`): the POI
+  class never enters by string concatenation. The indexing is the only
+  expensive part (it enumerates the restriction nodes) and is independent of the POI, so
+  it must be done at startup, within the graph loading budget.
+* :meth:`RiskQueryExecutor.profile` answers for each POI with a native
+  ``subClassOf*`` closure (``rdflib.Graph.transitive_objects``, C level) plus a
+  selection on the index: a few tenths of a millisecond, well under the 100
+  ms per query budget of the done criterion (on the real graph; on the fixture it is
+  trivial).
 
-Forma di query e schema di output: ``docs/specs/tree/backend/sparql.md``.
-Citation layer: ogni filler produce un ``sparql_path`` lineare a un salto
-(``Classe → property → entita``, glyph Unicode U+2192 come da schema canonico)
-consumato dal grounding per il tag ``[ONTOLOGIA]``.
+Query shape and output schema: ``docs/specs/tree/backend/sparql.md``.
+Citation layer: each filler produces a linear one-hop ``sparql_path``
+(``Class → property → entity``, Unicode glyph U+2192 as per the canonical schema)
+consumed by the grounding for the ``[ONTOLOGIA]`` tag.
 """
 
 from __future__ import annotations
@@ -59,10 +60,10 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 
-#: Nomi TERMINUS storici delle property di rischio. Il default dell'executor e'
-#: :data:`TERMINUS_VOCABULARY`; queste costanti restano come riferimento che
-#: tests/sources/test_default_set.py confronta con esso (e con TERMINUS_CONFIG)
-#: per evitare drift.
+#: Historical TERMINUS names of the risk properties. The executor's default is
+#: :data:`TERMINUS_VOCABULARY`; these constants remain as a reference that
+#: tests/sources/test_default_set.py compares with it (and with TERMINUS_CONFIG)
+#: to avoid drift.
 _HAZARD = "havingHazard"
 _CRITICAL_EVENT = "havingCriticalEvent"
 _PERFORMER = "havingPerformer"
@@ -70,14 +71,14 @@ _VULNERABILITY_PROPS = ("isVulnerableTo", "havingVulnerability")
 
 
 class InvalidIriError(ValueError):
-    """Namespace o nomi di property non validi come IRI (rifiutati in anticipo)."""
+    """Namespace or property names not valid as IRIs (rejected early)."""
 
 
-#: Query parametrica sul grafo che enumera, per ogni classe ``?c`` con una
-#: restrizione ``owl:Restriction``, la coppia ``(property, filler)``. Statica e
-#: indipendente da namespace/property configurati: le property di rischio si
-#: selezionano dopo, in Python, confrontando ``URIRef`` (nessuna interpolazione
-#: di stringhe nella query). Eseguita UNA volta in
+#: Parametrised query on the graph that enumerates, for each class ``?c`` with an
+#: ``owl:Restriction``, the pair ``(property, filler)``. Static and
+#: independent of the configured namespaces/properties: the risk properties are
+#: selected afterwards, in Python, by comparing ``URIRef`` (no string
+#: interpolation in the query). Executed ONCE in
 #: :meth:`RiskQueryExecutor.__init__`.
 _RESTRICTION_QUERY = prepareQuery(
     """
@@ -96,21 +97,21 @@ _RESTRICTION_QUERY = prepareQuery(
 
 
 def _local_name(term: URIRef) -> str:
-    """Nome-classe locale (Underscore_Case) da una ``URIRef`` TERMINUS."""
+    """Local class name (Underscore_Case) from a TERMINUS ``URIRef``."""
     text = str(term)
     return text.rsplit("#", 1)[-1] if "#" in text else text.rsplit("/", 1)[-1]
 
 
 class RiskQueryExecutor:
-    """Indice delle restrizioni di rischio, costruito una volta sul grafo.
+    """Index of the risk restrictions, built once on the graph.
 
-    Namespace e nomi delle property sono configurabili (default TERMINUS).
+    Namespace and property names are configurable (default TERMINUS).
 
-    Costruire l'executor esegue la query parametrizzata che enumera tutte le
-    restrizioni del grafo (parte costosa, POI-indipendente). Da li' in poi
-    :meth:`profile` risponde in tempo costante per ogni POI. Va istanziato una
-    volta a startup (lifespan) ed esposto via dependency injection, non ricreato
-    per richiesta.
+    Building the executor runs the parametrised query that enumerates all the
+    restrictions of the graph (expensive part, POI-independent). From then on
+    :meth:`profile` answers in constant time for each POI. It must be instantiated once
+    at startup (lifespan) and exposed via dependency injection, not recreated
+    per request.
     """
 
     def __init__(
@@ -119,16 +120,16 @@ class RiskQueryExecutor:
         *,
         vocabulary: OntologyVocabulary = TERMINUS_VOCABULARY,
     ) -> None:
-        """Indicizza le restrizioni di rischio del grafo.
+        """Indexes the risk restrictions of the graph.
 
         Args:
-            graph: ontologia gia' caricata.
-            vocabulary: namespace e nomi delle cinque property di rischio.
+            graph: already loaded ontology.
+            vocabulary: namespace and names of the five risk properties.
                 Default: TERMINUS.
 
         Raises:
-            InvalidIriError: vocabolario non valido come IRI (controllato prima
-                di qualunque interrogazione del grafo).
+            InvalidIriError: vocabulary not valid as IRIs (checked before
+                any query of the graph).
         """
         problems = vocabulary.problems()
         if problems:
@@ -138,37 +139,37 @@ class RiskQueryExecutor:
         self._vocabulary = vocabulary
         self._ns = ns
         self._graph = graph
-        # Mappa classe-con-restrizione -> coppie (property, filler) gia' come nomi
-        # locali. Solo le classi che dichiarano almeno una restrizione compaiono.
+        # Map class-with-restriction -> (property, filler) pairs already as local
+        # names. Only the classes that declare at least one restriction appear.
         self._by_class: dict[URIRef, list[tuple[str, str]]] = {}
         for row in graph.query(_RESTRICTION_QUERY):
             cls, prop, filler = row[0], row[1], row[2]  # type: ignore[misc]
             if not isinstance(prop, URIRef) or prop not in wanted:
-                continue  # restrizione su una property non di rischio
+                continue  # restriction on a non-risk property
             if isinstance(cls, URIRef) and isinstance(filler, URIRef):
                 self._by_class.setdefault(cls, []).append(
                     (wanted[prop], _local_name(filler))
                 )
             else:
-                # Restrizione con un termine non-URIRef: tipicamente un
-                # ``owl:someValuesFrom`` su nodo anonimo (BNode), es. una classe
-                # ``owl:unionOf``. La scartiamo come prima (nessun cambio
-                # funzionale), ma la logghiamo: un filler perso in silenzio
-                # mascherebbe un drift dell'ontologia (#116). Il ``!r`` rende
-                # diagnosticabile *quale* termine non e' una URIRef (il repr
-                # distingue BNode/Literal/URIRef) e *quale* triple lo porta.
+                # Restriction with a non-URIRef term: typically an
+                # ``owl:someValuesFrom`` on an anonymous node (BNode), e.g. a
+                # ``owl:unionOf`` class. We discard it as before (no
+                # functional change), but we log it: a filler lost silently
+                # would mask an ontology drift (#116). The ``!r`` makes it
+                # diagnosable *which* term is not a URIRef (the repr
+                # distinguishes BNode/Literal/URIRef) and *which* triple carries it.
                 detail = f"cls={cls!r} prop={prop!r} filler={filler!r}"
                 logger.warning(
-                    "Restrizione TERMINUS scartata (termine non-URIRef): %s", detail
+                    "TERMINUS restriction discarded (non-URIRef term): %s", detail
                 )
 
     def _fillers_by_property(self, terminus_class: str) -> dict[str, list[str]]:
-        """Filler raggiungibili da ``terminus_class``, raggruppati per property.
+        """Fillers reachable from ``terminus_class``, grouped by property.
 
-        Chiude ``rdfs:subClassOf*`` sulla classe (traversata nativa rdflib) e
-        raccoglie le restrizioni di tutti gli antenati che ne dichiarano. I filler
-        sono deduplicati e ordinati per determinismo (rdflib non garantisce un
-        ordine stabile sui blank node delle restrizioni).
+        Closes ``rdfs:subClassOf*`` on the class (native rdflib traversal) and
+        collects the restrictions of all the ancestors that declare any. The fillers
+        are deduplicated and sorted for determinism (rdflib does not guarantee a
+        stable order on the blank nodes of the restrictions).
         """
         ancestors = self._graph.transitive_objects(
             self._ns[terminus_class], RDFS.subClassOf
@@ -184,21 +185,21 @@ class RiskQueryExecutor:
     def profile(
         self, terminus_class: str, *, poi_name: str | None = None
     ) -> PoiRiskProfile:
-        """Profilo di rischio della classe ``terminus_class``.
+        """Risk profile of the class ``terminus_class``.
 
-        Una classe non mappata / inesistente / ``GenericUrbanPOI`` produce
-        semplicemente liste vuote: nessuna eccezione, perche' non compare
-        nell'indice (criterio di done #76, gestione POI non mappati di
+        An unmapped / non-existent / ``GenericUrbanPOI`` class simply produces
+        empty lists: no exception, because it does not appear in the
+        index (done criterion #76, handling of unmapped POIs in
         ``sparql.md``).
 
         Args:
-            terminus_class: nome-classe TERMINUS bare (es. ``"Bank"``), senza
-                prefisso.
-            poi_name: nome leggibile del POI OSM, riportato tale e quale.
+            terminus_class: bare TERMINUS class name (e.g. ``"Bank"``), without
+                prefix.
+            poi_name: readable name of the OSM POI, reported as is.
 
         Returns:
-            :class:`PoiRiskProfile` con hazard, critical event, vulnerabilita',
-            stakeholder e i relativi ``sparql_path`` (un salto per filler).
+            :class:`PoiRiskProfile` with hazard, critical event, vulnerabilities,
+            stakeholders and the related ``sparql_path`` (one hop per filler).
         """
         by_prop = self._fillers_by_property(terminus_class)
 
@@ -210,9 +211,9 @@ class RiskQueryExecutor:
             {f for prop in voc.vulnerability for f in by_prop.get(prop, [])}
         )
 
-        # Un sparql_path per filler, con la property reale che lo lega (un salto).
-        # Glyph arrow Unicode "→" (U+2192) come da schema canonico di sparql.md /
-        # orchestrator.md / grounding.md: byte-consistente col citation layer (#24).
+        # One sparql_path per filler, with the real property that links it (one hop).
+        # Unicode arrow glyph "→" (U+2192) as per the canonical schema of sparql.md /
+        # orchestrator.md / grounding.md: byte-consistent with the citation layer (#24).
         sparql_paths = [
             f"{terminus_class} → {prop} → {filler}"
             for prop in (
@@ -237,5 +238,5 @@ class RiskQueryExecutor:
 
 @lru_cache
 def get_executor() -> RiskQueryExecutor:
-    """Provider DI cached dell'executor SPARQL (singleton sul grafo cached)."""
+    """Cached DI provider of the SPARQL executor (singleton on the cached graph)."""
     return RiskQueryExecutor(get_ontology())

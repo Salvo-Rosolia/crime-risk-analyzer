@@ -22,7 +22,7 @@ from crime_risk_analyzer.eval.schema import ExperimentConfig, Mode, RunCase, Run
 from crime_risk_analyzer.istat.block import istat_block_for_poi
 from crime_risk_analyzer.istat.figures import check_figures
 from crime_risk_analyzer.models.vocab import ConfidenceSummary
-from crime_risk_analyzer.orchestrator import AnalyzeResponse, PoiOut, ZonaGeo
+from crime_risk_analyzer.orchestrator import AnalyzeResponse, GeoZone, PoiOut
 from crime_risk_analyzer.rag.generation import (
     Repro,
     RiskItem,
@@ -79,7 +79,7 @@ def _resp(
         # del contesto (#242) e' irrilevante e un letterale lo dichiara.
         contesto_hash="h-ctx",
         # Idem per la geo della zona (#260): irrilevante per le metriche testate qui.
-        zona_geo=ZonaGeo(
+        zona_geo=GeoZone(
             lat=41.0,
             lon=12.0,
             bbox_min_lat=40.9,

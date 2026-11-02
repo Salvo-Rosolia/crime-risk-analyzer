@@ -1,16 +1,16 @@
-"""Orchestratore della pipeline di ``/analyze`` (#18).
+"""Orchestrator of the ``/analyze`` pipeline (#18).
 
-Cabla i tre layer RAG gia' pronti (retrieval #22 -> grounding #24 ->
-generation #23) e serializza lo schema canonico di ``/analyze``
-(backend/orchestrator.md). Contiene i modelli del contratto e le funzioni pure
-(testabili senza HTTP) dei percorsi che restituiscono la response canonica:
-:func:`run_baseline` (rotta ``POST /analyze/baseline``), :func:`run_analysis`
-(percorso sincrono completo, ormai solo per la valutazione) e
-:func:`run_no_ontology_prompt` (braccio di ablazione, solo valutazione).
+Wires the three already-ready RAG layers (retrieval #22 -> grounding #24 ->
+generation #23) and serialises the canonical schema of ``/analyze``
+(backend/orchestrator.md). It holds the contract models and the pure functions
+(testable without HTTP) of the paths that return the canonical response:
+:func:`run_baseline` (route ``POST /analyze/baseline``), :func:`run_analysis`
+(full synchronous path, now only for evaluation) and
+:func:`run_no_ontology_prompt` (ablation arm, evaluation only).
 
-Le due fasi della rotta ``POST /analyze`` + ``POST /analyze/narrativa`` (#292)
-vivono in :mod:`~crime_risk_analyzer.analyze_narrative` e riusano da qui
-contratto e assemblaggio; le rotte FastAPI vivono in ``main.py``.
+The two phases of the route ``POST /analyze`` + ``POST /analyze/narrativa`` (#292)
+live in :mod:`~crime_risk_analyzer.analyze_narrative` and reuse the contract and
+assembly from here; the FastAPI routes live in ``main.py``.
 """
 
 from __future__ import annotations
@@ -24,9 +24,9 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from crime_risk_analyzer.config import get_settings
 from crime_risk_analyzer.context_fingerprint import (
+    active_sources_id,
     fingerprint,
-    fonti_attive_id,
-    istat_versione_per,
+    istat_version_for,
 )
 from crime_risk_analyzer.geocoding import GeoResult
 from crime_risk_analyzer.i18n.terminus_labels import label_en, label_it
@@ -51,7 +51,7 @@ from crime_risk_analyzer.rag.generation import (
     SourceProse,
     generate_analysis,
     parse_source_prose,
-    poi_del_prompt_zona,
+    zone_prompt_pois,
 )
 from crime_risk_analyzer.rag.grounding import (
     GroundedContext,
@@ -74,29 +74,29 @@ logger = logging.getLogger(__name__)
 
 
 class Center(BaseModel):
-    """Centro del cerchio disegnato sulla mappa (#318)."""
+    """Centre of the circle drawn on the map (#318)."""
 
     lat: float = Field(ge=-90, le=90)
     lon: float = Field(ge=-180, le=180)
 
 
 class _AreaRequest(BaseModel):
-    """Base dei body che portano l'AREA da analizzare, in una delle DUE modalita'.
+    """Base of the bodies that carry the AREA to analyse, in one of the TWO modes.
 
-    Il cerchio disegnato sulla mappa non sostituisce i due campi testuali: le due
-    modalita' coesistono e l'utente usa l'una o l'altra. Il body ne porta quindi
-    ESATTAMENTE una, e l'endpoint sceglie il resolver corrispondente
+    The circle drawn on the map does not replace the two text fields: the two
+    modes coexist and the user uses one or the other. The body therefore carries
+    EXACTLY one, and the endpoint picks the corresponding resolver
     (:mod:`crime_risk_analyzer.area_search`):
 
-    * ``center`` + ``radius_m`` — il cerchio: bbox calcolato puramente, nessuna rete;
-    * ``citta`` + ``zona`` — la zona dentro la citta': bbox da Nominatim su
-      "zona, citta" col pavimento minimo. Servono ENTRAMBI: una sola meta'
-      finirebbe a Nominatim come query ambigua (una zona senza citta' in tutta
-      Italia) o troppo larga (una citta' intera).
+    * ``center`` + ``radius_m`` — the circle: bbox computed purely, no network;
+    * ``citta`` + ``zona`` — the zone inside the city: bbox from Nominatim on
+      "zona, citta" with the minimum floor. BOTH are needed: a single half
+      would reach Nominatim as an ambiguous query (a zone without a city across
+      all of Italy) or too wide (a whole city).
 
-    Perche' "esattamente una" e non una precedenza: accettarne una in silenzio
-    quando arrivano entrambe significherebbe analizzare un'area diversa da quella
-    che l'utente crede di aver scelto, senza modo di accorgersene. Meglio un 422.
+    Why "exactly one" and not a precedence: silently accepting one when both
+    arrive would mean analysing an area different from the one the user thinks
+    they chose, with no way to notice. Better a 422.
     """
 
     center: Center | None = Field(
@@ -132,17 +132,17 @@ class _AreaRequest(BaseModel):
     @field_validator("citta", "zona", mode="before")
     @classmethod
     def _strip(cls, v: object) -> object:
-        """Spazi ai bordi tolti; vuoto o soli spazi equivale ad ASSENTE.
+        """Edge spaces removed; empty or whitespace-only is equivalent to ABSENT.
 
-        Gli spazi non devono finire in Nominatim ne' nella cache. E una casella
-        lasciata vuota non e' una richiesta della seconda modalita': un client
-        che serializza il form con ``citta: ""`` accanto al cerchio manda un
-        cerchio valido, non un body ambiguo.
+        Spaces must not end up in Nominatim nor in the cache. And a box
+        left empty is not a request for the second mode: a client
+        that serialises the form with ``citta: ""`` next to the circle sends a
+        valid circle, not an ambiguous body.
 
-        ``mode="before"``: lo strip avviene PRIMA di ``max_length``, cosi' il
-        tetto si misura sul valore che finira' davvero in Nominatim, e una
-        casella di soli spazi lunga oltre il tetto resta "vuota", non un 422.
-        I non-stringa passano intatti e li respinge la validazione del tipo.
+        ``mode="before"``: the strip happens BEFORE ``max_length``, so the
+        cap is measured on the value that will actually end up in Nominatim, and a
+        whitespace-only box longer than the cap stays "empty", not a 422.
+        Non-strings pass intact and are rejected by the type validation.
         """
         if isinstance(v, str):
             return v.strip() or None
@@ -163,64 +163,65 @@ class _AreaRequest(BaseModel):
 
     @model_validator(mode="after")
     def _exactly_one_mode(self) -> _AreaRequest:
-        """Esattamente una modalita': cerchio COMPLETO oppure citta + zona non vuoti.
+        """Exactly one mode: COMPLETE circle or non-empty citta + zona.
 
-        I campi testuali vuoti sono gia' ``None`` (``_strip``), quindi qui "testo"
-        significa almeno un campo con contenuto: ``{"citta": "Roma", "zona": ""}``
-        e' un 422 che nomina la zona mancante.
+        The empty text fields are already ``None`` (``_strip``), so here "text"
+        means at least one field with content: ``{"citta": "Roma", "zona": ""}``
+        is a 422 that names the missing zone.
         """
-        cerchio = self.center is not None or self.radius_m is not None
-        testo = self.citta is not None or self.zona is not None
-        if cerchio and testo:
+        circle = self.center is not None or self.radius_m is not None
+        text = self.citta is not None or self.zona is not None
+        if circle and text:
             raise ValueError(
                 "specificare il cerchio (center+radius_m) OPPURE citta e zona, "
                 "non entrambi"
             )
-        if not cerchio and not testo:
+        if not circle and not text:
             raise ValueError(
                 "specificare il cerchio (center+radius_m) oppure citta e zona"
             )
-        if cerchio and (self.center is None or self.radius_m is None):
+        if circle and (self.center is None or self.radius_m is None):
             raise ValueError("il cerchio richiede sia center sia radius_m")
-        if testo and not (self.citta and self.zona):
+        if text and not (self.citta and self.zona):
             raise ValueError("la ricerca per zona richiede sia citta sia zona")
         return self
 
     @property
     def is_circle(self) -> bool:
-        """True se il body porta il cerchio, False se porta citta + zona.
+        """True if the body carries the circle, False if it carries citta + zona.
 
-        Il validator garantisce che il ramo scelto sia completo: cerchio con
-        ``center`` e ``radius_m``, oppure ``citta`` e ``zona`` entrambi non vuoti.
+        The validator guarantees that the chosen branch is complete: circle with
+        ``center`` and ``radius_m``, or ``citta`` and ``zona`` both non-empty.
         """
         return self.center is not None
 
 
 class AnalyzeRequest(_AreaRequest):
-    """Body della fase 1 di ``POST /analyze``: l'area, in una delle due modalita'.
+    """Body of phase 1 of ``POST /analyze``: the area, in one of the two modes.
 
-    Nessuna ``domanda``: la rotta non chiama il modello (#292), quindi non ha un
-    prompt in cui iniettarla. Quel campo vive in ``ZoneNarrativeRequest``
-    (:mod:`~crime_risk_analyzer.analyze_narrative`), la richiesta della fase 2 che
-    porta davvero il testo dell'operatore al modello.
+    No ``domanda``: the route does not call the model (#292), so it has no
+    prompt to inject it into. That field lives in ``ZoneNarrativeRequest``
+    (:mod:`~crime_risk_analyzer.analyze_narrative`), the phase 2 request that
+    really carries the operator's text to the model.
     """
 
 
 class BaselineRequest(_AreaRequest):
-    """Body di ``POST /analyze/baseline`` (ablation, senza LLM).
+    """Body of ``POST /analyze/baseline`` (ablation, no LLM).
 
-    Porta ``tipo_poi`` ma non ``domanda``: l'asimmetria con ``ZoneNarrativeRequest``
-    (che porta ``domanda`` ma non ``tipo_poi``) rende il confronto braccio-completo
-    vs baseline non iso-input su questi due parametri (#263). Il contratto di
-    ``tipo_poi`` e' ora fissato (#143: catalogo ``GET /poi-types``, normalizzazione
-    alla classe canonica in :func:`~crime_risk_analyzer.poi_types.resolve_poi_type`),
-    ma l'asimmetria resta: e' documentata qui e nel test
-    ``test_baseline_request_surface_is_cerchio_or_citta_zona_tipo_poi``, non colmata.
+    It carries ``tipo_poi`` but not ``domanda``: the asymmetry with
+    ``ZoneNarrativeRequest`` (which carries ``domanda`` but not ``tipo_poi``) makes
+    the full-arm vs baseline comparison not iso-input on these two parameters
+    (#263). The ``tipo_poi`` contract is now fixed (#143: ``GET /poi-types``
+    catalogue, normalisation to the canonical class in
+    :func:`~crime_risk_analyzer.poi_types.resolve_poi_type`), but the asymmetry
+    remains: it is documented here and in the test
+    ``test_baseline_request_surface_is_cerchio_or_citta_zona_tipo_poi``, not closed.
 
-    Il modello fa solo strip e tetto di lunghezza; il riconoscimento del tipo
-    avviene nella rotta, perche' un tipo sconosciuto e' un errore di dominio (422
-    nel formato ``{"errore", "messaggio"}`` di :mod:`~crime_risk_analyzer.errors`),
-    non un errore di forma del body.
+    The model only does strip and length cap; the recognition of the type
+    happens in the route, because an unknown type is a domain error (422
+    in the ``{"errore", "messaggio"}`` format of :mod:`~crime_risk_analyzer.errors`),
+    not a body shape error.
     """
 
     tipo_poi: str | None = Field(
@@ -236,21 +237,21 @@ class BaselineRequest(_AreaRequest):
 
     @field_validator("tipo_poi", mode="before")
     @classmethod
-    def _strip_tipo_poi(cls, v: object) -> object:
-        """Come ``_strip`` di citta/zona: strip prima del tetto, vuoto = assente."""
+    def _strip_poi_type(cls, v: object) -> object:
+        """Like ``_strip`` of citta/zona: strip before the cap, empty = absent."""
         if isinstance(v, str):
             return v.strip() or None
         return v
 
 
 class OntologyItem(BaseModel):
-    """Entita' ontologica di un asse non-hazard, con citazione ed etichette (#256).
+    """Ontological entity of a non-hazard axis, with citation and labels (#256).
 
-    Nessuna ``confidence`` e nessun ``tag``: la forza probatoria e' un bit derivato
-    dal nome del POI, quindi identica per ogni asserzione ontologica su quel punto —
-    il badge del POI le qualifica tutte insieme — e la fonte e' l'ontologia per
-    costruzione. Nessun campo numerico: sono elenchi qualitativi, come gli hazard
-    (vincolo legale anti-scoring, _project.md §Vincoli).
+    No ``confidence`` and no ``tag``: the evidential strength is a bit derived
+    from the POI name, hence identical for every ontological assertion on that
+    point — the POI badge qualifies them all together — and the source is the
+    ontology by construction. No numeric field: they are qualitative lists, like
+    the hazards (anti-scoring legal constraint, _project.md §Vincoli).
     """
 
     name: str = Field(
@@ -272,7 +273,7 @@ class OntologyItem(BaseModel):
 
 
 class PoiOut(BaseModel):
-    """POI nello schema canonico ``/analyze`` (coords + confidence + path)."""
+    """POI in the canonical ``/analyze`` schema (coords + confidence + path)."""
 
     id: str
     name: str
@@ -340,12 +341,12 @@ class PoiOut(BaseModel):
         return self
 
 
-class ZonaGeo(BaseModel):
-    """Centro e bbox della zona geocodificata (#260).
+class GeoZone(BaseModel):
+    """Centre and bbox of the geocoded zone (#260).
 
-    Prima non usciva dall'orchestrator: la mappa frontend poteva centrarsi solo
-    sui POI, quindi una zona con 0 risultati e una zona non trovata erano
-    indistinguibili a schermo (in entrambi i casi la mappa restava ferma).
+    Before it did not leave the orchestrator: the frontend map could only centre
+    on the POIs, so a zone with 0 results and a zone not found were
+    indistinguishable on screen (in both cases the map stayed still).
     """
 
     lat: float
@@ -356,14 +357,14 @@ class ZonaGeo(BaseModel):
     bbox_max_lon: float
 
 
-_MESSAGGIO_ZERO_POI = (
+_ZERO_POI_MESSAGE = (
     "La zona e' stata geocodificata correttamente, ma non e' stato trovato "
     "nessun punto in questa copertura OSM/TERMINUS."
 )
 
 
-def _zona_geo(geo: GeoResult) -> ZonaGeo:
-    return ZonaGeo(
+def _geo_zone(geo: GeoResult) -> GeoZone:
+    return GeoZone(
         lat=geo["lat"],
         lon=geo["lon"],
         bbox_min_lat=geo["bbox"].min_lat,
@@ -373,41 +374,41 @@ def _zona_geo(geo: GeoResult) -> ZonaGeo:
     )
 
 
-def _messaggio_zero_poi(n_poi: int, narrativa: str | None) -> str | None:
-    """``None`` se c'e' un POI o se una narrativa reale copre gia' il caso.
+def _zero_poi_message(n_poi: int, narrativa: str | None) -> str | None:
+    """``None`` if there is a POI or if a real narrative already covers the case.
 
-    ``n_poi`` e' una conta, non una ``list[PoiOut]``: la funzione serve sia
-    l'assemblaggio sincrono di ``AnalyzeResponse`` (che ha gia' costruito i
-    ``PoiOut``) sia la fase 2 di ``run_zone_narrative`` in
-    :mod:`~crime_risk_analyzer.analyze_narrative` (che ha solo i ``Poi`` grezzi
-    del ``RetrievalContext`` cacheato) — nessuna delle due deve costruire una
-    lista dell'altro tipo solo per il conteggio.
+    ``n_poi`` is a count, not a ``list[PoiOut]``: the function serves both the
+    synchronous assembly of ``AnalyzeResponse`` (which has already built the
+    ``PoiOut``) and phase 2 of ``run_zone_narrative`` in
+    :mod:`~crime_risk_analyzer.analyze_narrative` (which has only the raw ``Poi``
+    of the cached ``RetrievalContext``) — neither must build a list of the
+    other type just for the count.
 
-    Nei bracci di valutazione (``run_analysis``/``run_no_ontology_prompt``) l'LLM
-    puo' scrivere prosa anche su un contesto senza POI: se lo fa, quella prosa e'
-    gia' l'informazione per chi legge e un ``messaggio`` che lascia intendere
-    "nulla da vedere" affiancato a una narrativa non vuota sarebbe contraddittorio
-    (reperto review #260). Stesso principio nel percorso reale a due fasi: la
-    fase 1 (``run_analysis_fast``) non sa ancora se la fase 2 scrivera' una
-    narrativa reale, quindi e' la fase 2 (``run_zone_narrative``) a dover
-    ricalcolare ``messaggio`` da capo — mai ritrasmettere quello della fase 1.
+    In the evaluation arms (``run_analysis``/``run_no_ontology_prompt``) the LLM
+    can write prose even on a context without POIs: if it does, that prose is
+    already the information for the reader and a ``messaggio`` that hints at
+    "nothing to see" next to a non-empty narrative would be contradictory
+    (finding of review #260). Same principle in the real two-phase path: phase 1
+    (``run_analysis_fast``) does not yet know whether phase 2 will write a real
+    narrative, so it is phase 2 (``run_zone_narrative``) that must
+    recompute ``messaggio`` from scratch — never retransmit that of phase 1.
 
-    ``narrativa`` viene STRIPPATA prima del controllo di verita': una stringa di
-    soli spazi non e' copertura reale (secondo reperto review #260), e senza lo
-    strip un tale valore avrebbe soppresso il messaggio esplicito lasciando
-    l'utente senza alcuna spiegazione.
+    ``narrativa`` is STRIPPED before the truthiness check: a whitespace-only
+    string is not real coverage (second finding of review #260), and without the
+    strip such a value would have suppressed the explicit message leaving the
+    user without any explanation.
     """
     if n_poi or (narrativa or "").strip():
         return None
-    return _MESSAGGIO_ZERO_POI
+    return _ZERO_POI_MESSAGE
 
 
 class AnalyzeResponse(IstatResponseFields):
-    """Schema canonico di ``/analyze`` (backend/orchestrator.md).
+    """Canonical schema of ``/analyze`` (backend/orchestrator.md).
 
-    ``istat_attivo``/``istat_versione_dati``/``istat_frasi_scartate`` arrivano da
-    :class:`~crime_risk_analyzer.istat.response_fields.IstatResponseFields`, la base
-    condivisa con ``ZoneNarrativeResponse``/``PoiNarrativeResponse`` (#345).
+    ``istat_attivo``/``istat_versione_dati``/``istat_frasi_scartate`` come from
+    :class:`~crime_risk_analyzer.istat.response_fields.IstatResponseFields`, the
+    base shared with ``ZoneNarrativeResponse``/``PoiNarrativeResponse`` (#345).
     """
 
     citta: str
@@ -457,7 +458,7 @@ class AnalyzeResponse(IstatResponseFields):
             "una misura: nessuno scoring."
         ),
     )
-    zona_geo: ZonaGeo = Field(
+    zona_geo: GeoZone = Field(
         description=(
             "Centro e bbox della zona geocodificata (#260): permette al "
             "frontend di ricentrare la mappa anche quando ``poi`` e' vuoto."
@@ -499,28 +500,28 @@ def _build_poi_list(
     *,
     istat_context_enabled: bool = False,
 ) -> list[PoiOut]:
-    """Unisce coords (da retrieval) e confidence/path (da grounding) per POI.
+    """Joins coords (from retrieval) and confidence/path (from grounding) per POI.
 
-    La ``confidence`` per-POI e' UNIFICATA col livello per-rischio del grounding
-    (#202/M1): ``None`` se il POI e' fuori ontologia (nessun rischio da
-    qualificare), altrimenti la stessa regola nome->verificabilita' dei suoi
-    rischi (:func:`confidence_from_poi_name`), cosi' il badge del POI non diverge
-    dai livelli dei rischi che porta.
+    The per-POI ``confidence`` is UNIFIED with the per-risk level of the grounding
+    (#202/M1): ``None`` if the POI is outside the ontology (no risk to
+    qualify), otherwise the same name->verifiability rule of its
+    risks (:func:`confidence_from_poi_name`), so the POI badge does not diverge
+    from the levels of the risks it carries.
 
-    Invariante: ``grounded["validated_risks"]`` ha stesso ordine e lunghezza di
-    ``retrieval_ctx["pois"]``. ``strict=True`` esplicita l'errore se si rompe.
+    Invariant: ``grounded["validated_risks"]`` has the same order and length as
+    ``retrieval_ctx["pois"]``. ``strict=True`` makes the error explicit if it breaks.
 
-    ``istat_context_enabled`` (#346): l'``IstatPoi`` del grounding e' calcolato
-    sempre (la cache di zona lo porta), quindi e' qui che l'interruttore spento
-    lo tiene fuori dalla risposta — spento vuol dire spento anche nell'interfaccia.
+    ``istat_context_enabled`` (#346): the grounding's ``IstatPoi`` is always
+    computed (the zone cache carries it), so it is here that the switch, when off,
+    keeps it out of the response — off means off in the interface too.
     """
     out: list[PoiOut] = []
     for poi, vr in zip(retrieval_ctx["pois"], grounded["validated_risks"], strict=True):
-        # ``strict=True`` verifica le LUNGHEZZE, non l'allineamento di identita': due
-        # liste riordinate in modo diverso passerebbero, e ogni POI riceverebbe
-        # confidence e ``sparql_path`` di un altro punto. Ora che entrambe portano
-        # l'id, il disallineamento e' un errore forte invece di una misattribuzione
-        # silenziosa.
+        # ``strict=True`` verifies the LENGTHS, not the identity alignment: two
+        # lists reordered differently would pass, and each POI would receive the
+        # confidence and ``sparql_path`` of another point. Now that both carry
+        # the id, the misalignment is a hard error instead of a silent
+        # misattribution.
         if poi["id"] != vr["poi_id"]:
             raise ValueError(
                 "pois e validated_risks disallineati: "
@@ -538,8 +539,8 @@ def _build_poi_list(
                 lon=poi["lon"],
                 confidence=confidence,
                 sparql_path=vr["sparql_path"],
-                # I quattro assi arrivano dal grounding, che li ha ancorati (#256/#270):
-                # qui si serializza, non si ri-deriva nulla.
+                # The four axes come from the grounding, which anchored them
+                # (#256/#270): here we serialise, nothing is re-derived.
                 critical_events=[
                     OntologyItem(name=e["name"], source=e["source"])
                     for e in vr["critical_events"]
@@ -559,7 +560,7 @@ def _build_poi_list(
 
 
 def _risk_models_from_grounded(grounded: GroundedContext) -> list[RiskModel]:
-    """Ricostruisce i risk_models dal context validato (fallback senza LLM)."""
+    """Rebuilds the risk_models from the validated context (fallback without LLM)."""
     models: list[RiskModel] = []
     for vr in grounded["validated_risks"]:
         items = [
@@ -591,24 +592,25 @@ def _structured_response(
     geo: GeoResult,
     narrativa: str | None = "",
 ) -> AnalyzeResponse:
-    """Assembla la AnalyzeResponse SENZA LLM (baseline, fallback, o fase 1 di #259).
+    """Assembles the AnalyzeResponse WITHOUT LLM (baseline, fallback, or phase 1 of
+    #259).
 
-    ``contesto_hash`` arriva dal chiamante, che ha il ``RetrievalContext``: il
-    contratto della response e' unico, quindi l'impronta accompagna anche le
-    response senza narrativa. Sulla fase 1 di ``/analyze`` e' pienamente
-    utilizzabile (:func:`~crime_risk_analyzer.analyze_narrative.run_analysis_fast`
-    popola la cache di zona e il contesto e' quello). Sulla baseline no:
-    ``run_baseline`` non popola ``zone_context_cache`` e ``/analyze/poi`` non
-    conosce ``tipo_poi``, quindi un'impronta di baseline FILTRATA non potrebbe che
-    divergere dal contesto ricostruito. Non e' un percorso raggiungibile dalla UI
-    — la narrativa per-POI vive solo nella pipeline completa (review backend M2).
-    Nemmeno il fallback LLM dei percorsi di valutazione popola la cache (#292):
-    la sua impronta resta un'identita' verificabile della lista restituita, ma
-    nessun clic la rimandera' mai.
+    ``contesto_hash`` comes from the caller, which has the ``RetrievalContext``: the
+    response contract is single, so the fingerprint also accompanies the
+    responses without narrative. On phase 1 of ``/analyze`` it is fully
+    usable (:func:`~crime_risk_analyzer.analyze_narrative.run_analysis_fast`
+    populates the zone cache and the context is that one). On the baseline it is not:
+    ``run_baseline`` does not populate ``zone_context_cache`` and ``/analyze/poi``
+    does not know ``tipo_poi``, so a FILTERED baseline fingerprint could only
+    diverge from the rebuilt context. It is not a path reachable from the UI
+    — the per-POI narrative lives only in the full pipeline (backend review M2).
+    The LLM fallback of the evaluation paths does not populate the cache either (#292):
+    its fingerprint remains a verifiable identity of the returned list, but
+    no click will ever send it back.
 
-    ``narrativa``: ``""`` (default) per baseline/fallback — nessuna narrativa
-    arrivera' mai. ``None`` per la fase 1 di ``/analyze`` (#259): la narrativa e'
-    in arrivo da una chiamata separata a ``POST /analyze/narrativa``, non e' un
+    ``narrativa``: ``""`` (default) for baseline/fallback — no narrative
+    will ever arrive. ``None`` for phase 1 of ``/analyze`` (#259): the narrative is
+    on its way from a separate call to ``POST /analyze/narrativa``, it is not a
     fallback.
     """
     return AnalyzeResponse(
@@ -626,8 +628,8 @@ def _structured_response(
         cache_hit=False,
         fallback=fallback,
         contesto_hash=contesto_hash,
-        zona_geo=_zona_geo(geo),
-        messaggio=_messaggio_zero_poi(len(poi_out), narrativa),
+        zona_geo=_geo_zone(geo),
+        messaggio=_zero_poi_message(len(poi_out), narrativa),
     )
 
 
@@ -642,27 +644,27 @@ def _generated_response(
     geo: GeoResult,
     measured_token: str,
 ) -> AnalyzeResponse:
-    """Assembla la AnalyzeResponse CON narrativa dal contributo del generation layer.
+    """Assembles the AnalyzeResponse WITH narrative from the generation layer's output.
 
-    Gemello di :func:`_structured_response` per il ramo con LLM. Estratto quando i
-    chiamanti sono diventati due (#236: il braccio di ablazione senza contributo
-    ontologico usa un altro generation layer ma lo STESSO contratto di risposta):
-    un secondo assemblaggio copiato avrebbe potuto divergere proprio sui campi che
-    rendono confrontabili i due bracci.
+    Twin of :func:`_structured_response` for the LLM branch. Extracted when the
+    callers became two (#236: the ablation arm without ontological contribution
+    uses another generation layer but the SAME response contract): a second
+    copied assembly could have diverged exactly on the fields that make the two
+    arms comparable.
 
-    ``measured_token`` e' il token della riga-etichetta del primo blocco, che
-    dipende dal prompt che ha generato la narrativa: il braccio ablato fa scrivere
-    ``[SINTESI-LLM]`` (non ha consultato alcuna ontologia e non lo dichiara),
-    quindi tagliare la sua prosa sull'etichetta dell'altro braccio metterebbe
-    tutto in ``overview`` — una seconda lettura dello stesso testo, in disaccordo
-    con quella dell'eval.
+    ``measured_token`` is the token of the label line of the first block, which
+    depends on the prompt that generated the narrative: the ablated arm has
+    ``[SINTESI-LLM]`` written (it consulted no ontology and does not claim to),
+    so cutting its prose on the label of the other arm would put
+    everything in ``overview`` — a second reading of the same text, in disagreement
+    with that of the eval.
 
-    OBBLIGATORIO e senza default: con ``[ONTOLOGIA]`` come default un terzo
-    braccio che dimenticasse di dichiarare la propria etichetta non
-    sbaglierebbe in modo visibile — ``parse_source_prose`` non troverebbe nulla,
-    la prosa finirebbe tutta in ``overview`` e quella narrativa risulterebbe una
-    NON-ATTRIBUZIONE (0.0/1.0) senza che nessuno solleva. Farlo dichiarare a ogni
-    chiamante sposta quell'errore dal silenzio al type check.
+    MANDATORY and without default: with ``[ONTOLOGIA]`` as default a third
+    arm that forgot to declare its own label would not
+    err visibly — ``parse_source_prose`` would find nothing,
+    the prose would all end up in ``overview`` and that narrative would count as a
+    NON-ATTRIBUTION (0.0/1.0) with nobody raising. Making every
+    caller declare it moves that error from silence to the type check.
     """
     return AnalyzeResponse(
         citta=citta,
@@ -682,12 +684,12 @@ def _generated_response(
         cache_hit=gen.cache_hit,
         fallback=False,
         contesto_hash=contesto_hash,
-        zona_geo=_zona_geo(geo),
-        messaggio=_messaggio_zero_poi(len(poi_out), gen.narrativa),
+        zona_geo=_geo_zone(geo),
+        messaggio=_zero_poi_message(len(poi_out), gen.narrativa),
         istat_attivo=gen.istat_attivo,
         istat_versione_dati=gen.istat_versione_dati,
         istat_frasi_scartate=gen.istat_frasi_scartate,
-        # Il braccio senza ontologia non valorizza il grezzo: coincide col testo.
+        # The no-ontology arm does not set the raw text: it coincides with the text.
         narrativa_grezza=(
             gen.narrativa_grezza if gen.narrativa_grezza is not None else gen.narrativa
         ),
@@ -697,13 +699,13 @@ def _generated_response(
 
 
 class RiskProfiler(Protocol):
-    """Superficie minima dell'executor SPARQL usata dalla pipeline (DI)."""
+    """Minimal surface of the SPARQL executor used by the pipeline (DI)."""
 
     def profile(self, terminus_class: str) -> PoiRiskProfile: ...
 
 
 class _LLMClientLike(Protocol):
-    """Superficie minima del client LLM (DI; doppi nei test)."""
+    """Minimal surface of the LLM client (DI; doubles in the tests)."""
 
     async def generate(self, system_prompt: str, user_content: str) -> LLMResponse: ...
 
@@ -722,64 +724,64 @@ async def run_analysis(
     context_format: ContextFormat = DEFAULT_CONTEXT_FORMAT,
     istat_context_enabled: bool = False,
 ) -> AnalyzeResponse:
-    """Esegue la pipeline completa e assembla la response canonica.
+    """Runs the full pipeline and assembles the canonical response.
 
-    **Non e' piu' cablata a ``POST /analyze``** (#292): la rotta risponde in due
-    fasi (:func:`~crime_risk_analyzer.analyze_narrative.run_analysis_fast` +
-    ``POST /analyze/narrativa``). Questa resta il percorso SINCRONO COMPLETO —
-    dati strutturati e narrativa nella stessa response — e serve
-    :mod:`~crime_risk_analyzer.eval.harness` (``mode="analyze"``): le metriche di
-    grounding/allucinazione confrontano la prosa con il contesto ontologico che
-    l'ha prodotta, quindi devono nascere dalla stessa invocazione. Non e' quindi
-    dead code, e le due fasi della rotta non possono sostituirla: il braccio di
-    ablazione (:func:`run_no_ontology_prompt`) e' confrontabile solo con un
-    braccio completo iso-input come questo.
+    **No longer wired to ``POST /analyze``** (#292): the route answers in two
+    phases (:func:`~crime_risk_analyzer.analyze_narrative.run_analysis_fast` +
+    ``POST /analyze/narrativa``). This remains the FULL SYNCHRONOUS path —
+    structured data and narrative in the same response — and serves
+    :mod:`~crime_risk_analyzer.eval.harness` (``mode="analyze"``): the
+    grounding/hallucination metrics compare the prose with the ontological context
+    that produced it, so they must arise from the same invocation. It is therefore
+    not dead code, and the two phases of the route cannot replace it: the ablation
+    arm (:func:`run_no_ontology_prompt`) is comparable only with a full
+    iso-input arm like this one.
 
     ``retrieve`` (async) -> ``ground`` (sync) -> ``generate_analysis`` (async).
-    Su :class:`LLMError` ritorna i soli dati strutturati (``fallback=True``) e
-    logga un warning col messaggio dell'eccezione, cosi' i fallback (narrativa
-    vuota) restano diagnosticabili invece di essere inghiottiti in silenzio (#210).
-    ``latenza_ms`` e' end-to-end sull'intera pipeline.
+    On :class:`LLMError` it returns only the structured data (``fallback=True``) and
+    logs a warning with the exception message, so the fallbacks (empty
+    narrative) remain diagnosable instead of being silently swallowed (#210).
+    ``latenza_ms`` is end-to-end over the whole pipeline.
 
-    ``domanda`` (opzionale, #119) e' la domanda libera dell'utente: viene
-    propagata a :func:`generate_analysis` e iniettata nello ``user_content`` del
-    prompt LLM; ``None`` = comportamento invariato.
+    ``domanda`` (optional, #119) is the user's free question: it is
+    propagated to :func:`generate_analysis` and injected into the ``user_content``
+    of the LLM prompt; ``None`` = behaviour unchanged.
 
-    Budget di token (#210): ``request_token_budget`` e' il tetto TOTALE (stima)
-    dell'intera richiesta LLM (system prompt + user_content + ``max_tokens``) e
-    ``max_tokens`` i token riservati all'output; entrambi sono propagati a
-    :func:`generate_analysis`, che ne ricava l'allowance per lo user_content. Su
-    una zona densa i POI oltre allowance non entrano nel prompt (mappa/lista
-    restano complete) e l'intera richiesta non sfora il TPM del provider.
+    Token budget (#210): ``request_token_budget`` is the TOTAL (estimated) cap
+    of the whole LLM request (system prompt + user_content + ``max_tokens``) and
+    ``max_tokens`` the tokens reserved for the output; both are propagated to
+    :func:`generate_analysis`, which derives from them the allowance for user_content.
+    On a dense zone the POIs beyond the allowance do not enter the prompt (map/list
+    stay complete) and the whole request does not exceed the provider's TPM.
 
-    ``geo_source`` (opzionale, #169) e' propagato a :func:`retrieve` per il replay
-    del geo nell'harness di eval; ``None`` = geocoding live (prodotto invariato).
+    ``geo_source`` (optional, #169) is propagated to :func:`retrieve` for the geo
+    replay in the eval harness; ``None`` = live geocoding (product unchanged).
 
-    ``istat_context_enabled`` (#345): l'harness lo prende da
-    ``ExperimentConfig.istat``; default spento come il confronto della tesi (D6).
+    ``istat_context_enabled`` (#345): the harness takes it from
+    ``ExperimentConfig.istat``; off by default like the thesis comparison (D6).
 
-    NESSUN effetto collaterale su :mod:`~crime_risk_analyzer.zone_context_cache`
-    (#292). Depositava il contesto per ``/analyze/poi`` (#197) quando era la
-    funzione della rotta; ora la cache la scalda la fase 1
-    (:func:`~crime_risk_analyzer.analyze_narrative.run_analysis_fast`) e qui
-    nessuno la rilegge, perche' nel percorso di valutazione non ci sono clic su
-    un POI. Stessa scelta — e stessa ragione — di
-    :func:`run_no_ontology_prompt`: riempirla col contesto di una run offline
-    sarebbe stato di processo che nessuno ha chiesto, e a cache piena sfratterebbe
-    la zona di un utente vero.
+    NO side effect on :mod:`~crime_risk_analyzer.zone_context_cache`
+    (#292). It used to store the context for ``/analyze/poi`` (#197) when it was the
+    route's function; now the cache is warmed by phase 1
+    (:func:`~crime_risk_analyzer.analyze_narrative.run_analysis_fast`) and here
+    nobody re-reads it, because in the evaluation path there are no clicks on
+    a POI. Same choice — and same reason — as
+    :func:`run_no_ontology_prompt`: filling it with the context of an offline run
+    would be process state nobody asked for, and with a full cache it would evict
+    a real user's zone.
     """
     start = time.perf_counter()
     retrieval_ctx = await retrieve(
         citta, zona, executor=executor, poi_source=poi_source, geo_source=geo_source
     )
     grounded = ground(retrieval_ctx)
-    # Impronta della lista POI di QUESTA cattura (#242): /analyze/poi la
-    # confronta con quella del contesto che userebbe e rifiuta (409) se
-    # divergono, invece di generare prosa su un intorno che a schermo non c'e'.
+    # Fingerprint of the POI list of THIS capture (#242): /analyze/poi compares it
+    # with that of the context it would use and refuses (409) if they
+    # diverge, instead of generating prose on a neighbourhood that is not on screen.
     contesto_hash = fingerprint(
         retrieval_ctx["pois"],
-        istat_versione=istat_versione_per(istat_context_enabled),
-        fonti=fonti_attive_id(),
+        istat_version=istat_version_for(istat_context_enabled),
+        sources_id=active_sources_id(),
     )
     poi_out = _build_poi_list(
         retrieval_ctx, grounded, istat_context_enabled=istat_context_enabled
@@ -796,8 +798,8 @@ async def run_analysis(
         )
     except LLMError as exc:
         logger.warning(
-            "Generazione LLM fallita per %s/%s: fallback strutturato (narrativa "
-            "vuota). Causa: %s",
+            "LLM generation failed for %s/%s: structured fallback (empty "
+            "narrative). Cause: %s",
             citta,
             zona,
             exc,
@@ -820,9 +822,9 @@ async def run_analysis(
         latenza_ms=_elapsed_ms(start),
         contesto_hash=contesto_hash,
         geo=retrieval_ctx["geo"],
-        # Il prompt di questo braccio chiede l'etichetta ontologica (regola 3):
-        # la prosa si taglia su quella. Dichiarato anche qui, dove sarebbe stato
-        # il default, perche' l'etichetta e' una proprieta' del prompt usato.
+        # The prompt of this arm asks for the ontological label (rule 3):
+        # the prose is cut on that. Declared here too, where it would have been
+        # the default, because the label is a property of the prompt used.
         measured_token=ONTOLOGY_TOKEN,
     )
 
@@ -840,47 +842,47 @@ async def run_no_ontology_prompt(
     context_format: ContextFormat = DEFAULT_CONTEXT_FORMAT,
     istat_context_enabled: bool = False,
 ) -> AnalyzeResponse:
-    """Pipeline del braccio di ablazione: stesso LLM, prompt SENZA ontologia (#236).
+    """Pipeline of the ablation arm: same LLM, prompt WITHOUT ontology (#236).
 
-    ``retrieve`` e ``ground`` sono invariati — i dati strutturati della response
-    (``poi[]``, ``risk_models``, ``confidence_summary``, ``sparql_path``) restano
-    quelli ontologici — mentre la narrativa e' generata da
+    ``retrieve`` and ``ground`` are unchanged — the structured data of the response
+    (``poi[]``, ``risk_models``, ``confidence_summary``, ``sparql_path``) stays
+    the ontological one — while the narrative is generated by
     :func:`~crime_risk_analyzer.rag.no_ontology_generation.generate_no_ontology_analysis`,
-    che passa al modello i soli nome e classe dei punti. L'unica variabile
-    manipolata rispetto a :func:`run_analysis` e' quindi il contributo
-    dell'ontologia nel PROMPT, che e' cio' che la contribuzione C3 mette alla
-    prova; il contratto di risposta e i vincoli legali sono gli stessi.
+    which passes the model only the name and class of the points. The only variable
+    manipulated with respect to :func:`run_analysis` is therefore the contribution
+    of the ontology in the PROMPT, which is what contribution C3 puts to the
+    test; the response contract and the legal constraints are the same.
 
-    Percorso di VALUTAZIONE, non di prodotto: non e' esposto da alcuna rotta
-    (l'API canonica resta ``/analyze`` e ``/analyze/baseline``) e non deposita
-    nulla in :mod:`~crime_risk_analyzer.zone_context_cache` — quella cache serve i
-    clic dell'utente su ``/analyze/poi``, e riempirla con il contesto di
-    un'ablazione sarebbe uno stato di processo che nessuno ha chiesto. Dal #292
-    vale per entrambi i bracci di valutazione: anche :func:`run_analysis`, uscita
-    dalla rotta, ha smesso di scriverci.
+    EVALUATION path, not a product one: it is not exposed by any route
+    (the canonical API remains ``/analyze`` and ``/analyze/baseline``) and it does
+    not store anything in :mod:`~crime_risk_analyzer.zone_context_cache` — that cache
+    serves the user's clicks on ``/analyze/poi``, and filling it with the context of
+    an ablation would be process state nobody asked for. Since #292
+    it holds for both evaluation arms: :func:`run_analysis` too, having left
+    the route, has stopped writing to it.
 
-    Su :class:`LLMError` ritorna i soli dati strutturati (``fallback=True``) con
-    lo stesso warning diagnosticabile del braccio completo (#210): un braccio muto
-    va visto, perche' a valle rende vacui i proxy di qualita' (#231).
+    On :class:`LLMError` it returns only the structured data (``fallback=True``) with
+    the same diagnosable warning as the full arm (#210): a mute arm must
+    be seen, because downstream it makes the quality proxies vacuous (#231).
 
-    Stessi POI del braccio completo (#349): ``request_token_budget``,
-    ``max_tokens``, ``context_format`` e ``istat_context_enabled`` sono quelli
-    della run di :func:`run_analysis` e servono SOLO a ricostruire quali punti il
-    suo prompt ha tenuto dopo il troncamento per budget
-    (:func:`~crime_risk_analyzer.rag.generation.poi_del_prompt_zona`). Il prompt
-    ablato elenca lo stesso insieme di punti: prima mandava sempre tutti i punti, e
-    il confronto non era a parita' di input. L'ordine resta quello del recupero e la
-    nota sul taglio non dice il criterio, perche' l'ordine per rilevanza (piu'
-    hazard prima) e' informazione ontologica. Resta, ed e' da dichiarare nella
-    validita' del confronto, la SCELTA di quali punti tenere: anche lei usa
-    l'ontologia, e la parita' di insieme non si ottiene senza. Il verso del suo
-    effetto sul confronto NON e' determinato, ed e' da dichiarare: il taglio tiene
-    le classi con molti rischi (Polizia, Scuola, Ospedale) e scarta quelle con
-    pochi (farmacie, banche), i cui rischi sono vicini a cio' che un modello
-    senza ontologia scriverebbe comunque. La response resta completa come quella
-    del braccio completo; gli id dei punti elencati viaggiano in
-    ``poi_nel_prompt`` (solo per l'harness), che il confronto usa per verificare
-    la parita' invece di presumerla.
+    Same POIs as the full arm (#349): ``request_token_budget``,
+    ``max_tokens``, ``context_format`` and ``istat_context_enabled`` are those
+    of the :func:`run_analysis` run and serve ONLY to rebuild which points its
+    prompt kept after the budget truncation
+    (:func:`~crime_risk_analyzer.rag.generation.zone_prompt_pois`). The
+    ablated prompt lists the same set of points: before it always sent all the points,
+    and the comparison was not at input parity. The order stays that of the retrieval
+    and the note on the cut does not state the criterion, because the order by relevance
+    (most hazards first) is ontological information. What remains, and must be declared
+    in the validity of the comparison, is the CHOICE of which points to keep: it too
+    uses the ontology, and set parity cannot be obtained without it. The direction of
+    its effect on the comparison is NOT determined, and must be declared: the cut keeps
+    the classes with many risks (Police, School, Hospital) and discards those with
+    few (pharmacies, banks), whose risks are close to what a model
+    without ontology would write anyway. The response stays complete like that
+    of the full arm; the ids of the listed points travel in
+    ``poi_nel_prompt`` (harness only), which the comparison uses to verify
+    parity instead of presuming it.
     """
     start = time.perf_counter()
     retrieval_ctx = await retrieve(
@@ -889,11 +891,11 @@ async def run_no_ontology_prompt(
     grounded = ground(retrieval_ctx)
     contesto_hash = fingerprint(
         retrieval_ctx["pois"],
-        istat_versione=istat_versione_per(istat_context_enabled),
-        fonti=fonti_attive_id(),
+        istat_version=istat_version_for(istat_context_enabled),
+        sources_id=active_sources_id(),
     )
     poi_out = _build_poi_list(retrieval_ctx, grounded)
-    nel_prompt = poi_del_prompt_zona(
+    in_prompt = zone_prompt_pois(
         dict(grounded),
         request_token_budget=request_token_budget,
         max_tokens=max_tokens,
@@ -902,12 +904,12 @@ async def run_no_ontology_prompt(
     )
     try:
         gen = await generate_no_ontology_analysis(
-            dict(grounded), llm_client, poi_nel_prompt=nel_prompt
+            dict(grounded), llm_client, poi_nel_prompt=in_prompt
         )
     except LLMError as exc:
         logger.warning(
-            "Generazione LLM (braccio senza ontologia) fallita per %s/%s: "
-            "fallback strutturato (narrativa vuota). Causa: %s",
+            "LLM generation (no-ontology arm) failed for %s/%s: "
+            "structured fallback (empty narrative). Cause: %s",
             citta,
             zona,
             exc,
@@ -930,9 +932,9 @@ async def run_no_ontology_prompt(
         latenza_ms=_elapsed_ms(start),
         contesto_hash=contesto_hash,
         geo=retrieval_ctx["geo"],
-        # La narrativa di questo braccio apre il blocco misurato con la propria
-        # etichetta (#236): il taglio per fonte deve cercare quella, non
-        # l'etichetta ontologica che il prompt ablato non chiede piu'.
+        # The narrative of this arm opens the measured block with its own
+        # label (#236): the per-source cut must look for that, not
+        # the ontological label that the ablated prompt no longer asks for.
         measured_token=LLM_SYNTHESIS_TOKEN,
     )
 
@@ -940,12 +942,12 @@ async def run_no_ontology_prompt(
 def _filter_pois(
     ctx: RetrievalContext, keep: Callable[[Poi], bool]
 ) -> RetrievalContext:
-    """Filtra ``ctx["pois"]`` per ``keep`` e ricalcola classi/profili/stats (#318).
+    """Filters ``ctx["pois"]`` by ``keep`` and recomputes classes/profiles/stats (#318).
 
-    Generalizzazione dell'unico filtro esistente (per ``tipo_poi``): entrambi i
-    filtri (tipo, raggio) condividono la stessa ricostruzione di
-    ``profiles``/``stats``, che deve restare in lockstep con la lista POI
-    superstite (stesso invariante di :func:`_build_poi_list`).
+    Generalisation of the only existing filter (by ``tipo_poi``): both
+    filters (type, radius) share the same reconstruction of
+    ``profiles``/``stats``, which must stay in lockstep with the surviving
+    POI list (same invariant as :func:`_build_poi_list`).
     """
     pois = [poi for poi in ctx["pois"] if keep(poi)]
     classes = {poi["terminus_class"] for poi in pois}
@@ -963,20 +965,20 @@ def _filter_pois(
 def _filter_pois_by_type(
     ctx: RetrievalContext, terminus_class: str
 ) -> RetrievalContext:
-    """Restringe il ``RetrievalContext`` ai soli POI di classe TERMINUS data."""
+    """Restricts the ``RetrievalContext`` to POIs of the given TERMINUS class."""
     return _filter_pois(ctx, lambda poi: poi["terminus_class"] == terminus_class)
 
 
 def _filter_pois_by_radius(
     ctx: RetrievalContext, lat: float, lon: float, radius_m: float
 ) -> RetrievalContext:
-    """Restringe il ``RetrievalContext`` ai soli POI entro ``radius_m`` da
-    ``(lat, lon)`` (#318).
+    """Restricts the ``RetrievalContext`` to the POIs within ``radius_m`` of
+    ``(lat, lon)`` only (#318).
 
-    Applicato DOPO ``retrieve()`` (che ha gia' scelto i ``MAX_POIS`` piu' vicini
-    al bbox circoscritto), quindi puo' restituire meno POI del cap se il bacino
-    conteneva punti d'angolo fuori dal cerchio vero ma dentro il bbox — accettato
-    per design (mai un POI fuori dal cerchio disegnato, vedi design doc §2).
+    Applied AFTER ``retrieve()`` (which has already chosen the ``MAX_POIS`` closest
+    to the circumscribed bbox), so it can return fewer POIs than the cap if the pool
+    contained corner points outside the true circle but inside the bbox — accepted
+    by design (never a POI outside the drawn circle, see design doc §2).
     """
     return _filter_pois(
         ctx, lambda poi: haversine_m(lat, lon, poi["lat"], poi["lon"]) <= radius_m
@@ -993,22 +995,22 @@ async def run_baseline(
     tipo_poi: str | None = None,
     radius_m: float | None = None,
 ) -> AnalyzeResponse:
-    """Pipeline baseline: retrieve -> ground -> serializza (NESSUN LLM).
+    """Baseline pipeline: retrieve -> ground -> serialise (NO LLM).
 
-    ``radius_m`` (opzionale, #318) filtra i POI server-side entro il raggio dal
-    centro geocodificato (:func:`_filter_pois_by_radius`), applicato PRIMA del
-    filtro per ``tipo_poi`` (entrambi, prima del grounding). ``None`` = nessun
-    filtro per raggio (comportamento invariato).
+    ``radius_m`` (optional, #318) filters the POIs server-side within the radius from
+    the geocoded centre (:func:`_filter_pois_by_radius`), applied BEFORE the
+    ``tipo_poi`` filter (both, before the grounding). ``None`` = no radius
+    filter (behaviour unchanged).
 
-    ``tipo_poi`` (opzionale, #119) filtra i POI server-side per classe TERMINUS
-    (:func:`_filter_pois_by_type`), applicato prima del grounding. ``None`` o
-    stringa vuota/whitespace = nessun filtro (comportamento invariato). Il
-    confronto e' esatto: il valore atteso e' gia' il nome-classe canonico, che la
-    rotta ricava dall'input libero con
+    ``tipo_poi`` (optional, #119) filters the POIs server-side by TERMINUS class
+    (:func:`_filter_pois_by_type`), applied before the grounding. ``None`` or
+    empty/whitespace string = no filter (behaviour unchanged). The
+    comparison is exact: the expected value is already the canonical class name, which
+    the route derives from the free input with
     :func:`~crime_risk_analyzer.poi_types.resolve_poi_type` (#143).
 
-    ``geo_source`` (opzionale, #169) e' propagato a :func:`retrieve` per il replay
-    del geo nell'harness di eval; ``None`` = geocoding live (prodotto invariato).
+    ``geo_source`` (optional, #169) is propagated to :func:`retrieve` for the geo
+    replay in the eval harness; ``None`` = live geocoding (product unchanged).
     """
     start = time.perf_counter()
     retrieval_ctx = await retrieve(
@@ -1017,15 +1019,15 @@ async def run_baseline(
     if radius_m is not None:
         lat, lon = retrieval_ctx["geo"]["lat"], retrieval_ctx["geo"]["lon"]
         retrieval_ctx = _filter_pois_by_radius(retrieval_ctx, lat, lon, radius_m)
-    tipo = (tipo_poi or "").strip()
-    if tipo:
-        retrieval_ctx = _filter_pois_by_type(retrieval_ctx, tipo)
+    type_name = (tipo_poi or "").strip()
+    if type_name:
+        retrieval_ctx = _filter_pois_by_type(retrieval_ctx, type_name)
     grounded = ground(retrieval_ctx)
     poi_out = _build_poi_list(retrieval_ctx, grounded)
-    # Impronta calcolata DOPO l'eventuale filtro per ``tipo_poi`` (#119): deve
-    # identificare la lista effettivamente restituita, non quella pre-filtro.
-    # Senza versione ISTAT (#354): la baseline non alimenta mai /analyze/poi, il
-    # frontend clicca solo con il contesto_hash dell'analisi completa.
+    # Fingerprint computed AFTER any ``tipo_poi`` filter (#119): it must
+    # identify the list actually returned, not the pre-filter one.
+    # Without ISTAT version (#354): the baseline never feeds /analyze/poi, the
+    # frontend only clicks with the contesto_hash of the full analysis.
     return _structured_response(
         citta,
         zona,

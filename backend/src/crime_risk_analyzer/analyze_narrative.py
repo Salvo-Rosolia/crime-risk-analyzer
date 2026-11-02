@@ -1,14 +1,14 @@
-"""Fase 1+2 di ``/analyze`` senza bloccare sulla narrativa (#259).
+"""Phase 1+2 of ``/analyze`` without blocking on the narrative (#259).
 
-Modulo fratello di :mod:`~crime_risk_analyzer.poi_narrative` (#197): stesso
-schema — chiama ``retrieve``/``ground`` direttamente, non tocca il corpo di
-``orchestrator.run_analysis`` — applicato al livello di zona invece che al
-singolo POI. ``run_analysis_fast`` ha sostituito ``run_analysis`` sulla rotta
-``POST /analyze``: stesso retrieve+ground, nessuna chiamata LLM — la risposta ha
-``narrativa=None`` (#259 fase 1) — ed e' l'unico punto che scalda
-``zone_context_cache`` per i clic successivi. La narrativa arriva con
-``run_zone_narrative`` (``POST /analyze/narrativa``), che legge il contesto
-(caldo o ricostruito, stesso schema di ``run_poi_narrative``) e genera.
+Sibling module of :mod:`~crime_risk_analyzer.poi_narrative` (#197): same
+pattern — it calls ``retrieve``/``ground`` directly, does not touch the body of
+``orchestrator.run_analysis`` — applied at the zone level instead of the single
+POI. ``run_analysis_fast`` has replaced ``run_analysis`` on the
+``POST /analyze`` route: same retrieve+ground, no LLM call — the response has
+``narrativa=None`` (#259 phase 1) — and it is the only place that warms
+``zone_context_cache`` for the following clicks. The narrative arrives with
+``run_zone_narrative`` (``POST /analyze/narrativa``), which reads the context
+(warm or rebuilt, same pattern as ``run_poi_narrative``) and generates.
 """
 
 from __future__ import annotations
@@ -20,10 +20,10 @@ from pydantic import BaseModel, Field
 
 from crime_risk_analyzer import zone_context_cache
 from crime_risk_analyzer.context_fingerprint import (
-    ContestoHash,
+    ContextHash,
+    active_sources_id,
     fingerprint,
-    fonti_attive_id,
-    istat_versione_per,
+    istat_version_for,
 )
 from crime_risk_analyzer.geocoding import ZoneNotFoundError
 from crime_risk_analyzer.istat.response_fields import IstatResponseFields
@@ -36,8 +36,8 @@ from crime_risk_analyzer.orchestrator import (
     _elapsed_ms,  # pyright: ignore[reportPrivateUsage]
     _filter_pois_by_radius,  # pyright: ignore[reportPrivateUsage]
     _LLMClientLike,  # pyright: ignore[reportPrivateUsage]
-    _messaggio_zero_poi,  # pyright: ignore[reportPrivateUsage]
     _structured_response,  # pyright: ignore[reportPrivateUsage]
+    _zero_poi_message,  # pyright: ignore[reportPrivateUsage]
 )
 from crime_risk_analyzer.poi_narrative import ContextMismatchError
 from crime_risk_analyzer.rag.generation import (
@@ -72,27 +72,27 @@ async def run_analysis_fast(
     radius_m: float | None = None,
     istat_context_enabled: bool = False,
 ) -> AnalyzeResponse:
-    """Fase 1 (#259): dati strutturati subito, ``narrativa=None``.
+    """Phase 1 (#259): structured data right away, ``narrativa=None``.
 
-    ``retrieve`` -> ``ground`` -> warm di ``zone_context_cache``: la narrativa
-    vera arriva con :func:`run_zone_narrative`, che rilegge questa stessa cache,
-    e cosi' fa ``/analyze/poi`` a ogni clic. Il deposito in cache vive SOLO qui
-    (#292): i percorsi di valutazione
-    (:func:`~crime_risk_analyzer.orchestrator.run_analysis` e il braccio ablato)
-    non ci scrivono, perche' nessuno li' rilegge quel contesto.
+    ``retrieve`` -> ``ground`` -> warm ``zone_context_cache``: the real narrative
+    arrives with :func:`run_zone_narrative`, which re-reads this same cache, and
+    so does ``/analyze/poi`` at every click. Writing to the cache happens ONLY
+    here (#292): the evaluation paths
+    (:func:`~crime_risk_analyzer.orchestrator.run_analysis` and the ablated arm)
+    do not write to it, because nobody re-reads that context there.
 
-    ``radius_m`` (opzionale, #318) filtra i POI server-side entro il raggio dal
-    centro geocodificato (``_filter_pois_by_radius``), stesso pattern di
-    ``run_baseline``: applicato PRIMA del grounding, cosi' la cache di zona
-    scalda col contesto GIA' filtrato. ``None`` = nessun filtro per raggio
-    (comportamento invariato).
+    ``radius_m`` (optional, #318) filters the POIs server-side within the radius
+    from the geocoded centre (``_filter_pois_by_radius``), same pattern as
+    ``run_baseline``: applied BEFORE grounding, so the zone cache is warmed with
+    the context ALREADY filtered. ``None`` = no radius filter (behaviour
+    unchanged).
 
-    ``istat_context_enabled`` (#346): decide se ``poi[].istat`` arriva al client
-    (ordine dei rischi nelle schede). Il deposito in cache non ne dipende: il
-    grounding calcola sempre l'``IstatPoi``. Acceso, la versione dei dati ISTAT
-    entra anche in ``contesto_hash`` (#354): la fase 2 e ``/analyze/poi`` la
-    confrontano con lo stesso interruttore, e un aggiornamento dei dati nel
-    frattempo da' 409.
+    ``istat_context_enabled`` (#346): decides whether ``poi[].istat`` reaches the
+    client (order of the risks in the cards). Writing to the cache does not depend
+    on it: grounding always computes the ``IstatPoi``. When on, the version of
+    the ISTAT data also enters ``contesto_hash`` (#354): phase 2 and
+    ``/analyze/poi`` compare it with the same switch, and a data update in the
+    meantime gives a 409.
     """
     start = time.perf_counter()
     retrieval_ctx = await retrieve(
@@ -107,8 +107,8 @@ async def run_analysis_fast(
     )
     contesto_hash = fingerprint(
         retrieval_ctx["pois"],
-        istat_versione=istat_versione_per(istat_context_enabled),
-        fonti=fonti_attive_id(),
+        istat_version=istat_version_for(istat_context_enabled),
+        sources_id=active_sources_id(),
     )
     poi_out = _build_poi_list(
         retrieval_ctx, grounded, istat_context_enabled=istat_context_enabled
@@ -127,13 +127,13 @@ async def run_analysis_fast(
 
 
 class ZoneNarrativeRequest(BaseModel):
-    """Body di ``POST /analyze/narrativa`` (#259).
+    """Body of ``POST /analyze/narrativa`` (#259).
 
-    Porta ``domanda`` ma non ``tipo_poi``: l'asimmetria con ``BaselineRequest``
-    (che porta ``tipo_poi`` ma non ``domanda``) è accettata e documentata (#263,
-    chiusa), non colmata; il contratto di ``tipo_poi`` è fissato da #143
-    (catalogo ``GET /poi-types``). Vedi ``BaselineRequest`` in
-    :mod:`~crime_risk_analyzer.orchestrator`.
+    It carries ``domanda`` but not ``tipo_poi``: the asymmetry with
+    ``BaselineRequest`` (which carries ``tipo_poi`` but not ``domanda``) is
+    accepted and documented (#263, closed), not closed up; the ``tipo_poi``
+    contract is fixed by #143 (``GET /poi-types`` catalogue). See
+    ``BaselineRequest`` in :mod:`~crime_risk_analyzer.orchestrator`.
     """
 
     citta: str = Field(
@@ -154,15 +154,15 @@ class ZoneNarrativeRequest(BaseModel):
             "token/costo/latenza e riduce la superficie di prompt-injection."
         ),
     )
-    contesto_hash: ContestoHash
+    contesto_hash: ContextHash
 
 
 class ZoneNarrativeResponse(IstatResponseFields):
-    """Narrativa di zona generata in fase 2 (#259): solo testo + provenienza.
+    """Zone narrative generated in phase 2 (#259): only text + provenance.
 
-    I tre campi ``istat_*`` arrivano da
-    :class:`~crime_risk_analyzer.istat.response_fields.IstatResponseFields`, la
-    base condivisa con ``AnalyzeResponse``/``PoiNarrativeResponse`` (#345).
+    The three ``istat_*`` fields come from
+    :class:`~crime_risk_analyzer.istat.response_fields.IstatResponseFields`, the
+    base shared with ``AnalyzeResponse``/``PoiNarrativeResponse`` (#345).
     """
 
     narrativa: str
@@ -213,41 +213,42 @@ async def run_zone_narrative(
     istat_context_enabled: bool = False,
     istat_scelta_modello: bool = False,
 ) -> ZoneNarrativeResponse:
-    """Fase 2 (#259): genera la narrativa sul contesto già scaldato da
-    :func:`run_analysis_fast`, a cache fredda lo ricostruisce.
+    """Phase 2 (#259): generates the narrative on the context already warmed by
+    :func:`run_analysis_fast`, rebuilding it on a cold cache.
 
-    Solleva :class:`~crime_risk_analyzer.poi_narrative.ContextMismatchError`
-    (-> 409, stesso registro di ``errors.py`` già usato da ``/analyze/poi``)
-    se ``contesto_hash`` non identifica il contesto che si userebbe. Su
-    :class:`LLMError` ritorna narrativa vuota con ``fallback=True``, come il
-    percorso POI. ``request_token_budget``/``max_tokens`` (#210): stessi
-    parametri di :func:`~crime_risk_analyzer.orchestrator.run_analysis`,
-    propagati da ``Settings`` dalla rotta — questa è ormai l'unica chiamata a
-    ``generate_analysis`` che può sforare il TPM del provider, quindi deve
-    rispettare lo stesso budget configurabile, non i default hardcoded.
+    Raises :class:`~crime_risk_analyzer.poi_narrative.ContextMismatchError`
+    (-> 409, same registry of ``errors.py`` already used by ``/analyze/poi``)
+    if ``contesto_hash`` does not identify the context that would be used. On
+    :class:`LLMError` it returns an empty narrative with ``fallback=True``, like
+    the POI path. ``request_token_budget``/``max_tokens`` (#210): same
+    parameters as :func:`~crime_risk_analyzer.orchestrator.run_analysis`,
+    propagated from ``Settings`` by the route — this is now the only call to
+    ``generate_analysis`` that can overrun the provider's TPM, so it must
+    respect the same configurable budget, not the hardcoded defaults.
 
-    A cache fredda senza ``geo_source`` (il caso reale della rotta: il client
-    rimanda solo ``citta``/``zona``, mai l'area originale) la ricostruzione
-    passa da un geocode FORWARD (:func:`~crime_risk_analyzer.geocoding.geocode_zone`)
-    delle etichette. Nella modalita' citta + zona sono il testo digitato
-    (``area_search.resolve_zone``), quindi la ricostruzione ritrova la stessa
-    area. Nel cerchio invece l'etichetta nasce da un reverse geocode del centro
-    (#318): quasi mai una stringa che Nominatim ritrova cercandola in avanti, e
-    sempre impossibile nel caso di fallback (``"area lat,lon"``/``"zona non
-    identificata"``, D9 del design doc). La conseguente
-    :class:`~crime_risk_analyzer.geocoding.ZoneNotFoundError` diventa qui lo
-    stesso :class:`ContextMismatchError` del ramo ``contesto_hash`` -> 409, non
-    un 422 "zona non geocodificabile": il contesto non e' scritto male, e'
-    semplicemente scaduto/sfrattato, e la via d'uscita e' la stessa, rilanciare
-    l'analisi di zona (che ripassa da ``resolve_circle``/``resolve_zone``).
-    :class:`~crime_risk_analyzer.geocoding.GeocodingError`
-    generico (Nominatim irraggiungibile) resta INVECE un 503 non catturato qui:
-    e' un guasto di servizio reale, non un'etichetta non ricercabile, e
-    rilanciare l'analisi non lo risolverebbe.
+    On a cold cache without ``geo_source`` (the real case of the route: the
+    client sends back only ``citta``/``zona``, never the original area) the
+    rebuild goes through a FORWARD geocode
+    (:func:`~crime_risk_analyzer.geocoding.geocode_zone`) of the labels. In the
+    citta + zona mode they are the typed text (``area_search.resolve_zone``), so
+    the rebuild finds the same area again. In the circle, instead, the label comes
+    from a reverse geocode of the centre (#318): almost never a string that
+    Nominatim finds again when searching forward, and always impossible in the
+    fallback case (``"area lat,lon"``/``"zona non identificata"``, D9 of the
+    design doc). The resulting
+    :class:`~crime_risk_analyzer.geocoding.ZoneNotFoundError` becomes here the
+    same :class:`ContextMismatchError` as the ``contesto_hash`` branch -> 409, not
+    a 422 "zone not geocodable": the context is not badly written, it has simply
+    expired/been evicted, and the way out is the same, re-run the zone analysis
+    (which goes through ``resolve_circle``/``resolve_zone`` again). A generic
+    :class:`~crime_risk_analyzer.geocoding.GeocodingError` (Nominatim
+    unreachable) INSTEAD stays a 503 not caught here: it is a real service
+    failure, not an unsearchable label, and re-running the analysis would not
+    fix it.
     """
     start = time.perf_counter()
     cached = zone_context_cache.get(citta, zona)
-    ricostruito = cached is None
+    rebuilt = cached is None
     if cached is None:
         try:
             retrieval_ctx = await retrieve(
@@ -265,17 +266,17 @@ async def run_zone_narrative(
         grounded = ground(retrieval_ctx)
         cached = ZoneContext(retrieval=retrieval_ctx, grounded=grounded)
 
-    impronta = fingerprint(
+    current_hash = fingerprint(
         cached["retrieval"]["pois"],
-        istat_versione=istat_versione_per(istat_context_enabled),
-        fonti=fonti_attive_id(),
+        istat_version=istat_version_for(istat_context_enabled),
+        sources_id=active_sources_id(),
     )
-    if impronta != contesto_hash:
+    if current_hash != contesto_hash:
         raise ContextMismatchError(
             f"il contesto di {citta}/{zona} non e' quello dell'analisi che hai "
             "davanti: rilancia l'analisi di zona"
         )
-    if ricostruito:
+    if rebuilt:
         zone_context_cache.put(citta, zona, cached)
 
     n_poi = len(cached["retrieval"]["pois"])
@@ -292,8 +293,8 @@ async def run_zone_narrative(
         )
     except LLMError as exc:
         logger.warning(
-            "Generazione narrativa di zona fallita per %s/%s: fallback strutturato "
-            "(narrativa vuota). Causa: %s",
+            "Zone narrative generation failed for %s/%s: structured fallback "
+            "(empty narrative). Cause: %s",
             citta,
             zona,
             exc,
@@ -301,15 +302,15 @@ async def run_zone_narrative(
         return ZoneNarrativeResponse(
             narrativa="",
             narrativa_fonti=SourceProse(),
-            # Nessun modello ha scritto nulla: stessa scelta di
-            # ``_structured_response`` sul ramo senza LLM, non un id inventato.
+            # No model wrote anything: same choice as ``_structured_response``
+            # on the no-LLM branch, not an invented id.
             llm_used="",
             tokens_input=0,
             tokens_output=0,
             latenza_ms=_elapsed_ms(start),
             repro=Repro(temperature=0.0, seed=0, prompt_hash=""),
             fallback=True,
-            messaggio=_messaggio_zero_poi(n_poi, ""),
+            messaggio=_zero_poi_message(n_poi, ""),
         )
 
     return ZoneNarrativeResponse(
@@ -321,7 +322,7 @@ async def run_zone_narrative(
         latenza_ms=_elapsed_ms(start),
         repro=gen.repro,
         fallback=False,
-        messaggio=_messaggio_zero_poi(n_poi, gen.narrativa),
+        messaggio=_zero_poi_message(n_poi, gen.narrativa),
         istat_attivo=gen.istat_attivo,
         istat_versione_dati=gen.istat_versione_dati,
         istat_frasi_scartate=gen.istat_frasi_scartate,

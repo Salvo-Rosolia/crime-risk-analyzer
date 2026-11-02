@@ -1,29 +1,29 @@
-"""Sessioni con un set di fonti caricato dall'utente (#416).
+"""Sessions with a source set uploaded by the user (#416).
 
-Il set vale solo per la sessione di chi lo carica. La sessione e' identificata da
-un'intestazione ``X-Session-Id`` scelta dal client: un token casuale (per esempio
-``crypto.randomUUID()``) che il client genera una volta e rimanda a ogni
-richiesta. Il server non emette identificativi e non li lega a nulla di
-personale: chi non conosce il token non puo' ne' vedere ne' usare ne' togliere il
-set di un altro, per questo il formato impone una lunghezza minima.
+The set is valid only for the session of whoever uploads it. The session is identified
+by an ``X-Session-Id`` header chosen by the client: a random token (for example
+``crypto.randomUUID()``) that the client generates once and sends back with every
+request. The server does not issue identifiers and does not link them to anything
+personal: whoever does not know the token can neither see nor use nor remove the
+set of another, which is why the format imposes a minimum length.
 
-Lo stato vive in memoria del processo (stesso modello della cache di zona e del
-geocoding: deploy single-worker, #170). Un riavvio azzera le sessioni; con piu'
-worker ognuno avrebbe le sue. Il tempo e' iniettabile (``clock``) per i test.
+The state lives in the process memory (same model as the zone cache and the
+geocoding: single-worker deploy, #170). A restart resets the sessions; with several
+workers each would have its own. Time is injectable (``clock``) for the tests.
 
-Scadenza a finestra mobile: ogni uso rinnova il TTL, cosi' chi sta lavorando non
-perde il set a meta' analisi. Un set scaduto o sfrattato NON ricade in silenzio sul
-default: la prima lettura successiva solleva :class:`SourcesExpiredError` (410),
-perche' un'analisi sul set sbagliato, se l'utente crede di usare il suo, sarebbe
-un errore silenzioso. Lo stato "scaduto" e' PERSISTENTE: ogni lettura solleva
-:class:`SourcesExpiredError` (cosi' anche due richieste parallele, per esempio
-``/analyze`` e ``/analyze/narrativa``, ricevono lo stesso avviso) finche' l'utente
-non sceglie: un nuovo caricamento valido o il ritorno al default (DELETE).
+Sliding-window expiry: every use renews the TTL, so whoever is working does not
+lose the set mid-analysis. An expired or evicted set does NOT silently fall back to the
+default: the next read raises :class:`SourcesExpiredError` (410),
+because an analysis on the wrong set, if the user believes they are using their own,
+would be a silent error. The "expired" state is PERSISTENT: every read raises
+:class:`SourcesExpiredError` (so even two parallel requests, for example
+``/analyze`` and ``/analyze/narrativa``, receive the same warning) until the user
+chooses: a new valid upload or the return to the default (DELETE).
 
-Memoria: i flag di scadenza sono al piu' ``_MAX_SCADUTE`` (i piu' recenti, LRU per
-ordine di scadenza); oltre il tetto il piu' vecchio e' dimenticato e quella sessione
-ricade sul default senza avviso. Un flag pesa pochi byte (una chiave), quindi il
-tetto e' largo rispetto al tetto di sessioni attive; non serve un TTL a parte.
+Memory: the expiry flags are at most ``_MAX_EXPIRED`` (the most recent, LRU by
+order of expiry); beyond the cap the oldest is forgotten and that session
+falls back to the default without warning. A flag weighs a few bytes (a key), so the
+cap is wide compared to the cap of active sessions; no separate TTL is needed.
 """
 
 from __future__ import annotations
@@ -48,21 +48,21 @@ __all__ = [
 
 SESSION_HEADER = "X-Session-Id"
 
-#: Token url-safe di 16-128 caratteri (ASCII): abbastanza lungo da non essere
-#: indovinabile, abbastanza corto da stare in un'intestazione.
+#: URL-safe token of 16-128 characters (ASCII): long enough not to be
+#: guessable, short enough to fit in a header.
 _SESSION_ID = re.compile(r"[A-Za-z0-9_\-]{16,128}")
 
-#: Quante sessioni scadute/sfrattate ricordare per l'avviso (memoria limitata).
-_MAX_SCADUTE = 256
+#: How many expired/evicted sessions to remember for the warning (bounded memory).
+_MAX_EXPIRED = 256
 
 
 def is_valid_session_id(value: str) -> bool:
-    """``True`` se ``value`` ha la forma di un identificativo di sessione."""
+    """``True`` if ``value`` has the form of a session identifier."""
     return _SESSION_ID.fullmatch(value) is not None
 
 
 class SourcesExpiredError(Exception):
-    """Le fonti caricate dalla sessione sono scadute o sono state sfrattate."""
+    """The sources uploaded by the session have expired or have been evicted."""
 
     def __init__(self) -> None:
         super().__init__(
@@ -73,7 +73,7 @@ class SourcesExpiredError(Exception):
 
 @dataclass
 class SessionEntry:
-    """Set attivo di una sessione, con gli avvisi del caricamento."""
+    """Active set of a session, with the warnings of the upload."""
 
     source_set: SourceSet
     warnings: Sequence[Problem]
@@ -81,7 +81,7 @@ class SessionEntry:
 
 
 class SessionStore:
-    """Archivio in memoria ``session_id -> set`` con TTL e tetto di sessioni."""
+    """In-memory store ``session_id -> set`` with TTL and cap on sessions."""
 
     def __init__(
         self,
@@ -94,29 +94,29 @@ class SessionStore:
         self._max = max_sessions
         self._clock = clock
         self._entries: dict[str, SessionEntry] = {}
-        self._scadute: OrderedDict[str, None] = OrderedDict()
+        self._expired: OrderedDict[str, None] = OrderedDict()
 
     @property
     def ttl_seconds(self) -> float:
         return self._ttl
 
     def count(self) -> int:
-        """Sessioni con un set attivo (le scadute non ancora potate incluse)."""
-        self._pota()
+        """Sessions with an active set (including the expired ones not yet pruned)."""
+        self._prune()
         return len(self._entries)
 
     def activate(
         self, session_id: str, source_set: SourceSet, warnings: Sequence[Problem]
     ) -> None:
-        """Attiva ``source_set`` per la sessione, sostituendo quello precedente."""
-        self._pota()
-        self._scadute.pop(session_id, None)
-        precedente = self._entries.pop(session_id, None)
-        if precedente is not None:
-            zone_context_cache.purge(precedente.source_set.id)
+        """Activates ``source_set`` for the session, replacing the previous one."""
+        self._prune()
+        self._expired.pop(session_id, None)
+        previous = self._entries.pop(session_id, None)
+        if previous is not None:
+            zone_context_cache.purge(previous.source_set.id)
         while len(self._entries) >= self._max:
-            piu_vecchia = min(self._entries, key=lambda k: self._entries[k].expires_at)
-            self._elimina(piu_vecchia, ricorda=True)
+            oldest = min(self._entries, key=lambda k: self._entries[k].expires_at)
+            self._delete(oldest, remember=True)
         self._entries[session_id] = SessionEntry(
             source_set=source_set,
             warnings=tuple(warnings),
@@ -124,55 +124,55 @@ class SessionStore:
         )
 
     def get(self, session_id: str) -> SessionEntry | None:
-        """Il set della sessione (rinnovando la scadenza), o ``None`` se non ce n'e'.
+        """The session's set (renewing the expiry), or ``None`` if there is none.
 
         Raises:
-            SourcesExpiredError: la sessione aveva un set, scaduto o sfrattato;
-                si solleva a ogni lettura finche' non c'e' un nuovo caricamento o
-                un :meth:`reset`.
+            SourcesExpiredError: the session had a set, expired or evicted;
+                it is raised on every read until there is a new upload or
+                a :meth:`reset`.
         """
-        self._pota()
+        self._prune()
         entry = self._entries.get(session_id)
         if entry is not None:
             entry.expires_at = self._clock() + self._ttl
             return entry
-        if session_id in self._scadute:
+        if session_id in self._expired:
             raise SourcesExpiredError
         return None
 
     def peek(self, session_id: str) -> SessionEntry | None:
-        """Come :meth:`get` ma senza rinnovare la scadenza ne' sollevare l'avviso."""
-        self._pota()
+        """Like :meth:`get` but without renewing the expiry nor raising the warning."""
+        self._prune()
         return self._entries.get(session_id)
 
     def remaining_seconds(self, session_id: str) -> int | None:
-        """Secondi alla scadenza (senza rinnovarla), ``None`` senza set attivo."""
+        """Seconds to expiry (without renewing it), ``None`` without an active set."""
         entry = self.peek(session_id)
         if entry is None:
             return None
         return max(0, round(entry.expires_at - self._clock()))
 
     def was_expired(self, session_id: str) -> bool:
-        """``True`` se il set e' scaduto e l'utente non ha ancora scelto cosa fare."""
-        self._pota()
-        return session_id in self._scadute
+        """``True`` if the set expired and the user has not yet chosen what to do."""
+        self._prune()
+        return session_id in self._expired
 
     def reset(self, session_id: str) -> None:
-        """Torna al default: toglie il set e l'eventuale avviso di scadenza."""
-        self._scadute.pop(session_id, None)
-        self._elimina(session_id, ricorda=False)
+        """Back to the default: removes the set and any expiry warning."""
+        self._expired.pop(session_id, None)
+        self._delete(session_id, remember=False)
 
-    def _pota(self) -> None:
-        adesso = self._clock()
-        for sid in [k for k, e in self._entries.items() if e.expires_at <= adesso]:
-            self._elimina(sid, ricorda=True)
+    def _prune(self) -> None:
+        now = self._clock()
+        for sid in [k for k, e in self._entries.items() if e.expires_at <= now]:
+            self._delete(sid, remember=True)
 
-    def _elimina(self, session_id: str, *, ricorda: bool) -> None:
+    def _delete(self, session_id: str, *, remember: bool) -> None:
         entry = self._entries.pop(session_id, None)
         if entry is None:
             return
         zone_context_cache.purge(entry.source_set.id)
-        if ricorda:
-            self._scadute[session_id] = None
-            while len(self._scadute) > _MAX_SCADUTE:
-                self._scadute.popitem(last=False)
+        if remember:
+            self._expired[session_id] = None
+            while len(self._expired) > _MAX_EXPIRED:
+                self._expired.popitem(last=False)

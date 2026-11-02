@@ -242,7 +242,7 @@ def test_upload_non_valido_non_pulisce_lo_scaduto(
 def test_upload_supera_il_limite_sull_ontologia(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(routes, "MAX_BYTES_ONTOLOGIA", 100)
+    monkeypatch.setattr(routes, "MAX_BYTES_ONTOLOGY", 100)
     r = _upload(client)
     assert r.status_code == 422
     assert r.json()["detail"]["errore"] == "fonti_non_valide"
@@ -261,7 +261,7 @@ def test_upload_supera_il_limite_sui_confini(
 def test_content_length_oltre_il_tetto_413(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(routes, "MAX_BYTES_RICHIESTA", 50)
+    monkeypatch.setattr(routes, "MAX_BYTES_REQUEST", 50)
     r = _upload(client)
     assert r.status_code == 413
     assert r.json()["detail"]["errore"] == "richiesta_troppo_grande"

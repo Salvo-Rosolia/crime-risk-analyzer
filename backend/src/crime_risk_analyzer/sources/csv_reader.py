@@ -1,10 +1,10 @@
-"""Lettura dei CSV caricati (#415): formato fisso, errori che dicono cosa fare.
+"""Reading of the uploaded CSVs (#415): fixed format, errors that say what to do.
 
-Formato: intestazione obbligatoria, virgola come separatore, UTF-8 con o senza
-BOM, fine riga LF o CRLF (quello che salva Excel). Un file con ``;`` o tab come
-separatore (l'Excel italiano lo usa di default) da' un errore chiaro invece di una
-lettura sbagliata. Righe vuote ignorate; ogni riga porta il numero di riga del
-file (1 = intestazione) per i messaggi.
+Format: mandatory header, comma as separator, UTF-8 with or without
+BOM, LF or CRLF line ending (what Excel saves). A file with ``;`` or tab as
+separator (Italian Excel uses it by default) gives a clear error instead of a
+wrong reading. Empty rows ignored; each row carries the line number of the
+file (1 = header) for the messages.
 """
 
 from __future__ import annotations
@@ -21,19 +21,19 @@ from crime_risk_analyzer.sources.report import (
     ValidationReport,
 )
 
-__all__ = ["MAX_COLONNE", "MAX_RIGHE", "MAX_ERRORI_RIGA", "CsvRow", "read_csv"]
+__all__ = ["MAX_COLUMNS", "MAX_ROWS", "MAX_ROW_ERRORS", "CsvRow", "read_csv"]
 
-#: Dopo tante righe malformate la lettura si ferma: il resto non aggiunge nulla.
-MAX_ERRORI_RIGA = MAX_PROBLEMS_PER_CODE
-#: Intestazione piu' larga: nessun file valido ha tante colonne.
-MAX_COLONNE = 50
-#: Righe di dati per file: oltre, la lettura si ferma (tempo prevedibile).
-MAX_RIGHE = 200_000
+#: After so many malformed rows the reading stops: the rest adds nothing.
+MAX_ROW_ERRORS = MAX_PROBLEMS_PER_CODE
+#: Wider header: no valid file has that many columns.
+MAX_COLUMNS = 50
+#: Data rows per file: beyond it, the reading stops (predictable time).
+MAX_ROWS = 200_000
 
 
 @dataclass(frozen=True)
 class CsvRow:
-    """Una riga di dati: ``cells`` ha le colonne note, valori senza spazi ai lati."""
+    """A data row: ``cells`` has the known columns, values without edge spaces."""
 
     line: int
     cells: dict[str, str]
@@ -48,16 +48,16 @@ def read_csv(
     report: ValidationReport,
     max_rows: int | None = None,
 ) -> list[CsvRow] | None:
-    """Righe del CSV, o ``None`` se il file non e' leggibile (errori nel ``report``).
+    """CSV rows, or ``None`` if the file is not readable (errors in the ``report``).
 
-    Segnala tutti i problemi di formato in una volta: colonne mancanti (una per
-    colonna), colonne in piu' (avviso, ignorate), righe con un numero sbagliato di
-    celle. Con colonne obbligatorie mancanti le righe non si leggono; le righe
-    malformate sono segnalate e saltate, le altre vengono restituite cosi' il
-    chiamante puo' continuare i controlli sul resto del file.
+    It reports all the format problems at once: missing columns (one per
+    column), extra columns (warning, ignored), rows with a wrong number of
+    cells. With mandatory columns missing the rows are not read; the malformed
+    rows are reported and skipped, the others are returned so the
+    caller can continue the checks on the rest of the file.
     """
     try:
-        testo = content.decode("utf-8-sig")
+        text = content.decode("utf-8-sig")
     except UnicodeDecodeError:
         report.error(
             "codifica_non_valida",
@@ -65,11 +65,11 @@ def read_csv(
             "il file non e' in UTF-8: salvalo come CSV UTF-8",
         )
         return None
-    if not testo.strip():
+    if not text.strip():
         report.error("file_vuoto", file, "il file e' vuoto")
         return None
 
-    if testo[0] in ("\r", "\n"):
+    if text[0] in ("\r", "\n"):
         report.error(
             "intestazione_mancante",
             file,
@@ -78,10 +78,10 @@ def read_csv(
         )
         return None
 
-    # Stessa tokenizzazione per riconoscere il separatore e per leggere i dati.
-    reader = csv.reader(io.StringIO(testo, newline=""))
+    # Same tokenisation to recognise the separator and to read the data.
+    reader = csv.reader(io.StringIO(text, newline=""))
     try:
-        campi = next(reader)
+        fields = next(reader)
     except csv.Error as exc:
         report.error(
             "intestazione_non_leggibile",
@@ -90,7 +90,7 @@ def read_csv(
             line=1,
         )
         return None
-    if len(campi) == 1 and ";" in campi[0]:
+    if len(fields) == 1 and ";" in fields[0]:
         report.error(
             "separatore_non_valido",
             file,
@@ -99,7 +99,7 @@ def read_csv(
             line=1,
         )
         return None
-    if len(campi) == 1 and "\t" in campi[0]:
+    if len(fields) == 1 and "\t" in fields[0]:
         report.error(
             "separatore_non_valido",
             file,
@@ -107,88 +107,88 @@ def read_csv(
             line=1,
         )
         return None
-    if len(campi) > MAX_COLONNE:
+    if len(fields) > MAX_COLUMNS:
         report.error(
             "troppe_colonne",
             file,
-            f"l'intestazione ha {len(campi)} colonne, il massimo e' {MAX_COLONNE}",
+            f"l'intestazione ha {len(fields)} colonne, il massimo e' {MAX_COLUMNS}",
             line=1,
         )
         return None
-    colonne = [c.strip().lower() for c in campi]
-    presenti = set(colonne)
+    columns = [c.strip().lower() for c in fields]
+    present = set(columns)
 
-    mancanti = [c for c in required if c not in presenti]
-    for nome in mancanti:
+    missing = [c for c in required if c not in present]
+    for name in missing:
         report.error(
             "colonna_mancante",
             file,
-            f"manca la colonna obbligatoria {nome!r} "
+            f"manca la colonna obbligatoria {name!r} "
             f"(intestazione attesa: {', '.join([*required, *optional])})",
             line=1,
         )
-    doppie = sorted(c for c, n in Counter(colonne).items() if n > 1)
-    for nome in doppie:
+    duplicates = sorted(c for c, n in Counter(columns).items() if n > 1)
+    for name in duplicates:
         report.error(
-            "colonna_duplicata", file, f"la colonna {nome!r} compare piu' volte", line=1
+            "colonna_duplicata", file, f"la colonna {name!r} compare piu' volte", line=1
         )
-    note = {*required, *optional}
-    in_piu = [c for c in presenti if c not in note]
-    in_piu.sort(key=colonne.index)
-    if in_piu:
+    known = {*required, *optional}
+    extra = [c for c in present if c not in known]
+    extra.sort(key=columns.index)
+    if extra:
         report.warning(
             "colonna_in_piu",
             file,
-            f"colonne non previste, ignorate: {', '.join(repr(c) for c in in_piu)}",
+            f"colonne non previste, ignorate: {', '.join(repr(c) for c in extra)}",
             line=1,
         )
-    if mancanti or doppie:
+    if missing or duplicates:
         return None
 
-    limite = MAX_RIGHE if max_rows is None else max_rows
-    conteggio = 0
-    righe: list[CsvRow] = []
-    malformate = False
-    errori_riga = 0
+    limit = MAX_ROWS if max_rows is None else max_rows
+    count = 0
+    rows: list[CsvRow] = []
+    malformed = False
+    row_error_count = 0
     try:
-        for valori in reader:
-            if not any(v.strip() for v in valori):
+        for values in reader:
+            if not any(v.strip() for v in values):
                 continue
             line = reader.line_num
-            conteggio += 1
-            if conteggio > limite:
+            count += 1
+            if count > limit:
                 report.error(
                     "troppe_righe",
                     file,
-                    f"il file ha piu' di {limite} righe di dati: e' il massimo",
+                    f"il file ha piu' di {limit} righe di dati: e' il massimo",
                     line=line,
                 )
                 return None
-            if len(valori) != len(colonne):
+            if len(values) != len(columns):
                 report.error(
                     "riga_malformata",
                     file,
-                    f"la riga ha {len(valori)} celle invece di {len(colonne)}",
+                    f"la riga ha {len(values)} celle invece di {len(columns)}",
                     line=line,
                 )
-                malformate = True
-                errori_riga += 1
-                if errori_riga >= MAX_ERRORI_RIGA:
+                malformed = True
+                row_error_count += 1
+                if row_error_count >= MAX_ROW_ERRORS:
                     report.error(
                         "lettura_interrotta",
                         file,
-                        f"lettura interrotta dopo {MAX_ERRORI_RIGA} righe "
+                        f"lettura interrotta dopo {MAX_ROW_ERRORS} righe "
                         "malformate: correggi il file e ricaricalo",
                         line=line,
                     )
                     return None
                 continue
-            celle = {c: v.strip() for c, v in zip(colonne, valori, strict=True)}
-            righe.append(CsvRow(line=line, cells=celle))
+            row_cells = {c: v.strip() for c, v in zip(columns, values, strict=True)}
+            rows.append(CsvRow(line=line, cells=row_cells))
     except csv.Error as exc:
         report.error("csv_illeggibile", file, f"CSV non leggibile: {exc}")
         return None
-    if not righe and not malformate:
+    if not rows and not malformed:
         report.error("file_senza_righe", file, "il file ha solo l'intestazione")
         return None
-    return righe
+    return rows

@@ -1,4 +1,4 @@
-"""Da fonti lette e controllate a :class:`SourceSet` pronto da attivare (#416)."""
+"""From read and checked sources to a :class:`SourceSet` ready to activate (#416)."""
 
 from __future__ import annotations
 
@@ -27,19 +27,19 @@ __all__ = [
     "ExecutorFactory",
     "build_source_set",
     "default_executor_factory",
-    "fallback_luoghi",
+    "fallback_places",
 ]
 
 ExecutorFactory = Callable[[Graph, OntologyConfig], RiskQueryExecutor]
 
 
-#: Id del set d'esempio: fisso, perche' il set e' uno solo e condiviso (costruito
-#: una volta); i set ``custom`` hanno invece un id nuovo a ogni caricamento.
+#: Id of the example set: fixed, because the set is single and shared (built
+#: once); the ``custom`` sets instead have a new id at every upload.
 EXAMPLE_ID = "example"
 
 
 def default_executor_factory(graph: Graph, config: OntologyConfig) -> RiskQueryExecutor:
-    """Executor sul grafo caricato, con namespace e proprieta' del set."""
+    """Executor on the loaded graph, with the namespace and properties of the set."""
     return RiskQueryExecutor(
         graph,
         vocabulary=OntologyVocabulary(
@@ -58,18 +58,18 @@ def build_source_set(
     kind: Literal["example", "custom"] = "custom",
     executor_factory: ExecutorFactory = default_executor_factory,
 ) -> SourceSet:
-    """Impacchetta le fonti controllate in un set.
+    """Packages the checked sources into a set.
 
-    Un set ``custom`` ha un id nuovo e univoco a ogni caricamento (anche con file
-    identici): e' la parte della chiave di cache di zona e dell'impronta del
-    contesto che separa le sessioni e che invalida la cache quando una sessione
-    ricarica. Il set ``example`` ha l'id fisso :data:`EXAMPLE_ID`: chi lo usa lo
-    costruisce una volta sola e lo condivide.
+    A ``custom`` set has a new and unique id at every upload (even with identical
+    files): it is the part of the zone cache key and of the context fingerprint
+    that separates the sessions and that invalidates the cache when a session
+    uploads again. The ``example`` set has the fixed id :data:`EXAMPLE_ID`: whoever uses
+    it builds it only once and shares it.
 
     Raises:
-        SourceValidationError: due classi del binding OSM hanno lo stesso alias di
-            ``tipo_poi`` (stessa etichetta IT, o etichetta uguale al nome di
-            un'altra classe): il filtro non saprebbe quale scegliere.
+        SourceValidationError: two classes of the OSM binding have the same
+            ``tipo_poi`` alias (same IT label, or a label equal to the name of
+            another class): the filter would not know which to choose.
     """
     config = OntologyConfig(
         namespace=parsed.vocabulary.namespace,
@@ -79,15 +79,15 @@ def build_source_set(
         vulnerability=parsed.vocabulary.vulnerability,
     )
     source_set = SourceSet(
-        id=_nuovo_id() if kind == "custom" else EXAMPLE_ID,
+        id=_new_id() if kind == "custom" else EXAMPLE_ID,
         kind=kind,
         graph=parsed.graph,
         ontology=config,
         executor=executor_factory(parsed.graph, config),
         osm=OsmBinding(
             osm_to_class=parsed.osm_to_class,
-            ordine_famiglie=parsed.ordine_famiglie,
-            selettori_cedevoli={},
+            family_order=parsed.family_order,
+            yielding_selectors={},
         ),
         istat=IstatSource(
             dati=parsed.istat,
@@ -97,36 +97,36 @@ def build_source_set(
         ),
         labels=parsed.labels,
     )
-    _controlla_alias_tipo_poi(source_set)
+    _check_poi_type_aliases(source_set)
     return source_set
 
 
-def _nuovo_id() -> str:
-    """Id di un set custom.
+def _new_id() -> str:
+    """Id of a custom set.
 
-    INVARIANTE: mai ``DEFAULT_ID``. :func:`crime_risk_analyzer.poi_types` riconosce
-    il default (e ne mette il catalogo in cache) guardando solo l'id: un set
-    custom con id ``"default"`` verrebbe servito con il catalogo del default.
+    INVARIANT: never ``DEFAULT_ID``. :func:`crime_risk_analyzer.poi_types` recognises
+    the default (and caches its catalogue) by looking only at the id: a custom
+    set with id ``"default"`` would be served with the default's catalogue.
     """
-    nuovo = f"custom-{uuid.uuid4().hex[:16]}"
-    if nuovo == DEFAULT_ID:  # pragma: no cover - impossibile col prefisso
+    new_id = f"custom-{uuid.uuid4().hex[:16]}"
+    if new_id == DEFAULT_ID:  # pragma: no cover - impossible with the prefix
         msg = "un set custom non puo' avere l'id del default"
         raise ValueError(msg)
-    return nuovo
+    return new_id
 
 
-def _controlla_alias_tipo_poi(source_set: SourceSet) -> None:
-    """Rifiuta il set se due sue classi condividono un alias di ``tipo_poi``.
+def _check_poi_type_aliases(source_set: SourceSet) -> None:
+    """Rejects the set if two of its classes share a ``tipo_poi`` alias.
 
-    Stesso calcolo del lookup a runtime (:func:`alias_table`), eseguito qui una
-    volta sola: senza questo controllo ogni ``tipo_poi`` darebbe un 500.
+    Same computation as the runtime lookup (:func:`alias_table`), executed here once
+    only: without this check every ``tipo_poi`` would give a 500.
     """
     with bind(source_set):
-        _, conflitti = alias_table(poi_types())
-    if not conflitti:
+        _, conflicts = alias_table(poi_types())
+    if not conflicts:
         return
     report = ValidationReport()
-    for c in conflitti:
+    for c in conflicts:
         report.error(
             "alias_tipo_poi_ambiguo",
             "osm_table",
@@ -135,7 +135,7 @@ def _controlla_alias_tipo_poi(source_set: SourceSet) -> None:
     raise SourceValidationError(report)
 
 
-def fallback_luoghi() -> tuple[Place, ...]:
-    """Confini nostri, per i luoghi dei dati che il file dei confini non copre."""
+def fallback_places() -> tuple[Place, ...]:
+    """Our own boundaries, for the places the boundaries file does not cover."""
     dati = istat_data_or_none()
     return dati.luoghi if dati is not None else ()

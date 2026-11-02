@@ -45,7 +45,7 @@ from crime_risk_analyzer.eval.snapshots import (
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.ontology import load_ontology
 from crime_risk_analyzer.orchestrator import run_baseline
-from crime_risk_analyzer.overpass_client import Poi, TaglioOsm
+from crime_risk_analyzer.overpass_client import OsmCut, Poi
 from crime_risk_analyzer.rag.retrieval import PoiSource
 from crime_risk_analyzer.sparql_module.query_executor import get_executor
 
@@ -124,7 +124,7 @@ def _senza_taglio(source: PoiSource) -> PoiSourceConTaglio:
     fabbricare un taglio che non conoscono, e ``None`` lo dichiara onestamente.
     """
 
-    async def _wrapped(bbox: Bbox, citta: str) -> tuple[list[Poi], TaglioOsm | None]:
+    async def _wrapped(bbox: Bbox, citta: str) -> tuple[list[Poi], OsmCut | None]:
         return await source(bbox, citta), None
 
     return _wrapped

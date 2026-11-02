@@ -1,1 +1,1 @@
-"""Fonti attive per richiesta: ontologia, binding OSM e dati statistici (#411)."""
+"""Per-request active sources: ontology, OSM binding and statistical data (#411)."""

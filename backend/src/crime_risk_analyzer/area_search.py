@@ -1,25 +1,25 @@
-"""Risolve l'AREA di analisi in un GeoSource iniettabile, nelle due modalita'.
+"""Resolves the analysis AREA into an injectable GeoSource, in both modes.
 
-Le due modalita' di ricerca COESISTONO e l'utente usa l'una o l'altra:
+The two search modes COEXIST and the user picks one or the other:
 
-* :func:`resolve_circle` — il cerchio disegnato sulla mappa (centro+raggio, #318),
-  bbox calcolato puramente, nessuna chiamata di rete in quel calcolo;
-* :func:`resolve_zone` — i due campi citta + zona, bbox da Nominatim col pavimento
-  minimo gia' tarato (:func:`~crime_risk_analyzer.geocoding.geocode_zone`).
+* :func:`resolve_circle` — the circle drawn on the map (centre+radius, #318),
+  bbox computed purely, no network call in that computation;
+* :func:`resolve_zone` — the two fields citta + zona, bbox from Nominatim with the
+  already-tuned minimum floor (:func:`~crime_risk_analyzer.geocoding.geocode_zone`).
 
-Entrambe ritornano lo STESSO contratto ``(citta, zona, geo_source)``, quindi il
-resto della pipeline non sa quale modalita' sia stata usata. E' il punto di
-estensione ``geo_source`` che :mod:`crime_risk_analyzer.rag.retrieval` espone gia'
-per il replay in ``eval/`` (#169) a rendere possibile questa simmetria: aggiungere
-una modalita' di ricerca non tocca ne' ``retrieve`` ne' l'harness di valutazione.
+Both return the SAME contract ``(citta, zona, geo_source)``, so the rest of the
+pipeline does not know which mode was used. It is the ``geo_source`` extension
+point that :mod:`crime_risk_analyzer.rag.retrieval` already exposes for the replay
+in ``eval/`` (#169) that makes this symmetry possible: adding a search mode
+touches neither ``retrieve`` nor the evaluation harness.
 
-Due asimmetrie volute fra le modalita':
+Two deliberate asymmetries between the modes:
 
-* etichette — il cerchio non ha testo, quindi le prende dal reverse geocode del
-  centro; con citta + zona il testo digitato E' l'area, e resta l'etichetta;
-* errori — nel cerchio il reverse geocode e' COSMETICO e non blocca mai; con
-  citta + zona il geocode DETERMINA l'area analizzata, quindi una zona non trovata
-  e' un errore vero e non degrada a un'area di ripiego.
+* labels — the circle has no text, so it takes them from the reverse geocode of
+  the centre; with citta + zona the typed text IS the area, and stays the label;
+* errors — in the circle the reverse geocode is COSMETIC and never blocks; with
+  citta + zona the geocode DETERMINES the analysed area, so a zone not found
+  is a real error and does not degrade to a fallback area.
 """
 
 from __future__ import annotations
@@ -40,63 +40,63 @@ __all__ = ["resolve_circle", "resolve_zone"]
 async def resolve_circle(
     lat: float, lon: float, radius_m: float
 ) -> tuple[str, str, GeoSource]:
-    """(citta, zona) best-effort da reverse geocode + un GeoSource per il cerchio.
+    """(citta, zona) best-effort from reverse geocode + a GeoSource for the circle.
 
     Args:
-        lat: Latitudine del centro del cerchio.
-        lon: Longitudine del centro del cerchio.
-        radius_m: Raggio del cerchio in metri.
+        lat: Latitude of the circle centre.
+        lon: Longitude of the circle centre.
+        radius_m: Circle radius in metres.
 
     Returns:
-        Tupla (citta, zona, geo_source) dove geo_source e' un callable che ignora
-        gli argomenti (citta, zona) e ritorna sempre lo stesso GeoResult.
+        Tuple (citta, zona, geo_source) where geo_source is a callable that ignores
+        its arguments (citta, zona) and always returns the same GeoResult.
     """
     citta, zona = await run_in_threadpool(reverse_geocode_label, lat, lon)
     bbox = bbox_from_circle(lat, lon, radius_m)
 
-    async def _geo_source(_citta: str, _zona: str) -> GeoResult:
+    async def _geo_source(_city: str, _zone: str) -> GeoResult:
         return GeoResult(lat=lat, lon=lon, bbox=bbox)
 
     return citta, zona, _geo_source
 
 
 async def resolve_zone(citta: str, zona: str) -> tuple[str, str, GeoSource]:
-    """(citta, zona) + un GeoSource per la coppia di campi testuali.
+    """(citta, zona) + a GeoSource for the pair of text fields.
 
-    L'area e' il bounding box che Nominatim restituisce per "zona, citta", col
-    pavimento minimo di :func:`~crime_risk_analyzer.geocoding.geocode_zone` — non
-    il raggio corrente attorno al punto geocodificato: e' il comportamento storico
-    della ricerca per testo, gia' tarato, e non un comportamento nuovo.
+    The area is the bounding box that Nominatim returns for "zona, citta", with the
+    minimum floor of :func:`~crime_risk_analyzer.geocoding.geocode_zone` — not
+    the current radius around the geocoded point: it is the historical behaviour
+    of text search, already tuned, and not a new behaviour.
 
-    Etichette: sono (citta, zona) COME DIGITATI (gia' ripuliti dal contratto), non
-    il reverse geocode del punto come nel cerchio. Il motivo e' la ricostruzione
-    del contesto: quando ``zone_context_cache`` l'ha scaduto o sfrattato,
-    ``/analyze/narrativa`` e ``/analyze/poi`` lo ricostruiscono rifacendo
-    ``geocode_zone`` sulle etichette ricevute dal client. Col testo digitato si
-    torna alla STESSA area, deterministicamente; con un'etichetta del reverse
-    geocode si finirebbe su un'area diversa (o su nessuna), quindi un 409. Nel
-    cerchio quella via non esiste comunque — non c'e' testo da ricercare — e
-    l'etichetta resta cosmetica.
+    Labels: they are (citta, zona) AS TYPED (already cleaned by the contract), not
+    the reverse geocode of the point as in the circle. The reason is context
+    reconstruction: when ``zone_context_cache`` has expired or evicted it,
+    ``/analyze/narrativa`` and ``/analyze/poi`` rebuild it by redoing
+    ``geocode_zone`` on the labels received from the client. With the typed text
+    you get back to the SAME area, deterministically; with a reverse-geocode
+    label you would end up on a different area (or none), hence a 409. In the
+    circle that path does not exist anyway — there is no text to search — and
+    the label stays cosmetic.
 
-    Non riapre la superficie del non-fidato: le lunghezze sono limitate dal
-    contratto, ``zona`` e' normalizzata come dato esterno prima del prompt di zona
-    (:func:`~crime_risk_analyzer.rag.generation.build_context_str`) e ``citta``
-    lo e' nel prompt per-POI. E nessuna seconda chiamata a Nominatim.
+    It does not reopen the untrusted surface: lengths are bounded by the
+    contract, ``zona`` is normalised as external data before the zone prompt
+    (:func:`~crime_risk_analyzer.rag.generation.build_context_str`) and ``citta``
+    is in the per-POI prompt. And no second call to Nominatim.
 
     Args:
-        citta: Citta' digitata dall'utente (es. ``"Roma"``).
-        zona: Zona/quartiere digitato dall'utente (es. ``"Colosseo"``).
+        citta: City typed by the user (e.g. ``"Roma"``).
+        zona: Zone/neighbourhood typed by the user (e.g. ``"Colosseo"``).
 
     Returns:
-        Tupla (citta, zona, geo_source), stesso contratto di :func:`resolve_circle`.
+        Tuple (citta, zona, geo_source), same contract as :func:`resolve_circle`.
 
     Raises:
-        ZoneNotFoundError: zona inesistente nella citta' o priva di bounding box.
-        GeocodingError: Nominatim non raggiungibile.
+        ZoneNotFoundError: zone not found in the city or without a bounding box.
+        GeocodingError: Nominatim unreachable.
     """
     geo = await run_in_threadpool(geocode_zone, zona, citta)
 
-    async def _geo_source(_citta: str, _zona: str) -> GeoResult:
+    async def _geo_source(_city: str, _zone: str) -> GeoResult:
         return geo
 
     return citta, zona, _geo_source

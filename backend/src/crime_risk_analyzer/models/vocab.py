@@ -1,14 +1,14 @@
-"""Vocabolario tipizzato del citation layer (confidence + tag).
+"""Typed vocabulary of the citation layer (confidence + tag).
 
-Punto unico di verita' per i valori canonici attraversati da grounding,
-generation e output JSON. Renderli :data:`Literal` trasforma un invariante di
-dominio in un vincolo verificato dai tipi (pyright) e dalla validazione Pydantic:
-un ``confidence="alto"`` o un casing errato (``"Confermato"``) falliscono invece
-di propagarsi silenziosamente.
+Single point of truth for the canonical values crossing grounding,
+generation and JSON output. Making them :data:`Literal` turns a domain
+invariant into a constraint verified by the types (pyright) and by Pydantic validation:
+a ``confidence="alto"`` or a wrong casing (``"Confermato"``) fail instead
+of silently propagating.
 
-Casing canonico (``_project.md`` §Confidence/§Citation):
-- ``confidence`` -> **minuscolo**: ``verificato`` / ``da_confermare``.
-- ``tag`` -> **maiuscolo**: ``ONTOLOGIA`` / ``CONTESTO`` / ``SPECULATIVO``.
+Canonical casing (``_project.md`` §Confidence/§Citation):
+- ``confidence`` -> **lowercase**: ``verificato`` / ``da_confermare``.
+- ``tag`` -> **uppercase**: ``ONTOLOGIA`` / ``CONTESTO`` / ``SPECULATIVO``.
 """
 
 from __future__ import annotations
@@ -17,20 +17,20 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-#: Livello di confidenza qualitativo (mai un punteggio numerico). Casing
-#: canonico minuscolo, allineato a ``ConfidenceSummary`` e ai dati demo.
+#: Qualitative confidence level (never a numeric score). Canonical lowercase
+#: casing, aligned with ``ConfidenceSummary`` and the demo data.
 Confidence = Literal["verificato", "da_confermare"]
 
-#: Tag fonte del citation layer (anti-hallucination). Casing canonico maiuscolo.
+#: Source tag of the citation layer (anti-hallucination). Canonical uppercase casing.
 Tag = Literal["ONTOLOGIA", "CONTESTO", "SPECULATIVO"]
 
 
 class ConfidenceSummary(BaseModel):
-    """Conteggio dei rischi per livello di confidenza.
+    """Count of the risks per confidence level.
 
-    Sostituisce il vecchio ``dict[str, int]``: i due livelli canonici diventano
-    campi tipizzati (default 0, non negativi), cosi' lo shape e' garantito dal
-    modello invece che convenzionale.
+    Replaces the old ``dict[str, int]``: the two canonical levels become
+    typed fields (default 0, non-negative), so the shape is guaranteed by the
+    model instead of conventional.
     """
 
     verificato: int = Field(default=0, ge=0, description="Rischi verificati.")

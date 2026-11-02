@@ -1,38 +1,38 @@
-"""Single source of truth per IRI/namespace dell'ontologia TERMINUS Crime (#75).
+"""Single source of truth for the IRI/namespace of the TERMINUS Crime ontology (#75).
 
-Questo modulo consolida in un unico posto l'IRI **reale** dell'ontologia ENEA
-(Minardi et al.), condiviso tra il tool di materializzazione offline
-(:mod:`~crime_risk_analyzer.ontology_materialize`, #74), il loader di runtime
-(:mod:`~crime_risk_analyzer.ontology`) e l'executor SPARQL (#76). Avere
-un'unica costante evita il drift e l'uso accidentale di IRI fuorvianti.
+This module consolidates in a single place the **real** IRI of the ENEA ontology
+(Minardi et al.), shared between the offline materialisation tool
+(:mod:`~crime_risk_analyzer.ontology_materialize`, #74), the runtime loader
+(:mod:`~crime_risk_analyzer.ontology`) and the SPARQL executor (#76). Having
+a single constant avoids drift and the accidental use of misleading IRIs.
 
-Attenzione a DUE IRI da NON usare:
+Beware of TWO IRIs NOT to use:
 
-* il default ``xmlns`` ``untitled-ontology-34`` dichiarato nel file OWL sorgente
-  e' legacy/fuorviante (artefatto di Protege), non l'identita' dell'ontologia;
-* l'IRI placeholder ``http://example.org/terminus-crime#`` usato in passato nelle
-  fixture e nelle bozze di spec NON e' l'ontologia reale.
+* the default ``xmlns`` ``untitled-ontology-34`` declared in the source OWL file
+  is legacy/misleading (a Protege artefact), not the identity of the ontology;
+* the placeholder IRI ``http://example.org/terminus-crime#`` used in the past in
+  fixtures and spec drafts is NOT the real ontology.
 
-L'IRI canonico e' :data:`TERMINUS_IRI`. :data:`TERMINUS` e' il
-:class:`rdflib.Namespace` corrispondente (con ``#`` finale) cosi' che #76 possa
-scrivere ``TERMINUS.havingHazard`` / ``TERMINUS["havingHazard"]`` e ottenere
-direttamente un :class:`~rdflib.URIRef` per ``initBindings`` nelle query
-parametrizzate.
+The canonical IRI is :data:`TERMINUS_IRI`. :data:`TERMINUS` is the corresponding
+:class:`rdflib.Namespace` (with a trailing ``#``) so that #76 can
+write ``TERMINUS.havingHazard`` / ``TERMINUS["havingHazard"]`` and directly get
+a :class:`~rdflib.URIRef` for ``initBindings`` in the parametrised
+queries.
 """
 
 from __future__ import annotations
 
 from rdflib import Namespace
 
-#: IRI reale dell'ontologia TERMINUS Crime (ENEA, Minardi et al.), **senza** il
-#: ``#`` finale. NON il default xmlns ``untitled-ontology-34`` del file OWL
-#: (legacy/fuorviante) ne' il placeholder ``example.org/terminus-crime``.
+#: Real IRI of the TERMINUS Crime ontology (ENEA, Minardi et al.), **without** the
+#: trailing ``#``. NOT the default xmlns ``untitled-ontology-34`` of the OWL file
+#: (legacy/misleading) nor the ``example.org/terminus-crime`` placeholder.
 TERMINUS_IRI = "http://www.enea-terin-sen-apic.it/TERMINUS-crime-v01"
 
-#: Prefisso leggibile legato a ``TERMINUS_IRI#`` (es. ``tc:Bank``) nel Turtle
-#: materializzato e nelle query.
+#: Readable prefix bound to ``TERMINUS_IRI#`` (e.g. ``tc:Bank``) in the
+#: materialised Turtle and in the queries.
 TERMINUS_PREFIX = "tc"
 
-#: :class:`rdflib.Namespace` su ``{TERMINUS_IRI}#``: ``TERMINUS.havingHazard`` o
-#: ``TERMINUS["havingHazard"]`` risolvono a ``URIRef`` pronti per SPARQL (#76).
+#: :class:`rdflib.Namespace` on ``{TERMINUS_IRI}#``: ``TERMINUS.havingHazard`` or
+#: ``TERMINUS["havingHazard"]`` resolve to ``URIRef`` ready for SPARQL (#76).
 TERMINUS = Namespace(f"{TERMINUS_IRI}#")

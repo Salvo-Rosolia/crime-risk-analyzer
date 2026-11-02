@@ -1,14 +1,14 @@
-"""Set di fonti attivo per la richiesta corrente (#411).
+"""Source set active for the current request (#411).
 
-``current()`` ritorna il set legato con :func:`bind` nel contesto corrente, o il
-default. Si usa un :class:`~contextvars.ContextVar`: ogni task asyncio ha il suo
-valore e il valore e' visibile nel threadpool di Starlette (copia del contesto).
+``current()`` returns the set bound with :func:`bind` in the current context, or the
+default. A :class:`~contextvars.ContextVar` is used: each asyncio task has its own
+value and the value is visible in Starlette's threadpool (copy of the context).
 
-Limiti noti: (a) un task lanciato con ``asyncio.create_task``/``to_thread`` che
-sopravvive al blocco :func:`bind` conserva il set del contesto copiato alla
-creazione; (b) :func:`default_set` congela dati, grafo ed executor alla prima
-chiamata e non si azzera con ``clear_cache()``/``cache_clear()`` delle cache
-sottostanti (va svuotata anche ``default_set.cache_clear()``).
+Known limits: (a) a task launched with ``asyncio.create_task``/``to_thread`` that
+outlives the :func:`bind` block keeps the set of the context copied at
+creation; (b) :func:`default_set` freezes data, graph and executor at the first
+call and is not reset by ``clear_cache()``/``cache_clear()`` of the
+underlying caches (``default_set.cache_clear()`` must be emptied too).
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from contextvars import ContextVar
 from functools import lru_cache
 
 from crime_risk_analyzer.istat.catalog import BREAK_ITEMS_2016
-from crime_risk_analyzer.istat.data import data_version as _versione_dati_default
+from crime_risk_analyzer.istat.data import data_version as _default_data_version
 from crime_risk_analyzer.istat.data import istat_data_or_none
 from crime_risk_analyzer.istat.mapping import HAZARD_MAPPING
 from crime_risk_analyzer.ontology import get_ontology
@@ -31,9 +31,9 @@ from crime_risk_analyzer.sources.model import (
     SourceSet,
 )
 from crime_risk_analyzer.sparql_module.osm_mapping import (
-    ORDINE_FAMIGLIE,
+    FAMILY_ORDER,
     OSM_TO_TERMINUS,
-    SELETTORI_CEDEVOLI,
+    YIELDING_SELECTORS,
 )
 from crime_risk_analyzer.sparql_module.query_executor import (
     RiskQueryExecutor,
@@ -51,16 +51,16 @@ __all__ = [
     "current_ontology",
     "current_osm",
     "default_set",
-    "versione_dati",
+    "istat_data_version",
 ]
 
 DEFAULT_ID = "default"
 
-#: Binding OSM del default: costruito dalle costanti, senza costruire il set.
+#: OSM binding of the default: built from the constants, without building the set.
 _DEFAULT_OSM = OsmBinding(
     osm_to_class=OSM_TO_TERMINUS,
-    ordine_famiglie=ORDINE_FAMIGLIE,
-    selettori_cedevoli=SELETTORI_CEDEVOLI,
+    family_order=FAMILY_ORDER,
+    yielding_selectors=YIELDING_SELECTORS,
 )
 
 _ACTIVE: ContextVar[SourceSet | None] = ContextVar("active_source_set", default=None)
@@ -68,7 +68,7 @@ _ACTIVE: ContextVar[SourceSet | None] = ContextVar("active_source_set", default=
 
 @lru_cache(maxsize=1)
 def default_set() -> SourceSet:
-    """Set TERMINUS + ISTAT costruito dai moduli esistenti (singleton)."""
+    """TERMINUS + ISTAT set built from the existing modules (singleton)."""
     dati = istat_data_or_none()
     return SourceSet(
         id="default",
@@ -88,76 +88,76 @@ def default_set() -> SourceSet:
 
 
 def current() -> SourceSet:
-    """Set attivo nel contesto corrente, altrimenti il default."""
+    """Active set in the current context, otherwise the default."""
     active = _ACTIVE.get()
     return active if active is not None else default_set()
 
 
 def current_id() -> str:
-    """Id del set attivo, senza costruire il default (chiavi di cache e impronte)."""
+    """Id of the active set, without building the default (cache keys, fingerprints)."""
     active = _ACTIVE.get()
     return active.id if active is not None else DEFAULT_ID
 
 
 def current_osm() -> OsmBinding:
-    """Binding OSM del set attivo; senza set, quello del default.
+    """OSM binding of the active set; without a set, that of the default.
 
-    Non costruisce il set di default (grafo, dati ISTAT): il percorso di Overpass
-    e dei tool offline non ne ha bisogno.
+    It does not build the default set (graph, ISTAT data): the Overpass path
+    and the offline tools do not need it.
     """
     active = _ACTIVE.get()
     return active.osm if active is not None else _DEFAULT_OSM
 
 
 def current_labels() -> Mapping[str, tuple[str, str]] | None:
-    """Etichette ``classe -> (IT, EN)`` del set attivo; ``None`` = JSON TERMINUS.
+    """Labels ``class -> (IT, EN)`` of the active set; ``None`` = TERMINUS JSON.
 
-    Come :func:`current_osm`, non costruisce il default (che ha ``labels=None``).
+    Like :func:`current_osm`, it does not build the default (which has ``labels=None``).
     """
     active = _ACTIVE.get()
     return active.labels if active is not None else None
 
 
 def current_ontology() -> OntologyConfig:
-    """Proprieta' dell'ontologia del set attivo; senza set, quelle TERMINUS.
+    """Ontology properties of the active set; without a set, the TERMINUS ones.
 
-    Come :func:`current_osm`, non costruisce il default (il grounding non carica
-    il grafo per leggere i nomi delle proprieta').
+    Like :func:`current_osm`, it does not build the default (the grounding does not load
+    the graph to read the property names).
     """
     active = _ACTIVE.get()
     return active.ontology if active is not None else TERMINUS_CONFIG
 
 
 def active_istat() -> IstatSource | None:
-    """Fonte ISTAT del set legato con :func:`bind`; ``None`` se vale il default.
+    """ISTAT source of the set bound with :func:`bind`; ``None`` if the default applies.
 
-    Fuori da ``bind`` NON costruisce il default: chi legge ISTAT passa dalle
-    cache dei dati (``istat_data_or_none``), come prima di #414. Con un set legato
-    le righe, la mappatura e la versione sono SEMPRE quelle del set, anche se
-    ``dati`` e' ``None`` (nessun ripiego sui dati di default).
+    Outside ``bind`` it does NOT build the default: whoever reads ISTAT goes through the
+    data caches (``istat_data_or_none``), as before #414. With a bound set
+    the rows, the mapping and the version are ALWAYS those of the set, even if
+    ``dati`` is ``None`` (no fallback on the default data).
     """
     active = _ACTIVE.get()
     return active.istat if active is not None else None
 
 
-def versione_dati() -> str | None:
-    """Versione dei dati ISTAT del set attivo, ``None`` se non disponibili.
+def istat_data_version() -> str | None:
+    """Version of the ISTAT data of the active set, ``None`` if not available.
 
-    Unica sorgente per risposta, impronta e confronto; con il default coincide
-    con :func:`crime_risk_analyzer.istat.data.data_version`.
+    Single source for response, fingerprint and comparison; with the default it
+    coincides with :func:`crime_risk_analyzer.istat.data.data_version`.
     """
     istat = active_istat()
-    return istat.versione if istat is not None else _versione_dati_default()
+    return istat.versione if istat is not None else _default_data_version()
 
 
 def current_executor() -> RiskQueryExecutor:
-    """Executor SPARQL del set attivo (dipendenza delle rotte)."""
+    """SPARQL executor of the active set (dependency of the routes)."""
     return current().executor
 
 
 @contextmanager
 def bind(source_set: SourceSet) -> Generator[None]:
-    """Rende ``source_set`` attivo nel blocco; all'uscita ripristina il precedente."""
+    """Makes ``source_set`` active in the block; on exit restores the previous one."""
     token = _ACTIVE.set(source_set)
     try:
         yield

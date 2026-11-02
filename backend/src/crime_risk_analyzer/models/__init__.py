@@ -1,7 +1,7 @@
-"""Modelli e vocabolari condivisi del dominio (Pydantic v2 + tipi base).
+"""Shared domain models and vocabularies (Pydantic v2 + base types).
 
-Punto unico per i tipi attraversati da piu' layer: il vocabolario tipizzato del
-citation layer (:mod:`.vocab`), il bounding box geografico (:mod:`.geo`) e il
-profilo di rischio per POI prodotto dall'executor SPARQL
+Single point for the types crossing several layers: the typed vocabulary of the
+citation layer (:mod:`.vocab`), the geographic bounding box (:mod:`.geo`) and the
+per-POI risk profile produced by the SPARQL executor
 (:class:`.risk.PoiRiskProfile`).
 """

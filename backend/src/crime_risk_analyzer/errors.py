@@ -1,36 +1,36 @@
-"""Mappatura centrale errore di dominio -> HTTP (#21).
+"""Central mapping domain error -> HTTP (#21).
 
-Le eccezioni di dominio nascono nei rispettivi moduli (coesione):
+Domain exceptions are born in their respective modules (cohesion):
 ``GeocodingError``/``ZoneNotFoundError`` in :mod:`~crime_risk_analyzer.geocoding`,
 ``OverpassError`` in :mod:`~crime_risk_analyzer.overpass_client`, ``LLMError`` in
-:mod:`~crime_risk_analyzer.llm.client`. Qui si registra la **mappa errore ->
-risposta HTTP** in un punto unico, via ``@app.exception_handler`` (orchestrator.md
-§"Gestione errori"): niente ``try/except`` sparsi nei router.
+:mod:`~crime_risk_analyzer.llm.client`. Here the **error -> HTTP response map**
+is registered in a single place, via ``@app.exception_handler`` (orchestrator.md
+§"Gestione errori"): no scattered ``try/except`` in the routers.
 
-Mappa (orchestrator.md):
-  * :class:`ZoneNotFoundError`  -> ``422`` (zona non geocodificabile)
-  * :class:`GeocodingError`     -> ``503`` (servizio di geocoding non raggiungibile)
-  * :class:`OverpassError`      -> ``503`` (Overpass non raggiungibile, o risposta
-    200 con remark di interruzione, dopo retry: #372, puo' costare ~2x26 s)
-  * :class:`PoiNotFoundError`   -> ``404`` (POI fuori dall'analisi corrente, #197)
-  * :class:`ContextMismatchError` -> ``409`` (contesto di zona disallineato, #242)
-  * :class:`UnknownPoiTypeError` -> ``422`` (``tipo_poi`` fuori catalogo, #143)
-  * :class:`SourceValidationError` -> ``422`` (file delle fonti non validi, #416)
-  * :class:`SourcesExpiredError` -> ``410`` (fonti della sessione scadute, #416)
+Map (orchestrator.md):
+  * :class:`ZoneNotFoundError`  -> ``422`` (zone not geocodable)
+  * :class:`GeocodingError`     -> ``503`` (geocoding service unreachable)
+  * :class:`OverpassError`      -> ``503`` (Overpass unreachable, or a 200
+    response with an interruption remark, after retry: #372, can cost ~2x26 s)
+  * :class:`PoiNotFoundError`   -> ``404`` (POI outside the current analysis, #197)
+  * :class:`ContextMismatchError` -> ``409`` (zone context out of sync, #242)
+  * :class:`UnknownPoiTypeError` -> ``422`` (``tipo_poi`` outside the catalogue, #143)
+  * :class:`SourceValidationError` -> ``422`` (invalid source files, #416)
+  * :class:`SourcesExpiredError` -> ``410`` (session sources expired, #416)
 
-Nessuna allowlist di citta' (#191): una citta' italiana inesistente non e'
-respinta a monte, ma fallisce al geocoding come :class:`ZoneNotFoundError` (422).
+No city allowlist (#191): a non-existent Italian city is not rejected upstream,
+but fails at geocoding as :class:`ZoneNotFoundError` (422).
 
-**``LLMError`` non e' mappato qui di proposito.** In caso di Anthropic 429/5xx la
-spec non prevede un codice HTTP uniforme ma una *decisione*: fuori demo si
-ritorna la response senza narrativa. **Nessun failover automatico su Groq** (lo
-switch resta manuale via ``LLM_PROVIDER`` — _project.md §Stack, spec-root §C1).
-Quella logica vive nelle funzioni che chiamano il modello — oggi
-:func:`~crime_risk_analyzer.analyze_narrative.run_zone_narrative` e
-:func:`~crime_risk_analyzer.poi_narrative.run_poi_narrative` per le rotte, piu' i
-percorsi di valutazione in :mod:`~crime_risk_analyzer.orchestrator` — che
-catturano l'errore e rispondono ``200`` con ``fallback=True``; un ``LLMError``
-che sfuggisse a quei rami resta un 500.
+**``LLMError`` is deliberately not mapped here.** On Anthropic 429/5xx the spec
+does not foresee a uniform HTTP code but a *decision*: outside the demo the
+response is returned without narrative. **No automatic failover to Groq** (the
+switch stays manual via ``LLM_PROVIDER`` — _project.md §Stack, spec-root §C1).
+That logic lives in the functions that call the model — today
+:func:`~crime_risk_analyzer.analyze_narrative.run_zone_narrative` and
+:func:`~crime_risk_analyzer.poi_narrative.run_poi_narrative` for the routes, plus
+the evaluation paths in :mod:`~crime_risk_analyzer.orchestrator` — which catch
+the error and answer ``200`` with ``fallback=True``; an ``LLMError`` that escaped
+those branches remains a 500.
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ from crime_risk_analyzer.sources.session import SourcesExpiredError
 async def _handle_zone_not_found(
     _request: Request, exc: ZoneNotFoundError
 ) -> JSONResponse:
-    """``ZoneNotFoundError`` -> ``422`` (zona non geocodificabile)."""
+    """``ZoneNotFoundError`` -> ``422`` (zone not geocodable)."""
     return JSONResponse(
         status_code=422,
         content={
@@ -64,7 +64,7 @@ async def _handle_zone_not_found(
 async def _handle_geocoding_error(
     _request: Request, exc: GeocodingError
 ) -> JSONResponse:
-    """``GeocodingError`` (non-zona) -> ``503`` servizio non raggiungibile."""
+    """``GeocodingError`` (non-zone) -> ``503`` service unreachable."""
     return JSONResponse(
         status_code=503,
         content={
@@ -74,11 +74,11 @@ async def _handle_geocoding_error(
 
 
 async def _handle_overpass_error(_request: Request, exc: OverpassError) -> JSONResponse:
-    """``OverpassError`` -> ``503`` Overpass non raggiungibile dopo retry.
+    """``OverpassError`` -> ``503`` Overpass unreachable after retry.
 
-    Anche una risposta 200 che porta un remark di interruzione viene ritentata
-    come un timeout e, esauriti i tentativi, arriva qui (#372): in interattivo
-    costa fino a 2 tentativi da ~26 s ciascuno prima del 503.
+    Even a 200 response carrying an interruption remark is retried like a
+    timeout and, once the attempts are exhausted, ends up here (#372): in
+    interactive mode it costs up to 2 attempts of ~26 s each before the 503.
     """
     return JSONResponse(
         status_code=503,
@@ -91,12 +91,12 @@ async def _handle_overpass_error(_request: Request, exc: OverpassError) -> JSONR
 async def _handle_poi_not_found(
     _request: Request, exc: PoiNotFoundError
 ) -> JSONResponse:
-    """``PoiNotFoundError`` -> ``404`` (POI fuori dall'analisi corrente, #197).
+    """``PoiNotFoundError`` -> ``404`` (POI outside the current analysis, #197).
 
-    Non e' un errore di servizio ma di riferimento: il client ha chiesto la
-    narrativa di un POI che il contesto di zona corrente non contiene (zona
-    ri-analizzata, POI sparito da OSM). Il messaggio dice cosa fare (rilanciare
-    l'analisi), cosi' la UI puo' riproporlo all'operatore.
+    It is not a service error but a reference error: the client asked for the
+    narrative of a POI that the current zone context does not contain (zone
+    re-analysed, POI vanished from OSM). The message says what to do (re-run
+    the analysis), so the UI can propose it again to the operator.
     """
     return JSONResponse(
         status_code=404,
@@ -107,12 +107,12 @@ async def _handle_poi_not_found(
 async def _handle_context_mismatch(
     _request: Request, exc: ContextMismatchError
 ) -> JSONResponse:
-    """``ContextMismatchError`` -> ``409`` (contesto disallineato, #242).
+    """``ContextMismatchError`` -> ``409`` (context out of sync, #242).
 
-    Non e' un riferimento inesistente (404) ma un conflitto di stato: il contesto
-    mostrato all'utente e quello disponibile al server divergono, e l'operazione
-    torna possibile ripetendo l'analisi di zona. Il messaggio dice cosa fare,
-    cosi' la UI puo' riproporlo all'operatore.
+    It is not a non-existent reference (404) but a state conflict: the context
+    shown to the user and the one available to the server diverge, and the
+    operation becomes possible again by repeating the zone analysis. The message
+    says what to do, so the UI can propose it again to the operator.
     """
     return JSONResponse(
         status_code=409,
@@ -123,10 +123,10 @@ async def _handle_context_mismatch(
 async def _handle_unknown_poi_type(
     _request: Request, exc: UnknownPoiTypeError
 ) -> JSONResponse:
-    """``UnknownPoiTypeError`` -> ``422`` (``tipo_poi`` fuori catalogo, #143).
+    """``UnknownPoiTypeError`` -> ``422`` (``tipo_poi`` outside the catalogue, #143).
 
-    Prima un tipo non riconosciuto dava una lista vuota indistinguibile da "nessun
-    POI di quel tipo nell'area". Il catalogo valido e' ``GET /poi-types``.
+    Before, an unrecognised type gave an empty list indistinguishable from "no
+    POI of that type in the area". The valid catalogue is ``GET /poi-types``.
     """
     return JSONResponse(
         status_code=422,
@@ -139,10 +139,10 @@ async def _handle_unknown_poi_type(
 async def _handle_source_validation(
     _request: Request, exc: SourceValidationError
 ) -> JSONResponse:
-    """``SourceValidationError`` -> ``422`` con il report completo (#416).
+    """``SourceValidationError`` -> ``422`` with the full report (#416).
 
-    Il report elenca TUTTI i problemi (errori e avvisi), cosi' chi carica corregge
-    i file in un solo giro; ``file`` aggancia ogni messaggio al suo campo.
+    The report lists ALL the problems (errors and warnings), so whoever uploads
+    fixes the files in one go; ``file`` ties each message to its field.
     """
     return JSONResponse(
         status_code=422,
@@ -162,8 +162,8 @@ async def _handle_sources_expired(
 ) -> JSONResponse:
     """``SourcesExpiredError`` -> ``410`` (#416).
 
-    Le fonti caricate dalla sessione non ci sono piu': invece di analizzare in
-    silenzio sul default, si chiede di ricaricarle o di tornare al default.
+    The sources uploaded by the session are gone: instead of silently analysing on
+    the default, the user is asked to upload them again or return to the default.
     """
     return JSONResponse(
         status_code=410,
@@ -172,15 +172,15 @@ async def _handle_sources_expired(
 
 
 def register_exception_handlers(app: FastAPI) -> None:
-    """Registra sull'``app`` la mappa centrale errore di dominio -> HTTP.
+    """Registers on ``app`` the central domain error -> HTTP map.
 
-    Gli handler piu' specifici sono registrati prima: ``ZoneNotFoundError``
-    (sottoclasse di ``GeocodingError``) ha un handler dedicato a 422, mentre il
-    ``GeocodingError`` base cade su 503. Starlette risolve l'handler per tipo
-    esatto, risalendo le superclassi: avere entrambi registrati garantisce che la
-    zona vada a 422 e gli altri errori di geocoding a 503.
+    The most specific handlers are registered first: ``ZoneNotFoundError``
+    (subclass of ``GeocodingError``) has a dedicated handler at 422, while the
+    base ``GeocodingError`` falls on 503. Starlette resolves the handler by exact
+    type, walking up the superclasses: having both registered guarantees that the
+    zone goes to 422 and the other geocoding errors to 503.
 
-    ``LLMError`` non e' registrato di proposito (vedi docstring del modulo).
+    ``LLMError`` is deliberately not registered (see the module docstring).
     """
     app.add_exception_handler(ZoneNotFoundError, _handle_zone_not_found)  # pyright: ignore[reportArgumentType]
     app.add_exception_handler(GeocodingError, _handle_geocoding_error)  # pyright: ignore[reportArgumentType]

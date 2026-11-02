@@ -1,16 +1,16 @@
-"""API delle fonti caricate dall'utente (#416).
+"""API of the sources uploaded by the user (#416).
 
-``POST /sources`` carica un set e lo attiva per la sessione, ``POST
-/sources/example`` attiva quello d'esempio, ``GET /sources`` ne dice lo stato,
-``DELETE /sources`` torna al default, ``GET /sources/templates/{nome}`` scarica i
-modelli CSV. La sessione e' quella dell'intestazione ``X-Session-Id`` (vedi
+``POST /sources`` uploads a set and activates it for the session, ``POST
+/sources/example`` activates the example one, ``GET /sources`` tells its status,
+``DELETE /sources`` returns to the default, ``GET /sources/templates/{nome}`` downloads
+the CSV templates. The session is the one of the ``X-Session-Id`` header (see
 :mod:`~crime_risk_analyzer.sources.session`).
 
-:func:`activate_session` e' la dipendenza che le rotte di analisi aggiungono per
-lavorare sul set della sessione: lega il set al contesto della richiesta
-(:func:`~crime_risk_analyzer.sources.context.bind`), da cui cache di zona e
-impronta del contesto prendono l'id. Chi LEGGE dal set attivo (executor, binding
-OSM, ISTAT) sono le rotte di analisi, non questo modulo.
+:func:`activate_session` is the dependency that the analysis routes add in order to
+work on the session's set: it binds the set to the request context
+(:func:`~crime_risk_analyzer.sources.context.bind`), from which the zone cache and
+the context fingerprint take the id. Whoever READS from the active set (executor, OSM
+binding, ISTAT) are the analysis routes, not this module.
 """
 
 from __future__ import annotations
@@ -27,17 +27,17 @@ from fastapi.routing import APIRoute
 from pydantic import BaseModel
 
 from crime_risk_analyzer.config import get_settings
-from crime_risk_analyzer.sources.build import build_source_set, fallback_luoghi
+from crime_risk_analyzer.sources.build import build_source_set, fallback_places
 from crime_risk_analyzer.sources.context import bind
 from crime_risk_analyzer.sources.example import example_bundle
 from crime_risk_analyzer.sources.limits import (
     MAX_BYTES_CSV,
     MAX_BYTES_GEOJSON,
-    MAX_BYTES_ONTOLOGIA,
-    MAX_BYTES_RICHIESTA,
-    MAX_CAMPI_MULTIPART,
-    MAX_FILE_MULTIPART,
-    MAX_PARTE_CAMPO,
+    MAX_BYTES_ONTOLOGY,
+    MAX_BYTES_REQUEST,
+    MAX_FIELD_PART_BYTES,
+    MAX_MULTIPART_FIELDS,
+    MAX_MULTIPART_FILES,
 )
 from crime_risk_analyzer.sources.model import SourceSet
 from crime_risk_analyzer.sources.parsing import UploadedFiles, check_sources
@@ -64,9 +64,9 @@ router = APIRouter()
 
 _ID_PATTERN = r"^[A-Za-z0-9_\-]{16,128}$"
 
-#: Intestazione obbligatoria (le rotte ``/sources`` che scrivono) o facoltativa
-#: (stato: senza intestazione si e' al default). Il formato e' controllato qui,
-#: quindi un valore malformato e' un 422 prima di leggere qualunque file.
+#: Mandatory header (the ``/sources`` routes that write) or optional
+#: (status: without a header we are at the default). The format is checked here,
+#: so a malformed value is a 422 before reading any file.
 RequiredSession = Annotated[
     str,
     Header(
@@ -83,7 +83,7 @@ OptionalSession = Annotated[
 
 @lru_cache
 def get_sessions() -> SessionStore:
-    """Archivio delle sessioni (singleton di processo, overridabile nei test)."""
+    """Session store (process singleton, overridable in the tests)."""
     settings = get_settings()
     return SessionStore(
         ttl_seconds=settings.sources_session_ttl_seconds,
@@ -95,11 +95,11 @@ Sessions = Annotated[SessionStore, Depends(get_sessions)]
 
 
 class UploadGate:
-    """Tetto agli upload/parse contemporanei di ``POST /sources``.
+    """Cap on the concurrent uploads/parses of ``POST /sources``.
 
-    Fail-fast: se i posti sono finiti si risponde 503 con ``Retry-After`` invece di
-    accodare (come per gli altri servizi saturi dell'API, che rispondono 503); una
-    coda terrebbe aperte connessioni con file da decine di MB in attesa.
+    Fail-fast: if the seats are over, answer 503 with ``Retry-After`` instead of
+    queueing (like for the other saturated services of the API, which answer 503); a
+    queue would keep open connections with files of tens of MB waiting.
     """
 
     def __init__(self, limit: int) -> None:
@@ -109,11 +109,11 @@ class UploadGate:
 
 @lru_cache
 def get_upload_gate() -> UploadGate:
-    """Tetto di upload contemporanei (singleton di processo, come le sessioni)."""
+    """Cap on concurrent uploads (process singleton, like the sessions)."""
     return UploadGate(get_settings().sources_max_concurrent_uploads)
 
 
-def _occupato() -> JSONResponse:
+def _occupied() -> JSONResponse:
     return JSONResponse(
         status_code=503,
         headers={"Retry-After": "5"},
@@ -126,14 +126,14 @@ def _occupato() -> JSONResponse:
     )
 
 
-def _troppo_grande() -> JSONResponse:
+def _too_large() -> JSONResponse:
     return JSONResponse(
         status_code=413,
         content={
             "detail": {
                 "errore": "richiesta_troppo_grande",
                 "messaggio": (
-                    f"il caricamento supera {MAX_BYTES_RICHIESTA // (1024 * 1024)} MB"
+                    f"il caricamento supera {MAX_BYTES_REQUEST // (1024 * 1024)} MB"
                 ),
             }
         },
@@ -141,40 +141,40 @@ def _troppo_grande() -> JSONResponse:
 
 
 class _UploadRoute(APIRoute):
-    """Rotta di upload con i controlli che FastAPI non espone.
+    """Upload route with the checks that FastAPI does not expose.
 
-    FastAPI legge il multipart con i limiti predefiniti di Starlette (1000 file,
-    1000 campi) e nessun tetto al corpo. Qui, PRIMA di leggere il corpo: tetto di
-    ``Content-Length`` (413) e posti di upload disponibili (503); poi il multipart
-    si legge con i limiti nostri (``request.form`` memorizza il risultato: la
-    lettura di FastAPI, subito dopo, riusa questo form). Troppi file o campi, o un
-    campo di testo troppo lungo, sono un 400 di Starlette.
+    FastAPI reads the multipart with Starlette's default limits (1000 files,
+    1000 fields) and no cap on the body. Here, BEFORE reading the body: cap on
+    ``Content-Length`` (413) and available upload seats (503); then the multipart
+    is read with our own limits (``request.form`` stores the result: FastAPI's
+    reading, right after, reuses this form). Too many files or fields, or a
+    text field too long, are a Starlette 400.
 
-    Un corpo senza ``Content-Length`` (chunked) non e' coperto dal tetto totale: lo
-    limitano i tetti per file, applicati in lettura, e lo spazio su disco dei file
-    temporanei; il reverse proxy di deploy deve imporre il proprio limite.
+    A body without ``Content-Length`` (chunked) is not covered by the total cap: it is
+    limited by the per-file caps, applied while reading, and by the disk space of the
+    temporary files; the deploy reverse proxy must impose its own limit.
     """
 
     def get_route_handler(
         self,
     ) -> Callable[[Request], Coroutine[Any, Any, Response]]:
-        originale = super().get_route_handler()
+        original = super().get_route_handler()
 
         async def handler(request: Request) -> Response:
-            dichiarata = request.headers.get("content-length", "")
-            if dichiarata.isdigit() and int(dichiarata) > MAX_BYTES_RICHIESTA:
-                return _troppo_grande()
+            declared = request.headers.get("content-length", "")
+            if declared.isdigit() and int(declared) > MAX_BYTES_REQUEST:
+                return _too_large()
             gate = get_upload_gate()
             if gate.semaphore.locked():
-                return _occupato()
+                return _occupied()
             async with gate.semaphore:
                 try:
                     await request.form(
-                        max_files=MAX_FILE_MULTIPART,
-                        max_fields=MAX_CAMPI_MULTIPART,
-                        max_part_size=MAX_PARTE_CAMPO,
+                        max_files=MAX_MULTIPART_FILES,
+                        max_fields=MAX_MULTIPART_FIELDS,
+                        max_part_size=MAX_FIELD_PART_BYTES,
                     )
-                    return await originale(request)
+                    return await original(request)
                 finally:
                     await request.close()
 
@@ -188,12 +188,13 @@ async def activate_session(
     sessions: Sessions,
     x_session_id: Annotated[str | None, Header(alias=SESSION_HEADER)] = None,
 ) -> AsyncGenerator[None]:
-    """Lega il set della sessione al contesto della richiesta, se ne ha uno.
+    """Binds the session's set to the request context, if it has one.
 
-    Senza intestazione, con un valore malformato o senza set la richiesta lavora
-    sul default (invariato). Se il set della sessione e' scaduto solleva
-    :class:`~crime_risk_analyzer.sources.session.SourcesExpiredError` (410): non
-    si analizza sul default alle spalle di chi crede di usare le sue fonti.
+    Without a header, with a malformed value or without a set the request works
+    on the default (unchanged). If the session's set has expired it raises
+    :class:`~crime_risk_analyzer.sources.session.SourcesExpiredError` (410): we do not
+    analyse on the default behind the back of whoever believes they are using their
+    sources.
     """
     entry = (
         sessions.get(x_session_id)
@@ -208,10 +209,10 @@ async def activate_session(
 
 
 class SetSummary(BaseModel):
-    """Che cosa contiene il set attivo (per la schermata di stato)."""
+    """What the active set contains (for the status screen)."""
 
-    #: ``example`` per il set d'esempio, ``custom`` per quello caricato: da qui
-    #: l'indicatore "Fonti: Esempio" / "Fonti: Personalizzate".
+    #: ``example`` for the example set, ``custom`` for the uploaded one: from here
+    #: the "Fonti: Esempio" / "Fonti: Personalizzate" indicator.
     kind: Literal["example", "custom"]
     classi: int
     selettori_osm: int
@@ -221,27 +222,27 @@ class SetSummary(BaseModel):
 
 
 class SourcesStatus(BaseModel):
-    """Stato delle fonti della sessione."""
+    """Status of the session sources."""
 
     stato: Literal["default", "attivo", "scaduto"]
     scade_tra_secondi: int | None
     set: SetSummary | None
 
 
-def _stato(sessions: SessionStore, session_id: str | None) -> SourcesStatus:
+def _status(sessions: SessionStore, session_id: str | None) -> SourcesStatus:
     entry = sessions.peek(session_id) if session_id is not None else None
     if entry is not None and session_id is not None:
         return SourcesStatus(
             stato="attivo",
             scade_tra_secondi=sessions.remaining_seconds(session_id),
-            set=_riepilogo(entry),
+            set=_summary(entry),
         )
     if session_id is not None and sessions.was_expired(session_id):
         return SourcesStatus(stato="scaduto", scade_tra_secondi=None, set=None)
     return SourcesStatus(stato="default", scade_tra_secondi=None, set=None)
 
 
-def _riepilogo(entry: SessionEntry) -> SetSummary:
+def _summary(entry: SessionEntry) -> SetSummary:
     s = entry.source_set
     dati = s.istat.dati
     return SetSummary(
@@ -249,7 +250,7 @@ def _riepilogo(entry: SessionEntry) -> SetSummary:
         classi=len(s.labels or {}),
         selettori_osm=len(s.osm.osm_to_class),
         versione_dati=s.istat.versione,
-        luoghi=[luogo.nome for luogo in dati.luoghi] if dati is not None else [],
+        luoghi=[place.nome for place in dati.luoghi] if dati is not None else [],
         avvisi=list(entry.warnings),
     )
 
@@ -258,15 +259,15 @@ def _riepilogo(entry: SessionEntry) -> SetSummary:
 async def sources_status(
     sessions: Sessions, x_session_id: OptionalSession = None
 ) -> SourcesStatus:
-    """Stato delle fonti: ``default``, ``attivo`` (con riepilogo e scadenza) o
-    ``scaduto``. Non rinnova la scadenza."""
-    return _stato(sessions, x_session_id)
+    """Status of the sources: ``default``, ``attivo`` (with summary and expiry) or
+    ``scaduto``. It does not renew the expiry."""
+    return _status(sessions, x_session_id)
 
 
-async def _leggi(upload: UploadFile, limite: int) -> bytes:
-    """Legge al piu' ``limite + 1`` byte: oltre il limite il controllo dei file
-    segnala il file troppo grande senza che il server lo carichi tutto."""
-    return await upload.read(limite + 1)
+async def _read(upload: UploadFile, limit: int) -> bytes:
+    """Reads at most ``limit + 1`` bytes: beyond the limit the file check
+    reports the file as too large without the server loading all of it."""
+    return await upload.read(limit + 1)
 
 
 @_upload_router.post("/sources")
@@ -286,14 +287,14 @@ async def upload_sources(
     performer: Annotated[str | None, Form()] = None,
     vulnerability: Annotated[list[str] | None, Form()] = None,
 ) -> SourcesStatus:
-    """Controlla i file e, se sono validi, attiva il set per la sessione.
+    """Checks the files and, if they are valid, activates the set for the session.
 
-    Il controllo raccoglie TUTTI i problemi: con errori risponde 422 con il report
-    completo (``fonti_non_valide``) e non tocca il set gia' attivo. Namespace e
-    nomi delle proprieta' non indicati valgono quelli TERMINUS. Un nuovo
-    caricamento sostituisce il precedente e ne svuota la cache di zona.
+    The check collects ALL the problems: with errors it answers 422 with the complete
+    report (``fonti_non_valide``) and does not touch the already active set. Namespace
+    and property names not indicated default to the TERMINUS ones. A new
+    upload replaces the previous one and empties its zone cache.
     """
-    vocabolario = OntologyVocabulary(
+    vocabulary = OntologyVocabulary(
         namespace=namespace or TERMINUS_VOCABULARY.namespace,
         hazard=hazard or TERMINUS_VOCABULARY.hazard,
         critical_event=critical_event or TERMINUS_VOCABULARY.critical_event,
@@ -301,29 +302,29 @@ async def upload_sources(
         vulnerability=tuple(vulnerability or TERMINUS_VOCABULARY.vulnerability),
     )
     files = UploadedFiles(
-        ontology=await _leggi(ontology, MAX_BYTES_ONTOLOGIA),
+        ontology=await _read(ontology, MAX_BYTES_ONTOLOGY),
         ontology_name=ontology.filename or "",
-        osm_table=await _leggi(osm_table, MAX_BYTES_CSV),
-        data=await _leggi(data, MAX_BYTES_CSV),
-        hazard_table=await _leggi(hazard_table, MAX_BYTES_CSV),
+        osm_table=await _read(osm_table, MAX_BYTES_CSV),
+        data=await _read(data, MAX_BYTES_CSV),
+        hazard_table=await _read(hazard_table, MAX_BYTES_CSV),
         boundaries=(
-            await _leggi(boundaries, MAX_BYTES_GEOJSON)
+            await _read(boundaries, MAX_BYTES_GEOJSON)
             if boundaries is not None
             else None
         ),
     )
 
-    def _costruisci() -> tuple[SourceSet, list[Problem]]:
+    def _construct() -> tuple[SourceSet, list[Problem]]:
         parsed, report = check_sources(
-            files, vocabolario, fallback_luoghi=fallback_luoghi()
+            files, vocabulary, fallback_places=fallback_places()
         )
         if parsed is None:
             raise SourceValidationError(report)
         return build_source_set(parsed), report.warnings
 
-    source_set, avvisi = await run_in_threadpool(_costruisci)
-    sessions.activate(x_session_id, source_set, avvisi)
-    return _stato(sessions, x_session_id)
+    source_set, warnings = await run_in_threadpool(_construct)
+    sessions.activate(x_session_id, source_set, warnings)
+    return _status(sessions, x_session_id)
 
 
 router.include_router(_upload_router)
@@ -333,29 +334,29 @@ router.include_router(_upload_router)
 async def activate_example(
     sessions: Sessions, x_session_id: RequiredSession
 ) -> SourcesStatus:
-    """Attiva il set d'esempio per la sessione, senza caricare file.
+    """Activates the example set for the session, without uploading files.
 
-    Il set e' costruito una volta sola (alla prima richiesta, in un thread: legge
-    e valida i file d'esempio) e condiviso fra le sessioni: e' immutabile. Come
-    ``POST /sources`` sostituisce il set gia' attivo.
+    The set is built only once (at the first request, in a thread: it reads
+    and validates the example files) and shared among the sessions: it is immutable.
+    Like ``POST /sources`` it replaces the already active set.
     """
-    source_set, avvisi = await run_in_threadpool(example_bundle)
-    sessions.activate(x_session_id, source_set, avvisi)
-    return _stato(sessions, x_session_id)
+    source_set, warnings = await run_in_threadpool(example_bundle)
+    sessions.activate(x_session_id, source_set, warnings)
+    return _status(sessions, x_session_id)
 
 
 @router.delete("/sources")
 async def reset_sources(
     sessions: Sessions, x_session_id: RequiredSession
 ) -> SourcesStatus:
-    """Torna alle fonti predefinite. Idempotente."""
+    """Back to the default sources. Idempotent."""
     sessions.reset(x_session_id)
-    return _stato(sessions, x_session_id)
+    return _status(sessions, x_session_id)
 
 
 @router.get("/sources/templates/{name}")
 async def download_template(name: TemplateName) -> Response:
-    """Modello CSV scaricabile: intestazione giusta e righe d'esempio."""
+    """Downloadable CSV template: the right header and example rows."""
     return Response(
         content=template_csv(name),
         media_type="text/csv; charset=utf-8",

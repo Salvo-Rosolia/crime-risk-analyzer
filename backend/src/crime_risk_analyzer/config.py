@@ -1,10 +1,10 @@
-"""Configurazione centralizzata dell'applicazione.
+"""Centralised application configuration.
 
-Carica i parametri da variabili d'ambiente (e da un eventuale file ``.env``)
-con validazione tipizzata via ``pydantic-settings``. I segreti (API key) sono
-opzionali a questo stadio: la verifica della loro presenza è demandata al
-layer LLM, dove servono davvero. I valori segreti usano
-``SecretStr`` per evitare leak accidentali in log e ``repr``.
+Loads parameters from environment variables (and from an optional ``.env`` file)
+with typed validation via ``pydantic-settings``. Secrets (API keys) are
+optional at this stage: checking that they are present is left to the LLM layer,
+where they are actually needed. Secret values use ``SecretStr`` to avoid
+accidental leaks in logs and ``repr``.
 """
 
 from functools import lru_cache
@@ -15,7 +15,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Parametri di configurazione del backend, popolati da env/``.env``."""
+    """Backend configuration parameters, populated from env/``.env``."""
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -27,136 +27,138 @@ class Settings(BaseSettings):
     groq_api_key: SecretStr | None = None
     ontology_path: str = "ontology/terminus_crime_materialized.ttl"
     llm_provider: Literal["claude", "groq"] = "claude"
-    # Timeout (secondi) del layer LLM (#114): applicato sia come ``timeout=``
-    # sull'SDK Anthropic/Groq sia come ceiling esplicito via ``asyncio.wait_for``
-    # nel client, cosi' un provider lento/appeso non lascia ``POST /analyze``
-    # bloccato a tempo indeterminato. Il timeout scaduto e' mappato a
-    # ``LLMError`` -> fallback strutturato 200 dell'orchestrator (non un 500).
-    # Vincolo ``gt=0``: un misconfig da env (0/negativo) viene respinto al load,
-    # non lasciato esplodere nel layer LLM a runtime.
+    # Timeout (seconds) of the LLM layer (#114): applied both as ``timeout=`` on
+    # the Anthropic/Groq SDK and as an explicit ceiling via ``asyncio.wait_for``
+    # in the client, so a slow/hung provider does not leave ``POST /analyze``
+    # blocked indefinitely. The expired timeout is mapped to ``LLMError`` ->
+    # structured 200 fallback of the orchestrator (not a 500).
+    # ``gt=0`` constraint: an env misconfig (0/negative) is rejected at load, not
+    # left to blow up in the LLM layer at runtime.
     llm_timeout_seconds: float = Field(default=30.0, gt=0)
-    # Tetto di token di output della generazione (Anthropic/Groq ``max_tokens``).
-    # #229: alzato 1024 -> 1536 per dare margine anti-troncamento sul caso denso con
-    # la narrativa piu' analitica (guardia anti-troncamento invariata: finish=stop ->
-    # LLMError -> fallback). DEVE restare in sync con ``generation.DEFAULT_MAX_TOKENS``
-    # e ``llm.client._MAX_TOKENS`` (test_generation::..._synced_across_modules).
-    # Il budget totale richiesta (``llm_request_token_budget``) resta sotto il TPM
-    # del modello in uso (gpt-oss-120b su Groq = 8.000, #345 D14).
-    # Configurabile per tuning senza toccare il codice. Vincolo ``ge=1``.
+    # Cap on generation output tokens (Anthropic/Groq ``max_tokens``).
+    # #229: raised 1024 -> 1536 to give anti-truncation margin on the dense case
+    # with the more analytical narrative (anti-truncation guard unchanged:
+    # finish=stop -> LLMError -> fallback). MUST stay in sync with
+    # ``generation.DEFAULT_MAX_TOKENS`` and ``llm.client._MAX_TOKENS``
+    # (test_generation::..._synced_across_modules).
+    # The total request budget (``llm_request_token_budget``) stays under the TPM
+    # of the model in use (gpt-oss-120b on Groq = 8,000, #345 D14).
+    # Configurable for tuning without touching the code. ``ge=1`` constraint.
     llm_max_tokens: int = Field(default=1536, ge=1)
-    # Tetto massimo (STIMA) di token dell'INTERA richiesta LLM (#210): copre
-    # system prompt + user_content + i ``llm_max_tokens`` riservati all'output,
-    # NON solo lo user_content. Il generation layer ricava l'allowance per lo
-    # user_content sottraendo la stima del system prompt e ``llm_max_tokens`` da
-    # questo tetto, poi include GREEDY per rilevanza solo i POI che ci stanno
-    # (mappa/lista/confidence_summary restano completi). Cosi' su una zona densa
-    # l'intera richiesta non sfora il limite TPM del provider.
-    # Deve stare sotto il TPM del modello in uso: gpt-oss-120b su Groq = 8.000
-    # token al minuto, contando input e ``max_tokens`` (#345, D14). Misurato col
-    # tokenizer reale sulle 4 zone di valutazione, ISTAT acceso e spento
-    # (``scripts/istat_budget.py``): 8700 e' il valore piu' alto con tutte le
-    # richieste sotto 7.600. Vincolo ``ge=1``: un misconfig da env (0/negativo)
-    # e' respinto al load, non lasciato degenerare a runtime.
+    # Maximum (ESTIMATED) token cap of the WHOLE LLM request (#210): it covers
+    # system prompt + user_content + the ``llm_max_tokens`` reserved for the
+    # output, NOT just user_content. The generation layer derives the allowance for
+    # user_content by subtracting the system prompt estimate and
+    # ``llm_max_tokens`` from this cap, then GREEDILY includes by relevance only
+    # the POIs that fit (map/list/confidence_summary stay complete). So on a dense
+    # zone the whole request does not exceed the provider's TPM limit.
+    # It must stay under the TPM of the model in use: gpt-oss-120b on Groq = 8,000
+    # tokens per minute, counting input and ``max_tokens`` (#345, D14). Measured
+    # with the real tokenizer on the 4 evaluation zones, ISTAT on and off
+    # (``scripts/istat_budget.py``): 8700 is the highest value with all
+    # requests under 7,600. ``ge=1`` constraint: an env misconfig (0/negative)
+    # is rejected at load, not left to degenerate at runtime.
     llm_request_token_budget: int = Field(default=8700, ge=1)
-    # Dati ISTAT nella narrativa (#345, D6): acceso di default nell'app. Spento,
-    # prompt e comportamento sono identici a prima di #345 (il grounding calcola
-    # comunque le righe: l'interruttore agisce solo su prompt e controllo delle
-    # cifre). Acceso, l'avvio fallisce se i dati del package mancano o non sono
-    # validi (``main.lifespan``). La valutazione NON lo legge: usa
-    # ``ExperimentConfig.istat`` (spento di default, confronto della tesi).
-    # Da #346 decide anche se ``poi[].istat`` arriva al client nella fase 1 di
-    # ``/analyze`` (``main.analyze``): e' il dato che il frontend usa per
-    # ordinare i rischi nel Dettaglio POI.
+    # ISTAT data in the narrative (#345, D6): on by default in the app. Off, the
+    # prompt and behaviour are identical to before #345 (grounding still computes
+    # the rows: the switch acts only on the prompt and the figures check). On,
+    # startup fails if the package data is missing or not valid
+    # (``main.lifespan``). The evaluation does NOT read it: it uses
+    # ``ExperimentConfig.istat`` (off by default, the thesis comparison).
+    # Since #346 it also decides whether ``poi[].istat`` reaches the client in
+    # phase 1 of ``/analyze`` (``main.analyze``): it is the data the frontend
+    # uses to order the risks in the POI Detail.
     istat_context_enabled: bool = True
-    # Modo dei dati ISTAT nella narrativa di zona (#366): spento = il modello
-    # scrive le frasi (#365); acceso = il modello sceglie per ogni rischio la voce
-    # ISTAT e il peso, e l'app compone le frasi. Agisce solo con
-    # ``istat_context_enabled`` acceso. Opt-in finche' la valutazione non dice che
-    # migliora (#368/#369).
+    # Mode of the ISTAT data in the zone narrative (#366): off = the model writes
+    # the sentences (#365); on = the model chooses for each risk the ISTAT item
+    # and the weight, and the app composes the sentences. Acts only with
+    # ``istat_context_enabled`` on. Opt-in until the evaluation says it
+    # improves things (#368/#369).
     istat_scelta_modello: bool = False
-    # Fonti caricate dall'utente (#416): il set vale per la sessione e scade dopo
-    # questo tempo dall'ultimo uso (finestra mobile). Il tetto di sessioni limita la
-    # memoria (ogni set tiene in RAM un grafo OWL fino a 20 MB): oltre, si sfratta
-    # la sessione con la scadenza piu' vicina.
+    # User-uploaded sources (#416): the set is valid for the session and expires
+    # after this time from last use (sliding window). The session cap limits
+    # memory (each set keeps in RAM an OWL graph of up to 20 MB): beyond it, the
+    # session with the nearest expiry is evicted.
     sources_session_ttl_seconds: float = Field(default=3600.0, gt=0)
     sources_max_sessions: int = Field(default=8, ge=1)
-    # Upload/parse di ``POST /sources`` contemporanei: il parse di un file da 20 MB
-    # e' CPU e RAM. Oltre il tetto la rotta risponde subito 503 (Retry-After)
-    # invece di accodare: nessuna coda di connessioni aperte con il corpo in attesa.
+    # Concurrent uploads/parses of ``POST /sources``: parsing a 20 MB file is CPU
+    # and RAM. Beyond the cap the route answers 503 immediately (Retry-After)
+    # instead of queueing: no queue of open connections with the body waiting.
     sources_max_concurrent_uploads: int = Field(default=2, ge=1)
     cache_enabled: bool = True
-    # Geocoding hardening (#115). ``cache_enabled`` (sopra) gate la cache dei
-    # risultati di geocoding (prima setting dichiarato ma inutilizzato).
+    # Geocoding hardening (#115). ``cache_enabled`` (above) gates the cache of
+    # geocoding results (previously a declared but unused setting).
     #
-    # NOTA DEPLOY single-worker (#170): il rate-limit e la cache del geocoding
-    # sono PER-PROCESSO (il RateLimiter e il ``_CACHE`` sono stato di modulo). Con
-    # un deploy multi-worker (``uvicorn --workers N``) ogni worker ha il proprio
-    # limiter -> fino a N req/s verso Nominatim, mentre la policy e' "1 req/s
-    # ASSOLUTO". Per rispettare la ToS: deploy SINGLE-WORKER (oppure un throttle
-    # condiviso tra i processi, non previsto qui). Vale anche per il limiter
-    # locale della boundary in ``eval/city_agnostic.py``.
+    # single-worker DEPLOY NOTE (#170): the rate limit and the geocoding cache are
+    # PER-PROCESS (the RateLimiter and ``_CACHE`` are module state). With a
+    # multi-worker deploy (``uvicorn --workers N``) each worker has its own
+    # limiter -> up to N req/s towards Nominatim, while the policy is "1 req/s
+    # ABSOLUTE". To respect the ToS: SINGLE-WORKER deploy (or a throttle shared
+    # across processes, not foreseen here). It also holds for the local boundary
+    # limiter in ``eval/city_agnostic.py``.
     #
-    # Rate-limit verso Nominatim: la policy e' "1 req/s assoluto". 1.0s sarebbe
-    # ESATTAMENTE il tetto; il default 1.1s da' ~10% di margine per assorbire
-    # jitter e il caso cache-hit-seguito-da-miss senza sforare la policy.
-    # Vincolo ``gt=0``: un misconfig da env (0/negativo) e' respinto al load.
+    # Rate limit towards Nominatim: the policy is "1 req/s absolute". 1.0s would
+    # be EXACTLY the cap; the 1.1s default gives ~10% margin to absorb jitter and
+    # the cache-hit-followed-by-miss case without exceeding the policy.
+    # ``gt=0`` constraint: an env misconfig (0/negative) is rejected at load.
     geocoding_min_delay_seconds: float = Field(default=1.1, gt=0)
-    # Timeout esplicito per-chiamata al geocoder (un Nominatim lento non appende
-    # la pipeline): mappato a GeocoderTimedOut -> GeocodingError -> 503.
+    # Explicit per-call timeout to the geocoder (a slow Nominatim does not hang
+    # the pipeline): mapped to GeocoderTimedOut -> GeocodingError -> 503.
     geocoding_timeout_seconds: float = Field(default=10.0, gt=0)
-    # Vincola la ricerca alla nazione (evita zone omonime in altri paesi).
+    # Restricts the search to the country (avoids homonymous zones in other
+    # countries).
     geocoding_country_codes: str = "it"
-    # Pavimento minimo di dimensione del bbox Nominatim (#204). Quando una zona
-    # risolve a un feature puntuale/edificio (es. "Colosseo"), Nominatim ritorna
-    # un ``boundingbox`` grande quanto il monumento (~150 m): in quel riquadro
-    # Overpass trova 0 POI e ``/analyze`` risponde 200 vuoto (mappa non
-    # ricentrata). Questa e' la semi-ampiezza minima (in gradi) imposta al bbox,
-    # espandendo SIMMETRICAMENTE attorno al punto medio (mai rimpicciolendo un
-    # bbox gia' piu' grande della soglia), cosi' una zona-landmark mantiene
-    # un'area di ricerca Overpass utilizzabile (~0.5 km lat / ~0.37 km lon alla
-    # latitudine di Roma, cioe' ~500 m di raggio). #212 ha ridotto il default a
-    # 0.0045 (= 500 m / 111320) per risultati piu' aderenti alla zona indicata
-    # (era 0.01 = ~1.1 km). Vincolo ``gt=0``: un misconfig da env (0/negativo) e'
-    # respinto al load, non lasciato degenerare in un bbox nullo a runtime.
+    # Minimum size floor of the Nominatim bbox (#204). When a zone resolves to a
+    # point/building feature (e.g. "Colosseo"), Nominatim returns a
+    # ``boundingbox`` as big as the monument (~150 m): in that box Overpass finds
+    # 0 POIs and ``/analyze`` answers an empty 200 (map not re-centred). This is
+    # the minimum half-span (in degrees) imposed on the bbox, expanding
+    # SYMMETRICALLY around the midpoint (never shrinking a bbox already larger
+    # than the threshold), so a landmark zone keeps a usable Overpass search area
+    # (~0.5 km lat / ~0.37 km lon at the latitude of Rome, i.e. ~500 m radius).
+    # #212 reduced the default to 0.0045 (= 500 m / 111320) for results closer to
+    # the indicated zone (it was 0.01 = ~1.1 km). ``gt=0`` constraint: an env
+    # misconfig (0/negative) is rejected at load, not left to degenerate into a
+    # null bbox at runtime.
     geocoding_min_bbox_half_span_deg: float = Field(default=0.0045, gt=0)
-    # Limiti del raggio di ricerca disegnato sulla mappa (#318): tengono sotto
-    # controllo il costo di Overpass/LLM su cerchi enormi. Vincolo ``gt=0``: un
-    # misconfig da env (0/negativo) e' respinto al load.
+    # Limits of the search radius drawn on the map (#318): they keep the cost of
+    # Overpass/LLM under control on huge circles. ``gt=0`` constraint: an env
+    # misconfig (0/negative) is rejected at load.
     search_radius_min_m: float = Field(default=150.0, gt=0)
     search_radius_max_m: float = Field(default=3000.0, gt=0)
     default_city: str = "Roma"
-    # Citta SUGGERITE, esposte come autocomplete da ``GET /cities`` — NON un
-    # vincolo di validazione (#191): la modalita' citta + zona di
-    # ``POST /analyze``/``/analyze/baseline`` accetta qualsiasi citta' italiana e
-    # la passa al geocoding (ristretto all'Italia via ``geocoding_country_codes``);
-    # una citta'/zona inesistente fallisce pulita al geocoding (422).
-    # Roma/Milano/Napoli sono garantite e testate end-to-end (orchestrator.md); le
-    # altre sono best-effort.
+    # SUGGESTED cities, exposed as autocomplete by ``GET /cities`` — NOT a
+    # validation constraint (#191): the city + zone mode of
+    # ``POST /analyze``/``/analyze/baseline`` accepts any Italian city and passes
+    # it to geocoding (restricted to Italy via ``geocoding_country_codes``);
+    # a non-existent city/zone fails cleanly at geocoding (422).
+    # Roma/Milano/Napoli are guaranteed and tested end-to-end (orchestrator.md);
+    # the others are best-effort.
     supported_cities: list[str] = ["Roma", "Milano", "Napoli", "Torino", "Firenze"]
-    # Allowlist CORS (#106): origini del frontend autorizzate a leggere le
-    # risposte dell'API. Allowlist ESPLICITA, mai wildcard ``*`` (una policy
-    # ``*`` esporrebbe l'API a qualunque sito) — invariante blindata dal
-    # validator ``_reject_cors_wildcard``, non solo dal default. Default in dev:
-    # il dev-server di Angular. In prod si sovrascrive con l'origine reale.
-    # Parsing da env: pydantic-settings legge i tipi complessi (``list``) come
-    # JSON, quindi ``CORS_ALLOW_ORIGINS='["https://app.example"]'`` (una CSV
-    # verrebbe respinta con ``SettingsError``).
+    # CORS allowlist (#106): frontend origins authorised to read the API
+    # responses. EXPLICIT allowlist, never wildcard ``*`` (a ``*`` policy would
+    # expose the API to any site) — invariant enforced by the
+    # ``_reject_cors_wildcard`` validator, not just by the default. Default in dev:
+    # the Angular dev-server. In prod it is overridden with the real origin.
+    # Parsing from env: pydantic-settings reads complex types (``list``) as
+    # JSON, so ``CORS_ALLOW_ORIGINS='["https://app.example"]'`` (a CSV
+    # would be rejected with ``SettingsError``).
     cors_allow_origins: list[str] = ["http://localhost:4200"]
 
     @field_validator("cors_allow_origins")
     @classmethod
     def _reject_cors_wildcard(cls, origins: list[str]) -> list[str]:
-        """Blinda l'allowlist CORS al load (#106): niente wildcard, niente vuoti.
+        """Locks the CORS allowlist at load (#106): no wildcard, no empties.
 
-        La garanzia "mai ``*``" non puo' dipendere solo dal default: un valore da
-        env (``CORS_ALLOW_ORIGINS='["*"]'``) riaprirebbe altrimenti la policy a
-        qualunque sito, in silenzio. Respinge quindi al caricamento con
-        ``ValueError`` (mappato da pydantic a ``ValidationError``):
+        The "never ``*``" guarantee cannot depend only on the default: an env value
+        (``CORS_ALLOW_ORIGINS='["*"]'``) would otherwise silently reopen the policy
+        to any site. It therefore rejects at load with ``ValueError`` (mapped by
+        pydantic to ``ValidationError``):
 
-        * il wildcard ``*`` in qualunque elemento;
-        * origini vuote o di soli spazi;
-        * la lista vuota (che disabiliterebbe di fatto il CORS: piu' probabile un
-          misconfig che una scelta intenzionale).
+        * the ``*`` wildcard in any element;
+        * empty or whitespace-only origins;
+        * the empty list (which would effectively disable CORS: more likely a
+          misconfig than an intentional choice).
         """
         if not origins:
             raise ValueError(
@@ -173,24 +175,24 @@ class Settings(BaseSettings):
                     f"origine CORS non valida {origin!r}: il wildcard '*' non e' "
                     "ammesso (#106 richiede un'allowlist esplicita)."
                 )
-        # Normalizza: memorizza le origini trimmate, cosi' uno spazio di troppo
-        # non impedisce silenziosamente il match esatto di ``CORSMiddleware``.
+        # Normalise: store the trimmed origins, so a stray space does not
+        # silently prevent the exact match of ``CORSMiddleware``.
         return [origin.strip() for origin in origins]
 
     @field_validator("geocoding_country_codes")
     @classmethod
     def _reject_blank_country_codes(cls, value: str) -> str:
-        """Rifiuta un ``country_codes`` vuoto al load (#115): fail-fast esplicito.
+        """Rejects an empty ``country_codes`` at load (#115): explicit fail-fast.
 
-        Una stringa vuota o di soli spazi disattiverebbe SILENZIOSAMENTE il
-        filtro nazione di Nominatim (il parametro ``country_codes`` verrebbe di
-        fatto ignorato), restituendo zone omonime nella nazione sbagliata. Meglio
-        respingere al caricamento con ``ValueError`` (mappato da pydantic a
+        An empty or whitespace-only string would SILENTLY disable the Nominatim
+        country filter (the ``country_codes`` parameter would effectively be
+        ignored), returning homonymous zones in the wrong country. Better to
+        reject at load with ``ValueError`` (mapped by pydantic to
         ``ValidationError``).
 
-        Le virgole NON sono rifiutate: Nominatim accetta piu' codici nazione
-        (es. ``"it,sm"``). Normalizza con ``strip()`` cosi' uno spazio di troppo
-        ai bordi non altera il valore inviato al servizio.
+        Commas are NOT rejected: Nominatim accepts several country codes
+        (e.g. ``"it,sm"``). Normalises with ``strip()`` so a stray space at the
+        edges does not alter the value sent to the service.
         """
         if not value.strip():
             raise ValueError(
@@ -202,12 +204,12 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _reject_radius_bounds_inverted(self) -> "Settings":
-        """Rifiuta la configurazione con raggio minimo >= massimo (#318).
+        """Rejects the configuration with minimum radius >= maximum (#318).
 
-        L'invariante ``search_radius_min_m < search_radius_max_m`` deve valere
-        al caricamento per evitare che un misconfig da env (es. una inversione
-        accidentale dei valori) sia usato silenziosamente a runtime,
-        introducendo logica di validazione incoerente nel layer di orchestration.
+        The invariant ``search_radius_min_m < search_radius_max_m`` must hold
+        at load to prevent an env misconfig (e.g. an accidental swap of the
+        values) from being silently used at runtime, introducing inconsistent
+        validation logic in the orchestration layer.
         """
         if self.search_radius_min_m >= self.search_radius_max_m:
             raise ValueError(
@@ -218,10 +220,10 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    """Restituisce un'istanza singola di :class:`Settings`.
+    """Returns a single instance of :class:`Settings`.
 
-    Cacheata con ``lru_cache`` così l'app la costruisce una sola volta.
-    Iniettabile negli endpoint con ``Depends(get_settings)`` e overridabile
-    nei test via ``app.dependency_overrides``.
+    Cached with ``lru_cache`` so the app builds it only once.
+    Injectable into endpoints with ``Depends(get_settings)`` and overridable
+    in tests via ``app.dependency_overrides``.
     """
     return Settings()

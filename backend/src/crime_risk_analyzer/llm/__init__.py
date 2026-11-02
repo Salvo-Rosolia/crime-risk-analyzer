@@ -1,9 +1,9 @@
-"""Layer LLM: client provider-agnostico (Claude + Groq) per la generazione (#20).
+"""LLM layer: provider-agnostic client (Claude + Groq) for generation (#20).
 
-Espone :class:`LLMClient`, :class:`LLMResponse`, :class:`LLMError` e la factory
-:func:`build_llm_client`. Il client riceve ``system_prompt`` e ``user_content``
-dall'esterno: l'assemblaggio del contesto RAG e il system prompt di dominio sono
-responsabilita' del generation layer (#23), non di questo modulo.
+Exposes :class:`LLMClient`, :class:`LLMResponse`, :class:`LLMError` and the factory
+:func:`build_llm_client`. The client receives ``system_prompt`` and ``user_content``
+from outside: the assembly of the RAG context and the domain system prompt are
+responsibilities of the generation layer (#23), not of this module.
 """
 
 from crime_risk_analyzer.llm.client import (

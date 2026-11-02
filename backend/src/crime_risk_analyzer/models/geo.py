@@ -1,13 +1,13 @@
-"""Tipi geografici condivisi (#59).
+"""Shared geographic types (#59).
 
-:class:`Bbox` e' il bounding box usato sia dal geocoding (Nominatim -> bbox) sia
-dal client Overpass (bbox -> query OSM). Prima era duplicato come
-``tuple[float, float, float, float]`` in entrambi i moduli; qui vive una volta
-sola, con campi nominati che rendono esplicito l'ordine semantico.
+:class:`Bbox` is the bounding box used both by geocoding (Nominatim -> bbox) and
+by the Overpass client (bbox -> OSM query). It used to be duplicated as
+``tuple[float, float, float, float]`` in both modules; here it lives only
+once, with named fields that make the semantic order explicit.
 
-Essendo una :class:`~typing.NamedTuple`, resta pienamente compatibile con la
-tupla piatta: unpacking ``min_lat, min_lon, max_lat, max_lon = bbox`` e confronto
-``bbox == (..., ...)`` continuano a funzionare.
+Being a :class:`~typing.NamedTuple`, it remains fully compatible with the
+flat tuple: unpacking ``min_lat, min_lon, max_lat, max_lon = bbox`` and comparison
+``bbox == (..., ...)`` keep working.
 """
 
 from __future__ import annotations
@@ -18,18 +18,18 @@ from typing import NamedTuple, cast
 
 from pydantic import BaseModel
 
-#: Raggio medio terrestre in metri (IUGG).
+#: Mean Earth radius in metres (IUGG).
 _EARTH_RADIUS_M = 6_371_008.8
 
 
 def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """Distanza in metri fra due coordinate (haversine).
+    """Distance in metres between two coordinates (haversine).
 
-    Haversine e non una proiezione piana: il costo e' irrilevante sulle poche
-    centinaia di punti in gioco e non introduce un errore di proiezione da
-    giustificare. Vive qui, accanto a :class:`Bbox`, perche' la usano due layer
-    che non possono importarsi a vicenda — la selezione dei POI in
-    ``overpass_client`` e il vicinato per-POI in ``rag.poi_context``.
+    Haversine and not a flat projection: the cost is irrelevant on the few
+    hundred points involved and it does not introduce a projection error to
+    justify. It lives here, next to :class:`Bbox`, because it is used by two layers
+    that cannot import each other — the POI selection in
+    ``overpass_client`` and the per-POI neighbourhood in ``rag.poi_context``.
     """
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     d_phi = phi2 - phi1
@@ -42,17 +42,17 @@ def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def bbox_from_circle(lat: float, lon: float, radius_m: float) -> Bbox:
-    """Bbox rettangolare che circoscrive il cerchio.
+    """Rectangular bbox circumscribing the circle.
 
-    (centro ``lat``/``lon``, raggio in metri, #318)
-    Conversione approssimata gradi/metri: i metri per grado di latitudine sono
-    derivati da ``_EARTH_RADIUS_M`` (circonferenza meridiana ``2*pi*R`` su 360
-    gradi) invece di un letterale indipendente (prima ``111_320``, che
-    corrisponde a un raggio leggermente diverso, ~6378.1 km equatoriale) — cosi'
-    questa funzione e :func:`haversine_m`, nello stesso modulo, non usano due
-    raggi terrestri diversi (~0.11% di scarto fra i due). La semi-ampiezza in
-    longitudine si restringe con ``cos(lat)`` perche' i meridiani convergono
-    verso i poli. Pura: nessuna chiamata di rete, a differenza del bbox da
+    (centre ``lat``/``lon``, radius in metres, #318)
+    Approximate degree/metre conversion: the metres per degree of latitude are
+    derived from ``_EARTH_RADIUS_M`` (meridian circumference ``2*pi*R`` over 360
+    degrees) instead of an independent literal (before ``111_320``, which
+    corresponds to a slightly different radius, ~6378.1 km equatorial) — so
+    this function and :func:`haversine_m`, in the same module, do not use two
+    different Earth radii (~0.11% discrepancy between the two). The half-width
+    in longitude narrows with ``cos(lat)`` because the meridians converge
+    towards the poles. Pure: no network call, unlike the bbox from
     geocoding (:mod:`crime_risk_analyzer.geocoding`).
     """
     meters_per_degree_lat = _EARTH_RADIUS_M * math.pi / 180
@@ -70,9 +70,9 @@ def bbox_from_circle(lat: float, lon: float, radius_m: float) -> Bbox:
 
 
 class Bbox(NamedTuple):
-    """Bounding box geografico nell'ordine ``(min_lat, min_lon, max_lat, max_lon)``.
+    """Geographic bounding box in the order ``(min_lat, min_lon, max_lat, max_lon)``.
 
-    Corrisponde all'ordine Overpass ``(south, west, north, east)``.
+    It matches the Overpass order ``(south, west, north, east)``.
     """
 
     min_lat: float
@@ -81,23 +81,23 @@ class Bbox(NamedTuple):
     max_lon: float
 
     def center(self) -> tuple[float, float]:
-        """Punto medio ``(lat, lon)`` dell'area interrogata.
+        """Midpoint ``(lat, lon)`` of the queried area.
 
-        E' il riferimento per ordinare i POI per prossimita' (#254). Non e' il
-        punto restituito da Nominatim: la selezione vive in ``fetch_pois``, che
-        ha il bbox e non il ``GeoResult``, e dipendere dal geo lo renderebbe
-        portante nella catena di valutazione, dove le run iniettano un
-        placeholder (#169). ``geocoding._enforce_min_bbox`` preserva il punto medio
-        del BBOX, che non e' il punto restituito da Nominatim (per una geometria
-        way/relation quello e' un centroide calcolato): su una zona-landmark i due
-        praticamente coincidono, su una zona ampia o allungata possono distare
-        centinaia di metri, e la mappa si centra sul secondo.
+        It is the reference for ordering the POIs by proximity (#254). It is not the
+        point returned by Nominatim: the selection lives in ``fetch_pois``, which
+        has the bbox and not the ``GeoResult``, and depending on the geo would make it
+        load-bearing in the evaluation chain, where the runs inject a
+        placeholder (#169). ``geocoding._enforce_min_bbox`` preserves the midpoint
+        of the BBOX, which is not the point returned by Nominatim (for a
+        way/relation geometry that is a computed centroid): on a landmark zone the two
+        practically coincide, on a wide or elongated zone they can be hundreds of
+        metres apart, and the map centres on the latter.
 
-        La scelta e' un COMPROMESSO, non una necessita': la provenienza degli
-        snapshot registra il bbox reale, quindi un replay potrebbe riselezionare
-        restando ermetico. Il prezzo pagato qui e' che lo snapshot conserva un
-        campione derivato, e ogni evoluzione della politica di selezione richiede
-        una ri-cattura live.
+        The choice is a COMPROMISE, not a necessity: the provenance of the
+        snapshots records the real bbox, so a replay could reselect while
+        staying hermetic. The price paid here is that the snapshot keeps a
+        derived sample, and every evolution of the selection policy requires
+        a live re-capture.
         """
         return (
             (self.min_lat + self.max_lat) / 2,
@@ -105,25 +105,25 @@ class Bbox(NamedTuple):
         )
 
 
-# --- Ray casting dei confini (#31, spostato qui da eval/geometry.py con #345) ---
-# Il grounding deve sapere in quale comune o provincia cade un POI (dati ISTAT,
-# #345): la geometria non e' piu' solo uno strumento di valutazione. Punti in
-# ordine GeoJSON ``(lon, lat)``; nessuna dipendenza esterna (ray casting even-odd
-# con multipoligoni e buchi, es. Citta' del Vaticano dentro Roma).
+# --- Ray casting of the boundaries (#31, moved here from eval/geometry.py with #345)
+# --- The grounding must know in which municipality or province a POI falls (ISTAT data,
+# #345): the geometry is no longer only an evaluation tool. Points in
+# GeoJSON order ``(lon, lat)``; no external dependency (even-odd ray casting
+# with multipolygons and holes, e.g. Vatican City inside Rome).
 
 Point = tuple[float, float]  # (lon, lat)
 Ring = list[Point]
-Polygon = list[Ring]  # ring[0] = anello esterno; ring[1:] = buchi
+Polygon = list[Ring]  # ring[0] = outer ring; ring[1:] = holes
 
 
 class CityBoundary(BaseModel):
-    """Poligono amministrativo normalizzato (multipoligono con eventuali buchi)."""
+    """Normalised administrative polygon (multipolygon with possible holes)."""
 
     polygons: list[Polygon]
 
 
 def point_in_ring(point: Point, ring: Ring) -> bool:
-    """True se ``point`` e' dentro ``ring`` (ray casting even-odd)."""
+    """True if ``point`` is inside ``ring`` (even-odd ray casting)."""
     x, y = point
     inside = False
     n = len(ring)
@@ -138,19 +138,19 @@ def point_in_ring(point: Point, ring: Ring) -> bool:
 
 
 def point_in_polygon(point: Point, polygon: Polygon) -> bool:
-    """Dentro l'anello esterno e fuori da ogni buco."""
+    """Inside the outer ring and outside every hole."""
     if not polygon or not point_in_ring(point, polygon[0]):
         return False
     return not any(point_in_ring(point, hole) for hole in polygon[1:])
 
 
 def point_in_multipolygon(point: Point, boundary: CityBoundary) -> bool:
-    """Dentro almeno uno dei poligoni del confine."""
+    """Inside at least one of the polygons of the boundary."""
     return any(point_in_polygon(point, poly) for poly in boundary.polygons)
 
 
 def boundary_from_geojson(geometry: Mapping[str, object]) -> CityBoundary:
-    """Normalizza una geometria GeoJSON (Polygon|MultiPolygon) in CityBoundary."""
+    """Normalises a GeoJSON geometry (Polygon|MultiPolygon) into CityBoundary."""
     gtype = geometry.get("type")
     coords = geometry.get("coordinates")
     if gtype == "Polygon":

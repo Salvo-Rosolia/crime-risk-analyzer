@@ -1,14 +1,15 @@
-"""Estrazione deterministica del sottografo affiorante dell'ontologia (#77).
+"""Deterministic extraction of the surfacing subgraph of the ontology (#77).
 
-Semi = classi POI target di ``OSM_TO_TERMINUS`` (escluso il fallback generico);
-si espandono via ``rdfs:subClassOf*`` e si seguono le ``owl:Restriction`` sulle
-object property rilevanti per raccogliere hazard/eventi/vulnerabilità collegati.
-Emette record con ``identifier`` reale (refusi preservati), ``label_en`` display
-(refusi noti corretti) e ``label_it`` vuoto da curare a mano. Ri-eseguibile:
-``merge_preserving_it`` conserva le etichette IT già curate.
+Seeds = target POI classes of ``OSM_TO_TERMINUS`` (excluding the generic fallback);
+they are expanded via ``rdfs:subClassOf*`` and the ``owl:Restriction`` on the
+relevant object properties are followed to collect linked
+hazards/events/vulnerabilities. It emits records with the real ``identifier`` (typos
+preserved), display ``label_en`` (known typos fixed) and empty ``label_it`` to be
+curated by hand. Re-runnable: ``merge_preserving_it`` keeps the IT labels already
+curated.
 
 CLI: ``uv run python -m crime_risk_analyzer.i18n.extract [--src OWL] [--out JSON]``
-(legge l'ontologia ghost; il JSON generato è l'artefatto committato).
+(reads the ghost ontology; the generated JSON is the committed artefact).
 """
 
 from __future__ import annotations
@@ -31,10 +32,10 @@ from crime_risk_analyzer.sparql_module.osm_mapping import (
 _DEFAULT_SRC = "ontology/terminus-crime.owl"
 _DEFAULT_OUT = str(Path(__file__).parent / "terminus_labels.json")
 
-#: Refusi noti dell'ontologia → etichetta EN corretta (solo display).
-#: Le entry sotto sono esempi illustrativi del meccanismo; non compaiono nel
-#: sottografo affiorante corrente (le classi reali usano grafie corrette).
-#: Sono mantenute come guardia forward-looking ed esercitate dai test di Task 2.
+#: Known typos of the ontology → corrected EN label (display only).
+#: The entries below are illustrative examples of the mechanism; they do not appear
+#: in the current surfacing subgraph (the real classes use correct spellings).
+#: They are kept as a forward-looking guard and exercised by the tests of Task 2.
 _TYPO_FIXES: dict[str, str] = {
     "Brank_branch": "Branch robbery",
     "Buiding_damage": "Building damage",
@@ -59,7 +60,7 @@ SELECT DISTINCT ?filler WHERE {
 
 
 def display_label(identifier: str) -> str:
-    """Etichetta EN leggibile: refusi noti corretti, altrimenti normalizzata."""
+    """Readable EN label: known typos fixed, otherwise normalised."""
     if identifier in _TYPO_FIXES:
         return _TYPO_FIXES[identifier]
     text = identifier.replace("_", " ").strip()
@@ -83,7 +84,7 @@ def _record(identifier: str, category: str) -> LabelRecord:
 
 
 def _prop_category(ontology: OntologyConfig) -> dict[str, str]:
-    """Nome locale della property -> categoria del filler, dall'ontologia."""
+    """Local name of the property -> category of the filler, from the ontology."""
     return {
         ontology.hazard: "hazard",
         ontology.critical_event: "critical_event",
@@ -97,18 +98,18 @@ def extract_records(
     seeds: Iterable[str],
     ontology: OntologyConfig = TERMINUS_CONFIG,
 ) -> list[LabelRecord]:
-    """Estrae i record del sottografo affiorante a partire dai POI seed.
+    """Extracts the records of the surfacing subgraph starting from the seed POIs.
 
-    Namespace e nomi delle property vengono da ``ontology`` (default TERMINUS, #434).
+    Namespace and property names come from ``ontology`` (default TERMINUS, #434).
 
-    Un filler puo' essere raggiunto da PIU' property con categorie diverse (sul
-    sottografo affiorante reale succede gia', non solo in teoria: es.
-    ``ATM_out_of_service`` e' insieme hazard e critical_event su POI diversi).
-    La categoria non e' quella della prima property incontrata iterando
-    la mappa property -> categoria — dipenderebbe dall'ordine del dict, incidentale — ma
-    quella con priorita' piu' alta in ``_CATEGORY_ORDER`` (lo stesso ordine gia'
-    usato per l'output): un criterio esplicito e stabile, non un effetto
-    collaterale dell'ordine di definizione.
+    A filler can be reached by SEVERAL properties with different categories (on the
+    real surfacing subgraph it already happens, not only in theory: e.g.
+    ``ATM_out_of_service`` is both hazard and critical_event on different POIs).
+    The category is not that of the first property met while iterating
+    the property -> category map — it would depend on the dict order, incidental — but
+    the one with the highest priority in ``_CATEGORY_ORDER`` (the same order already
+    used for the output): an explicit and stable criterion, not a side
+    effect of the definition order.
     """
     ns = Namespace(ontology.namespace)
     prop_category = _prop_category(ontology)
@@ -143,7 +144,7 @@ def extract_records(
 def merge_preserving_it(
     new_records: list[LabelRecord], existing: list[LabelRecord]
 ) -> list[LabelRecord]:
-    """Conserva i ``label_it`` già curati per gli identifier esistenti."""
+    """Keeps the ``label_it`` already curated for the existing identifiers."""
     prev = {r["identifier"]: r["label_it"] for r in existing if r["label_it"]}
     for rec in new_records:
         if not rec["label_it"] and rec["identifier"] in prev:
@@ -158,9 +159,9 @@ def _load_existing(out_path: Path) -> list[LabelRecord]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Estrae il vocabolario EN→IT (#77).")
-    parser.add_argument("--src", default=_DEFAULT_SRC, help="Ontologia sorgente.")
-    parser.add_argument("--out", default=_DEFAULT_OUT, help="JSON di destinazione.")
+    parser = argparse.ArgumentParser(description="Extracts the EN→IT vocabulary (#77).")
+    parser.add_argument("--src", default=_DEFAULT_SRC, help="Source ontology.")
+    parser.add_argument("--out", default=_DEFAULT_OUT, help="Destination JSON.")
     args = parser.parse_args()
 
     graph = Graph()
@@ -175,8 +176,8 @@ def main() -> None:
     out_path.write_text(
         json.dumps(merged, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
-    curati = sum(1 for r in merged if r["label_it"])
-    print(f"Scritti {len(merged)} record ({curati} con label_it) in {out_path}")
+    curated = sum(1 for r in merged if r["label_it"])
+    print(f"Written {len(merged)} records ({curated} with label_it) to {out_path}")
 
 
 if __name__ == "__main__":
