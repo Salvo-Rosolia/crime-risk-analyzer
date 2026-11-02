@@ -1,9 +1,9 @@
-"""Test diretti del modello :class:`PoiRiskProfile` (#118).
+"""Direct tests for the :class:`PoiRiskProfile` model (#118).
 
-Finora il profilo era coperto solo indirettamente (via executor SPARQL e doppi di
-test): questi test ne blindano il comportamento in isolamento — campi, default,
-invarianti di dominio — cosi' una regressione sullo shape del modello diventa
-rossa qui, non tre moduli piu' in la'.
+So far the profile was covered only indirectly (via the SPARQL executor and test
+doubles): these tests lock down its behaviour in isolation — fields, defaults,
+domain invariants — so that a regression in the model shape turns red here, not
+three modules further down.
 """
 
 from __future__ import annotations
@@ -15,14 +15,14 @@ from crime_risk_analyzer.models.risk import PoiRiskProfile
 
 
 def test_terminus_class_is_required() -> None:
-    """``terminus_class`` non ha default: senza, il modello non e' costruibile."""
+    """``terminus_class`` has no default: without it, the model cannot be built."""
     with pytest.raises(ValidationError):
         PoiRiskProfile()  # pyright: ignore[reportCallIssue]
 
 
 def test_defaults_are_empty_lists_not_none() -> None:
-    """Assenza di rischio == lista vuota, mai ``None`` (contratto del modello):
-    con la sola classe TERMINUS tutte le dimensioni sono ``[]`` e ``poi_name`` None."""
+    """No risk == empty list, never ``None`` (model contract): with only the
+    TERMINUS class every dimension is ``[]`` and ``poi_name`` is None."""
     profile = PoiRiskProfile(terminus_class="Bank")
 
     assert profile.poi_name is None
@@ -34,9 +34,9 @@ def test_defaults_are_empty_lists_not_none() -> None:
 
 
 def test_default_lists_are_independent_instances() -> None:
-    """``default_factory`` (non un default mutabile condiviso): mutare la lista di
-    un'istanza NON deve toccare un'altra istanza. Blinda contro il classico bug
-    del default mutabile condiviso a livello di classe."""
+    """``default_factory`` (not a shared mutable default): mutating one
+    instance's list must NOT touch another instance. Guards against the classic
+    bug of a mutable default shared at class level."""
     a = PoiRiskProfile(terminus_class="Bank")
     b = PoiRiskProfile(terminus_class="Bank")
 
@@ -48,7 +48,7 @@ def test_default_lists_are_independent_instances() -> None:
 
 
 def test_preserves_all_populated_fields() -> None:
-    """Ogni campo popolato viene conservato verbatim (nessuna normalizzazione)."""
+    """Every populated field is preserved verbatim (no normalization)."""
     profile = PoiRiskProfile(
         poi_name="Banca Intesa Sanpaolo",
         terminus_class="Bank",
@@ -69,9 +69,9 @@ def test_preserves_all_populated_fields() -> None:
 
 
 def test_has_no_numeric_danger_scoring_field() -> None:
-    """Vincolo legale (_project.md §Vincoli): nessuno scoring numerico di
-    pericolosita'. Il modello espone solo insiemi qualitativi ancorati; questo
-    test diventa rosso se qualcuno reintroduce un campo ``score``/``risk_level``."""
+    """Legal constraint (_project.md §Vincoli): no numeric danger scoring.
+    The model exposes only anchored qualitative sets; this test turns red if
+    someone reintroduces a ``score``/``risk_level`` field."""
     assert set(PoiRiskProfile.model_fields) == {
         "poi_name",
         "terminus_class",
@@ -84,7 +84,7 @@ def test_has_no_numeric_danger_scoring_field() -> None:
 
 
 def test_serializes_to_dict_with_all_keys() -> None:
-    """``model_dump`` espone lo shape completo (input grezzo del citation layer)."""
+    """``model_dump`` exposes the full shape (raw input of the citation layer)."""
     dumped = PoiRiskProfile(terminus_class="Bank", hazards=["Robbery"]).model_dump()
 
     assert dumped["terminus_class"] == "Bank"

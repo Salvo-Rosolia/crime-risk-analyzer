@@ -1,9 +1,9 @@
-"""Test delle config esperimento versionate di ablation (#32).
+"""Tests of the versioned ablation experiment configs (#32).
 
-Le config vivono in ``backend/experiments/`` (versionate nel repo per la
-riproducibilità). Questi test blindano il contratto del deliverable: i due
-bracci (analyze/baseline) esistono, parsano contro ``ExperimentConfig`` e sono
-ancorati alle STESSE 4 zone del roster di validazione C1 (#31).
+The configs live in ``backend/experiments/`` (versioned in the repo for
+reproducibility). These tests lock the contract of the deliverable: the two
+arms (analyze/baseline) exist, parse against ``ExperimentConfig`` and are
+anchored to the SAME 4 zones of the C1 validation roster (#31).
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from pathlib import Path
 from crime_risk_analyzer.eval.city_agnostic import ROSTER
 from crime_risk_analyzer.eval.cli import load_config
 
-#: backend/experiments (test_file → eval → tests → backend).
+#: backend/experiments (test_file -> eval -> tests -> backend).
 EXPERIMENTS_DIR = Path(__file__).resolve().parents[2] / "experiments"
 
 
@@ -29,13 +29,13 @@ def test_ablation_configs_parse_with_expected_names() -> None:
 
 
 def test_ablation_configs_have_the_two_arms() -> None:
-    """Due config: un braccio COMPLETO (analyze+LLM), uno BASELINE (senza LLM)."""
+    """Two configs: a FULL arm (analyze+LLM), one BASELINE (without LLM)."""
     assert load_config(EXPERIMENTS_DIR / "ablation-analyze.json").mode == "analyze"
     assert load_config(EXPERIMENTS_DIR / "ablation-baseline.json").mode == "baseline"
 
 
 def test_ablation_arms_share_the_same_four_zones() -> None:
-    """Confronto iso-input: i due bracci puntano alle STESSE 4 coppie (citta, zona)."""
+    """Iso-input comparison: the two arms point to the SAME 4 (citta, zona) pairs."""
     zones_analyze = _zones("ablation-analyze")
     zones_baseline = _zones("ablation-baseline")
     assert len(zones_analyze) == 4
@@ -43,11 +43,11 @@ def test_ablation_arms_share_the_same_four_zones() -> None:
 
 
 def test_no_ontology_arm_config_exists_with_the_llm() -> None:
-    """#236: il braccio che isola l'ontologia gira con l'LLM, non senza.
+    """#236: the arm that isolates the ontology runs with the LLM, not without.
 
-    ``model`` e' groq perche' e' il provider delle run reali (Claude e' a
-    pagamento e resta differito): il braccio va confrontato con
-    ``ablation-analyze-groq``, cioe' lo STESSO modello.
+    ``model`` is groq because it is the provider of the real runs (Claude is
+    paid and stays deferred): the arm must be compared with
+    ``ablation-analyze-groq``, i.e. the SAME model.
     """
     cfg = load_config(EXPERIMENTS_DIR / "ablation-no-ontology-groq.json")
     assert cfg.name == "ablation-no-ontology-groq"
@@ -56,16 +56,17 @@ def test_no_ontology_arm_config_exists_with_the_llm() -> None:
 
 
 def test_no_ontology_arm_shares_the_zones_of_the_complete_arm() -> None:
-    """Confronto iso-input: le stesse 4 zone del braccio completo con Groq.
+    """Iso-input comparison: the same 4 zones as the full arm with Groq.
 
-    Zone diverse renderebbero il confronto C3 illeggibile prima ancora di
-    guardare i numeri: gli snapshot POI sono chiavati per (citta, zona).
+    Different zones would make the C3 comparison unreadable before even
+    looking at the numbers: the POI snapshots are keyed by (citta, zona).
     """
     assert _zones("ablation-no-ontology-groq") == _zones("ablation-analyze-groq")
 
 
 def test_ablation_zones_anchored_to_c1_roster() -> None:
-    """Le 4 zone sono ancorate al roster #31 (i primi 4: 3 garantite + Torino)."""
+    """The 4 zones are anchored to the #31 roster (the first 4: 3 guaranteed +
+    Turin)."""
     roster_pairs = [(city.citta, city.zona) for city in ROSTER]
     zones = _zones("ablation-analyze")
     for zona in zones:
@@ -73,8 +74,8 @@ def test_ablation_zones_anchored_to_c1_roster() -> None:
     assert zones == roster_pairs[:4]
 
 
-def test_braccio_istat_differisce_solo_per_istat() -> None:
-    """#345: confronto ontologia vs ontologia + ISTAT sulle stesse 4 zone e modello."""
+def test_istat_arm_differs_only_by_istat() -> None:
+    """#345: ontology vs ontology + ISTAT comparison on the same 4 zones and model."""
     istat = load_config(EXPERIMENTS_DIR / "istat-analyze-groq.json")
     base = load_config(EXPERIMENTS_DIR / "ablation-analyze-groq.json")
     assert (istat.name, istat.mode, istat.model, istat.istat) == (

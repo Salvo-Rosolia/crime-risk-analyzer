@@ -26,7 +26,7 @@ def test_extract_includes_seed_poi() -> None:
 def test_extract_follows_hazard_restriction_and_fixes_typo() -> None:
     records = extract.extract_records(_graph(), ["Bank"])
     by_id = {r["identifier"]: r for r in records}
-    # identifier reale col refuso preservato; label_en corretta
+    # real identifier with the typo preserved; corrected label_en
     assert by_id["Brank_branch"]["category"] == "hazard"
     assert by_id["Brank_branch"]["label_en"] == "Branch robbery"
     assert by_id["Brank_branch"]["label_it"] == ""
@@ -44,20 +44,19 @@ def test_extract_follows_stakeholder_restriction() -> None:
     assert by_id["Branch_manager"]["category"] == "stakeholder"
 
 
-def test_extract_categoria_collisione_non_dipende_dall_ordine_del_dict() -> None:
-    """Un filler raggiunto da due property con categorie diverse non prende quella
-    della prima property iterata in ``_prop_category()`` (ordine incidentale del
-    dict): vince la categoria con priorita' piu' alta in ``_CATEGORY_ORDER``.
+def test_extract_category_collision_does_not_depend_on_dict_order() -> None:
+    """A filler reached by two properties with different categories does not take
+    the one of the first property iterated in ``_prop_category()`` (incidental
+    dict order): the category with the higher priority in ``_CATEGORY_ORDER`` wins.
 
-    Riproduce empiricamente il difetto segnalato in review: prima della fix, un
-    filler gia' raggiungibile via una property mappata restava con quella
-    categoria e non diventava mai ``stakeholder`` anche quando raggiungibile
-    anche via ``havingPerformer`` — non perche' ``stakeholder`` fosse meno
-    prioritario per costruzione, ma solo perche' ``havingPerformer`` e' l'ultima
-    entry del dict restituito da ``_prop_category()``. Qui la vulnerabilita'
-    (priorita' 3) vince
-    sullo stakeholder (priorita' 4) perche' lo dichiara ``_CATEGORY_ORDER``, non
-    perche' e' elencata prima.
+    Empirically reproduces the defect reported in review: before the fix, a
+    filler already reachable via a mapped property kept that category and never
+    became ``stakeholder`` even when also reachable via ``havingPerformer`` --
+    not because ``stakeholder`` was lower priority by construction, but only
+    because ``havingPerformer`` is the last entry of the dict returned by
+    ``_prop_category()``. Here the vulnerability (priority 3) wins over the
+    stakeholder (priority 4) because ``_CATEGORY_ORDER`` says so, not because it
+    is listed first.
     """
     g = Graph()
     g.parse(
@@ -117,8 +116,8 @@ def test_merge_preserves_existing_it() -> None:
     assert merged[0]["label_it"] == "Rapina in filiale"
 
 
-def test_extract_segue_le_proprieta_dell_ontologia_passata() -> None:
-    """Namespace e proprieta' vengono dalla configurazione, non da TERMINUS (#434)."""
+def test_extract_follows_the_properties_of_the_given_ontology() -> None:
+    """Namespace and properties come from the configuration, not TERMINUS (#434)."""
     from crime_risk_analyzer.sources.model import OntologyConfig
 
     g = Graph()

@@ -68,9 +68,9 @@ def test_to_csv_has_header_and_row() -> None:
 
 
 def test_to_csv_marks_vacuous_quality_metrics() -> None:
-    """#240: grounding/hallucination vacui (nessuna narrativa da giudicare) sono
-    riconoscibili anche fuori dal report di confronto (#231), qui nella tabella
-    per-run e nel CSV — stesso meccanismo di marcatura per entrambi gli artefatti.
+    """#240: vacuous grounding/hallucination (no narrative to judge) are
+    recognisable also outside the comparison report (#231), here in the per-run
+    table and in the CSV -- same marking mechanism for both artefacts.
     """
     csv = to_csv([_rec("r1", "exp", quality_vacuous=True)])
     row = csv.strip().splitlines()[1]
@@ -82,8 +82,8 @@ def test_to_csv_marks_vacuous_quality_metrics() -> None:
 
 
 def test_to_csv_leaves_vacuous_column_blank_for_legacy_records() -> None:
-    """Un record pre-#240 (``quality_vacuous`` assente, default ``None``) non deve
-    leggersi come "non vacuo": la colonna resta vuota, non "false"."""
+    """A pre-#240 record (``quality_vacuous`` absent, default ``None``) must not
+    read as "not vacuous": the column stays empty, not "false"."""
     csv = to_csv([_rec("r1", "exp", quality_vacuous=None)])
     row = csv.strip().splitlines()[1]
     assert row.split(",")[8] == ""
@@ -98,7 +98,7 @@ def test_to_markdown_marks_vacuous_quality_metrics() -> None:
 def test_markdown_flags_error(tmp_path: Path) -> None:
     md = to_markdown([_rec("r1", "exp", status=RunStatus.ERROR)])
     assert "error" in md
-    assert "|" in md  # tabella markdown
+    assert "|" in md  # markdown table
     assert "fallback" in to_markdown([_rec("r2", "exp", status=RunStatus.FALLBACK)])
 
 
@@ -115,18 +115,18 @@ def test_write_tables_writes_csv_and_md(tmp_path: Path) -> None:
 def test_write_tables_csv_uses_newline_empty(
     tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:
-    """Regressione #103: la scrittura del CSV deve passare ``newline=""``.
+    """Regression #103: the CSV write must pass ``newline=""``.
 
-    ``to_csv()`` usa ``csv.writer`` che emette gia' terminatori ``\\r\\n``; se
-    ``write_text`` apre il file in text-mode senza ``newline=""``, su Windows il
-    ``\\n`` viene ritradotto in ``\\r\\n`` producendo ``\\r\\r\\n`` (righe vuote
-    spurie, CSV corrotto per Excel/pandas/csv.reader).
+    ``to_csv()`` uses ``csv.writer`` which already emits ``\\r\\n`` terminators; if
+    ``write_text`` opens the file in text mode without ``newline=""``, on Windows the
+    ``\\n`` gets re-translated to ``\\r\\n`` producing ``\\r\\r\\n`` (spurious blank
+    lines, CSV corrupt for Excel/pandas/csv.reader).
 
-    Il guard e' DETERMINISTICO e cross-platform perche' non ispeziona i byte su
-    disco (la traduzione text-mode e' solo Windows: su Linux un assert sui byte
-    passerebbe anche col bug), ma verifica il KWARG passato al codice: spia
-    ``Path.write_text`` e pretende ``newline=""`` sulla scrittura del ``.csv``.
-    Questo fallisce sul comportamento buggato su OGNI piattaforma, incluso CI.
+    The guard is DETERMINISTIC and cross-platform because it does not inspect the bytes
+    on disk (the text-mode translation is Windows-only: on Linux an assert on the bytes
+    would pass even with the bug), but verifies the KWARG passed to the code: it spies
+    ``Path.write_text`` and demands ``newline=""`` on the write of the ``.csv``.
+    This fails on the buggy behaviour on EVERY platform, CI included.
     """
     write_record(tmp_path, _rec("exp__a", "exp"))
 
@@ -147,7 +147,7 @@ def test_write_tables_csv_uses_newline_empty(
     monkeypatch.setattr(Path, "write_text", spy)
     csv_path, _md_path = write_tables(tmp_path, "exp")
 
-    # Guard primario, cross-platform: il codice passa esplicitamente newline="".
+    # Primary guard, cross-platform: the code explicitly passes newline="".
     assert csv_newline_kwargs == [""]
-    # Assert supplementare (sensibile solo su Windows): nessuna riga spuria.
+    # Supplementary assert (sensitive only on Windows): no spurious row.
     assert b"\r\r\n" not in csv_path.read_bytes()

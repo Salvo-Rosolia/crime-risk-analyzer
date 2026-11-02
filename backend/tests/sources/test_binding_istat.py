@@ -1,4 +1,4 @@
-"""Dati ISTAT, mappatura, serie non confrontabili e versione dal set attivo (#414)."""
+"""ISTAT data, mapping, non-comparable series and version from the active set (#414)."""
 
 from __future__ import annotations
 
@@ -23,73 +23,73 @@ from crime_risk_analyzer.sources import context
 from crime_risk_analyzer.sources.context import bind, default_set
 from crime_risk_analyzer.sources.model import IstatSource, SourceSet
 
-ROMA = (41.8902, 12.4922)
+ROME = (41.8902, 12.4922)
 
 
 def _set(
     id_: str,
     *,
-    dati: IstatData | None,
-    mappatura: dict[str, HazardMapping] | None = None,
-    voci_rottura: frozenset[str] = frozenset(),
-    versione: str | None = "v-custom",
+    data: IstatData | None,
+    mapping: dict[str, HazardMapping] | None = None,
+    break_items: frozenset[str] = frozenset(),
+    version: str | None = "v-custom",
 ) -> SourceSet:
     return dataclasses.replace(
         default_set(),
         id=id_,
         kind="custom",
         istat=IstatSource(
-            dati=dati,
-            mappatura=HAZARD_MAPPING if mappatura is None else mappatura,
-            voci_rottura=voci_rottura,
-            versione=versione,
+            dati=data,
+            mappatura=HAZARD_MAPPING if mapping is None else mapping,
+            voci_rottura=break_items,
+            versione=version,
         ),
     )
 
 
-def _dati_con_anno(delitti_attuale: int) -> IstatData:
-    """Copia dei dati reali in cui Roma/BANKROB ha un altro conteggio."""
-    reali = istat_data()
-    valori = {
-        k: {v: dict(a) for v, a in voci.items()}
-        for k, voci in reali.delitti.valori.items()
+def _data_with_year(current_crimes: int) -> IstatData:
+    """Copy of the real data where Rome/BANKROB has a different count."""
+    real = istat_data()
+    values = {
+        k: {v: dict(a) for v, a in items.items()}
+        for k, items in real.delitti.valori.items()
     }
-    anno = str(reali.delitti.anno)
-    base = valori["058091"]["BANKROB"][anno]
+    year = str(real.delitti.anno)
+    base = values["058091"]["BANKROB"][year]
     assert base is not None
-    valori["058091"]["BANKROB"][anno] = base.model_copy(
-        update={"delitti": delitti_attuale}
+    values["058091"]["BANKROB"][year] = base.model_copy(
+        update={"delitti": current_crimes}
     )
-    delitti = reali.delitti.model_copy(
-        update={"valori": valori, "estratto_il": "2030-01-01"}
+    crimes = real.delitti.model_copy(
+        update={"valori": values, "estratto_il": "2030-01-01"}
     )
-    return IstatData(delitti=delitti, luoghi=reali.luoghi)
+    return IstatData(delitti=crimes, luoghi=real.luoghi)
 
 
-def _delitti_bankrob(poi_set: SourceSet | None) -> int | None:
-    def calcola() -> int | None:
-        istat = istat_for_poi(*ROMA, ["Bank_robbery"])
+def _bankrob_crimes(poi_set: SourceSet | None) -> int | None:
+    def compute() -> int | None:
+        istat = istat_for_poi(*ROME, ["Bank_robbery"])
         assert istat is not None
         return istat.righe[0].delitti
 
     if poi_set is None:
-        return calcola()
+        return compute()
     with bind(poi_set):
-        return calcola()
+        return compute()
 
 
-def test_default_identico() -> None:
-    attivo = default_set().istat
-    assert attivo.versione == data_version()
+def test_default_identical() -> None:
+    active = default_set().istat
+    assert active.versione == data_version()
     assert context.istat_data_version() == data_version()
-    assert attivo.mappatura is HAZARD_MAPPING
-    assert attivo.voci_rottura is BREAK_ITEMS_2016
+    assert active.mappatura is HAZARD_MAPPING
+    assert active.voci_rottura is BREAK_ITEMS_2016
     assert istat_version_for(True) == data_version()
     hazards = ["Bank_robbery", "Landslide"]
-    dati = istat_data()
-    roma = place_of(*ROMA, data=dati)
-    assert roma is not None
-    voci = ["BANKROB", *BREAK_ITEMS_2016]  # include le serie non confrontabili
+    data = istat_data()
+    rome = place_of(*ROME, data=data)
+    assert rome is not None
+    items = ["BANKROB", *BREAK_ITEMS_2016]  # includes the non-comparable series
     pois: list[Poi] = [
         {
             "id": "node/1",
@@ -102,39 +102,39 @@ def test_default_identico() -> None:
         }
     ]
 
-    def calcola() -> tuple[object, list[object], str, str | None]:
+    def compute() -> tuple[object, list[object], str, str | None]:
         return (
-            istat_for_poi(*ROMA, hazards),
-            [istat_row(dati, roma, voce) for voce in voci],
+            istat_for_poi(*ROME, hazards),
+            [istat_row(data, rome, item) for item in items],
             fingerprint(pois, istat_version=istat_version_for(True)),
             active_sources_id(),
         )
 
-    fuori = calcola()  # nessun bind: ripiego sul default
+    outside = compute()  # no bind: falls back to the default
     with bind(default_set()):
-        dentro = calcola()
-    assert dentro == fuori
-    assert fuori[0] is not None
-    assert any(r.rottura_2016 for r in fuori[1])  # type: ignore[attr-defined]
-    assert dentro[2] == fuori[2]  # impronta byte-identica
+        inside = compute()
+    assert inside == outside
+    assert outside[0] is not None
+    assert any(r.rottura_2016 for r in outside[1])  # type: ignore[attr-defined]
+    assert inside[2] == outside[2]  # byte-identical fingerprint
 
 
-def test_righe_dai_dati_del_set() -> None:
-    custom = _set("c1", dati=_dati_con_anno(7), mappatura=HAZARD_MAPPING)
-    reale = _delitti_bankrob(None)
-    assert reale != 7
-    assert _delitti_bankrob(custom) == 7
-    assert _delitti_bankrob(None) == reale  # fuori dal bind, di nuovo il default
+def test_rows_from_the_set_data() -> None:
+    custom = _set("c1", data=_data_with_year(7), mapping=HAZARD_MAPPING)
+    real = _bankrob_crimes(None)
+    assert real != 7
+    assert _bankrob_crimes(custom) == 7
+    assert _bankrob_crimes(None) == real  # outside the bind, the default again
 
 
-def test_set_senza_dati_non_ricade_sul_default() -> None:
-    with bind(_set("c2", dati=None, versione=None)):
-        assert istat_for_poi(*ROMA, ["Bank_robbery"]) is None
+def test_set_without_data_does_not_fall_back_to_default() -> None:
+    with bind(_set("c2", data=None, version=None)):
+        assert istat_for_poi(*ROME, ["Bank_robbery"]) is None
         assert context.istat_data_version() is None
 
 
-def test_mappatura_dal_set() -> None:
-    mappatura = {
+def test_mapping_from_the_set() -> None:
+    mapping = {
         "Landslide": HazardMapping(
             voce_istat="BANKROB",
             corrispondenza="piu_stretta",
@@ -142,30 +142,30 @@ def test_mappatura_dal_set() -> None:
             nota="",
         )
     }
-    with bind(_set("c3", dati=istat_data(), mappatura=mappatura)):
-        assert istat_for_poi(*ROMA, ["Bank_robbery"]) is None  # non e' nel set
-        istat = istat_for_poi(*ROMA, ["Landslide"])
+    with bind(_set("c3", data=istat_data(), mapping=mapping)):
+        assert istat_for_poi(*ROME, ["Bank_robbery"]) is None  # it is not in the set
+        istat = istat_for_poi(*ROME, ["Landslide"])
     assert istat is not None
     assert [r.voce for r in istat.righe] == ["BANKROB"]
     assert istat.righe[0].collegamenti[0].corrispondenza == "piu_stretta"
-    assert istat_for_poi(*ROMA, ["Landslide"]) is None  # default invariato
+    assert istat_for_poi(*ROME, ["Landslide"]) is None  # default unchanged
 
 
-def test_voci_a_serie_non_confrontabile_dal_set() -> None:
-    dati = istat_data()
-    roma = place_of(*ROMA, data=dati)
-    assert roma is not None
-    assert not istat_row(dati, roma, "BANKROB").rottura_2016
-    with bind(_set("c4", dati=dati, voci_rottura=frozenset({"BANKROB"}))):
-        riga = istat_row(dati, roma, "BANKROB")
-        via_poi = istat_for_poi(*ROMA, ["Bank_robbery"])
-    assert riga.rottura_2016
-    assert riga.motivo_senza_variazione == REASON_BREAK_2016
+def test_break_series_items_from_the_set() -> None:
+    data = istat_data()
+    rome = place_of(*ROME, data=data)
+    assert rome is not None
+    assert not istat_row(data, rome, "BANKROB").rottura_2016
+    with bind(_set("c4", data=data, break_items=frozenset({"BANKROB"}))):
+        row = istat_row(data, rome, "BANKROB")
+        via_poi = istat_for_poi(*ROME, ["Bank_robbery"])
+    assert row.rottura_2016
+    assert row.motivo_senza_variazione == REASON_BREAK_2016
     assert via_poi is not None and via_poi.righe[0].rottura_2016
-    assert not istat_row(dati, roma, "BANKROB").rottura_2016
+    assert not istat_row(data, rome, "BANKROB").rottura_2016
 
 
-def test_impronta_cambia_con_la_versione_del_set() -> None:
+def test_fingerprint_changes_with_the_set_version() -> None:
     pois: list[Poi] = [
         {
             "id": "node/1",
@@ -178,37 +178,40 @@ def test_impronta_cambia_con_la_versione_del_set() -> None:
         }
     ]
     base = fingerprint(pois, istat_version=istat_version_for(True))
-    with bind(_set("stesso", dati=istat_data(), versione="A")):
+    with bind(_set("stesso", data=istat_data(), version="A")):
         a = fingerprint(pois, istat_version=istat_version_for(True))
-    with bind(_set("stesso", dati=istat_data(), versione="B")):
+    with bind(_set("stesso", data=istat_data(), version="B")):
         b = fingerprint(pois, istat_version=istat_version_for(True))
-        spento = istat_version_for(False)
+        off = istat_version_for(False)
     assert len({base, a, b}) == 3
-    assert spento is None
+    assert off is None
 
 
-def test_due_set_non_si_mescolano() -> None:
-    uno, due = _set("u", dati=_dati_con_anno(11)), _set("d", dati=_dati_con_anno(22))
-    reale = _delitti_bankrob(None)
-    for _ in range(2):  # la seconda lettura passa dalle cache
-        assert _delitti_bankrob(uno) == 11
-        assert _delitti_bankrob(due) == 22
-        assert _delitti_bankrob(None) == reale
+def test_two_sets_do_not_mix() -> None:
+    one, two = _set("u", data=_data_with_year(11)), _set("d", data=_data_with_year(22))
+    real = _bankrob_crimes(None)
+    for _ in range(2):  # the second read goes through the caches
+        assert _bankrob_crimes(one) == 11
+        assert _bankrob_crimes(two) == 22
+        assert _bankrob_crimes(None) == real
 
 
-def test_dati_espliciti_con_mappatura_e_rotture_del_set_attivo() -> None:
-    """Fonte mista voluta: ``data=`` prende i dati dall'argomento, il resto dal set."""
+def test_explicit_data_with_mapping_and_breaks_of_the_active_set() -> None:
+    """Intentional mixed source: ``data=`` takes the data from the argument, the rest
+    from the set."""
     custom = _set(
         "mista",
-        dati=_dati_con_anno(7),
-        voci_rottura=frozenset({"BANKROB"}),
+        data=_data_with_year(7),
+        break_items=frozenset({"BANKROB"}),
     )
-    reali = istat_data()
+    real = istat_data()
     with bind(custom):
-        istat = istat_for_poi(*ROMA, ["Bank_robbery"], data=reali)
+        istat = istat_for_poi(*ROME, ["Bank_robbery"], data=real)
     assert istat is not None
-    riga = istat.righe[0]
-    assert riga.delitti == _delitti_bankrob(None)  # dati dall'argomento, non dal set
-    assert riga.delitti != 7
-    assert riga.rottura_2016  # rotture dal set attivo
-    assert istat_for_poi(*ROMA, ["Bank_robbery"], data=reali) is not None
+    row = istat.righe[0]
+    assert row.delitti == _bankrob_crimes(
+        None
+    )  # data from the argument, not from the set
+    assert row.delitti != 7
+    assert row.rottura_2016  # breaks from the active set
+    assert istat_for_poi(*ROME, ["Bank_robbery"], data=real) is not None

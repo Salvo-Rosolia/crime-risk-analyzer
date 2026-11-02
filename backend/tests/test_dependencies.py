@@ -1,4 +1,4 @@
-"""Unit sui provider DI dell'orchestratore (#18)."""
+"""Unit tests on the orchestrator DI providers (#18)."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def test_get_llm_client_builds_from_settings(monkeypatch: pytest.MonkeyPatch) ->
 def test_get_llm_client_raises_without_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LLM_PROVIDER", "claude")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    # Senza, la chiave di un ``backend/.env`` locale riempirebbe lo stesso Settings.
+    # Without it, the key of a local ``backend/.env`` would fill the same Settings.
     monkeypatch.setitem(Settings.model_config, "env_file", None)
     get_settings.cache_clear()
     get_llm_client.cache_clear()

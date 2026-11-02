@@ -1,4 +1,4 @@
-"""Test del client Overpass -> POI on-demand (#16). Le risposte HTTP sono mockate."""
+"""Tests for the Overpass client -> on-demand POIs (#16). HTTP responses are mocked."""
 
 from __future__ import annotations
 
@@ -41,11 +41,11 @@ def _sample() -> dict[str, object]:
 
 @pytest.fixture(autouse=True)
 def _no_retry_pause(monkeypatch: pytest.MonkeyPatch) -> None:  # pyright: ignore[reportUnusedFunction]
-    """Azzera le pause della politica interattiva: nessuno sleep reale (#232).
+    """Zeroes the pauses of the interactive policy: no real sleep (#232).
 
-    ``fetch_pois`` risolve la politica di default AL MOMENTO DELLA CHIAMATA
-    (``retry or INTERACTIVE_RETRY``), non come default di firma: per questo
-    sostituire l'attributo di modulo qui basta a rendere la suite istantanea.
+    ``fetch_pois`` resolves the default policy AT CALL TIME
+    (``retry or INTERACTIVE_RETRY``), not as a signature default: that is why
+    replacing the module attribute here is enough to make the suite instantaneous.
     """
     monkeypatch.setattr(
         overpass_client,
@@ -54,8 +54,8 @@ def _no_retry_pause(monkeypatch: pytest.MonkeyPatch) -> None:  # pyright: ignore
     )
 
 
-def _poi_a(poi_id: str, lat: float, lon: float, terminus_class: str = "Bank") -> Poi:
-    """POI sintetico posizionato a mano (per i test di selezione, #254)."""
+def _poi_at(poi_id: str, lat: float, lon: float, terminus_class: str = "Bank") -> Poi:
+    """Synthetic POI placed by hand (for the selection tests, #254)."""
     return Poi(
         id=poi_id,
         name=f"POI {poi_id}",
@@ -67,62 +67,60 @@ def _poi_a(poi_id: str, lat: float, lon: float, terminus_class: str = "Bank") ->
     )
 
 
-# --- #254: quali POI entrano nei MAX_POIS posti ---
+# --- #254: which POIs enter the MAX_POIS slots ---
 
 
 def test_select_pois_prefers_the_nearest_to_the_center() -> None:
-    """I posti vanno ai POI piu' vicini al centro dell'area, non ai primi arrivati.
+    """The slots go to the POIs closest to the centre of the area, not first comers.
 
-    Prima di #254 il taglio prendeva i primi ``MAX_POIS`` nell'ordine in cui
-    Overpass li emetteva, cioe' nell'ordine dei selettori dichiarati: i POI delle
-    famiglie di tag in coda non entravano mai in una zona densa.
+    Before #254 the cut took the first ``MAX_POIS`` in the order in which Overpass
+    emitted them, i.e. in the order of the declared selectors: the POIs of the tag
+    families at the tail never made it into a dense zone.
     """
     center_lat, center_lon = _BBOX.center()
-    lontano = _poi_a("lontano", center_lat + 0.02, center_lon)
-    vicino = _poi_a("vicino", center_lat + 0.0001, center_lon)
+    far = _poi_at("far", center_lat + 0.02, center_lon)
+    near = _poi_at("near", center_lat + 0.0001, center_lon)
 
-    selected = overpass_client.select_pois(
-        [lontano, vicino], _BBOX.center(), max_pois=1
-    )
+    selected = overpass_client.select_pois([far, near], _BBOX.center(), max_pois=1)
 
-    assert [p["id"] for p in selected] == ["vicino"]
+    assert [p["id"] for p in selected] == ["near"]
 
 
 def test_select_pois_caps_a_dense_class_while_other_classes_are_present() -> None:
-    """Una classe densa non si prende tutti i posti se ci sono altre classi.
+    """A dense class does not take all the slots if there are other classes.
 
-    In centro citta' i POI piu' vicini sono spesso della stessa classe (otto
-    bancomat entro 150 m): senza tetto la zona verrebbe descritta su un campione
-    omogeneo, cioe' la distorsione che #254 chiude, solo con un'altra causa.
+    In a city centre the closest POIs are often of the same class (eight ATMs within
+    150 m): without a cap the zone would be described on a homogeneous sample, i.e.
+    the distortion that #254 closes, only with another cause.
     """
     lat, lon = _BBOX.center()
-    banche = [_poi_a(f"bank-{i}", lat + 0.0001 * i, lon, "Bank") for i in range(5)]
-    altre = [
-        _poi_a("school", lat + 0.001, lon, "School"),
-        _poi_a("museum", lat + 0.0011, lon, "Museum"),
+    banks = [_poi_at(f"bank-{i}", lat + 0.0001 * i, lon, "Bank") for i in range(5)]
+    others = [
+        _poi_at("school", lat + 0.001, lon, "School"),
+        _poi_at("museum", lat + 0.0011, lon, "Museum"),
     ]
 
     selected = overpass_client.select_pois(
-        banche + altre, (lat, lon), max_pois=5, per_class_cap=3
+        banks + others, (lat, lon), max_pois=5, per_class_cap=3
     )
 
-    per_classe = Counter(p["terminus_class"] for p in selected)
-    assert per_classe == Counter({"Bank": 3, "School": 1, "Museum": 1})
+    per_class = Counter(p["terminus_class"] for p in selected)
+    assert per_class == Counter({"Bank": 3, "School": 1, "Museum": 1})
 
 
 def test_select_pois_fills_remaining_slots_when_only_capped_classes_are_left() -> None:
-    """Il tetto non deve far restituire MENO POI di quanti la zona ne abbia.
+    """The cap must not make the function return FEWER POIs than the zone has.
 
-    In una zona di sole banche un tetto rigido restituirebbe 3 punti invece di
-    ``max_pois``: peggio di prima. Esauriti i candidati di altre classi, i posti
-    rimasti si riempiono coi piu' vicini fra gli scartati, mantenendo l'ordine di
-    distanza.
+    In a zone of only banks a rigid cap would return 3 points instead of
+    ``max_pois``: worse than before. Once the candidates of other classes are
+    exhausted, the remaining slots are filled with the closest among the discarded,
+    keeping the distance order.
     """
     lat, lon = _BBOX.center()
-    banche = [_poi_a(f"bank-{i}", lat + 0.0001 * i, lon, "Bank") for i in range(6)]
+    banks = [_poi_at(f"bank-{i}", lat + 0.0001 * i, lon, "Bank") for i in range(6)]
 
     selected = overpass_client.select_pois(
-        banche, (lat, lon), max_pois=5, per_class_cap=3
+        banks, (lat, lon), max_pois=5, per_class_cap=3
     )
 
     assert [p["id"] for p in selected] == [
@@ -134,20 +132,20 @@ def test_select_pois_fills_remaining_slots_when_only_capped_classes_are_left() -
     ]
 
 
-def test_select_pois_esce_sempre_in_ordine_di_distanza() -> None:
-    """Anche i POI riammessi dal secondo giro stanno al loro posto in distanza.
+def test_select_pois_always_comes_out_in_distance_order() -> None:
+    """Even the POIs readmitted by the second round sit in their place by distance.
 
-    Non e' cosmetica: l'impronta del contesto (#242) e' SENSIBILE all'ordine — un
-    riordino a contenuto invariato fa rispondere 409 a ``/analyze/poi`` — e la
-    numerazione dei marker in mappa segue questa lista. Senza il riordino finale
-    l'uscita sarebbe ``bank-0, bank-1, bank-2, school, bank-3``.
+    It is not cosmetic: the context fingerprint (#242) is SENSITIVE to the order — a
+    reordering with unchanged content makes ``/analyze/poi`` answer 409 — and the
+    numbering of the markers on the map follows this list. Without the final
+    reordering the output would be ``bank-0, bank-1, bank-2, school, bank-3``.
     """
     lat, lon = _BBOX.center()
-    banche = [_poi_a(f"bank-{i}", lat + 0.0001 * i, lon, "Bank") for i in range(4)]
-    scuola = _poi_a("school", lat + 0.005, lon, "School")
+    banks = [_poi_at(f"bank-{i}", lat + 0.0001 * i, lon, "Bank") for i in range(4)]
+    school = _poi_at("school", lat + 0.005, lon, "School")
 
     selected = overpass_client.select_pois(
-        [*banche, scuola], (lat, lon), max_pois=5, per_class_cap=3
+        [*banks, school], (lat, lon), max_pois=5, per_class_cap=3
     )
 
     assert [p["id"] for p in selected] == [
@@ -160,15 +158,15 @@ def test_select_pois_esce_sempre_in_ordine_di_distanza() -> None:
 
 
 def test_select_pois_breaks_distance_ties_by_id() -> None:
-    """A parita' di distanza vince l'``id`` minore.
+    """At equal distance the lower ``id`` wins.
 
-    Senza un criterio di rottura dei pareggi due esecuzioni sullo stesso input
-    possono produrre prompt diversi e ``repro.prompt_hash`` diverge, rendendo la
-    run non ricostruibile.
+    Without a tie-breaking criterion two runs on the same input can produce
+    different prompts and ``repro.prompt_hash`` diverges, making the run
+    non-reconstructible.
     """
     lat, lon = _BBOX.center()
     selected = overpass_client.select_pois(
-        [_poi_a("b", lat + 0.001, lon), _poi_a("a", lat + 0.001, lon)],
+        [_poi_at("b", lat + 0.001, lon), _poi_at("a", lat + 0.001, lon)],
         (lat, lon),
         max_pois=1,
     )
@@ -177,20 +175,21 @@ def test_select_pois_breaks_distance_ties_by_id() -> None:
 
 
 @respx.mock
-async def test_fetch_pois_deduplica_elementi_emessi_da_piu_blocchi() -> None:
-    """Lo stesso oggetto OSM emesso da piu' blocchi ``out`` entra una volta sola.
+async def test_fetch_pois_deduplicates_elements_emitted_by_several_blocks() -> None:
+    """The same OSM object emitted by several ``out`` blocks enters only once.
 
-    La query ha un blocco per selettore e ogni ``out`` stampa il PROPRIO set:
-    verificato dal vivo sul bbox del Colosseo, dove l'Arco di Costantino
-    (``tourism=attraction`` + ``historic=monument``) e la Basilica di San Pietro in
-    Vincoli (``amenity=place_of_worship`` + ``tourism=attraction``) arrivano due
-    volte. Finche' il taglio era «i primi 20 emessi» i blocchi che li duplicano non
-    entravano mai in output; con la selezione per prossimita' i doppioni sono i piu'
-    vicini, quindi si mangerebbero i posti proprio delle classi che #254 vuole far
-    emergere, e ``zone_composition`` conterebbe tre luoghi di culto dove ce n'e' uno.
+    The query has one block per selector and each ``out`` prints ITS OWN set:
+    verified live on the Colosseo bbox, where the Arco di Costantino
+    (``tourism=attraction`` + ``historic=monument``) and the Basilica di San Pietro in
+    Vincoli (``amenity=place_of_worship`` + ``tourism=attraction``) arrive twice.
+    As long as the cut was «the first 20 emitted» the blocks duplicating them never
+    made it into the output; with the selection by proximity the duplicates are the
+    closest, so they would eat the slots of exactly the classes that #254 wants to
+    bring out, and ``zone_composition`` would count three places of worship where
+    there is one.
     """
     lat, lon = _BBOX.center()
-    arco: dict[str, object] = {
+    arch: dict[str, object] = {
         "type": "way",
         "id": 23590989,
         "center": {"lat": lat, "lon": lon},
@@ -201,7 +200,7 @@ async def test_fetch_pois_deduplica_elementi_emessi_da_piu_blocchi() -> None:
         },
     }
     respx.post(DEFAULT_OVERPASS_URL).mock(
-        return_value=httpx.Response(200, json={"elements": [arco, dict(arco)]})
+        return_value=httpx.Response(200, json={"elements": [arch, dict(arch)]})
     )
 
     pois = await fetch_pois(_BBOX, "Roma")
@@ -211,28 +210,28 @@ async def test_fetch_pois_deduplica_elementi_emessi_da_piu_blocchi() -> None:
 
 @respx.mock
 async def test_fetch_pois_node_and_way_with_same_number_do_not_collide() -> None:
-    """Un node e un way con lo stesso numero OSM non condividono lo stesso id (#265).
+    """A node and a way with the same OSM number do not share the same id (#265).
 
-    node e way vivono in namespace OSM separati: senza il tipo di elemento
-    nell'id del POI, i rischi verrebbero attribuiti (da #255) al punto sbagliato
-    ogni volta che i due numeri combaciano.
+    node and way live in separate OSM namespaces: without the element type in the
+    POI id, the risks would be attributed (since #255) to the wrong point every time
+    the two numbers match.
     """
     lat, lon = _BBOX.center()
-    nodo: dict[str, object] = {
+    node_elem: dict[str, object] = {
         "type": "node",
         "id": 123,
         "lat": lat,
         "lon": lon,
         "tags": {"amenity": "bank", "name": "Banca (node)"},
     }
-    via: dict[str, object] = {
+    way_elem: dict[str, object] = {
         "type": "way",
         "id": 123,
         "center": {"lat": lat, "lon": lon},
         "tags": {"tourism": "museum", "name": "Museo (way)"},
     }
     respx.post(DEFAULT_OVERPASS_URL).mock(
-        return_value=httpx.Response(200, json={"elements": [nodo, via]})
+        return_value=httpx.Response(200, json={"elements": [node_elem, way_elem]})
     )
 
     pois = await fetch_pois(_BBOX, "Roma")
@@ -244,11 +243,11 @@ async def test_fetch_pois_node_and_way_with_same_number_do_not_collide() -> None
 
 @respx.mock
 async def test_fetch_pois_keeps_the_nearest_even_if_emitted_last() -> None:
-    """Il POI piu' vicino al centro entra anche se Overpass lo emette per ultimo.
+    """The POI closest to the centre enters even if Overpass emits it last.
 
-    E' il difetto di #254 preso dal punto d'ingresso reale: l'ordine di emissione
-    e' quello dei selettori dichiarati, quindi prima un POI oltre il ventesimo
-    posto non entrava mai, per quanto vicino fosse.
+    It is the defect of #254 taken from the real entry point: the emission order is
+    that of the declared selectors, so before a POI beyond the twentieth slot never
+    made it in, however close it was.
     """
     lat, lon = _BBOX.center()
     elements: list[dict[str, object]] = [
@@ -283,7 +282,7 @@ async def test_fetch_pois_keeps_the_nearest_even_if_emitted_last() -> None:
 
 @respx.mock
 async def test_fetch_pois_maps_contract_fields() -> None:
-    """POI nel contratto retrieval: id/name/lat/lon/osm_tags/terminus_class/citta."""
+    """POI in the retrieval contract: id/name/lat/lon/osm_tags/terminus_class/citta."""
     respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(200, json=_sample())
     )
@@ -303,39 +302,39 @@ async def test_fetch_pois_maps_contract_fields() -> None:
 
 
 @respx.mock
-async def test_fetch_pois_with_cut_estrae_il_taglio_osm_dal_payload() -> None:
-    """#251: il taglio dichiarato da Overpass in ``osm3s`` diventa OsmCut."""
+async def test_fetch_pois_with_cut_extracts_the_osm_cut_from_the_payload() -> None:
+    """#251: the cut declared by Overpass in ``osm3s`` becomes OsmCut."""
     payload = {**_sample(), "osm3s": {"timestamp_osm_base": "2026-07-26T17:42:03Z"}}
     respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(200, json=payload)
     )
 
-    pois, taglio = await fetch_pois_with_cut(_BBOX, "Roma")
+    pois, cut = await fetch_pois_with_cut(_BBOX, "Roma")
 
-    assert pois  # stesso bacino di fetch_pois, non è questo il punto del test
-    assert taglio == {
+    assert pois  # same pool as fetch_pois, it is not the point of the test
+    assert cut == {
         "timestamp_osm_base": "2026-07-26T17:42:03Z",
         "overpass_url": DEFAULT_OVERPASS_URL,
     }
 
 
 @respx.mock
-async def test_fetch_pois_with_cut_assente_quando_payload_non_lo_dichiara() -> None:
-    """Payload senza ``osm3s``/``timestamp_osm_base``: taglio assente, non un errore."""
+async def test_fetch_pois_with_cut_absent_when_payload_does_not_declare_it() -> None:
+    """Payload without ``osm3s``/``timestamp_osm_base``: cut absent, not an error."""
     respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(200, json=_sample())
     )
 
-    pois, taglio = await fetch_pois_with_cut(_BBOX, "Roma")
+    pois, cut = await fetch_pois_with_cut(_BBOX, "Roma")
 
     assert pois
-    assert taglio["timestamp_osm_base"] is None
-    assert taglio["overpass_url"] == DEFAULT_OVERPASS_URL
+    assert cut["timestamp_osm_base"] is None
+    assert cut["overpass_url"] == DEFAULT_OVERPASS_URL
 
 
 @respx.mock
-async def test_fetch_pois_scarta_il_taglio_e_si_comporta_come_prima() -> None:
-    """fetch_pois resta un involucro che ritorna solo la lista di POI (#251)."""
+async def test_fetch_pois_discards_the_cut_and_behaves_as_before() -> None:
+    """fetch_pois stays a wrapper that returns only the list of POIs (#251)."""
     payload = {**_sample(), "osm3s": {"timestamp_osm_base": "2026-07-26T17:42:03Z"}}
     respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(200, json=payload)
@@ -349,7 +348,7 @@ async def test_fetch_pois_scarta_il_taglio_e_si_comporta_come_prima() -> None:
 
 @respx.mock
 async def test_fetch_pois_enriches_terminus_class() -> None:
-    """terminus_class deriva da map_to_terminus; tag sconosciuto -> GenericUrbanPOI."""
+    """terminus_class derives from map_to_terminus; unknown tag -> GenericUrbanPOI."""
     respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(200, json=_sample())
     )
@@ -364,7 +363,7 @@ async def test_fetch_pois_enriches_terminus_class() -> None:
 
 @respx.mock
 async def test_fetch_pois_uses_way_center_and_skips_untagged() -> None:
-    """I way usano 'center' per lat/lon; i nodi senza tag sono scartati."""
+    """Ways use 'center' for lat/lon; nodes without tags are discarded."""
     respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(200, json=_sample())
     )
@@ -372,14 +371,14 @@ async def test_fetch_pois_uses_way_center_and_skips_untagged() -> None:
     pois = await fetch_pois(_BBOX, "Roma")
     by_id = {p["id"]: p for p in pois}
 
-    assert "node/1004" not in by_id  # nodo senza tag scartato
+    assert "node/1004" not in by_id  # untagged node discarded
     assert by_id["way/2001"]["lat"] == pytest.approx(41.8920)
     assert by_id["way/2001"]["lon"] == pytest.approx(12.4940)
 
 
 @respx.mock
 async def test_fetch_pois_caps_at_max() -> None:
-    """Non vengono mai restituiti piu' di MAX_POIS elementi."""
+    """No more than MAX_POIS elements are ever returned."""
     elements = [
         {
             "type": "node",
@@ -401,7 +400,7 @@ async def test_fetch_pois_caps_at_max() -> None:
 
 @respx.mock
 async def test_fetch_pois_retries_once_then_succeeds() -> None:
-    """Timeout alla prima chiamata -> un retry con timeout esteso -> successo."""
+    """Timeout on the first call -> one retry with extended timeout -> success."""
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         side_effect=[
             httpx.TimeoutException("slow"),
@@ -417,7 +416,7 @@ async def test_fetch_pois_retries_once_then_succeeds() -> None:
 
 @respx.mock
 async def test_fetch_pois_retries_on_429_then_succeeds() -> None:
-    """429 alla prima chiamata -> un retry -> successo (429 e' ritentabile)."""
+    """429 on the first call -> one retry -> success (429 is retryable)."""
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         side_effect=[
             httpx.Response(429, text="rate limited"),
@@ -433,7 +432,7 @@ async def test_fetch_pois_retries_on_429_then_succeeds() -> None:
 
 @respx.mock
 async def test_fetch_pois_raises_after_retry_exhausted() -> None:
-    """Timeout su entrambi i tentativi -> OverpassError (mappabile a 503)."""
+    """Timeout on both attempts -> OverpassError (mappable to 503)."""
     respx.post(DEFAULT_OVERPASS_URL).mock(side_effect=httpx.TimeoutException("slow"))
 
     with pytest.raises(OverpassError):
@@ -442,7 +441,7 @@ async def test_fetch_pois_raises_after_retry_exhausted() -> None:
 
 @respx.mock
 async def test_fetch_pois_raises_on_http_error() -> None:
-    """Status 504 (ritentabile) su entrambi i tentativi -> retry esaurito -> errore."""
+    """Status 504 (retryable) on both attempts -> retry exhausted -> error."""
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(504, text="gateway timeout")
     )
@@ -455,7 +454,7 @@ async def test_fetch_pois_raises_on_http_error() -> None:
 
 @respx.mock
 async def test_fetch_pois_does_not_retry_on_non_retryable_status() -> None:
-    """Status non-2xx NON ritentabile (400) -> OverpassError immediata, nessun retry."""
+    """Non-retryable non-2xx status (400) -> immediate OverpassError, no retry."""
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(400, text="bad request")
     )
@@ -466,26 +465,25 @@ async def test_fetch_pois_does_not_retry_on_non_retryable_status() -> None:
     assert route.call_count == 1
 
 
-# --- #232: politica di ritentativo esplicita, e cattura offline che puo' attendere ---
-# Le pause NON sono mai reali: ogni test inietta uno ``sleep`` che le registra.
+# --- #232: explicit retry policy, and offline capture that can wait ---
+# The pauses are NEVER real: every test injects a ``sleep`` that records them.
 
 
-def _recording_sleep(attese: list[float]):  # noqa: ANN202  (closure di test)
-    async def _sleep(secondi: float) -> None:
-        attese.append(secondi)
+def _recording_sleep(waits: list[float]):  # noqa: ANN202  (test closure)
+    async def _sleep(seconds: float) -> None:
+        waits.append(seconds)
 
     return _sleep
 
 
 @respx.mock
-async def test_offline_policy_supera_due_risposte_ritentabili() -> None:
-    """Lo scenario reale del 26/07: 504 poi 429 non devono far fallire la cattura.
+async def test_offline_policy_survives_two_retryable_responses() -> None:
+    """The real scenario of 26/07: 504 then 429 must not make the capture fail.
 
-    Con la politica interattiva (un solo ritentativo) questa sequenza fallisce: e'
-    esattamente il difetto di #232, che aveva costretto a un backoff scritto a mano
-    fuori dal codice.
+    With the interactive policy (a single retry) this sequence fails: it is exactly
+    the defect of #232, which had forced a hand-written backoff outside the code.
     """
-    attese: list[float] = []
+    waits: list[float] = []
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         side_effect=[
             httpx.Response(504, text="gateway timeout"),
@@ -495,51 +493,51 @@ async def test_offline_policy_supera_due_risposte_ritentabili() -> None:
     )
 
     pois = await fetch_pois(
-        _BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(attese)
+        _BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(waits)
     )
 
     assert route.call_count == 3
     assert len(pois) > 0
-    # Pause crescenti dichiarate dalla politica, nell'ordine.
-    assert attese == list(OFFLINE_RETRY.pause_s[:2])
+    # Increasing pauses declared by the policy, in order.
+    assert waits == list(OFFLINE_RETRY.pause_s[:2])
 
 
 @respx.mock
-async def test_politica_interattiva_resta_a_un_solo_ritentativo() -> None:
-    """Il percorso /analyze resta fail-fast: nessuna regressione di latenza (#232).
+async def test_interactive_policy_stays_at_a_single_retry() -> None:
+    """The /analyze path stays fail-fast: no latency regression (#232).
 
-    Un utente sta aspettando: due tentativi e poi l'errore, come prima di #232.
+    A user is waiting: two attempts and then the error, as before #232.
     """
-    attese: list[float] = []
+    waits: list[float] = []
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(504, text="gateway timeout")
     )
 
     with pytest.raises(OverpassError):
-        await fetch_pois(_BBOX, "Roma", sleep=_recording_sleep(attese))
+        await fetch_pois(_BBOX, "Roma", sleep=_recording_sleep(waits))
 
     assert route.call_count == 2
     assert len(INTERACTIVE_RETRY.pause_s) == 1
-    assert len(attese) == 1
-    # I timeout restano quelli di prima di #232: la latenza del caso peggiore su
-    # /analyze non cambia (30s + 1s + 60s).
+    assert len(waits) == 1
+    # The timeouts stay those from before #232: the worst-case latency on
+    # /analyze does not change (30s + 1s + 60s).
     assert INTERACTIVE_RETRY.timeout_s == 30.0
     assert INTERACTIVE_RETRY.retry_timeout_s == 60.0
 
 
 @respx.mock
-async def test_politica_interattiva_ignora_retry_after() -> None:
-    """La pausa interattiva resta 1s anche se il server chiede di piu' (#232).
+async def test_interactive_policy_ignores_retry_after() -> None:
+    """The interactive pause stays 1s even if the server asks for more (#232).
 
-    È il criterio «nessuna regressione di latenza percepita» preso alla lettera:
-    su ``/analyze`` un utente sta aspettando, e allungare l'attesa perché
-    Overpass lo chiede peggiorerebbe proprio ciò che si vuole tenere basso. Vale
-    anche per ``capture_city`` (#31), dove la pausa cade DENTRO la finestra
-    cronometrata di ``switch_ms`` (soglia 5000ms): un cap piu' alto avrebbe fatto
-    fallire la metrica di una contribuzione della tesi al primo 429 transitorio.
+    It is the «no perceived-latency regression» criterion taken literally: on
+    ``/analyze`` a user is waiting, and lengthening the wait because Overpass asks
+    for it would worsen exactly what we want to keep low. It also holds for
+    ``capture_city`` (#31), where the pause falls INSIDE the timed window of
+    ``switch_ms`` (threshold 5000ms): a higher cap would have made the metric of a
+    thesis contribution fail at the first transient 429.
     """
-    attese: list[float] = []
-    # Politica reale, NON quella azzerata dalla fixture: qui il valore è il punto.
+    waits: list[float] = []
+    # Real policy, NOT the one zeroed by the fixture: here the value is the point.
     monkeypatch_free = replace(overpass_client.INTERACTIVE_RETRY, pause_s=(1.0,))
     respx.post(DEFAULT_OVERPASS_URL).mock(
         side_effect=[
@@ -549,23 +547,23 @@ async def test_politica_interattiva_ignora_retry_after() -> None:
     )
 
     await fetch_pois(
-        _BBOX, "Roma", retry=monkeypatch_free, sleep=_recording_sleep(attese)
+        _BBOX, "Roma", retry=monkeypatch_free, sleep=_recording_sleep(waits)
     )
 
-    assert attese == [1.0]
+    assert waits == [1.0]
     assert INTERACTIVE_RETRY.retry_after_cap_s is None
 
 
 @respx.mock
-async def test_retry_after_oltre_il_tetto_fa_rinunciare_subito() -> None:
-    """Se il server chiede piu' del tetto, si rinuncia invece di ritentare presto.
+async def test_retry_after_beyond_the_cap_gives_up_immediately() -> None:
+    """If the server asks for more than the cap, we give up instead of retrying early.
 
-    Ritentare prima di quanto Overpass ha chiesto sarebbe hammering verso un
-    servizio pubblico gratuito (#232 lo esclude esplicitamente) e brucerebbe i
-    ritentativi restanti in tentativi con probabilita' nulla. Il messaggio dice
-    quanto il server ha chiesto, così l'operatore sa quando riprovare.
+    Retrying before what Overpass asked for would be hammering a free public service
+    (#232 explicitly rules it out) and would burn the remaining retries in attempts
+    with zero probability. The message says how much the server asked for, so the
+    operator knows when to retry.
     """
-    attese: list[float] = []
+    waits: list[float] = []
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(
             429, headers={"Retry-After": "3600"}, text="rate limited"
@@ -574,21 +572,21 @@ async def test_retry_after_oltre_il_tetto_fa_rinunciare_subito() -> None:
 
     with pytest.raises(OverpassError, match="3600"):
         await fetch_pois(
-            _BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(attese)
+            _BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(waits)
         )
 
-    assert route.call_count == 1  # nessun secondo tentativo
-    assert attese == []  # e nessuna attesa spesa
+    assert route.call_count == 1  # no second attempt
+    assert waits == []  # and no wait spent
 
 
 @respx.mock
-async def test_ritentativi_lasciano_traccia_nei_log(
+async def test_retries_leave_a_trace_in_the_logs(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Ogni ritentativo è dichiarato (#232): con la politica offline l'attesa
-    complessiva arriva a minuti, e senza traccia «processo appeso» e «backoff di
-    cortesia in corso» sono indistinguibili — la condizione che il 26/07 ha
-    spinto a scrivere il backoff a mano in una shell."""
+    """Every retry is declared (#232): with the offline policy the overall wait
+    reaches minutes, and without a trace «hung process» and «courtesy backoff in
+    progress» are indistinguishable — the condition that on 26/07 led to writing the
+    backoff by hand in a shell."""
     respx.post(DEFAULT_OVERPASS_URL).mock(
         side_effect=[
             httpx.Response(504, text="gateway timeout"),
@@ -599,14 +597,14 @@ async def test_ritentativi_lasciano_traccia_nei_log(
     with caplog.at_level("WARNING"):
         await fetch_pois(_BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep([]))
 
-    messaggi = [r.getMessage() for r in caplog.records]
-    assert any("504" in m and "retry 1/4" in m for m in messaggi), messaggi
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("504" in m and "retry 1/4" in m for m in messages), messages
 
 
 @respx.mock
-async def test_retry_after_e_onorato_quando_supera_la_pausa_prevista() -> None:
-    """``Retry-After: 30`` con pausa prevista di 5s -> si attende 30s (#232)."""
-    attese: list[float] = []
+async def test_retry_after_is_honored_when_it_exceeds_the_planned_pause() -> None:
+    """``Retry-After: 30`` with a planned pause of 5s -> we wait 30s (#232)."""
+    waits: list[float] = []
     respx.post(DEFAULT_OVERPASS_URL).mock(
         side_effect=[
             httpx.Response(429, headers={"Retry-After": "30"}, text="rate limited"),
@@ -614,16 +612,16 @@ async def test_retry_after_e_onorato_quando_supera_la_pausa_prevista() -> None:
         ]
     )
 
-    await fetch_pois(_BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(attese))
+    await fetch_pois(_BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(waits))
 
-    assert attese == [30.0]
+    assert waits == [30.0]
 
 
 @respx.mock
-async def test_retry_after_non_accorcia_la_pausa_di_cortesia() -> None:
-    """``Retry-After: 1`` non abbassa la pausa sotto quella prevista: verso un
-    servizio pubblico gratuito la cortesia e' un minimo, non un massimo (#232)."""
-    attese: list[float] = []
+async def test_retry_after_does_not_shorten_the_courtesy_pause() -> None:
+    """``Retry-After: 1`` does not lower the pause below the planned one: towards a
+    free public service courtesy is a minimum, not a maximum (#232)."""
+    waits: list[float] = []
     respx.post(DEFAULT_OVERPASS_URL).mock(
         side_effect=[
             httpx.Response(429, headers={"Retry-After": "1"}, text="rate limited"),
@@ -631,16 +629,16 @@ async def test_retry_after_non_accorcia_la_pausa_di_cortesia() -> None:
         ]
     )
 
-    await fetch_pois(_BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(attese))
+    await fetch_pois(_BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(waits))
 
-    assert attese == [OFFLINE_RETRY.pause_s[0]]
+    assert waits == [OFFLINE_RETRY.pause_s[0]]
 
 
 @respx.mock
-async def test_retry_after_illeggibile_ricade_sulla_pausa_prevista() -> None:
-    """Forma HTTP-date di ``Retry-After``: non interpretata, si usa la pausa
-    prevista invece di fallire o di attendere a caso (#232)."""
-    attese: list[float] = []
+async def test_retry_after_unreadable_falls_back_to_the_planned_pause() -> None:
+    """HTTP-date form of ``Retry-After``: not interpreted, the planned pause is used
+    instead of failing or waiting at random (#232)."""
+    waits: list[float] = []
     respx.post(DEFAULT_OVERPASS_URL).mock(
         side_effect=[
             httpx.Response(
@@ -652,66 +650,66 @@ async def test_retry_after_illeggibile_ricade_sulla_pausa_prevista() -> None:
         ]
     )
 
-    await fetch_pois(_BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(attese))
+    await fetch_pois(_BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(waits))
 
-    assert attese == [OFFLINE_RETRY.pause_s[0]]
+    assert waits == [OFFLINE_RETRY.pause_s[0]]
 
 
 @respx.mock
-async def test_status_non_ritentabile_non_attende_mai() -> None:
-    """Un 400 non e' transitorio: nessuna pausa, errore immediato (#232)."""
-    attese: list[float] = []
+async def test_non_retryable_status_never_waits() -> None:
+    """A 400 is not transient: no pause, immediate error (#232)."""
+    waits: list[float] = []
     respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(400, text="bad request")
     )
 
     with pytest.raises(OverpassError):
         await fetch_pois(
-            _BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(attese)
+            _BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(waits)
         )
 
-    assert attese == []
+    assert waits == []
 
 
 @respx.mock
-async def test_offline_policy_esaurita_solleva_overpass_error() -> None:
-    """Anche la politica lunga ha un limite: esaurita, errore chiaro (#232)."""
-    attese: list[float] = []
+async def test_offline_policy_exhausted_raises_overpass_error() -> None:
+    """Even the long policy has a limit: exhausted, a clear error (#232)."""
+    waits: list[float] = []
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(429, text="rate limited")
     )
 
     with pytest.raises(OverpassError):
         await fetch_pois(
-            _BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(attese)
+            _BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(waits)
         )
 
     assert route.call_count == 1 + len(OFFLINE_RETRY.pause_s)
-    assert attese == list(OFFLINE_RETRY.pause_s)
+    assert waits == list(OFFLINE_RETRY.pause_s)
 
 
-def test_politica_offline_attende_piu_della_interattiva() -> None:
-    """La cattura offline puo' permettersi minuti, l'interattivo no (#232): il
-    contratto fra le due politiche e' esplicito e verificato, non implicito."""
+def test_offline_policy_waits_longer_than_the_interactive() -> None:
+    """Offline capture can afford minutes, the interactive one cannot (#232): the
+    contract between the two policies is explicit and verified, not implicit."""
     assert sum(OFFLINE_RETRY.pause_s) > sum(INTERACTIVE_RETRY.pause_s)
     assert len(OFFLINE_RETRY.pause_s) > len(INTERACTIVE_RETRY.pause_s)
-    # Solo la politica offline onora Retry-After; l'interattiva lo ignora.
+    # Only the offline policy honours Retry-After; the interactive one ignores it.
     assert INTERACTIVE_RETRY.retry_after_cap_s is None
     assert OFFLINE_RETRY.retry_after_cap_s is not None
 
 
-def test_il_tetto_non_accorcia_le_pause_dichiarate() -> None:
-    """Il tetto vale sulla richiesta del server, non sulla pausa della politica.
+def test_the_cap_does_not_shorten_the_declared_pauses() -> None:
+    """The cap applies to the server's request, not to the policy's pause.
 
-    Con ``min(attesa, cap)`` una politica futura con pause piu' lunghe del tetto
-    si sarebbe vista accorciare la cortesia in silenzio: invariante esplicitata
-    qui invece di restare implicita nei valori attuali (review m1).
+    With ``min(wait, cap)`` a future policy with pauses longer than the cap would
+    have seen its courtesy silently shortened: invariant made explicit here instead
+    of staying implicit in the current values (review m1).
     """
     assert OFFLINE_RETRY.retry_after_cap_s is not None
-    lunga = replace(OFFLINE_RETRY, pause_s=(300.0,), retry_after_cap_s=60.0)
+    long_policy = replace(OFFLINE_RETRY, pause_s=(300.0,), retry_after_cap_s=60.0)
     assert (
         overpass_client._wait_before_retry(  # pyright: ignore[reportPrivateUsage]
-            None, lunga.pause_s[0], lunga.retry_after_cap_s
+            None, long_policy.pause_s[0], long_policy.retry_after_cap_s
         )
         == 300.0
     )
@@ -719,7 +717,7 @@ def test_il_tetto_non_accorcia_le_pause_dichiarate() -> None:
 
 @respx.mock
 async def test_fetch_pois_query_uses_key_value_selectors_and_caps() -> None:
-    """La query usa selettori k=v con un cap 'out center' per-selettore."""
+    """The query uses k=v selectors with a per-selector 'out center' cap."""
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(200, json={"elements": []})
     )
@@ -732,21 +730,21 @@ async def test_fetch_pois_query_uses_key_value_selectors_and_caps() -> None:
     assert 'way["tourism"="museum"]' in body
     assert f"out center {PER_SELECTOR_CAP}" in body
     assert "[out:json][timeout:25]" in body
-    # due 'out center' per selettore (unione node+way e relation, #314): con 2
-    # selettori devono essere esattamente 4 blocchi.
+    # two 'out center' per selector (node+way union and relation, #314): with 2
+    # selectors there must be exactly 4 blocks.
     assert body.count(f"out center {PER_SELECTOR_CAP}") == 4
 
 
-# --- #314: le relation (multipoligoni) entrano nel bacino di candidati ---
-# Molti monumenti iconici sono mappati come relation: il Colosseo e' relation/1834818
-# a 9 m dal centro del bbox di Roma, il Duomo di Milano relation/18017026. Con una
-# query solo node+way non entravano mai nel campione, per quanto vicini fossero.
+# --- #314: relations (multipolygons) enter the candidate pool ---
+# Many iconic monuments are mapped as relations: the Colosseo is relation/1834818
+# 9 m from the centre of the Rome bbox, the Duomo di Milano relation/18017026. With
+# a node+way-only query they never made it into the sample, however close they were.
 
 
 @respx.mock
-async def test_query_interroga_anche_le_relation_per_ogni_selettore() -> None:
-    """Ogni selettore interroga anche le relation, con ``out center``: senza
-    ``center`` una relation non ha coordinate e verrebbe scartata dal parsing."""
+async def test_query_also_queries_relations_for_each_selector() -> None:
+    """Every selector also queries relations, with ``out center``: without
+    ``center`` a relation has no coordinates and would be discarded by the parsing."""
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(200, json={"elements": []})
     )
@@ -759,22 +757,22 @@ async def test_query_interroga_anche_le_relation_per_ogni_selettore() -> None:
         assert (
             f'relation["{key}"="{value}"]({bbox_str});\nout center {PER_SELECTOR_CAP};'
         ) in body
-    # Ogni tipo dichiarato come interrogato compare davvero nella query: la
-    # costante registrata nella provenienza degli snapshot non puo' divergere.
-    for tipo in overpass_client.ELEMENT_TYPES:
-        assert f"{tipo}[" in body
+    # Every type declared as queried really appears in the query: the constant
+    # recorded in the snapshot provenance cannot diverge.
+    for element_type in overpass_client.ELEMENT_TYPES:
+        assert f"{element_type}[" in body
 
 
 @respx.mock
-async def test_relation_con_tetto_proprio_e_blocco_node_way_invariato() -> None:
-    """Le relation hanno un ``out`` separato, il blocco node+way resta identico.
+async def test_relation_with_own_cap_and_node_way_block_unchanged() -> None:
+    """Relations have a separate ``out``, the node+way block stays identical.
 
-    Due motivi. Overpass stampa un set in ordine di tipo (node, way, relation):
-    dentro l'unione col tetto ``out center N`` un selettore denso come
-    ``tourism=attraction`` esaurirebbe i posti con node e way prima di arrivare al
-    Colosseo, cioe' il difetto che #314 chiude. E il blocco node+way invariato al
-    byte vuol dire che il bacino node+way di prima resta lo stesso: il cambio
-    AGGIUNGE candidati, non ne sostituisce.
+    Two reasons. Overpass prints a set in type order (node, way, relation): inside
+    the union with the ``out center N`` cap a dense selector such as
+    ``tourism=attraction`` would exhaust the slots with node and way before getting
+    to the Colosseo, i.e. the defect that #314 closes. And the node+way block
+    unchanged byte for byte means the previous node+way pool stays the same: the
+    change ADDS candidates, it does not replace them.
     """
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(200, json={"elements": []})
@@ -789,14 +787,14 @@ async def test_relation_con_tetto_proprio_e_blocco_node_way_invariato() -> None:
         f'  way["amenity"="bank"]({bbox_str});\n);\n'
         f"out center {PER_SELECTOR_CAP};"
     ) in body
-    # Un out per l'unione node+way e uno per le relation, per ciascun selettore.
+    # One out for the node+way union and one for the relations, for each selector.
     assert body.count(f"out center {PER_SELECTOR_CAP};") == 4
-    # Le relation NON stanno dentro l'unione col tetto condiviso.
+    # Relations are NOT inside the union with the shared cap.
     assert "  relation[" not in body
 
 
-#: Tag della relation reale del Colosseo (relation/1834818): sito archeologico e
-#: attrazione turistica insieme, il caso di #314 (relation) e #373 (priorita').
+# Tags of the real Colosseo relation (relation/1834818): archaeological site and
+# tourist attraction at once, the case of #314 (relation) and #373 (priority).
 _COLOSSEO_ID = 1834818
 _COLOSSEO_TAGS: dict[str, str] = {
     "type": "multipolygon",
@@ -809,7 +807,7 @@ _COLOSSEO_TAGS: dict[str, str] = {
 def _relation(
     rel_id: int, lat: float, lon: float, tags: dict[str, str]
 ) -> dict[str, object]:
-    """Elemento relation come lo restituisce Overpass con ``out center``."""
+    """Relation element as Overpass returns it with ``out center``."""
     return {
         "type": "relation",
         "id": rel_id,
@@ -818,29 +816,29 @@ def _relation(
     }
 
 
-def _overpass_che_rispetta_la_query(
-    altri: list[dict[str, object]], relations: list[dict[str, object]]
+def _overpass_honoring_the_query(
+    others: list[dict[str, object]], relations: list[dict[str, object]]
 ) -> Callable[[httpx.Request], httpx.Response]:
-    """``side_effect`` respx: le relation arrivano SOLO se la query le chiede.
+    """respx ``side_effect``: relations arrive ONLY if the query asks for them.
 
-    Un mock che restituisce le relation qualunque sia la query verifica il
-    parsing, non #314: resterebbe verde anche togliendo il blocco relation da
-    ``_build_query``. Cosi' invece il test diventa rosso, come farebbe Overpass.
+    A mock that returns the relations whatever the query is verifies the parsing,
+    not #314: it would stay green even removing the relation block from
+    ``_build_query``. This way the test turns red, as Overpass would.
     """
 
-    def _rispondi(request: httpx.Request) -> httpx.Response:
-        chiede_relation = "relation[" in request.content.decode()
-        elementi = altri + (relations if chiede_relation else [])
-        return httpx.Response(200, json={"elements": elementi})
+    def _respond(request: httpx.Request) -> httpx.Response:
+        asks_for_relation = "relation[" in request.content.decode()
+        elements_ = others + (relations if asks_for_relation else [])
+        return httpx.Response(200, json={"elements": elements_})
 
-    return _rispondi
+    return _respond
 
 
 @respx.mock
-async def test_relation_diventa_poi_con_id_tipizzato_e_coordinate_dal_center() -> None:
-    """Una relation chiesta dalla query passa dal parsing come un way: coordinate
-    da ``center``, id ``relation/<n>``, classe TERMINUS dagli stessi selettori e
-    priorita'."""
+async def test_relation_becomes_poi_with_typed_id_and_coordinates_from_center() -> None:
+    """A relation requested by the query goes through the parsing like a way:
+    coordinates from ``center``, id ``relation/<n>``, TERMINUS class from the same
+    selectors and priority."""
     duomo = _relation(
         18017026,
         45.4641844,
@@ -854,7 +852,7 @@ async def test_relation_diventa_poi_con_id_tipizzato_e_coordinate_dal_center() -
         },
     )
     respx.post(DEFAULT_OVERPASS_URL).mock(
-        side_effect=_overpass_che_rispetta_la_query([], [duomo])
+        side_effect=_overpass_honoring_the_query([], [duomo])
     )
 
     pois = await fetch_pois(Bbox(45.46, 9.18, 45.47, 9.20), "Milano")
@@ -873,16 +871,16 @@ async def test_relation_diventa_poi_con_id_tipizzato_e_coordinate_dal_center() -
 
 
 @respx.mock
-async def test_relation_vicina_al_centro_entra_nel_campione() -> None:
-    """Il caso dell'issue: la relation a pochi metri dal centro entra per prima,
-    anche con il bacino pieno di node piu' lontani.
+async def test_relation_near_the_center_enters_the_sample() -> None:
+    """The case of the issue: the relation a few metres from the centre enters first,
+    even with the pool full of farther nodes.
 
-    Overpass finto che restituisce il Colosseo solo se la query chiede le
-    relation: senza il blocco relation in ``_build_query`` il campione sarebbe
-    fatto dei soli node, cioe' il difetto di #314.
+    Fake Overpass that returns the Colosseo only if the query asks for the
+    relations: without the relation block in ``_build_query`` the sample would be
+    made of nodes only, i.e. the defect of #314.
     """
     lat, lon = _BBOX.center()
-    nodi: list[dict[str, object]] = [
+    nodes: list[dict[str, object]] = [
         {
             "type": "node",
             "id": 5000 + i,
@@ -894,7 +892,7 @@ async def test_relation_vicina_al_centro_entra_nel_campione() -> None:
     ]
     colosseo = _relation(_COLOSSEO_ID, lat + 0.00008, lon, dict(_COLOSSEO_TAGS))
     respx.post(DEFAULT_OVERPASS_URL).mock(
-        side_effect=_overpass_che_rispetta_la_query(nodi, [colosseo])
+        side_effect=_overpass_honoring_the_query(nodes, [colosseo])
     )
 
     pois = await fetch_pois(_BBOX, "Roma")
@@ -904,14 +902,14 @@ async def test_relation_vicina_al_centro_entra_nel_campione() -> None:
 
 
 @respx.mock
-async def test_relation_emessa_da_piu_blocchi_entra_una_volta() -> None:
-    """Il Colosseo porta sia ``tourism=attraction`` sia
-    ``historic=archaeological_site``: arriva dal blocco di ciascun selettore e
-    deve contare una volta sola, come gia' per node e way."""
+async def test_relation_emitted_by_several_blocks_enters_once() -> None:
+    """The Colosseo carries both ``tourism=attraction`` and
+    ``historic=archaeological_site``: it arrives from the block of each selector and
+    must count only once, as already for node and way."""
     lat, lon = _BBOX.center()
     colosseo = _relation(_COLOSSEO_ID, lat, lon, dict(_COLOSSEO_TAGS))
     respx.post(DEFAULT_OVERPASS_URL).mock(
-        side_effect=_overpass_che_rispetta_la_query([], [colosseo, dict(colosseo)])
+        side_effect=_overpass_honoring_the_query([], [colosseo, dict(colosseo)])
     )
 
     pois = await fetch_pois(_BBOX, "Roma")
@@ -920,10 +918,10 @@ async def test_relation_emessa_da_piu_blocchi_entra_una_volta() -> None:
 
 
 @respx.mock
-async def test_relation_e_way_con_lo_stesso_numero_non_collidono() -> None:
-    """Le relation hanno un namespace OSM proprio, come node e way (#265)."""
+async def test_relation_and_way_with_the_same_number_do_not_collide() -> None:
+    """Relations have their own OSM namespace, like node and way (#265)."""
     lat, lon = _BBOX.center()
-    via: dict[str, object] = {
+    way_elem: dict[str, object] = {
         "type": "way",
         "id": 77,
         "center": {"lat": lat, "lon": lon},
@@ -931,7 +929,7 @@ async def test_relation_e_way_con_lo_stesso_numero_non_collidono() -> None:
     }
     rel = _relation(77, lat, lon, {"amenity": "place_of_worship", "name": "Chiesa"})
     respx.post(DEFAULT_OVERPASS_URL).mock(
-        side_effect=_overpass_che_rispetta_la_query([via], [rel])
+        side_effect=_overpass_honoring_the_query([way_elem], [rel])
     )
 
     pois = await fetch_pois(_BBOX, "Roma")
@@ -940,11 +938,11 @@ async def test_relation_e_way_con_lo_stesso_numero_non_collidono() -> None:
 
 
 @respx.mock
-async def test_parsing_scarta_una_relation_senza_center() -> None:
-    """Non-regressione del parsing, non verifica di #314: una relation senza
-    ``center`` (es. ``out`` senza center) non ha coordinate utilizzabili e va
-    scartata, non piazzata a caso. Passa a prescindere dalla query, di proposito:
-    la presenza del blocco relation la verificano i test qui sopra."""
+async def test_parsing_discards_a_relation_without_center() -> None:
+    """Parsing non-regression, not a verification of #314: a relation without
+    ``center`` (e.g. ``out`` without center) has no usable coordinates and must be
+    discarded, not placed at random. It passes regardless of the query, on purpose:
+    the presence of the relation block is verified by the tests above."""
     payload = {
         "elements": [
             {
@@ -961,13 +959,13 @@ async def test_parsing_scarta_una_relation_senza_center() -> None:
     assert await fetch_pois(_BBOX, "Roma") == []
 
 
-# --- #371: lo stesso oggetto mappato come way e come relation multipoligono ---
+# --- #371: the same object mapped as a way and as a multipolygon relation ---
 
-#: Ambiente 4 al Palatino come lo restituisce Overpass (``out center``, taglio
-#: 2026-07-15): way/597452722 e relation/1835450 hanno stesso nome e stesso
-#: ``historic``, centri a ~34 m, e tag secondari diversi (``inscription``,
-#: ``fixme``, ``website``). La way non e' un membro della relation: e' una
-#: seconda mappatura dello stesso sito.
+# Ambiente 4 at the Palatino as Overpass returns it (``out center``, cut
+# 2026-07-15): way/597452722 and relation/1835450 have the same name and the same
+# ``historic``, centres ~34 m apart, and different secondary tags (``inscription``,
+# ``fixme``, ``website``). The way is not a member of the relation: it is a
+# second mapping of the same site.
 _AMBIENTE_4_WAY: dict[str, object] = {
     "type": "way",
     "id": 597452722,
@@ -994,33 +992,33 @@ _AMBIENTE_4_REL: dict[str, object] = {
     },
 }
 
-#: Gradi di latitudine per metro (sfera media), per spostare un elemento a mano.
-_GRADI_PER_METRO = 1 / 111_195.0
+# Degrees of latitude per metre (mean sphere), to shift an element by hand.
+_DEGREES_PER_METER = 1 / 111_195.0
 
 
-def _variante(
+def _variant(
     element: dict[str, object],
     *,
-    nord_m: float = 0.0,
-    come_nodo: bool = False,
+    north_m: float = 0.0,
+    as_node: bool = False,
     elem_id: int | None = None,
     tags: dict[str, str] | None = None,
 ) -> dict[str, object]:
-    """Copia di ``element`` spostata verso nord, eventualmente come node, con id
-    o tag sostituiti."""
-    copia = dict(element)
+    """Copy of ``element`` shifted northwards, possibly as a node, with id
+    or tags replaced."""
+    copy = dict(element)
     center = cast(dict[str, float], element["center"])
-    lat = center["lat"] + nord_m * _GRADI_PER_METRO
-    if come_nodo:
-        del copia["center"]
-        copia.update(type="node", lat=lat, lon=center["lon"])
+    lat = center["lat"] + north_m * _DEGREES_PER_METER
+    if as_node:
+        del copy["center"]
+        copy.update(type="node", lat=lat, lon=center["lon"])
     else:
-        copia["center"] = {"lat": lat, "lon": center["lon"]}
+        copy["center"] = {"lat": lat, "lon": center["lon"]}
     if elem_id is not None:
-        copia["id"] = elem_id
+        copy["id"] = elem_id
     if tags is not None:
-        copia["tags"] = tags
-    return copia
+        copy["tags"] = tags
+    return copy
 
 
 def _tags(element: dict[str, object]) -> dict[str, str]:
@@ -1033,156 +1031,156 @@ def _parse(elements: list[dict[str, object]]) -> list[Poi]:
     )
 
 
-def _ids_ordinati(elements: list[dict[str, object]]) -> list[str]:
+def _sorted_ids(elements: list[dict[str, object]]) -> list[str]:
     return sorted(p["id"] for p in _parse(elements))
 
 
-def test_way_doppione_della_relation_multipoligono_e_scartata() -> None:
-    """Il caso dell'issue: resta solo la relation, una volta sola."""
-    assert _ids_ordinati([_AMBIENTE_4_WAY, _AMBIENTE_4_REL]) == ["relation/1835450"]
+def test_way_duplicate_of_the_multipolygon_relation_is_discarded() -> None:
+    """The case of the issue: only the relation remains, once."""
+    assert _sorted_ids([_AMBIENTE_4_WAY, _AMBIENTE_4_REL]) == ["relation/1835450"]
 
 
-def test_sopravvissuto_non_dipende_dall_ordine_di_emissione() -> None:
-    """La relation sopravvive anche se arriva prima della way, con le sue
-    coordinate: id e centro del POI non dipendono dall'ordine di Overpass."""
-    for elementi in (
+def test_survivor_does_not_depend_on_the_emission_order() -> None:
+    """The relation survives even if it arrives before the way, with its
+    coordinates: the POI's id and centre do not depend on Overpass's order."""
+    for elements_ in (
         [_AMBIENTE_4_WAY, _AMBIENTE_4_REL],
         [_AMBIENTE_4_REL, _AMBIENTE_4_WAY],
     ):
-        pois = _parse(elementi)
+        pois = _parse(elements_)
         assert [p["id"] for p in pois] == ["relation/1835450"]
         assert (pois[0]["lat"], pois[0]["lon"]) == (41.8901595, 12.4895943)
 
 
-def test_stesso_nome_ma_tag_di_famiglia_diversi_non_si_fondono() -> None:
-    """Un ``tourism=attraction`` in piu' sulla way basta a tenerli distinti."""
+def test_same_name_but_different_family_tags_do_not_merge() -> None:
+    """One extra ``tourism=attraction`` on the way is enough to keep them distinct."""
     tags_way = _tags(_AMBIENTE_4_WAY) | {"tourism": "attraction"}
-    way = _variante(_AMBIENTE_4_WAY, tags=tags_way)
-    assert _ids_ordinati([way, _AMBIENTE_4_REL]) == [
+    way = _variant(_AMBIENTE_4_WAY, tags=tags_way)
+    assert _sorted_ids([way, _AMBIENTE_4_REL]) == [
         "relation/1835450",
         "way/597452722",
     ]
 
 
-def test_stesso_nome_ma_valore_di_famiglia_diverso_non_si_fondono() -> None:
-    """Stessa chiave, valore diverso: ``historic=ruins`` non e' lo stesso sito."""
+def test_same_name_but_different_family_value_do_not_merge() -> None:
+    """Same key, different value: ``historic=ruins`` is not the same site."""
     tags_way = _tags(_AMBIENTE_4_WAY) | {"historic": "ruins"}
-    way = _variante(_AMBIENTE_4_WAY, tags=tags_way)
-    assert _ids_ordinati([way, _AMBIENTE_4_REL]) == [
+    way = _variant(_AMBIENTE_4_WAY, tags=tags_way)
+    assert _sorted_ids([way, _AMBIENTE_4_REL]) == [
         "relation/1835450",
         "way/597452722",
     ]
 
 
-def test_stesso_nome_e_tag_ma_lontani_non_si_fondono() -> None:
-    """Oltre la soglia di vicinanza sono due siti omonimi, non un doppione."""
-    soglia = overpass_client.MAX_DUPLICATE_DISTANCE_M
+def test_same_name_and_tag_but_far_apart_do_not_merge() -> None:
+    """Beyond the proximity threshold they are two homonymous sites, not a duplicate."""
+    threshold = overpass_client.MAX_DUPLICATE_DISTANCE_M
     rel = cast(dict[str, float], _AMBIENTE_4_REL["center"])
-    way = _variante(_AMBIENTE_4_REL, nord_m=soglia + 5, elem_id=597452722)
+    way = _variant(_AMBIENTE_4_REL, north_m=threshold + 5, elem_id=597452722)
     way["type"] = "way"
     way["tags"] = _tags(_AMBIENTE_4_WAY)
-    centro_way = cast(dict[str, float], way["center"])
-    distanza = haversine_m(rel["lat"], rel["lon"], centro_way["lat"], rel["lon"])
-    assert soglia < distanza < soglia + 10
-    assert _ids_ordinati([way, _AMBIENTE_4_REL]) == [
+    way_center = cast(dict[str, float], way["center"])
+    distance = haversine_m(rel["lat"], rel["lon"], way_center["lat"], rel["lon"])
+    assert threshold < distance < threshold + 10
+    assert _sorted_ids([way, _AMBIENTE_4_REL]) == [
         "relation/1835450",
         "way/597452722",
     ]
 
 
-def test_due_way_omonime_e_vicine_non_si_fondono() -> None:
-    """Mai due elementi dello stesso tipo: sono oggetti OSM distinti."""
-    gemella = _variante(_AMBIENTE_4_WAY, nord_m=5, elem_id=597452723)
-    assert _ids_ordinati([_AMBIENTE_4_WAY, gemella]) == [
+def test_two_homonymous_nearby_ways_do_not_merge() -> None:
+    """Never two elements of the same type: they are distinct OSM objects."""
+    twin = _variant(_AMBIENTE_4_WAY, north_m=5, elem_id=597452723)
+    assert _sorted_ids([_AMBIENTE_4_WAY, twin]) == [
         "way/597452722",
         "way/597452723",
     ]
 
 
-def test_nodo_omonimo_vicino_alla_relation_non_si_fonde() -> None:
-    """Mai i nodi: un punto dentro un'area omonima resta un POI a se'."""
-    nodo = _variante(_AMBIENTE_4_REL, come_nodo=True, elem_id=42)
-    nodo["tags"] = _tags(_AMBIENTE_4_WAY)
-    assert _ids_ordinati([nodo, _AMBIENTE_4_REL]) == ["node/42", "relation/1835450"]
+def test_homonymous_node_near_the_relation_does_not_merge() -> None:
+    """Never nodes: a point inside a homonymous area stays a POI on its own."""
+    node_elem = _variant(_AMBIENTE_4_REL, as_node=True, elem_id=42)
+    node_elem["tags"] = _tags(_AMBIENTE_4_WAY)
+    assert _sorted_ids([node_elem, _AMBIENTE_4_REL]) == ["node/42", "relation/1835450"]
 
 
-def test_nodo_e_way_omonimi_non_si_fondono() -> None:
-    """Due fermate "Termini" o un nodo e un'area omonimi restano distinti."""
-    nodo = _variante(_AMBIENTE_4_WAY, nord_m=3, come_nodo=True, elem_id=42)
-    assert _ids_ordinati([nodo, _AMBIENTE_4_WAY]) == ["node/42", "way/597452722"]
+def test_homonymous_node_and_way_do_not_merge() -> None:
+    """Two "Termini" stops or a homonymous node and area stay distinct."""
+    node_elem = _variant(_AMBIENTE_4_WAY, north_m=3, as_node=True, elem_id=42)
+    assert _sorted_ids([node_elem, _AMBIENTE_4_WAY]) == ["node/42", "way/597452722"]
 
 
-@pytest.mark.parametrize("nome", [None, "", "   "])
-def test_way_e_relation_senza_nome_non_si_fondono(nome: str | None) -> None:
-    """Senza nome non c'e' modo di dire che sono lo stesso oggetto."""
+@pytest.mark.parametrize("name", [None, "", "   "])
+def test_nameless_way_and_relation_do_not_merge(name: str | None) -> None:
+    """Without a name there is no way to say they are the same object."""
 
-    def _con_nome(element: dict[str, object]) -> dict[str, object]:
+    def _with_name(element: dict[str, object]) -> dict[str, object]:
         tags = {k: v for k, v in _tags(element).items() if k != "name"}
-        if nome is not None:
-            tags["name"] = nome
-        return _variante(element, tags=tags)
+        if name is not None:
+            tags["name"] = name
+        return _variant(element, tags=tags)
 
-    assert _ids_ordinati([_con_nome(_AMBIENTE_4_WAY), _con_nome(_AMBIENTE_4_REL)]) == [
+    assert _sorted_ids([_with_name(_AMBIENTE_4_WAY), _with_name(_AMBIENTE_4_REL)]) == [
         "relation/1835450",
         "way/597452722",
     ]
 
 
-def test_relation_che_non_e_un_multipoligono_non_assorbe_la_way() -> None:
-    """Una relation ``type=site`` raggruppa oggetti distinti: non e' l'area
-    della way, quindi non e' un suo doppione."""
-    rel = _variante(_AMBIENTE_4_REL, tags=_tags(_AMBIENTE_4_REL) | {"type": "site"})
-    assert _ids_ordinati([_AMBIENTE_4_WAY, rel]) == [
+def test_relation_that_is_not_a_multipolygon_does_not_absorb_the_way() -> None:
+    """A ``type=site`` relation groups distinct objects: it is not the way's area,
+    so it is not a duplicate of it."""
+    rel = _variant(_AMBIENTE_4_REL, tags=_tags(_AMBIENTE_4_REL) | {"type": "site"})
+    assert _sorted_ids([_AMBIENTE_4_WAY, rel]) == [
         "relation/1835450",
         "way/597452722",
     ]
 
 
-def test_doppione_scartato_libera_il_posto_della_classe() -> None:
-    """La deduplica avviene prima di ``select_pois``: il posto che la way
-    occupava fra i ``PER_CLASS_CAP`` Archaeological_site va al sito successivo.
+def test_discarded_duplicate_frees_the_class_slot() -> None:
+    """The deduplication happens before ``select_pois``: the slot the way
+    occupied among the ``PER_CLASS_CAP`` Archaeological_site goes to the next site.
 
-    Sei classi di riempitivi a 500 m riempiono gli altri 17 posti nel primo
-    giro, cosi' il secondo giro non puo' recuperare il sito scartato dal tetto.
+    Six filler classes at 500 m fill the other 17 slots in the first round, so the
+    second round cannot recover the site discarded by the cap.
     """
-    centro_rel = cast(dict[str, float], _AMBIENTE_4_REL["center"])
-    lat, lon = centro_rel["lat"], centro_rel["lon"]
-    siti: list[dict[str, object]] = [
+    rel_center = cast(dict[str, float], _AMBIENTE_4_REL["center"])
+    lat, lon = rel_center["lat"], rel_center["lon"]
+    sites: list[dict[str, object]] = [
         {
             "type": "node",
             "id": 9000 + i,
-            "lat": lat + (60 + 20 * i) * _GRADI_PER_METRO,
+            "lat": lat + (60 + 20 * i) * _DEGREES_PER_METER,
             "lon": lon,
             "tags": {"historic": "archaeological_site", "name": f"Sito {i}"},
         }
         for i in range(2)
     ]
-    valori = ["bank", "pharmacy", "school", "hospital", "fuel", "police"]
-    riempitivi: list[dict[str, object]] = [
+    values = ["bank", "pharmacy", "school", "hospital", "fuel", "police"]
+    fillers: list[dict[str, object]] = [
         {
             "type": "node",
             "id": 8000 + i,
-            "lat": lat - 500 * _GRADI_PER_METRO,
+            "lat": lat - 500 * _DEGREES_PER_METER,
             "lon": lon + i * 0.00001,
-            "tags": {"amenity": valore, "name": f"Riempitivo {i}"},
+            "tags": {"amenity": value, "name": f"Riempitivo {i}"},
         }
-        for i, valore in enumerate(valori * 3)
+        for i, value in enumerate(values * 3)
     ]
 
-    scelti = overpass_client.select_pois(
-        _parse([_AMBIENTE_4_WAY, _AMBIENTE_4_REL, *siti, *riempitivi]), (lat, lon)
+    chosen = overpass_client.select_pois(
+        _parse([_AMBIENTE_4_WAY, _AMBIENTE_4_REL, *sites, *fillers]), (lat, lon)
     )
 
-    assert len(scelti) == MAX_POIS
-    archeologici = [
-        p["id"] for p in scelti if p["terminus_class"] == "Archaeological_site"
+    assert len(chosen) == MAX_POIS
+    archaeological = [
+        p["id"] for p in chosen if p["terminus_class"] == "Archaeological_site"
     ]
-    assert archeologici == ["relation/1835450", "node/9000", "node/9001"]
+    assert archaeological == ["relation/1835450", "node/9000", "node/9001"]
 
 
 @respx.mock
 async def test_fetch_pois_sets_explicit_user_agent() -> None:
-    """UA esplicito sulla richiesta Overpass (non il default httpx): evita il 406."""
+    """Explicit UA on the Overpass request (not the httpx default): avoids the 406."""
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(200, json={"elements": []})
     )
@@ -1197,7 +1195,7 @@ async def test_fetch_pois_sets_explicit_user_agent() -> None:
 
 @respx.mock
 async def test_fetch_pois_user_agent_includes_contact_url() -> None:
-    """La usage policy Overpass richiede un contatto nell'UA (fail-if-removed)."""
+    """The Overpass usage policy requires a contact in the UA (fail-if-removed)."""
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(200, json={"elements": []})
     )
@@ -1211,10 +1209,10 @@ async def test_fetch_pois_user_agent_includes_contact_url() -> None:
 
 @respx.mock
 async def test_fetch_pois_raises_on_network_error() -> None:
-    """Errore di rete non-timeout (es. connessione) -> OverpassError immediata.
+    """Non-timeout network error (e.g. connection) -> immediate OverpassError.
 
-    Politica di default (interattiva): il percorso /analyze non deve guadagnare
-    latenza per un blip di trasporto, quindi nessun ritentativo aggiuntivo (#247).
+    Default (interactive) policy: the /analyze path must not gain latency for a
+    transport blip, so no additional retry (#247).
     """
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         side_effect=httpx.ConnectError("refused")
@@ -1226,14 +1224,14 @@ async def test_fetch_pois_raises_on_network_error() -> None:
     assert route.call_count == 1
 
 
-# --- #247: blip di trasporto (non-timeout) ritentabili SOLO in cattura offline ---
+# --- #247: transport blips (non-timeout) retryable ONLY in offline capture ---
 
 
 @respx.mock
-async def test_offline_policy_ritenta_su_errore_di_connessione_poi_riesce() -> None:
-    """Un ConnectError transitorio non e' piu' definitivo in cattura offline: #232
-    aveva chiuso timeout e status transitori, non i blip di trasporto (#247)."""
-    attese: list[float] = []
+async def test_offline_policy_retries_on_connection_error_then_succeeds() -> None:
+    """A transient ConnectError is no longer final in offline capture: #232
+    had closed transient timeouts and statuses, not transport blips (#247)."""
+    waits: list[float] = []
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         side_effect=[
             httpx.ConnectError("connection refused"),
@@ -1242,18 +1240,18 @@ async def test_offline_policy_ritenta_su_errore_di_connessione_poi_riesce() -> N
     )
 
     pois = await fetch_pois(
-        _BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(attese)
+        _BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(waits)
     )
 
     assert route.call_count == 2
     assert len(pois) > 0
-    assert attese == [OFFLINE_RETRY.pause_s[0]]
+    assert waits == [OFFLINE_RETRY.pause_s[0]]
 
 
 @respx.mock
-async def test_offline_policy_ritenta_su_remote_protocol_error() -> None:
-    """Il server che chiude la connessione senza risposta e' transitorio quanto
-    un 504: Overpass sotto carico lo fa almeno quanto restituisce 504 (#247)."""
+async def test_offline_policy_retries_on_remote_protocol_error() -> None:
+    """The server closing the connection without a response is as transient as
+    a 504: Overpass under load does it at least as often as it returns 504 (#247)."""
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         side_effect=[
             httpx.RemoteProtocolError(
@@ -1272,8 +1270,8 @@ async def test_offline_policy_ritenta_su_remote_protocol_error() -> None:
 
 
 @respx.mock
-async def test_offline_policy_ritenta_su_read_error() -> None:
-    """Connessione interrotta a lettura in corso: stesso trattamento (#247)."""
+async def test_offline_policy_retries_on_read_error() -> None:
+    """Connection interrupted mid-read: same treatment (#247)."""
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         side_effect=[
             httpx.ReadError("connection reset"),
@@ -1290,9 +1288,9 @@ async def test_offline_policy_ritenta_su_read_error() -> None:
 
 
 @respx.mock
-async def test_offline_policy_esaurita_su_trasporto_solleva_overpass_error() -> None:
-    """Un blip di trasporto persistente si arrende come qualunque altro
-    ritentabile esaurito: non resta appeso (#247)."""
+async def test_offline_policy_exhausted_on_transport_raises_overpass_error() -> None:
+    """A persistent transport blip gives up like any other exhausted
+    retryable: it does not stay hanging (#247)."""
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         side_effect=httpx.ConnectError("refused")
     )
@@ -1304,10 +1302,10 @@ async def test_offline_policy_esaurita_su_trasporto_solleva_overpass_error() -> 
 
 
 @respx.mock
-async def test_offline_policy_non_ritenta_errori_di_trasporto_non_elencati() -> None:
-    """Un errore di trasporto FUORI dall'elenco esplicito resta definitivo anche
-    in cattura offline: solo connessione/protocollo remoto/lettura sono blip
-    transitori, non qualunque ``httpx.HTTPError`` (#247)."""
+async def test_offline_policy_does_not_retry_unlisted_transport_errors() -> None:
+    """A transport error OUTSIDE the explicit list stays final even in offline
+    capture: only connection/remote protocol/read are transient blips, not any
+    ``httpx.HTTPError`` (#247)."""
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         side_effect=httpx.LocalProtocolError("malformed request")
     )
@@ -1319,11 +1317,11 @@ async def test_offline_policy_non_ritenta_errori_di_trasporto_non_elencati() -> 
 
 
 @respx.mock
-async def test_ritentativo_su_errore_di_trasporto_lascia_traccia_nei_log(
+async def test_retry_on_transport_error_leaves_a_trace_in_the_logs(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Il log distingue un blip di trasporto da un vero timeout: altrimenti
-    l'operatore legge «timeout» dove c'era una connessione rifiutata (#247)."""
+    """The log distinguishes a transport blip from a real timeout: otherwise
+    the operator reads «timeout» where there was a refused connection (#247)."""
     respx.post(DEFAULT_OVERPASS_URL).mock(
         side_effect=[
             httpx.ConnectError("connection refused"),
@@ -1334,14 +1332,14 @@ async def test_ritentativo_su_errore_di_trasporto_lascia_traccia_nei_log(
     with caplog.at_level("WARNING"):
         await fetch_pois(_BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep([]))
 
-    messaggi = [r.getMessage() for r in caplog.records]
-    trovato = any("errore di trasporto" in m and "retry 1/4" in m for m in messaggi)
-    assert trovato, messaggi
+    messages = [r.getMessage() for r in caplog.records]
+    found = any("errore di trasporto" in m and "retry 1/4" in m for m in messages)
+    assert found, messages
 
 
 @respx.mock
 async def test_fetch_pois_raises_on_invalid_json() -> None:
-    """Risposta 200 ma body non-JSON -> OverpassError."""
+    """200 response but non-JSON body -> OverpassError."""
     respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(200, text="not json")
     )
@@ -1350,12 +1348,12 @@ async def test_fetch_pois_raises_on_invalid_json() -> None:
         await fetch_pois(_BBOX, "Roma")
 
 
-# --- parsing edge case (esercitati via API pubblica) ---
+# --- parsing edge cases (exercised way_elem the public API) ---
 
 
 @respx.mock
 async def test_fetch_pois_tag_priority_amenity_over_shop() -> None:
-    """Con piu' chiavi note vince la priorita' (amenity prima di shop)."""
+    """With several known keys the priority wins (amenity before shop)."""
     payload = {
         "elements": [
             {
@@ -1379,7 +1377,7 @@ async def test_fetch_pois_tag_priority_amenity_over_shop() -> None:
 
 @respx.mock
 async def test_fetch_pois_picks_first_mapped_selector_not_first_present() -> None:
-    """Un tag a priorita' alta ma NON mappato non vince: si sceglie il primo mappato."""
+    """A high-priority but UNMAPPED tag does not win: the first mapped one is chosen."""
     payload = {
         "elements": [
             {
@@ -1397,21 +1395,21 @@ async def test_fetch_pois_picks_first_mapped_selector_not_first_present() -> Non
 
     pois = await fetch_pois(_BBOX, "Roma")
 
-    # amenity=bar e' presente e a priorita' piu' alta ma NON e' nel dict -> si salta;
-    # building=warehouse e' mappato -> vince.
+    # amenity=bar is present and of higher priority but is NOT in the dict -> skipped;
+    # building=warehouse is mapped -> wins.
     assert pois[0]["osm_tags"] == "building=warehouse"
     assert pois[0]["terminus_class"] == "Warehouse"
 
 
 @respx.mock
-async def test_colosseo_relation_risolve_archaeological_site() -> None:
-    """#373 end-to-end sul caso reale: il Colosseo arriva come relation con
-    ``historic=archaeological_site`` + ``tourism=attraction`` e deve uscire
-    ``Archaeological_site``, non ``Historical_monument``."""
+async def test_colosseo_relation_resolves_archaeological_site() -> None:
+    """#373 end-to-end on the real case: the Colosseo arrives as a relation with
+    ``historic=archaeological_site`` + ``tourism=attraction`` and must come out as
+    ``Archaeological_site``, not ``Historical_monument``."""
     lat, lon = _BBOX.center()
     colosseo = _relation(_COLOSSEO_ID, lat, lon, dict(_COLOSSEO_TAGS))
     respx.post(DEFAULT_OVERPASS_URL).mock(
-        side_effect=_overpass_che_rispetta_la_query([], [colosseo])
+        side_effect=_overpass_honoring_the_query([], [colosseo])
     )
 
     pois = await fetch_pois(_BBOX, "Roma")
@@ -1428,25 +1426,25 @@ async def test_colosseo_relation_risolve_archaeological_site() -> None:
             _COLOSSEO_TAGS,
             "historic=archaeological_site",
             "Archaeological_site",
-            id="colosseo-archaeological-site-prevale-su-attraction",
+            id="colosseo-archaeological-site-wins-over-attraction",
         ),
         pytest.param(
             {"tourism": "attraction", "historic": "monument", "name": "Arco"},
             "historic=monument",
             "Historical_monument",
-            id="arco-monument-prevale-su-attraction",
+            id="arco-monument-wins-over-attraction",
         ),
         pytest.param(
             {"tourism": "attraction", "historic": "wayside_cross", "name": "Croce"},
             "tourism=attraction",
             "Historical_monument",
-            id="historic-non-mappato-non-ruba-ad-attraction",
+            id="unmapped-historic-does-not-steal-from-attraction",
         ),
         pytest.param(
             {"tourism": "museum", "historic": "castle", "name": "Castello"},
             "tourism=museum",
             "Museum",
-            id="museum-resta-davanti-a-historic",
+            id="museum-stays-ahead-of-historic",
         ),
         pytest.param(
             {
@@ -1457,26 +1455,26 @@ async def test_colosseo_relation_risolve_archaeological_site() -> None:
             },
             "amenity=place_of_worship",
             "Place_of_worship",
-            id="amenity-resta-davanti-a-tutto",
+            id="amenity-stays-ahead-of-everything",
         ),
     ],
 )
-def test_historic_prevale_solo_su_tourism_attraction(
+def test_historic_wins_only_over_tourism_attraction(
     tags: dict[str, str], osm_tag: str, terminus_class: str
 ) -> None:
-    """``tourism=attraction`` e' un tag generico: su un elemento che porta anche un
-    ``historic=*`` mappato vince il tag storico (#373). Le altre precedenze non
-    cambiano: ``tourism=museum`` resta davanti a ``historic`` e ``amenity`` davanti
-    a entrambi. Funzione pura: nessuna chiamata HTTP."""
-    selettore = overpass_client._extract_osm_tag(tags)  # pyright: ignore[reportPrivateUsage]
+    """``tourism=attraction`` is a generic tag: on an element that also carries a
+    mapped ``historic=*`` the historic tag wins (#373). The other precedences do not
+    change: ``tourism=museum`` stays ahead of ``historic`` and ``amenity`` ahead of
+    both. Pure function: no HTTP call."""
+    selector = overpass_client._extract_osm_tag(tags)  # pyright: ignore[reportPrivateUsage]
 
-    assert selettore == osm_tag
-    assert map_to_terminus(selettore) == terminus_class
+    assert selector == osm_tag
+    assert map_to_terminus(selector) == terminus_class
 
 
 @respx.mock
 async def test_fetch_pois_unknown_tag_yields_generic() -> None:
-    """Elemento con soli tag non mappati -> osm_tags vuoto e GenericUrbanPOI."""
+    """Element with only unmapped tags -> empty osm_tags and GenericUrbanPOI."""
     payload = {
         "elements": [
             {
@@ -1500,7 +1498,7 @@ async def test_fetch_pois_unknown_tag_yields_generic() -> None:
 
 @respx.mock
 async def test_fetch_pois_element_without_coords_or_center_is_skipped() -> None:
-    """Elemento con tag ma senza lat/lon ne' 'center' viene scartato."""
+    """Element with tags but no lat/lon nor 'center' is discarded."""
     payload = {
         "elements": [
             {"type": "node", "id": 8, "tags": {"amenity": "bank", "name": "X"}}
@@ -1515,11 +1513,11 @@ async def test_fetch_pois_element_without_coords_or_center_is_skipped() -> None:
 
 @respx.mock
 async def test_fetch_pois_element_without_type_is_skipped() -> None:
-    """Elemento senza ``type`` viene scartato invece di produrre un id ``"/123"``.
+    """Element without ``type`` is discarded instead of producing an id ``"/123"``.
 
-    Un fallback silenzioso a stringa vuota riaprirebbe la stessa collisione fra
-    ``id`` diversi che #265 chiude: due elementi ugualmente privi di ``type``
-    finirebbero entrambi su ``"/<numero>"``.
+    A silent fallback to an empty string would reopen the same collision between
+    different ``id`` that #265 closes: two elements equally lacking ``type`` would
+    both end up on ``"/<number>"``.
     """
     payload = {
         "elements": [
@@ -1540,7 +1538,7 @@ async def test_fetch_pois_element_without_type_is_skipped() -> None:
 
 @respx.mock
 async def test_fetch_pois_way_without_coords_is_skipped() -> None:
-    """Way con center privo di coordinate numeriche viene scartato."""
+    """Way with a center lacking numeric coordinates is discarded."""
     payload = {
         "elements": [
             {
@@ -1560,7 +1558,7 @@ async def test_fetch_pois_way_without_coords_is_skipped() -> None:
 
 @respx.mock
 async def test_fetch_pois_payload_not_object_raises() -> None:
-    """Payload JSON non-oggetto (lista) -> OverpassError."""
+    """Non-object JSON payload (list) -> OverpassError."""
     respx.post(DEFAULT_OVERPASS_URL).mock(return_value=httpx.Response(200, json=["x"]))
 
     with pytest.raises(OverpassError):
@@ -1569,7 +1567,7 @@ async def test_fetch_pois_payload_not_object_raises() -> None:
 
 @respx.mock
 async def test_fetch_pois_missing_elements_raises() -> None:
-    """Payload privo della lista 'elements' -> OverpassError."""
+    """Payload lacking the 'elements' list -> OverpassError."""
     respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(200, json={"version": 0.6})
     )
@@ -1580,7 +1578,7 @@ async def test_fetch_pois_missing_elements_raises() -> None:
 
 @respx.mock
 async def test_fetch_pois_skips_non_dict_elements() -> None:
-    """Elementi non-oggetto nella lista vengono ignorati senza errore."""
+    """Non-object elements in the list are ignored without error."""
     payload = {
         "elements": [
             "garbage",
@@ -1602,131 +1600,131 @@ async def test_fetch_pois_skips_non_dict_elements() -> None:
     assert pois[0]["id"] == "node/1"
 
 
-# --- #372: ``remark`` di Overpass e risposte troncate ---
-# Quando scatta ``[timeout:25]`` (o la memoria lato server) Overpass risponde
-# 200 con un campo ``remark`` e gli elementi trovati FINO A LI': i selettori in
-# fondo alla query mancano. Le forme d'interruzione sotto seguono il prefisso
-# ``runtime error:``; quelle senza prefisso esercitano le frasi di riserva di
-# ``_TRUNCATION_HINTS`` nel caso il prefisso cambiasse.
+# --- #372: Overpass ``remark`` and truncated responses ---
+# When ``[timeout:25]`` fires (or the server-side memory) Overpass answers
+# 200 with a ``remark`` field and the elements found UP TO THERE: the selectors
+# at the bottom of the query are missing. The interruption forms below follow the
+# ``runtime error:`` prefix; those without a prefix exercise the fallback phrases of
+# ``_TRUNCATION_HINTS`` in case the prefix changed.
 
 _REMARK_TIMEOUT = (
     'runtime error: Query timed out in "query" at line 3 after 26 seconds.'
 )
 
-_REMARK_MEMORIA = "runtime error: Query run out of memory using about 2048 MB of RAM."
+_REMARK_MEMORY = "runtime error: Query run out of memory using about 2048 MB of RAM."
 
-_REMARK_INCOMPLETI = (
+_REMARK_INCOMPLETE = (
     _REMARK_TIMEOUT,
-    _REMARK_MEMORIA,
+    _REMARK_MEMORY,
     'runtime error: Query timed out in "recurse" at line 41 after 25 seconds.',
     'runtime error: Query run out of memory in "query" at line 7 using about '
     "2048 MB of RAM.",
     'runtime error: Query ran out of memory in "union" at line 12. It would need '
     "at least 0 MB of RAM to continue.",
     "Runtime error: something went wrong while executing the query.",
-    # Senza il prefisso ``runtime error``: rilevati solo dalle frasi di riserva.
+    # Without the ``runtime error`` prefix: detected only by the fallback phrases.
     'Error: Query timed out in "query" at line 3 after 26 seconds.',
     "Query ran out of memory",
     "Query run out of memory",
 )
 
-# Forme IPOTETICHE, difensive: non e' dimostrato che Overpass le emetta. Se mai
-# comparisse un remark che non dichiara un'interruzione, non va ritentato.
-_REMARK_INFORMATIVI = (
+# HYPOTHETICAL, defensive forms: it is not proven that Overpass emits them. If a
+# remark that does not declare an interruption ever appeared, it must not be retried.
+_REMARK_INFORMATIVE = (
     "runtime remark: Timeout is 180 and maxsize is 536870912.",
     "runtime remark: The query has been executed with the attic data.",
     "",
 )
 
 
-@pytest.mark.parametrize("remark", _REMARK_INCOMPLETI)
-def test_remark_di_interruzione_segnala_risposta_incompleta(remark: str) -> None:
+@pytest.mark.parametrize("remark", _REMARK_INCOMPLETE)
+def test_interruption_remark_signals_incomplete_response(remark: str) -> None:
     assert remark_signals_incomplete_response(remark) is True
 
 
-@pytest.mark.parametrize("remark", _REMARK_INFORMATIVI)
-def test_remark_informativo_non_segnala_risposta_incompleta(remark: str) -> None:
+@pytest.mark.parametrize("remark", _REMARK_INFORMATIVE)
+def test_informative_remark_does_not_signal_incomplete_response(remark: str) -> None:
     assert remark_signals_incomplete_response(remark) is False
 
 
-#: Id del campione completo dopo ``select_pois`` (node/1004 non ha nome); la
-#: risposta troncata porta solo node/1001.
-_ID_CAMPIONE_COMPLETO = ["node/1001", "node/1002", "node/1003", "way/2001"]
+# Ids of the complete sample after ``select_pois`` (node/1004 has no name); the
+# truncated response carries only node/1001.
+_FULL_SAMPLE_IDS = ["node/1001", "node/1002", "node/1003", "way/2001"]
 
 
-def _troncata() -> dict[str, object]:
-    """Risposta 200 troncata: il primo elemento del campione e il remark di timeout."""
+def _truncated() -> dict[str, object]:
+    """Truncated 200 response: first element of the sample and the timeout remark."""
     sample = _sample()
     elements = cast(list[object], sample["elements"])
     return {**sample, "elements": elements[:1], "remark": _REMARK_TIMEOUT}
 
 
 @respx.mock
-async def test_remark_di_timeout_non_e_accettato_come_campione_completo() -> None:
-    """Una risposta troncata non e' un campione completo.
+async def test_timeout_remark_is_not_accepted_as_a_complete_sample() -> None:
+    """A truncated response is not a complete sample.
 
-    Ritentativi esauriti -> :class:`OverpassError`.
+    Retries exhausted -> :class:`OverpassError`.
     """
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
-        return_value=httpx.Response(200, json=_troncata())
+        return_value=httpx.Response(200, json=_truncated())
     )
 
     with pytest.raises(OverpassError) as exc_info:
         await fetch_pois(_BBOX, "Roma")
 
-    messaggio = str(exc_info.value)
-    assert "Risposta incompleta di Overpass" in messaggio
-    assert _REMARK_TIMEOUT in messaggio
-    assert "dopo 2 tentativi" in messaggio
-    # Politica interattiva: un tentativo + un ritentativo, poi l'errore.
+    message = str(exc_info.value)
+    assert "Risposta incompleta di Overpass" in message
+    assert _REMARK_TIMEOUT in message
+    assert "dopo 2 tentativi" in message
+    # Interactive policy: one attempt + one retry, then the error.
     assert route.call_count == 1 + len(overpass_client.INTERACTIVE_RETRY.pause_s)
 
 
 @respx.mock
-async def test_remark_di_timeout_esaurisce_anche_la_politica_offline() -> None:
-    attese: list[float] = []
+async def test_timeout_remark_also_exhausts_the_offline_policy() -> None:
+    waits: list[float] = []
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
-        return_value=httpx.Response(200, json=_troncata())
+        return_value=httpx.Response(200, json=_truncated())
     )
 
     with pytest.raises(
         OverpassError, match=r"Risposta incompleta di Overpass.*dopo 5 tentativi"
     ):
         await fetch_pois_with_cut(
-            _BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(attese)
+            _BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(waits)
         )
 
     assert route.call_count == 1 + len(OFFLINE_RETRY.pause_s)
-    assert attese == list(OFFLINE_RETRY.pause_s)
+    assert waits == list(OFFLINE_RETRY.pause_s)
 
 
 @respx.mock
-async def test_remark_di_memoria_non_e_descritto_come_timeout() -> None:
-    """Un out of memory non e' un timeout, e senza ritentativi non si dice «dopo»."""
-    sample = {**_sample(), "remark": _REMARK_MEMORIA}
+async def test_memory_remark_is_not_described_as_timeout() -> None:
+    """An out of memory is not a timeout, and without retries we do not say «after»."""
+    sample = {**_sample(), "remark": _REMARK_MEMORY}
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(200, json=sample)
     )
-    senza_ritentativi = replace(INTERACTIVE_RETRY, pause_s=())
+    without_retries = replace(INTERACTIVE_RETRY, pause_s=())
 
     with pytest.raises(OverpassError) as exc_info:
-        await fetch_pois(_BBOX, "Roma", retry=senza_ritentativi)
+        await fetch_pois(_BBOX, "Roma", retry=without_retries)
 
-    messaggio = str(exc_info.value)
-    assert "timeout" not in messaggio.lower()
-    assert "tentativi" not in messaggio
-    assert "Risposta incompleta di Overpass" in messaggio
-    assert _REMARK_MEMORIA in messaggio
+    message = str(exc_info.value)
+    assert "timeout" not in message.lower()
+    assert "tentativi" not in message
+    assert "Risposta incompleta di Overpass" in message
+    assert _REMARK_MEMORY in message
     assert route.call_count == 1
 
 
 @respx.mock
-async def test_remark_di_timeout_poi_risposta_completa_ritenta_e_usa_la_seconda(
+async def test_timeout_remark_then_complete_response_retries_and_uses_the_second(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         side_effect=[
-            httpx.Response(200, json=_troncata()),
+            httpx.Response(200, json=_truncated()),
             httpx.Response(200, json=_sample()),
         ]
     )
@@ -1735,17 +1733,17 @@ async def test_remark_di_timeout_poi_risposta_completa_ritenta_e_usa_la_seconda(
         pois = await fetch_pois(_BBOX, "Roma")
 
     assert route.call_count == 2
-    # Il campione e' quello della seconda risposta, non quello troncato.
-    assert sorted(p["id"] for p in pois) == _ID_CAMPIONE_COMPLETO
-    messaggi = [r.getMessage() for r in caplog.records]
-    assert any("risposta incompleta" in m and "retry 1/1" in m for m in messaggi), (
-        messaggi
+    # The sample is that of the second response, not the truncated one.
+    assert sorted(p["id"] for p in pois) == _FULL_SAMPLE_IDS
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("risposta incompleta" in m and "retry 1/1" in m for m in messages), (
+        messages
     )
 
 
 @respx.mock
-async def test_remark_informativo_non_fa_fallire_ne_ritentare() -> None:
-    sample = {**_sample(), "remark": _REMARK_INFORMATIVI[0]}
+async def test_informative_remark_neither_fails_nor_retries() -> None:
+    sample = {**_sample(), "remark": _REMARK_INFORMATIVE[0]}
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(200, json=sample)
     )
@@ -1753,12 +1751,12 @@ async def test_remark_informativo_non_fa_fallire_ne_ritentare() -> None:
     pois = await fetch_pois(_BBOX, "Roma")
 
     assert route.call_count == 1
-    assert sorted(p["id"] for p in pois) == _ID_CAMPIONE_COMPLETO
+    assert sorted(p["id"] for p in pois) == _FULL_SAMPLE_IDS
 
 
 @respx.mock
-async def test_remark_non_stringa_non_fa_fallire() -> None:
-    """Un ``remark`` di forma inattesa non e' un'interruzione dichiarata."""
+async def test_non_string_remark_does_not_fail() -> None:
+    """A ``remark`` of unexpected shape is not a declared interruption."""
     sample = {**_sample(), "remark": None}
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(200, json=sample)
@@ -1770,12 +1768,12 @@ async def test_remark_non_stringa_non_fa_fallire() -> None:
 
 
 @respx.mock
-async def test_capture_non_scrive_snapshot_da_una_risposta_troncata(
+async def test_capture_does_not_write_a_snapshot_from_a_truncated_response(
     tmp_path: Path,
 ) -> None:
-    """Un campione incompleto non deve finire su disco come se fosse completo."""
+    """An incomplete sample must not end up on disk as if it were complete."""
     respx.post(DEFAULT_OVERPASS_URL).mock(
-        return_value=httpx.Response(200, json=_troncata())
+        return_value=httpx.Response(200, json=_truncated())
     )
 
     async def inner(bbox: Bbox, citta: str) -> tuple[list[Poi], OsmCut | None]:
@@ -1794,7 +1792,7 @@ async def test_capture_non_scrive_snapshot_da_una_risposta_troncata(
 
 @pytest.mark.integration
 async def test_fetch_pois_integration_real_overpass() -> None:
-    """Integrazione reale con Overpass (skip di default; -m integration per girarlo)."""
+    """Real integration with Overpass (skipped by default; -m integration to run it)."""
     pois = await fetch_pois(
         Bbox(41.889, 12.490, 41.892, 12.494), "Roma", ["amenity=bank", "tourism=museum"]
     )

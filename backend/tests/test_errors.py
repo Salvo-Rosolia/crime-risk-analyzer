@@ -1,20 +1,20 @@
-"""Test del layer di gestione errori centrale (#21).
+"""Tests for the central error handling layer (#21).
 
-Contratto (orchestrator.md §"Gestione errori"): le eccezioni di dominio vengono
-mappate a risposte HTTP esplicite da un exception handler centrale, **non** da
-``try/except`` sparsi nei router. Qui si verifica:
-  * la mappa errore -> status (zona 422, servizi esterni 503);
-  * che il body della zona porti errore e messaggio (senza lista di
-    suggerimenti);
-  * che ``LLMError`` **non** sia mappato a un handler generico (il fallback
-    dati-strutturati e' decisione dell'orchestrator #18, e non c'e' alcun
-    failover automatico su Groq).
+Contract (orchestrator.md, "Error handling"): domain exceptions are mapped to
+explicit HTTP responses by a central exception handler, **not** by scattered
+``try/except`` in the routers. Here we verify:
+  * the error -> status map (zone 422, external services 503);
+  * that the zone body carries error and message (without a list of
+    suggestions);
+  * that ``LLMError`` is **not** mapped to a generic handler (the structured
+    data fallback is a decision of the orchestrator #18, and there is no
+    automatic failover to Groq).
 
-Nessuna allowlist di citta' (#191): non c'e' piu' un handler ``400`` dedicato;
-una citta'/zona inesistente fallisce al geocoding come ``ZoneNotFoundError`` (422).
+No city allowlist (#191): there is no dedicated ``400`` handler anymore; a
+nonexistent citta/zona fails at geocoding as ``ZoneNotFoundError`` (422).
 
-I test montano un'app minimale con rotte che sollevano le eccezioni, cosi' si
-testano gli handler in isolamento senza dipendere dall'orchestrator.
+The tests mount a minimal app with routes that raise the exceptions, so the
+handlers are tested in isolation without depending on the orchestrator.
 """
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ def test_zone_not_found_maps_to_422_without_suggestions() -> None:
 
     assert response.status_code == 422
     body = response.json()
-    # Errore semplice: codice errore + messaggio, senza lista di suggerimenti.
+    # Simple error: error code + message, without a list of suggestions.
     assert body["detail"]["errore"] == "zona_non_geocodificabile"
     assert body["detail"]["messaggio"]
     assert "scenari_suggeriti" not in body["detail"]
@@ -86,17 +86,18 @@ def test_overpass_error_maps_to_503() -> None:
 
 
 def test_llm_error_is_not_mapped_to_a_generic_handler() -> None:
-    # LLMError NON deve avere un handler dedicato: il ripiego (cache demo / solo
-    # dati strutturati) e' deciso dall'orchestrator #18, non c'e' failover Groq.
-    # Senza orchestrator, l'errore resta non gestito -> 500 (server error grezzo).
+    # LLMError must NOT have a dedicated handler: the fallback (demo cache /
+    # structured data only) is decided by the orchestrator #18, there is no Groq
+    # failover. Without the orchestrator, the error stays unhandled -> 500 (raw
+    # server error).
     response = _get(_make_client(), "/raise/llm")
 
     assert response.status_code == 500
 
 
 def test_zone_not_found_is_subclass_of_geocoding_error_but_maps_to_422() -> None:
-    # ZoneNotFoundError estende GeocodingError: l'handler piu' specifico (422)
-    # deve vincere su quello generico (503).
+    # ZoneNotFoundError extends GeocodingError: the more specific handler (422)
+    # must win over the generic one (503).
     assert issubclass(ZoneNotFoundError, GeocodingError)
     response = _get(_make_client(), "/raise/zone")
     assert response.status_code == 422
@@ -105,7 +106,7 @@ def test_zone_not_found_is_subclass_of_geocoding_error_but_maps_to_422() -> None
 def test_register_returns_none_and_is_idempotent() -> None:
     app = FastAPI()
     assert register_exception_handlers(app) is None
-    # Re-registrare non deve sollevare (es. avvio ripetuto nei test).
+    # Registering again must not raise (e.g. repeated startup in the tests).
     register_exception_handlers(app)
 
 
@@ -123,8 +124,8 @@ def test_error_map_matches_orchestrator_spec(path: str, expected: int) -> None:
 
 
 def test_create_app_registers_domain_handlers() -> None:
-    # L'app reale deve montare gli handler centrali: i tipi di dominio gestiti
-    # sono presenti nella mappa exception_handlers di Starlette.
+    # The real app must mount the central handlers: the handled domain types are
+    # present in the Starlette exception_handlers map.
     from crime_risk_analyzer.main import create_app
 
     app = create_app()
@@ -135,5 +136,5 @@ def test_create_app_registers_domain_handlers() -> None:
         OverpassError,
     ):
         assert exc_type in handlers
-    # LLMError NON e' montato (decisione dell'orchestrator #18, no failover Groq).
+    # LLMError is NOT mounted (decision of the orchestrator #18, no Groq failover).
     assert LLMError not in handlers

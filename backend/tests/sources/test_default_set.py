@@ -1,4 +1,4 @@
-"""Il set di fonti di default raggruppa le costanti TERMINUS+ISTAT esistenti (#411)."""
+"""The default source set groups the existing TERMINUS+ISTAT constants (#411)."""
 
 from crime_risk_analyzer.istat.catalog import BREAK_ITEMS_2016
 from crime_risk_analyzer.istat.mapping import HAZARD_MAPPING
@@ -23,26 +23,26 @@ from crime_risk_analyzer.sparql_module.query_executor import (
 )
 
 
-def test_default_set_identita() -> None:
+def test_default_set_identity() -> None:
     s = default_set()
     assert s.kind == "default"
     assert s.id == "default"
     assert s.labels is None
 
 
-def test_default_set_e_cached() -> None:
+def test_default_set_is_cached() -> None:
     assert default_set() is default_set()
 
 
-def test_default_set_riusa_grafo_ed_executor_esistenti() -> None:
+def test_default_set_reuses_existing_graph_and_executor() -> None:
     s = default_set()
     assert s.graph is get_ontology()
     assert s.executor is get_executor()
 
 
-def test_default_set_config_ontologia_terminus() -> None:
-    # Importa i privati di query_executor (oggi unica sorgente dei nomi di
-    # proprieta'): il test fallisce se TERMINUS_CONFIG diverge da quei valori.
+def test_default_set_terminus_ontology_config() -> None:
+    # Imports the privates of query_executor (today the only source of the
+    # property names): the test fails if TERMINUS_CONFIG diverges from those values.
     assert default_set().ontology == TERMINUS_CONFIG
     assert TERMINUS_CONFIG.hazard == _HAZARD
     assert TERMINUS_CONFIG.critical_event == _CRITICAL_EVENT
@@ -51,9 +51,9 @@ def test_default_set_config_ontologia_terminus() -> None:
     assert TERMINUS_CONFIG.namespace == str(TERMINUS)
 
 
-def test_terminus_vocabulary_coincide_con_costanti_storiche() -> None:
-    # Le costanti private di query_executor sono il riferimento storico: il
-    # default effettivo dell'executor e' TERMINUS_VOCABULARY, che non deve driftare.
+def test_terminus_vocabulary_matches_historical_constants() -> None:
+    # The private constants of query_executor are the historical reference: the
+    # executor's effective default is TERMINUS_VOCABULARY, which must not drift.
     assert TERMINUS_VOCABULARY.hazard == _HAZARD
     assert TERMINUS_VOCABULARY.critical_event == _CRITICAL_EVENT
     assert TERMINUS_VOCABULARY.performer == _PERFORMER
@@ -70,7 +70,7 @@ def test_default_set_osm() -> None:
     assert osm.map("amenity=boh") == GENERIC_FALLBACK
 
 
-def test_osm_binding_proprio() -> None:
+def test_own_osm_binding() -> None:
     osm = OsmBinding(
         osm_to_class={"amenity=cafe": "Bar"},
         family_order=("amenity",),

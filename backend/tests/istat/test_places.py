@@ -45,10 +45,10 @@ def test_outside_every_polygon(lat: float, lon: float) -> None:
 
 
 def test_names_for_the_narrative() -> None:
-    roma = place_of(41.8902, 12.4922)
+    rome = place_of(41.8902, 12.4922)
     province = place_of(41.7700, 12.2400)
-    assert roma is not None and province is not None
-    assert (roma.nome, roma.nome_breve, roma.tipo) == (
+    assert rome is not None and province is not None
+    assert (rome.nome, rome.nome_breve, rome.tipo) == (
         "Comune di Roma",
         "Roma",
         "comune",

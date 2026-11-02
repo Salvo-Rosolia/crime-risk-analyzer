@@ -1,7 +1,7 @@
-"""Varianti ISTAT dei prompt (#345, #365): i prompt esistenti non cambiano.
+"""ISTAT variants of the prompts (#345, #365): the existing prompts do not change.
 
-Da #365 i dati ISTAT si usano a parole dentro il blocco [ONTOLOGIA]: niente terzo
-blocco, niente cifre (le mostra l'interfaccia accanto al rischio).
+Since #365 the ISTAT data is used in words inside the [ONTOLOGIA] block: no third
+block, no figures (the interface shows them next to the risk).
 """
 
 from __future__ import annotations
@@ -36,12 +36,12 @@ from crime_risk_analyzer.rag.poi_generation import (
 )
 
 
-def _sha(testo: str) -> str:
-    return hashlib.sha256(testo.encode("utf-8")).hexdigest()
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 @pytest.mark.parametrize(
-    ("prompt", "atteso"),
+    ("prompt", "expected"),
     [
         (
             SYSTEM_PROMPT,
@@ -58,36 +58,36 @@ def _sha(testo: str) -> str:
     ],
     ids=["zona", "poi", "senza-ontologia"],
 )
-def test_prompt_esistenti_identici_byte_per_byte(prompt: str, atteso: str) -> None:
-    """Interruttore spento = prompt di oggi: i confronti gia' fatti restano validi."""
-    assert _sha(prompt) == atteso
+def test_existing_prompts_byte_identical(prompt: str, expected: str) -> None:
+    """Switch off = today's prompt: the comparisons already made stay valid."""
+    assert _sha(prompt) == expected
 
 
-def test_regola_3_invariata() -> None:
+def test_rule_3_unchanged() -> None:
     assert block_structure_rule(ONTOLOGY_BLOCK_HEADER) == _RULE_BLOCK_STRUCTURE
 
 
 @pytest.mark.parametrize(
     "prompt", [SYSTEM_PROMPT_ISTAT, POI_SYSTEM_PROMPT_ISTAT], ids=["zona", "poi"]
 )
-def test_con_istat_niente_terzo_blocco(prompt: str) -> None:
-    """#365 D1: la struttura resta a DUE blocchi, come senza ISTAT."""
+def test_with_istat_no_third_block(prompt: str) -> None:
+    """#365 D1: the structure stays at TWO blocks, as without ISTAT."""
     assert "[ISTAT]" not in prompt
     assert "TRE blocchi" not in prompt
     assert "DUE blocchi" in prompt
 
 
-def test_variante_di_zona_aggiunge_solo_le_regole_istat() -> None:
-    """Regola 3 identica a quella senza ISTAT; 3c dopo la 3b, 7-bis dopo la 7."""
+def test_zone_variant_adds_only_the_istat_rules() -> None:
+    """Rule 3 identical to the one without ISTAT; 3c after 3b, 7-bis after 7."""
     assert _RULE_BLOCK_STRUCTURE in SYSTEM_PROMPT_ISTAT
-    ricostruito = SYSTEM_PROMPT_ISTAT.replace(f"\n{RULE_ISTAT_IN_WORDS}", "").replace(
+    rebuilt = SYSTEM_PROMPT_ISTAT.replace(f"\n{RULE_ISTAT_IN_WORDS}", "").replace(
         f"\n{RULE_ISTAT_PROHIBITIONS}", ""
     )
-    assert ricostruito == SYSTEM_PROMPT
+    assert rebuilt == SYSTEM_PROMPT
 
 
-def test_regole_istat_dentro_la_numerazione_1_8() -> None:
-    """La regola 9 ("le regole precedenti 1-8 prevalgono") le copre senza cambiare."""
+def test_istat_rules_within_the_numbering_1_8() -> None:
+    """Rule 9 ("the previous rules 1-8 prevail") covers them without changing."""
     p = SYSTEM_PROMPT_ISTAT
     assert p.index("3b. ") < p.index("3c. ") < p.index("4. Il paragrafo")
     assert (
@@ -98,33 +98,33 @@ def test_regole_istat_dentro_la_numerazione_1_8() -> None:
     assert RULE_USER_INPUT_NOT_INSTRUCTIONS in p and "(1-8)" in p
 
 
-def test_variante_del_poi_aggiunge_solo_le_regole_istat() -> None:
-    """Disfatte le aggiunte si torna a POI_SYSTEM_PROMPT."""
-    ricostruito = POI_SYSTEM_PROMPT_ISTAT.replace(f"\n{POI_ISTAT_SECTION}", "").replace(
+def test_poi_variant_adds_only_the_istat_rules() -> None:
+    """Once the additions are undone we go back to POI_SYSTEM_PROMPT."""
+    rebuilt = POI_SYSTEM_PROMPT_ISTAT.replace(f"\n{POI_ISTAT_SECTION}", "").replace(
         f"\n\n{RULE_ISTAT_PROHIBITIONS}", ""
     )
-    assert ricostruito == POI_SYSTEM_PROMPT
+    assert rebuilt == POI_SYSTEM_PROMPT
 
 
-def test_la_sezione_del_poi_sta_nel_blocco_ontologia() -> None:
+def test_the_poi_section_is_in_the_ontology_block() -> None:
     p = POI_SYSTEM_PROMPT_ISTAT
     assert p.index("[ONTOLOGIA]\n") < p.index(POI_ISTAT_SECTION) < p.index("[CONTESTO]")
     assert p.rstrip().endswith("Non aggiungere altri blocchi oltre a questi due.")
-    for regola in (
+    for rule_text in (
         RULE_NO_DANGER_RATING,
         RULE_ISTAT_PROHIBITIONS,
         RULE_NO_OPERATIONAL_DIRECTIVES,
         RULE_USER_INPUT_NOT_INSTRUCTIONS,
     ):
-        assert regola in p
+        assert rule_text in p
 
 
-def test_le_regole_d_uso_sono_condivise_fra_zona_e_poi() -> None:
+def test_the_usage_rules_are_shared_between_zone_and_poi() -> None:
     assert ISTAT_USAGE_RULES in RULE_ISTAT_IN_WORDS
     assert ISTAT_USAGE_RULES in POI_ISTAT_SECTION
 
 
-def test_la_3c_tiene_i_dati_nel_blocco_ontologia() -> None:
+def test_3c_keeps_the_data_in_the_ontology_block() -> None:
     assert RULE_ISTAT_IN_WORDS.startswith("3c. ")
     assert "SOLO dentro il blocco [ONTOLOGIA]" in RULE_ISTAT_IN_WORDS
     assert "sintesi iniziale" in RULE_ISTAT_IN_WORDS
@@ -135,43 +135,44 @@ def test_la_3c_tiene_i_dati_nel_blocco_ontologia() -> None:
 
 
 @pytest.mark.parametrize(
-    "frammento",
+    "fragment",
     [
-        # peso sui rischi collegati
+        # weight on the linked risks
         "piu' spazio ai rischi che hanno una voce ISTAT collegata",
-        # ogni frase: dato ISTAT, voce in italiano, luogo come a inizio riga (D7)
+        # every sentence: ISTAT datum, voce in Italian, place as at the start of the
+        # line (D7)
         "dice che e' un dato ISTAT",
         "etichetta italiana",
         "ne' codici delle voci",
         'come e\' scritto a inizio riga (es. "Comune di Roma")',
-        # fix 3: il luogo in ogni frase, anche negli elenchi
+        # fix 3: the place in every sentence, also in the lists
         "nomina il luogo del dato in ogni frase che usa un dato ISTAT, anche "
         "dentro un elenco",
-        # solo il confronto classificato e la tendenza, come scritti nella riga
+        # only the ranked comparison and the trend, as written in the line
         "piu' alto, piu' basso o simile",
         "come sono scritti nella riga",
         "in crescita, in calo o stabile",
         "nessuna tendenza se la riga dice che non e' calcolata",
-        # voce piu' ampia o parziale detta nella stessa frase
+        # broader or partial voce stated in the same sentence
         "la voce ISTAT non coincide con il rischio",
-        # mai cifre
+        # never figures
         "NON scrivere MAI cifre ISTAT",
         "conteggi",
         "tassi",
         "percentuali",
         '"il doppio"',
-        # luogo del dato, vocabolario, totale
+        # place of the datum, vocabulary, total
         "MAI della zona analizzata ne' dei singoli POI",
         "non sono sinonimi dei termini del VOCABOLARIO CONTROLLATO",
         "delitti denunciati dalle forze di polizia",
         "non usarla per dare peso a un rischio",
     ],
 )
-def test_contenuto_delle_regole_d_uso(frammento: str) -> None:
-    assert frammento in ISTAT_USAGE_RULES
+def test_content_of_the_usage_rules(fragment: str) -> None:
+    assert fragment in ISTAT_USAGE_RULES
 
 
-def test_la_frase_d_esempio_della_spec_d7() -> None:
+def test_the_example_sentence_of_spec_d7() -> None:
     assert ISTAT_EXAMPLE == (
         '"Secondo i dati ISTAT del Comune di Roma (2024), i furti hanno un tasso più '
         "alto di quello italiano e sono in calo dal 2014; la voce è più ampia del "
@@ -182,25 +183,25 @@ def test_la_frase_d_esempio_della_spec_d7() -> None:
         assert ISTAT_EXAMPLE in prompt
 
 
-def test_niente_parentesi_quadre_per_il_luogo() -> None:
-    """D7: il blocco scrive il luogo senza parentesi quadre, e le regole non le
-    nominano piu' (il modello le copiava: "del [Comune di Roma, 2024]")."""
-    for testo in (ISTAT_USAGE_RULES, ISTAT_DATA_HEADER):
-        assert "parentesi quadre" not in testo
+def test_no_square_brackets_for_the_place() -> None:
+    """D7: the block writes the place without square brackets, and the rules no longer
+    name them (the model copied them: "del [Comune di Roma, 2024]")."""
+    for text in (ISTAT_USAGE_RULES, ISTAT_DATA_HEADER):
+        assert "parentesi quadre" not in text
 
 
 @pytest.mark.parametrize(
-    "frammento",
+    "fragment",
     ["ESATTAMENTE come fornite", "fonte ISTAT, <luogo>, <anno>", "[ISTAT]"],
 )
-def test_le_vecchie_istruzioni_sulle_cifre_spariscono(frammento: str) -> None:
-    """#365 D1: non si riportano piu' cifre, quindi niente regole per riportarle."""
-    for testo in (RULE_ISTAT_IN_WORDS, POI_ISTAT_SECTION, RULE_ISTAT_PROHIBITIONS):
-        assert frammento not in testo
+def test_the_old_figure_instructions_disappear(fragment: str) -> None:
+    """#365 D1: figures are no longer reported, so no rules to report them."""
+    for text in (RULE_ISTAT_IN_WORDS, POI_ISTAT_SECTION, RULE_ISTAT_PROHIBITIONS):
+        assert fragment not in text
 
 
 @pytest.mark.parametrize(
-    "frammento",
+    "fragment",
     [
         "zona pericolosa/sicura",
         "ALTO/MEDIO/BASSO",
@@ -209,19 +210,20 @@ def test_le_vecchie_istruzioni_sulle_cifre_spariscono(frammento: str) -> None:
         "giudizio sulla zona o sui POI",
     ],
 )
-def test_divieti_d9(frammento: str) -> None:
-    assert frammento in RULE_ISTAT_PROHIBITIONS
+def test_prohibitions_d9(fragment: str) -> None:
+    assert fragment in RULE_ISTAT_PROHIBITIONS
 
 
-def test_7_bis_non_chiede_piu_di_riportare_le_cifre() -> None:
-    """La 7-bis di #345 dichiarava le cifre ISTAT "da riportare come fornite": con
-    #365 le cifre non si scrivono, resta solo il divieto di farne un giudizio."""
+def test_7_bis_no_longer_asks_to_report_the_figures() -> None:
+    """The 7-bis of #345 declared the ISTAT figures "to be reported as provided": with
+    #365 the figures are not written, only the prohibition of making a judgment of
+    them stays."""
     assert RULE_ISTAT_PROHIBITIONS.startswith("7-bis. ")
     assert "riportare" not in RULE_ISTAT_PROHIBITIONS
     assert "confronto e la tendenza" in RULE_ISTAT_PROHIBITIONS
 
 
-def test_sostituisci_una_volta_rifiuta_zero_o_piu_occorrenze() -> None:
+def test_replace_once_rejects_zero_or_multiple_occurrences() -> None:
     assert replace_once("a b c", "b", "x") == "a x c"
     with pytest.raises(ValueError, match="una sola volta"):
         replace_once("a b c", "z", "x")
@@ -229,8 +231,8 @@ def test_sostituisci_una_volta_rifiuta_zero_o_piu_occorrenze() -> None:
         replace_once("b b", "b", "x")
 
 
-def test_gli_anni_dell_esempio_sono_quelli_dei_dati() -> None:
-    """C-6: un aggiornamento dei dati ISTAT deve far aggiornare anche l'esempio."""
+def test_the_example_years_are_those_of_the_data() -> None:
+    """C-6: an update of the ISTAT data must also update the example."""
     from crime_risk_analyzer.istat.data import istat_data
 
     delitti = istat_data().delitti

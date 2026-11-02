@@ -1,4 +1,4 @@
-"""Metriche ISTAT (#345, versione 4 da #369): deterministiche, sul testo grezzo."""
+"""ISTAT metrics (#345, version 4 from #369): deterministic, on the raw text."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import pytest
 from crime_risk_analyzer.eval.istat_metrics import (
     ISTAT_METRICS_VERSION,
     compute_istat_metrics,
-    frasi_escluse_senza_voce,
-    somma_istat_metrics,
+    excluded_sentences_without_item,
+    sum_istat_metrics,
 )
 from crime_risk_analyzer.eval.schema import IstatMetrics
 from crime_risk_analyzer.istat.block import istat_block_for_poi
@@ -16,38 +16,38 @@ from crime_risk_analyzer.istat.figures import CheckOutcome, check_figures
 from crime_risk_analyzer.rag.generation import source_block_spans
 from tests.istat._factories import BANK_ROBBERIES, istat_poi, make_row
 
-_BLOCCO = istat_block_for_poi(istat_poi(make_row(), BANK_ROBBERIES))
+_BLOCK = istat_block_for_poi(istat_poi(make_row(), BANK_ROBBERIES))
 
 
-def _metriche(testo: str, frasi_escluse_m1: int = 0) -> IstatMetrics:
-    esito = check_figures(
-        testo,
-        blocks=source_block_spans(testo),
-        istat_block=_BLOCCO.testo,
+def _metrics(text: str, frasi_escluse_m1: int = 0) -> IstatMetrics:
+    outcome = check_figures(
+        text,
+        blocks=source_block_spans(text),
+        istat_block=_BLOCK.testo,
         context_without_istat="ZONA: Colosseo",
-        rows=_BLOCCO.righe,
+        rows=_BLOCK.righe,
     )
-    return compute_istat_metrics(esito, frasi_escluse_m1=frasi_escluse_m1)
+    return compute_istat_metrics(outcome, frasi_escluse_m1=frasi_escluse_m1)
 
 
-def test_versione_4_dal_369() -> None:
-    """Frasi ISTAT, voci citate e corrispondenze cambiano significato con #365;
-    con #368 e poi #369 M1 grada un altro testo, quindi la versione sale ancora."""
+def test_version_4_from_369() -> None:
+    """ISTAT sentences, cited items and matches change meaning with #365;
+    with #368 and then #369 M1 grades another text, so the version goes up again."""
     assert ISTAT_METRICS_VERSION == 4
-    m = _metriche("Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nRapina.\n", 2)
+    m = _metrics("Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nRapina.\n", 2)
     assert (m.versione, m.frasi_escluse_m1) == (4, 2)
 
 
-def test_i_record_prima_della_versione_4_non_hanno_le_frasi_escluse() -> None:
-    m = _metriche("Rischi da ontologia [ONTOLOGIA]\nRapina.\n")
-    vecchio = IstatMetrics.model_validate(
+def test_records_before_version_4_have_no_excluded_sentences() -> None:
+    m = _metrics("Rischi da ontologia [ONTOLOGIA]\nRapina.\n")
+    old = IstatMetrics.model_validate(
         {k: v for k, v in m.model_dump().items() if k != "frasi_escluse_m1"}
     )
-    assert vecchio.frasi_escluse_m1 == 0
+    assert old.frasi_escluse_m1 == 0
 
 
-def test_i_record_scritti_prima_sono_versione_1() -> None:
-    vecchio = {
+def test_earlier_records_are_version_1() -> None:
+    old = {
         "cifre_totali": 4,
         "cifre_istat_corrette": 3,
         "precisione_cifre": 0.75,
@@ -61,12 +61,12 @@ def test_i_record_scritti_prima_sono_versione_1() -> None:
         "corrispondenze_non_dichiarate": 0,
         "numeri_in_lettere": 0,
     }
-    m = IstatMetrics.model_validate(vecchio)
+    m = IstatMetrics.model_validate(old)
     assert (m.versione, m.cifre_istat, m.confronti_totali) == (1, 0, 0)
 
 
-def test_metriche_su_una_narrativa_tipica() -> None:
-    testo = (
+def test_metrics_on_a_typical_narrative() -> None:
+    text = (
         "Sintesi con 134.169 furti.\n\n"
         "Rischi da ontologia [ONTOLOGIA]\n"
         "Secondo i dati ISTAT del Comune di Roma i furti hanno un tasso piu' alto "
@@ -76,67 +76,67 @@ def test_metriche_su_una_narrativa_tipica() -> None:
         "Per l'ISTAT a Roma i furti sono il doppio di quanto si pensi. "
         "Rapina in banca per la Banca A.\n"
     )
-    m = _metriche(testo)
+    m = _metrics(text)
     assert m.cifre_totali == 1
-    assert m.cifre_istat == 1  # "134.169" nella sintesi: scritta, quindi tolta
-    # tolte: la sintesi (cifra) e le rapine in banca (luogo mancante)
+    assert m.cifre_istat == 1  # "134.169" in the synthesis: written, hence removed
+    # removed: the synthesis (figure) and the bank robberies (place missing)
     assert m.frasi_scartabili == 2
-    # frasi che parlano del dato ISTAT, in qualunque blocco
+    # sentences that speak of the ISTAT datum, in any block
     assert (m.frasi_istat, m.frasi_istat_con_luogo) == (4, 2)
-    # voci nominate in frasi ISTAT TENUTE dal filtro: solo i furti
+    # items named in ISTAT sentences KEPT by the filter: only thefts
     assert (m.voci_fornite, m.voci_citate) == (2, 1)
     assert (m.direzioni_totali, m.direzioni_coerenti) == (1, 1)
-    # "piu' alto" sui furti (coerente), "sotto la media" sulle rapine (contrario:
-    # 1,7 contro 0,5 e' piu' alto)
+    # "piu' alto" on thefts (consistent), "sotto la media" on robberies (opposite:
+    # 1.7 against 0.5 is higher)
     assert (m.confronti_totali, m.confronti_coerenti) == (2, 1)
-    # furti: voce piu' ampia del rischio; dichiarato solo in [ONTOLOGIA] alla
-    # prima frase, non nella sintesi ne' nella frase del "doppio" (testo grezzo:
-    # contano anche le frasi tolte)
+    # thefts: item broader than the risk; declared only in [ONTOLOGIA] at the
+    # first sentence, not in the synthesis nor in the "double" sentence (raw text:
+    # the removed sentences count too)
     assert m.corrispondenze_non_dichiarate == 2
     assert m.numeri_in_lettere == 1
 
 
-def test_frasi_istat_anche_in_un_blocco_istat_residuo() -> None:
-    m = _metriche(
+def test_istat_sentences_also_in_a_leftover_istat_block() -> None:
+    m = _metrics(
         "Sintesi.\n\nDati statistici ISTAT [ISTAT]\n"
         "Nel Comune di Roma, secondo l'ISTAT, i furti sono in calo.\n"
     )
     assert (m.frasi_istat, m.frasi_istat_con_luogo, m.frasi_scartabili) == (1, 1, 0)
 
 
-def test_luogo_della_frase_a_parola_intera() -> None:
-    """R7 (review 2): "romano" non nomina "Roma"."""
-    m = _metriche(
+def test_sentence_place_matches_whole_word() -> None:
+    """R7 (review 2): "romano" does not name "Roma"."""
+    m = _metrics(
         "Rischi da ontologia [ONTOLOGIA]\nSecondo l'ISTAT nel territorio romano i "
         "furti sono in calo.\n"
     )
     assert (m.frasi_istat, m.frasi_istat_con_luogo) == (1, 0)
 
 
-def test_somma_fra_ripetizioni() -> None:
-    a = _metriche("Rischi da ontologia [ONTOLOGIA]\nI furti sono 134.169.\n")
-    b = _metriche(
+def test_sum_across_repetitions() -> None:
+    a = _metrics("Rischi da ontologia [ONTOLOGIA]\nI furti sono 134.169.\n")
+    b = _metrics(
         "Rischi da ontologia [ONTOLOGIA]\nSecondo l'ISTAT a Roma i furti sono "
         "sopra la media italiana.\n",
         frasi_escluse_m1=1,
     )
-    s = somma_istat_metrics([a, None, b])
+    s = sum_istat_metrics([a, None, b])
     assert s is not None
     assert (s.versione, s.cifre_totali, s.cifre_istat) == (4, 1, 1)
     assert (s.frasi_istat, s.confronti_totali, s.confronti_coerenti) == (2, 1, 1)
     assert s.frasi_escluse_m1 == 1
-    assert somma_istat_metrics([None, None]) is None
+    assert sum_istat_metrics([None, None]) is None
 
 
-def test_somma_rifiuta_versioni_diverse() -> None:
-    a = _metriche("Rischi da ontologia [ONTOLOGIA]\nRapina.\n")
+def test_sum_rejects_different_versions() -> None:
+    a = _metrics("Rischi da ontologia [ONTOLOGIA]\nRapina.\n")
     with pytest.raises(ValueError, match="versioni"):
-        somma_istat_metrics([a, a.model_copy(update={"versione": 1})])
+        sum_istat_metrics([a, a.model_copy(update={"versione": 1})])
 
 
-def test_luogo_esplicito_e_ereditato_contati_a_parte() -> None:
-    """Fix 3: la frase dell'elenco che eredita il luogo non conta come con luogo."""
-    m = _metriche(
+def test_explicit_and_inherited_place_counted_separately() -> None:
+    """Fix 3: the list sentence that inherits the place does not count as with place."""
+    m = _metrics(
         "Rischi da ontologia [ONTOLOGIA]\nSecondo l'ISTAT nel Comune di Roma i "
         "furti sono in calo. I furti hanno un tasso piu' alto dal 2014.\n"
     )
@@ -145,67 +145,73 @@ def test_luogo_esplicito_e_ereditato_contati_a_parte() -> None:
     assert m.frasi_scartabili == 0
 
 
-def test_codici_voce_scritti_dal_modello() -> None:
-    """Domanda 2 della review: i codici delle righe si contano (attesi 0)."""
-    m = _metriche(
+def test_item_codes_written_by_the_model() -> None:
+    """Question 2 of the review: the row codes are counted (expected 0)."""
+    m = _metrics(
         "Rischi da ontologia [ONTOLOGIA]\nSecondo l'ISTAT nel Comune di Roma la "
         "voce THEFT e' in calo; BANKROB pure.\n"
     )
     assert m.codici_voce == 2
-    assert _metriche("Rischi da ontologia [ONTOLOGIA]\nRapina.\n").codici_voce == 0
-    vecchio = IstatMetrics.model_validate(
+    assert _metrics("Rischi da ontologia [ONTOLOGIA]\nRapina.\n").codici_voce == 0
+    old = IstatMetrics.model_validate(
         {k: v for k, v in m.model_dump().items() if k != "codici_voce"}
     )
-    assert vecchio.codici_voce == 0
+    assert old.codici_voce == 0
 
 
-_ESCLUSE = [
+_EXCLUDED = [
     "Secondo l'ISTAT a Roma i furti sono in calo",
     "Secondo i dati ISTAT a Roma sono in aumento i sequestri di persona",
     "Secondo i dati ISTAT a Roma sono in aumento i sequestri di persona",
 ]
 
 
-def _esito(testo: str = "Rischi da ontologia [ONTOLOGIA]\nRapina.\n") -> CheckOutcome:
+def _outcome(text: str = "Rischi da ontologia [ONTOLOGIA]\nRapina.\n") -> CheckOutcome:
     return check_figures(
-        testo,
-        blocks=source_block_spans(testo),
-        istat_block=_BLOCCO.testo,
+        text,
+        blocks=source_block_spans(text),
+        istat_block=_BLOCK.testo,
         context_without_istat="ZONA: Colosseo",
-        rows=_BLOCCO.righe,
+        rows=_BLOCK.righe,
     )
 
 
-def test_frasi_escluse_senza_voce_delle_righe_del_prompt() -> None:
-    """#378: le frasi escluse che non nominano nessuna voce delle righe passate al
-    modello, nell'ordine e con i doppioni delle escluse."""
-    assert frasi_escluse_senza_voce(_ESCLUSE, _esito()) == _ESCLUSE[1:]
-    assert frasi_escluse_senza_voce([], _esito()) == []
+def test_excluded_sentences_without_item_of_prompt_rows() -> None:
+    """#378: the excluded sentences that name no item of the rows passed to the
+    model, in order and with the duplicates of the excluded ones."""
+    assert excluded_sentences_without_item(_EXCLUDED, _outcome()) == _EXCLUDED[1:]
+    assert excluded_sentences_without_item([], _outcome()) == []
 
 
-def test_metriche_contano_le_escluse_senza_voce() -> None:
-    m = compute_istat_metrics(_esito(), frasi_escluse_m1=3, frasi_escluse_senza_voce=2)
+def test_metrics_count_excluded_without_item() -> None:
+    m = compute_istat_metrics(
+        _outcome(), frasi_escluse_m1=3, frasi_escluse_senza_voce=2
+    )
     assert (m.versione, m.frasi_escluse_m1, m.frasi_escluse_senza_voce) == (4, 3, 2)
 
 
-def test_record_senza_il_conteggio_delle_escluse_senza_voce() -> None:
-    """I record scritti prima di #378 non hanno il campo: ``None``, non 0."""
-    m = _metriche("Rischi da ontologia [ONTOLOGIA]\nRapina.\n")
+def test_record_without_the_count_of_excluded_without_item() -> None:
+    """Records written before #378 do not have the field: ``None``, not 0."""
+    m = _metrics("Rischi da ontologia [ONTOLOGIA]\nRapina.\n")
     assert m.frasi_escluse_senza_voce is None
-    vecchio = IstatMetrics.model_validate(
+    old = IstatMetrics.model_validate(
         {k: v for k, v in m.model_dump().items() if k != "frasi_escluse_senza_voce"}
     )
-    assert vecchio.frasi_escluse_senza_voce is None
+    assert old.frasi_escluse_senza_voce is None
 
 
-def test_somma_delle_escluse_senza_voce() -> None:
-    a = compute_istat_metrics(_esito(), frasi_escluse_m1=2, frasi_escluse_senza_voce=1)
-    b = compute_istat_metrics(_esito(), frasi_escluse_m1=1, frasi_escluse_senza_voce=0)
-    s = somma_istat_metrics([a, None, b])
+def test_sum_of_excluded_without_item() -> None:
+    a = compute_istat_metrics(
+        _outcome(), frasi_escluse_m1=2, frasi_escluse_senza_voce=1
+    )
+    b = compute_istat_metrics(
+        _outcome(), frasi_escluse_m1=1, frasi_escluse_senza_voce=0
+    )
+    s = sum_istat_metrics([a, None, b])
     assert s is not None
     assert (s.frasi_escluse_m1, s.frasi_escluse_senza_voce) == (3, 1)
-    # Basta una ripetizione senza il conteggio: la somma non lo inventa.
-    vecchia = b.model_copy(update={"frasi_escluse_senza_voce": None})
-    s = somma_istat_metrics([a, vecchia])
+    # One repetition without the count is enough: the sum does not invent it.
+    old_metrics = b.model_copy(update={"frasi_escluse_senza_voce": None})
+    s = sum_istat_metrics([a, old_metrics])
     assert s is not None
     assert (s.frasi_escluse_m1, s.frasi_escluse_senza_voce) == (3, None)

@@ -1,4 +1,4 @@
-"""Contesto spaziale del POI selezionato (#197): funzioni pure, offline."""
+"""Spatial context of the selected POI (#197): pure functions, offline."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ def test_haversine_zero_for_same_point() -> None:
 
 
 def test_haversine_matches_known_distance() -> None:
-    """Colosseo -> Circo Massimo, ~700 m in linea d'aria (tolleranza 15%)."""
+    """Colosseo -> Circo Massimo, ~700 m as the crow flies (15% tolerance)."""
     d = haversine_m(41.8902, 12.4922, 41.8859, 12.4854)
     assert d == pytest.approx(700.0, rel=0.15)
 
@@ -57,7 +57,7 @@ def test_nearest_neighbours_sorted_by_distance_and_capped_at_k() -> None:
 
 
 def test_nearest_neighbours_breaks_distance_ties_by_id() -> None:
-    """Due vicini equidistanti: ordine per id, non per ordine di lista."""
+    """Two equidistant neighbours: ordered by id, not by list order."""
     pois = [
         _poi("sel", "Selezionato", "Bank", 41.8900, 12.4900),
         _poi("zz", "Zeta", "School", 41.8900, 12.4910),
@@ -88,13 +88,13 @@ def test_zone_composition_reports_total_and_top_classes() -> None:
     assert label_it("Bank") in out or label_it("School") in out
 
 
-def test_zone_composition_dichiara_di_parlare_del_campione() -> None:
-    """La riga entra nel prompt: non deve affermare fatti sulla ZONA (#254).
+def test_zone_composition_declares_it_describes_the_sample() -> None:
+    """The line goes into the prompt: it must not assert facts about the ZONE (#254).
 
-    I POI sono una selezione — i piu' vicini al centro, con un tetto per classe —
-    quindi «20 punti di interesse nella zona» sarebbe falso sul totale e «classi
-    prevalenti» un artefatto del tetto, che appiattisce i conteggi a un plateau.
-    Il modello deve leggere che sta guardando un campione.
+    The POIs are a selection — the closest to the centre, with a cap per class —
+    so «20 punti di interesse nella zona» would be false as a total and «classi
+    prevalenti» an artifact of the cap, which flattens the counts to a plateau.
+    The model must read that it is looking at a sample.
     """
     out = zone_composition(_zone(), top=2)
 

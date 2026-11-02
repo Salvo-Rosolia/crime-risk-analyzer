@@ -1,4 +1,4 @@
-"""Narrativa del POI con i dati ISTAT (#345, spec 4.5)."""
+"""POI narrative with the ISTAT data (#345, spec 4.5)."""
 
 from __future__ import annotations
 
@@ -23,15 +23,15 @@ from crime_risk_analyzer.sources.model import IstatSource
 from tests.istat._factories import BANK_ROBBERIES, istat_poi
 
 
-class _Spia:
-    def __init__(self, testo: str) -> None:
-        self.testo = testo
+class _Spy:
+    def __init__(self, text: str) -> None:
+        self.text = text
         self.calls: list[tuple[str, str]] = []
 
     async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
         self.calls.append((system_prompt, user_content))
         return LLMResponse(
-            text=self.testo,
+            text=self.text,
             llm_used="openai/gpt-oss-120b",
             tokens_input=1,
             tokens_output=1,
@@ -42,7 +42,7 @@ class _Spia:
         )
 
 
-_RISCHI = [
+_RISKS = [
     GroundedRisk(
         hazard="Bank_robbery",
         tag="ONTOLOGIA",
@@ -58,7 +58,7 @@ def _context(istat: IstatPoi | None = None) -> str:
         zona="Colosseo",
         poi_name="Banca A",
         poi_label_it="Banca",
-        risks=_RISCHI,
+        risks=_RISKS,
         vulnerabilities=[],
         sparql_path="Bank → havingHazard → Bank_robbery",
         neighbours=[NeighbourPoi(name="Liceo", label_it="Scuola", distance_m=40)],
@@ -67,35 +67,35 @@ def _context(istat: IstatPoi | None = None) -> str:
     )
 
 
-async def _genera(
-    testo: str, istat: IstatPoi | None
-) -> tuple[_Spia, poi_mod.PoiGenerationResult]:
-    spia = _Spia(testo)
+async def _generate(
+    text: str, istat: IstatPoi | None
+) -> tuple[_Spy, poi_mod.PoiGenerationResult]:
+    spy = _Spy(text)
     out = await generate_poi_narrative(
         citta="Roma",
         zona="Colosseo",
         poi_name="Banca A",
         poi_label_it="Banca",
-        risks=_RISCHI,
+        risks=_RISKS,
         vulnerabilities=[],
         sparql_path="Bank → havingHazard → Bank_robbery",
         neighbours=[NeighbourPoi(name="Liceo", label_it="Scuola", distance_m=40)],
         zone_summary="2 punti di interesse nella zona.",
-        llm_client=spia,
+        llm_client=spy,
         istat=istat,
     )
-    return spia, out
+    return spy, out
 
 
-def test_contesto_senza_istat_invariato() -> None:
-    senza = _context()
-    assert "DATI ISTAT" not in senza
-    assert senza == build_poi_context_str(
+def test_context_without_istat_unchanged() -> None:
+    without = _context()
+    assert "DATI ISTAT" not in without
+    assert without == build_poi_context_str(
         citta="Roma",
         zona="Colosseo",
         poi_name="Banca A",
         poi_label_it="Banca",
-        risks=_RISCHI,
+        risks=_RISKS,
         vulnerabilities=[],
         sparql_path="Bank → havingHazard → Bank_robbery",
         neighbours=[NeighbourPoi(name="Liceo", label_it="Scuola", distance_m=40)],
@@ -103,28 +103,28 @@ def test_contesto_senza_istat_invariato() -> None:
     )
 
 
-def test_contesto_con_istat_prima_del_vicinato_senza_poi_coinvolti() -> None:
-    testo = _context(istat_poi(BANK_ROBBERIES))
-    assert testo.index(ISTAT_DATA_HEADER) < testo.index("VICINATO")
-    assert "- Comune di Roma, 2024: rapine in banca: " in testo
-    assert "BANKROB" not in testo
-    assert "POI coinvolti" not in testo
+def test_context_with_istat_before_neighbourhood_without_involved_pois() -> None:
+    text = _context(istat_poi(BANK_ROBBERIES))
+    assert text.index(ISTAT_DATA_HEADER) < text.index("VICINATO")
+    assert "- Comune di Roma, 2024: rapine in banca: " in text
+    assert "BANKROB" not in text
+    assert "POI coinvolti" not in text
 
 
-async def test_generazione_con_istat_usa_la_variante_e_filtra(
+async def test_generation_with_istat_uses_the_variant_and_filters(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(poi_mod, "istat_data_version", lambda: "2026-10-06")
-    testo = (
+    text = (
         "[ONTOLOGIA]\nLa Banca A conta 46 rapine in banca. Rischio di rapina. "
         "Secondo i dati ISTAT del Comune di Roma le rapine in banca hanno un tasso "
         "piu' alto di quello italiano.\n\n[CONTESTO]\nZona di transito.\n"
     )
-    spia, out = await _genera(testo, istat_poi(BANK_ROBBERIES))
-    assert spia.calls[0][0] == POI_SYSTEM_PROMPT_ISTAT
-    assert out.narrativa_grezza == testo
+    spy, out = await _generate(text, istat_poi(BANK_ROBBERIES))
+    assert spy.calls[0][0] == POI_SYSTEM_PROMPT_ISTAT
+    assert out.narrativa_grezza == text
     assert "46" not in out.narrativa
-    # #365: niente blocco [ISTAT], i dati a parole stanno in [ONTOLOGIA]
+    # #365: no [ISTAT] block, the data in words sit in [ONTOLOGIA]
     assert out.narrativa_fonti.istat == ""
     assert "Secondo i dati ISTAT del Comune di Roma" in out.narrativa_fonti.ontologia
     assert (out.istat_attivo, out.istat_versione_dati, out.istat_frasi_scartate) == (
@@ -134,28 +134,28 @@ async def test_generazione_con_istat_usa_la_variante_e_filtra(
     )
 
 
-async def test_generazione_senza_istat_come_prima() -> None:
-    spia, out = await _genera("[ONTOLOGIA]\nRischio di rapina.\n", None)
-    assert spia.calls[0][0] == POI_SYSTEM_PROMPT
+async def test_generation_without_istat_as_before() -> None:
+    spy, out = await _generate("[ONTOLOGIA]\nRischio di rapina.\n", None)
+    assert spy.calls[0][0] == POI_SYSTEM_PROMPT
     assert out.narrativa == "[ONTOLOGIA]\nRischio di rapina.\n"
     assert (out.istat_attivo, out.istat_frasi_scartate) == (False, 0)
 
 
-async def test_versione_dati_dal_set_legato_senza_monkeypatch() -> None:
-    attivo = default_set()
+async def test_data_version_from_bound_set_without_monkeypatch() -> None:
+    active = default_set()
     custom = dataclasses.replace(
-        attivo,
+        active,
         id="x",
         kind="custom",
         istat=IstatSource(
-            dati=attivo.istat.dati,
-            mappatura=attivo.istat.mappatura,
-            voci_rottura=attivo.istat.voci_rottura,
+            dati=active.istat.dati,
+            mappatura=active.istat.mappatura,
+            voci_rottura=active.istat.voci_rottura,
             versione="X",
         ),
     )
     with bind(custom):
-        _, out = await _genera(
+        _, out = await _generate(
             "[ONTOLOGIA]\nRischio di rapina.\n", istat_poi(BANK_ROBBERIES)
         )
     assert (out.istat_attivo, out.istat_versione_dati) == (True, "X")

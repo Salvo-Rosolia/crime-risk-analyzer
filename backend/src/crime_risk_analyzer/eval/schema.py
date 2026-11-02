@@ -1,4 +1,4 @@
-"""Modelli del contratto della fondazione di valutazione (#34)."""
+"""Contract models of the evaluation foundation (#34)."""
 
 from __future__ import annotations
 
@@ -13,43 +13,43 @@ from crime_risk_analyzer.rag.generation import (
     RiskModel,
 )
 
-#: Bracci dell'esperimento. ``analyze`` = pipeline completa (LLM + grounding
-#: ontologico nel prompt); ``baseline`` = nessun LLM (soli dati strutturati);
-#: ``no_ontology_prompt`` = STESSO LLM del braccio completo, sullo STESSO snapshot
-#: POI, ma con un prompt che porta solo nome e classe dei punti (#236). Il terzo
-#: braccio esiste perche' ``analyze`` vs ``baseline`` isola la presenza dell'LLM,
-#: non quella dell'ontologia: uno dei due non produce prosa, quindi i proxy
-#: ``grounding``/``hallucination`` non si applicano a entrambi in modo
-#: interpretabile. Il nome dice cio' che e' ablato — il PROMPT, non il grounding:
-#: ``ground()`` gira comunque e i dati strutturati della response restano
-#: ontologici in tutti i bracci.
+#: Experiment arms. ``analyze`` = full pipeline (LLM + ontological grounding
+#: in the prompt); ``baseline`` = no LLM (structured data only);
+#: ``no_ontology_prompt`` = SAME LLM as the full arm, on the SAME POI
+#: snapshot, but with a prompt that carries only name and class of the points (#236).
+#: The third arm exists because ``analyze`` vs ``baseline`` isolates the presence
+#: of the LLM, not that of the ontology: one of the two produces no prose, so the
+#: ``grounding``/``hallucination`` proxies do not apply to both in an
+#: interpretable way. The name says what is ablated -- the PROMPT, not the grounding:
+#: ``ground()`` runs anyway and the structured data of the response stay
+#: ontological in all arms.
 Mode = Literal["analyze", "baseline", "no_ontology_prompt"]
 ModelChoice = Literal["claude", "groq"]
 
 
 class RunStatus(StrEnum):
-    """Esito di una singola run.
+    """Outcome of a single run.
 
-    ``ERROR`` e ``HARNESS_ERROR`` sono entrambi fallimenti, ma non dicono la
-    stessa cosa e non si diagnosticano allo stesso modo:
+    ``ERROR`` and ``HARNESS_ERROR`` are both failures, but they do not say the
+    same thing and are not diagnosed the same way:
 
-    - ``ERROR`` = la PIPELINE del caso e' fallita (snapshot mancante, provider
-      giu', geocoding, SPARQL...): l'errore sta dentro cio' che l'esperimento
-      misura, e il caso semplicemente non ha prodotto una risposta;
-    - ``HARNESS_ERROR`` = la pipeline puo' benissimo essere andata a buon fine e
-      la STRUMENTAZIONE si e' rotta a valle (tipicamente il calcolo delle
-      metriche: un ``model_id`` non a listino → ``KeyError`` da
-      ``pricing.cost_usd``). E' un bug di codice o di configurazione, non un
-      fallimento del modello.
+    - ``ERROR`` = the case's PIPELINE failed (missing snapshot, provider
+      down, geocoding, SPARQL...): the error lies inside what the experiment
+      measures, and the case simply produced no answer;
+    - ``HARNESS_ERROR`` = the pipeline may well have succeeded and
+      the INSTRUMENTATION broke downstream (typically the computation of the
+      metrics: a ``model_id`` not in the price list -> ``KeyError`` from
+      ``pricing.cost_usd``). It is a code or configuration bug, not a
+      model failure.
 
-    Tenerli distinti e' il punto: una run live che torna con il 100% di ERROR si
-    legge come "il provider era giu'/gli snapshot mancavano" e si rifa' domani;
-    la stessa run col 100% di HARNESS_ERROR dice invece che la quota E' STATA
-    SPESA e che a rompersi e' stato il nostro codice dopo la chiamata. Con una
-    sola etichetta le due diagnosi sono indistinguibili nei risultati — cioe'
-    esattamente la misattribuzione che il fix di ``run_case`` aveva chiuso.
+    Keeping them distinct is the point: a live run that comes back with 100% ERROR
+    reads as "the provider was down/the snapshots were missing" and is redone
+    tomorrow; the same run with 100% HARNESS_ERROR instead says that the quota HAS
+    BEEN SPENT and that it was our code that broke after the call. With a
+    single label the two diagnoses are indistinguishable in the results -- i.e.
+    exactly the misattribution that the ``run_case`` fix had closed.
 
-    Nessuno dei due entra nelle medie: vedi ``compare.py``/``repeat.py``.
+    Neither enters the means: see ``compare.py``/``repeat.py``.
     """
 
     OK = "ok"
@@ -59,7 +59,7 @@ class RunStatus(StrEnum):
 
 
 class Provenance(BaseModel):
-    """Provenienza riproducibile di una run."""
+    """Reproducible provenance of a run."""
 
     code_commit: str = Field(description="git rev-parse HEAD al momento della run.")
     ontology_hash: str = Field(description="sha256 del file ontologia caricato.")
@@ -69,21 +69,21 @@ class Provenance(BaseModel):
     temperature: float = Field(description="Temperature fissata (0 in eval).")
     seed: int = Field(description="Seed loggato.")
     experiment: str = Field(description="Nome dell'esperimento.")
-    # ``prompt_hash`` copre il SOLO system prompt, mentre #273 cambia lo
-    # user_content: senza questo campo due run che differiscono solo per il
-    # formato del blocco POI sarebbero indistinguibili nei risultati, e un A/B fra
-    # i due prompt non sarebbe leggibile a posteriori. Default = formato storico,
-    # cosi' i record scritti prima di #273 restano leggibili ed etichettati per
-    # cio' che sono davvero (quelle run erano per-POI).
+    # ``prompt_hash`` covers ONLY the system prompt, while #273 changes the
+    # user_content: without this field two runs that differ only by the
+    # format of the POI block would be indistinguishable in the results, and an
+    # A/B between the two prompts would not be readable afterwards. Default =
+    # historical format, so records written before #273 stay readable and
+    # labelled for what they really are (those runs were per-POI).
     context_format: ContextFormat = Field(
         default=DEFAULT_CONTEXT_FORMAT,
         description="Formato del blocco POI dello user_content (#273).",
     )
-    # #267: ``snapshot_id`` è solo la CHIAVE (citta, zona) dello snapshot, non la
-    # sua provenienza — non basta a distinguere due catture della stessa zona con
-    # politiche di selezione diverse. Entrambi ``None`` per gli snapshot pre-#241
-    # (liste nude, nessuna provenienza da riportare): un default falso sarebbe un
-    # dato fabbricato, peggio del silenzio che erano prima.
+    # #267: ``snapshot_id`` is only the KEY (citta, zona) of the snapshot, not
+    # its provenance -- it is not enough to tell apart two captures of the same
+    # zone with different selection policies. Both ``None`` for pre-#241 snapshots
+    # (bare lists, no provenance to report): a false default would be
+    # fabricated data, worse than the silence they were before.
     snapshot_catturato_il: str | None = Field(
         default=None,
         description="Istante di cattura dello snapshot POI consumato (#267).",
@@ -97,8 +97,8 @@ class Provenance(BaseModel):
             "quella corrente."
         ),
     )
-    # #345: con o senza dati ISTAT richiesti. Default False: i record scritti
-    # prima restano validi e dicono il vero (allora ISTAT non esisteva).
+    # #345: with or without ISTAT data requested. Default False: records written
+    # before stay valid and tell the truth (ISTAT did not exist then).
     istat: bool = Field(
         default=False,
         description=(
@@ -114,10 +114,10 @@ class Provenance(BaseModel):
             "il prompt non li portava."
         ),
     )
-    # #345 (F8 della review finale): il budget decide quanti POI entrano nel
-    # prompt, quindi due bracci con budget diversi non isolano nessuna
-    # variabile. ``None`` sui record vecchi (dato non registrato): non equivale
-    # a nessun valore, e il confronto lo tratta come diverso da ogni budget.
+    # #345 (F8 of the final review): the budget decides how many POIs go into the
+    # prompt, so two arms with different budgets isolate no
+    # variable. ``None`` on old records (value not recorded): it is not equivalent
+    # to any value, and the comparison treats it as different from every budget.
     request_token_budget: int | None = Field(
         default=None,
         description=(
@@ -135,7 +135,7 @@ class Provenance(BaseModel):
 
 
 class Metrics(BaseModel):
-    """Le quattro metriche deterministiche."""
+    """The four deterministic metrics."""
 
     grounding: float = Field(ge=0.0, le=1.0, description="Copertura citazioni [0,1].")
     hallucination: float = Field(
@@ -151,11 +151,11 @@ class Metrics(BaseModel):
             "che la run era gradabile."
         ),
     )
-    # #408: versione della semantica M1 (``metrics.METRICS_VERSION``) con cui
-    # grounding/hallucination sono stati gradati. I record scritti prima non la
-    # portano e non si puo' ricavare: erano 1, 2 o 3 a seconda del codice di quel
-    # giorno. Un default numerico affermerebbe il falso, quindi ``None``; il
-    # confronto la mostra come ``n/d`` e avvisa se differisce dall'altro braccio.
+    # #408: version of the M1 semantics (``metrics.METRICS_VERSION``) with which
+    # grounding/hallucination were graded. Records written before do not
+    # carry it and it cannot be derived: it was 1, 2 or 3 depending on that day's
+    # code. A numeric default would assert something false, hence ``None``; the
+    # comparison shows it as ``n/d`` and warns if it differs from the other arm.
     versione: int | None = Field(
         default=None,
         ge=1,
@@ -169,33 +169,34 @@ class Metrics(BaseModel):
 
 
 class IstatMetrics(BaseModel):
-    """Metriche dei dati ISTAT nella narrativa (#345, spec 4.9; versione 2 da #365).
+    """Metrics of the ISTAT data in the narrative (#345, spec 4.9; version 2 from #365).
 
-    Oggetto SEPARATO da :class:`Metrics`: aggregate e verdetto non le vedono, e
-    sulla coppia ontologia vs ontologia + ISTAT non c'e' vincitore (D12). Calcolate
-    sul testo GREZZO del modello, prima del filtro. Solo conteggi, cosi' che
-    sommarli fra ripetizioni resti corretto.
+    SEPARATE object from :class:`Metrics`: aggregate and verdict do not see them, and
+    on the ontology vs ontology + ISTAT pair there is no winner (D12). Computed
+    on the RAW text of the model, before the filter. Counts only, so that
+    summing them across repetitions stays correct.
 
-    Versione 2 (#365): il modello usa i dati ISTAT a parole nel blocco
-    [ONTOLOGIA], senza cifre. Cambiano significato ``frasi_istat`` (frasi di
-    QUALUNQUE blocco che parlano del dato, non piu' le frasi [ISTAT] con cifre),
-    ``frasi_istat_con_luogo``, ``voci_citate`` e ``corrispondenze_non_dichiarate``;
-    spariscono ``cifre_istat_corrette`` e ``precisione_cifre`` (ogni cifra ISTAT si
-    toglie: ``cifre_istat`` le conta, attese 0); arrivano i confronti col dato
-    italiano. I record scritti prima non hanno ``versione`` e valgono 1: i loro
-    campi nuovi restano a 0 e non vanno letti.
+    Version 2 (#365): the model uses the ISTAT data in words in the
+    [ONTOLOGIA] block, without figures. ``frasi_istat`` (sentences of
+    ANY block that speak of the datum, no longer the [ISTAT] sentences with figures)
+    changes meaning, as do ``frasi_istat_con_luogo``, ``voci_citate`` and
+    ``corrispondenze_non_dichiarate``;
+    ``cifre_istat_corrette`` and ``precisione_cifre`` disappear (every ISTAT figure
+    is removed: ``cifre_istat`` counts them, expected 0); the comparisons with the
+    Italian datum arrive. Records written before have no ``versione`` and count as
+    1: their new fields stay at 0 and are not to be read.
 
-    Versione 3 (#368): i conteggi sono gli stessi, ma M1 dei record con ISTAT
-    grada il testo senza tutte le frasi che parlano del dato (divise come le
-    divide il filtro). Grounding e hallucination dei record di versione 2 sono
-    gradati sul testo con quelle frasi dentro e non si confrontano con questi.
+    Version 3 (#368): the counts are the same, but M1 of the records with ISTAT
+    grades the text without all the sentences that speak of the datum (split as
+    the filter splits them). Grounding and hallucination of version 2 records are
+    graded on the text with those sentences in and are not compared with these.
 
-    Versione 4 (#369): M1 esclude solo le frasi che parlano del dato senza
-    nominare un POI ne' un rischio, divise come le divide M1 e con il luogo
-    ereditato anche dalle frasi tolte dal filtro; le conta
-    ``frasi_escluse_m1`` (0 e non da leggere nelle versioni precedenti). Cambia
-    di nuovo il testo gradato: i record di versione 3 non si confrontano con
-    questi, e i confronti rifiutano un braccio che mescola versioni.
+    Version 4 (#369): M1 excludes only the sentences that speak of the datum without
+    naming a POI or a risk, split as M1 splits them and with the place
+    inherited also from the sentences removed by the filter; ``frasi_escluse_m1``
+    counts them (0 and not to be read in earlier versions). The graded
+    text changes again: version 3 records are not compared with
+    these, and the comparisons reject an arm that mixes versions.
     """
 
     versione: int = Field(
@@ -285,14 +286,14 @@ class IstatMetrics(BaseModel):
 
 
 class RunCase(BaseModel):
-    """Un singolo caso (citta, zona)."""
+    """A single case (citta, zona)."""
 
     citta: str
     zona: str
 
 
 class ExperimentConfig(BaseModel):
-    """Configurazione di un esperimento: una macchina, tante run."""
+    """Configuration of an experiment: one machine, many runs."""
 
     name: str = Field(description="Nome dell'esperimento (prefisso di run_id e file).")
     mode: Mode = Field(
@@ -303,33 +304,33 @@ class ExperimentConfig(BaseModel):
     )
     model: ModelChoice = Field(description="Provider LLM (ignorato se mode=baseline).")
     cases: list[RunCase] = Field(description="Casi da eseguire.")
-    # Terza dimensione dell'esperimento accanto a mode/model (#273), opt-in: un
-    # esperimento che non la nomina si comporta esattamente come prima. Le due
-    # braccia di un A/B sul prompt vanno lanciate con DUE ``name`` distinti,
-    # perche' il formato non entra nel ``run_id`` (cambiarlo rinominerebbe ogni
-    # run esistente); ``Provenance.context_format`` rende poi ogni record
-    # auto-descrittivo.
+    # Third dimension of the experiment next to mode/model (#273), opt-in: an
+    # experiment that does not name it behaves exactly as before. The two
+    # arms of an A/B on the prompt must be launched with TWO distinct ``name``s,
+    # because the format does not enter the ``run_id`` (changing it would rename
+    # every existing run); ``Provenance.context_format`` then makes every record
+    # self-describing.
     context_format: ContextFormat = Field(
         default=DEFAULT_CONTEXT_FORMAT,
         description="Formato del blocco POI dello user_content (#273).",
     )
-    # #345: braccio ontologia + ISTAT (spec 4.9). Spento di default: il confronto
-    # della tesi ontologia vs senza ontologia gira senza ISTAT (D6).
+    # #345: ontology + ISTAT arm (spec 4.9). Off by default: the thesis comparison
+    # ontology vs without ontology runs without ISTAT (D6).
     istat: bool = Field(default=False, description="Dati ISTAT nel prompt (#345).")
 
     @model_validator(mode="after")
     def _reject_grouping_without_ontology(self) -> ExperimentConfig:
-        """``per_classe`` non esiste nel braccio ablato (#236).
+        """``per_classe`` does not exist in the ablated arm (#236).
 
-        Il prompt ablato e' sempre una riga per punto: non porta hazard, quindi
-        non ha un insieme da raggruppare per classe. Il formato non e' pero'
-        senza effetto (#349): il braccio ablato lo passa alla selezione
-        ricostruita dei POI del completo, e con ``per_classe`` sceglierebbe i
-        punti di un braccio completo ``per_classe``. Il vincolo resta perche' la
-        coppia della tesi e' ``per_poi`` contro ``per_poi``: un ablato
-        ``per_classe`` dichiarerebbe nella ``Provenance`` un formato del blocco
-        POI che il suo prompt non ha, e la parita' di POI andrebbe cercata contro
-        un completo diverso da quello del confronto.
+        The ablated prompt is always one row per point: it carries no hazard, so
+        it has no set to group by class. The format is not however
+        without effect (#349): the ablated arm passes it to the reconstructed
+        selection of the full arm's POIs, and with ``per_classe`` it would pick the
+        points of a ``per_classe`` full arm. The constraint stays because the
+        thesis pair is ``per_poi`` against ``per_poi``: an ablated
+        ``per_classe`` would declare in the ``Provenance`` a POI block format
+        that its prompt does not have, and POI parity would have to be sought against
+        a full arm different from that of the comparison.
         """
         if self.mode == "no_ontology_prompt" and self.context_format != "per_poi":
             raise ValueError(
@@ -342,8 +343,8 @@ class ExperimentConfig(BaseModel):
 
     @model_validator(mode="after")
     def _reject_istat_without_full_arm(self) -> ExperimentConfig:
-        """ISTAT solo nel braccio completo: senza LLM non c'e' prompt, senza
-        ontologia non ci sono hazard a cui collegare le voci."""
+        """ISTAT only in the full arm: without an LLM there is no prompt, without
+        ontology there are no hazards to link the items to."""
         if self.istat and self.mode != "analyze":
             raise ValueError(
                 f"mode={self.mode!r} non ammette istat=True: i dati ISTAT si "
@@ -353,7 +354,7 @@ class ExperimentConfig(BaseModel):
 
 
 class RunRecord(BaseModel):
-    """Record completo di una run (sorgente di verità, un JSON per run)."""
+    """Complete record of a run (source of truth, one JSON per run)."""
 
     run_id: str
     experiment: str
@@ -367,7 +368,7 @@ class RunRecord(BaseModel):
         description=(
             "Narrativa mostrata all'operatore (filtrata dal controllo delle "
             "cifre con ISTAT, #345). eval/gold.py (collect_kept_risks) e "
-            "eval/compare.py (has_narrativa / vacuity) leggono QUESTO campo, "
+            "eval/compare.py (has_narrative / vacuity) leggono QUESTO campo, "
             "non narrativa_grezza: coincide con il grezzo nel braccio analyze a "
             "ISTAT spento."
         )

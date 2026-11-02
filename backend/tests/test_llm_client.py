@@ -1,12 +1,12 @@
-"""Test del client LLM provider-agnostico (#20).
+"""Tests for the provider-agnostic LLM client (#20).
 
-Nessuna chiamata di rete reale: gli SDK Anthropic/Groq sono iniettati come
-dipendenze e sostituiti con dei doppi asincroni che riproducono solo la
-superficie usata dal client (Messages API per Claude, Chat Completions per
-Groq). Si verificano: (a) provider claude -> LLMResponse popolata; (b) prompt
-caching -> cache_hit True alla seconda chiamata con lo stesso system prompt;
-(c) switch provider groq -> stesso formato di LLMResponse; (d) errori del
-provider mappati a LLMError; (e) chiave assente -> errore in costruzione.
+No real network call: the Anthropic/Groq SDKs are injected as dependencies and
+replaced with async doubles that reproduce only the surface used by the client
+(Messages API for Claude, Chat Completions for Groq). We verify: (a) claude
+provider -> populated LLMResponse; (b) prompt caching -> cache_hit True on the
+second call with the same system prompt; (c) groq provider switch -> same
+LLMResponse format; (d) provider errors mapped to LLMError; (e) missing key ->
+error at construction.
 """
 
 from __future__ import annotations
@@ -19,8 +19,9 @@ from pydantic import SecretStr
 
 from crime_risk_analyzer.config import Settings
 
-# Import dal package (non dal modulo ``.client``) di proposito: e' la superficie
-# pubblica del layer LLM, e questo import la verifica insieme al resto.
+# Import from the package (not from the ``.client`` module) on purpose: it is the
+# public surface of the LLM layer, and this import verifies it together with the
+# rest.
 from crime_risk_analyzer.llm import (
     CLAUDE_MODEL,
     GROQ_MODEL,
@@ -36,7 +37,7 @@ _SYSTEM = "Sei un analista di sicurezza urbana. Regole: ..."
 _USER = "ZONA: Colosseo\nPOI RILEVANTI: ..."
 
 
-# --- doppi asincroni degli SDK (riproducono solo la superficie usata) ---
+# --- async doubles of the SDKs (they reproduce only the surface used) ---
 
 
 class _Usage:
@@ -76,8 +77,8 @@ class _FakeAnthropicMessages:
 
     async def create(self, **kwargs: Any) -> _AnthropicMessage:
         self._owner.calls.append(kwargs)
-        # Simula il prompt caching: la prima richiesta scrive la cache, le
-        # successive con lo stesso system prompt la leggono.
+        # Simulates the prompt caching: the first request writes the cache, the
+        # following ones with the same system prompt read it.
         system = kwargs["system"]
         block: dict[str, str] = system[0]
         system_text: str = block["text"]
@@ -102,11 +103,11 @@ class _FakeAnthropic:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
         self.seen_systems: set[str] = set()
-        # ``end_turn`` = completamento normale; i test di troncamento lo
-        # impostano a ``max_tokens`` per far scattare l'LLMError.
+        # ``end_turn`` = normal completion; the truncation tests set it to
+        # ``max_tokens`` to trigger the LLMError.
         self.stop_reason = "end_turn"
-        # Testo del blocco di risposta: i test sul contenuto vuoto lo svuotano
-        # senza toccare ``stop_reason`` (la risposta resta "riuscita").
+        # Text of the response block: the empty-content tests empty it without touching
+        # ``stop_reason`` (the response stays "successful").
         self.text = "Analisi del rischio per la zona."
         self.messages = _FakeAnthropicMessages(self)
 
@@ -164,11 +165,11 @@ class _FakeGroqChat:
 class _FakeGroq:
     def __init__(self) -> None:
         self.calls: list[dict[str, Any]] = []
-        # ``stop`` = completamento normale; ``length`` = troncato su max_tokens
-        # (equivalente Groq/OpenAI di stop_reason=max_tokens).
+        # ``stop`` = normal completion; ``length`` = truncated on max_tokens
+        # (Groq/OpenAI equivalent of stop_reason=max_tokens).
         self.finish_reason = "stop"
-        # Contenuto del messaggio: i test sul contenuto vuoto lo svuotano
-        # lasciando ``finish_reason="stop"`` (la risposta si dichiara riuscita).
+        # Message content: the empty-content tests empty it leaving
+        # ``finish_reason="stop"`` (the response declares itself successful).
         self.content = "Analisi del rischio per la zona."
         self.chat = _FakeGroqChat(self)
 
@@ -183,7 +184,7 @@ def _settings(**overrides: Any) -> Settings:
     return Settings(**base)  # pyright: ignore[reportCallIssue]
 
 
-# --- (a) provider claude: LLMResponse con campi popolati ---
+# --- (a) claude provider: LLMResponse with populated fields ---
 
 
 async def test_claude_returns_populated_response() -> None:
@@ -200,7 +201,7 @@ async def test_claude_returns_populated_response() -> None:
     assert result.cache_hit is False
     assert result.temperature == 0.2
     assert result.seed == 42
-    assert result.prompt_hash  # non vuoto
+    assert result.prompt_hash  # non-empty
 
 
 async def test_claude_uses_exact_model_and_params() -> None:
@@ -211,16 +212,16 @@ async def test_claude_uses_exact_model_and_params() -> None:
 
     call = fake.calls[0]
     assert call["model"] == "claude-sonnet-4-6"
-    assert call["max_tokens"] == 1536  # #229: default alzato 1024 -> 1536
+    assert call["max_tokens"] == 1536  # #229: default raised 1024 -> 1536
     assert call["temperature"] == 0.2
-    # system come blocco con cache_control ephemeral (prompt caching)
+    # system as a block with ephemeral cache_control (prompt caching)
     assert call["system"] == [
         {"type": "text", "text": _SYSTEM, "cache_control": {"type": "ephemeral"}}
     ]
     assert call["messages"] == [{"role": "user", "content": _USER}]
 
 
-# --- (b) prompt caching: cache_hit True alla seconda chiamata ---
+# --- (b) prompt caching: cache_hit True on the second call ---
 
 
 async def test_claude_prompt_caching_second_call_is_hit() -> None:
@@ -232,10 +233,10 @@ async def test_claude_prompt_caching_second_call_is_hit() -> None:
 
     assert first.cache_hit is False
     assert second.cache_hit is True
-    assert second.tokens_input == 10  # solo i token non cachati
+    assert second.tokens_input == 10  # only the non-cached tokens
 
 
-# --- (c) switch provider groq: stesso formato di LLMResponse ---
+# --- (c) groq provider switch: same LLMResponse format ---
 
 
 async def test_groq_returns_same_response_shape() -> None:
@@ -249,7 +250,7 @@ async def test_groq_returns_same_response_shape() -> None:
     assert result.llm_used == GROQ_MODEL
     assert result.tokens_input == 512
     assert result.tokens_output == 88
-    assert result.cache_hit is False  # Groq non espone prompt caching
+    assert result.cache_hit is False  # Groq does not expose prompt caching
     assert result.temperature == 0.2
     assert result.seed == 42
     assert result.prompt_hash
@@ -263,12 +264,12 @@ async def test_groq_uses_chat_messages_and_params() -> None:
 
     call = fake.calls[0]
     assert call["model"] == GROQ_MODEL
-    assert call["max_tokens"] == 1536  # #229: default alzato 1024 -> 1536
+    assert call["max_tokens"] == 1536  # #229: default raised 1024 -> 1536
     assert call["temperature"] == 0.2
     assert call["seed"] == 42
-    # Modello reasoning (#316): senza questi due parametri Groq ragiona a effort
-    # "medium" e puo' far trapelare il chain-of-thought nel content. Cancellarli
-    # deve far fallire qui, non passare inosservato in una run live.
+    # Reasoning model (#316): without these two parameters Groq reasons at "medium"
+    # effort and can leak the chain-of-thought into the content. Deleting them must
+    # make this fail here, not go unnoticed in a live run.
     assert call["reasoning_effort"] == "low"
     assert call["include_reasoning"] is False
     assert call["messages"] == [
@@ -277,16 +278,16 @@ async def test_groq_uses_chat_messages_and_params() -> None:
     ]
 
 
-# --- costanti di modello: famiglia e risoluzione per provider ---
+# --- model constants: family and resolution per provider ---
 
 
 def test_groq_model_family_is_a_tag_of_the_current_model_id() -> None:
-    """``GROQ_MODEL_FAMILY`` va tenuto a mano in sync con ``GROQ_MODEL``.
+    """``GROQ_MODEL_FAMILY`` must be kept in sync by hand with ``GROQ_MODEL``.
 
-    Il legame era verificato solo dentro un test ``@pytest.mark.integration``
-    (skippato di default): un disallineamento sarebbe passato in CI e si sarebbe
-    visto solo dal vivo, dove il tag serve a pinnare il ramo Groq. Questo test e'
-    offline e gira sempre.
+    The link was verified only inside a ``@pytest.mark.integration`` test (skipped
+    by default): a misalignment would have passed in CI and would have shown only
+    live, where the tag serves to pin the Groq branch. This test is offline and
+    always runs.
     """
     assert GROQ_MODEL_FAMILY in GROQ_MODEL
 
@@ -296,7 +297,7 @@ def test_model_id_for_provider_resolves_both_providers() -> None:
     assert model_id_for_provider("groq") == GROQ_MODEL
 
 
-# --- prompt_hash deterministico e dipendente dal system prompt ---
+# --- deterministic prompt_hash, dependent on the system prompt ---
 
 
 async def test_prompt_hash_stable_for_same_system() -> None:
@@ -311,7 +312,7 @@ async def test_prompt_hash_stable_for_same_system() -> None:
     assert a.prompt_hash != c.prompt_hash
 
 
-# --- (d) errore del provider mappato a LLMError ---
+# --- (d) provider error mapped to LLMError ---
 
 
 async def test_claude_provider_error_is_wrapped() -> None:
@@ -320,7 +321,7 @@ async def test_claude_provider_error_is_wrapped() -> None:
     async def _raise(**_kwargs: Any) -> _AnthropicMessage:
         raise RuntimeError("503 overloaded")
 
-    # Sostituisce il metodo create con uno che fallisce.
+    # Replaces the create method with one that fails.
     fake.messages.create = _raise
     client = LLMClient.for_claude(fake, temperature=0.2, seed=42)
 
@@ -341,7 +342,7 @@ async def test_groq_provider_error_is_wrapped() -> None:
         await client.generate(_SYSTEM, _USER)
 
 
-# --- (e) factory + chiave assente ---
+# --- (e) factory + missing key ---
 
 
 def test_build_llm_client_claude_from_settings() -> None:
@@ -372,7 +373,7 @@ def test_build_llm_client_missing_groq_key_raises() -> None:
 
 
 def test_with_temperature_returns_new_client_with_pinned_params() -> None:
-    """with_temperature crea un nuovo LLMClient con temperature/seed fissati."""
+    """with_temperature creates a new LLMClient with pinned temperature/seed."""
     fake = _FakeAnthropic()
     original = LLMClient.for_claude(fake, temperature=0.2, seed=42)
 
@@ -382,23 +383,23 @@ def test_with_temperature_returns_new_client_with_pinned_params() -> None:
     assert pinned.provider == "claude"
     assert pinned._temperature == 0.0  # pyright: ignore[reportPrivateUsage]
     assert pinned._seed == 0  # pyright: ignore[reportPrivateUsage]
-    # L'originale non deve essere mutato (original fu costruito con 0.2/42).
+    # The original must not be mutated (original was built with 0.2/42).
     assert original._temperature != 0.0 or original._seed != 0  # pyright: ignore[reportPrivateUsage]
 
 
 def test_with_temperature_preserves_same_sdk_double() -> None:
-    """Il client restituito riusa lo stesso SDK (stessa istanza fake)."""
+    """The returned client reuses the same SDK (same fake instance)."""
     fake = _FakeAnthropic()
     original = LLMClient.for_claude(fake, temperature=0.2, seed=42)
 
     pinned = original.with_temperature(0.0, 0)
 
-    # Il double condiviso deve essere lo stesso oggetto (stesso SDK iniettato).
+    # The shared double must be the same object (same injected SDK).
     assert pinned._anthropic is fake  # pyright: ignore[reportPrivateUsage]
 
 
 def test_with_temperature_groq_preserves_provider_and_sdk() -> None:
-    """with_temperature funziona anche con provider groq."""
+    """with_temperature also works with the groq provider."""
     fake = _FakeGroq()
     original = LLMClient.for_groq(fake, temperature=0.2, seed=42)
 
@@ -408,19 +409,19 @@ def test_with_temperature_groq_preserves_provider_and_sdk() -> None:
     assert pinned._groq is fake  # pyright: ignore[reportPrivateUsage]
 
 
-# --- (A) build_llm_client con provider override esplicito ---
+# --- (A) build_llm_client with explicit provider override ---
 
 
 def test_build_llm_client_provider_override_groq_wins_over_settings() -> None:
-    """build_llm_client(settings, provider='groq') costruisce groq anche se
-    settings.llm_provider=='claude', purche' entrambe le chiavi siano presenti."""
+    """build_llm_client(settings, provider='groq') builds groq even if
+    settings.llm_provider=='claude', as long as both keys are present."""
     s = _settings(llm_provider="claude")
     client = build_llm_client(s, provider="groq")
     assert client.provider == "groq"
 
 
 def test_build_llm_client_provider_override_claude_wins_over_settings() -> None:
-    """build_llm_client(settings, provider='claude') costruisce claude anche se
+    """build_llm_client(settings, provider='claude') builds claude even if
     settings.llm_provider=='groq'."""
     s = _settings(llm_provider="groq")
     client = build_llm_client(s, provider="claude")
@@ -428,22 +429,22 @@ def test_build_llm_client_provider_override_claude_wins_over_settings() -> None:
 
 
 def test_build_llm_client_provider_none_falls_back_to_settings() -> None:
-    """provider=None (default) usa settings.llm_provider — retrocompatibilita'."""
+    """provider=None (default) uses settings.llm_provider -- backward compatibility."""
     s_claude = _settings(llm_provider="claude")
     s_groq = _settings(llm_provider="groq")
     assert build_llm_client(s_claude).provider == "claude"
     assert build_llm_client(s_groq).provider == "groq"
 
 
-# --- (#114) timeout: provider oltre il timeout -> LLMError (-> fallback) ---
+# --- (#114) timeout: provider beyond the timeout -> LLMError (-> fallback) ---
 
 
 async def test_claude_timeout_is_mapped_to_llm_error() -> None:
-    """Un provider Claude che supera il timeout produce LLMError (non un hang)."""
+    """A Claude provider that exceeds the timeout produces LLMError (not a hang)."""
     fake = _FakeAnthropic()
 
     async def _slow(**_kwargs: Any) -> _AnthropicMessage:
-        await asyncio.sleep(1)  # oltre il timeout: verra' cancellato
+        await asyncio.sleep(1)  # beyond the timeout: it will be cancelled
         raise AssertionError("create doveva essere cancellato dal timeout")
 
     fake.messages.create = _slow  # type: ignore[method-assign]
@@ -454,7 +455,7 @@ async def test_claude_timeout_is_mapped_to_llm_error() -> None:
 
 
 async def test_groq_timeout_is_mapped_to_llm_error() -> None:
-    """Un provider Groq che supera il timeout produce LLMError (non un hang)."""
+    """A Groq provider that exceeds the timeout produces LLMError (not a hang)."""
     fake = _FakeGroq()
 
     async def _slow(**_kwargs: Any) -> _GroqCompletion:
@@ -468,11 +469,11 @@ async def test_groq_timeout_is_mapped_to_llm_error() -> None:
         await client.generate(_SYSTEM, _USER)
 
 
-# --- (#114) troncamento: stop_reason/finish_reason -> LLMError (-> fallback) ---
+# --- (#114) truncation: stop_reason/finish_reason -> LLMError (-> fallback) ---
 
 
 async def test_claude_max_tokens_truncation_is_mapped_to_llm_error() -> None:
-    """stop_reason=max_tokens: narrativa troncata -> LLMError, non servita."""
+    """stop_reason=max_tokens: truncated narrativa -> LLMError, not served."""
     fake = _FakeAnthropic()
     fake.stop_reason = "max_tokens"
     client = LLMClient.for_claude(fake, temperature=0.2, seed=42)
@@ -482,7 +483,8 @@ async def test_claude_max_tokens_truncation_is_mapped_to_llm_error() -> None:
 
 
 async def test_groq_length_finish_reason_is_mapped_to_llm_error() -> None:
-    """finish_reason=length (Groq) equivale al troncamento max_tokens -> LLMError."""
+    """finish_reason=length (Groq) is equivalent to the max_tokens truncation ->
+    LLMError."""
     fake = _FakeGroq()
     fake.finish_reason = "length"
     client = LLMClient.for_groq(fake, temperature=0.2, seed=42)
@@ -492,12 +494,12 @@ async def test_groq_length_finish_reason_is_mapped_to_llm_error() -> None:
 
 
 async def test_truncation_guard_fires_regardless_of_max_tokens_value() -> None:
-    """#229/D6: la guardia anti-troncamento scatta sul SEGNALE del provider
-    (``stop_reason=max_tokens`` / ``finish_reason=length``), NON sul valore di
-    ``max_tokens``. Alzare il tetto a 1536 (o oltre) non disattiva la rete di
-    sicurezza: un output troncato resta scartato -> LLMError -> fallback, a qualunque
-    ``max_tokens``. Cosi' "1536 basta" resta un claim empirico (smoke run live),
-    mentre la guardia garantisce che un eventuale troncamento non sia mai servito."""
+    """#229/D6: the anti-truncation guard fires on the provider SIGNAL
+    (``stop_reason=max_tokens`` / ``finish_reason=length``), NOT on the value of
+    ``max_tokens``. Raising the cap to 1536 (or beyond) does not disable the safety
+    net: a truncated output stays discarded -> LLMError -> fallback, at any
+    ``max_tokens``. So "1536 is enough" stays an empirical claim (live smoke run),
+    while the guard guarantees that a possible truncation is never served."""
     claude = _FakeAnthropic()
     claude.stop_reason = "max_tokens"
     with pytest.raises(LLMError):
@@ -509,40 +511,41 @@ async def test_truncation_guard_fires_regardless_of_max_tokens_value() -> None:
         await LLMClient.for_groq(groq, max_tokens=4096).generate(_SYSTEM, _USER)
 
 
-# --- (#316) contenuto vuoto con esito "riuscito" -> LLMError (-> fallback) ---
+# --- (#316) empty content with "successful" outcome -> LLMError (-> fallback) ---
 
 
-@pytest.mark.parametrize("vuoto", ["", "   \n\t  "])
-async def test_groq_empty_content_is_mapped_to_llm_error(vuoto: str) -> None:
-    """Contenuto vuoto e ``finish_reason`` normale: e' un fallimento, non un testo.
+@pytest.mark.parametrize("empty_value", ["", "   \n\t  "])
+async def test_groq_empty_content_is_mapped_to_llm_error(empty_value: str) -> None:
+    """Empty content and normal ``finish_reason``: it is a failure, not a text.
 
-    ``GROQ_MODEL`` e' un modello reasoning: puo' spendere l'intero budget di
-    ``max_tokens`` ragionando e chiudere con ``finish_reason="stop"`` senza aver
-    emesso una riga visibile. La guardia sul troncamento non lo intercetta (non
-    e' "length"), e senza questo controllo la pipeline riceveva una narrativa
-    vuota marcata come SUCCESSO — peggio dell'errore, perche' non attiva il
-    fallback strutturato e serve un'analisi muta come se fosse un'analisi.
+    ``GROQ_MODEL`` is a reasoning model: it can spend the whole ``max_tokens``
+    budget reasoning and close with ``finish_reason="stop"`` without having emitted
+    a visible line. The truncation guard does not intercept it (it is not "length"),
+    and without this check the pipeline received an empty narrativa marked as
+    SUCCESS -- worse than the error, because it does not trigger the structured
+    fallback and serves a mute analysis as if it were an analysis.
     """
     fake = _FakeGroq()
-    fake.content = vuoto  # finish_reason resta "stop"
+    fake.content = empty_value  # finish_reason stays "stop"
     client = LLMClient.for_groq(fake, temperature=0.2, seed=42)
 
     with pytest.raises(LLMError):
         await client.generate(_SYSTEM, _USER)
 
 
-@pytest.mark.parametrize("vuoto", ["", "   \n\t  "])
-async def test_claude_empty_text_is_mapped_to_llm_error(vuoto: str) -> None:
-    """Stessa guardia sul ramo Claude: la causa cambia, l'esito da servire no.
+@pytest.mark.parametrize("empty_value", ["", "   \n\t  "])
+async def test_claude_empty_text_is_mapped_to_llm_error(empty_value: str) -> None:
+    """Same guard on the Claude branch: the cause changes, the outcome to serve does
+    not.
 
-    Qui il budget di reasoning non c'entra (il thinking esteso non e' attivo), ma
-    una risposta senza blocchi di testo utili resta possibile — e una narrativa
-    vuota non e' mai un successo per il citation layer, che su niente non ha
-    nulla da ancorare. Tenere la guardia su un solo provider lascerebbe il buco
-    aperto proprio sul modello primario.
+    Here the reasoning budget is irrelevant (extended thinking is not active), but
+    a response without useful text blocks remains possible -- and an empty narrativa
+    is never a success for the citation layer, which has nothing to anchor on
+    nothing. Keeping the guard on a single provider would leave the hole open
+    exactly on the primary model.
     """
     fake = _FakeAnthropic()
-    fake.text = vuoto  # stop_reason resta "end_turn"
+    fake.text = empty_value  # stop_reason stays "end_turn"
     client = LLMClient.for_claude(fake, temperature=0.2, seed=42)
 
     with pytest.raises(LLMError):
@@ -550,7 +553,7 @@ async def test_claude_empty_text_is_mapped_to_llm_error(vuoto: str) -> None:
 
 
 async def test_claude_normal_stop_reason_does_not_raise() -> None:
-    """stop_reason=end_turn (default): nessun LLMError, risposta normale."""
+    """stop_reason=end_turn (default): no LLMError, normal response."""
     fake = _FakeAnthropic()
     client = LLMClient.for_claude(fake, temperature=0.2, seed=42)
 
@@ -560,7 +563,7 @@ async def test_claude_normal_stop_reason_does_not_raise() -> None:
 
 
 async def test_groq_normal_finish_reason_does_not_raise() -> None:
-    """finish_reason=stop (default): nessun LLMError, risposta normale."""
+    """finish_reason=stop (default): no LLMError, normal response."""
     fake = _FakeGroq()
     client = LLMClient.for_groq(fake, temperature=0.2, seed=42)
 
@@ -569,7 +572,7 @@ async def test_groq_normal_finish_reason_does_not_raise() -> None:
     assert result.text == "Analisi del rischio per la zona."
 
 
-# --- (#114) max_tokens configurabile (default invariato) ---
+# --- (#114) configurable max_tokens (default unchanged) ---
 
 
 async def test_claude_uses_configured_max_tokens() -> None:
@@ -590,11 +593,11 @@ async def test_groq_uses_configured_max_tokens() -> None:
     assert fake.calls[0]["max_tokens"] == 256
 
 
-# --- (#114) build_llm_client: timeout/max_tokens da Settings ---
+# --- (#114) build_llm_client: timeout/max_tokens from Settings ---
 
 
 def test_build_llm_client_threads_timeout_and_max_tokens() -> None:
-    """Settings.llm_timeout_seconds / llm_max_tokens arrivano al LLMClient."""
+    """Settings.llm_timeout_seconds / llm_max_tokens reach the LLMClient."""
     s = _settings(llm_provider="claude", llm_timeout_seconds=15.0, llm_max_tokens=2048)
     client = build_llm_client(s)
 
@@ -605,7 +608,7 @@ def test_build_llm_client_threads_timeout_and_max_tokens() -> None:
 def test_build_llm_client_passes_timeout_to_anthropic_sdk(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """L'SDK Anthropic viene costruito con timeout= (fix del bug #114)."""
+    """The Anthropic SDK is built with timeout= (fix of bug #114)."""
     import anthropic
 
     captured: dict[str, Any] = {}
@@ -623,7 +626,7 @@ def test_build_llm_client_passes_timeout_to_anthropic_sdk(
 def test_build_llm_client_passes_timeout_to_groq_sdk(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """L'SDK Groq viene costruito con timeout= (fix del bug #114)."""
+    """The Groq SDK is built with timeout= (fix of bug #114)."""
     import groq
 
     captured: dict[str, Any] = {}

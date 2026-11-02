@@ -1,10 +1,10 @@
-"""Test del layer retrieval (#22): assemblaggio del context_dict grezzo.
+"""Tests for the retrieval layer (#22): assembly of the raw context_dict.
 
-retrieve() e' puro wiring: la correttezza di profile() e' coperta da
-test_query_executor.py. Qui si testano l'assemblaggio, la memoizzazione, le
-decisioni di prodotto (POI generici inclusi, zero POI graceful) e la
-propagazione degli errori di dominio. geocode_zone (sync) e fetch_pois (async)
-sono mockati via monkeypatch sul namespace del modulo retrieval.
+retrieve() is pure wiring: the correctness of profile() is covered by
+test_query_executor.py. Here we test the assembly, the memoization, the product
+decisions (generic POIs included, graceful zero POIs) and the propagation of
+domain errors. geocode_zone (sync) and fetch_pois (async) are mocked via
+monkeypatch on the retrieval module namespace.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ def _poi(
 
 
 class _FakeProfiler:
-    """Executor SPARQL fittizio: ritorna profili canned e traccia le classi chieste."""
+    """Fake SPARQL executor: returns canned profiles and tracks requested classes."""
 
     def __init__(self, profiles: dict[str, PoiRiskProfile]) -> None:
         self._profiles = profiles
@@ -56,7 +56,7 @@ class _FakeProfiler:
 def _patch_io(
     monkeypatch: pytest.MonkeyPatch, *, pois: list[Poi], geo: GeoResult = _GEO
 ) -> None:
-    """Sostituisce geocode_zone (sync) e fetch_pois (async) nel modulo retrieval."""
+    """Replaces geocode_zone (sync) and fetch_pois (async) in the retrieval module."""
 
     def _fake_geocode(zona: str, citta: str) -> GeoResult:
         return geo
@@ -87,7 +87,7 @@ async def test_retrieve_happy_path_multi_class(monkeypatch: pytest.MonkeyPatch) 
     assert ctx["citta"] == "Roma"
     assert ctx["zona"] == "Centro"
     assert ctx["geo"] == _GEO
-    assert ctx["pois"] == pois  # riusati verbatim
+    assert ctx["pois"] == pois  # reused verbatim
     assert ctx["profiles"]["Bank"].hazards == ["Robbery"]
     assert ctx["profiles"]["Museum"].hazards == ["Theft"]
     assert ctx["stats"] == {"n_pois": 3, "n_classes": 2}
@@ -102,7 +102,7 @@ async def test_retrieve_profiles_once_per_distinct_class(
 
     await retrieve("Roma", "Centro", executor=executor)
 
-    assert executor.calls == ["Bank"]  # 1 sola volta nonostante 3 POI
+    assert executor.calls == ["Bank"]  # only once despite 3 POIs
 
 
 async def test_retrieve_includes_generic_poi_with_empty_profile(
@@ -137,7 +137,7 @@ async def test_retrieve_propagates_zone_not_found(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def _raise(zona: str, citta: str) -> GeoResult:
-        raise ZoneNotFoundError("zona ignota")
+        raise ZoneNotFoundError("unknown zone")
 
     async def _fetch(bbox: Bbox, citta: str, *a: object, **k: object) -> list[Poi]:
         return []
@@ -156,7 +156,7 @@ async def test_retrieve_propagates_overpass_error(
         return _GEO
 
     async def _raise(bbox: Bbox, citta: str, *a: object, **k: object) -> list[Poi]:
-        raise OverpassError("overpass giu'")
+        raise OverpassError("overpass down")
 
     monkeypatch.setattr(retrieval, "geocode_zone", _geocode)
     monkeypatch.setattr(retrieval, "fetch_pois", _raise)
@@ -179,10 +179,10 @@ async def test_retrieve_context_has_exact_keys(
 async def test_retrieve_uses_injected_geo_source_without_geocoding(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Con geo_source iniettato: geocode_zone NON chiamato, geo dalla source."""
+    """With geo_source injected: geocode_zone NOT called, geo comes from the source."""
 
     def _boom_geocode(zona: str, citta: str) -> GeoResult:
-        raise AssertionError("geocode_zone non deve essere chiamato con geo_source")
+        raise AssertionError("geocode_zone must not be called with geo_source")
 
     monkeypatch.setattr(retrieval, "geocode_zone", _boom_geocode)
 
@@ -203,7 +203,7 @@ async def test_retrieve_uses_injected_geo_source_without_geocoding(
         poi_source=_pois,
         geo_source=_geo_src,
     )
-    assert geo_source_calls == [("Roma", "Colosseo")]  # ordine (citta, zona)
+    assert geo_source_calls == [("Roma", "Colosseo")]  # order (citta, zona)
     assert ctx["geo"] == geo
 
 

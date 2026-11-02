@@ -1,4 +1,4 @@
-"""Test dei resolver di area: cerchio disegnato e coppia citta + zona."""
+"""Tests for the area resolvers: drawn circle and citta + zona pair."""
 
 from __future__ import annotations
 
@@ -10,12 +10,12 @@ from crime_risk_analyzer.models.geo import Bbox, bbox_from_circle
 
 
 @pytest.mark.asyncio
-async def test_resolve_circle_ritorna_etichetta_e_geo_source(
+async def test_resolve_circle_returns_label_and_geo_source(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """resolve_circle ritorna (citta, zona, geo_source).
+    """resolve_circle returns (citta, zona, geo_source).
 
-    Il geo_source ignora gli argomenti e ritorna sempre lo stesso GeoResult.
+    The geo_source ignores the arguments and always returns the same GeoResult.
     """
 
     def _fake_reverse_geocode(lat: float, lon: float) -> tuple[str, str]:
@@ -26,7 +26,7 @@ async def test_resolve_circle_ritorna_etichetta_e_geo_source(
     assert citta == "Roma"
     assert zona == "Trastevere"
 
-    # geo_source ignora gli argomenti e ritorna sempre lo stesso GeoResult
+    # geo_source ignores the arguments and always returns the same GeoResult
     geo = await geo_source("qualsiasi", "cosa")
     assert geo["lat"] == 41.89
     assert geo["lon"] == 12.47
@@ -38,27 +38,27 @@ def _fake_geocode_zone(zona: str, citta: str) -> GeoResult:
 
 
 @pytest.mark.asyncio
-async def test_resolve_zone_ritorna_etichetta_e_geo_source(
+async def test_resolve_zone_returns_label_and_geo_source(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """La modalita' citta + zona produce lo stesso contratto del cerchio.
+    """The citta + zona mode produces the same contract as the circle.
 
-    Le due modalita' di ricerca coesistono e l'utente usa l'una o l'altra: a
-    valle il resto della pipeline non deve sapere quale sia stata usata, quindi
-    entrambe ritornano (citta, zona, geo_source). Qui il bbox arriva da
-    Nominatim (`geocode_zone`), non dal calcolo centro+raggio.
+    The two search modes coexist and the user uses one or the other: downstream
+    the rest of the pipeline must not know which one was used, so both return
+    (citta, zona, geo_source). Here the bbox comes from Nominatim
+    (`geocode_zone`), not from the center+radius computation.
     """
-    chiamate: list[tuple[str, str]] = []
+    calls: list[tuple[str, str]] = []
 
     def _recording_geocode_zone(zona: str, citta: str) -> GeoResult:
-        chiamate.append((zona, citta))
+        calls.append((zona, citta))
         return _fake_geocode_zone(zona, citta)
 
     monkeypatch.setattr(area_search, "geocode_zone", _recording_geocode_zone)
 
     _, _, geo_source = await area_search.resolve_zone("Roma", "Colosseo")
 
-    assert chiamate == [("Colosseo", "Roma")]
+    assert calls == [("Colosseo", "Roma")]
     geo = await geo_source("qualsiasi", "cosa")
     assert geo["bbox"] == (41.88, 12.48, 41.90, 12.50)
     assert geo["lat"] == 41.89
@@ -66,22 +66,22 @@ async def test_resolve_zone_ritorna_etichetta_e_geo_source(
 
 
 @pytest.mark.asyncio
-async def test_resolve_zone_etichette_sono_quelle_digitate(
+async def test_resolve_zone_labels_are_the_typed_ones(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Le etichette sono (citta, zona) digitati, e nessun reverse geocode parte.
+    """The labels are the typed (citta, zona), and no reverse geocode starts.
 
-    Le rotte di fase 2 (``/analyze/narrativa``, ``/analyze/poi``) ricostruiscono
-    il contesto scaduto rifacendo ``geocode_zone`` sulle etichette: solo il testo
-    digitato riporta alla STESSA area. Un'etichetta dal reverse geocode darebbe
-    un'area diversa, quindi un 409.
+    The phase 2 routes (``/analyze/narrativa``, ``/analyze/poi``) rebuild the
+    expired context by redoing ``geocode_zone`` on the labels: only the typed text
+    leads back to the SAME area. A label from the reverse geocode would give a
+    different area, hence a 409.
     """
 
-    def _reverse_vietato(lat: float, lon: float) -> tuple[str, str]:
+    def _forbidden_reverse(lat: float, lon: float) -> tuple[str, str]:
         raise AssertionError("la modalita' zona non deve chiamare il reverse")
 
     monkeypatch.setattr(area_search, "geocode_zone", _fake_geocode_zone)
-    monkeypatch.setattr(area_search, "reverse_geocode_label", _reverse_vietato)
+    monkeypatch.setattr(area_search, "reverse_geocode_label", _forbidden_reverse)
 
     citta, zona, _ = await area_search.resolve_zone("Roma", "Colosseo")
 
@@ -89,14 +89,14 @@ async def test_resolve_zone_etichette_sono_quelle_digitate(
 
 
 @pytest.mark.asyncio
-async def test_resolve_zone_propaga_la_zona_non_trovata(
+async def test_resolve_zone_propagates_the_zone_not_found(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Una zona inesistente resta un errore, non un'area di ripiego.
+    """A nonexistent zone stays an error, not a fallback area.
 
-    Asimmetria voluta col cerchio: li' il reverse geocode e' cosmetico e non
-    blocca mai, qui il geocode DETERMINA l'area analizzata — fallire in
-    silenzio significherebbe analizzare un posto a caso.
+    Intended asymmetry with the circle: there the reverse geocode is cosmetic and
+    never blocks, here the geocode DETERMINES the analyzed area -- failing silently
+    would mean analyzing a random place.
     """
 
     def _raise(zona: str, citta: str) -> GeoResult:

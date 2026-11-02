@@ -1,4 +1,4 @@
-"""Test dell'endpoint di health-check."""
+"""Tests for the health-check endpoint."""
 
 from typing import cast
 
@@ -11,32 +11,33 @@ client = TestClient(app)
 
 
 def test_health_returns_ok() -> None:
-    # `cast` + ignore puntuale: Starlette TestClient eredita da httpx.Client ma
-    # con questa combinazione di versioni il tipo di `.get` non è risolto da
-    # pyright strict (difetto di stub di terze parti). Si ancora il risultato
-    # senza indebolire il type-checking altrove nel progetto.
+    # `cast` + targeted ignore: Starlette TestClient inherits from httpx.Client but
+    # with this combination of versions the type of `.get` is not resolved by pyright
+    # strict (third-party stub defect). The result is anchored without weakening the
+    # type-checking elsewhere in the project.
     response = cast(httpx.Response, client.get("/health"))  # pyright: ignore[reportUnknownMemberType]
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["status"] == "ok"
-    # `ontology_triples` riflette il grafo iniettato via Depends(get_ontology):
-    # l'ontologia di test ha almeno una tripla.
+    # `ontology_triples` reflects the graph injected via Depends(get_ontology): the
+    # test ontology has at least one triple.
     assert isinstance(payload["ontology_triples"], int)
     assert payload["ontology_triples"] > 0
     assert set(payload) == {"status", "ontology_triples"}
 
 
 def test_lifespan_loads_ontology() -> None:
-    """Avviando l'app via TestClient il lifespan carica l'ontologia (fail-fast).
+    """Starting the app via TestClient the lifespan loads the ontology (fail-fast).
 
-    Versione rafforzata: non chiama ``get_ontology()`` a mano prima di entrare nel
-    contesto, così l'unico modo perché la cache risulti popolata è che il warm-up
-    avvenga nel ``lifespan``. Senza warm-up ``currsize`` resterebbe 0 (RED reale).
+    Strengthened version: it does not call ``get_ontology()`` by hand before
+    entering the context, so the only way for the cache to be populated is that
+    the warm-up happens in the ``lifespan``. Without warm-up ``currsize`` would
+    stay 0 (real RED).
 
-    Il lifespan (post-#111) scalda anche executor SPARQL e client LLM: la pulizia
-    delle cache DI è simmetrica su tutt'e tre (setup e teardown), così il test non
-    lascia cache popolate né dipende dall'ordine di esecuzione (rilievo C1).
+    The lifespan (post-#111) also warms the SPARQL executor and the LLM client: the
+    cleanup of the DI caches is symmetric on all three (setup and teardown), so the
+    test leaves no populated caches nor depends on the execution order (finding C1).
     """
     from fastapi.testclient import TestClient
 
@@ -49,8 +50,8 @@ def test_lifespan_loads_ontology() -> None:
     for cache in warmed_caches:
         cache.cache_clear()
     assert get_ontology.cache_info().currsize == 0
-    with TestClient(app):  # entra/esce dal lifespan
-        # Nessuna chiamata esplicita: se la cache è popolata, l'ha fatto il lifespan.
+    with TestClient(app):  # enters/exits the lifespan
+        # No explicit call: if the cache is populated, the lifespan did it.
         assert get_ontology.cache_info().currsize == 1
         graph = get_ontology()
         assert len(graph) > 0

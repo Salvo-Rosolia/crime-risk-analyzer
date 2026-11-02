@@ -1,8 +1,8 @@
-"""Le rotte di analisi usano l'executor del set di fonti attivo (#433).
+"""The analysis routes use the executor of the active source set (#433).
 
-Con un set attivo (esempio o caricato) i profili di rischio devono venire
-dall'executor di quel set, non da quello TERMINUS di default. Si verifica a
-livello di rotta: la funzione di pipeline riceve l'executor del set legato.
+With an active set (example or uploaded) the risk profiles must come from the
+executor of that set, not from the default TERMINUS one. It is verified at
+route level: the pipeline function receives the executor of the bound set.
 """
 
 from collections.abc import Iterator
@@ -22,13 +22,13 @@ from crime_risk_analyzer.sources.session import SessionStore
 SID = "sessione-di-prova-AAAA"
 H = "X-Session-Id"
 
-_CENTRO = {"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0}
+_CENTER = {"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0}
 _HASH = "a" * 64
 
-#: (rotta, body, nome della funzione di pipeline importata in main)
-_ROTTE: list[tuple[str, dict[str, Any], str]] = [
-    ("/analyze", _CENTRO, "run_analysis_fast"),
-    ("/analyze/baseline", _CENTRO, "run_baseline"),
+#: (route, body, name of the pipeline function imported in main)
+_ROUTES: list[tuple[str, dict[str, Any], str]] = [
+    ("/analyze", _CENTER, "run_analysis_fast"),
+    ("/analyze/baseline", _CENTER, "run_baseline"),
     (
         "/analyze/narrativa",
         {"citta": "Roma", "zona": "Monti", "contesto_hash": _HASH},
@@ -48,10 +48,10 @@ _ROTTE: list[tuple[str, dict[str, Any], str]] = [
 
 
 class _Marker:
-    """Executor fittizio distinguibile per identita'."""
+    """Fake executor distinguishable by identity."""
 
 
-class _Catturato(Exception):
+class _Captured(Exception):
     pass
 
 
@@ -68,58 +68,58 @@ def client(store: SessionStore) -> Iterator[TestClient]:
     yield TestClient(app, raise_server_exceptions=False)
 
 
-async def _area_finta(*args: object, **kwargs: object) -> tuple[str, str, None]:
-    """Resolver d'area senza rete: la pipeline e' gia' finta."""
+async def _fake_area(*args: object, **kwargs: object) -> tuple[str, str, None]:
+    """Area resolver without network: the pipeline is already fake."""
     return ("Roma", "Monti", None)
 
 
-def _catturatore(monkeypatch: pytest.MonkeyPatch, nome: str) -> dict[str, Any]:
-    visti: dict[str, Any] = {}
+def _capturer(monkeypatch: pytest.MonkeyPatch, fn_name: str) -> dict[str, Any]:
+    seen_args: dict[str, Any] = {}
 
-    async def _finto(*args: object, **kwargs: Any) -> object:
-        visti["executor"] = kwargs["executor"]
-        raise _Catturato
+    async def _fake_call(*args: object, **kwargs: Any) -> object:
+        seen_args["executor"] = kwargs["executor"]
+        raise _Captured
 
-    monkeypatch.setattr(main_module, nome, _finto)
-    return visti
+    monkeypatch.setattr(main_module, fn_name, _fake_call)
+    return seen_args
 
 
-@pytest.mark.parametrize(("rotta", "body", "nome"), _ROTTE)
-def test_rotta_usa_l_executor_del_set_attivo(
+@pytest.mark.parametrize(("route", "body", "fn_name"), _ROUTES)
+def test_route_uses_the_active_set_executor(
     client: TestClient,
     store: SessionStore,
     monkeypatch: pytest.MonkeyPatch,
-    rotta: str,
+    route: str,
     body: dict[str, Any],
-    nome: str,
+    fn_name: str,
 ) -> None:
-    attivo = _Marker()
+    active = _Marker()
     store.activate(
         SID,
-        replace(default_set(), id="esempio", kind="custom", executor=attivo),
+        replace(default_set(), id="esempio", kind="custom", executor=active),
         [],  # pyright: ignore[reportArgumentType]
     )
-    visti = _catturatore(monkeypatch, nome)
-    if rotta in ("/analyze", "/analyze/baseline"):
-        monkeypatch.setattr(main_module, "_resolve_area", _area_finta)
+    seen_args = _capturer(monkeypatch, fn_name)
+    if route in ("/analyze", "/analyze/baseline"):
+        monkeypatch.setattr(main_module, "_resolve_area", _fake_area)
 
-    client.post(rotta, json=body, headers={H: SID})
+    client.post(route, json=body, headers={H: SID})
 
-    assert visti["executor"] is attivo
+    assert seen_args["executor"] is active
 
 
-@pytest.mark.parametrize(("rotta", "body", "nome"), _ROTTE)
-def test_rotta_senza_sessione_usa_l_executor_di_default(
+@pytest.mark.parametrize(("route", "body", "fn_name"), _ROUTES)
+def test_route_without_session_uses_the_default_executor(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
-    rotta: str,
+    route: str,
     body: dict[str, Any],
-    nome: str,
+    fn_name: str,
 ) -> None:
-    visti = _catturatore(monkeypatch, nome)
-    if rotta in ("/analyze", "/analyze/baseline"):
-        monkeypatch.setattr(main_module, "_resolve_area", _area_finta)
+    seen_args = _capturer(monkeypatch, fn_name)
+    if route in ("/analyze", "/analyze/baseline"):
+        monkeypatch.setattr(main_module, "_resolve_area", _fake_area)
 
-    client.post(rotta, json=body)
+    client.post(route, json=body)
 
-    assert visti["executor"] is default_set().executor
+    assert seen_args["executor"] is default_set().executor

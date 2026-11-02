@@ -1,9 +1,9 @@
-"""Test del vocabolario tipizzato confidence/tag (#59).
+"""Tests for the typed confidence/tag vocabulary (#59).
 
-Il vocabolario centralizza i valori canonici di ``confidence`` (minuscolo:
-``verificato``/``da_confermare``) e ``tag`` (maiuscolo:
-``ONTOLOGIA``/``CONTESTO``/``SPECULATIVO``) usati dal citation layer, piu' il
-modello :class:`ConfidenceSummary` che sostituisce il vecchio ``dict[str, int]``.
+The vocabulary centralizes the canonical values of ``confidence`` (lowercase:
+``verificato``/``da_confermare``) and ``tag`` (uppercase:
+``ONTOLOGIA``/``CONTESTO``/``SPECULATIVO``) used by the citation layer, plus the
+:class:`ConfidenceSummary` model that replaces the old ``dict[str, int]``.
 """
 
 from __future__ import annotations
@@ -34,8 +34,8 @@ def test_confidence_summary_rejects_negative() -> None:
 
 
 def test_confidence_literal_rejects_unknown_value() -> None:
-    # Un valore fuori dal vocabolario (es. casing errato o livello inventato)
-    # deve fallire la validazione quando applicato al tipo Confidence.
+    # A value outside the vocabulary (e.g. wrong casing or an invented level)
+    # must fail validation when applied to the Confidence type.
     from crime_risk_analyzer.rag.generation import RiskItem
 
     with pytest.raises(ValidationError):
@@ -57,13 +57,13 @@ def test_tag_literal_rejects_unknown_value() -> None:
 
 
 def test_confidence_summary_has_no_numeric_danger_scoring_field() -> None:
-    """Guardia anti-scoring estesa al contratto /analyze (#184, sul pattern di
-    #118 su ``PoiRiskProfile``). ``ConfidenceSummary`` e' fatto di soli campi
-    numerici, ma sono CONTEGGI di copertura per livello di confidenza (forza
-    probatoria), NON un punteggio di pericolosita' — proprio per questo e' il
-    posto piu' esposto a un aggregato numerico di rischio (es.
-    ``punteggio_totale``/``livello_rischio``). L'insieme esatto lo blocca e
-    rende il test rosso, forzando una revisione cosciente (_project.md §Vincoli)."""
+    """Anti-scoring guard extended to the /analyze contract (#184, following
+    the pattern of #118 on ``PoiRiskProfile``). ``ConfidenceSummary`` consists
+    only of numeric fields, but they are coverage COUNTS per confidence level
+    (evidential strength), NOT a danger score — which is exactly why it is the
+    place most exposed to a numeric risk aggregate (e.g.
+    ``punteggio_totale``/``livello_rischio``). The exact set pins it and turns
+    the test red, forcing a conscious review (_project.md §Vincoli)."""
     assert set(ConfidenceSummary.model_fields) == {
         "verificato",
         "da_confermare",

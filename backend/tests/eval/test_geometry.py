@@ -21,9 +21,9 @@ def test_point_in_polygon_with_hole() -> None:
     outer = [(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)]
     hole = [(1.0, 1.0), (3.0, 1.0), (3.0, 3.0), (1.0, 3.0)]
     poly = [outer, hole]
-    assert point_in_polygon((0.5, 0.5), poly) is True  # dentro, fuori dal buco
-    assert point_in_polygon((2.0, 2.0), poly) is False  # nel buco → fuori
-    assert point_in_polygon((5.0, 5.0), poly) is False  # fuori dall'esterno
+    assert point_in_polygon((0.5, 0.5), poly) is True  # inside, outside the hole
+    assert point_in_polygon((2.0, 2.0), poly) is False  # in the hole -> outside
+    assert point_in_polygon((5.0, 5.0), poly) is False  # outside the exterior
 
 
 def test_point_in_multipolygon() -> None:

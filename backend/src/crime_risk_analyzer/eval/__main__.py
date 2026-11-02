@@ -1,4 +1,4 @@
-"""Entry point: uv run python -m crime_risk_analyzer.eval <comando> ..."""
+"""Entry point: uv run python -m crime_risk_analyzer.eval <command> ..."""
 
 from __future__ import annotations
 
@@ -30,13 +30,13 @@ from crime_risk_analyzer.eval.gold import (
 from crime_risk_analyzer.eval.harness import (
     make_snapshot_key,
     run_experiment,
-    usa_modello,
+    uses_model,
 )
 from crime_risk_analyzer.eval.repeated_comparison import build_repeated_report
 from crime_risk_analyzer.eval.snapshots import (
-    PoiSourceConTaglio,
+    PoiSourceWithCut,
     capturing_source,
-    describe_configurazione_mismatch,
+    describe_config_mismatch,
     load_snapshot,
     offline_fetch_pois,
     snapshot_path,
@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class CaptureCase:
-    """Un case (citta, zona), riuscito o fallito, per il riepilogo di _capture."""
+    """A case (citta, zona), succeeded or failed, for the summary of _capture."""
 
     citta: str
     zona: str
@@ -64,10 +64,10 @@ class CaptureCase:
 
 @dataclass(frozen=True)
 class CaptureSummary:
-    """Esito complessivo di ``_capture`` (#252): chi è stato catturato, chi no.
+    """Overall outcome of ``_capture`` (#252): who was captured, who was not.
 
-    Campi a tupla (non lista): l'immutabilità dichiarata da ``frozen=True``
-    sarebbe altrimenti solo di facciata (una lista resta mutabile in-place).
+    Tuple fields (not list): the immutability declared by ``frozen=True``
+    would otherwise be only a facade (a list stays mutable in place).
     """
 
     succeeded: tuple[CaptureCase, ...]
@@ -75,53 +75,53 @@ class CaptureSummary:
 
 
 def _snapshot_reusable(path: Path) -> bool:
-    """True se lo snapshot esistente è riusabile sullo skip (#148).
+    """True if the existing snapshot is reusable on skip (#148).
 
-    Riusabile = il file esiste, è non vuoto (``size > 0``) ED è JSON parsabile.
-    Uno snapshot troncato/corrotto (scrittura interrotta) NON è riusabile: va
-    ri-catturato invece di essere rigiocato in silenzio (recuperabile prima solo
-    con ``--force``). Check leggero: non valida ogni POI, solo che il file
-    ``load_snapshot`` lo sappia leggere senza esplodere.
+    Reusable = the file exists, is non-empty (``size > 0``) AND is parseable JSON.
+    A truncated/corrupt snapshot (interrupted write) is NOT reusable: it must be
+    re-captured instead of being silently replayed (previously recoverable
+    only with ``--force``). Light check: it does not validate every POI, only that the
+    file ``load_snapshot`` can read without blowing up.
 
-    Confine del check (deliberato):
-    - Invariante garantita = **parse-safe per il replay**: se il check passa, il
-      ``load_snapshot`` del replay non esploderà in parse. NON è "shape-valid":
-      uno snapshot JSON valido ma semanticamente sbagliato (es. POI privi delle
-      chiavi attese) NON è intercettato — la validazione di schema è fuori scope.
-      Dal #241 il confine si sposta di poco: un file JSON valido la cui forma
-      ``load_snapshot`` non riconosce (né lista nuda né envelope) solleva
-      ``ValueError`` e viene trattato come non riusabile, quindi ri-catturato,
-      invece di far esplodere la cattura.
-    - Errori ambientali (``OSError``/``PermissionError`` su ``stat``/read) NON
-      sono catturati di proposito: fail-loud voluto e, essendo la cattura
-      idempotente, un re-run riprende comunque dai case già catturati.
-    - NON controlla la presenza del taglio OSM nella provenienza (#251): uno
-      snapshot in formato envelope scritto fra #241 e #251 resta riusabile anche
-      senza quel campo. Il criterio di accettazione di #251 chiede che gli
-      snapshot esistenti restino leggibili e rigiocabili, non che vengano
-      aggiornati — un operatore che lo vuole per zone già catturate ripete con
-      ``--force``, la stessa via già richiesta per ogni altro aggiornamento della
-      configurazione canonica.
+    Boundary of the check (deliberate):
+    - Guaranteed invariant = **parse-safe for replay**: if the check passes, the
+      replay's ``load_snapshot`` will not blow up in parse. It is NOT "shape-valid":
+      a valid JSON snapshot that is semantically wrong (e.g. POIs lacking the
+      expected keys) is NOT caught -- schema validation is out of scope.
+      Since #241 the boundary shifts slightly: a valid JSON file whose shape
+      ``load_snapshot`` does not recognise (neither bare list nor envelope) raises
+      ``ValueError`` and is treated as not reusable, hence re-captured,
+      instead of making the capture blow up.
+    - Environmental errors (``OSError``/``PermissionError`` on ``stat``/read) are NOT
+      caught on purpose: wanted fail-loud and, the capture being
+      idempotent, a re-run resumes anyway from the cases already captured.
+    - It does NOT check the presence of the OSM cut in the provenance (#251): an
+      envelope-format snapshot written between #241 and #251 stays reusable even
+      without that field. The acceptance criterion of #251 asks that existing
+      snapshots stay readable and replayable, not that they be
+      updated -- an operator who wants it for already captured zones repeats with
+      ``--force``, the same route already required for any other update of the
+      canonical configuration.
     """
     if not path.exists() or path.stat().st_size == 0:
         return False
     try:
         load_snapshot(path)
-    # Una sola clausola: ``json.JSONDecodeError`` e ``UnicodeDecodeError`` sono
-    # entrambe sottoclassi di ``ValueError``, che copre anche il formato non
-    # riconosciuto sollevato da ``load_snapshot`` (#241).
+    # A single clause: ``json.JSONDecodeError`` and ``UnicodeDecodeError`` are
+    # both subclasses of ``ValueError``, which also covers the unrecognised
+    # format raised by ``load_snapshot`` (#241).
     except ValueError:
         return False
     return True
 
 
-def _senza_taglio(source: PoiSource) -> PoiSourceConTaglio:
-    """Adatta una ``PoiSource`` semplice al contratto con taglio OSM di
+def _without_cut(source: PoiSource) -> PoiSourceWithCut:
+    """Adapt a plain ``PoiSource`` to the OSM-cut contract of
     :func:`capturing_source` (#251).
 
-    Serve SOLO per i doppi di test di ``_capture`` (parametro ``poi_source``,
-    #252): quelli restano semplici ``(bbox, citta) -> list[Poi]`` senza dover
-    fabbricare un taglio che non conoscono, e ``None`` lo dichiara onestamente.
+    Needed ONLY for the ``_capture`` test doubles (``poi_source`` parameter,
+    #252): those stay plain ``(bbox, citta) -> list[Poi]`` without having to
+    fabricate a cut they do not know, and ``None`` declares it honestly.
     """
 
     async def _wrapped(bbox: Bbox, citta: str) -> tuple[list[Poi], OsmCut | None]:
@@ -139,43 +139,43 @@ async def _capture(
 ) -> CaptureSummary:
     config = load_config(config_path)
     executor = get_executor()
-    # Politica di ritentativo lunga per default (#232): la sorgente della cattura
-    # vive in ``snapshots`` accanto a ``capturing_source``, non qui. Il taglio OSM
-    # (#251) arriva davvero solo dalla sorgente offline di default: un
-    # ``poi_source`` iniettato dai test non lo conosce, quindi viene adattato a
-    # dichiararlo assente invece di fabbricarne uno finto.
-    inner: PoiSourceConTaglio = (
-        _senza_taglio(poi_source) if poi_source is not None else offline_fetch_pois
+    # Long retry policy by default (#232): the capture source
+    # lives in ``snapshots`` next to ``capturing_source``, not here. The OSM cut
+    # (#251) really only comes from the default offline source: an injected
+    # ``poi_source`` from the tests does not know it, so it is adapted to
+    # declare it absent instead of fabricating a fake one.
+    inner: PoiSourceWithCut = (
+        _without_cut(poi_source) if poi_source is not None else offline_fetch_pois
     )
     succeeded: list[CaptureCase] = []
     failed: list[CaptureCase] = []
     for case in config.cases:
-        # Cattura chiavata per (citta, zona) (#110): i bracci comparativi
-        # riusano la stessa fixture, senza query Overpass divergenti per braccio.
+        # Capture keyed by (citta, zona) (#110): the comparative arms
+        # reuse the same fixture, without diverging Overpass queries per arm.
         key = make_snapshot_key(case.citta, case.zona)
         path = snapshot_path(results_dir, key)
-        # Serve PRIMA del try per sapere, in caso di fallimento, se lo snapshot
-        # sul disco è stato scritto da QUESTO tentativo (va ripulito, #252) o
-        # preesisteva (non va toccato).
+        # Needed BEFORE the try to know, in case of failure, whether the snapshot
+        # on disk was written by THIS attempt (to be cleaned up, #252) or
+        # pre-existed (must not be touched).
         existed_before = path.exists()
-        # Isolamento per-case (#252): un fallimento su un case non deve
-        # inghiottire i case successivi, come già fa ``capture_roster`` —
-        # altrimenti, con OFFLINE_RETRY, un case che si arrende dopo minuti di
-        # backoff si porta via anche il lavoro rimasto. Volutamente ``Exception``
-        # e non solo ``(GeocodingError, OverpassError)``: un bug altrove nella
-        # pipeline (es. un POI malformato) non deve far perdere in silenzio i
-        # case già catturati né saltare il riepilogo finale — ``Exception``
-        # esclude comunque ``KeyboardInterrupt``/``CancelledError``. Il blocco
-        # avvolge anche lo skip-check: ``_snapshot_reusable`` non cattura di
-        # proposito gli errori ambientali (``OSError``/``PermissionError``, vedi
-        # il suo docstring) e senza questo try/except un hiccup lì abortirebbe
-        # l'intera cattura invece di isolare solo questo case.
+        # Per-case isolation (#252): a failure on one case must not
+        # swallow the following cases, as ``capture_roster`` already does --
+        # otherwise, with OFFLINE_RETRY, a case that gives up after minutes of
+        # backoff takes the remaining work with it. Deliberately ``Exception``
+        # and not just ``(GeocodingError, OverpassError)``: a bug elsewhere in the
+        # pipeline (e.g. a malformed POI) must not silently lose the
+        # cases already captured nor skip the final summary -- ``Exception``
+        # excludes ``KeyboardInterrupt``/``CancelledError`` anyway. The block
+        # also wraps the skip-check: ``_snapshot_reusable`` deliberately does not
+        # catch environmental errors (``OSError``/``PermissionError``, see
+        # its docstring) and without this try/except a hiccup there would abort
+        # the whole capture instead of isolating only this case.
         try:
-            # Idempotenza (skip-if-exists, #110 M2): non ri-catturare la stessa
-            # (citta, zona) per un secondo braccio — reintrodurrebbe il
-            # confondimento. Salta SOLO se lo snapshot è integro (#148): uno
-            # troncato/corrotto va ri-catturato, non rigiocato in silenzio.
-            # --force forza la ri-cattura.
+            # Idempotence (skip-if-exists, #110 M2): do not re-capture the same
+            # (citta, zona) for a second arm -- it would reintroduce the
+            # confound. Skip ONLY if the snapshot is intact (#148): a
+            # truncated/corrupt one must be re-captured, not silently replayed.
+            # --force forces the re-capture.
             if not force and _snapshot_reusable(path):
                 logger.info(
                     "snapshot (%s, %s) già presente, riuso: %s",
@@ -183,13 +183,13 @@ async def _capture(
                     case.zona,
                     path,
                 )
-                # #267: il riuso e' il punto dove una politica di selezione
-                # cambiata (es. i cap di #254) puo' restare invisibile piu' a
-                # lungo — un file vecchio non viene mai ri-toccato finche'
-                # qualcuno non lancia ``eval run`` sulla stessa (citta, zona) e
-                # legge i log. Avvisare qui, non solo a run-time, anticipa il
-                # segnale al momento in cui la cattura stessa lo sa già.
-                mismatch = describe_configurazione_mismatch(snapshot_provenance(path))
+                # #267: reuse is the point where a changed selection policy
+                # (e.g. the caps of #254) can stay invisible longest
+                # -- an old file is never touched again until
+                # someone launches ``eval run`` on the same (citta, zona) and
+                # reads the logs. Warning here, not only at run time, anticipates the
+                # signal to the moment when the capture itself already knows.
+                mismatch = describe_config_mismatch(snapshot_provenance(path))
                 if mismatch is not None:
                     logger.warning(
                         "riuso snapshot (%s, %s) con %s (#267)",
@@ -207,23 +207,23 @@ async def _capture(
                     path,
                 )
             source = capturing_source(path, inner=inner, zona=case.zona)
-            # Percorso SENZA LLM qualunque sia il ``mode`` del config (#233): la
-            # cattura e' acquisizione di input, non un esperimento. Lo snapshot
-            # lo scrive ``capturing_source`` quando il fetch Overpass ritorna, e
-            # la chiave e' (citta, zona) (#110): la narrativa che
-            # ``run_analysis`` genererebbe qui e' output scartato a fronte di
-            # token reali — il 26/07 un terzo della quota giornaliera Groq, con
-            # la run K=3 bloccata per un'ora.
+            # Path WITHOUT LLM whatever the config ``mode`` (#233): the
+            # capture is input acquisition, not an experiment. The snapshot
+            # is written by ``capturing_source`` when the Overpass fetch returns, and
+            # the key is (citta, zona) (#110): the narrative that
+            # ``run_analysis`` would generate here is discarded output at the cost of
+            # real tokens -- on 26/07 a third of the daily Groq quota, with
+            # the K=3 run blocked for an hour.
             await run_baseline(
                 case.citta, case.zona, executor=executor, poi_source=source
             )
         except Exception as exc:
-            # ``capturing_source`` scrive lo snapshot PRIMA che un errore a
-            # valle (es. nel grounding) faccia fallire il case: senza questa
-            # pulizia, un case fallito lascerebbe comunque sul disco un file
-            # valido che il prossimo run tratterebbe come "già catturato" — un
-            # falso successo silenzioso. Rimosso SOLO se non preesisteva: uno
-            # snapshot preesistente (integro o no) non va toccato qui.
+            # ``capturing_source`` writes the snapshot BEFORE an error
+            # downstream (e.g. in grounding) makes the case fail: without this
+            # cleanup, a failed case would still leave on disk a valid
+            # file that the next run would treat as "already captured" -- a
+            # silent false success. Removed ONLY if it did not pre-exist: a
+            # pre-existing snapshot (intact or not) must not be touched here.
             if not existed_before and path.exists():
                 path.unlink()
             logger.exception(
@@ -240,17 +240,17 @@ async def _capture(
             continue
         succeeded.append(CaptureCase(case.citta, case.zona))
 
-    riepilogo = (
+    report_line = (
         f"riepilogo cattura: {len(succeeded)}/{len(config.cases)} catturati "
         f"({', '.join(f'{c.citta}/{c.zona}' for c in succeeded) or 'nessuno'}); "
         f"falliti: {', '.join(f'{c.citta}/{c.zona}' for c in failed) or 'nessuno'}"
     )
-    logger.info(riepilogo)
-    # Oltre al log: senza una configurazione esplicita di ``logging``, il root
-    # logger di default è WARNING e questo INFO non arriverebbe mai a schermo
-    # per chi lancia il comando da riga di comando — lo stesso pattern già in
-    # uso in ``i18n/extract.py`` per l'output finale di uno script CLI.
-    print(riepilogo)
+    logger.info(report_line)
+    # Besides the log: without an explicit ``logging`` configuration, the root
+    # logger default is WARNING and this INFO would never reach the screen
+    # for whoever launches the command from the command line -- the same pattern already
+    # in use in ``i18n/extract.py`` for the final output of a CLI script.
+    print(report_line)
     return CaptureSummary(succeeded=tuple(succeeded), failed=tuple(failed))
 
 
@@ -260,11 +260,11 @@ async def _run(
     *,
     repeat: int = 1,
     clean_stale: bool = False,
-    pausa_secondi: float = 0.0,
+    pause_seconds: float = 0.0,
 ) -> None:
     config = load_config(config_path)
     # Build the client only when mode requires it (fix T9), using config.model (fix I1).
-    client = build_llm_eval_client(config) if usa_modello(config) else None
+    client = build_llm_eval_client(config) if uses_model(config) else None
     await run_experiment(
         config,
         executor=get_executor(),
@@ -274,7 +274,7 @@ async def _run(
         ontology_hash=ontology_hash(),
         repeat=repeat,
         clean_stale=clean_stale,
-        pausa_secondi=pausa_secondi,
+        pause_seconds=pause_seconds,
     )
 
 
@@ -283,8 +283,8 @@ def main() -> int:
     results_dir = Path(ns.results)
     if ns.command == "capture":
         summary = asyncio.run(_capture(Path(ns.config), results_dir, force=ns.force))
-        # #252: una cattura parzialmente fallita non è un esperimento completo —
-        # un run successivo su snapshot mancanti sarebbe mutilato senza saperlo.
+        # #252: a partially failed capture is not a complete experiment --
+        # a later run on missing snapshots would be crippled without knowing it.
         if summary.failed:
             return 1
     elif ns.command == "run":
@@ -294,7 +294,7 @@ def main() -> int:
                 results_dir,
                 repeat=ns.repeat,
                 clean_stale=ns.clean_stale,
-                pausa_secondi=ns.pausa,
+                pause_seconds=ns.pausa,
             )
         )
     elif ns.command == "aggregate":
@@ -311,10 +311,10 @@ def main() -> int:
                 force=ns.force,
             )
         except NoUsableOutputError:
-            # #239: nessuna zona utilizzabile (tutte ERROR/FALLBACK). Il report
-            # che spiega cosa è fallito è già su disco (scritto da
-            # compare_experiments prima di rilanciare): qui solo l'exit code,
-            # per chi vuole intercettarlo da script.
+            # #239: no usable zone (all ERROR/FALLBACK). The report
+            # explaining what failed is already on disk (written by
+            # compare_experiments before re-raising): here only the exit code,
+            # for whoever wants to intercept it from a script.
             return 1
     elif ns.command == "compare-repeated":
         try:
@@ -335,23 +335,23 @@ def main() -> int:
         else:
             graph = load_ontology(get_settings().ontology_path)
             records_path, _, _ = build_report(results_dir, graph, ontology_hash())
-            # Gli avvisi di provenienza a schermo (stderr), non solo nei file
-            # gitignorati: senza questo un esito senza provenienza o con
-            # configurazioni miste passa inosservato (stesso motivo del
-            # riepilogo di ``_capture``, che non si affida al log).
+            # The provenance warnings on screen (stderr), not only in the
+            # gitignored files: without this an outcome without provenance or with
+            # mixed configurations goes unnoticed (same reason as the
+            # summary of ``_capture``, which does not rely on the log).
             summary = json.loads(records_path.read_text(encoding="utf-8"))["summary"]
-            for avviso in summary["avvisi"]:
-                print(f"AVVISO: {avviso}", file=sys.stderr)
+            for warning in summary["avvisi"]:
+                print(f"AVVISO: {warning}", file=sys.stderr)
     elif ns.command == "gold-sample":
         records = load_runs(results_dir, experiment=ns.experiment)
         records = [r for r in records if r.mode == ns.mode]
         path = write_gold_worksheet(results_dir, records, force=ns.force)
-        # Il conteggio a schermo (non solo nel log, che di default è WARNING —
-        # stesso motivo del riepilogo di ``_capture``): un foglio col solo
-        # header ed exit code 0 è altrimenti indistinguibile da un successo
-        # con dati, finché qualcuno non apre il file. ``collect_kept_risks`` è
-        # pura e già girata dentro ``write_gold_worksheet``: ricalcolarla qui
-        # non aggiunge I/O e tiene la firma della funzione a un solo valore.
+        # The count on screen (not only in the log, which by default is WARNING --
+        # same reason as the summary of ``_capture``): a sheet with just the
+        # header and exit code 0 is otherwise indistinguishable from a success
+        # with data, until someone opens the file. ``collect_kept_risks`` is
+        # pure and already run inside ``write_gold_worksheet``: recomputing it here
+        # adds no I/O and keeps the function signature at a single value.
         n_rows = len(collect_kept_risks(records))
         print(f"foglio scritto: {path} (rischi da annotare: {n_rows})")
     elif ns.command == "gold-report":

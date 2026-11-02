@@ -1,4 +1,4 @@
-"""Unit sull'orchestratore /analyze (#18)."""
+"""Unit tests for the /analyze orchestrator (#18)."""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ from crime_risk_analyzer.rag.retrieval import RetrievalContext, RetrievalStats
 from tests.eval._doubles import FakeLLMClient as _FakeLLMClient
 from tests.eval._doubles import FakeProfiler as _FakeProfiler
 from tests.eval._doubles import default_llm_response as _llm_response
-from tests.eval._doubles import righe_poi
+from tests.eval._doubles import poi_lines
 from tests.istat._factories import BANKROB, istat_poi
 
 
@@ -67,10 +67,9 @@ def _poi(poi_id: str, name: str, terminus_class: str) -> dict[str, object]:
 def _vr(
     poi: str, terminus_class: str, hazards: list[str], *, poi_id: str
 ) -> dict[str, object]:
-    """Validated risk sintetico. ``poi_id`` e' OBBLIGATORIO e keyword-only: con un
-    default, una fixture poteva accoppiare un POI con id ``"1"`` a rischi con id
-    vuoto — la stessa divergenza che questa story chiude — senza che nessun test se
-    ne accorgesse."""
+    """Synthetic validated risk. ``poi_id`` is MANDATORY and keyword-only: with a
+    default, a fixture could pair a POI with id ``"1"`` to risks with an empty id
+    — the same divergence this story closes — without any test noticing."""
     risks = [
         {
             "hazard": h,
@@ -85,8 +84,8 @@ def _vr(
         "poi_id": poi_id,
         "terminus_class": terminus_class,
         "risks": risks,
-        # I tre assi non-hazard oltre agli hazard (#256/#270): vuoti per default, i
-        # test che li verificano li popolano espressamente.
+        # The three non-hazard axes besides the hazards (#256/#270): empty by
+        # default, the tests that check them populate them explicitly.
         "critical_events": [],
         "vulnerabilities": [],
         "stakeholders": [],
@@ -96,11 +95,11 @@ def _vr(
 
 class _RaisingLLMClient:
     async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
-        raise LLMError("provider giu'")
+        raise LLMError("provider down")
 
 
 class _RecordingLLMClient:
-    """Spia del client LLM: registra ``(system, user)`` di ogni chiamata."""
+    """Spy of the LLM client: records ``(system, user)`` of every call."""
 
     def __init__(self, response: LLMResponse | None = None) -> None:
         self._response: LLMResponse = response or _llm_response()
@@ -150,8 +149,8 @@ def _patch_io(monkeypatch: pytest.MonkeyPatch, pois: list[Poi] | None = None) ->
 
 
 async def _geo_source(citta: str, zona: str) -> GeoResult:
-    """Doppio di geocoding per i test di ``_structured_response`` con narrativa
-    pendente (#259): evita Nominatim, come ``_poi_source`` evita Overpass."""
+    """Geocoding double for the ``_structured_response`` tests with a pending
+    narrative (#259): avoids Nominatim, as ``_poi_source`` avoids Overpass."""
     return GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50))
 
 
@@ -200,9 +199,9 @@ def test_build_poi_list_confidence_and_path() -> None:
 
 
 def test_build_poi_list_confidence_unified_with_per_risk() -> None:
-    # #202/M1: la confidence per-POI e' unificata col livello per-rischio del
-    # grounding: named+risks -> verificato; anonymous+risks -> da_confermare;
-    # no-risks -> None (POI fuori ontologia: nessuna confidence da qualificare, #220).
+    # #202/M1: the per-POI confidence is unified with the grounding's per-risk level:
+    # named+risks -> verificato; anonymous+risks -> da_confermare;
+    # no-risks -> None (POI outside the ontology: no confidence to qualify, #220).
     retrieval_ctx = {
         "pois": [
             _poi("1", "Banca A", "Bank"),
@@ -221,10 +220,10 @@ def test_build_poi_list_confidence_unified_with_per_risk() -> None:
     assert [p.confidence for p in out] == ["verificato", "da_confermare", None]
 
 
-def test_build_poi_list_poi_fuori_ontologia_confidence_none() -> None:
-    # #220: un POI FUORI ONTOLOGIA (nessun rischio) non ha una confidence da
-    # qualificare -> confidence None (il livello "ipotesi" e' stato rimosso). Il
-    # None marca l'assenza di rischi, non un livello di forza probatoria.
+def test_build_poi_list_poi_outside_ontology_confidence_none() -> None:
+    # #220: a POI OUTSIDE THE ONTOLOGY (no risks) has no confidence to qualify
+    # -> confidence None (the "ipotesi" level was removed). The None marks the
+    # absence of risks, not a level of evidential strength.
     retrieval_ctx = {"pois": [_poi("1", "Bar Roma", "GenericUrbanPOI")]}
     grounded = {"validated_risks": [_vr("Bar Roma", "GenericUrbanPOI", [], poi_id="1")]}
     out = _build_poi_list(retrieval_ctx, grounded)  # type: ignore[arg-type]
@@ -240,43 +239,43 @@ def test_build_poi_list_strict_zip_mismatch() -> None:
 
 
 @pytest.mark.parametrize(
-    ("nel_grounding", "acceso"),
+    ("in_grounding", "enabled"),
     [(True, True), (True, False), (False, True)],
-    ids=["nel-grounding-acceso", "nel-grounding-spento", "non-nel-grounding"],
+    ids=["in-grounding-on", "in-grounding-off", "not-in-grounding"],
 )
-def test_build_poi_list_espone_istat_solo_se_nel_grounding_e_acceso(
-    nel_grounding: bool, acceso: bool
+def test_build_poi_list_exposes_istat_only_if_in_grounding_and_enabled(
+    in_grounding: bool, enabled: bool
 ) -> None:
-    """#346: l'``IstatPoi`` arriva al contratto solo se il grounding lo porta E
-    l'interruttore e' acceso. Spento vuol dire spento anche nell'interfaccia
-    (la cache di zona porta sempre l'``IstatPoi``: il filtro sta qui); un
-    grounding senza il campo (contesti di test, doppi, POI fuori poligono)
-    resta ``None`` qualunque sia l'interruttore."""
-    dati = istat_poi(BANKROB)
+    """#346: the ``IstatPoi`` reaches the contract only if the grounding carries it AND
+    the switch is on. Off means off in the interface too (the zone cache always
+    carries the ``IstatPoi``: the filter lives here); a grounding without the field
+    (test contexts, doubles, POIs outside the polygon) stays ``None`` whatever the
+    switch."""
+    data = istat_poi(BANKROB)
     vr = _vr("Banca A", "Bank", ["Bank_robbery"], poi_id="1")
-    if nel_grounding:
-        vr["istat"] = dati
+    if in_grounding:
+        vr["istat"] = data
     out = _build_poi_list(
         {"pois": [_poi("1", "Banca A", "Bank")]},  # type: ignore[arg-type]
         {"validated_risks": [vr]},  # type: ignore[arg-type]
-        istat_context_enabled=acceso,
+        istat_context_enabled=enabled,
     )
-    assert out[0].istat == (dati if nel_grounding and acceso else None)
+    assert out[0].istat == (data if in_grounding and enabled else None)
 
 
-def test_build_poi_list_espone_gli_assi_con_etichette_e_citazione() -> None:
-    """I quattro assi TERMINUS arrivano tutti al contratto (#256/#270).
+def test_build_poi_list_exposes_the_axes_with_labels_and_citation() -> None:
+    """The four TERMINUS axes all reach the contract (#256/#270).
 
-    L'executor SPARQL li estrae a ogni richiesta da sempre, ma eventi critici e
-    vulnerabilita' erano scoperti (#256), e lo stakeholder e' rimasto fuori finche' il
-    vocabolario controllato non ha coperto anche quella categoria (#270). Ognuno porta
-    la propria citazione e l'etichetta IT del vocabolario controllato, come gli hazard.
+    The SPARQL executor has always extracted them on every request, but critical
+    events and vulnerabilities were uncovered (#256), and the stakeholder stayed out
+    until the controlled vocabulary also covered that category (#270). Each carries
+    its own citation and the IT label from the controlled vocabulary, like the hazards.
     """
     retrieval_ctx = {"pois": [_poi("1", "Banca A", "Bank")]}
     vr = _vr("Banca A", "Bank", ["Bank_robbery"], poi_id="1")
-    # Identifier REALI, presenti nel vocabolario controllato (#77): con un nome
-    # inventato ``label_it`` degraderebbe all'inglese de-underscorato e il test
-    # verificherebbe il fallback credendo di verificare il vocabolario.
+    # REAL identifiers, present in the controlled vocabulary (#77): with an invented
+    # name ``label_it`` would degrade to de-underscored English and the test would
+    # verify the fallback believing it verifies the vocabulary.
     vr["critical_events"] = [
         {"name": "Hostages", "source": "Bank → havingCriticalEvent → Hostages"}
     ]
@@ -301,13 +300,13 @@ def test_build_poi_list_espone_gli_assi_con_etichette_e_citazione() -> None:
 
 
 def test_build_poi_list_rejects_id_misalignment() -> None:
-    """Liste di pari lunghezza ma disallineate per identita' devono fallire forte.
+    """Equal-length lists that are misaligned by identity must fail loudly.
 
-    ``zip(strict=True)`` verifica solo le LUNGHEZZE: due liste riordinate in modo
-    diverso passerebbero, e ogni POI riceverebbe confidence e ``sparql_path`` di un
-    altro punto — la stessa misattribuzione silenziosa che questa story chiude, per
-    una via diversa. Ora che entrambe le liste portano l'id, il disallineamento e'
-    rilevabile.
+    ``zip(strict=True)`` only checks the LENGTHS: two lists ordered differently
+    would pass, and each POI would receive the confidence and ``sparql_path`` of
+    another point — the same silent misattribution this story closes, by a
+    different route. Now that both lists carry the id, the misalignment is
+    detectable.
     """
     with pytest.raises(ValueError):
         _build_poi_list(
@@ -362,9 +361,9 @@ def test_structured_response_no_llm() -> None:
         grounded,  # type: ignore[arg-type]
         latenza_ms=5,
         fallback=False,
-        # L'impronta del contesto (#242) arriva dal chiamante: qui e' un
-        # letterale, perche' il test verifica l'assemblaggio della response
-        # senza LLM, non il calcolo dell'impronta.
+        # The context fingerprint (#242) comes from the caller: here it is a
+        # literal, because the test checks the assembly of the response
+        # without LLM, not the computation of the fingerprint.
         contesto_hash="h-ctx",
         geo=GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50)),
     )
@@ -379,14 +378,14 @@ def test_structured_response_no_llm() -> None:
     assert (resp.zona_geo.lat, resp.zona_geo.lon) == (41.89, 12.49)
     assert resp.zona_geo.bbox_min_lat == 41.88
     assert resp.zona_geo.bbox_max_lon == 12.50
-    # Un POI c'e' (Banca A): nessun messaggio di copertura vuota.
+    # A POI exists (Banca A): no empty-coverage message.
     assert resp.messaggio is None
 
 
 async def test_structured_response_narrativa_none_when_pending() -> None:
-    """``_structured_response`` con ``narrativa=None`` produce una risposta con
-    narrativa in attesa (fase 1 di #259): non e' un fallback, ``fallback`` resta
-    quello passato dal chiamante."""
+    """``_structured_response`` with ``narrativa=None`` produces a response with a
+    pending narrative (phase 1 of #259): it is not a fallback, ``fallback`` stays
+    what the caller passed."""
     from crime_risk_analyzer.rag.grounding import ground
     from crime_risk_analyzer.rag.retrieval import retrieve
 
@@ -418,12 +417,12 @@ async def test_structured_response_narrativa_none_when_pending() -> None:
 
 
 def test_structured_response_default_narrativa_is_empty_string() -> None:
-    """Default invariato: chi non passa ``narrativa`` (``run_baseline``, fallback
-    di ``run_analysis``) continua a ricevere ``""``, non ``None`` — nessuna
-    regressione."""
-    # Nessun await necessario: costruiamo un GroundedContext minimale a mano,
-    # annotato esplicitamente (un dict letterale non annotato non passerebbe
-    # pyright strict come argomento tipizzato GroundedContext).
+    """Default unchanged: whoever does not pass ``narrativa`` (``run_baseline``, the
+    fallback of ``run_analysis``) keeps receiving ``""``, not ``None`` — no
+    regression."""
+    # No await needed: we build a minimal GroundedContext by hand,
+    # explicitly annotated (an unannotated literal dict would not pass
+    # pyright strict as a GroundedContext-typed argument).
     grounded: GroundedContext = {
         "zona": "Colosseo",
         "validated_risks": [],
@@ -442,11 +441,11 @@ def test_structured_response_default_narrativa_is_empty_string() -> None:
     assert resp.narrativa == ""
 
 
-def test_structured_response_messaggio_esplicito_quando_zero_poi() -> None:
-    """#260: con ``poi`` vuoto la response dichiara esplicitamente che la zona e'
-    stata geocodificata ma la copertura OSM/TERMINUS non ha trovato punti — senza
-    questo, zona sbagliata e zona-senza-copertura sono indistinguibili a schermo
-    (in entrambi i casi la mappa non si sposta)."""
+def test_structured_response_explicit_messaggio_when_zero_poi() -> None:
+    """#260: with an empty ``poi`` the response explicitly states that the zone was
+    geocoded but the OSM/TERMINUS coverage found no points — without this, a wrong
+    zone and a zone-without-coverage are indistinguishable on screen (in both
+    cases the map does not move)."""
     grounded: GroundedContext = {
         "zona": "Colosseo",
         "validated_risks": [],
@@ -466,11 +465,13 @@ def test_structured_response_messaggio_esplicito_quando_zero_poi() -> None:
     assert "OSM" in resp.messaggio or "TERMINUS" in resp.messaggio
 
 
-def test_structured_response_messaggio_esplicito_con_narrativa_di_soli_spazi() -> None:
-    """#260 (reperto review): una narrativa di soli spazi bianchi non e' copertura
-    reale — senza lo strip prima del controllo di verita', un tale valore (falsy
-    solo se vuoto, ma ``"   "`` e' truthy) sopprimerebbe il messaggio esplicito
-    lasciando l'utente senza alcuna spiegazione su una zona vuota."""
+def test_structured_response_explicit_messaggio_with_whitespace_only_narrativa() -> (
+    None
+):
+    """#260 (review finding): a whitespace-only narrative is not real coverage —
+    without the strip before the truth check, such a value (falsy only if empty, but
+    ``"   "`` is truthy) would suppress the explicit message leaving the user with
+    no explanation about an empty zone."""
     grounded: GroundedContext = {
         "zona": "Colosseo",
         "validated_risks": [],
@@ -530,10 +531,10 @@ async def test_run_analysis_llm_fallback(monkeypatch: pytest.MonkeyPatch) -> Non
 async def test_run_analysis_llm_fallback_logs_warning(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """#210: il fallback su LLMError emette un warning col messaggio dell'eccezione.
+    """#210: the fallback on LLMError emits a warning with the exception message.
 
-    Prima l'errore veniva inghiottito senza traccia: un warning strutturato rende
-    diagnosticabili i fallback futuri (perche' la narrativa e' vuota)."""
+    Before, the error was swallowed without a trace: a structured warning makes
+    future fallbacks diagnosable (why the narrative is empty)."""
     _patch_io(monkeypatch)
     with caplog.at_level(logging.WARNING, logger="crime_risk_analyzer.orchestrator"):
         resp = await run_analysis(
@@ -544,14 +545,14 @@ async def test_run_analysis_llm_fallback_logs_warning(
         )
     assert resp.fallback is True
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
-    assert warnings, "il fallback deve emettere almeno un warning"
-    assert any("provider giu'" in r.getMessage() for r in warnings)
+    assert warnings, "the fallback must emit at least one warning"
+    assert any("provider down" in r.getMessage() for r in warnings)
 
 
 async def test_run_analysis_llm_timeout_triggers_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Un provider LLM oltre il timeout scatena il fallback 200 (no hang/500)."""
+    """An LLM provider past the timeout triggers the 200 fallback (no hang/500)."""
     import asyncio
 
     from crime_risk_analyzer.llm.client import LLMClient
@@ -560,8 +561,8 @@ async def test_run_analysis_llm_timeout_triggers_fallback(
 
     class _HangingMessages:
         async def create(self, **_kwargs: object) -> object:
-            await asyncio.sleep(1)  # oltre il timeout: verra' cancellato
-            raise AssertionError("create doveva essere cancellato dal timeout")
+            await asyncio.sleep(1)  # past the timeout: it will be cancelled
+            raise AssertionError("create should have been cancelled by the timeout")
 
     class _HangingAnthropic:
         def __init__(self) -> None:
@@ -585,9 +586,9 @@ async def test_run_analysis_llm_timeout_triggers_fallback(
 async def test_run_analysis_anonymous_poi_da_confermare_end_to_end(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#202/m3: un POI ANONIMO con rischi ontologici propaga ``da_confermare`` fino
-    alla AnalyzeResponse. risk_models[].risks[].confidence, confidence_summary e
-    poi[].confidence sono coerenti (nessuna divergenza badge-vs-rischi, M1)."""
+    """#202/m3: an ANONYMOUS POI with ontological risks propagates ``da_confermare`` all
+    the way to the AnalyzeResponse. risk_models[].risks[].confidence, confidence_summary
+    and poi[].confidence are consistent (no badge-vs-risks divergence, M1)."""
     anon: list[Poi] = [
         {
             "id": "1",
@@ -612,17 +613,17 @@ async def test_run_analysis_anonymous_poi_da_confermare_end_to_end(
     assert [p.confidence for p in resp.poi] == ["da_confermare"]
 
 
-async def test_risk_models_distinguono_due_poi_anonimi_di_classe_diversa(
+async def test_risk_models_distinguish_two_anonymous_pois_of_different_class(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Due feature OSM anonime di classe diversa restano attribuibili al punto giusto.
+    """Two anonymous OSM features of different class stay attributable to the point.
 
-    Chi consuma la response aggancia i rischi al POI. Se l'unico identificatore e'
-    il ``name``, due POI senza nome collassano sul primo e il dettaglio di uno
-    mostra i rischi dell'altro: i nomi OSM non sono ne' unici ne' sempre presenti,
-    quindi l'``id`` e' l'unica chiave che regge.
+    Whoever consumes the response attaches the risks to the POI. If the only
+    identifier is the ``name``, two nameless POIs collapse onto the first and the
+    detail of one shows the risks of the other: OSM names are neither unique nor
+    always present, so the ``id`` is the only key that holds.
     """
-    anonimi: list[Poi] = [
+    anonymous: list[Poi] = [
         {
             "id": "11",
             "name": "",
@@ -642,15 +643,15 @@ async def test_risk_models_distinguono_due_poi_anonimi_di_classe_diversa(
             "citta": "Roma",
         },
     ]
-    _patch_io(monkeypatch, pois=anonimi)
+    _patch_io(monkeypatch, pois=anonymous)
     resp = await run_analysis(
         "Roma",
         "Centro",
         executor=_FakeProfiler({"Bank": _BANK_PROFILE, "School": _SCHOOL_PROFILE}),
         llm_client=_FakeLLMClient(_llm_response()),
     )
-    hazard_per_id = {m.poi_id: [r.hazard for r in m.risks] for m in resp.risk_models}
-    assert hazard_per_id == {"11": ["Bank_robbery"], "22": ["Vandalism"]}
+    hazards_by_id = {m.poi_id: [r.hazard for r in m.risks] for m in resp.risk_models}
+    assert hazards_by_id == {"11": ["Bank_robbery"], "22": ["Vandalism"]}
 
 
 async def test_run_analysis_zero_pois(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -666,12 +667,12 @@ async def test_run_analysis_zero_pois(monkeypatch: pytest.MonkeyPatch) -> None:
     assert resp.confidence_summary.verificato == 0
     assert resp.confidence_summary.da_confermare == 0
     assert resp.fallback is False
-    # #260: zero POI ma la zona e' stata geocodificata regolarmente — la mappa
-    # frontend puo' ricentrarsi su ``zona_geo`` invece di restare ferma.
+    # #260: zero POIs but the zone was geocoded regularly — the frontend map
+    # can re-centre on ``zona_geo`` instead of staying still.
     assert (resp.zona_geo.lat, resp.zona_geo.lon) == (41.89, 12.49)
-    # Il FakeLLMClient scrive comunque prosa reale (non sa che il contesto e'
-    # vuoto): quella prosa e' gia' l'informazione per chi legge, quindi nessun
-    # messaggio ridondante (reperto review #260).
+    # The FakeLLMClient writes real prose anyway (it does not know the context is
+    # empty): that prose is already the information for the reader, so no
+    # redundant message (review finding #260).
     assert resp.narrativa
     assert resp.messaggio is None
 
@@ -679,8 +680,8 @@ async def test_run_analysis_zero_pois(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_run_analysis_zero_pois_llm_fallback_has_explicit_message(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#260: zero POI E LLM caduto (narrativa vuota) — qui il messaggio esplicito
-    e' l'unica informazione disponibile su perche' non c'e' nulla da vedere."""
+    """#260: zero POIs AND the LLM down (empty narrative) — here the explicit message
+    is the only information available on why there is nothing to see."""
     _patch_io(monkeypatch, pois=[])
     resp = await run_analysis(
         "Roma",
@@ -766,7 +767,7 @@ async def test_run_analysis_accepts_poi_source(monkeypatch: pytest.MonkeyPatch) 
     assert [p.name for p in resp.poi] == ["Banca A"]
 
 
-# --- #119: domanda propagata da run_analysis fino allo user_content del prompt ---
+# --- #119: domanda propagated by run_analysis down to the prompt's user_content ---
 
 
 async def test_run_analysis_passes_domanda_to_prompt(
@@ -802,22 +803,22 @@ async def test_run_analysis_without_domanda_omits_section(
     assert USER_INPUT_FENCE_OPEN not in user
 
 
-# --- #196: narrativa_fonti espone la prosa per fonte (additivo, display) ---
+# --- #196: narrativa_fonti exposes the prose per source (additive, display) ---
 
 
-async def test_run_analysis_popola_narrativa_fonti(
+async def test_run_analysis_populates_narrativa_fonti(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """La prosa a blocchi dell'LLM viene esposta per fonte in ``narrativa_fonti``
-    SENZA alterare ``narrativa`` (stringa intera, letta dall'eval)."""
+    """The LLM's block prose is exposed per source in ``narrativa_fonti``
+    WITHOUT altering ``narrativa`` (whole string, read by the eval)."""
     _patch_io(monkeypatch)
-    narrativa = (
+    narrative = (
         "Sintesi.\n\n"
         "Rischi da ontologia [ONTOLOGIA]\nFurto.\n\n"
         "Rischi dal contesto [CONTESTO]\nBorseggio."
     )
     response = LLMResponse(
-        text=narrativa,
+        text=narrative,
         llm_used="claude-sonnet-4-6",
         tokens_input=10,
         tokens_output=20,
@@ -832,18 +833,18 @@ async def test_run_analysis_popola_narrativa_fonti(
         executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
         llm_client=_FakeLLMClient(response),
     )
-    assert resp.narrativa == narrativa  # invariata
+    assert resp.narrativa == narrative  # unchanged
     assert resp.narrativa_fonti.overview == "Sintesi."
     assert resp.narrativa_fonti.ontologia == "Furto."
     assert resp.narrativa_fonti.contesto == "Borseggio."
     assert resp.narrativa_fonti.speculativo == ""
 
 
-async def test_run_analysis_fallback_llm_narrativa_fonti_vuoto(
+async def test_run_analysis_llm_fallback_narrativa_fonti_empty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Nel fallback LLM la prosa per fonte resta vuota (default ``SourceProse()``),
-    coerente con ``narrativa == ""``."""
+    """In the LLM fallback the per-source prose stays empty (default ``SourceProse()``),
+    consistent with ``narrativa == ""``."""
     _patch_io(monkeypatch)
     resp = await run_analysis(
         "Roma",
@@ -856,11 +857,11 @@ async def test_run_analysis_fallback_llm_narrativa_fonti_vuoto(
     assert resp.narrativa_fonti == SourceProse()
 
 
-# --- #318: filtro per raggio condiviso con quello per tipo_poi ---
+# --- #318: radius filter shared with the tipo_poi one ---
 
 
-def _ctx_con_due_poi() -> RetrievalContext:
-    vicino: Poi = {
+def _ctx_with_two_pois() -> RetrievalContext:
+    near: Poi = {
         "id": "node/1",
         "name": "Vicino",
         "lat": 41.900,
@@ -869,7 +870,7 @@ def _ctx_con_due_poi() -> RetrievalContext:
         "terminus_class": "Bank",
         "citta": "Roma",
     }
-    lontano: Poi = {
+    far: Poi = {
         "id": "node/2",
         "name": "Lontano",
         "lat": 42.100,
@@ -882,31 +883,31 @@ def _ctx_con_due_poi() -> RetrievalContext:
         citta="Roma",
         zona="Trastevere",
         geo={"lat": 41.900, "lon": 12.500, "bbox": Bbox(41.8, 12.4, 42.0, 12.6)},
-        pois=[vicino, lontano],
+        pois=[near, far],
         profiles={"Bank": PoiRiskProfile(terminus_class="Bank")},
         stats=RetrievalStats(n_pois=2, n_classes=1),
     )
 
 
-def test_filter_pois_by_radius_esclude_i_lontani() -> None:
-    ctx = _ctx_con_due_poi()
-    filtrato = _filter_pois_by_radius(ctx, 41.900, 12.500, radius_m=500.0)
-    assert [p["id"] for p in filtrato["pois"]] == ["node/1"]
-    assert filtrato["stats"]["n_pois"] == 1
+def test_filter_pois_by_radius_excludes_the_far_ones() -> None:
+    ctx = _ctx_with_two_pois()
+    filtered = _filter_pois_by_radius(ctx, 41.900, 12.500, radius_m=500.0)
+    assert [p["id"] for p in filtered["pois"]] == ["node/1"]
+    assert filtered["stats"]["n_pois"] == 1
 
 
-def test_filter_pois_by_type_invariato_dopo_la_condivisione() -> None:
-    ctx = _ctx_con_due_poi()
-    filtrato = _filter_pois_by_type(ctx, "Bank")
-    assert len(filtrato["pois"]) == 2  # entrambi sono Bank, nessuno escluso
+def test_filter_pois_by_type_unchanged_after_sharing() -> None:
+    ctx = _ctx_with_two_pois()
+    filtered = _filter_pois_by_type(ctx, "Bank")
+    assert len(filtered["pois"]) == 2  # both are Bank, none excluded
 
 
-def test_center_valida_i_bound() -> None:
+def test_center_validates_the_bounds() -> None:
     with pytest.raises(ValidationError):
         Center(lat=95.0, lon=12.0)
 
 
-# --- #119: tipo_poi filtra i POI server-side nel baseline ---
+# --- #119: tipo_poi filters the POIs server-side in the baseline ---
 
 
 def _two_pois() -> list[Poi]:
@@ -942,7 +943,7 @@ async def test_run_baseline_filters_by_tipo_poi(
         executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
         tipo_poi="Bank",
     )
-    # solo i POI di classe TERMINUS "Bank": il GenericUrbanPOI e' escluso
+    # only the POIs of TERMINUS class "Bank": the GenericUrbanPOI is excluded
     assert [p.terminus_class for p in resp.poi] == ["Bank"]
     assert [p.name for p in resp.poi] == ["Banca A"]
     assert [m.poi for m in resp.risk_models] == ["Banca A"]
@@ -957,7 +958,7 @@ async def test_run_baseline_no_filter_when_none(
         "Centro",
         executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
     )
-    # default (None): nessun filtro, tutti i POI passano (comportamento invariato)
+    # default (None): no filter, all POIs pass (behaviour unchanged)
     assert [p.terminus_class for p in resp.poi] == ["Bank", "GenericUrbanPOI"]
 
 
@@ -971,7 +972,7 @@ async def test_run_baseline_blank_tipo_poi_is_no_filter(
         executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
         tipo_poi="   ",
     )
-    # tipo_poi vuoto/whitespace = nessun filtro (non un set vuoto di POI)
+    # empty/whitespace tipo_poi = no filter (not an empty set of POIs)
     assert [p.terminus_class for p in resp.poi] == ["Bank", "GenericUrbanPOI"]
 
 
@@ -985,12 +986,12 @@ async def test_run_baseline_tipo_poi_no_match_yields_empty(
         executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
         tipo_poi="Hospital",
     )
-    # nessun POI di quella classe -> lista vuota, nessun errore
+    # no POI of that class -> empty list, no error
     assert resp.poi == []
     assert resp.risk_models == []
 
 
-# --- #318: radius_m filtra i POI server-side nel baseline ---
+# --- #318: radius_m filters the POIs server-side in the baseline ---
 
 
 def _pois_for_radius() -> list[Poi]:
@@ -1028,10 +1029,10 @@ def _pois_for_radius() -> list[Poi]:
 async def test_run_baseline_filters_by_radius_m(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``radius_m`` filtra i POI server-side dal centro geocodificato (#318).
+    """``radius_m`` filters the POIs server-side from the geocoded centre (#318).
 
-    Il centro geocodificato da ``_patch_io`` e' (41.89, 12.49), che coincide con
-    ``Banca A``: gli altri due POI sono oltre 500m e vengono esclusi.
+    The centre geocoded by ``_patch_io`` is (41.89, 12.49), which coincides with
+    ``Banca A``: the other two POIs are beyond 500m and are excluded.
     """
     _patch_io(monkeypatch, pois=_pois_for_radius())
     resp = await run_baseline(
@@ -1052,17 +1053,17 @@ async def test_run_baseline_no_radius_filter_when_none(
         "Centro",
         executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
     )
-    # default (None): nessun filtro per raggio, tutti i POI passano
+    # default (None): no radius filter, all POIs pass
     assert [p.name for p in resp.poi] == ["Banca A", "Bar Roma", "Banca Lontana"]
 
 
 async def test_run_baseline_radius_and_tipo_poi_compose(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """I due filtri server-side si compongono (intersezione, #318).
+    """The two server-side filters compose (intersection, #318).
 
-    ``Banca Lontana`` e' di classe ``Bank`` ma fuori raggio; ``Bar Roma`` e' nel
-    raggio ma non e' ``Bank``: solo ``Banca A`` soddisfa entrambi i filtri.
+    ``Banca Lontana`` is of class ``Bank`` but out of radius; ``Bar Roma`` is within
+    the radius but is not ``Bank``: only ``Banca A`` satisfies both filters.
     """
     _patch_io(monkeypatch, pois=_pois_for_radius())
     resp = await run_baseline(
@@ -1075,16 +1076,16 @@ async def test_run_baseline_radius_and_tipo_poi_compose(
     assert [p.name for p in resp.poi] == ["Banca A"]
 
 
-# --- #236: braccio di ablazione «LLM senza contributo ontologico nel prompt» ---
+# --- #236: ablation arm «LLM without ontological contribution in the prompt» ---
 
 
 async def test_run_no_ontology_prompt_hides_the_ontology_from_the_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Il modello vede i punti, non i rischi che l'ontologia associa alle classi.
+    """The model sees the points, not the risks the ontology associates to the classes.
 
-    E' l'unica variabile che il braccio manipola: se gli hazard finissero
-    comunque nel prompt, il confronto con ``analyze`` non isolerebbe nulla.
+    It is the only variable the arm manipulates: if the hazards ended up in the
+    prompt anyway, the comparison with ``analyze`` would isolate nothing.
     """
     _patch_io(monkeypatch)
     client = _RecordingLLMClient()
@@ -1103,12 +1104,12 @@ async def test_run_no_ontology_prompt_hides_the_ontology_from_the_model(
     assert "  POI: Banca A (Bank)" in user
 
 
-def _banche_e_scuole(n: int) -> list[Poi]:
-    """POI alternati: le scuole hanno piu' rischi delle banche, quindi il
-    troncamento per rilevanza NON tiene semplicemente i primi della lista."""
+def _banks_and_schools(n: int) -> list[Poi]:
+    """Alternating POIs: the schools have more risks than the banks, so the
+    truncation by relevance does NOT simply keep the first ones of the list."""
     pois: list[Poi] = []
     for i in range(n):
-        classe = "School" if i % 2 else "Bank"
+        class_name = "School" if i % 2 else "Bank"
         pois.append(
             {
                 "id": str(i),
@@ -1116,14 +1117,14 @@ def _banche_e_scuole(n: int) -> list[Poi]:
                 "lat": 41.89,
                 "lon": 12.49,
                 "osm_tags": "amenity=x",
-                "terminus_class": classe,
+                "terminus_class": class_name,
                 "citta": "Roma",
             }
         )
     return pois
 
 
-_SCHOOL_PROFILE_RICCO = PoiRiskProfile(
+_SCHOOL_PROFILE_RICH = PoiRiskProfile(
     terminus_class="School",
     hazards=["Vandalism", "School_theft", "Damage_in_the_school"],
     sparql_paths=[
@@ -1134,34 +1135,34 @@ _SCHOOL_PROFILE_RICCO = PoiRiskProfile(
 )
 
 
-@pytest.mark.parametrize("tronca", [True, False], ids=["troncato", "intero"])
-async def test_i_due_bracci_vedono_gli_stessi_poi(
-    tronca: bool, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("truncate", [True, False], ids=["truncated", "full"])
+async def test_the_two_arms_see_the_same_pois(
+    truncate: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """#349: il braccio senza ontologia elenca lo STESSO INSIEME di POI che il
-    braccio completo ha tenuto dopo il troncamento per budget, ma nell'ordine
-    originale e con una nota sul taglio che non dice il criterio.
+    """#349: the arm without ontology lists the SAME SET of POIs that the full arm
+    kept after the truncation by budget, but in the original order and with a note
+    on the cut that does not state the criterion.
 
-    Prima mandava sempre tutti i punti (20 sulle zone di valutazione) mentre il
-    completo ne teneva circa la meta': il confronto non era a parita' di input e
-    una differenza nelle metriche poteva venire dal numero di POI, non
-    dall'ontologia. L'ordine per rilevanza e la parola "piu' rilevanti" restano
-    fuori perche' vengono dall'ontologia (piu' hazard = piu' rilevante).
+    Before, it always sent all the points (20 on the evaluation zones) while the
+    full one kept about half: the comparison was not at input parity and a
+    difference in the metrics could come from the number of POIs, not from the
+    ontology. The order by relevance and the words "piu' rilevanti" stay out because
+    they come from the ontology (more hazards = more relevant).
     """
-    _patch_io(monkeypatch, pois=_banche_e_scuole(12))
-    profiler = _FakeProfiler({"Bank": _BANK_PROFILE, "School": _SCHOOL_PROFILE_RICCO})
+    _patch_io(monkeypatch, pois=_banks_and_schools(12))
+    profiler = _FakeProfiler({"Bank": _BANK_PROFILE, "School": _SCHOOL_PROFILE_RICH})
     budget = (
         _estimate_tokens(SYSTEM_PROMPT) + DEFAULT_MAX_TOKENS + 900
-        if tronca
+        if truncate
         else DEFAULT_REQUEST_TOKEN_BUDGET
     )
-    completo, ablato = _RecordingLLMClient(), _RecordingLLMClient()
+    full, ablated = _RecordingLLMClient(), _RecordingLLMClient()
 
-    resp_completo = await run_analysis(
+    full_resp = await run_analysis(
         "Roma",
         "Centro",
         executor=profiler,
-        llm_client=completo,
+        llm_client=full,
         request_token_budget=budget,
         max_tokens=DEFAULT_MAX_TOKENS,
     )
@@ -1169,55 +1170,55 @@ async def test_i_due_bracci_vedono_gli_stessi_poi(
         "Roma",
         "Centro",
         executor=profiler,
-        llm_client=ablato,
+        llm_client=ablated,
         request_token_budget=budget,
         max_tokens=DEFAULT_MAX_TOKENS,
     )
 
-    righe_completo = righe_poi(completo.calls[0][1])
-    righe_ablato = righe_poi(ablato.calls[0][1])
-    utente_ablato = ablato.calls[0][1]
-    # Stesso INSIEME di punti, ma nell'ordine originale del recupero: l'ordine per
-    # rilevanza viene dall'ontologia (piu' hazard prima) e non deve passare.
-    assert sorted(righe_ablato) == sorted(righe_completo)
-    assert righe_ablato == sorted(righe_ablato)  # "Punto 00", "Punto 01", ...
-    # Cambia solo il prompt: la response resta quella di tutti i punti.
+    full_lines = poi_lines(full.calls[0][1])
+    ablated_lines = poi_lines(ablated.calls[0][1])
+    ablated_user = ablated.calls[0][1]
+    # Same SET of points, but in the original order of the retrieval: the order by
+    # relevance comes from the ontology (more hazards first) and must not pass.
+    assert sorted(ablated_lines) == sorted(full_lines)
+    assert ablated_lines == sorted(ablated_lines)  # "Punto 00", "Punto 01", ...
+    # Only the prompt changes: the response stays that of all the points.
     assert len(resp.poi) == len(resp.risk_models) == 12
-    # La parita' e' verificabile a valle: entrambe le response portano gli id dei
-    # POI entrati nel prompt, nell'ordine del rispettivo prompt.
-    assert resp_completo.poi_nel_prompt is not None
+    # The parity is verifiable downstream: both responses carry the ids of the
+    # POIs that entered the prompt, in the order of the respective prompt.
+    assert full_resp.poi_nel_prompt is not None
     assert resp.poi_nel_prompt is not None
-    assert len(resp.poi_nel_prompt) == len(righe_ablato)
-    assert set(resp.poi_nel_prompt) == set(resp_completo.poi_nel_prompt)
+    assert len(resp.poi_nel_prompt) == len(ablated_lines)
+    assert set(resp.poi_nel_prompt) == set(full_resp.poi_nel_prompt)
     assert resp.poi_nel_prompt == sorted(resp.poi_nel_prompt, key=int)
-    # Nessun "rilevant" nel prompt ablato, con o senza taglio (#349).
-    assert "rilevant" not in utente_ablato.lower()
-    if tronca:
-        assert 0 < len(righe_completo) < 12
-        # Il completo sceglie per rilevanza (le scuole prima), non i primi N.
-        assert righe_completo[0].startswith("  POI: Punto 01")
-        # Il taglio tiene scuole E banche: solo cosi' l'ordine per rilevanza
-        # (scuole prima) si distingue dall'ordine originale (alternato).
-        assert any("(Bank)" in r for r in righe_completo)
-        assert righe_ablato != righe_completo
-        # Nota neutra: dice quanti punti su quanti, non con quale criterio.
-        nota = f"sono analizzati {len(righe_ablato)} POI su 12"
-        assert nota in utente_ablato
+    # No "rilevant" in the ablated prompt, with or without the cut (#349).
+    assert "rilevant" not in ablated_user.lower()
+    if truncate:
+        assert 0 < len(full_lines) < 12
+        # The full arm chooses by relevance (schools first), not the first N.
+        assert full_lines[0].startswith("  POI: Punto 01")
+        # The cut keeps schools AND banks: only so can the order by relevance
+        # (schools first) be told apart from the original order (alternating).
+        assert any("(Bank)" in r for r in full_lines)
+        assert ablated_lines != full_lines
+        # Neutral note: it says how many points out of how many, not by what criterion.
+        note = f"sono analizzati {len(ablated_lines)} POI su 12"
+        assert note in ablated_user
         assert len(resp.poi_nel_prompt) < 12
     else:
-        assert len(righe_completo) == 12
-        assert "NB:" not in utente_ablato
+        assert len(full_lines) == 12
+        assert "NB:" not in ablated_user
 
 
 async def test_run_no_ontology_prompt_keeps_the_structured_contract(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Stessa response di ``run_analysis``: cambia il prompt, non il contratto.
+    """Same response as ``run_analysis``: the prompt changes, not the contract.
 
-    ``risk_models``, ``sparql_path`` e ``confidence_summary`` restano ontologici
-    perche' sono il dato ancorato con cui ``eval/metrics.py`` costruisce gli
-    ancoraggi: se divergessero tra i bracci, il proxy misurerebbe denominatori
-    diversi e il confronto non sarebbe leggibile.
+    ``risk_models``, ``sparql_path`` and ``confidence_summary`` stay ontological
+    because they are the anchored data with which ``eval/metrics.py`` builds the
+    anchors: if they diverged between the arms, the proxy would measure different
+    denominators and the comparison would not be readable.
     """
     _patch_io(monkeypatch)
     resp = await run_no_ontology_prompt(
@@ -1226,7 +1227,7 @@ async def test_run_no_ontology_prompt_keeps_the_structured_contract(
         executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
         llm_client=_FakeLLMClient(_llm_response()),
     )
-    riferimento = await run_analysis(
+    reference = await run_analysis(
         "Roma",
         "Centro",
         executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
@@ -1236,34 +1237,34 @@ async def test_run_no_ontology_prompt_keeps_the_structured_contract(
     assert resp.fallback is False
     assert resp.narrativa is not None
     assert resp.narrativa.startswith("Analisi:")
-    assert resp.risk_models == riferimento.risk_models
-    assert resp.confidence_summary == riferimento.confidence_summary
+    assert resp.risk_models == reference.risk_models
+    assert resp.confidence_summary == reference.confidence_summary
     assert [(p.id, p.confidence, p.sparql_path) for p in resp.poi] == [
-        (p.id, p.confidence, p.sparql_path) for p in riferimento.poi
+        (p.id, p.confidence, p.sparql_path) for p in reference.poi
     ]
-    assert resp.contesto_hash == riferimento.contesto_hash
+    assert resp.contesto_hash == reference.contesto_hash
 
 
 async def test_run_no_ontology_prompt_splits_prose_on_its_own_block_label(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """La prosa per fonte si taglia sull'etichetta che il prompt ablato chiede.
+    """The per-source prose is split on the label that the ablated prompt asks for.
 
-    Quel prompt fa scrivere ``[SINTESI-LLM]`` (#236: il braccio non ha
-    consultato alcuna ontologia e non lo dichiara). Tagliando la narrativa
-    sull'etichetta dell'ALTRO braccio, il blocco misurato non verrebbe
-    riconosciuto e finirebbe tutto in ``overview``: un campo che dice «nessuna
-    attribuzione» dove il modello ha invece attribuito, sullo stesso testo che
-    l'eval grada correttamente. Due letture divergenti dello stesso file.
+    That prompt makes the model write ``[SINTESI-LLM]`` (#236: the arm consulted no
+    ontology and does not claim to). Splitting the narrative on the label of the
+    OTHER arm, the measured block would not be recognized and everything would end
+    up in ``overview``: a field saying «no attribution» where the model did in fact
+    attribute, on the same text that the eval grades correctly. Two divergent
+    readings of the same file.
     """
     _patch_io(monkeypatch)
-    narrativa = (
+    narrative = (
         "Sintesi.\n\n"
         f"{LLM_SYNTHESIS_BLOCK_HEADER}\nFurto.\n\n"
         "Rischi dal contesto [CONTESTO]\nBorseggio."
     )
     response = LLMResponse(
-        text=narrativa,
+        text=narrative,
         llm_used=GROQ_MODEL,
         tokens_input=10,
         tokens_output=20,
@@ -1278,21 +1279,21 @@ async def test_run_no_ontology_prompt_splits_prose_on_its_own_block_label(
         executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
         llm_client=_FakeLLMClient(response),
     )
-    assert resp.narrativa == narrativa  # invariata, come nel braccio completo
+    assert resp.narrativa == narrative  # unchanged, as in the full arm
     assert resp.narrativa_fonti.overview == "Sintesi."
     assert resp.narrativa_fonti.ontologia == "Furto."
     assert resp.narrativa_fonti.contesto == "Borseggio."
 
 
 def test_generated_response_has_no_default_measured_token() -> None:
-    """Il token del blocco misurato lo dichiara il chiamante, sempre.
+    """The measured block's token is declared by the caller, always.
 
-    Con un default, un terzo braccio che se lo dimenticasse erediterebbe
-    ``[ONTOLOGIA]``: ``parse_source_prose`` non troverebbe la sua etichetta,
-    tutta la prosa finirebbe in ``overview`` e la sua narrativa verrebbe misurata
-    come NON-ATTRIBUZIONE (0.0/1.0) senza alcun errore — la classe di bug che
-    #236 esiste per prevenire. Il tipo lo impedisce (pyright), questo test tiene
-    il default fuori anche da una futura «comodita'».
+    With a default, a third arm that forgot it would inherit ``[ONTOLOGIA]``:
+    ``parse_source_prose`` would not find its label, all the prose would end up in
+    ``overview`` and its narrative would be measured as NON-ATTRIBUTION (0.0/1.0)
+    without any error — the class of bug that #236 exists to prevent. The type
+    prevents it (pyright), this test keeps the default out even from a future
+    «convenience».
     """
     param = inspect.signature(_generated_response).parameters["measured_token"]
     assert param.kind is inspect.Parameter.KEYWORD_ONLY
@@ -1302,7 +1303,7 @@ def test_generated_response_has_no_default_measured_token() -> None:
 async def test_run_no_ontology_prompt_falls_back_on_llm_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Stesso ramo di fallback strutturato del braccio completo."""
+    """Same structured fallback branch as the full arm."""
     _patch_io(monkeypatch)
     resp = await run_no_ontology_prompt(
         "Roma",
@@ -1318,12 +1319,12 @@ async def test_run_no_ontology_prompt_falls_back_on_llm_error(
 async def test_run_no_ontology_prompt_does_not_touch_the_zone_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Il braccio sperimentale non deposita contesto per ``/analyze/poi``.
+    """The experimental arm does not deposit context for ``/analyze/poi``.
 
-    La cache di zona serve i clic dell'utente (un clic su un POI non deve rifare
-    Overpass) e la riempie la fase 1 di ``/analyze``. Questo braccio non e'
-    servito da alcuna rotta: lasciare li' un contesto costruito per un'ablazione
-    sarebbe stato di processo che nessuno ha chiesto.
+    The zone cache serves the user's clicks (a click on a POI must not redo
+    Overpass) and is filled by phase 1 of ``/analyze``. This arm is served by no
+    route: leaving there a context built for an ablation would be process state
+    that nobody asked for.
     """
     from crime_risk_analyzer import zone_context_cache
 
@@ -1344,14 +1345,14 @@ async def test_run_no_ontology_prompt_does_not_touch_the_zone_cache(
 async def test_run_analysis_does_not_touch_the_zone_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Anche il braccio completo di valutazione lascia la cache di zona in pace.
+    """The full evaluation arm too leaves the zone cache alone.
 
-    Da #292 nessuna rotta chiama ``run_analysis``: e' il percorso di VALUTAZIONE
-    (``eval/harness``, ``mode='analyze'``), e nel percorso di valutazione nessuno
-    legge quella cache. Depositarci il contesto era un effetto collaterale morto,
-    identico a quello che il gemello di ablazione evita di proposito qui sopra:
-    stato di processo che nessuno ha chiesto, e che a cache piena sfratterebbe la
-    zona di un utente vero per far posto a una run offline.
+    Since #292 no route calls ``run_analysis``: it is the EVALUATION path
+    (``eval/harness``, ``mode='analyze'``), and in the evaluation path nobody reads
+    that cache. Depositing the context there was a dead side effect, identical to
+    the one the ablation twin deliberately avoids above: process state that nobody
+    asked for, and that with a full cache would evict a real user's zone to make
+    room for an offline run.
     """
     from crime_risk_analyzer import zone_context_cache
 
@@ -1369,10 +1370,10 @@ async def test_run_analysis_does_not_touch_the_zone_cache(
         zone_context_cache.clear()
 
 
-async def test_run_analysis_espone_i_campi_istat_e_nasconde_il_grezzo() -> None:
+async def test_run_analysis_exposes_the_istat_fields_and_hides_the_raw() -> None:
     from tests.eval._doubles import FakeLLMClient
 
-    class _FakeProfilerRoma:
+    class _FakeProfilerRome:
         def profile(self, terminus_class: str) -> PoiRiskProfile:
             return PoiRiskProfile(
                 terminus_class="Bank",
@@ -1380,7 +1381,7 @@ async def test_run_analysis_espone_i_campi_istat_e_nasconde_il_grezzo() -> None:
                 sparql_paths=["Bank → havingHazard → Bank_robbery"],
             )
 
-    async def _poi_source_roma(bbox: Bbox, citta: str) -> list[Poi]:
+    async def _poi_source_rome(bbox: Bbox, citta: str) -> list[Poi]:
         return [
             {
                 "id": "node/1",
@@ -1393,46 +1394,46 @@ async def test_run_analysis_espone_i_campi_istat_e_nasconde_il_grezzo() -> None:
             }
         ]
 
-    async def _geo_source_roma(citta: str, zona: str) -> GeoResult:
+    async def _geo_source_rome(citta: str, zona: str) -> GeoResult:
         return GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50))
 
     resp = await run_analysis(
         "Roma",
         "Colosseo",
-        executor=_FakeProfilerRoma(),
+        executor=_FakeProfilerRome(),
         llm_client=FakeLLMClient(),
-        poi_source=_poi_source_roma,
-        geo_source=_geo_source_roma,
+        poi_source=_poi_source_rome,
+        geo_source=_geo_source_rome,
         istat_context_enabled=True,
     )
     assert resp.istat_attivo is True
     assert resp.narrativa_grezza is not None
-    corpo = resp.model_dump()
-    assert "narrativa_grezza" not in corpo and "controllo_istat" not in corpo
-    # #349: anche i POI del prompt sono solo per l'harness.
+    body = resp.model_dump()
+    assert "narrativa_grezza" not in body and "controllo_istat" not in body
+    # #349: the prompt's POIs are also for the harness only.
     assert resp.poi_nel_prompt is not None
-    assert "poi_nel_prompt" not in corpo
+    assert "poi_nel_prompt" not in body
 
 
-@pytest.mark.parametrize("acceso", [True, False], ids=["istat-acceso", "istat-spento"])
-async def test_run_analysis_inoltra_l_interruttore_a_build_poi_list(
-    acceso: bool, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("enabled", [True, False], ids=["istat-on", "istat-off"])
+async def test_run_analysis_forwards_the_switch_to_build_poi_list(
+    enabled: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """#346: ``run_analysis`` (braccio sincrono di valutazione) condivide
-    ``_build_poi_list`` con la fase 1 della rotta — senza l'inoltro dell'interruttore,
-    ``poi[].istat`` non comparirebbe mai in questo percorso."""
+    """#346: ``run_analysis`` (synchronous evaluation arm) shares
+    ``_build_poi_list`` with phase 1 of the route — without forwarding the switch,
+    ``poi[].istat`` would never appear on this path."""
     from crime_risk_analyzer import orchestrator
-    from crime_risk_analyzer.rag.grounding import ground as ground_reale
+    from crime_risk_analyzer.rag.grounding import ground as real_ground
 
-    dati = istat_poi(BANKROB)
+    data = istat_poi(BANKROB)
 
-    def _ground_con_istat(ctx: RetrievalContext) -> GroundedContext:
-        grounded = ground_reale(ctx)
+    def _ground_with_istat(ctx: RetrievalContext) -> GroundedContext:
+        grounded = real_ground(ctx)
         for vr in grounded["validated_risks"]:
-            vr["istat"] = dati
+            vr["istat"] = data
         return grounded
 
-    monkeypatch.setattr(orchestrator, "ground", _ground_con_istat)
+    monkeypatch.setattr(orchestrator, "ground", _ground_with_istat)
     out = await run_analysis(
         "Roma",
         "Colosseo",
@@ -1440,23 +1441,23 @@ async def test_run_analysis_inoltra_l_interruttore_a_build_poi_list(
         llm_client=_FakeLLMClient(),
         poi_source=_poi_source,
         geo_source=_geo_source,
-        istat_context_enabled=acceso,
+        istat_context_enabled=enabled,
     )
-    assert (out.poi[0].istat is not None) is acceso
+    assert (out.poi[0].istat is not None) is enabled
 
 
-# --- contratto dell'area: cerchio (center/radius_m) OPPURE citta + zona ---
+# --- area contract: circle (center/radius_m) OR citta + zona ---
 
 
-def test_analyze_request_centro_e_raggio() -> None:
+def test_analyze_request_center_and_radius() -> None:
     req = AnalyzeRequest(center=Center(lat=41.9, lon=12.5), radius_m=500.0)
     assert req.is_circle is True
     assert req.center is not None and req.center.lat == 41.9
     assert req.radius_m == 500.0
 
 
-def test_analyze_request_citta_e_zona() -> None:
-    """La seconda modalita' sono i DUE campi citta + zona, senza geometria."""
+def test_analyze_request_citta_and_zona() -> None:
+    """The second mode is the TWO fields citta + zona, without geometry."""
     req = AnalyzeRequest(citta="Roma", zona="Colosseo")
     assert req.is_circle is False
     assert req.citta == "Roma"
@@ -1465,15 +1466,15 @@ def test_analyze_request_citta_e_zona() -> None:
     assert req.radius_m is None
 
 
-def test_analyze_request_citta_e_zona_ripulite_dagli_spazi() -> None:
-    """Gli spazi ai bordi non entrano nella query Nominatim ne' nella cache."""
+def test_analyze_request_citta_and_zona_stripped_of_spaces() -> None:
+    """Edge spaces do not enter the Nominatim query nor the cache."""
     req = AnalyzeRequest(citta="  Roma ", zona=" Colosseo  ")
     assert req.citta == "Roma"
     assert req.zona == "Colosseo"
 
 
-def test_analyze_request_due_modalita_insieme_respinte() -> None:
-    """Cerchio e citta/zona insieme: ambiguo su QUALE area analizzare -> respinto."""
+def test_analyze_request_two_modes_together_rejected() -> None:
+    """Circle and citta/zona together: ambiguous about WHICH area -> rejected."""
     with pytest.raises(ValidationError):
         AnalyzeRequest(
             center=Center(lat=41.9, lon=12.5),
@@ -1483,31 +1484,31 @@ def test_analyze_request_due_modalita_insieme_respinte() -> None:
         )
 
 
-@pytest.mark.parametrize("vuoto", ["", "   "])
-def test_analyze_request_cerchio_con_campi_testuali_vuoti_e_un_cerchio(
-    vuoto: str,
+@pytest.mark.parametrize("empty", ["", "   "])
+def test_analyze_request_circle_with_empty_text_fields_is_a_circle(
+    empty: str,
 ) -> None:
-    """Un campo testuale vuoto o di soli spazi conta come ASSENTE.
+    """An empty or whitespace-only text field counts as ABSENT.
 
-    Un client che serializza il form con le caselle vuote non sta chiedendo una
-    seconda modalita': il body resta un cerchio valido.
+    A client that serializes the form with empty boxes is not asking for a second
+    mode: the body stays a valid circle.
     """
     req = AnalyzeRequest(
-        center=Center(lat=41.9, lon=12.5), radius_m=500.0, citta=vuoto, zona=vuoto
+        center=Center(lat=41.9, lon=12.5), radius_m=500.0, citta=empty, zona=empty
     )
     assert req.is_circle is True
     assert req.citta is None
     assert req.zona is None
 
 
-def test_analyze_request_campi_testuali_tutti_vuoti_senza_cerchio_respinti() -> None:
-    """Vuoti = assenti: senza cerchio non resta alcuna modalita' -> respinto."""
+def test_analyze_request_all_text_fields_empty_without_circle_rejected() -> None:
+    """Empty = absent: without a circle no mode is left -> rejected."""
     with pytest.raises(ValidationError):
         AnalyzeRequest(citta="  ", zona="")
 
 
-def test_analyze_request_cerchio_e_un_solo_campo_testuale_respinto() -> None:
-    """Anche un solo campo testuale accanto al cerchio e' una seconda modalita'."""
+def test_analyze_request_circle_and_a_single_text_field_rejected() -> None:
+    """Even a single text field next to the circle is a second mode."""
     with pytest.raises(ValidationError):
         AnalyzeRequest(center=Center(lat=41.9, lon=12.5), radius_m=500.0, citta="Roma")
 
@@ -1516,113 +1517,113 @@ def test_analyze_request_cerchio_e_un_solo_campo_testuale_respinto() -> None:
     ("citta", "zona"),
     [("Roma", None), (None, "Colosseo"), ("Roma", "   "), ("  ", "Colosseo")],
 )
-def test_analyze_request_citta_o_zona_mancante_respinta(
+def test_analyze_request_citta_or_zona_missing_rejected(
     citta: str | None, zona: str | None
 ) -> None:
-    """Servono ENTRAMBI i campi: una zona senza citta' (o viceversa) non e' un'area.
+    """BOTH fields are needed: a zone without a city (or vice versa) is not an area.
 
-    Una sola meta' finirebbe a Nominatim come query ambigua ("Colosseo" in tutta
-    Italia) o troppo larga (una citta' intera): meglio un 422 che un'area diversa
-    da quella che l'utente crede di aver chiesto.
+    Only one half would end up at Nominatim as an ambiguous query ("Colosseo" in all
+    of Italy) or too wide (a whole city): better a 422 than an area different from
+    the one the user believes they asked for.
     """
     with pytest.raises(ValidationError):
         AnalyzeRequest(citta=citta, zona=zona)
 
 
-def test_analyze_request_citta_fuori_dai_suggerimenti_accettata() -> None:
-    """Nessuna allowlist (#191): ``supported_cities`` suggerisce, non vincola."""
+def test_analyze_request_citta_outside_the_suggestions_accepted() -> None:
+    """No allowlist (#191): ``supported_cities`` suggests, does not constrain."""
     citta = "Matera"
     assert citta not in get_settings().supported_cities
     req = AnalyzeRequest(citta=citta, zona="Sassi")
     assert req.citta == citta
 
 
-def test_analyze_request_citta_troppo_lunga_respinta() -> None:
-    """max_length=100 su citta: un nome di comune ci sta ampiamente (#170)."""
+def test_analyze_request_citta_too_long_rejected() -> None:
+    """max_length=100 on citta: a municipality name fits comfortably (#170)."""
     AnalyzeRequest(citta="x" * 100, zona="Centro")
     with pytest.raises(ValidationError):
         AnalyzeRequest(citta="x" * 101, zona="Centro")
 
 
-def test_analyze_request_strip_prima_del_tetto_di_lunghezza() -> None:
-    """Il tetto vale sul valore RIPULITO: gli spazi ai bordi non contano.
+def test_analyze_request_strip_before_the_length_cap() -> None:
+    """The cap applies to the STRIPPED value: edge spaces do not count.
 
-    ``"Roma"`` seguito da 100 spazi e' "Roma"; e una casella di soli spazi, per
-    quanto lunga, resta una casella vuota accanto al cerchio, non un 422.
+    ``"Roma"`` followed by 100 spaces is "Roma"; and a whitespace-only box, however
+    long, stays an empty box next to the circle, not a 422.
     """
     req = AnalyzeRequest(citta="Roma" + " " * 100, zona="Colosseo" + " " * 200)
     assert (req.citta, req.zona) == ("Roma", "Colosseo")
 
-    cerchio = AnalyzeRequest(
+    circle = AnalyzeRequest(
         center=Center(lat=41.9, lon=12.5), radius_m=500.0, citta=" " * 101
     )
-    assert cerchio.is_circle is True
-    assert cerchio.citta is None
+    assert circle.is_circle is True
+    assert circle.citta is None
 
 
-def test_analyze_request_zona_troppo_lunga_respinta() -> None:
-    """max_length chiude la superficie free-text verso Nominatim e _CACHE (#170)."""
+def test_analyze_request_zona_too_long_rejected() -> None:
+    """max_length closes the free-text surface towards Nominatim and _CACHE (#170)."""
     with pytest.raises(ValidationError):
         AnalyzeRequest(citta="Roma", zona="x" * 201)
 
 
-def test_analyze_request_nessuna_modalita_respinta() -> None:
-    """Non esiste un'area di default: un body vuoto e' un errore."""
+def test_analyze_request_no_mode_rejected() -> None:
+    """There is no default area: an empty body is an error."""
     with pytest.raises(ValidationError):
         AnalyzeRequest()
 
 
-def test_analyze_request_cerchio_incompleto_respinto() -> None:
-    """Il centro da solo non e' un cerchio: servono entrambi i campi."""
+def test_analyze_request_incomplete_circle_rejected() -> None:
+    """The centre alone is not a circle: both fields are needed."""
     with pytest.raises(ValidationError):
         AnalyzeRequest(center=Center(lat=41.9, lon=12.5))
 
 
-def test_analyze_request_raggio_sotto_il_minimo_respinto() -> None:
+def test_analyze_request_radius_below_the_minimum_rejected() -> None:
     with pytest.raises(ValidationError):
         AnalyzeRequest(center=Center(lat=41.9, lon=12.5), radius_m=1.0)
 
 
-def test_analyze_request_raggio_sopra_il_massimo_respinto() -> None:
+def test_analyze_request_radius_above_the_maximum_rejected() -> None:
     with pytest.raises(ValidationError):
         AnalyzeRequest(center=Center(lat=41.9, lon=12.5), radius_m=50_000.0)
 
 
-def test_baseline_request_centro_raggio_e_tipo_poi() -> None:
+def test_baseline_request_center_radius_and_tipo_poi() -> None:
     req = BaselineRequest(
         center=Center(lat=41.9, lon=12.5), radius_m=500.0, tipo_poi="Bank"
     )
     assert req.tipo_poi == "Bank"
 
 
-def test_analyze_request_surface_is_cerchio_or_citta_zona() -> None:
-    """La fase 1 chiede DOVE (l'area), non cosa raccontare (#292/#318).
+def test_analyze_request_surface_is_circle_or_citta_zona() -> None:
+    """Phase 1 asks WHERE (the area), not what to tell (#292/#318).
 
-    L'area arriva in una delle DUE modalita' che coesistono — ``center``+``radius_m``
-    (cerchio disegnato) oppure ``citta``+``zona`` (i due campi testuali) — e il
-    validator di ``_AreaRequest`` impone che il body ne porti esattamente una.
+    The area arrives in one of the TWO modes that coexist — ``center``+``radius_m``
+    (drawn circle) or ``citta``+``zona`` (the two text fields) — and the validator of
+    ``_AreaRequest`` requires the body to carry exactly one.
 
-    ``domanda`` resta fuori: senza chiamata LLM su questa rotta non c'e' prompt
-    in cui iniettarla, e tenerla nel contratto significava dichiarare un input
-    che il server accettava e ignorava — la specie di campo che un client
-    riempie credendo di ottenere qualcosa. Vive in ``ZoneNarrativeRequest``, la
-    richiesta che porta davvero il testo al modello. L'insieme esatto tiene fuori
-    anche il ritorno di un ``tipo_poi``/``score`` per la strada del «tanto e'
-    opzionale»."""
+    ``domanda`` stays out: without an LLM call on this route there is no prompt in
+    which to inject it, and keeping it in the contract meant declaring an input that
+    the server accepted and ignored — the kind of field a client fills in believing
+    to get something. It lives in ``ZoneNarrativeRequest``, the request that really
+    carries the text to the model. The exact set also keeps out the return of a
+    ``tipo_poi``/``score`` by way of the «after all it's optional»."""
     assert set(AnalyzeRequest.model_fields) == {"center", "radius_m", "citta", "zona"}
 
 
-def test_baseline_request_surface_is_cerchio_or_citta_zona_tipo_poi() -> None:
-    """Guardia sull'asimmetria iso-input fra i due bracci (#263).
+def test_baseline_request_surface_is_circle_or_citta_zona_tipo_poi() -> None:
+    """Guard on the iso-input asymmetry between the two arms (#263).
 
-    ``BaselineRequest`` porta ``tipo_poi`` ma non ``domanda``; ``ZoneNarrativeRequest``
-    (fase 2 del sistema completo, in ``analyze_narrative.py``) porta ``domanda`` ma
-    non ``tipo_poi``. Per un confronto ablation davvero iso-input i due bracci
-    dovrebbero accettare gli stessi parametri — oggi non è così: asimmetria
-    accettata e documentata (#263, chiusa). Questo test rende il gap verificabile
-    invece che solo descritto: se un
-    domani ``domanda`` compare qui (o ``tipo_poi`` sparisce), va aggiornato insieme
-    ai docstring di ``BaselineRequest``/``ZoneNarrativeRequest``."""
+    ``BaselineRequest`` carries ``tipo_poi`` but not ``domanda``;
+    ``ZoneNarrativeRequest`` (phase 2 of the full system, in
+    ``analyze_narrative.py``) carries ``domanda`` but not ``tipo_poi``. For a truly
+    iso-input ablation comparison the two arms should accept the same
+    parameters — today they do not: an accepted and documented asymmetry (#263,
+    closed). This test makes the gap verifiable instead of merely described: if
+    one day ``domanda`` appears here (or ``tipo_poi`` disappears), it must be
+    updated together with the docstrings of
+    ``BaselineRequest``/``ZoneNarrativeRequest``."""
     assert set(BaselineRequest.model_fields) == {
         "center",
         "radius_m",
@@ -1632,26 +1633,26 @@ def test_baseline_request_surface_is_cerchio_or_citta_zona_tipo_poi() -> None:
     }
 
 
-# --- #184: guardia anti-scoring estesa al contratto di risposta /analyze ---
-# Stesso pattern exact-set di #118 (test_risk.py::PoiRiskProfile): l'insieme dei
-# campi e' blindato, cosi' un futuro campo di scoring numerico di pericolosita'
-# (es. ``score``/``risk_level``/``livello_rischio``) fa fallire il test e forza
-# una revisione cosciente del vincolo legale (_project.md §Vincoli).
+# --- #184: anti-scoring guard extended to the /analyze response contract ---
+# Same exact-set pattern as #118 (test_risk.py::PoiRiskProfile): the set of the
+# fields is locked down, so a future numeric danger-scoring field
+# (e.g. ``score``/``risk_level``/``livello_rischio``) fails the test and forces
+# a conscious review of the legal constraint (_project.md §Vincoli).
 
 
 def test_analyze_response_has_no_numeric_danger_scoring_field() -> None:
-    """Contratto della risposta ``/analyze``: nessuno scoring numerico di
-    pericolosita' (_project.md §Vincoli). I campi numerici presenti
-    (``latenza_ms``/``tokens_input``/``tokens_output``) misurano costo e
-    performance della run, NON la magnitudo del pericolo: sono legittimi. Un
-    campo di rating aggiunto qui romperebbe l'insieme esatto.
+    """``/analyze`` response contract: no numeric danger scoring
+    (_project.md §Vincoli). The numeric fields present
+    (``latenza_ms``/``tokens_input``/``tokens_output``) measure the cost and
+    performance of the run, NOT the magnitude of danger: they are legitimate. A
+    rating field added here would break the exact set.
 
-    ``contesto_hash`` (#242) e' un digest opaco di IDENTITA' del contesto, non
-    una misura: non gradua nulla e non e' confrontabile per ordine.
+    ``contesto_hash`` (#242) is an opaque IDENTITY digest of the context, not a
+    measure: it grades nothing and is not comparable by order.
 
-    ``zona_geo`` (#260) porta le coordinate della zona geocodificata (centro +
-    bbox), non un punteggio: serve solo a ricentrare la mappa. ``messaggio``
-    e' testo esplicativo, non un dato quantitativo."""
+    ``zona_geo`` (#260) carries the coordinates of the geocoded zone (centre +
+    bbox), not a score: it only serves to re-centre the map. ``messaggio``
+    is explanatory text, not a quantitative datum."""
     assert set(AnalyzeResponse.model_fields) == {
         "citta",
         "zona_normalizzata",
@@ -1680,10 +1681,10 @@ def test_analyze_response_has_no_numeric_danger_scoring_field() -> None:
 
 
 def test_poi_out_has_no_numeric_danger_scoring_field() -> None:
-    """Il POI dello schema ``/analyze`` porta coordinate (``lat``/``lon``,
-    numeriche legittime) e un ``confidence`` QUALITATIVO (forza probatoria, non
-    pericolosita'). L'insieme esatto impedisce di intrufolare un punteggio di
-    rischio per-POI (es. ``risk_score``), vietato da _project.md §Vincoli."""
+    """The POI of the ``/analyze`` schema carries coordinates (``lat``/``lon``,
+    legitimately numeric) and a QUALITATIVE ``confidence`` (evidential strength, not
+    danger). The exact set prevents sneaking in a per-POI risk score (e.g.
+    ``risk_score``), forbidden by _project.md §Vincoli."""
     assert set(PoiOut.model_fields) == {
         "id",
         "name",
@@ -1694,29 +1695,30 @@ def test_poi_out_has_no_numeric_danger_scoring_field() -> None:
         "sparql_path",
         "terminus_label_it",
         "terminus_label_en",
-        # #256/#270: gli assi TERMINUS oltre agli hazard. Sono ELENCHI QUALITATIVI di
-        # entita' ancorate, nessun conteggio e nessuna gradazione: non aprono il
-        # vettore dello scoring che questo test difende.
+        # #256/#270: the TERMINUS axes besides the hazards. They are QUALITATIVE
+        # LISTS of anchored entities, no count and no gradation: they do not open
+        # the scoring vector this test defends.
         "critical_events",
         "vulnerabilities",
         "stakeholders",
-        # #346: dati ISTAT gia' calcolati nel grounding (tassi/conteggi del comune
-        # o della provincia, mai del POI), non un punteggio derivato dal POI stesso.
-        # Il sottoalbero (IstatPoi/IstatRow/Link) ha la propria guardia
-        # exact-set in test_istat_subtree_has_no_numeric_danger_scoring_field.
+        # #346: ISTAT data already computed in the grounding (rates/counts of the
+        # municipality or province, never of the POI), not a score derived from
+        # the POI itself.
+        # The subtree (IstatPoi/IstatRow/Link) has its own exact-set guard
+        # in test_istat_subtree_has_no_numeric_danger_scoring_field.
         "istat",
     }
 
 
 def test_istat_subtree_has_no_numeric_danger_scoring_field() -> None:
-    """Exact-set dei campi di ``IstatPoi``/``IstatRow``/``Link`` (#346).
+    """Exact set of the fields of ``IstatPoi``/``IstatRow``/``Link`` (#346).
 
-    Un campo ``rapporto``/``peso``/punteggio derivato aggiunto a uno di questi
-    modelli finirebbe in OGNI risposta di ``/analyze`` (via ``PoiOut.istat``),
-    contro D9/O6: il peso per l'ordine dei rischi resta calcolato dal FRONTEND
-    dai tassi gia' pubblicati (O10), mai serializzato qui. ``model_computed_fields``
-    vuoti: nessun ``@computed_field`` potrebbe aggirare l'exact-set sui
-    ``model_fields`` dichiarati."""
+    A derived ``rapporto``/``peso``/score field added to one of these models would
+    end up in EVERY ``/analyze`` response (via ``PoiOut.istat``), against D9/O6: the
+    weight for the risk ordering stays computed by the FRONTEND from the already
+    published rates (O10), never serialized here. Empty ``model_computed_fields``:
+    no ``@computed_field`` could bypass the exact set on the declared
+    ``model_fields``."""
     assert set(IstatPoi.model_fields) == {"cornice", "righe"}
     assert IstatPoi.model_computed_fields == {}
     assert set(IstatRow.model_fields) == {
@@ -1749,13 +1751,13 @@ def test_istat_subtree_has_no_numeric_danger_scoring_field() -> None:
 
 
 def test_poi_out_ontology_axes_reject_numeric_value() -> None:
-    """Vettore oltre l'exact-set: cambio di TIPO di un asse in un numero.
+    """Vector beyond the exact set: change of an axis's TYPE into a number.
 
-    L'insieme esatto intercetta l'AGGIUNTA di un campo, non la sostituzione di una
-    lista qualitativa con un conteggio — che sarebbe scoring travestito (#184 aveva
-    riconosciuto lo stesso vettore per la ``confidence``). Pydantic lo rifiuta: qui
-    lo si pinna, cosi' un refactor futuro non lo apre in silenzio."""
-    for asse in ("critical_events", "vulnerabilities", "stakeholders"):
+    The exact set catches the ADDITION of a field, not the replacement of a
+    qualitative list with a count — which would be scoring in disguise (#184 had
+    recognized the same vector for ``confidence``). Pydantic rejects it: here it is
+    pinned, so a future refactor does not open it silently."""
+    for axis in ("critical_events", "vulnerabilities", "stakeholders"):
         with pytest.raises(ValidationError):
             PoiOut(
                 id="1",
@@ -1763,16 +1765,16 @@ def test_poi_out_ontology_axes_reject_numeric_value() -> None:
                 terminus_class="Bank",
                 lat=41.9,
                 lon=12.5,
-                **{asse: 3},  # pyright: ignore[reportArgumentType]
+                **{axis: 3},  # pyright: ignore[reportArgumentType]
             )
 
 
 def test_ontology_item_has_no_numeric_danger_scoring_field() -> None:
-    """L'entita' di un asse non-hazard porta nome, citazione ed etichette.
+    """The entity of a non-hazard axis carries name, citation and labels.
 
-    Nessun campo numerico e nessun livello: un ``peso``/``gravita'`` qui sarebbe
-    esattamente lo scoring di pericolosita' vietato (_project.md §Vincoli), ed e' il
-    posto piu' probabile dove intrufolarlo ora che gli assi sono quattro."""
+    No numeric field and no level: a ``peso``/``gravita'`` here would be exactly the
+    forbidden danger scoring (_project.md §Vincoli), and it is the most likely place
+    to sneak it in now that the axes are four."""
     from crime_risk_analyzer.orchestrator import OntologyItem
 
     assert set(OntologyItem.model_fields) == {
@@ -1784,10 +1786,10 @@ def test_ontology_item_has_no_numeric_danger_scoring_field() -> None:
 
 
 def test_poi_out_confidence_rejects_numeric_value() -> None:
-    """Vettore #184 oltre l'exact-set (cambio di TIPO, non aggiunta di campo): il
-    ``confidence`` del POI e' categoriale (Literal). Un valore NUMERICO e'
-    rifiutato, cosi' non puo' diventare un punteggio di rischio per-POI travestito
-    (_project.md §Vincoli): il test diventa rosso se il campo passasse a float."""
+    """#184 vector beyond the exact set (change of TYPE, not addition of a field): the
+    POI's ``confidence`` is categorical (Literal). A NUMERIC value is rejected, so it
+    cannot become a per-POI risk score in disguise (_project.md §Vincoli): the test
+    turns red if the field switched to float."""
     with pytest.raises(ValidationError):
         PoiOut(
             id="1",

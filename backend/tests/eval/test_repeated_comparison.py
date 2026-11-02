@@ -1,4 +1,4 @@
-"""Report esteso confronto modelli con K ripetizioni (#157), offline."""
+"""Extended model-comparison report with K repetitions (#157), offline."""
 
 from __future__ import annotations
 
@@ -67,7 +67,7 @@ def _rec(
         ),
         narrativa=narrativa,
         n_poi=1,
-        # #349: senza ``poi_nel_prompt`` la coppia C3 non si dichiara isolata.
+        # #349: without ``poi_nel_prompt`` the C3 pair is not declared isolated.
         poi_nel_prompt=poi_nel_prompt if poi_nel_prompt is not None else ["1"],
         provenance=Provenance(
             code_commit="c",
@@ -89,7 +89,7 @@ def _arm(
     *,
     mode: Mode = "analyze",
 ) -> list[RunRecord]:
-    """3 ripetizioni su una zona con leggera variazione → std > 0."""
+    """3 repetitions on a zone with slight variation -> std > 0."""
     g, h, lat, cost = base
     return [
         _rec(
@@ -125,15 +125,15 @@ def test_winner_markdown_reports_winner_and_deciding_axis() -> None:
     md = winner_markdown(w, k=3, folded_a=claude, folded_b=groq)
     assert "hallucination" in md
     assert "K=3" in md
-    # E: label ammorbidito, esplorativo — NON la parola forte "Vincitore".
+    # E: softened label, exploratory -- NOT the strong word "Vincitore".
     assert "Vincitore" not in md
     assert "Esito del criterio proxy" in md
-    # verdetto sul modello giusto, non tautologico (claude e' anche negli header).
+    # verdict on the right model, not tautological (claude is also in the headers).
     assert "`claude` ha scorato meglio" in md
     assert "`groq` ha scorato meglio" not in md
-    # E: il caveat di scope precede il verdetto (indice minore nel testo).
+    # E: the scope caveat precedes the verdict (lower index in the text).
     assert md.index("proxy testuale") < md.index("ha scorato meglio")
-    # F: base campionaria accanto al verdetto (3 rip valide su entrambi i bracci).
+    # F: sampling basis next to the verdict (3 valid reps on both arms).
     assert "n_reps validi per zona" in md
     assert "`claude`: 3-3" in md
 
@@ -165,15 +165,15 @@ def test_variance_markdown_shows_mean_and_std() -> None:
     assert "±" in md
     assert "grounding" in md
     assert "Roma" in md
-    # onesta' del report (G): n_reps/n_totali per braccio, non solo media±std.
-    # _arm produce 3 ripetizioni valide su 3 per entrambi i bracci → 3/3.
+    # honesty of the report (G): n_reps/n_totals per arm, not just mean±std.
+    # _arm produces 3 valid repetitions out of 3 for both arms -> 3/3.
     assert "n_claude" in md
     assert "n_groq" in md
     assert "3/3" in md
 
 
 def test_variance_markdown_shows_reps_count_when_dropped() -> None:
-    """Zona con 1 rep ERROR su 3 (braccio A) → 2/3, non std=0 senza contesto (G)."""
+    """Zone with 1 ERROR rep out of 3 (arm A) -> 2/3, not std=0 without context (G)."""
     claude_recs = [
         _rec(
             "claude-exp",
@@ -219,12 +219,13 @@ def test_variance_markdown_shows_reps_count_when_dropped() -> None:
         claude.mean_records, groq.mean_records, label_a="claude", label_b="groq"
     )
     md = variance_markdown(cmp, claude, groq, k=3)
-    assert "2/3" in md  # braccio claude: 2 valide su 3
-    assert "3/3" in md  # braccio groq: 3 valide su 3, nessuno scarto
+    assert "2/3" in md  # claude arm: 2 valid out of 3
+    assert "3/3" in md  # groq arm: 3 valid out of 3, none discarded
 
 
 def test_variance_markdown_shows_nd_when_only_one_valid_repetition() -> None:
-    """Con 1 sola ripetizione valida su 3, la std non e' definita: n/d, non ± 0.000."""
+    """With only 1 valid repetition out of 3, the std is not defined: n/d, not ±
+    0.000."""
     claude_recs = [
         _rec(
             "claude-exp",
@@ -273,29 +274,29 @@ def test_variance_markdown_shows_nd_when_only_one_valid_repetition() -> None:
     data_rows = [
         line for line in md.splitlines() if line.startswith("| ") and "---" not in line
     ]
-    first_zone_row = data_rows[1]  # riga 0 e' l'header della tabella markdown
+    first_zone_row = data_rows[1]  # row 0 is the header of the markdown table
     assert "n/d" in first_zone_row
-    # cella specifica del braccio claude (n_reps=1): niente falso "0.900 ± 0.000".
+    # specific cell of the claude arm (n_reps=1): no false "0.900 ± 0.000".
     cells = [c.strip() for c in first_zone_row.strip().strip("|").split("|")]
-    # ordine colonne: citta, zona, poi per ogni metrica (grounding, hallucination,
-    # latency_ms, cost_usd) la coppia claude/groq -> indici 2,4,6,8 = braccio claude.
+    # column order: citta, zona, then for each metric (grounding, hallucination,
+    # latency_ms, cost_usd) the claude/groq pair -> indices 2,4,6,8 = claude arm.
     assert cells[2] == "n/d"  # grounding_claude
     assert cells[4] == "n/d"  # hallucination_claude
     assert cells[6] == "n/d"  # latency_ms_claude
     assert cells[8] == "n/d"  # cost_usd_claude
-    # il braccio groq (n_reps=3) resta media ± std, non "n/d".
+    # the groq arm (n_reps=3) stays mean ± std, not "n/d".
     assert cells[3] != "n/d"
     assert "±" in cells[3]
 
 
 def test_variance_markdown_cell_values_match_getter_mapping() -> None:
-    """Cella specifica con valore atteso: cattura uno scambio in _GETTERS/_STD_GETTERS.
+    """Specific cell with expected value: catches a swap in _GETTERS/_STD_GETTERS.
 
-    Le 4 metriche hanno media E deviazione std TUTTE DISTINTE tra loro: uno
-    scambio di colonna/metrica in _GETTERS (medie) o _STD_GETTERS (std) — es.
-    hallucination che legge grounding — cambia il valore stampato in almeno
-    una cella nota. cost_usd VARIA tra ripetizioni (a differenza di _arm, dove
-    e' costante): la sua colonna std deve risultare diversa da 0, verificabile.
+    The 4 metrics have mean AND std deviation ALL DISTINCT from each other: a
+    column/metric swap in _GETTERS (means) or _STD_GETTERS (std) -- e.g.
+    hallucination reading grounding -- changes the printed value in at least
+    one known cell. cost_usd VARIES across repetitions (unlike _arm, where
+    it is constant): its std column must come out different from 0, verifiable.
     """
     recs = [
         _rec(
@@ -324,8 +325,8 @@ def test_variance_markdown_cell_values_match_getter_mapping() -> None:
         claude.mean_records, groq.mean_records, label_a="claude", label_b="groq"
     )
     md = variance_markdown(cmp, claude, groq, k=3)
-    # media/std attese (calcolate con statistics.pstdev), tutte distinte tra
-    # loro: grounding=0.900±0.016, hallucination=0.100±0.041, latency=3000±8,
+    # expected mean/std (computed with statistics.pstdev), all distinct from
+    # each other: grounding=0.900±0.016, hallucination=0.100±0.041, latency=3000±8,
     # cost=0.011000±0.000816.
     assert "0.900 ± 0.016" in md
     assert "0.100 ± 0.041" in md
@@ -335,7 +336,7 @@ def test_variance_markdown_cell_values_match_getter_mapping() -> None:
 
 
 def test_variance_markdown_shows_fallback_count() -> None:
-    """Zona con 1 OK + 2 FALLBACK (braccio A) → colonna n_fallback = 2 (#165.3)."""
+    """Zone with 1 OK + 2 FALLBACK (arm A) -> n_fallback column = 2 (#165.3)."""
     claude_recs = [
         _rec(
             "claude-exp",
@@ -382,7 +383,7 @@ def test_variance_markdown_shows_fallback_count() -> None:
     md = variance_markdown(cmp, fclaude, fgroq, k=3)
     assert "n_fallback_claude" in md
     assert "n_fallback_groq" in md
-    # la cella fallback del braccio claude vale 2; groq 0.
+    # the fallback cell of the claude arm is 2; groq 0.
     row = next(line for line in md.splitlines() if line.startswith("| Roma "))
     assert row.rstrip().endswith("| 2 | 0 |")
 
@@ -400,7 +401,7 @@ def test_build_repeated_report_writes_md_and_json(tmp_path: Path) -> None:
     )
     assert md_path.exists() and json_path.exists()
     md = md_path.read_text(encoding="utf-8")
-    # tabelle #33 presenti + sezioni nuove
+    # #33 tables present + new sections
     assert "grounding_claude" in md
     assert "±" in md
     assert "claude" in md.lower()
@@ -408,20 +409,21 @@ def test_build_repeated_report_writes_md_and_json(tmp_path: Path) -> None:
     assert data["winner"]["winner"] == "claude"
     assert data["winner"]["deciding_axis"] == "hallucination"
     assert data["variance"]["k"] == 3
-    assert len(data["variance"]["arm_a"]) == 1  # una zona
+    assert len(data["variance"]["arm_a"]) == 1  # one zone
     assert "comparison" in data
 
 
 def test_repeated_report_of_the_c3_pair_declares_the_variable_and_decides(
     tmp_path: Path,
 ) -> None:
-    """#236: il report che porta il verdetto dichiara cosa isola, e lo emette.
+    """#236: the report that carries the verdict declares what it isolates, and emits
+    it.
 
-    E' il difetto che il braccio nuovo chiude: contro la ``baseline`` il verdetto
-    veniva TRATTENUTO (#231), perche' un braccio muto rende vacui gli assi di
-    qualita'. Qui generano entrambi, quindi il criterio lessicografico ha
-    materiale su cui pronunciarsi — e il lettore trova in cima la variabile
-    manipolata, non solo un delta.
+    It is the defect that the new arm closes: against ``baseline`` the verdict
+    was WITHHELD (#231), because a mute arm makes the quality axes
+    vacuous. Here both generate, so the lexicographic criterion has
+    material to pronounce on -- and the reader finds at the top the manipulated
+    variable, not just a delta.
     """
     _write_arm(
         tmp_path,
@@ -454,12 +456,12 @@ def test_repeated_report_of_the_c3_pair_declares_the_variable_and_decides(
 
 
 def test_the_c3_verdict_never_falls_back_on_speed_or_cost(tmp_path: Path) -> None:
-    """Qualita' pari sulla coppia con/senza ontologia: nessun vincitore.
+    """Tied quality on the with/without-ontology pair: no winner.
 
-    Il braccio ablato riceve un prompt strutturalmente piu' corto, quindi e'
-    piu' rapido e piu' economico per costruzione: se lo spareggio scendesse su
-    latenza o costo, il report direbbe che togliere l'ontologia «vince» — un
-    verdetto sulla lunghezza del prompt travestito da verdetto sulla qualita'.
+    The ablated arm receives a structurally shorter prompt, so it is
+    faster and cheaper by construction: if the tie-break went down to
+    latency or cost, the report would say that removing the ontology "wins" -- a
+    verdict on prompt length disguised as a verdict on quality.
     """
     _write_arm(
         tmp_path,
@@ -495,11 +497,11 @@ def test_the_c3_verdict_never_falls_back_on_speed_or_cost(tmp_path: Path) -> Non
 
 
 def test_the_model_pair_still_breaks_ties_on_speed(tmp_path: Path) -> None:
-    """Non-regressione #157: fra due MODELLI latenza e costo restano spareggi.
+    """Non-regression #157: between two MODELS latency and cost stay tie-breaks.
 
-    Li' i due bracci ricevono lo STESSO prompt, quindi una differenza di latenza
-    e' una proprieta' del modello — un merito misurabile, non un artefatto della
-    lunghezza del testo inviato.
+    There the two arms receive the SAME prompt, so a latency difference
+    is a property of the model -- a measurable merit, not an artefact of the
+    length of the text sent.
     """
     _write_arm(
         tmp_path, _arm("claude-exp", "claude-sonnet-4-6", (0.80, 0.10, 3000, 0.012))
@@ -524,11 +526,11 @@ def test_the_model_pair_still_breaks_ties_on_speed(tmp_path: Path) -> None:
 def test_main_compare_repeated_dispatch_writes_report(
     tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:
-    """Dispatch main() per compare-repeated (gemello di compare, #157, M11).
+    """Dispatch main() for compare-repeated (twin of compare, #157, M11).
 
-    Guida ``eval.__main__.main`` con argv del sottocomando ``compare-repeated``:
-    dai run su disco (K ripetizioni per braccio) produce il report MD/JSON, con
-    ``winner`` presente nel JSON.
+    Drives ``eval.__main__.main`` with the argv of the ``compare-repeated`` subcommand:
+    from the runs on disk (K repetitions per arm) it produces the MD/JSON report, with
+    ``winner`` present in the JSON.
     """
     import sys
 
@@ -572,7 +574,8 @@ def test_main_compare_repeated_dispatch_writes_report(
 
 
 def test_end_to_end_fold_compare_winner(tmp_path: Path) -> None:
-    """run→disk→fold→compare→winner: Claude (piu' accurato) vince su hallucination."""
+    """run->disk->fold->compare->winner: Claude (more accurate) wins on
+    hallucination."""
     _write_arm(
         tmp_path, _arm("claude-exp", "claude-sonnet-4-6", (0.90, 0.10, 3000, 0.012))
     )
@@ -585,13 +588,13 @@ def test_end_to_end_fold_compare_winner(tmp_path: Path) -> None:
     )
     data = json.loads(json_path.read_text(encoding="utf-8"))
     assert data["winner"]["winner"] == "claude"
-    # varianza non nulla (le 3 ripetizioni variano)
+    # non-zero variance (the 3 repetitions vary)
     assert data["variance"]["arm_a"][0]["std"]["grounding"] > 0.0
     assert "Esito del criterio proxy" in md_path.read_text(encoding="utf-8")
 
 
 def test_build_repeated_report_default_stem_filename(tmp_path: Path) -> None:
-    """Senza --out/stem, il nome file di default e' <a>_vs_<b>_repeated.{md,json}."""
+    """Without --out/stem, the default file name is <a>_vs_<b>_repeated.{md,json}."""
     _write_arm(
         tmp_path, _arm("claude-exp", "claude-sonnet-4-6", (0.90, 0.10, 3000, 0.012))
     )
@@ -608,8 +611,8 @@ def test_build_repeated_report_default_stem_filename(tmp_path: Path) -> None:
 def test_build_repeated_report_all_error_zone_excluded_from_variance_table(
     tmp_path: Path,
 ) -> None:
-    """Zona tutta-ERROR in un braccio: niente crash, esclusa dalla tabella
-    varianza MD ma presente nel JSON con n_reps=0 e tra le zone escluse (#33)."""
+    """All-ERROR zone in an arm: no crash, excluded from the MD variance
+    table but present in the JSON with n_reps=0 and among the excluded zones (#33)."""
     ok_a = _arm("claude-exp", "claude-sonnet-4-6", (0.90, 0.10, 3000, 0.012))
     ok_b = _arm("groq-exp", GROQ_MODEL, (0.70, 0.20, 1000, 0.0006))
     all_error_a = [
@@ -667,8 +670,10 @@ def test_build_repeated_report_all_error_zone_excluded_from_variance_table(
 
 
 def test_report_flags_heterogeneous_k(tmp_path: Path) -> None:
-    """Bracci con K diverso (3 vs 2 rip sulla stessa zona) -> range + warning."""
-    claude = _arm("claude-exp", "claude-sonnet-4-6", (0.90, 0.10, 3000, 0.012))  # 3 rip
+    """Arms with different K (3 vs 2 reps on the same zone) -> range + warning."""
+    claude = _arm(
+        "claude-exp", "claude-sonnet-4-6", (0.90, 0.10, 3000, 0.012)
+    )  # 3 reps
     groq = [
         _rec(
             "groq-exp",
@@ -681,7 +686,7 @@ def test_report_flags_heterogeneous_k(tmp_path: Path) -> None:
             latency_ms=1000 + 10 * r,
             cost_usd=0.0006,
         )
-        for r in range(2)  # solo 2 ripetizioni
+        for r in range(2)  # only 2 repetitions
     ]
     _write_arm(tmp_path, claude)
     _write_arm(tmp_path, groq)
@@ -694,7 +699,7 @@ def test_report_flags_heterogeneous_k(tmp_path: Path) -> None:
 
 
 def test_variance_markdown_header_shows_k_range() -> None:
-    """variance_markdown con k_hi != k -> header col range."""
+    """variance_markdown with k_hi != k -> header with the range."""
     claude = fold_arm(_arm("c", "m", (0.90, 0.10, 3000, 0.012)))
     groq = fold_arm(_arm("g", "m", (0.70, 0.20, 1000, 0.0006)))
     cmp = compare_records(
@@ -705,7 +710,7 @@ def test_variance_markdown_header_shows_k_range() -> None:
 
 
 def test_build_repeated_report_deep_tie_break_on_latency(tmp_path: Path) -> None:
-    """hallucination/grounding pari a precisione di stampa → decide su latency_ms."""
+    """hallucination/grounding tied at print precision -> decides on latency_ms."""
     tied_a = [
         _rec(
             "claude-exp",
@@ -765,7 +770,7 @@ def test_build_repeated_report_refuses_overwrite_without_force(tmp_path: Path) -
             label_b="groq",
             stem="dup",
         )
-    # con force → sovrascrive senza sollevare
+    # with force -> overwrites without raising
     build_repeated_report(
         tmp_path,
         "claude-exp",
@@ -778,7 +783,7 @@ def test_build_repeated_report_refuses_overwrite_without_force(tmp_path: Path) -
 
 
 def _all_error_arm(experiment: str, model_id: str) -> list[RunRecord]:
-    """3 ripetizioni, entrambe le zone in ERROR: nessuna ripiega a un output usabile."""
+    """3 repetitions, both zones in ERROR: none folds to a usable output."""
     return [
         _rec(
             experiment,
@@ -800,7 +805,7 @@ def _all_error_arm(experiment: str, model_id: str) -> list[RunRecord]:
 def test_build_repeated_report_writes_report_and_raises_when_all_reps_degenerate(
     tmp_path: Path,
 ) -> None:
-    """#239: dopo il ripiegamento nessuna zona resta valida → report, non traceback."""
+    """#239: after the fold no zone remains valid -> report, not traceback."""
     _write_arm(tmp_path, _all_error_arm("claude-exp", "claude-sonnet-4-6"))
     _write_arm(tmp_path, _all_error_arm("groq-exp", GROQ_MODEL))
 
@@ -824,8 +829,8 @@ def test_build_repeated_report_writes_report_and_raises_when_all_reps_degenerate
 def test_build_repeated_report_still_raises_no_usable_output_if_report_write_fails(
     tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:
-    """#239 (follow-up review): un OSError nella scrittura non sostituisca
-    NoUsableOutputError, altrimenti il CLI perde l'exit code pulito.
+    """#239 (review follow-up): an OSError in the write must not replace
+    NoUsableOutputError, otherwise the CLI loses the clean exit code.
     """
     import crime_risk_analyzer.eval.repeated_comparison as repeated_mod
 
@@ -847,7 +852,7 @@ def test_build_repeated_report_still_raises_no_usable_output_if_report_write_fai
 def test_build_repeated_report_propagates_file_exists_error_from_report_write(
     tmp_path: Path,
 ) -> None:
-    """La guardia anti-sovrascrittura resta prioritaria anche su questo ramo."""
+    """The anti-overwrite guard stays prioritary also on this branch."""
     _write_arm(tmp_path, _all_error_arm("claude-exp", "claude-sonnet-4-6"))
     _write_arm(tmp_path, _all_error_arm("groq-exp", GROQ_MODEL))
     (tmp_path / "claude-exp_vs_groq-exp_repeated.md").write_text(
@@ -863,7 +868,7 @@ def test_build_repeated_report_propagates_file_exists_error_from_report_write(
 def test_main_compare_repeated_returns_1_on_no_usable_output(
     tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:
-    """#239: il comando CLI `compare-repeated` segnala il fallimento con exit 1."""
+    """#239: the CLI command `compare-repeated` signals the failure with exit 1."""
     import sys
 
     import crime_risk_analyzer.eval.__main__ as eval_main
@@ -887,17 +892,17 @@ def test_main_compare_repeated_returns_1_on_no_usable_output(
     assert (tmp_path / "claude-exp_vs_groq-exp_repeated.md").exists()
 
 
-# --- Verdetto trattenuto sul braccio muto (#231) ---------------------------
+# --- Withheld verdict on the mute arm (#231) ---------------------------
 #
-# Sulla prima run reale il report dichiarava vincitore il braccio `baseline`
-# (nessun LLM, narrativa vuota) sull'asse hallucination: 0.000 per assenza di
-# testo da giudicare. La vacuita' va letta sui record GREZZI, non su quelli
-# ripiegati: `repeat._mean_record` azzera sempre `narrativa` (la media di piu'
-# testi non esiste), quindi dedurla dal fold marcherebbe muto ogni braccio.
+# On the first real run the report declared the `baseline` arm winner
+# (no LLM, empty narrative) on the hallucination axis: 0.000 for absence of
+# text to judge. Vacuity must be read on the RAW records, not on the
+# folded ones: `repeat._mean_record` always zeroes `narrativa` (the mean of several
+# texts does not exist), so deducing it from the fold would mark every arm mute.
 
 
 def _silent_arm(experiment: str) -> list[RunRecord]:
-    """Braccio senza LLM: 3 ripetizioni OK, nessuna narrativa (by design)."""
+    """Arm without LLM: 3 OK repetitions, no narrative (by design)."""
     return [
         _rec(
             experiment,
@@ -939,19 +944,19 @@ def test_repeated_report_withholds_verdict_when_an_arm_never_generates(
     assert payload["winner"] is None
     assert payload["quality_verdict"]["applicable"] is False
     assert payload["quality_verdict"]["vacuous_arms"] == ["baseline"]
-    # #238: stesso encoding di write_comparison (ensure_ascii=False) — lo
-    # stesso testo non deve finire \u-escaped solo perche' scritto da qui.
+    # #238: same encoding as write_comparison (ensure_ascii=False) -- the
+    # same text must not end up \u-escaped just because it is written from here.
     assert "qualità" in json_path.read_text(encoding="utf-8")
-    # Reperto di review: quality_verdict vive SOLO al livello superiore, non
-    # duplicato anche dentro "comparison" (Comparison.quality_verdict lo
-    # includerebbe li' per costruzione se non fosse rimosso esplicitamente).
+    # Review finding: quality_verdict lives ONLY at the top level, not
+    # duplicated inside "comparison" too (Comparison.quality_verdict would
+    # include it there by construction if it were not explicitly removed).
     assert "quality_verdict" not in payload["comparison"]
 
 
 def test_repeated_report_still_declares_verdict_when_both_arms_generate(
     tmp_path: Path,
 ) -> None:
-    """Nessuna regressione sul confronto legittimo modello-vs-modello."""
+    """No regression on the legitimate model-vs-model comparison."""
     _write_arm(
         tmp_path, _arm("claude-exp", "claude-sonnet-4-6", (0.90, 0.10, 3000, 0.012))
     )
@@ -971,7 +976,7 @@ def test_repeated_report_still_declares_verdict_when_both_arms_generate(
 
 
 def _half_silent_arm(experiment: str) -> list[RunRecord]:
-    """Braccio che tace su Roma (OK, narrativa vuota) e parla su Milano."""
+    """Arm that is silent on Roma (OK, empty narrative) and speaks on Milano."""
     silent = [
         _rec(
             experiment,
@@ -1006,7 +1011,7 @@ def _half_silent_arm(experiment: str) -> list[RunRecord]:
 
 
 def _speaking_arm(experiment: str) -> list[RunRecord]:
-    """Braccio che parla su entrambe le zone, con hallucination peggiore."""
+    """Arm that speaks on both zones, with worse hallucination."""
     return [
         _rec(
             experiment,
@@ -1028,8 +1033,8 @@ def _speaking_arm(experiment: str) -> list[RunRecord]:
 def test_repeated_report_withholds_verdict_when_a_single_zone_is_vacuous(
     tmp_path: Path,
 ) -> None:
-    """Review C2: la zona muta abbassa la media di hallucination del braccio e
-    gli farebbe vincere l'asse primario senza alcun avviso."""
+    """Review C2: the mute zone lowers the hallucination mean of the arm and
+    would make it win the primary axis without any warning."""
     _write_arm(tmp_path, _speaking_arm("loud-exp"))
     _write_arm(tmp_path, _half_silent_arm("half-exp"))
     md_path, json_path = build_repeated_report(
@@ -1038,10 +1043,10 @@ def test_repeated_report_withholds_verdict_when_a_single_zone_is_vacuous(
     md = md_path.read_text(encoding="utf-8")
     assert "ha scorato meglio" not in md
     assert "NON APPLICABILE" in md
-    # #237: la prosa non deve promettere un esito operativo che non viene mai
-    # calcolato né stampato — "confrontabili" implicherebbe un confronto fatto.
-    # Case-insensitive: la stessa dicitura poteva sopravvivere altrove con
-    # capitalizzazione diversa (a inizio frase vs a metà frase).
+    # #237: the prose must not promise an operational outcome that is never
+    # computed nor printed -- "confrontabili" would imply a comparison made.
+    # Case-insensitive: the same wording could survive elsewhere with a
+    # different capitalization (at the start of a sentence vs mid-sentence).
     assert "restano confrontabili" not in md.lower()
     assert "non calcola né dichiara un esito" in md
     payload = json.loads(json_path.read_text(encoding="utf-8"))
@@ -1053,9 +1058,9 @@ def test_repeated_report_withholds_verdict_when_a_single_zone_is_vacuous(
 def test_repeated_report_keeps_operational_table_when_verdict_withheld(
     tmp_path: Path,
 ) -> None:
-    """La tabella dei valori operativi resta visibile col verdetto trattenuto:
-    nessun confronto è dichiarato su di essi (#237), ma i dati grezzi restano
-    leggibili."""
+    """The table of the operational values stays visible with the withheld verdict:
+    no comparison is declared on them (#237), but the raw data stay
+    readable."""
     _write_arm(
         tmp_path,
         _arm("analyze-exp", GROQ_MODEL, (0.84, 0.16, 22697, 0.005)),
@@ -1071,7 +1076,7 @@ def test_repeated_report_keeps_operational_table_when_verdict_withheld(
     )
     md = md_path.read_text(encoding="utf-8")
     assert "Costo e latenza (metriche operative)" in md
-    # Entrambi i bracci restano affiancati sugli assi operativi, con il delta.
+    # Both arms stay side by side on the operational axes, with the delta.
     assert "latency_ms_analyze" in md
     assert "cost_usd_baseline" in md
     assert "latency_ms_delta" in md
@@ -1080,7 +1085,7 @@ def test_repeated_report_keeps_operational_table_when_verdict_withheld(
 def test_repeated_report_marks_verdict_applicable_in_the_happy_path(
     tmp_path: Path,
 ) -> None:
-    """La chiave additiva esiste anche quando il verdetto c'è (non solo se vacuo)."""
+    """The additive key exists also when the verdict is there (not only if vacuous)."""
     _write_arm(
         tmp_path, _arm("claude-exp", "claude-sonnet-4-6", (0.90, 0.10, 3000, 0.012))
     )
@@ -1100,11 +1105,11 @@ def test_repeated_report_marks_verdict_applicable_in_the_happy_path(
 def test_repeated_report_of_the_istat_pair_gives_the_d12_reason(
     tmp_path: Path,
 ) -> None:
-    """F4 (review finale): sulla coppia ontologia vs ontologia + ISTAT, con
-    narrativa in entrambi i bracci, il verdetto e' trattenuto per D12 e il report
-    lo dice, invece di parlare di un braccio muto che non c'e'."""
+    """F4 (final review): on the ontology vs ontology + ISTAT pair, with
+    narrative in both arms, the verdict is withheld for D12 and the report
+    says so, instead of speaking of a mute arm that is not there."""
     base = _arm("base-exp", GROQ_MODEL, (0.80, 0.20, 1000, 0.0006))
-    con = [
+    with_istat = [
         r.model_copy(
             update={
                 "experiment": "istat-exp",
@@ -1117,7 +1122,7 @@ def test_repeated_report_of_the_istat_pair_gives_the_d12_reason(
         for r in _arm("base-exp", GROQ_MODEL, (0.85, 0.15, 1100, 0.0007))
     ]
     _write_arm(tmp_path, base)
-    _write_arm(tmp_path, con)
+    _write_arm(tmp_path, with_istat)
     md_path, json_path = build_repeated_report(
         tmp_path, "istat-exp", "base-exp", label_a="istat", label_b="base", stem="d12"
     )
@@ -1130,9 +1135,9 @@ def test_repeated_report_of_the_istat_pair_gives_the_d12_reason(
     assert payload["quality_verdict"]["reason"] == ISTAT_NO_WINNER_REASON
 
 
-def _metriche_istat(versione: int) -> IstatMetrics:
+def _istat_metrics(version: int) -> IstatMetrics:
     return IstatMetrics(
-        versione=versione,
+        versione=version,
         cifre_totali=0,
         frasi_scartabili=0,
         voci_fornite=1,
@@ -1147,23 +1152,23 @@ def _metriche_istat(versione: int) -> IstatMetrics:
 
 
 @pytest.mark.parametrize(
-    "versioni",
+    "versions",
     [
-        # fra le ripetizioni della stessa zona: la somma del fold le rifiuta
+        # among the repetitions of the same zone: the fold's sum rejects them
         {("Colosseo", 0): 3, ("Colosseo", 1): 4, ("Termini", 0): 4, ("Termini", 1): 4},
-        # fra le zone: ogni zona e' omogenea, il braccio no
+        # among the zones: every zone is homogeneous, the arm is not
         {("Colosseo", 0): 3, ("Colosseo", 1): 3, ("Termini", 0): 4, ("Termini", 1): 4},
     ],
 )
 def test_repeated_report_refuses_an_arm_with_mixed_istat_versions(
-    tmp_path: Path, versioni: dict[tuple[str, int], int]
+    tmp_path: Path, versions: dict[tuple[str, int], int]
 ) -> None:
-    """#369: il confronto ripetuto (e quindi il vincitore) rifiuta un braccio i
-    cui record ISTAT hanno versioni diverse: M1 e' gradato su testi diversi."""
+    """#369: the repeated comparison (and therefore the winner) rejects an arm whose
+    ISTAT records have different versions: M1 is graded on different texts."""
 
-    def rec(esperimento: str, zona: str, rep: int) -> RunRecord:
+    def rec(experiment: str, zona: str, rep: int) -> RunRecord:
         return _rec(
-            esperimento,
+            experiment,
             "Roma",
             zona,
             rep=rep,
@@ -1174,32 +1179,32 @@ def test_repeated_report_refuses_an_arm_with_mixed_istat_versions(
             cost_usd=0.0006,
         )
 
-    base = [rec("base-exp", zona, rep) for zona, rep in versioni]
-    con = [
+    base = [rec("base-exp", zona, rep) for zona, rep in versions]
+    with_istat = [
         rec("istat-exp", zona, rep).model_copy(
-            update={"istat_metrics": _metriche_istat(v)}
+            update={"istat_metrics": _istat_metrics(v)}
         )
-        for (zona, rep), v in versioni.items()
+        for (zona, rep), v in versions.items()
     ]
     _write_arm(tmp_path, base)
-    _write_arm(tmp_path, con)
+    _write_arm(tmp_path, with_istat)
     with pytest.raises(ValueError, match="versioni"):
         build_repeated_report(tmp_path, "istat-exp", "base-exp", stem="misto")
     assert not (tmp_path / "misto.md").exists()
 
 
-@pytest.mark.parametrize(("versione_b", "avviso"), [(4, True), (3, False)])
+@pytest.mark.parametrize(("version_b", "warning"), [(4, True), (3, False)])
 def test_repeated_report_warns_when_istat_arms_have_different_versions(
-    tmp_path: Path, versione_b: int, avviso: bool
+    tmp_path: Path, version_b: int, warning: bool
 ) -> None:
-    """#369, D2: due bracci entrambi con ISTAT ma di versioni diverse si
-    confrontano anche a K ripetizioni, e il report (Markdown e JSON) lo avvisa;
-    con la stessa versione nessun avviso."""
+    """#369, D2: two arms both with ISTAT but of different versions are
+    compared also at K repetitions, and the report (Markdown and JSON) warns about it;
+    with the same version no warning."""
 
-    def braccio(esperimento: str, versione: int) -> list[RunRecord]:
+    def arm(experiment: str, version: int) -> list[RunRecord]:
         return [
             _rec(
-                esperimento,
+                experiment,
                 "Roma",
                 "Colosseo",
                 rep=rep,
@@ -1208,22 +1213,22 @@ def test_repeated_report_warns_when_istat_arms_have_different_versions(
                 hallucination=0.2,
                 latency_ms=1000,
                 cost_usd=0.0006,
-            ).model_copy(update={"istat_metrics": _metriche_istat(versione)})
+            ).model_copy(update={"istat_metrics": _istat_metrics(version)})
             for rep in range(2)
         ]
 
-    _write_arm(tmp_path, braccio("v3-exp", 3))
-    _write_arm(tmp_path, braccio("altro-exp", versione_b))
+    _write_arm(tmp_path, arm("v3-exp", 3))
+    _write_arm(tmp_path, arm("altro-exp", version_b))
     md_path, json_path = build_repeated_report(
         tmp_path, "v3-exp", "altro-exp", label_a="v3", label_b="altro", stem="vers"
     )
     md = md_path.read_text(encoding="utf-8")
     payload = json.loads(json_path.read_text(encoding="utf-8"))
-    campo = payload["comparison"]["avviso_versioni_istat"]
-    if avviso:
+    field = payload["comparison"]["avviso_versioni_istat"]
+    if warning:
         assert md.index(ISTAT_VERSIONS_DIFFER_HEAD) < md.index("| citta |")
-        assert f"`v3`: versione 3; `altro`: versione {versione_b}" in md
-        assert campo.startswith(ISTAT_VERSIONS_DIFFER_HEAD)
+        assert f"`v3`: versione 3; `altro`: versione {version_b}" in md
+        assert field.startswith(ISTAT_VERSIONS_DIFFER_HEAD)
     else:
         assert ISTAT_VERSIONS_DIFFER_HEAD not in md
-        assert campo == ""
+        assert field == ""

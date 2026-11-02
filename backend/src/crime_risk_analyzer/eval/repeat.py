@@ -1,18 +1,18 @@
-"""Fold delle K ripetizioni di un braccio (#157, spec-valutazione §2).
+"""Fold of the K repetitions of an arm (#157, evaluation-spec section 2).
 
-Riceve i K RunRecord di un esperimento (K run per ogni (citta, zona), prodotte
-da run_experiment --repeat K) e li ripiega in UN record-media per zona + la
-deviazione standard (popolazione) per metrica. Il record-media alimenta
-l'esistente compare.compare_records (riuso #33); la varianza va nel report
-esteso (repeated_comparison).
+Receives the K RunRecords of an experiment (K runs for each (citta, zona), produced
+by run_experiment --repeat K) and folds them into ONE mean-record per zone + the
+standard deviation (population) per metric. The mean-record feeds the
+existing compare.compare_records (reuse #33); the variance goes into the
+extended report (repeated_comparison).
 
-Politica esclusione (coerente con compare.py, #163): le ripetizioni in ERROR
-E in FALLBACK non entrano in media/std (metriche non rappresentative della
-qualita': azzerate dall'harness per ERROR, narrativa vuota per FALLBACK). Sono
-contate in ZoneVariance.n_dropped, i soli FALLBACK anche in n_fallback; se
-NESSUNA ripetizione di una zona e' valida (OK), il record-media eredita
-status=ERROR (metriche azzerate) cosi' compare_records raccoglie quella zona
-tra le escluse.
+Exclusion policy (consistent with compare.py, #163): repetitions in ERROR
+AND in FALLBACK do not enter mean/std (metrics not representative of
+quality: zeroed by the harness for ERROR, empty narrative for FALLBACK). They are
+counted in ZoneVariance.n_dropped, the FALLBACK ones alone also in n_fallback; if
+NO repetition of a zone is valid (OK), the mean-record inherits
+status=ERROR (zeroed metrics) so that compare_records collects that zone
+among the excluded ones.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from collections import defaultdict
 from pydantic import BaseModel
 
 from crime_risk_analyzer.eval.compare import MetricValues
-from crime_risk_analyzer.eval.istat_metrics import somma_istat_metrics
+from crime_risk_analyzer.eval.istat_metrics import sum_istat_metrics
 from crime_risk_analyzer.eval.schema import (
     IstatMetrics,
     Metrics,
@@ -33,21 +33,21 @@ from crime_risk_analyzer.eval.schema import (
 
 
 class ZoneVariance(BaseModel):
-    """Deviazione standard (popolazione) delle K ripetizioni di una zona."""
+    """Standard deviation (population) of the K repetitions of a zone."""
 
     citta: str
     zona: str
     std: MetricValues
-    n_reps: int  # ripetizioni valide (OK) usate per media/std
-    n_dropped: int  # ripetizioni escluse (tutto ciò che non è OK)
-    n_fallback: int  # di cui FALLBACK (sottoinsieme di n_dropped), reliability
+    n_reps: int  # valid repetitions (OK) used for mean/std
+    n_dropped: int  # excluded repetitions (everything that is not OK)
+    n_fallback: int  # of which FALLBACK (subset of n_dropped), reliability
 
 
 class FoldedArm(BaseModel):
-    """Esito del fold di un braccio: record-media per zona + varianza per zona.
+    """Outcome of the fold of an arm: mean-record per zone + variance per zone.
 
-    ``mean_records`` ha ESATTAMENTE un record per (citta, zona) → consumabile
-    da compare.compare_records senza violare il vincolo "una run per zona".
+    ``mean_records`` has EXACTLY one record per (citta, zona) -> consumable
+    by compare.compare_records without violating the "one run per zone" constraint.
     """
 
     mean_records: list[RunRecord]
@@ -68,25 +68,25 @@ def _group_by_zone(
 
 
 def _mean_metrics(valid: list[RunRecord]) -> Metrics:
-    # quality_vacuous (#240) NON viene propagato/mediato qui: resta il default
-    # None di Metrics, anche se una o piu' ripetizioni valide erano vacue. Non
-    # esiste una regola di aggregazione dichiarata per un booleano su K
-    # ripetizioni (tutte vacue? almeno una? maggioranza?) e deciderne una senza
-    # una decisione esplicita sarebbe arbitrario. compare.py::_record_quality_vacuous
-    # tratta None come "dato non disponibile" e ricade su has_narrativa per
-    # questi record-media, quindi compare-repeated non regredisce: il segnale
-    # e' semplicemente meno preciso qui che sul percorso a singola run, per
-    # costruzione, non per un bug.
+    # quality_vacuous (#240) is NOT propagated/averaged here: it stays the default
+    # None of Metrics, even if one or more valid repetitions were vacuous. There is
+    # no declared aggregation rule for a boolean over K
+    # repetitions (all vacuous? at least one? majority?) and picking one without
+    # an explicit decision would be arbitrary. compare.py::_record_quality_vacuous
+    # treats None as "data not available" and falls back on has_narrative for
+    # these mean-records, so compare-repeated does not regress: the signal
+    # is simply less precise here than on the single-run path, by
+    # construction, not because of a bug.
     n = len(valid)
     return Metrics(
         grounding=sum(r.metrics.grounding for r in valid) / n,
         hallucination=sum(r.metrics.hallucination for r in valid) / n,
-        # latency arrotondata a int = precisione a cui la latenza viene
-        # confrontata/riportata (§2.3 spec). Nel caso multi-zona la media
-        # cross-zona (compare._mean) parte pero' da questi valori GIA'
-        # arrotondati per-zona, non dalle latenze grezze: lo scostamento
-        # risultante e' sub-ms, irrilevante ai fini del verdetto quando le
-        # latenze dei bracci differiscono in modo apprezzabile.
+        # latency rounded to int = precision at which latency is
+        # compared/reported (section 2.3 of the spec). In the multi-zone case the
+        # cross-zone mean (compare._mean) however starts from these values ALREADY
+        # rounded per-zone, not from the raw latencies: the resulting
+        # deviation is sub-ms, irrelevant for the verdict when the
+        # latencies of the arms differ appreciably.
         latency_ms=round(sum(r.metrics.latency_ms for r in valid) / n),
         cost_usd=sum(r.metrics.cost_usd for r in valid) / n,
     )
@@ -101,54 +101,56 @@ def _std_metrics(valid: list[RunRecord]) -> MetricValues:
     )
 
 
-def _representative_narrativa(group: list[RunRecord]) -> str:
-    """Narrativa di UNA ripetizione del gruppo, non una media (#231).
+def _representative_narrative(group: list[RunRecord]) -> str:
+    """Narrative of ONE repetition of the group, not an average (#231).
 
-    La media di più testi non esiste, ma la DISPONIBILITÀ di testo sì, ed è
-    un'informazione che il record-media deve conservare: a valle è ciò che
-    distingue una zona su cui il braccio ha prodotto prosa (gradabile) da una su
-    cui è rimasto muto, dove ``grounding``/``hallucination`` valgono 1.0/0.0 per
-    vacuità. Azzerarla farebbe leggere come muto OGNI braccio ripiegato.
+    The average of several texts does not exist, but the AVAILABILITY of text does,
+    and it is
+    information that the mean-record must keep: downstream it is what
+    tells apart a zone on which the arm produced prose (gradable) from one on
+    which it stayed mute, where ``grounding``/``hallucination`` are 1.0/0.0 by
+    vacuity. Zeroing it would make EVERY folded arm read as mute.
 
-    Restituisce il testo della prima ripetizione che ne ha prodotto uno; stringa
-    vuota se nessuna ha parlato. Non è un campione statistico: serve a rispondere
-    a «questa zona ha prodotto narrativa?», non a rappresentarne il contenuto.
+    Returns the text of the first repetition that produced one; empty string
+    if none spoke. It is not a statistical sample: it serves to answer
+    "did this zone produce a narrative?", not to represent its content.
     """
     return next((rec.narrativa for rec in group if rec.narrativa.strip()), "")
 
 
-def _poi_nel_prompt_coerente(
+def _consistent_poi_in_prompt(
     citta: str, zona: str, valid: list[RunRecord]
 ) -> list[str] | None:
-    """I POI nel prompt comuni alle ripetizioni valide di una zona (#349).
+    """The POIs in the prompt common to the valid repetitions of a zone (#349).
 
-    La selezione dei POI e' deterministica, quindi le K ripetizioni di uno stesso
-    esperimento hanno lo stesso insieme: se divergono, o se alcune hanno il campo
-    e altre no (record precedenti a #349 mescolati a record nuovi), l'esperimento
-    mescola versioni diverse del prompt. Solleva :class:`ValueError`, come
-    ``compare_records`` sull'input malformato (zone duplicate, ``snapshot_id``
-    divergente) e come l'harness sui record legacy (#165.4): un avviso
-    lascerebbe comunque una media che mescola una ripetizione con 9-12 POI e due
-    con 20, e a valle nessuno la distinguerebbe. Tutte senza campo = ``None``,
-    e il confronto dira' che la parita' non e' verificabile.
+    The POI selection is deterministic, so the K repetitions of one
+    experiment have the same set: if they diverge, or if some have the field
+    and others not (pre-#349 records mixed with new ones), the experiment
+    mixes different versions of the prompt. Raises :class:`ValueError`, like
+    ``compare_records`` on malformed input (duplicate zones, diverging
+    ``snapshot_id``) and like the harness on legacy records (#165.4): a warning
+    would still leave an average that mixes a repetition with 9-12 POIs and two
+    with 20, and downstream nobody would tell it apart. All without the field =
+    ``None``,
+    and the comparison will say that parity is not verifiable.
     """
-    valori = [r.poi_nel_prompt for r in valid]
-    if all(v is None for v in valori):
+    values = [r.poi_nel_prompt for r in valid]
+    if all(v is None for v in values):
         return None
-    presenti = [v for v in valori if v is not None]
-    if len(presenti) < len(valori):
+    present = [v for v in values if v is not None]
+    if len(present) < len(values):
         raise ValueError(
             f"fold_arm: ripetizioni di {citta}/{zona} con e senza poi_nel_prompt "
             "(record precedenti a #349 mescolati a record nuovi): non si mediano "
             "prompt con insiemi di POI diversi; rigirare tutte le ripetizioni"
         )
-    if len({frozenset(v) for v in presenti}) > 1:
+    if len({frozenset(v) for v in present}) > 1:
         raise ValueError(
             f"fold_arm: ripetizioni di {citta}/{zona} con poi_nel_prompt diversi: "
             "non si mediano prompt con insiemi di POI diversi; rigirare tutte le "
             "ripetizioni con lo stesso codice"
         )
-    return presenti[0]
+    return present[0]
 
 
 def _mean_record(
@@ -159,27 +161,29 @@ def _mean_record(
     istat_metrics: IstatMetrics | None = None,
     poi_nel_prompt: list[str] | None = None,
 ) -> RunRecord:
-    """Record-media di una zona; riusa la provenienza (snapshot_id) di ``source``.
+    """Mean-record of a zone; reuses the provenance (snapshot_id) of ``source``.
 
-    ``narrativa`` è rappresentativa, non mediata: vedi
-    :func:`_representative_narrativa`. ``istat_metrics`` (#345) e' invece la
-    SOMMA delle K ripetizioni (``istat_metrics.somma_istat_metrics``): conteggi,
-    non media, cosi' sommarla fra ripetizioni resta corretto.
+    ``narrativa`` is representative, not averaged: see
+    :func:`_representative_narrative`. ``istat_metrics`` (#345) is instead the
+    SUM of the K repetitions (``istat_metrics.sum_istat_metrics``): counts,
+    not an average, so summing it across repetitions stays correct.
 
-    Dei campi ISTAT del record si ripiega SOLO ``istat_metrics``:
-    ``istat_frasi_scartate``, ``narrativa_grezza``, ``frasi_escluse_m1`` e
-    ``frasi_escluse_senza_voce`` restano ai default (0 e ``None``) sul
-    record-media. Le frasi tolte e quelle escluse da M1 (#369, #378) sono gia'
-    contate nella somma (``IstatMetrics.frasi_scartabili``,
+    Of the record's ISTAT fields ONLY ``istat_metrics`` is folded:
+    ``istat_frasi_scartate``, ``narrativa_grezza``, ``frasi_escluse_m1`` and
+    ``frasi_escluse_senza_voce`` stay at the defaults (0 and ``None``) on the
+    mean-record. The removed sentences and those excluded from M1 (#369, #378) are
+    already
+    counted in the sum (``IstatMetrics.frasi_scartabili``,
     ``IstatMetrics.frasi_escluse_m1``,
-    ``IstatMetrics.frasi_escluse_senza_voce``), e il grezzo, come la narrativa,
-    non si media; chi li vuole per ripetizione li legge sui record delle ripetizioni.
-    Una zona le cui ripetizioni hanno metriche ISTAT di versioni diverse non si
-    ripiega: la somma lo rifiuta.
+    ``IstatMetrics.frasi_escluse_senza_voce``), and the raw text, like the
+    narrative, is not averaged; whoever wants them per repetition reads them on the
+    repetition records.
+    A zone whose repetitions have ISTAT metrics of different versions is not
+    folded: the sum rejects it.
 
-    ``poi_nel_prompt`` (#349) e' quello, unico, delle ripetizioni valide
-    (:func:`_poi_nel_prompt_coerente`): serve a ``compare_records`` per
-    verificare la parita' dei POI fra i bracci anche sul percorso a K.
+    ``poi_nel_prompt`` (#349) is the single one of the valid repetitions
+    (:func:`_consistent_poi_in_prompt`): it serves ``compare_records`` to
+    verify POI parity between the arms also on the K path.
     """
     return RunRecord(
         run_id=f"{source.experiment}__{source.citta}__{source.zona}__mean".lower(),
@@ -199,11 +203,11 @@ def _mean_record(
 
 
 def fold_arm(records: list[RunRecord]) -> FoldedArm:
-    """Ripiega le K ripetizioni per zona in record-media + varianza.
+    """Fold the K repetitions per zone into mean-record + variance.
 
-    Solleva :class:`ValueError` se ``records`` e' vuoto, o se le ripetizioni
-    valide di una zona hanno ``poi_nel_prompt`` diversi o misti presente/assente
-    (#349, :func:`_poi_nel_prompt_coerente`).
+    Raises :class:`ValueError` if ``records`` is empty, or if the valid repetitions
+    of a zone have different or mixed present/absent ``poi_nel_prompt``
+    (#349, :func:`_consistent_poi_in_prompt`).
     """
     if not records:
         raise ValueError("fold_arm: nessun record da ripiegare")
@@ -212,11 +216,11 @@ def fold_arm(records: list[RunRecord]) -> FoldedArm:
     variances: list[ZoneVariance] = []
     for citta, zona in sorted(groups):
         group = groups[(citta, zona)]
-        # Solo OK entra in media/std, espresso in positivo e non come elenco di
-        # status da escludere: un valore nuovo dell'enum (``HARNESS_ERROR``)
-        # nasce con metriche azzerate, e una lista di esclusioni dimenticata lo
-        # farebbe mediare come se fosse una misura. Il criterio e' verificato
-        # sull'enum intero in ``test_repeat.py``.
+        # Only OK enters mean/std, expressed positively and not as a list of
+        # statuses to exclude: a new value of the enum (``HARNESS_ERROR``)
+        # is born with zeroed metrics, and a forgotten exclusion list would
+        # make it be averaged as if it were a measure. The criterion is verified
+        # on the whole enum in ``test_repeat.py``.
         valid = [r for r in group if r.status is RunStatus.OK]
         n_fallback = sum(1 for r in group if r.status == RunStatus.FALLBACK)
         n_dropped = len(group) - len(valid)
@@ -233,18 +237,18 @@ def fold_arm(records: list[RunRecord]) -> FoldedArm:
                 )
             )
             continue
-        # Il record-media prende status OK anche se il gruppo conteneva FALLBACK:
-        # i fallback sono gia' esclusi da media/std (#163) e il loro segnale
-        # viaggia via ZoneVariance.n_fallback (reso visibile nel report, #165.3).
-        # Cambiare qui lo status altererebbe la selezione zone di compare_records.
+        # The mean-record takes status OK even if the group contained FALLBACK:
+        # the fallbacks are already excluded from mean/std (#163) and their signal
+        # travels via ZoneVariance.n_fallback (made visible in the report, #165.3).
+        # Changing the status here would alter the zone selection of compare_records.
         mean_records.append(
             _mean_record(
                 valid[0],
                 _mean_metrics(valid),
                 RunStatus.OK,
-                _representative_narrativa(valid),
-                somma_istat_metrics(r.istat_metrics for r in valid),
-                _poi_nel_prompt_coerente(citta, zona, valid),
+                _representative_narrative(valid),
+                sum_istat_metrics(r.istat_metrics for r in valid),
+                _consistent_poi_in_prompt(citta, zona, valid),
             )
         )
         variances.append(

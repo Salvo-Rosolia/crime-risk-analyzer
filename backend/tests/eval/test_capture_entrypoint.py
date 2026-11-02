@@ -1,9 +1,9 @@
-"""Test dell'entry point di cattura CLI: ``eval/__main__._capture`` (#110).
+"""Tests of the CLI capture entry point: ``eval/__main__._capture`` (#110).
 
-Guida DIRETTAMENTE ``_capture`` (non solo l'helper ``capturing_source``) per:
-- M1: lo snapshot è scritto alla chiave (citta, zona) risolta da
-  ``make_snapshot_key``, mai a una chiave che includa mode/model;
-- M2: cattura idempotente (skip-if-exists) + flag ``--force`` per ri-catturare.
+Drive ``_capture`` DIRECTLY (not just the ``capturing_source`` helper) to:
+- M1: the snapshot is written at the (citta, zona) key resolved by
+  ``make_snapshot_key``, never at a key that includes mode/model;
+- M2: idempotent capture (skip-if-exists) + ``--force`` flag to re-capture.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from crime_risk_analyzer.eval.snapshots import (
 )
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.overpass_client import OFFLINE_RETRY, OverpassError, Poi
-from tests.eval._doubles import scrivi_snapshot
+from tests.eval._doubles import write_snapshot
 
 _capture = eval_main._capture  # pyright: ignore[reportPrivateUsage]
 _snapshot_reusable = eval_main._snapshot_reusable  # pyright: ignore[reportPrivateUsage]
@@ -54,7 +54,7 @@ def _sample_pois() -> list[Poi]:
 
 
 def _sentinel_pois() -> list[Poi]:
-    """Contenuto distinto: se _capture ri-cattura, sovrascrive questo."""
+    """Distinct content: if _capture re-captures, it overwrites this."""
     return [
         Poi(
             id="SENTINEL",
@@ -77,7 +77,7 @@ def _write_config(
     model: ModelChoice = "claude",
     name: str = "cfg",
 ) -> Path:
-    """Config su file JSON, come farebbe il CLI reale (default: baseline, no LLM)."""
+    """Config as a JSON file, as the real CLI would (default: baseline, no LLM)."""
     cfg = ExperimentConfig(
         name="ablation",
         mode=mode,
@@ -91,7 +91,8 @@ def _write_config(
 
 @pytest.fixture
 def capture_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Isola _capture dalla rete: geocode finto + executor finto (baseline, no LLM)."""
+    """Isolate _capture from the network: fake geocode + fake executor (baseline, no
+    LLM)."""
     from crime_risk_analyzer.rag import retrieval
     from tests.eval._doubles import FakeProfiler
 
@@ -102,8 +103,8 @@ def capture_env(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_capture_writes_at_citta_zona_key(
     tmp_path: Path, capture_env: None
 ) -> None:
-    """M1: _capture scrive lo snapshot alla chiave (citta, zona), MAI a una
-    chiave che includa mode/model (blinda contro reintroduzione di make_run_id)."""
+    """M1: _capture writes the snapshot at the (citta, zona) key, NEVER at a
+    key that includes mode/model (locks against reintroducing make_run_id)."""
     calls = 0
 
     async def fake_live(bbox: Bbox, citta: str) -> list[Poi]:
@@ -118,7 +119,7 @@ async def test_capture_writes_at_citta_zona_key(
     assert expected.exists()
     assert load_snapshot(expected) == _sample_pois()
     assert calls == 1
-    # Un solo file, alla chiave (citta, zona): nessuna variante con mode/model.
+    # A single file, at the (citta, zona) key: no variant with mode/model.
     assert list((tmp_path / "snapshots").glob("*.json")) == [expected]
     assert "baseline" not in expected.name
     assert "claude" not in expected.name
@@ -127,8 +128,8 @@ async def test_capture_writes_at_citta_zona_key(
 async def test_capture_skips_if_snapshot_exists(
     tmp_path: Path, capture_env: None, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """M2: due _capture sulla stessa (citta, zona) → query live UNA sola volta e
-    file NON sovrascritto (skip-if-exists), con log di riuso."""
+    """M2: two _capture on the same (citta, zona) -> live query only ONCE and
+    file NOT overwritten (skip-if-exists), with a reuse log."""
     calls = 0
 
     async def counting_live(bbox: Bbox, citta: str) -> list[Poi]:
@@ -141,29 +142,29 @@ async def test_capture_skips_if_snapshot_exists(
 
     await _capture(config_path, tmp_path, poi_source=counting_live)
     assert calls == 1
-    # Sentinella: una ri-cattura la sovrascriverebbe.
-    scrivi_snapshot(path, _sentinel_pois())
+    # Sentinel: a re-capture would overwrite it.
+    write_snapshot(path, _sentinel_pois())
 
     with caplog.at_level(logging.INFO):
         await _capture(config_path, tmp_path, poi_source=counting_live)
 
-    assert calls == 1  # nessuna seconda query live
-    assert load_snapshot(path) == _sentinel_pois()  # file NON sovrascritto
+    assert calls == 1  # no second live query
+    assert load_snapshot(path) == _sentinel_pois()  # file NOT overwritten
     assert any("riuso" in r.getMessage().lower() for r in caplog.records)
 
 
-async def test_capture_avvisa_su_riuso_con_configurazione_divergente(
+async def test_capture_warns_on_reuse_with_diverging_configuration(
     tmp_path: Path, capture_env: None, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """#267: il riuso di uno snapshot con ``configurazione_canonica`` diversa da
-    quella corrente non deve essere indistinguibile da un riuso coerente."""
+    """#267: reusing a snapshot with a ``configurazione_canonica`` different from
+    the current one must not be indistinguishable from a consistent reuse."""
     import json
 
     path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
-    scrivi_snapshot(path, _sample_pois())
-    scritto = json.loads(path.read_text(encoding="utf-8"))
-    scritto["provenienza"]["configurazione_canonica"]["per_class_cap"] += 100
-    path.write_text(json.dumps(scritto), encoding="utf-8")
+    write_snapshot(path, _sample_pois())
+    written = json.loads(path.read_text(encoding="utf-8"))
+    written["provenienza"]["configurazione_canonica"]["per_class_cap"] += 100
+    path.write_text(json.dumps(written), encoding="utf-8")
 
     config_path = _write_config(tmp_path, "Roma", "Centro")
 
@@ -180,35 +181,35 @@ async def test_capture_avvisa_su_riuso_con_configurazione_divergente(
 
 
 def test_snapshot_reusable_true_for_valid(tmp_path: Path) -> None:
-    """Fix 1 (#148): uno snapshot esistente, non vuoto e JSON valido è riusabile."""
+    """Fix 1 (#148): an existing, non-empty snapshot with valid JSON is reusable."""
     path = tmp_path / "snap.json"
-    scrivi_snapshot(path, _sample_pois())
+    write_snapshot(path, _sample_pois())
     assert _snapshot_reusable(path) is True
 
 
 def test_snapshot_reusable_false_for_missing(tmp_path: Path) -> None:
-    """Fix 1 (#148): un file inesistente non è riusabile."""
+    """Fix 1 (#148): a nonexistent file is not reusable."""
     assert _snapshot_reusable(tmp_path / "assente.json") is False
 
 
 def test_snapshot_reusable_false_for_empty(tmp_path: Path) -> None:
-    """Fix 1 (#148): un file vuoto (size 0) non è riusabile."""
+    """Fix 1 (#148): an empty file (size 0) is not reusable."""
     path = tmp_path / "snap.json"
     path.write_text("", encoding="utf-8")
     assert _snapshot_reusable(path) is False
 
 
 def test_snapshot_reusable_false_for_corrupt(tmp_path: Path) -> None:
-    """Fix 1 (#148): un file troncato/corrotto (JSON non parsabile) non è riusabile."""
+    """Fix 1 (#148): a truncated/corrupt file (unparseable JSON) is not reusable."""
     path = tmp_path / "snap.json"
     path.write_text("[{ troncato non json", encoding="utf-8")
     assert _snapshot_reusable(path) is False
 
 
 def test_snapshot_reusable_false_for_unknown_shape(tmp_path: Path) -> None:
-    """#241: JSON valido ma in una forma che ``load_snapshot`` non riconosce (né
-    lista nuda né envelope) non è riusabile → ri-cattura, non un'esplosione a
-    metà della capture."""
+    """#241: valid JSON but in a shape that ``load_snapshot`` does not recognise
+    (neither bare list nor envelope) is not reusable -> re-capture, not a blow-up
+    halfway through the capture."""
     path = tmp_path / "snap.json"
     path.write_text('{"qualcosa": "altro"}', encoding="utf-8")
     assert _snapshot_reusable(path) is False
@@ -217,8 +218,8 @@ def test_snapshot_reusable_false_for_unknown_shape(tmp_path: Path) -> None:
 async def test_capture_recaptures_when_snapshot_corrupt(
     tmp_path: Path, capture_env: None, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Fix 1 (#148): uno snapshot presente ma corrotto (JSON non parsabile) NON
-    viene riusato in silenzio → _capture ri-cattura live e lo sovrascrive."""
+    """Fix 1 (#148): a snapshot present but corrupt (unparseable JSON) is NOT
+    silently reused -> _capture re-captures live and overwrites it."""
     calls = 0
 
     async def counting_live(bbox: Bbox, citta: str) -> list[Poi]:
@@ -234,8 +235,8 @@ async def test_capture_recaptures_when_snapshot_corrupt(
     with caplog.at_level(logging.WARNING):
         await _capture(config_path, tmp_path, poi_source=counting_live)
 
-    assert calls == 1  # ri-catturato, non saltato
-    assert load_snapshot(path) == _sample_pois()  # sovrascritto con contenuto fresco
+    assert calls == 1  # re-captured, not skipped
+    assert load_snapshot(path) == _sample_pois()  # overwritten with fresh content
     assert any(
         "corrotto" in r.getMessage().lower() or "vuoto" in r.getMessage().lower()
         for r in caplog.records
@@ -245,7 +246,7 @@ async def test_capture_recaptures_when_snapshot_corrupt(
 async def test_capture_recaptures_when_snapshot_empty(
     tmp_path: Path, capture_env: None
 ) -> None:
-    """Fix 1 (#148): uno snapshot presente ma vuoto (size 0) NON viene riusato."""
+    """Fix 1 (#148): a snapshot present but empty (size 0) is NOT reused."""
     calls = 0
 
     async def counting_live(bbox: Bbox, citta: str) -> list[Poi]:
@@ -260,12 +261,12 @@ async def test_capture_recaptures_when_snapshot_empty(
 
     await _capture(config_path, tmp_path, poi_source=counting_live)
 
-    assert calls == 1  # ri-catturato
+    assert calls == 1  # re-captured
     assert load_snapshot(path) == _sample_pois()
 
 
 async def test_capture_force_recaptures(tmp_path: Path, capture_env: None) -> None:
-    """M2: --force ignora lo skip-if-exists e ri-cattura (sovrascrive lo snapshot)."""
+    """M2: --force ignores skip-if-exists and re-captures (overwrites the snapshot)."""
     calls = 0
 
     async def counting_live(bbox: Bbox, citta: str) -> list[Poi]:
@@ -278,22 +279,22 @@ async def test_capture_force_recaptures(tmp_path: Path, capture_env: None) -> No
 
     await _capture(config_path, tmp_path, poi_source=counting_live)
     assert calls == 1
-    scrivi_snapshot(path, _sentinel_pois())
+    write_snapshot(path, _sentinel_pois())
 
     await _capture(config_path, tmp_path, force=True, poi_source=counting_live)
-    assert calls == 2  # ri-cattura live
-    assert load_snapshot(path) == _sample_pois()  # snapshot sovrascritto (fresco)
+    assert calls == 2  # live re-capture
+    assert load_snapshot(path) == _sample_pois()  # snapshot overwritten (fresh)
 
 
 async def test_capture_analyze_arms_share_key(
     tmp_path: Path, capture_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """M1: due bracci analyze (claude, groq) catturano alla STESSA chiave (citta,
-    zona); il secondo riusa lo snapshot del primo → nessuna query live divergente
-    (anti-confondimento #33, ramo analyze di _capture).
+    """M1: two analyze arms (claude, groq) capture at the SAME key (citta,
+    zona); the second reuses the snapshot of the first -> no diverging live query
+    (anti-confound #33, analyze branch of _capture).
 
-    Il builder esplode (#233): la cattura non deve toccare l'LLM nemmeno qui, dove
-    il config dichiara mode=analyze."""
+    The builder blows up (#233): the capture must not touch the LLM even here, where
+    the config declares mode=analyze."""
 
     def _exploding_builder(config: ExperimentConfig) -> object:
         raise AssertionError("la cattura non deve costruire il client LLM (#233)")
@@ -318,17 +319,17 @@ async def test_capture_analyze_arms_share_key(
     await _capture(cfg_groq, tmp_path, poi_source=counting_live)
 
     expected = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
-    # Un solo file per (citta, zona): claude e groq NON divergono.
+    # A single file per (citta, zona): claude and groq do NOT diverge.
     assert list((tmp_path / "snapshots").glob("*.json")) == [expected]
-    assert calls == 1  # il secondo braccio ha riusato lo snapshot (skip-if-exists)
+    assert calls == 1  # the second arm reused the snapshot (skip-if-exists)
 
 
 async def test_capture_all_present_never_builds_client(
     tmp_path: Path, capture_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Fix 2 (#148): un re-run tutto-skip (snapshot già presenti, mode=analyze)
-    NON costruisce mai il client LLM → offline davvero, nessuna API key richiesta.
-    Il builder esplode se invocato: se il test passa, non è mai stato chiamato."""
+    """Fix 2 (#148): an all-skip re-run (snapshots already present, mode=analyze)
+    NEVER builds the LLM client -> truly offline, no API key required.
+    The builder blows up if invoked: if the test passes, it was never called."""
 
     def _exploding_builder(config: ExperimentConfig) -> object:
         raise AssertionError("build_llm_eval_client non deve essere invocato")
@@ -341,21 +342,21 @@ async def test_capture_all_present_never_builds_client(
     config_path = _write_config(
         tmp_path, "Roma", "Centro", mode="analyze", model="claude"
     )
-    # Pre-crea uno snapshot valido: la singola (citta, zona) va in skip.
+    # Pre-create a valid snapshot: the single (citta, zona) is skipped.
     path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
-    scrivi_snapshot(path, _sample_pois())
+    write_snapshot(path, _sample_pois())
 
-    # Non deve sollevare: né il builder né la live vengono toccati.
+    # It must not raise: neither the builder nor the live source is touched.
     await _capture(config_path, tmp_path, poi_source=unused_live)
 
-    assert load_snapshot(path) == _sample_pois()  # invariato
+    assert load_snapshot(path) == _sample_pois()  # unchanged
 
 
 async def test_capture_baseline_never_builds_client(
     tmp_path: Path, capture_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """T9 mantenuto (#148): mode=baseline non costruisce mai il client LLM,
-    nemmeno quando lo snapshot va catturato ex-novo."""
+    """T9 kept (#148): mode=baseline never builds the LLM client,
+    not even when the snapshot must be captured from scratch."""
 
     def _exploding_builder(config: ExperimentConfig) -> object:
         raise AssertionError("baseline non deve costruire il client LLM")
@@ -369,20 +370,20 @@ async def test_capture_baseline_never_builds_client(
     await _capture(config_path, tmp_path, poi_source=counting_live)
 
     path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
-    assert load_snapshot(path) == _sample_pois()  # catturato senza LLM
+    assert load_snapshot(path) == _sample_pois()  # captured without LLM
 
 
 async def test_capture_analyze_never_builds_client(
     tmp_path: Path, capture_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """#233: la cattura non chiama MAI l'LLM, nemmeno con ``mode=analyze`` e più
-    case da catturare ex-novo.
+    """#233: the capture NEVER calls the LLM, not even with ``mode=analyze`` and
+    several cases to capture from scratch.
 
-    Sostituisce il test di #148 sulla costruzione lazy e memoizzata del client:
-    quell'invariante («non costruirlo su un re-run tutto-skip») è assorbita da
-    questa, più forte. La cattura è acquisizione di input, non un esperimento: la
-    narrativa generata qui sarebbe output scartato, e il 26/07 è costata un terzo
-    della quota giornaliera Groq, bloccando la run K=3."""
+    It replaces the #148 test on the lazy and memoized construction of the client:
+    that invariant ("do not build it on an all-skip re-run") is absorbed by
+    this one, stronger. The capture is input acquisition, not an experiment: the
+    narrative generated here would be discarded output, and on 26/07 it cost a third
+    of the daily Groq quota, blocking the K=3 run."""
     builds = 0
 
     def _exploding_builder(config: ExperimentConfig) -> object:
@@ -410,58 +411,58 @@ async def test_capture_analyze_never_builds_client(
     await _capture(config_path, tmp_path, poi_source=live)
 
     assert builds == 0
-    # Gli snapshot ci sono comunque: la cattura resta completa senza LLM.
+    # The snapshots are there anyway: the capture stays complete without LLM.
     for citta, zona in (("Roma", "Centro"), ("Milano", "Duomo")):
         path = snapshot_path(tmp_path, make_snapshot_key(citta, zona))
         assert load_snapshot(path) == _sample_pois()
 
 
-async def test_capture_usa_la_politica_di_ritentativo_offline(
+async def test_capture_uses_the_offline_retry_policy(
     tmp_path: Path, capture_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """#232: la cattura, SENZA sorgente iniettata, arriva a Overpass con la
-    politica OFFLINE. Copre anche il cablaggio del taglio OSM (#251) fino allo
-    snapshot scritto: nessun test isolato su ``capturing_source``/
-    ``offline_fetch_pois`` si accorgerebbe di uno spacchettamento rotto in
-    ``_capture`` stesso.
+    """#232: the capture, WITHOUT an injected source, reaches Overpass with the
+    OFFLINE policy. It also covers the wiring of the OSM cut (#251) up to the
+    written snapshot: no isolated test on ``capturing_source``/
+    ``offline_fetch_pois`` would notice a broken unpacking in
+    ``_capture`` itself.
 
-    Non passa ``poi_source``: è l'unico modo di coprire la riga di cablaggio
-    (``offline_fetch_pois`` quando ``poi_source`` è ``None``). Un test che
-    chiamasse la sorgente offline direttamente lascerebbe verde un ritorno a
-    ``fetch_pois``/``fetch_pois_with_cut`` con la politica interattiva, cioè il
-    difetto di #232 intatto con del codice nuovo accanto.
+    It does not pass ``poi_source``: it is the only way to cover the wiring line
+    (``offline_fetch_pois`` when ``poi_source`` is ``None``). A test that
+    called the offline source directly would leave green a return to
+    ``fetch_pois``/``fetch_pois_with_cut`` with the interactive policy, i.e. the
+    defect of #232 intact with new code next to it.
     """
-    visti: list[object] = []
-    taglio = {"timestamp_osm_base": "2026-07-26T17:42:03Z", "overpass_url": "x"}
+    seen: list[object] = []
+    osm_cut = {"timestamp_osm_base": "2026-07-26T17:42:03Z", "overpass_url": "x"}
 
-    async def _spia(
+    async def _spy(
         bbox: Bbox, citta: str, *args: object, **kwargs: object
     ) -> tuple[list[Poi], object]:
-        visti.append(kwargs.get("retry"))
-        return _sample_pois(), taglio
+        seen.append(kwargs.get("retry"))
+        return _sample_pois(), osm_cut
 
-    monkeypatch.setattr(snapshots, "fetch_pois_with_cut", _spia)
+    monkeypatch.setattr(snapshots, "fetch_pois_with_cut", _spy)
 
     config_path = _write_config(tmp_path, "Roma", "Centro")
     await _capture(config_path, tmp_path)
 
-    assert visti == [OFFLINE_RETRY]
+    assert seen == [OFFLINE_RETRY]
     path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
     assert load_snapshot(path) == _sample_pois()
-    scritto = json.loads(path.read_text(encoding="utf-8"))
-    assert scritto["provenienza"]["taglio_osm"] == taglio
+    written = json.loads(path.read_text(encoding="utf-8"))
+    assert written["provenienza"]["taglio_osm"] == osm_cut
 
 
 async def test_capture_isolates_failure_on_one_case(
     tmp_path: Path, capture_env: None, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """#252: un errore sul secondo di tre case non deve impedire la cattura del
-    terzo, e il riepilogo finale deve dichiarare esplicitamente cosa è stato
-    catturato e cosa no."""
-    tentati: list[str] = []
+    """#252: an error on the second of three cases must not prevent the capture of the
+    third, and the final summary must explicitly declare what was
+    captured and what was not."""
+    attempted: list[str] = []
 
     async def flaky_live(bbox: Bbox, citta: str) -> list[Poi]:
-        tentati.append(citta)
+        attempted.append(citta)
         if citta == "Milano":
             raise OverpassError("Overpass ha risposto 503")
         return _sample_pois()
@@ -482,8 +483,8 @@ async def test_capture_isolates_failure_on_one_case(
     with caplog.at_level(logging.INFO):
         summary = await _capture(config_path, tmp_path, poi_source=flaky_live)
 
-    # Roma e Napoli catturati nonostante il fallimento di Milano nel mezzo.
-    assert tentati == ["Roma", "Milano", "Napoli"]
+    # Rome and Naples captured despite the failure of Milan in the middle.
+    assert attempted == ["Roma", "Milano", "Napoli"]
     roma_path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
     milano_path = snapshot_path(tmp_path, make_snapshot_key("Milano", "Duomo"))
     napoli_path = snapshot_path(tmp_path, make_snapshot_key("Napoli", "Vomero"))
@@ -491,7 +492,7 @@ async def test_capture_isolates_failure_on_one_case(
     assert not milano_path.exists()
     assert load_snapshot(napoli_path) == _sample_pois()
 
-    # Il riepilogo dichiara esplicitamente catturati/non catturati.
+    # The summary explicitly declares captured/not captured.
     assert [(c.citta, c.zona) for c in summary.succeeded] == [
         ("Roma", "Centro"),
         ("Napoli", "Vomero"),
@@ -510,9 +511,9 @@ async def test_capture_isolates_failure_on_one_case(
 async def test_capture_isolates_failure_of_any_kind(
     tmp_path: Path, capture_env: None, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """#252: l'isolamento per-case non è ristretto a GeocodingError/OverpassError —
-    un bug altrove nella pipeline (qui un ValueError generico) non deve far
-    perdere in silenzio i case precedenti né saltare il riepilogo finale."""
+    """#252: the per-case isolation is not restricted to GeocodingError/OverpassError --
+    a bug elsewhere in the pipeline (here a generic ValueError) must not silently
+    lose the previous cases nor skip the final summary."""
 
     async def flaky_live(bbox: Bbox, citta: str) -> list[Poi]:
         if citta == "Milano":
@@ -551,10 +552,10 @@ async def test_capture_isolates_failure_of_any_kind(
 async def test_capture_removes_freshly_written_snapshot_on_downstream_failure(
     tmp_path: Path, capture_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """#252: ``capturing_source`` scrive lo snapshot PRIMA che un errore a valle
-    (qui nel grounding) faccia fallire il case — senza pulizia, il prossimo run
-    troverebbe un file valido e lo tratterebbe come "già catturato" (falso
-    successo silenzioso). Il file appena scritto da un case fallito va rimosso."""
+    """#252: ``capturing_source`` writes the snapshot BEFORE an error downstream
+    (here in grounding) makes the case fail -- without cleanup, the next run
+    would find a valid file and treat it as "already captured" (silent
+    false success). The file just written by a failed case must be removed."""
     from crime_risk_analyzer import orchestrator
 
     def _boom(*args: object, **kwargs: object) -> object:
@@ -570,7 +571,7 @@ async def test_capture_removes_freshly_written_snapshot_on_downstream_failure(
 
     summary = await _capture(config_path, tmp_path, poi_source=live)
 
-    assert not path.exists()  # nessun falso successo lasciato sul disco
+    assert not path.exists()  # no false success left on disk
     assert summary.succeeded == ()
     assert summary.failed[0].error_type == "ValueError"
 
@@ -578,8 +579,8 @@ async def test_capture_removes_freshly_written_snapshot_on_downstream_failure(
 async def test_capture_keeps_preexisting_snapshot_on_failure(
     tmp_path: Path, capture_env: None
 ) -> None:
-    """#252: uno snapshot PREESISTENTE (anche se corrotto) non va cancellato dal
-    ramo di errore — solo un file scritto dal tentativo corrente va ripulito."""
+    """#252: a PRE-EXISTING snapshot (even if corrupt) must not be deleted by the
+    error branch -- only a file written by the current attempt must be cleaned up."""
 
     async def failing_live(bbox: Bbox, citta: str) -> list[Poi]:
         raise OverpassError("Overpass ha risposto 503")
@@ -591,7 +592,7 @@ async def test_capture_keeps_preexisting_snapshot_on_failure(
 
     summary = await _capture(config_path, tmp_path, poi_source=failing_live)
 
-    assert path.exists()  # il file preesistente (per quanto corrotto) resta
+    assert path.exists()  # the pre-existing file (however corrupt) stays
     assert path.read_text(encoding="utf-8") == "[{ troncato non json"
     assert summary.failed[0].error_type == "OverpassError"
 
@@ -599,9 +600,9 @@ async def test_capture_keeps_preexisting_snapshot_on_failure(
 async def test_capture_isolates_environmental_error_on_skip_check(
     tmp_path: Path, capture_env: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """#252: un errore ambientale (``OSError``) sollevato dallo skip-check di
-    ``_snapshot_reusable`` isola solo quel case, non abortisce l'intera
-    cattura — il secondo caso deve comunque essere catturato."""
+    """#252: an environmental error (``OSError``) raised by the skip-check of
+    ``_snapshot_reusable`` isolates only that case, it does not abort the whole
+    capture -- the second case must still be captured."""
 
     def _boom(path: Path) -> bool:
         raise OSError("disco non raggiungibile")
@@ -635,9 +636,9 @@ async def test_capture_isolates_environmental_error_on_skip_check(
 async def test_capture_case_error_none_for_exception_without_message(
     tmp_path: Path, capture_env: None
 ) -> None:
-    """#252: un'eccezione senza messaggio (``ValueError()``) non deve produrre
-    una stringa vuota in ``CaptureCase.error`` — resta ``None``, coerente con
-    la convenzione "None = nessun errore" del campo."""
+    """#252: an exception without a message (``ValueError()``) must not produce
+    an empty string in ``CaptureCase.error`` -- it stays ``None``, consistent with
+    the "None = no error" convention of the field."""
 
     async def failing_live(bbox: Bbox, citta: str) -> list[Poi]:
         raise ValueError()
@@ -652,10 +653,10 @@ async def test_capture_case_error_none_for_exception_without_message(
 async def test_capture_partial_skip_captures_only_missing(
     tmp_path: Path, capture_env: None
 ) -> None:
-    """Fix 3 (#148): config a 2 case, uno snapshot pre-esiste e l'altro no →
-    il case esistente è saltato (riuso, sentinella intatta) e SOLO quello
-    mancante è catturato. Blinda il ``continue`` per-chiave contro un futuro
-    break/return che interromperebbe il loop dopo il primo skip."""
+    """Fix 3 (#148): config with 2 cases, one snapshot pre-exists and the other does not
+    -> the existing case is skipped (reuse, sentinel intact) and ONLY the missing
+    one is captured. Locks the per-key ``continue`` against a future
+    break/return that would interrupt the loop after the first skip."""
     captured_cities: list[str] = []
 
     async def recording_live(bbox: Bbox, citta: str) -> list[Poi]:
@@ -674,14 +675,14 @@ async def test_capture_partial_skip_captures_only_missing(
     config_path = tmp_path / "multi.json"
     config_path.write_text(cfg.model_dump_json(), encoding="utf-8")
 
-    # Pre-crea SOLO lo snapshot di Roma con una sentinella (deve restare intatto).
+    # Pre-create ONLY the Rome snapshot with a sentinel (it must stay intact).
     roma_path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
-    scrivi_snapshot(roma_path, _sentinel_pois())
+    write_snapshot(roma_path, _sentinel_pois())
     milano_path = snapshot_path(tmp_path, make_snapshot_key("Milano", "Duomo"))
 
     await _capture(config_path, tmp_path, poi_source=recording_live)
 
-    # Roma saltata (sentinella intatta), Milano catturata ex-novo.
+    # Rome skipped (sentinel intact), Milan captured from scratch.
     assert load_snapshot(roma_path) == _sentinel_pois()
     assert load_snapshot(milano_path) == _sample_pois()
-    assert captured_cities == ["Milano"]  # solo il mancante ha toccato la live
+    assert captured_cities == ["Milano"]  # only the missing one touched the live source

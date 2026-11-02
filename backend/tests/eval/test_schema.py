@@ -62,8 +62,8 @@ def test_experiment_config() -> None:
 
 
 def test_experiment_config_rejects_wrong_case_mode() -> None:
-    """Vocabolario controllato (``Mode`` Literal): il casing e' vincolante.
-    ``"Baseline"`` (capitalizzato) NON e' ``"baseline"`` → ValidationError."""
+    """Controlled vocabulary (``Mode`` Literal): the casing is binding.
+    ``"Baseline"`` (capitalized) is NOT ``"baseline"`` -> ValidationError."""
     with pytest.raises(ValidationError):
         ExperimentConfig(
             name="ablation",
@@ -74,8 +74,8 @@ def test_experiment_config_rejects_wrong_case_mode() -> None:
 
 
 def test_experiment_config_rejects_wrong_case_model() -> None:
-    """Vocabolario controllato (``ModelChoice`` Literal): ``"Claude"`` capitalizzato
-    e' fuori dal vocabolario minuscolo → ValidationError."""
+    """Controlled vocabulary (``ModelChoice`` Literal): capitalized ``"Claude"``
+    is outside the lowercase vocabulary -> ValidationError."""
     with pytest.raises(ValidationError):
         ExperimentConfig(
             name="ablation",
@@ -86,7 +86,7 @@ def test_experiment_config_rejects_wrong_case_model() -> None:
 
 
 def test_experiment_config_rejects_unknown_mode() -> None:
-    """Un valore fuori dal vocabolario (livello inventato) e' rifiutato."""
+    """A value outside the vocabulary (invented level) is rejected."""
     with pytest.raises(ValidationError):
         ExperimentConfig(
             name="ablation",
@@ -97,11 +97,11 @@ def test_experiment_config_rejects_unknown_mode() -> None:
 
 
 def test_experiment_config_accepts_the_no_ontology_arm() -> None:
-    """#236: terzo braccio del vocabolario — stesso LLM, prompt senza ontologia.
+    """#236: third arm of the vocabulary -- same LLM, prompt without ontology.
 
-    Senza il valore nel ``Mode`` non esisterebbe modo di CONFIGURARE la variante
-    che isola la contribuzione C3: `analyze` vs `baseline` confronta la presenza
-    dell'LLM, non quella dell'ontologia.
+    Without the value in ``Mode`` there would be no way to CONFIGURE the variant
+    that isolates the C3 contribution: `analyze` vs `baseline` compares the presence
+    of the LLM, not that of the ontology.
     """
     cfg = ExperimentConfig(
         name="ablation-no-ontology-groq",
@@ -113,11 +113,11 @@ def test_experiment_config_accepts_the_no_ontology_arm() -> None:
 
 
 def test_no_ontology_arm_rejects_the_grouped_context_format() -> None:
-    """Il formato per classe (#273) non esiste nel braccio ablato.
+    """The per-class format (#273) does not exist in the ablated arm.
 
-    Raggruppare per classe serve a non ripetere l'insieme di hazard di ogni
-    punto: senza hazard non c'e' nulla da raggruppare. Accettarlo in silenzio
-    scriverebbe una ``Provenance`` che descrive un prompt mai costruito.
+    Grouping by class serves to not repeat the set of hazards of every
+    point: without hazards there is nothing to group. Accepting it silently
+    would write a ``Provenance`` that describes a prompt never built.
     """
     with pytest.raises(ValidationError):
         ExperimentConfig(
@@ -130,7 +130,7 @@ def test_no_ontology_arm_rejects_the_grouped_context_format() -> None:
 
 
 def test_experiment_config_defaults_to_the_historical_context_format() -> None:
-    """#273: la variante e' opt-in, cosi' nessun esperimento esistente si muove."""
+    """#273: the variant is opt-in, so no existing experiment moves."""
     cfg = ExperimentConfig(
         name="exp", mode="analyze", model="groq", cases=[RunCase(citta="R", zona="C")]
     )
@@ -138,15 +138,16 @@ def test_experiment_config_defaults_to_the_historical_context_format() -> None:
 
 
 def test_provenance_labels_a_legacy_record_as_per_poi() -> None:
-    """Un record scritto prima di #273 non ha il campo, e va letto per cio' che e'.
+    """A record written before #273 does not have the field, and must be read for what
+    it is.
 
-    Il default non e' una comodita': quelle run SONO state prodotte col formato
-    per-POI, quindi etichettarle cosi' e' l'unica lettura veritiera. Senza default
-    il campo obbligatorio renderebbe illeggibile il corpus esistente.
+    The default is not a convenience: those runs WERE produced with the per-POI
+    format, so labelling them so is the only truthful reading. Without a default
+    the mandatory field would make the existing corpus unreadable.
 
-    Il ``model_id`` resta il letterale Llama, non ``GROQ_MODEL``: e' il modello
-    che quelle run legacy hanno davvero usato, prima che Groq lo rimuovesse dal
-    catalogo (#316). Sostituirlo renderebbe il fixture un record d'epoca falso.
+    The ``model_id`` stays the Llama literal, not ``GROQ_MODEL``: it is the model
+    that those legacy runs really used, before Groq removed it from the
+    catalogue (#316). Replacing it would make the fixture a false period record.
     """
     legacy = {
         "code_commit": "abc",
@@ -162,11 +163,11 @@ def test_provenance_labels_a_legacy_record_as_per_poi() -> None:
 
 
 def test_provenance_records_the_grouped_format() -> None:
-    """Due run che differiscono solo per il formato devono essere distinguibili.
+    """Two runs that differ only by the format must be distinguishable.
 
-    ``prompt_hash`` copre il solo system prompt, e #273 cambia lo user_content:
-    senza questo campo le due braccia di un A/B sarebbero indistinguibili nei
-    risultati.
+    ``prompt_hash`` covers only the system prompt, and #273 changes the user_content:
+    without this field the two arms of an A/B would be indistinguishable in the
+    results.
     """
     prov = Provenance(
         code_commit="abc",
@@ -237,17 +238,17 @@ def test_run_record_risk_models_defaults_to_empty_list() -> None:
 
 
 @pytest.mark.parametrize("mode", ["baseline", "no_ontology_prompt"])
-def test_istat_solo_nel_braccio_completo(mode: Mode) -> None:
-    """#345 spec 4.9: ISTAT ha senso solo dove l'ontologia e' nel prompt e
-    c'e' l'LLM."""
+def test_istat_only_in_the_full_arm(mode: Mode) -> None:
+    """#345 spec 4.9: ISTAT makes sense only where the ontology is in the prompt and
+    there is the LLM."""
     with pytest.raises(ValidationError, match="istat"):
         ExperimentConfig(name="x", mode=mode, model="groq", cases=[], istat=True)
 
 
-def test_istat_spento_di_default_e_record_vecchi_validi() -> None:
+def test_istat_off_by_default_and_old_records_valid() -> None:
     cfg = ExperimentConfig(name="x", mode="analyze", model="groq", cases=[])
     assert cfg.istat is False
-    vecchio = {
+    old = {
         "code_commit": "c",
         "ontology_hash": "o",
         "snapshot_id": "s",
@@ -257,5 +258,5 @@ def test_istat_spento_di_default_e_record_vecchi_validi() -> None:
         "seed": 0,
         "experiment": "e",
     }
-    prov = Provenance.model_validate(vecchio)
+    prov = Provenance.model_validate(old)
     assert (prov.istat, prov.istat_versione_dati) == (False, None)

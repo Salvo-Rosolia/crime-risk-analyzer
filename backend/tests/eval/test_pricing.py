@@ -1,11 +1,11 @@
-"""Test del listino prezzi LLM (#34).
+"""Tests of the LLM price list (#34).
 
-Le chiavi di ``PRICES_USD_PER_MTOK`` sono letterali e NON le costanti
-``CLAUDE_MODEL``/``GROQ_MODEL``: se fossero le costanti, cambiare model id
-ri-chiaverebbe da solo il listino sul modello nuovo lasciandogli il prezzo
-VECCHIO, senza che nulla fallisca. Il legame costante -> riga di listino e'
-quindi verificato qui, con i model id e i prezzi scritti a mano nel test
-(riletti dal modulo sarebbe una verifica circolare).
+The keys of ``PRICES_USD_PER_MTOK`` are literals and NOT the
+``CLAUDE_MODEL``/``GROQ_MODEL`` constants: if they were the constants, changing the
+model id would silently re-key the price list onto the new model leaving it the OLD
+price, without anything failing. The constant -> price-list-row link is
+therefore verified here, with the model ids and prices written by hand in the test
+(re-read from the module it would be a circular check).
 """
 
 import pytest
@@ -13,25 +13,25 @@ import pytest
 from crime_risk_analyzer.eval.pricing import PRICES_USD_PER_MTOK, cost_usd
 from crime_risk_analyzer.llm.client import CLAUDE_MODEL, GROQ_MODEL
 
-#: Model id attesi: sono il pin, non una rilettura del codice sotto test.
+#: Expected model ids: they are the pin, not a re-reading of the code under test.
 _CLAUDE_ID = "claude-sonnet-4-6"
 _GROQ_ID = "openai/gpt-oss-120b"
 
 
-def test_model_id_delle_costanti_sono_quelli_a_listino() -> None:
-    """Cambiare ``GROQ_MODEL``/``CLAUDE_MODEL`` senza aggiornare il listino
-    rompe qui, in CI, invece di far esplodere una run live con ``KeyError``."""
+def test_constants_model_ids_are_the_listed_ones() -> None:
+    """Changing ``GROQ_MODEL``/``CLAUDE_MODEL`` without updating the price list
+    breaks here, in CI, instead of blowing up a live run with ``KeyError``."""
     assert CLAUDE_MODEL == _CLAUDE_ID
     assert GROQ_MODEL == _GROQ_ID
     assert _CLAUDE_ID in PRICES_USD_PER_MTOK
     assert _GROQ_ID in PRICES_USD_PER_MTOK
 
 
-def test_prezzi_pinnati_ai_valori_verificati() -> None:
-    """USD per 1M token, (input, output).
+def test_prices_pinned_to_verified_values() -> None:
+    """USD per 1M tokens, (input, output).
 
-    Groq: verificato 2026-09-11 su console.groq.com/docs/model/openai/gpt-oss-120b.
-    Claude: valore storico non riverificato (vedi docstring di ``pricing.py``).
+    Groq: verified 2026-09-11 on console.groq.com/docs/model/openai/gpt-oss-120b.
+    Claude: historical value not re-verified (see docstring of ``pricing.py``).
     """
     assert PRICES_USD_PER_MTOK[_GROQ_ID] == (0.15, 0.60)
     assert PRICES_USD_PER_MTOK[_CLAUDE_ID] == (3.00, 15.00)

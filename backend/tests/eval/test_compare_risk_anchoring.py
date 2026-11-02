@@ -1,7 +1,7 @@
-"""Sezione «Ancoraggio ai rischi (esplorativo)» dei report di confronto (#359).
+"""Section "Ancoraggio ai rischi (esplorativo)" of the comparison reports (#359).
 
-Calcolata al momento del report dai dati gia' nei record (narrativa,
-``risk_models``): si applica anche ai record scritti prima di #359.
+Computed at report time from the data already in the records (narrative,
+``risk_models``): it also applies to records written before #359.
 """
 
 from __future__ import annotations
@@ -124,7 +124,7 @@ def _rec(
 
 
 def _arms() -> tuple[list[RunRecord], list[RunRecord]]:
-    con = [
+    with_ontology = [
         _rec(
             "con",
             "Colosseo",
@@ -138,25 +138,27 @@ def _arms() -> tuple[list[RunRecord], list[RunRecord]]:
             mode="analyze",
         ),
     ]
-    senza = [
+    without_ontology = [
         _rec(
             "senza",
             "Colosseo",
             _synth("La Banca X attira persone. Folla."),
             mode="no_ontology_prompt",
         ),
-        # Narrativa piena senza il blocco misurato: non conforme al formato.
+        # Full narrative without the measured block: not conforming to the format.
         _rec("senza", "Termini", "Testo senza blocco.", mode="no_ontology_prompt"),
     ]
-    return con, senza
+    return with_ontology, without_ontology
 
 
-def test_sezione_per_zona_e_braccio() -> None:
-    con, senza = _arms()
-    cmp = compare_records(con, senza, label_a="con", label_b="senza")
-    sez = cmp.ancoraggio_rischi
-    assert sez is not None
-    colosseo, termini = sez.zones
+def test_section_per_zone_and_arm() -> None:
+    with_ontology, without_ontology = _arms()
+    cmp = compare_records(
+        with_ontology, without_ontology, label_a="con", label_b="senza"
+    )
+    section = cmp.ancoraggio_rischi
+    assert section is not None
+    colosseo, termini = section.zones
     assert (colosseo.zona, termini.zona) == ("Colosseo", "Termini")
     assert colosseo.a.frasi_misurate == 2
     assert colosseo.a.frasi_ancorate_rischio == 1
@@ -170,29 +172,31 @@ def test_sezione_per_zona_e_braccio() -> None:
     ) == (0, 1)
     assert colosseo.b.quota_solo_poi == pytest.approx(0.5)
     assert colosseo.b.quota_rischio == 0.0
-    # Non conforme: contato a parte, 0 frasi, ancoraggio 0.0, quote non definite.
+    # Not conforming: counted apart, 0 sentences, anchoring 0.0, undefined shares.
     assert termini.b.non_conformi == 1
     assert termini.b.frasi_misurate == 0
     assert termini.b.ancoraggio_rischi == 0.0
     assert termini.b.quota_rischio is None
-    # Braccio intero: totali sommati, quote sulle frasi, medie sulle zone.
-    assert sez.a.frasi_misurate == 4
-    assert sez.a.frasi_ancorate_rischio == 2
-    assert sez.a.frasi_ancorate_solo_poi == 1
-    assert sez.a.frasi_ancorate_poi_e_rischio == 1
-    assert sez.a.quota_rischio == pytest.approx(0.5)
-    assert sez.a.quota_solo_poi == pytest.approx(0.25)
-    assert sez.a.ancoraggio_rischi == pytest.approx(0.5)
-    assert sez.a.frasi_misurate_media == pytest.approx(2.0)
-    assert sez.b.frasi_misurate_media == pytest.approx(1.0)
-    assert sez.b.non_conformi == 1
-    assert sez.b.ancoraggio_rischi == 0.0
-    assert sez.solo_poi_prevale == ["senza"]
+    # Whole arm: totals summed, shares on the sentences, means over the zones.
+    assert section.a.frasi_misurate == 4
+    assert section.a.frasi_ancorate_rischio == 2
+    assert section.a.frasi_ancorate_solo_poi == 1
+    assert section.a.frasi_ancorate_poi_e_rischio == 1
+    assert section.a.quota_rischio == pytest.approx(0.5)
+    assert section.a.quota_solo_poi == pytest.approx(0.25)
+    assert section.a.ancoraggio_rischi == pytest.approx(0.5)
+    assert section.a.frasi_misurate_media == pytest.approx(2.0)
+    assert section.b.frasi_misurate_media == pytest.approx(1.0)
+    assert section.b.non_conformi == 1
+    assert section.b.ancoraggio_rischi == 0.0
+    assert section.solo_poi_prevale == ["senza"]
 
 
-def test_markdown_porta_sezione_numeri_e_nota() -> None:
-    con, senza = _arms()
-    md = to_markdown(compare_records(con, senza, label_a="con", label_b="senza"))
+def test_markdown_carries_section_numbers_and_note() -> None:
+    with_ontology, without_ontology = _arms()
+    md = to_markdown(
+        compare_records(with_ontology, without_ontology, label_a="con", label_b="senza")
+    )
     assert RISK_ANCHORING_HEAD in md
     assert "ancoraggio_rischi solo conformi" in md
     assert (
@@ -202,52 +206,58 @@ def test_markdown_porta_sezione_numeri_e_nota() -> None:
     assert "| MEDIA |  | con | 2 | 2.0 | 50.0% | 25.0% | 0.500 | 0.500 | 0 |" in md
     assert "| MEDIA |  | senza | 2 | 1.0 | 0.0% | 50.0% | 0.000 | 0.000 | 1 |" in md
     assert "nomi dei POI" in md
-    # Le frasi ancorate di M1 sono solo POI + POI e rischio: il testo li somma.
+    # The anchored sentences of M1 are only POI + POI and risk: the text adds them up.
     assert (
         "`con`: 4 misurate, 2 da rischio, 1 solo POI, 1 POI e rischio; "
         "`senza`: 2 misurate, 0 da rischio, 1 solo POI, 0 POI e rischio." in md
     )
-    # Come si aggrega, detto in una frase.
+    # How it aggregates, said in one sentence.
     assert "frasi del braccio messe insieme, narrative non conformi escluse" in md
     assert "narrative gradabili, comprese le non conformi" in md
-    # Il caveat sbagliato (i POI senza rischi ci sono in risk_models) non c'e' piu'.
+    # The wrong caveat (the POIs without risks are in risk_models) is no longer there.
     assert "un punto senza rischi non conta" not in md
     assert "circolare" in md
     assert "annotazione umana" in md
-    # La sezione precede la nota metodologica sui proxy.
+    # The section precedes the methodological note on the proxies.
     assert md.index(RISK_ANCHORING_HEAD) < md.index("Nota metodologica")
 
 
-def test_json_porta_la_sezione() -> None:
-    con, senza = _arms()
-    cmp = compare_records(con, senza, label_a="con", label_b="senza")
+def test_json_carries_the_section() -> None:
+    with_ontology, without_ontology = _arms()
+    cmp = compare_records(
+        with_ontology, without_ontology, label_a="con", label_b="senza"
+    )
     data = json.loads(cmp.model_dump_json())
     assert data["ancoraggio_rischi"]["b"]["non_conformi"] == 1
     assert data["ancoraggio_rischi"]["solo_poi_prevale"] == ["senza"]
 
 
-def test_m1_e_verdetto_invariati() -> None:
-    con, senza = _arms()
-    cmp = compare_records(con, senza, label_a="con", label_b="senza")
+def test_m1_and_verdict_unchanged() -> None:
+    with_ontology, without_ontology = _arms()
+    cmp = compare_records(
+        with_ontology, without_ontology, label_a="con", label_b="senza"
+    )
     assert cmp.mean_a.grounding == 0.5
     assert cmp.quality_verdict.applicable is True
 
 
-def test_riga_di_rimando_solo_quando_il_solo_poi_prevale() -> None:
-    con, senza = _arms()
-    cmp = compare_records(con, senza, label_a="con", label_b="senza")
-    riga = risk_anchoring_pointer(cmp)
-    assert riga == (
+def test_pointer_line_only_when_poi_only_prevails() -> None:
+    with_ontology, without_ontology = _arms()
+    cmp = compare_records(
+        with_ontology, without_ontology, label_a="con", label_b="senza"
+    )
+    line = risk_anchoring_pointer(cmp)
+    assert line == (
         "> Per «senza» le frasi ancorate solo da un nome di punto superano "
         "quelle che nominano un punto e un rischio: vedi la sezione «Ancoraggio ai "
         "rischi (esplorativo)»."
     )
-    pari = compare_records(con, con, label_a="con", label_b="con2")
-    assert risk_anchoring_pointer(pari) == ""
+    tied = compare_records(with_ontology, with_ontology, label_a="con", label_b="con2")
+    assert risk_anchoring_pointer(tied) == ""
 
 
-def test_parita_non_fa_scattare_il_rimando() -> None:
-    # 1 frase solo POI e 1 con punto e rischio: "supera" e' stretto.
+def test_tie_does_not_trigger_the_pointer() -> None:
+    # 1 POI-only sentence and 1 with point and risk: "exceeds" is strict.
     a = [
         _rec(
             "a",
@@ -263,10 +273,11 @@ def test_parita_non_fa_scattare_il_rimando() -> None:
     assert cmp.ancoraggio_rischi.solo_poi_prevale == []
 
 
-def test_frase_da_rischio_senza_punto_non_conta_contro_il_solo_poi() -> None:
-    # #408: «da rischio» include frasi senza POI, che M1 non conta come ancorate.
-    # Con 1 sola frase solo POI e nessuna con punto e rischio, il solo POI prevale
-    # fra le frasi ancorate anche se ci sono molte frasi da rischio senza punto.
+def test_risk_sentence_without_point_does_not_count_against_poi_only() -> None:
+    # #408: "from risk" includes sentences without POI, which M1 does not count as
+    # anchored. With only 1 POI-only sentence and none with point and risk, the POI-only
+    # prevails among the anchored sentences even if there are many risk sentences
+    # without a point.
     a = [
         _rec(
             "a",
@@ -276,15 +287,15 @@ def test_frase_da_rischio_senza_punto_non_conta_contro_il_solo_poi() -> None:
         )
     ]
     cmp = compare_records(a, a, label_a="a", label_b="b")
-    sez = cmp.ancoraggio_rischi
-    assert sez is not None
-    assert sez.a.frasi_ancorate_rischio == 2
-    assert sez.a.frasi_ancorate_poi_e_rischio == 0
-    assert sez.solo_poi_prevale == ["a", "b"]
+    section = cmp.ancoraggio_rischi
+    assert section is not None
+    assert section.a.frasi_ancorate_rischio == 2
+    assert section.a.frasi_ancorate_poi_e_rischio == 0
+    assert section.solo_poi_prevale == ["a", "b"]
 
 
-def test_record_non_ok_esclusi() -> None:
-    con, senza = _arms()
+def test_non_ok_records_excluded() -> None:
+    with_ontology, without_ontology = _arms()
     extra = _rec(
         "senza",
         "Colosseo",
@@ -294,51 +305,53 @@ def test_record_non_ok_esclusi() -> None:
         status=RunStatus.FALLBACK,
     )
     cmp = compare_records(
-        con,
-        senza,
+        with_ontology,
+        without_ontology,
         label_a="con",
         label_b="senza",
-        anchoring_records=(con, [*senza, extra]),
+        anchoring_records=(with_ontology, [*without_ontology, extra]),
     )
     assert cmp.ancoraggio_rischi is not None
     assert cmp.ancoraggio_rischi.zones[0].b.frasi_misurate == 2
 
 
-def test_record_vecchi_senza_campi_nuovi() -> None:
-    # Record scritto prima di #349/#345 e senza etichette #77: dizionario minimo.
-    vecchio = _rec("v", "Colosseo", _onto("Rapina in banca."), mode="analyze")
-    raw = json.loads(vecchio.model_dump_json())
-    for chiave in ("poi_nel_prompt", "narrativa_grezza", "istat_metrics"):
-        raw.pop(chiave)
+def test_old_records_without_new_fields() -> None:
+    # Record written before #349/#345 and without #77 labels: minimal dictionary.
+    old = _rec("v", "Colosseo", _onto("Rapina in banca."), mode="analyze")
+    raw = json.loads(old.model_dump_json())
+    for key in ("poi_nel_prompt", "narrativa_grezza", "istat_metrics"):
+        raw.pop(key)
     for risk in raw["risk_models"][0]["risks"]:
         risk.pop("hazard_label_it")
         risk.pop("hazard_label_en")
     legacy = RunRecord.model_validate(raw)
     cmp = compare_records([legacy], [legacy], label_a="a", label_b="b")
     assert cmp.ancoraggio_rischi is not None
-    # Le etichette mancanti sono ricostruite dal vocabolario (#77) alla lettura.
+    # The missing labels are rebuilt from the vocabulary (#77) on reading.
     assert cmp.ancoraggio_rischi.zones[0].a.frasi_ancorate_rischio == 1
     assert cmp.ancoraggio_rischi.zones[0].a.frasi_misurate == 1
 
 
-def test_record_senza_ancoraggi_non_gradabili() -> None:
-    senza_rischi = [
+def test_records_without_anchors_not_gradable() -> None:
+    without_risks = [
         _rec("x", "Colosseo", _onto("Testo."), mode="analyze", risk_models=[])
     ]
-    cmp = compare_records(senza_rischi, senza_rischi, label_a="a", label_b="b")
-    # Nessuna narrativa gradabile in nessun braccio: niente sezione.
+    cmp = compare_records(without_risks, without_risks, label_a="a", label_b="b")
+    # No gradable narrative in any arm: no section.
     assert cmp.ancoraggio_rischi is None
     assert RISK_ANCHORING_HEAD not in to_markdown(cmp)
 
 
-def _repeated(tmp_path: Path, senza_body: str) -> str:
+def _repeated(tmp_path: Path, without_body: str) -> str:
     records = [
         _rec(
             "con", "Colosseo", _onto("Possibile rapina in banca. Zona."), mode="analyze"
         ),
         _rec("con", "Colosseo", _onto("Rapina in banca."), mode="analyze", rep=1),
-        _rec("senza", "Colosseo", _synth(senza_body), mode="no_ontology_prompt"),
-        _rec("senza", "Colosseo", _synth(senza_body), mode="no_ontology_prompt", rep=1),
+        _rec("senza", "Colosseo", _synth(without_body), mode="no_ontology_prompt"),
+        _rec(
+            "senza", "Colosseo", _synth(without_body), mode="no_ontology_prompt", rep=1
+        ),
     ]
     for rec in records:
         write_record(tmp_path, rec)
@@ -346,86 +359,88 @@ def _repeated(tmp_path: Path, senza_body: str) -> str:
         tmp_path, "con", "senza", label_a="con", label_b="senza"
     )
     data = json.loads(json_path.read_text(encoding="utf-8"))
-    sez = data["comparison"]["ancoraggio_rischi"]
-    # Calcolata sulle ripetizioni, non sul record-media (che non ha i rischi).
-    assert sez["zones"][0]["a"]["narrative_gradabili"] == 2
-    assert sez["zones"][0]["a"]["frasi_misurate"] == 3
-    assert sez["zones"][0]["a"]["ancoraggio_rischi"] == pytest.approx(0.75)
+    section = data["comparison"]["ancoraggio_rischi"]
+    # Computed on the repetitions, not on the mean-record (which has no risks).
+    assert section["zones"][0]["a"]["narrative_gradabili"] == 2
+    assert section["zones"][0]["a"]["frasi_misurate"] == 3
+    assert section["zones"][0]["a"]["ancoraggio_rischi"] == pytest.approx(0.75)
     return md_path.read_text(encoding="utf-8")
 
 
-def test_report_ripetuto_rimanda_alla_sezione_vicino_al_verdetto(
+def test_repeated_report_points_to_the_section_near_the_verdict(
     tmp_path: Path,
 ) -> None:
     md = _repeated(tmp_path, "La Banca X attira persone. Folla.")
     assert RISK_ANCHORING_HEAD in md
-    verdetto = md.index("### Esito del criterio proxy")
-    riga = md.index(_POINTER_MARK)
-    assert riga > verdetto
-    # Una sola volta: nel report ripetuto il rimando sta solo vicino al verdetto.
+    verdict = md.index("### Esito del criterio proxy")
+    line = md.index(_POINTER_MARK)
+    assert line > verdict
+    # Only once: in the repeated report the pointer sits only next to the verdict.
     assert md.count(_POINTER_MARK) == 1
 
 
-def test_report_ripetuto_senza_rimando(tmp_path: Path) -> None:
+def test_repeated_report_without_pointer(tmp_path: Path) -> None:
     md = _repeated(tmp_path, "Rapina in banca alla Banca X. Folla.")
     assert RISK_ANCHORING_HEAD in md
     assert _POINTER_MARK not in md
 
 
-def test_rimando_una_riga_per_braccio() -> None:
-    _, senza = _arms()
-    cmp = compare_records(senza, senza, label_a="s1", label_b="s2")
-    righe = [r for r in risk_anchoring_pointer(cmp).splitlines() if r]
-    assert len(righe) == 2
-    assert righe[0].startswith("> Per «s1» le frasi ancorate")
-    assert righe[1].startswith("> Per «s2» le frasi ancorate")
-
-
-def test_ancoraggio_solo_conformi_esclude_le_non_conformi() -> None:
-    # Due ripetizioni: una conforme (1 frase da rischio su 2), una non conforme.
-    conforme = _rec("c", "Colosseo", _onto("Rapina in banca. Folla."), mode="analyze")
-    non_conforme = _rec("c", "Colosseo", "Testo libero.", mode="analyze", rep=1)
+def test_pointer_one_line_per_arm() -> None:
+    _, without_ontology = _arms()
     cmp = compare_records(
-        [conforme],
-        [conforme],
+        without_ontology, without_ontology, label_a="s1", label_b="s2"
+    )
+    lines = [r for r in risk_anchoring_pointer(cmp).splitlines() if r]
+    assert len(lines) == 2
+    assert lines[0].startswith("> Per «s1» le frasi ancorate")
+    assert lines[1].startswith("> Per «s2» le frasi ancorate")
+
+
+def test_anchoring_conforming_only_excludes_the_non_conforming() -> None:
+    # Two repetitions: one conforming (1 risk sentence out of 2), one not conforming.
+    conforming = _rec("c", "Colosseo", _onto("Rapina in banca. Folla."), mode="analyze")
+    non_conforming = _rec("c", "Colosseo", "Testo libero.", mode="analyze", rep=1)
+    cmp = compare_records(
+        [conforming],
+        [conforming],
         label_a="a",
         label_b="b",
-        anchoring_records=([conforme, non_conforme], [conforme]),
+        anchoring_records=([conforming, non_conforming], [conforming]),
     )
-    sez = cmp.ancoraggio_rischi
-    assert sez is not None
-    zona = sez.zones[0].a
-    assert zona.ancoraggio_rischi == pytest.approx(0.25)
-    assert zona.ancoraggio_rischi_conformi == pytest.approx(0.5)
-    assert sez.a.ancoraggio_rischi_conformi == pytest.approx(0.5)
-    assert sez.b.ancoraggio_rischi_conformi == pytest.approx(0.5)
+    section = cmp.ancoraggio_rischi
+    assert section is not None
+    zone_a = section.zones[0].a
+    assert zone_a.ancoraggio_rischi == pytest.approx(0.25)
+    assert zone_a.ancoraggio_rischi_conformi == pytest.approx(0.5)
+    assert section.a.ancoraggio_rischi_conformi == pytest.approx(0.5)
+    assert section.b.ancoraggio_rischi_conformi == pytest.approx(0.5)
 
 
-def test_solo_non_conformi_colonna_conformi_non_definita() -> None:
-    _, senza = _arms()
-    cmp = compare_records(senza, senza, label_a="a", label_b="b")
+def test_only_non_conforming_conforming_column_undefined() -> None:
+    _, without_ontology = _arms()
+    cmp = compare_records(without_ontology, without_ontology, label_a="a", label_b="b")
     assert cmp.ancoraggio_rischi is not None
     assert cmp.ancoraggio_rischi.zones[1].a.ancoraggio_rischi_conformi is None
 
 
-def test_run_con_istat_escluse_dalla_sezione() -> None:
-    # Versione 2: da questi record il testo misurato da M1 non si ricostruisce.
-    con, senza = _arms()
-    con_istat = [r.model_copy(update={"istat_metrics": _ISTAT}) for r in con]
+def test_runs_with_istat_excluded_from_the_section() -> None:
+    # Version 2: from these records the text measured by M1 cannot be rebuilt.
+    with_ontology, without_ontology = _arms()
+    with_istat = [r.model_copy(update={"istat_metrics": _ISTAT}) for r in with_ontology]
     cmp = compare_records(
-        con,
-        senza,
+        with_ontology,
+        without_ontology,
         label_a="istat",
         label_b="senza",
-        anchoring_records=(con_istat, senza),
+        anchoring_records=(with_istat, without_ontology),
     )
-    sez = cmp.ancoraggio_rischi
-    assert sez is not None
-    assert sez.a.narrative_gradabili == 0
-    assert sez.a.run_istat_escluse == 2
-    assert sez.a.run_istat_incluse == 0
-    assert sez.b.run_istat_escluse == 0
-    assert sez.b.narrative_gradabili == 2
+    section = cmp.ancoraggio_rischi
+    assert section is not None
+    assert section.a.narrative_gradabili == 0
+    assert section.a.run_istat_escluse == 2
+    assert section.a.run_istat_incluse == 0
+    assert section.b.run_istat_escluse == 0
+    assert section.b.narrative_gradabili == 2
     md = to_markdown(cmp)
     assert f"> {RISK_ANCHORING_ISTAT_EXCLUDED} (run escluse — `istat`: 2)." in md
     assert "versione 4" in RISK_ANCHORING_ISTAT_EXCLUDED
@@ -435,7 +450,7 @@ def test_run_con_istat_escluse_dalla_sezione() -> None:
     assert RISK_ANCHORING_ISTAT_INCLUDED not in md
 
 
-def test_tutte_le_run_con_istat_la_sezione_lo_dice() -> None:
+def test_all_runs_with_istat_the_section_says_so() -> None:
     rec = _rec("i", "Colosseo", _onto("Rapina in banca."), mode="analyze", istat=True)
     cmp = compare_records([rec], [rec], label_a="a", label_b="b")
     assert cmp.ancoraggio_rischi is not None
@@ -443,9 +458,11 @@ def test_tutte_le_run_con_istat_la_sezione_lo_dice() -> None:
     assert RISK_ANCHORING_ISTAT_EXCLUDED in to_markdown(cmp)
 
 
-def test_senza_istat_nessuna_frase_sulle_run_istat() -> None:
-    con, senza = _arms()
-    cmp = compare_records(con, senza, label_a="con", label_b="senza")
+def test_without_istat_no_sentence_about_istat_runs() -> None:
+    with_ontology, without_ontology = _arms()
+    cmp = compare_records(
+        with_ontology, without_ontology, label_a="con", label_b="senza"
+    )
     md = to_markdown(cmp)
     assert RISK_ANCHORING_ISTAT_EXCLUDED not in md
     assert RISK_ANCHORING_ISTAT_INCLUDED not in md
@@ -454,21 +471,21 @@ def test_senza_istat_nessuna_frase_sulle_run_istat() -> None:
     assert cmp.ancoraggio_rischi.a.frasi_istat_escluse == 0
 
 
-# --- Run con ISTAT di versione 4: incluse dal testo misurato da M1 (#377) --------
+# --- ISTAT version 4 runs: included on the text measured by M1 (#377) --------
 
 _ISTAT_V4 = _ISTAT.model_copy(update={"versione": 4})
 
-#: Frase ISTAT senza POI ne' rischio: M1 la esclude e il record la salva.
-_FRASE_ISTAT = "Secondo l'ISTAT i furti sono in calo"
+#: ISTAT sentence without POI nor risk: M1 excludes it and the record saves it.
+_ISTAT_SENTENCE = "Secondo l'ISTAT i furti sono in calo"
 
-#: Grezzo del modello: 1 frase da rischio, 1 solo POI, 1 non ancorata, 1 ISTAT.
-_GREZZO = _onto(
-    f"Rapina in banca alla Banca X. La Banca X e' aperta. Folla. {_FRASE_ISTAT}."
+#: Raw model text: 1 risk sentence, 1 POI-only, 1 not anchored, 1 ISTAT.
+_RAW = _onto(
+    f"Rapina in banca alla Banca X. La Banca X e' aperta. Folla. {_ISTAT_SENTENCE}."
 )
 
-#: Narrativa filtrata (mostrata all'operatore): diversa dal grezzo, cosi' i
-#: test vedono quale testo la sezione misura.
-_FILTRATA = _onto("Rapina in banca alla Banca X. Folla.")
+#: Filtered narrative (shown to the operator): different from the raw text, so the
+#: tests see which text the section measures.
+_FILTERED = _onto("Rapina in banca alla Banca X. Folla.")
 
 
 def _rec_istat_v4(
@@ -476,77 +493,79 @@ def _rec_istat_v4(
     *,
     experiment: str = "i4",
     rep: int = 0,
-    grezzo: str | None = _GREZZO,
-    escluse: list[str] | None = None,
+    raw: str | None = _RAW,
+    excluded: list[str] | None = None,
 ) -> RunRecord:
-    rec = _rec(experiment, zona, _FILTRATA, mode="analyze", rep=rep, istat=True)
-    frasi = [_FRASE_ISTAT] if escluse is None else escluse
-    # Come l'harness: il conteggio delle metriche ISTAT e' la lunghezza della lista.
-    metriche = _ISTAT_V4.model_copy(update={"frasi_escluse_m1": len(frasi)})
+    rec = _rec(experiment, zona, _FILTERED, mode="analyze", rep=rep, istat=True)
+    sentences = [_ISTAT_SENTENCE] if excluded is None else excluded
+    # Like the harness: the count of the ISTAT metrics is the length of the list.
+    v4_metrics = _ISTAT_V4.model_copy(update={"frasi_escluse_m1": len(sentences)})
     return rec.model_copy(
         update={
-            "istat_metrics": metriche,
-            "narrativa_grezza": grezzo,
-            "frasi_escluse_m1": frasi,
+            "istat_metrics": v4_metrics,
+            "narrativa_grezza": raw,
+            "frasi_escluse_m1": sentences,
         }
     )
 
 
-def test_run_istat_v4_incluse_sul_testo_misurato_da_m1() -> None:
+def test_istat_v4_runs_included_on_the_text_measured_by_m1() -> None:
     rec = _rec_istat_v4()
     cmp = compare_records([rec], [rec], label_a="a", label_b="b")
-    sez = cmp.ancoraggio_rischi
-    assert sez is not None
-    zona = sez.zones[0].a
-    # Grezzo senza la frase ISTAT esclusa: 3 frasi, non le 2 della filtrata
-    # ne' le 4 del grezzo intero.
-    assert zona.narrative_gradabili == 1
-    assert zona.frasi_misurate == 3
-    assert zona.frasi_ancorate_rischio == 1
-    assert zona.frasi_ancorate_solo_poi == 1
-    assert zona.ancoraggio_rischi == pytest.approx(1 / 3)
-    assert zona.run_istat_incluse == 1
-    assert zona.run_istat_escluse == 0
-    assert zona.frasi_istat_escluse == 1
-    assert sez.a.run_istat_incluse == 1
-    assert sez.a.frasi_istat_escluse == 1
+    section = cmp.ancoraggio_rischi
+    assert section is not None
+    zone_a = section.zones[0].a
+    # Raw text without the excluded ISTAT sentence: 3 sentences, not the 2 of the
+    # filtered one nor the 4 of the whole raw text.
+    assert zone_a.narrative_gradabili == 1
+    assert zone_a.frasi_misurate == 3
+    assert zone_a.frasi_ancorate_rischio == 1
+    assert zone_a.frasi_ancorate_solo_poi == 1
+    assert zone_a.ancoraggio_rischi == pytest.approx(1 / 3)
+    assert zone_a.run_istat_incluse == 1
+    assert zone_a.run_istat_escluse == 0
+    assert zone_a.frasi_istat_escluse == 1
+    assert section.a.run_istat_incluse == 1
+    assert section.a.frasi_istat_escluse == 1
 
 
-def test_braccio_misto_somma_solo_le_run_ricostruibili() -> None:
-    senza_istat = _rec("i4", "Colosseo", _onto("Rapina in banca."), mode="analyze")
+def test_mixed_arm_sums_only_the_reconstructible_runs() -> None:
+    without_istat = _rec("i4", "Colosseo", _onto("Rapina in banca."), mode="analyze")
     v4 = _rec_istat_v4(rep=1)
     v2 = _rec("i4", "Colosseo", _onto("Folla."), mode="analyze", rep=2, istat=True)
-    # v4 senza il grezzo o senza le frasi escluse: non si ricostruisce.
-    senza_grezzo = _rec_istat_v4(rep=3, grezzo=None)
-    senza_escluse = _rec_istat_v4(rep=4).model_copy(update={"frasi_escluse_m1": None})
-    runs = [senza_istat, v4, v2, senza_grezzo, senza_escluse]
+    # v4 without the raw text or without the excluded sentences: it cannot be rebuilt.
+    without_raw = _rec_istat_v4(rep=3, raw=None)
+    without_excluded = _rec_istat_v4(rep=4).model_copy(
+        update={"frasi_escluse_m1": None}
+    )
+    runs = [without_istat, v4, v2, without_raw, without_excluded]
     cmp = compare_records(
-        [senza_istat],
-        [senza_istat],
+        [without_istat],
+        [without_istat],
         label_a="a",
         label_b="b",
-        anchoring_records=(runs, [senza_istat]),
+        anchoring_records=(runs, [without_istat]),
     )
-    sez = cmp.ancoraggio_rischi
-    assert sez is not None
-    assert sez.a.narrative_gradabili == 2
-    assert sez.a.frasi_misurate == 1 + 3
-    assert sez.a.frasi_ancorate_rischio == 1 + 1
-    assert sez.a.frasi_ancorate_solo_poi == 0 + 1
-    assert sez.a.run_istat_incluse == 1
-    assert sez.a.run_istat_escluse == 3
-    assert sez.a.frasi_istat_escluse == 1
-    assert sez.b.run_istat_incluse == 0
+    section = cmp.ancoraggio_rischi
+    assert section is not None
+    assert section.a.narrative_gradabili == 2
+    assert section.a.frasi_misurate == 1 + 3
+    assert section.a.frasi_ancorate_rischio == 1 + 1
+    assert section.a.frasi_ancorate_solo_poi == 0 + 1
+    assert section.a.run_istat_incluse == 1
+    assert section.a.run_istat_escluse == 3
+    assert section.a.frasi_istat_escluse == 1
+    assert section.b.run_istat_incluse == 0
     md = to_markdown(cmp)
     assert RISK_ANCHORING_ISTAT_INCLUDED in md
     assert f"> {RISK_ANCHORING_ISTAT_EXCLUDED} (run escluse — `a`: 3)." in md
 
 
-def test_markdown_avviso_run_istat_incluse_con_frasi_escluse_per_braccio() -> None:
+def test_markdown_warning_included_istat_runs_with_excluded_sentences_per_arm() -> None:
     a = [_rec_istat_v4(), _rec_istat_v4("Termini")]
     b = [
         _rec_istat_v4(experiment="i4b"),
-        _rec_istat_v4("Termini", experiment="i4b", grezzo=_onto("Rapina."), escluse=[]),
+        _rec_istat_v4("Termini", experiment="i4b", raw=_onto("Rapina."), excluded=[]),
     ]
     cmp = compare_records(a, b, label_a="a", label_b="b")
     md = to_markdown(cmp)
@@ -555,48 +574,46 @@ def test_markdown_avviso_run_istat_incluse_con_frasi_escluse_per_braccio() -> No
         "> Run con dati ISTAT nella sezione — `a`: 2 run, 2 frasi ISTAT escluse; "
         "`b`: 2 run, 1 frase ISTAT esclusa."
     ) in md
-    # La tabella ISTAT conta le stesse frasi escluse dei record.
-    # Il fixture non ha il conteggio delle escluse senza voce (#378): n/d.
-    senza_conteggio = (
-        "di cui n/d senza voce ISTAT del prompt (record senza il conteggio)"
-    )
+    # The ISTAT table counts the same excluded sentences as the records.
+    # The fixture does not have the count of the excluded without item (#378): n/d.
+    without_count = "di cui n/d senza voce ISTAT del prompt (record senza il conteggio)"
     assert (
-        f"> Frasi escluse da M1 — `a`: 2 frasi escluse, {senza_conteggio}; "
-        f"`b`: 1 frasi escluse, {senza_conteggio}."
+        f"> Frasi escluse da M1 — `a`: 2 frasi escluse, {without_count}; "
+        f"`b`: 1 frasi escluse, {without_count}."
     ) in md
     assert RISK_ANCHORING_ISTAT_EXCLUDED not in md
-    # L'avviso dice che il testo misurato ha accenni ISTAT a parole, e che le
-    # righe ISTAT del prompt portano le etichette dei rischi collegati.
+    # The warning says that the measured text has ISTAT mentions in words, and that the
+    # ISTAT rows of the prompt carry the labels of the linked risks.
     assert "a parole" in RISK_ANCHORING_ISTAT_INCLUDED
     assert "«Collegata a: ...»" in RISK_ANCHORING_ISTAT_INCLUDED
     assert "da rischio" in RISK_ANCHORING_ISTAT_INCLUDED
-    sezione = md[md.index(RISK_ANCHORING_HEAD) :]
-    assert sezione.index(RISK_ANCHORING_ISTAT_INCLUDED) < sezione.index(
+    section = md[md.index(RISK_ANCHORING_HEAD) :]
+    assert section.index(RISK_ANCHORING_ISTAT_INCLUDED) < section.index(
         "Come leggere questa sezione"
     )
 
 
-def test_json_porta_run_istat_incluse_e_frasi_escluse() -> None:
+def test_json_carries_included_istat_runs_and_excluded_sentences() -> None:
     rec = _rec_istat_v4()
     cmp = compare_records([rec], [rec], label_a="a", label_b="b")
     data = json.loads(cmp.model_dump_json())
-    sez = data["ancoraggio_rischi"]
-    assert sez["a"]["run_istat_incluse"] == 1
-    assert sez["a"]["frasi_istat_escluse"] == 1
-    assert sez["zones"][0]["b"]["frasi_misurate"] == 3
+    section = data["ancoraggio_rischi"]
+    assert section["a"]["run_istat_incluse"] == 1
+    assert section["a"]["frasi_istat_escluse"] == 1
+    assert section["zones"][0]["b"]["frasi_misurate"] == 3
 
 
-def test_run_istat_v4_verdetto_e_m1_invariati() -> None:
+def test_istat_v4_run_verdict_and_m1_unchanged() -> None:
     rec = _rec_istat_v4()
-    vecchio = rec.model_copy(update={"istat_metrics": _ISTAT})
-    nuovo = compare_records([rec], [rec], label_a="a", label_b="b")
-    prima = compare_records([vecchio], [vecchio], label_a="a", label_b="b")
-    assert nuovo.mean_a == prima.mean_a
-    assert nuovo.mean_delta == prima.mean_delta
-    assert nuovo.quality_verdict == prima.quality_verdict
+    old = rec.model_copy(update={"istat_metrics": _ISTAT})
+    new = compare_records([rec], [rec], label_a="a", label_b="b")
+    before = compare_records([old], [old], label_a="a", label_b="b")
+    assert new.mean_a == before.mean_a
+    assert new.mean_delta == before.mean_delta
+    assert new.quality_verdict == before.quality_verdict
 
 
-def test_record_istat_v4_letto_da_json() -> None:
+def test_istat_v4_record_read_from_json() -> None:
     raw = json.loads(_rec_istat_v4().model_dump_json())
     rec = RunRecord.model_validate(raw)
     cmp = compare_records([rec], [rec], label_a="a", label_b="b")
@@ -604,7 +621,7 @@ def test_record_istat_v4_letto_da_json() -> None:
     assert cmp.ancoraggio_rischi.a.frasi_misurate == 3
 
 
-def test_report_ripetuto_include_le_run_istat_v4(tmp_path: Path) -> None:
+def test_repeated_report_includes_the_istat_v4_runs(tmp_path: Path) -> None:
     records = [
         _rec_istat_v4(experiment=exp, rep=rep)
         for exp in ("i4", "i4b")
@@ -616,16 +633,16 @@ def test_report_ripetuto_include_le_run_istat_v4(tmp_path: Path) -> None:
         tmp_path, "i4", "i4b", label_a="a", label_b="b"
     )
     data = json.loads(json_path.read_text(encoding="utf-8"))
-    sez = data["comparison"]["ancoraggio_rischi"]
-    assert sez["a"]["run_istat_incluse"] == 2
-    assert sez["a"]["frasi_istat_escluse"] == 2
-    assert sez["a"]["frasi_misurate"] == 6
+    section = data["comparison"]["ancoraggio_rischi"]
+    assert section["a"]["run_istat_incluse"] == 2
+    assert section["a"]["frasi_istat_escluse"] == 2
+    assert section["a"]["frasi_misurate"] == 6
     assert RISK_ANCHORING_ISTAT_INCLUDED in md_path.read_text(encoding="utf-8")
 
 
-def test_run_istat_v3_esclusa_anche_con_grezzo_e_frasi_escluse() -> None:
-    """Prima della versione 4 M1 escludeva altre frasi: anche se il record ha i
-    due campi, il testo misurato allora non e' grezzo meno queste frasi."""
+def test_istat_v3_run_excluded_even_with_raw_text_and_excluded_sentences() -> None:
+    """Before version 4 M1 excluded other sentences: even if the record has the
+    two fields, the text measured then is not raw text minus these sentences."""
     v3 = _rec_istat_v4().model_copy(
         update={"istat_metrics": _ISTAT_V4.model_copy(update={"versione": 3})}
     )
@@ -636,32 +653,32 @@ def test_run_istat_v3_esclusa_anche_con_grezzo_e_frasi_escluse() -> None:
     assert cmp.ancoraggio_rischi.a.narrative_gradabili == 0
 
 
-def test_run_istat_v4_incoerente_esclusa_senza_far_fallire_il_report(
+def test_inconsistent_istat_v4_run_excluded_without_failing_the_report(
     tmp_path: Path,
 ) -> None:
-    """Una frase esclusa che non e' fra le frasi del grezzo (record incoerente):
-    la run resta fuori dalla sezione come le altre non ricostruibili, il report
-    si genera."""
-    alterata = _FRASE_ISTAT.replace("calo", "aumento")
-    rotto = _rec_istat_v4(rep=1, escluse=[alterata])
-    buono = _rec_istat_v4(rep=0)
+    """An excluded sentence that is not among the sentences of the raw text
+    (inconsistent record): the run stays out of the section like the other
+    non-reconstructible ones, the report is generated."""
+    altered = _ISTAT_SENTENCE.replace("calo", "aumento")
+    broken = _rec_istat_v4(rep=1, excluded=[altered])
+    good = _rec_istat_v4(rep=0)
     cmp = compare_records(
-        [buono],
-        [buono],
+        [good],
+        [good],
         label_a="a",
         label_b="b",
-        anchoring_records=([buono, rotto], [buono]),
+        anchoring_records=([good, broken], [good]),
     )
-    sez = cmp.ancoraggio_rischi
-    assert sez is not None
-    assert sez.a.run_istat_escluse == 1
-    assert sez.a.run_istat_incluse == 1
-    assert sez.a.narrative_gradabili == 1
-    assert sez.a.frasi_istat_escluse == 1
+    section = cmp.ancoraggio_rischi
+    assert section is not None
+    assert section.a.run_istat_escluse == 1
+    assert section.a.run_istat_incluse == 1
+    assert section.a.narrative_gradabili == 1
+    assert section.a.frasi_istat_escluse == 1
     md = to_markdown(cmp)
     assert f"> {RISK_ANCHORING_ISTAT_EXCLUDED} (run escluse — `a`: 1)." in md
-    # Anche il report ripetuto si genera.
-    for rec in (rotto, buono, _rec_istat_v4(experiment="i4b")):
+    # The repeated report is generated too.
+    for rec in (broken, good, _rec_istat_v4(experiment="i4b")):
         write_record(tmp_path, rec)
     md_path, json_path = build_repeated_report(
         tmp_path, "i4", "i4b", label_a="a", label_b="b"
@@ -671,24 +688,26 @@ def test_run_istat_v4_incoerente_esclusa_senza_far_fallire_il_report(
     assert RISK_ANCHORING_ISTAT_EXCLUDED in md_path.read_text(encoding="utf-8")
 
 
-def _versione_m1(rec: RunRecord, versione: int | None) -> RunRecord:
-    metrics = rec.metrics.model_copy(update={"versione": versione})
+def _m1_version(rec: RunRecord, version: int | None) -> RunRecord:
+    metrics = rec.metrics.model_copy(update={"versione": version})
     return rec.model_copy(update={"metrics": metrics})
 
 
-def test_metriche_senza_versione_valgono_non_registrata() -> None:
-    # Record scritti prima di #408: la versione di M1 non e' nota (era 1, 2 o 3).
+def test_metrics_without_version_count_as_not_recorded() -> None:
+    # Records written before #408: the M1 version is not known (it was 1, 2 or 3).
     assert (
         Metrics(grounding=1.0, hallucination=0.0, latency_ms=0, cost_usd=0.0).versione
         is None
     )
 
 
-def test_bracci_con_versioni_m1_diverse_hanno_un_avviso() -> None:
-    con, senza = _arms()
-    con = [_versione_m1(r, 2) for r in con]
-    senza = [_versione_m1(r, 3) for r in senza]
-    cmp = compare_records(con, senza, label_a="con", label_b="senza")
+def test_arms_with_different_m1_versions_have_a_warning() -> None:
+    with_ontology, without_ontology = _arms()
+    with_ontology = [_m1_version(r, 2) for r in with_ontology]
+    without_ontology = [_m1_version(r, 3) for r in without_ontology]
+    cmp = compare_records(
+        with_ontology, without_ontology, label_a="con", label_b="senza"
+    )
     assert cmp.avviso_versioni_m1.startswith(M1_VERSIONS_DIFFER_HEAD)
     assert "`con`: versione 2; `senza`: versione 3" in cmp.avviso_versioni_m1
     md = to_markdown(cmp)
@@ -696,44 +715,48 @@ def test_bracci_con_versioni_m1_diverse_hanno_un_avviso() -> None:
     assert json.loads(to_json(cmp))["avviso_versioni_m1"] == cmp.avviso_versioni_m1
 
 
-def test_stessa_versione_m1_nessun_avviso() -> None:
-    con, senza = _arms()
-    con = [_versione_m1(r, 3) for r in con]
-    senza = [_versione_m1(r, 3) for r in senza]
-    cmp = compare_records(con, senza, label_a="con", label_b="senza")
+def test_same_m1_version_no_warning() -> None:
+    with_ontology, without_ontology = _arms()
+    with_ontology = [_m1_version(r, 3) for r in with_ontology]
+    without_ontology = [_m1_version(r, 3) for r in without_ontology]
+    cmp = compare_records(
+        with_ontology, without_ontology, label_a="con", label_b="senza"
+    )
     assert cmp.avviso_versioni_m1 == ""
     assert M1_VERSIONS_DIFFER_HEAD not in to_markdown(cmp)
-    # Anche se nessuna e' registrata (record tutti pre-#408): niente da segnalare.
+    # Even if none is recorded (records all pre-#408): nothing to signal.
     assert compare_records(*_arms(), label_a="a", label_b="b").avviso_versioni_m1 == ""
 
 
-def test_versione_m1_non_registrata_contro_registrata_e_segnalata() -> None:
-    con, senza = _arms()
-    senza = [_versione_m1(r, 3) for r in senza]
-    cmp = compare_records(con, senza, label_a="con", label_b="senza")
+def test_unrecorded_m1_version_against_recorded_is_flagged() -> None:
+    with_ontology, without_ontology = _arms()
+    without_ontology = [_m1_version(r, 3) for r in without_ontology]
+    cmp = compare_records(
+        with_ontology, without_ontology, label_a="con", label_b="senza"
+    )
     assert "`con`: versione n/d; `senza`: versione 3" in cmp.avviso_versioni_m1
 
 
-def test_versioni_m1_miste_dentro_un_braccio_si_segnalano_senza_rifiutare() -> None:
-    # A differenza di ISTAT (#369) il confronto non rifiuta: avvisa.
-    con, senza = _arms()
-    extra = _versione_m1(
+def test_mixed_m1_versions_within_an_arm_are_flagged_without_rejecting() -> None:
+    # Unlike ISTAT (#369) the comparison does not reject: it warns.
+    with_ontology, without_ontology = _arms()
+    extra = _m1_version(
         _rec("con", "Colosseo", _onto("Rapina in banca."), mode="analyze", rep=1), 2
     )
-    con = [_versione_m1(r, 3) for r in con]
+    with_ontology = [_m1_version(r, 3) for r in with_ontology]
     cmp = compare_records(
-        con,
-        senza,
+        with_ontology,
+        without_ontology,
         label_a="con",
         label_b="senza",
-        anchoring_records=([*con, extra], senza),
+        anchoring_records=([*with_ontology, extra], without_ontology),
     )
     assert "`con`: versione 2, 3" in cmp.avviso_versioni_m1
 
 
-def test_versione_dei_record_esclusi_non_conta() -> None:
-    con, senza = _arms()
-    fallback = _versione_m1(
+def test_version_of_excluded_records_does_not_count() -> None:
+    with_ontology, without_ontology = _arms()
+    fallback = _m1_version(
         _rec(
             "senza",
             "Colosseo",
@@ -745,103 +768,115 @@ def test_versione_dei_record_esclusi_non_conta() -> None:
         1,
     )
     cmp = compare_records(
-        con,
-        senza,
+        with_ontology,
+        without_ontology,
         label_a="con",
         label_b="senza",
-        anchoring_records=(con, [*senza, fallback]),
+        anchoring_records=(with_ontology, [*without_ontology, fallback]),
     )
     assert cmp.avviso_versioni_m1 == ""
 
 
-def test_zona_scartata_in_un_braccio_non_conta_per_le_versioni_m1() -> None:
-    # Colosseo: v2 in A ma FALLBACK in B -> zona in `failed`, non confrontata.
-    con, senza = _arms()
-    con = [
-        _versione_m1(r, 3) if r.zona != "Colosseo" else _versione_m1(r, 2) for r in con
+def test_zone_discarded_in_one_arm_does_not_count_for_m1_versions() -> None:
+    # Colosseo: v2 in A but FALLBACK in B -> zone in `failed`, not compared.
+    with_ontology, without_ontology = _arms()
+    with_ontology = [
+        _m1_version(r, 3) if r.zona != "Colosseo" else _m1_version(r, 2)
+        for r in with_ontology
     ]
-    senza = [
-        _versione_m1(r, 3)
+    without_ontology = [
+        _m1_version(r, 3)
         if r.zona != "Colosseo"
-        else _versione_m1(r.model_copy(update={"status": RunStatus.FALLBACK}), 3)
-        for r in senza
+        else _m1_version(r.model_copy(update={"status": RunStatus.FALLBACK}), 3)
+        for r in without_ontology
     ]
-    cmp = compare_records(con, senza, label_a="con", label_b="senza")
+    cmp = compare_records(
+        with_ontology, without_ontology, label_a="con", label_b="senza"
+    )
     assert [f.zona for f in cmp.failed] == ["Colosseo"]
     assert cmp.avviso_versioni_m1 == ""
 
 
-def test_zona_scartata_con_ripetizioni_non_conta_per_le_versioni_m1() -> None:
-    con, senza = _arms()
-    con = [
-        _versione_m1(r, 3) if r.zona != "Colosseo" else _versione_m1(r, 2) for r in con
+def test_zone_discarded_with_repetitions_does_not_count_for_m1_versions() -> None:
+    with_ontology, without_ontology = _arms()
+    with_ontology = [
+        _m1_version(r, 3) if r.zona != "Colosseo" else _m1_version(r, 2)
+        for r in with_ontology
     ]
-    senza = [
-        _versione_m1(r, 3)
+    without_ontology = [
+        _m1_version(r, 3)
         if r.zona != "Colosseo"
-        else _versione_m1(r.model_copy(update={"status": RunStatus.FALLBACK}), 3)
-        for r in senza
+        else _m1_version(r.model_copy(update={"status": RunStatus.FALLBACK}), 3)
+        for r in without_ontology
     ]
-    # Ripetizione extra OK della zona scartata, a v2: resta fuori dall'insieme.
-    extra = _versione_m1(
+    # Extra OK repetition of the discarded zone, at v2: it stays out of the set.
+    extra = _m1_version(
         _rec("con", "Colosseo", _onto("Rapina in banca."), mode="analyze", rep=1), 2
     )
     cmp = compare_records(
-        con,
-        senza,
+        with_ontology,
+        without_ontology,
         label_a="con",
         label_b="senza",
-        anchoring_records=([*con, extra], senza),
+        anchoring_records=([*with_ontology, extra], without_ontology),
     )
     assert cmp.avviso_versioni_m1 == ""
 
 
-def _vacuo(rec: RunRecord) -> RunRecord:
+def _vacuous(rec: RunRecord) -> RunRecord:
     metrics = rec.metrics.model_copy(update={"quality_vacuous": True})
     return rec.model_copy(update={"metrics": metrics})
 
 
-def test_baseline_vacuo_a_versione_vecchia_non_fa_scattare_l_avviso() -> None:
-    con, senza = _arms()
-    con = [_vacuo(_versione_m1(r, 2)) for r in con]
-    senza = [_versione_m1(r, 3) for r in senza]
-    cmp = compare_records(con, senza, label_a="con", label_b="senza")
+def test_vacuous_baseline_at_old_version_does_not_trigger_the_warning() -> None:
+    with_ontology, without_ontology = _arms()
+    with_ontology = [_vacuous(_m1_version(r, 2)) for r in with_ontology]
+    without_ontology = [_m1_version(r, 3) for r in without_ontology]
+    cmp = compare_records(
+        with_ontology, without_ontology, label_a="con", label_b="senza"
+    )
     assert cmp.avviso_versioni_m1 == ""
 
 
-def test_record_vacuo_escluso_non_nasconde_un_vero_disaccordo() -> None:
-    con, senza = _arms()
-    con = [_versione_m1(r, 2) for r in con]
-    con[0] = _vacuo(_versione_m1(con[0], 1))
-    senza = [_versione_m1(r, 3) for r in senza]
-    cmp = compare_records(con, senza, label_a="con", label_b="senza")
+def test_excluded_vacuous_record_does_not_hide_a_real_disagreement() -> None:
+    with_ontology, without_ontology = _arms()
+    with_ontology = [_m1_version(r, 2) for r in with_ontology]
+    with_ontology[0] = _vacuous(_m1_version(with_ontology[0], 1))
+    without_ontology = [_m1_version(r, 3) for r in without_ontology]
+    cmp = compare_records(
+        with_ontology, without_ontology, label_a="con", label_b="senza"
+    )
     assert "`con`: versione 2; `senza`: versione 3" in cmp.avviso_versioni_m1
 
 
-def test_avviso_n_d_dice_che_non_si_sa_se_le_versioni_differiscano() -> None:
-    con, senza = _arms()
-    senza = [_versione_m1(r, 3) for r in senza]
-    avviso = compare_records(
-        con, senza, label_a="con", label_b="senza"
+def test_n_a_warning_says_it_is_unknown_whether_versions_differ() -> None:
+    with_ontology, without_ontology = _arms()
+    without_ontology = [_m1_version(r, 3) for r in without_ontology]
+    warning = compare_records(
+        with_ontology, without_ontology, label_a="con", label_b="senza"
     ).avviso_versioni_m1
-    assert "non si sa se le versioni differiscano davvero" in avviso
-    assert "falso allarme" in avviso
-    assert "rigirare" not in avviso
+    assert "non si sa se le versioni differiscano davvero" in warning
+    assert "falso allarme" in warning
+    assert "rigirare" not in warning
 
 
-def test_avviso_con_versioni_note_e_diverse_suggerisce_di_rigirare() -> None:
-    con, senza = _arms()
-    con = [_versione_m1(r, 2) for r in con]
-    senza = [_versione_m1(r, 3) for r in senza]
-    avviso = compare_records(
-        con, senza, label_a="con", label_b="senza"
+def test_warning_with_known_different_versions_suggests_rerunning() -> None:
+    with_ontology, without_ontology = _arms()
+    with_ontology = [_m1_version(r, 2) for r in with_ontology]
+    without_ontology = [_m1_version(r, 3) for r in without_ontology]
+    warning = compare_records(
+        with_ontology, without_ontology, label_a="con", label_b="senza"
     ).avviso_versioni_m1
-    assert "rigirare i bracci con lo stesso codice" in avviso
-    assert "falso allarme" not in avviso
+    assert "rigirare i bracci con lo stesso codice" in warning
+    assert "falso allarme" not in warning
 
 
-def test_json_vecchio_senza_avviso_m1_si_legge() -> None:
-    con, senza = _arms()
-    dati = json.loads(to_json(compare_records(con, senza, label_a="a", label_b="b")))
-    del dati["avviso_versioni_m1"]
-    assert Comparison.model_validate(dati).avviso_versioni_m1 == ""
+def test_old_json_without_m1_warning_is_readable() -> None:
+    with_ontology, without_ontology = _arms()
+    data = json.loads(
+        to_json(
+            compare_records(with_ontology, without_ontology, label_a="a", label_b="b")
+        )
+    )
+    del data["avviso_versioni_m1"]
+    assert Comparison.model_validate(data).avviso_versioni_m1 == ""

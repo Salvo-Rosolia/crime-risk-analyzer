@@ -55,27 +55,28 @@ def _response(narrativa: str) -> AnalyzeResponse:
     )
 
 
-# #229 (M1): forma a blocchi reale (#196), il proxy grada il corpo del blocco
-# [ONTOLOGIA]. La label IT controllata dell'hazard (#77) non ancora piu' da sola
-# (#264): serve il nome del POI, anche quando la narrativa cita l'hazard in italiano.
-def _ontology_narrativa(body: str) -> str:
+# #229 (M1): real block form (#196), the proxy grades the body of the
+# [ONTOLOGIA] block. The controlled IT label of the hazard (#77) no longer anchors on
+# its own (#264): the POI name is needed, even when the narrative cites the hazard in
+# Italian.
+def _ontology_narrative(body: str) -> str:
     return f"Sintesi della zona.\n\nRischi da ontologia [ONTOLOGIA]\n{body}"
 
 
 def test_it_hazard_term_alone_is_not_anchored() -> None:
-    # #264: la regola 6 impone l'etichetta, quindi la sola etichetta IT non ancora.
-    resp = _response(_ontology_narrativa("Presente una rapina in banca."))
+    # #264: rule 6 imposes the label, so the IT label alone does not anchor.
+    resp = _response(_ontology_narrative("Presente una rapina in banca."))
     assert grounding(resp) == 0.0
     assert hallucination(resp) == 1.0
 
 
 def test_it_hazard_term_with_the_poi_is_anchored() -> None:
-    resp = _response(_ontology_narrativa("Alla Banca X presente una rapina in banca."))
+    resp = _response(_ontology_narrative("Alla Banca X presente una rapina in banca."))
     assert grounding(resp) == 1.0
     assert hallucination(resp) == 0.0
 
 
 def test_unrelated_it_sentence_is_not_anchored() -> None:
-    resp = _response(_ontology_narrativa("Presente un furto di biciclette."))
+    resp = _response(_ontology_narrative("Presente un furto di biciclette."))
     assert grounding(resp) == 0.0
     assert hallucination(resp) == 1.0

@@ -1,8 +1,8 @@
-"""Geometria per la validazione confini (#31): ora vive in ``models.geo`` (#345).
+"""Geometry for boundary validation (#31): now lives in ``models.geo`` (#345).
 
-Il ray casting serve anche al grounding (luogo ISTAT di un POI), quindi e' passato
-nel modulo dei tipi geografici condivisi. Questo modulo resta come re-export per
-``eval/city_agnostic.py`` e i test di #31: stessi oggetti, nessuna copia.
+Ray casting is also needed by grounding (ISTAT place of a POI), so it moved
+into the shared geographic-types module. This module stays as a re-export for
+``eval/city_agnostic.py`` and the #31 tests: same objects, no copy.
 """
 
 from __future__ import annotations

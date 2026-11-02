@@ -14,17 +14,17 @@ def _data() -> list[dict[str, str]]:
 
 
 def test_vocabulary_is_not_empty() -> None:
-    assert _data(), "il vocabolario committato non deve essere vuoto"
+    assert _data(), "the committed vocabulary must not be empty"
 
 
 def test_every_record_is_fully_curated() -> None:
     for rec in _data():
-        assert rec["identifier"], "identifier mancante"
-        assert rec["label_en"], f"label_en mancante per {rec['identifier']}"
-        assert rec["label_it"], f"label_it mancante per {rec['identifier']}"
-        assert rec["category"] in _ALLOWED, f"categoria non valida: {rec['category']}"
+        assert rec["identifier"], "missing identifier"
+        assert rec["label_en"], f"missing label_en for {rec['identifier']}"
+        assert rec["label_it"], f"missing label_it for {rec['identifier']}"
+        assert rec["category"] in _ALLOWED, f"invalid category: {rec['category']}"
 
 
 def test_identifiers_are_unique() -> None:
     ids = [rec["identifier"] for rec in _data()]
-    assert len(ids) == len(set(ids)), "identifier duplicati"
+    assert len(ids) == len(set(ids)), "duplicate identifiers"

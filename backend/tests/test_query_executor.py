@@ -1,16 +1,17 @@
-"""Test dell'executor SPARQL sul pattern OWL restriction (#76).
+"""Tests for the SPARQL executor on the OWL restriction pattern (#76).
 
-Tutti i test girano sulla fixture ridotta ma fedele ``fixtures/ontology_sample.ttl``
-(#78), caricata col loader di produzione. La fixture e' verificata classe-per-classe
-contro l'ontologia reale ``ontology/terminus-crime.owl`` (ghost): namespace, nomi di
-classe/property e idioma ``owl:Restriction`` combaciano col reale.
+All tests run on the reduced but faithful fixture ``fixtures/ontology_sample.ttl``
+(#78), loaded with the production loader. The fixture is verified class by class
+against the real ontology ``ontology/terminus-crime.owl`` (ghost): namespace,
+class/property names and the ``owl:Restriction`` idiom match the real ones.
 
-Si verifica il contratto pubblico di
-:mod:`crime_risk_analyzer.sparql_module.query_executor`: l'indice
-:class:`RiskQueryExecutor` si costruisce una volta sul grafo, poi ``profile(classe)``
-restituisce hazard / critical event / vulnerabilita' / stakeholder estratti via il
-pattern a restrizione + ``rdfs:subClassOf*`` (ereditarieta' transitiva), con
-``sparql_path`` come citazione lineare a un salto per il citation layer.
+It checks the public contract of
+:mod:`crime_risk_analyzer.sparql_module.query_executor`: the
+:class:`RiskQueryExecutor` index is built once on the graph, then
+``profile(class)`` returns hazards / critical events / vulnerabilities /
+stakeholders extracted via the restriction pattern + ``rdfs:subClassOf*``
+(transitive inheritance), with ``sparql_path`` as a single-hop linear citation
+for the citation layer.
 """
 
 import logging
@@ -39,15 +40,15 @@ FIXTURE = Path(__file__).parent / "fixtures" / "ontology_sample.ttl"
 
 @pytest.fixture(scope="module")
 def executor() -> RiskQueryExecutor:
-    """Executor costruito una volta sul grafo della fixture (build-once)."""
+    """Executor built once on the fixture graph (build-once)."""
     return RiskQueryExecutor(load_ontology(str(FIXTURE)))
 
 
-# --- Bank: caso principale -------------------------------------------------
+# --- Bank: main case -------------------------------------------------
 
 
 def test_bank_hazards_at_least_two_real_values(executor: RiskQueryExecutor) -> None:
-    """``Bank`` -> hazard reali >=2: ``Bank_robbery`` e ``Customer_robbery``."""
+    """``Bank`` -> real hazards >=2: ``Bank_robbery`` and ``Customer_robbery``."""
     profile = executor.profile("Bank")
 
     assert "Bank_robbery" in profile.hazards
@@ -56,7 +57,7 @@ def test_bank_hazards_at_least_two_real_values(executor: RiskQueryExecutor) -> N
 
 
 def test_bank_critical_events(executor: RiskQueryExecutor) -> None:
-    """``Bank`` -> critical event reale ``Hostages`` via havingCriticalEvent."""
+    """``Bank`` -> real critical event ``Hostages`` via havingCriticalEvent."""
     profile = executor.profile("Bank")
 
     assert "Hostages" in profile.critical_events
@@ -65,7 +66,7 @@ def test_bank_critical_events(executor: RiskQueryExecutor) -> None:
 def test_bank_vulnerabilities_via_is_vulnerable_to(
     executor: RiskQueryExecutor,
 ) -> None:
-    """``Bank`` -> vulnerabilita' via ``isVulnerableTo`` (property POI reale)."""
+    """``Bank`` -> vulnerabilities via ``isVulnerableTo`` (real POI property)."""
     profile = executor.profile("Bank")
 
     assert "Poor_surveillance" in profile.vulnerabilities
@@ -73,14 +74,14 @@ def test_bank_vulnerabilities_via_is_vulnerable_to(
 
 
 def test_bank_stakeholders_via_having_performer(executor: RiskQueryExecutor) -> None:
-    """``Bank`` -> stakeholder reale ``Bank_customer`` via havingPerformer."""
+    """``Bank`` -> real stakeholder ``Bank_customer`` via havingPerformer."""
     profile = executor.profile("Bank")
 
     assert "Bank_customer" in profile.stakeholders
 
 
 def test_bank_terminus_class_echoed(executor: RiskQueryExecutor) -> None:
-    """Il profilo riporta la classe TERMINUS interrogata."""
+    """The profile reports the TERMINUS class queried."""
     profile = executor.profile("Bank")
 
     assert profile.terminus_class == "Bank"
@@ -100,7 +101,7 @@ def test_archaeological_site_hazards(executor: RiskQueryExecutor) -> None:
 def test_archaeological_site_stakeholder_and_vulnerability(
     executor: RiskQueryExecutor,
 ) -> None:
-    """``Archaeological_site`` -> stakeholder ``Visitor`` e vuln. isolata."""
+    """``Archaeological_site`` -> stakeholder ``Visitor`` and isolated-area vuln."""
     profile = executor.profile("Archaeological_site")
 
     assert "Visitor" in profile.stakeholders
@@ -111,30 +112,31 @@ def test_archaeological_site_stakeholder_and_vulnerability(
 
 
 def test_petrol_station_banknote_acceptor_theft(executor: RiskQueryExecutor) -> None:
-    """``Petrol_station`` -> ``Banknote_acceptor_theft`` (home reale, NON Bank)."""
+    """``Petrol_station`` -> ``Banknote_acceptor_theft`` (real home, NOT Bank)."""
     profile = executor.profile("Petrol_station")
 
     assert "Banknote_acceptor_theft" in profile.hazards
 
 
 def test_banknote_acceptor_theft_not_on_bank(executor: RiskQueryExecutor) -> None:
-    """Divergenza riconciliata: ``Banknote_acceptor_theft`` NON e' un hazard di Bank."""
+    """Reconciled divergence: ``Banknote_acceptor_theft`` is NOT a Bank hazard."""
     profile = executor.profile("Bank")
 
     assert "Banknote_acceptor_theft" not in profile.hazards
 
 
-# --- Ereditarieta' transitiva subClassOf* ----------------------------------
+# --- Transitive inheritance subClassOf* ------------------------------------
 
 
 def test_transitive_inheritance_does_not_leak_ancestor_classes(
     executor: RiskQueryExecutor,
 ) -> None:
-    """Gli hazard sono i *filler* delle restrizioni, non gli antenati di classe.
+    """Hazards are the *fillers* of the restrictions, not the class ancestors.
 
-    La gerarchia reale ``Banknote_acceptor_theft -> Theft -> Anthropic_hazard``
-    serve a chiudere ``subClassOf*`` sulle CLASSI POI, non a promuovere i parent
-    degli hazard a hazard: ``Theft``/``Anthropic_hazard`` non devono comparire.
+    The real hierarchy ``Banknote_acceptor_theft -> Theft -> Anthropic_hazard``
+    serves to close ``subClassOf*`` on the POI CLASSES, not to promote the
+    parents of hazards to hazards: ``Theft``/``Anthropic_hazard`` must not
+    appear.
     """
     profile = executor.profile("Petrol_station")
 
@@ -143,30 +145,30 @@ def test_transitive_inheritance_does_not_leak_ancestor_classes(
     assert "Anthropic_hazard" not in profile.hazards
 
 
-# --- Vulnerabilita': UNION isVulnerableTo + havingVulnerability -------------
+# --- Vulnerabilities: UNION isVulnerableTo + havingVulnerability ------------
 
 
 def test_system_aspect_having_vulnerability_collected(
     executor: RiskQueryExecutor,
 ) -> None:
-    """Sul ``System_aspect`` (Bank_branch) la vuln. arriva via ``havingVulnerability``.
+    """On the ``System_aspect`` (Bank_branch) the vuln comes via havingVulnerability.
 
-    La query delle vulnerabilita' raccoglie ENTRAMBE le property (isVulnerableTo
-    a livello POI + havingVulnerability a livello System_aspect) per non perdere
-    filler.
+    The vulnerabilities query collects BOTH properties (isVulnerableTo at POI
+    level + havingVulnerability at System_aspect level) so as not to lose
+    fillers.
     """
     profile = executor.profile("Bank_branch")
 
     assert "Poor_surveillance" in profile.vulnerabilities
 
 
-# --- Casi vuoti senza eccezioni --------------------------------------------
+# --- Empty cases without exceptions ----------------------------------------
 
 
 def test_generic_urban_poi_returns_empty_without_exception(
     executor: RiskQueryExecutor,
 ) -> None:
-    """``GenericUrbanPOI`` (fallback non mappato) -> tutto vuoto, nessuna eccezione."""
+    """``GenericUrbanPOI`` (unmapped fallback) -> all empty, no exception."""
     profile = executor.profile("GenericUrbanPOI")
 
     assert profile.hazards == []
@@ -179,7 +181,7 @@ def test_generic_urban_poi_returns_empty_without_exception(
 def test_nonexistent_class_returns_empty_without_exception(
     executor: RiskQueryExecutor,
 ) -> None:
-    """Classe inesistente nell'ontologia -> profilo vuoto, nessuna eccezione."""
+    """Class not in the ontology -> empty profile, no exception."""
     profile = executor.profile("Klingon_embassy")
 
     assert profile.hazards == []
@@ -188,13 +190,13 @@ def test_nonexistent_class_returns_empty_without_exception(
     assert profile.stakeholders == []
 
 
-# --- sparql_path: citazione lineare a un salto -----------------------------
+# --- sparql_path: single-hop linear citation -------------------------------
 
 
 def test_sparql_path_is_single_hop_citation(executor: RiskQueryExecutor) -> None:
-    """``sparql_path``: una voce per filler, forma ``Classe → property → entita``.
+    """``sparql_path``: one entry per filler, shape ``Class → property → entity``.
 
-    Glyph arrow Unicode "→" (U+2192), byte-identico allo schema canonico di
+    Unicode arrow glyph "→" (U+2192), byte-identical to the canonical schema of
     ``sparql.md`` / ``orchestrator.md`` / ``grounding.md`` (citation layer #24).
     """
     profile = executor.profile("Bank")
@@ -208,15 +210,15 @@ def test_sparql_path_is_single_hop_citation(executor: RiskQueryExecutor) -> None
 def test_sparql_path_uses_unicode_arrow_not_ascii(
     executor: RiskQueryExecutor,
 ) -> None:
-    """Separatore arrow Unicode "→", mai l'ASCII "->" (byte-consistency citation)."""
+    """Unicode arrow separator "→", never the ASCII "->" (citation byte-consistency)."""
     profile = executor.profile("Bank")
 
-    assert profile.sparql_paths  # non vuoto
+    assert profile.sparql_paths  # not empty
     assert all("→" in path and "->" not in path for path in profile.sparql_paths)
 
 
 def test_sparql_path_count_matches_bank_fillers(executor: RiskQueryExecutor) -> None:
-    """Per Bank (nessun filler condiviso tra le vuln-property) un path per filler."""
+    """For Bank (no filler shared between the vuln properties) one path per filler."""
     profile = executor.profile("Bank")
 
     total = (
@@ -228,13 +230,13 @@ def test_sparql_path_count_matches_bank_fillers(executor: RiskQueryExecutor) -> 
     assert len(profile.sparql_paths) == total
 
 
-# --- Contratto del modello -------------------------------------------------
+# --- Model contract --------------------------------------------------------
 
 
 def test_profile_is_pydantic_model_with_expected_fields(
     executor: RiskQueryExecutor,
 ) -> None:
-    """L'output e' un :class:`PoiRiskProfile` con i campi dello schema sparql.md."""
+    """The output is a :class:`PoiRiskProfile` with the sparql.md schema fields."""
     profile = executor.profile("Bank")
 
     assert isinstance(profile, PoiRiskProfile)
@@ -251,17 +253,17 @@ def test_profile_is_pydantic_model_with_expected_fields(
 
 
 def test_poi_name_optional_passthrough(executor: RiskQueryExecutor) -> None:
-    """``poi_name`` opzionale: se fornito viene riportato nel profilo."""
+    """Optional ``poi_name``: if provided it is reported in the profile."""
     profile = executor.profile("Bank", poi_name="Banca Intesa Sanpaolo")
 
     assert profile.poi_name == "Banca Intesa Sanpaolo"
 
 
-# --- Build-once: l'indice non ricarica/ri-indicizza per richiesta ----------
+# --- Build-once: the index does not reload/re-index per request ------------
 
 
 def test_executor_reuses_index_across_profiles(executor: RiskQueryExecutor) -> None:
-    """Lo stesso executor risponde a piu' POI senza ricostruire l'indice."""
+    """The same executor answers several POIs without rebuilding the index."""
     bank = executor.profile("Bank")
     petrol = executor.profile("Petrol_station")
 
@@ -270,20 +272,20 @@ def test_executor_reuses_index_across_profiles(executor: RiskQueryExecutor) -> N
     assert bank.hazards != petrol.hazards
 
 
-# --- Osservabilita': filler non-URIRef scartato (#116) ---------------------
+# --- Observability: non-URIRef filler discarded (#116) ---------------------
 
 
 def _graph_with_anonymous_union_filler() -> Graph:
-    """Grafo minimale con un filler anonimo (BNode) da ``owl:unionOf``.
+    """Minimal graph with an anonymous filler (BNode) from ``owl:unionOf``.
 
-    ``UnionPlace`` ha una restrizione il cui ``owl:someValuesFrom`` punta a una
-    classe anonima ``owl:unionOf`` (un BNode, non una ``URIRef``): e' esattamente
-    il drift di ontologia che #116 vuole rendere osservabile invece di scartare
-    in silenzio. ``GoodPlace`` porta invece un filler ``URIRef`` regolare, per
-    verificare che il ramo valido resti intatto (nessun filler perso).
+    ``UnionPlace`` has a restriction whose ``owl:someValuesFrom`` points to an
+    anonymous ``owl:unionOf`` class (a BNode, not a ``URIRef``): it is exactly
+    the ontology drift that #116 wants to make observable instead of silently
+    discarding. ``GoodPlace`` instead carries a regular ``URIRef`` filler, to
+    verify that the valid branch stays intact (no filler lost).
 
-    Il prefisso ``tc:`` e' derivato dal namespace TERMINUS canonico (non
-    hardcodato) per evitare drift dell'IRI.
+    The ``tc:`` prefix is derived from the canonical TERMINUS namespace (not
+    hardcoded) to avoid IRI drift.
     """
     turtle = f"""
     @prefix tc:   <{TERMINUS}> .
@@ -309,11 +311,11 @@ def _graph_with_anonymous_union_filler() -> Graph:
 def test_non_uriref_filler_logs_warning_and_is_discarded(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Un filler non-URIRef (BNode da unionOf) viene scartato MA con un WARNING.
+    """A non-URIRef filler (BNode from unionOf) is discarded BUT with a WARNING.
 
-    Comportamento invariato rispetto a prima (l'elemento resta fuori
-    dall'indice); si aggiunge SOLO l'osservabilita': un ``owl:someValuesFrom`` su
-    nodo anonimo non deve piu' sparire in silenzio mascherando un drift.
+    Behaviour unchanged from before (the element stays out of the index); ONLY
+    observability is added: an ``owl:someValuesFrom`` on an anonymous node must
+    no longer vanish silently, masking a drift.
     """
     graph = _graph_with_anonymous_union_filler()
 
@@ -321,29 +323,28 @@ def test_non_uriref_filler_logs_warning_and_is_discarded(
         executor = RiskQueryExecutor(graph)
 
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
-    assert len(warnings) == 1, "atteso esattamente un WARNING per il filler anonimo"
+    assert len(warnings) == 1, "expected exactly one WARNING for the anonymous filler"
 
     message = warnings[0].getMessage()
-    # Contesto sufficiente a diagnosticare quale triple / quale valore:
-    assert "non-URIRef" in message  # il motivo dello scarto
-    assert "UnionPlace" in message  # quale classe/triple
-    assert "havingHazard" in message  # quale property
-    assert "BNode" in message  # il tipo del valore offensivo (quale valore)
+    # Enough context to diagnose which triple / which value:
+    assert "non-URIRef" in message  # the reason for the discard
+    assert "UnionPlace" in message  # which class/triple
+    assert "havingHazard" in message  # which property
+    assert "BNode" in message  # the type of the offending value (which value)
 
-    # Comportamento invariato: il filler anonimo NON entra nell'indice...
+    # Behaviour unchanged: the anonymous filler does NOT enter the index...
     assert executor.profile("UnionPlace").hazards == []
-    # ...mentre il ramo valido (filler URIRef) resta intatto.
+    # ...while the valid branch (URIRef filler) stays intact.
     assert "Bank_robbery" in executor.profile("GoodPlace").hazards
 
 
 def test_all_uriref_restrictions_emit_no_warning(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Nessun WARNING quando tutti i termini delle restrizioni sono ``URIRef``.
+    """No WARNING when all the restriction terms are ``URIRef``.
 
-    Sulla fixture reale (tutti filler ``URIRef``) l'indicizzazione resta
-    silenziosa: il log e' un segnale di drift dell'ontologia, non rumore di
-    routine a ogni startup.
+    On the real fixture (all ``URIRef`` fillers) the indexing stays silent: the
+    log is a signal of ontology drift, not routine noise at every startup.
     """
     with caplog.at_level(logging.WARNING, logger=QUERY_EXECUTOR_LOGGER):
         RiskQueryExecutor(load_ontology(str(FIXTURE)))
@@ -351,13 +352,13 @@ def test_all_uriref_restrictions_emit_no_warning(
     assert [r for r in caplog.records if r.levelno == logging.WARNING] == []
 
 
-# --- Namespace e proprieta' configurabili (#412) ---------------------------
+# --- Configurable namespace and properties (#412) --------------------------
 
 ALT_NS = "http://example.org/other#"
 
 
 def _alt_graph(ns: str = ALT_NS) -> Graph:
-    """Ontologia fittizia con namespace e nomi di property diversi da TERMINUS."""
+    """Fictitious ontology with namespace and property names different from TERMINUS."""
     turtle = f"""
     @prefix o:    <{ns}> .
     @prefix owl:  <http://www.w3.org/2002/07/owl#> .
@@ -399,7 +400,7 @@ def test_custom_namespace_and_properties() -> None:
 
     profile = executor.profile("Shop")
 
-    assert profile.hazards == ["Fire"]  # ereditato da Parent
+    assert profile.hazards == ["Fire"]  # inherited from Parent
     assert profile.critical_events == ["Looting"]
     assert profile.stakeholders == ["Gang"]
     assert profile.vulnerabilities == ["Glass", "NoAlarm"]
@@ -415,7 +416,7 @@ def test_custom_namespace_with_slash_separator() -> None:
 
 
 def test_default_properties_unchanged_on_alt_namespace_graph() -> None:
-    """Col default TERMINUS, un grafo con altro namespace non produce filler."""
+    """With the TERMINUS default, a graph with another namespace produces no fillers."""
     executor = RiskQueryExecutor(_alt_graph())
 
     assert executor.profile("Shop").hazards == []
@@ -435,7 +436,7 @@ def test_default_vocabulary_is_terminus() -> None:
         "http://example.org/<x>#",
         'http://example.org/"x"#',
         "http://example.org/{x}#",
-        "http://example.org/x",  # non termina con # o /
+        "http://example.org/x",  # does not end with # or /
         "http://example.org/x\n#",
     ],
 )
@@ -480,19 +481,19 @@ def test_invalid_iri_error_is_value_error() -> None:
 
 
 def test_empty_vulnerability_rejected() -> None:
-    """``vulnerability=()`` e' rifiutata in anticipo (serve almeno una property)."""
+    """``vulnerability=()`` is rejected up front (at least one property is needed)."""
     vocabulary = replace(_alt_vocabulary(), vulnerability=())
     with pytest.raises(InvalidIriError, match="vulnerabilita"):
         RiskQueryExecutor(Graph(), vocabulary=vocabulary)
 
 
 def test_same_property_in_two_slots_is_not_rejected_and_fills_both() -> None:
-    """Comportamento reale: la stessa property in due slot NON viene rifiutata.
+    """Real behaviour: the same property in two slots is NOT rejected.
 
-    ``problems()`` non controlla i duplicati; l'indice mappa l'IRI al nome locale
-    e ``profile`` legge ogni slot per nome. Qui ``hasActor`` e' assegnata sia a
-    hazard sia a performer: il filler ``Gang`` compare in entrambe le liste e il
-    vero hazard ``Fire`` (``hasHazard``) non e' piu' letto.
+    ``problems()`` does not check for duplicates; the index maps the IRI to the
+    local name and ``profile`` reads each slot by name. Here ``hasActor`` is
+    assigned to both hazard and performer: the ``Gang`` filler appears in both
+    lists and the real hazard ``Fire`` (``hasHazard``) is no longer read.
     """
     vocabulary = replace(_alt_vocabulary(), hazard="hasActor")
     assert vocabulary.problems() == []
@@ -506,7 +507,7 @@ def test_same_property_in_two_slots_is_not_rejected_and_fills_both() -> None:
 def test_non_uriref_filler_on_custom_property_logs_warning(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Un filler BNode su una property di rischio custom e' scartato con WARNING."""
+    """A BNode filler on a custom risk property is discarded with a WARNING."""
     turtle = f"""
     @prefix o:    <{ALT_NS}> .
     @prefix owl:  <http://www.w3.org/2002/07/owl#> .

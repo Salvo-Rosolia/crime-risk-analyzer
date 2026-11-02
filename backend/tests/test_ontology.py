@@ -1,4 +1,4 @@
-"""Test del loader dell'ontologia TERMINUS Crime."""
+"""Tests for the TERMINUS Crime ontology loader."""
 
 from pathlib import Path
 
@@ -15,7 +15,7 @@ FIXTURE = Path(__file__).parent / "fixtures" / "ontology_sample.ttl"
 
 
 def test_load_ontology_valid() -> None:
-    """Con una fixture .ttl valida ritorna un Graph non vuoto."""
+    """A valid .ttl fixture returns a non-empty Graph."""
     graph = load_ontology(str(FIXTURE))
 
     assert isinstance(graph, Graph)
@@ -23,13 +23,13 @@ def test_load_ontology_valid() -> None:
 
 
 def test_load_ontology_missing_file() -> None:
-    """File inesistente → OntologyLoadError con il path nel messaggio."""
+    """Missing file → OntologyLoadError with the path in the message."""
     with pytest.raises(OntologyLoadError, match="non trovata"):
         load_ontology("does/not/exist.ttl")
 
 
 def test_load_ontology_malformed(tmp_path: Path) -> None:
-    """Turtle malformato → OntologyLoadError."""
+    """Malformed Turtle → OntologyLoadError."""
     bad = tmp_path / "bad.ttl"
     bad.write_text("this is <not> valid turtle @@@", encoding="utf-8")
 
@@ -38,7 +38,7 @@ def test_load_ontology_malformed(tmp_path: Path) -> None:
 
 
 def test_load_ontology_empty(tmp_path: Path) -> None:
-    """Turtle valido ma vuoto (0 triple) → OntologyLoadError."""
+    """Valid but empty Turtle (0 triples) → OntologyLoadError."""
     empty = tmp_path / "empty.ttl"
     empty.write_text("", encoding="utf-8")
 
@@ -47,7 +47,7 @@ def test_load_ontology_empty(tmp_path: Path) -> None:
 
 
 def test_get_ontology_cached() -> None:
-    """get_ontology() ritorna sempre la stessa istanza (lru_cache)."""
+    """get_ontology() always returns the same instance (lru_cache)."""
     get_ontology.cache_clear()
 
     first = get_ontology()

@@ -1,8 +1,8 @@
-"""Test dell'endpoint ``GET /cities``.
+"""Tests for the ``GET /cities`` endpoint.
 
-Le citta garantite (Roma, Milano, Napoli) sono testate end-to-end per spec
-(orchestrator.md); le altre sono best-effort e non vengono assertite a una a una
-per non legare il test all'elenco esatto.
+The guaranteed cities (Roma, Milano, Napoli) are tested end-to-end per spec
+(orchestrator.md); the others are best-effort and are not asserted one by one,
+so as not to tie the test to the exact list.
 """
 
 from typing import cast
@@ -14,9 +14,9 @@ from crime_risk_analyzer.main import app
 
 client = TestClient(app)
 
-# `cast` + ignore puntuale: il tipo di `.get` di TestClient non e risolto da
-# pyright strict con questa combinazione di versioni (difetto di stub di terze
-# parti). Stesso pattern gia adottato in test_health.py.
+# `cast` + targeted ignore: the type of TestClient's `.get` is not resolved by
+# pyright strict with this combination of versions (third-party stub defect).
+# Same pattern already adopted in test_health.py.
 
 
 def test_cities_returns_supported_list() -> None:
@@ -25,6 +25,6 @@ def test_cities_returns_supported_list() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert isinstance(payload, list)
-    # Le tre citta garantite devono sempre essere presenti.
+    # The three guaranteed cities must always be present.
     for city in ("Roma", "Milano", "Napoli"):
         assert city in payload
