@@ -29,9 +29,11 @@ filtro, un tipo non riconosciuto dà 422
 (`{"errore": "tipo_poi_non_riconosciuto", "messaggio": ...}`) invece di una lista
 vuota. `GET /poi-types` restituisce l'elenco dei tipi accettati
 (`[{"ontology_class": "Bank", "label_it": "Banca"}, ...]`): le classi che il
-mapping OSM→TERMINUS può produrre, ordinate per etichetta italiana. È sempre l'elenco
-del set di default: la rotta non dipende dalla sessione delle fonti (niente
-`X-Session-Id`, mai 410 `fonti_scadute`). `GET /geocode`
+mapping OSM→TERMINUS può produrre, ordinate per etichetta italiana. È l'elenco del
+set attivo della sessione (`X-Session-Id`), lo stesso su cui è validato `tipo_poi`;
+con header assente o malformato, sessione senza set o scaduta ripiega sul set di
+default. Mai 410 `fonti_scadute` né 422, e non rinnova il TTL della sessione
+(#463). `GET /geocode`
 è un forward-geocode indipendente dal contratto di ricerca: serve solo la casella
 "vai a un luogo" del frontend (ricentra la mappa, non seleziona un'area da
 analizzare). I moduli di supporto —

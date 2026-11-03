@@ -8,7 +8,9 @@ sets do not mix (caches included).
 from __future__ import annotations
 
 import dataclasses
+import gc
 import urllib.parse
+import weakref
 from typing import cast
 
 import httpx
@@ -19,6 +21,7 @@ from fastapi.testclient import TestClient
 from rdflib import Graph
 
 from crime_risk_analyzer import main as main_module
+from crime_risk_analyzer import poi_types as poi_types_module
 from crime_risk_analyzer.errors import register_exception_handlers
 from crime_risk_analyzer.i18n import terminus_labels
 from crime_risk_analyzer.i18n.terminus_labels import (
@@ -61,6 +64,9 @@ from crime_risk_analyzer.sparql_module.osm_mapping import (
 )
 
 SID = "test-session-AAAAAA"
+OTHER_SID = "other-session-BBBBBB"
+#: Classes of the set built by ``_custom()``.
+CUSTOM_CLASSES = {"Banca", "Gas_station", "Monumento", "Rovina"}
 
 
 def _custom(id_: str = "c1", **fields: object) -> SourceSet:
@@ -83,6 +89,19 @@ def _custom(id_: str = "c1", **fields: object) -> SourceSet:
         default_set(), id=id_, kind="custom", osm=osm, labels=labels
     )
     return dataclasses.replace(base, **fields)  # pyright: ignore[reportArgumentType]
+
+
+def _bank2_set() -> SourceSet:
+    """Custom set with a single class, disjoint from ``_custom()``."""
+    return _custom(
+        "c2",
+        osm=OsmBinding(
+            osm_to_class={"amenity=bank": "Bank2"},
+            family_order=("amenity",),
+            yielding_selectors={},
+        ),
+        labels={"Bank2": ("Banca due", "Bank two")},
+    )
 
 
 def _parsed_with(labels: dict[str, tuple[str, str]]) -> ParsedSources:
@@ -220,27 +239,14 @@ def test_custom_set_with_labels_none_uses_the_json() -> None:
 def test_catalog_of_the_custom_set() -> None:
     with bind(_custom()):
         types = poi_types()
-    assert {t.ontology_class for t in types} == {
-        "Banca",
-        "Gas_station",
-        "Monumento",
-        "Rovina",
-    }
+    assert {t.ontology_class for t in types} == CUSTOM_CLASSES
     assert PoiType(ontology_class="Banca", label_it="Istituto di credito") in types
     labels_cf = [t.label_it.casefold() for t in types]
     assert labels_cf == sorted(labels_cf)
 
 
 def test_catalog_of_different_sets_does_not_mix() -> None:
-    other = _custom(
-        "c2",
-        osm=OsmBinding(
-            osm_to_class={"amenity=bank": "Bank2"},
-            family_order=("amenity",),
-            yielding_selectors={},
-        ),
-        labels={"Bank2": ("Banca due", "Bank two")},
-    )
+    other = _bank2_set()
     default_before = poi_types()
     with bind(_custom("c1")):
         a = poi_types()
@@ -267,6 +273,38 @@ def test_custom_catalog_is_not_served_from_the_default_cache() -> None:
         assert {t.ontology_class for t in poi_types()} != set(OSM_TO_TERMINUS.values())
 
 
+def test_catalog_of_a_set_is_computed_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    def counting_label_it(cls: str) -> str:
+        calls.append(cls)
+        return label_it(cls)
+
+    monkeypatch.setattr(poi_types_module, "label_it", counting_label_it)
+    first, second = _custom("once-1"), _custom("once-2")
+    with bind(first):
+        a = poi_types()
+        assert poi_types() is a
+        assert len(calls) == 4  # one label per class, not per call
+    with bind(second):
+        # another set: its own catalogue, computed once more
+        assert poi_types() == a
+        assert len(calls) == 8
+    with bind(first):
+        assert poi_types() is a
+    assert len(calls) == 8
+
+
+def test_catalog_cache_does_not_keep_the_set_alive() -> None:
+    source_set = _custom("weak")
+    ref = weakref.ref(source_set)
+    with bind(source_set):
+        poi_types()
+    del source_set
+    gc.collect()
+    assert ref() is None
+
+
 def _client(store: SessionStore) -> TestClient:
     app = FastAPI()
     register_exception_handlers(app)
@@ -275,39 +313,80 @@ def _client(store: SessionStore) -> TestClient:
     return TestClient(app)
 
 
-def test_poi_types_endpoint_ignores_the_session_and_serves_the_default() -> None:
-    """#438: the list is always the default one, even with a custom set active."""
+def _get_poi_types(client: TestClient, sid: str | None = None) -> httpx.Response:
+    headers = {"X-Session-Id": sid} if sid is not None else {}
+    return cast(httpx.Response, client.get("/poi-types", headers=headers))  # pyright: ignore[reportUnknownMemberType]
+
+
+def _classes(response: httpx.Response) -> set[str]:
+    return {t["ontology_class"] for t in response.json()}
+
+
+def test_poi_types_endpoint_serves_the_catalog_of_the_session_set() -> None:
+    """#463: with a custom set active the list is the set's, not the default."""
     store = SessionStore(ttl_seconds=100, max_sessions=4)
     store.activate(SID, _custom(), [])
     client = _client(store)
 
-    with_session = cast(
-        httpx.Response,
-        client.get("/poi-types", headers={"X-Session-Id": SID}),  # pyright: ignore[reportUnknownMemberType]
-    )
-    default = cast(httpx.Response, client.get("/poi-types"))  # pyright: ignore[reportUnknownMemberType]
+    with_session = _get_poi_types(client, SID)
+    default = _get_poi_types(client)
 
     assert with_session.status_code == 200
-    assert {t["ontology_class"] for t in with_session.json()} == set(
-        OSM_TO_TERMINUS.values()
-    )
-    assert with_session.json() == default.json()
+    assert _classes(with_session) == CUSTOM_CLASSES
+    assert _classes(default) == set(OSM_TO_TERMINUS.values())
+
+
+def test_poi_types_endpoint_session_without_set_serves_the_default() -> None:
+    store = SessionStore(ttl_seconds=100, max_sessions=4)
+    store.activate(SID, _custom(), [])
+    client = _client(store)
+
+    r = _get_poi_types(client, OTHER_SID)
+
+    assert r.status_code == 200
+    assert r.json() == _get_poi_types(client).json()
+    assert _classes(r) == set(OSM_TO_TERMINUS.values())
+
+
+def test_poi_types_endpoint_sessions_with_different_sets_do_not_mix() -> None:
+    other = _bank2_set()
+    store = SessionStore(ttl_seconds=100, max_sessions=4)
+    store.activate(SID, _custom("c1"), [])
+    store.activate(OTHER_SID, other, [])
+    client = _client(store)
+
+    assert _classes(_get_poi_types(client, SID)) == CUSTOM_CLASSES
+    assert _classes(_get_poi_types(client, OTHER_SID)) == {"Bank2"}
+    assert _classes(_get_poi_types(client, SID)) == CUSTOM_CLASSES
+
+
+def test_poi_types_endpoint_does_not_renew_the_session_ttl() -> None:
+    """Listing is not a use of the set: it must not keep the session alive."""
+    t = [0.0]
+    store = SessionStore(ttl_seconds=100, max_sessions=4, clock=lambda: t[0])
+    store.activate(SID, _custom(), [])
+    client = _client(store)
+    t[0] = 60.0
+
+    assert _get_poi_types(client, SID).status_code == 200
+
+    assert store.remaining_seconds(SID) == 40
 
 
 def test_poi_types_endpoint_with_expired_or_malformed_session_200() -> None:
-    """#438: no 410 (nor 422 for a malformed header): it serves the default."""
+    """#438: no 410 (nor 422 for a malformed header): it serves the default.
+
+    Still holds after #463: an expired set is not resurrected nor reported.
+    """
     t = [0.0]
     store = SessionStore(ttl_seconds=100, max_sessions=4, clock=lambda: t[0])
     store.activate(SID, _custom(), [])
     client = _client(store)
     t[0] = 101.0
 
-    expected = cast(httpx.Response, client.get("/poi-types")).json()  # pyright: ignore[reportUnknownMemberType]
+    expected = _get_poi_types(client).json()
     for header in (SID, "x"):
-        r = cast(
-            httpx.Response,
-            client.get("/poi-types", headers={"X-Session-Id": header}),  # pyright: ignore[reportUnknownMemberType]
-        )
+        r = _get_poi_types(client, header)
         assert r.status_code == 200
         assert r.json() == expected
 

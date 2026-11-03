@@ -183,6 +183,24 @@ describe('SourcesStore', () => {
     });
   });
 
+  describe('setKey (identity of the active set, #463)', () => {
+    it('changes on example, expiry and reset; stays put on a refresh that changes nothing', async () => {
+      const keys = [store.setKey()];
+      api.useExampleSources.mockResolvedValue(set('example'));
+      await store.useExample();
+      keys.push(store.setKey());
+      api.sourcesStatus.mockResolvedValue(set('example'));
+      await store.refresh();
+      expect(store.setKey()).toBe(keys[1]);
+      store.markExpired();
+      keys.push(store.setKey());
+      api.resetSources.mockResolvedValue(DEFAULT);
+      await store.reset();
+      keys.push(store.setKey());
+      expect(new Set(keys).size).toBe(keys.length);
+    });
+  });
+
   it('markExpired brings the indicator to Scadute without calling the network', () => {
     store.markExpired();
     expect(store.indicator()).toEqual({ label: 'Scadute', kind: 'expired' });

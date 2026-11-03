@@ -69,6 +69,13 @@ export class SourcesStore {
    */
   readonly revision = this._revision.asReadonly();
 
+  /**
+   * Identity of the active set: changes whenever the classes the backend serves may have changed
+   * (effective upload/example/reset, expiry). Panels that cache per-set data (the "Tipo POI" list,
+   * #463) key it on this value and reload when it changes.
+   */
+  readonly setKey = computed(() => `${this._revision()}:${signature(this._status())}`);
+
   readonly indicator = computed<SourcesIndicator>(() => {
     const status = this._status();
     if (status?.stato === 'scaduto') return { label: 'Scadute', kind: 'expired' };

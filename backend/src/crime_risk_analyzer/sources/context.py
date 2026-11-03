@@ -42,6 +42,7 @@ from crime_risk_analyzer.sparql_module.query_executor import (
 
 __all__ = [
     "DEFAULT_ID",
+    "active_set",
     "active_istat",
     "bind",
     "current",
@@ -91,6 +92,11 @@ def current() -> SourceSet:
     """Active set in the current context, otherwise the default."""
     active = _ACTIVE.get()
     return active if active is not None else default_set()
+
+
+def active_set() -> SourceSet | None:
+    """Set bound with :func:`bind`; ``None`` if the default applies (no build)."""
+    return _ACTIVE.get()
 
 
 def current_id() -> str:

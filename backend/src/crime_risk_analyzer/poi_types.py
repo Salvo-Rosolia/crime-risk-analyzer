@@ -22,13 +22,20 @@ of a silent empty list.
 
 from __future__ import annotations
 
+import weakref
 from functools import lru_cache
 from typing import NamedTuple
 
 from pydantic import BaseModel, ConfigDict
 
 from crime_risk_analyzer.i18n.terminus_labels import label_it
-from crime_risk_analyzer.sources.context import DEFAULT_ID, current_id, current_osm
+from crime_risk_analyzer.sources.context import (
+    DEFAULT_ID,
+    active_set,
+    current_id,
+    current_osm,
+)
+from crime_risk_analyzer.sources.model import SourceSet
 
 
 class PoiType(BaseModel):
@@ -85,6 +92,14 @@ def _default_catalog() -> tuple[PoiType, ...]:
     return _catalog()
 
 
+#: Catalogue of each custom set, computed once. Weak keys: the entry dies with
+#: the (immutable) set, so an expired session leaves nothing behind. The values
+#: do not reference the key, otherwise it would never be collected.
+_CUSTOM_CATALOGS: weakref.WeakKeyDictionary[SourceSet, tuple[PoiType, ...]] = (
+    weakref.WeakKeyDictionary()
+)
+
+
 def _is_default() -> bool:
     return current_id() == DEFAULT_ID
 
@@ -92,12 +107,17 @@ def _is_default() -> bool:
 def poi_types() -> tuple[PoiType, ...]:
     """Classes producible by the OSM binding of the active set, sorted by IT label.
 
-    Only the default's catalogue is cached (its content is fixed for the
-    process); that of a custom set is recomputed on every call, so two different
-    sets never get mixed and no custom set stays attached to a global
-    cache.
+    The default's catalogue is cached for the process; that of a custom set is
+    computed once per :class:`SourceSet` (immutable) and lives as long as the set,
+    so two different sets never get mixed and an expired set is not retained.
     """
-    return _default_catalog() if _is_default() else _catalog()
+    active = active_set()
+    if active is None or _is_default():
+        return _default_catalog()
+    catalog = _CUSTOM_CATALOGS.get(active)
+    if catalog is None:
+        catalog = _CUSTOM_CATALOGS[active] = _catalog()
+    return catalog
 
 
 class AliasConflict(NamedTuple):
