@@ -1,4 +1,4 @@
-"""Cache di zona e impronta non mescolano sessioni diverse (#416)."""
+"""Zone cache and fingerprint do not mix different sessions (#416)."""
 
 import dataclasses
 from typing import Any, cast
@@ -11,14 +11,14 @@ from crime_risk_analyzer.sources.model import SourceSet
 from crime_risk_analyzer.zone_context_cache import ZoneContext
 
 
-def _altro(id_: str) -> SourceSet:
+def _other_set(id_: str) -> SourceSet:
     return dataclasses.replace(default_set(), id=id_, kind="custom")
 
 
-def _ctx(marca: str) -> ZoneContext:
+def _ctx(marker: str) -> ZoneContext:
     return ZoneContext(
-        retrieval=cast(Any, {"citta": "Roma", "zona": marca, "pois": []}),
-        grounded=cast(Any, {"zona": marca, "validated_risks": []}),
+        retrieval=cast(Any, {"citta": "Roma", "zona": marker, "pois": []}),
+        grounded=cast(Any, {"zona": marker, "validated_risks": []}),
     )
 
 
@@ -34,61 +34,61 @@ def setup_function() -> None:
     cache.clear()
 
 
-def test_current_id_default_senza_costruire_il_default() -> None:
+def test_current_id_default_without_building_the_default() -> None:
     assert current_id() == "default"
-    with bind(_altro("x")):
+    with bind(_other_set("x")):
         assert current_id() == "x"
 
 
-def test_cache_di_sessioni_diverse_non_si_mescola() -> None:
-    with bind(_altro("a")):
+def test_cache_of_different_sessions_does_not_mix() -> None:
+    with bind(_other_set("a")):
         cache.put("Roma", "Monti", _ctx("a"), now=0.0)
-    with bind(_altro("b")):
+    with bind(_other_set("b")):
         assert cache.get("Roma", "Monti", now=1.0) is None
         cache.put("Roma", "Monti", _ctx("b"), now=0.0)
-    with bind(_altro("a")):
+    with bind(_other_set("a")):
         hit = cache.get("Roma", "Monti", now=1.0)
         assert hit is not None and hit["grounded"]["zona"] == "a"
-    assert cache.get("Roma", "Monti", now=1.0) is None  # il default non vede nulla
+    assert cache.get("Roma", "Monti", now=1.0) is None  # the default sees nothing
 
 
-def test_la_cache_del_default_resta_visibile_senza_sessione() -> None:
+def test_default_cache_stays_visible_without_session() -> None:
     cache.put("Roma", "Monti", _ctx("d"), now=0.0)
     assert cache.get("Roma", "Monti", now=1.0) is not None
-    with bind(_altro("a")):
+    with bind(_other_set("a")):
         assert cache.get("Roma", "Monti", now=1.0) is None
 
 
-def test_purge_toglie_solo_le_voci_del_set() -> None:
-    with bind(_altro("a")):
+def test_purge_removes_only_the_entries_of_the_set() -> None:
+    with bind(_other_set("a")):
         cache.put("Roma", "Monti", _ctx("a"), now=0.0)
-    with bind(_altro("b")):
+    with bind(_other_set("b")):
         cache.put("Roma", "Monti", _ctx("b"), now=0.0)
     cache.purge("a")
-    with bind(_altro("a")):
+    with bind(_other_set("a")):
         assert cache.get("Roma", "Monti", now=1.0) is None
-    with bind(_altro("b")):
+    with bind(_other_set("b")):
         assert cache.get("Roma", "Monti", now=1.0) is not None
 
 
-def test_fonti_attive_id_none_per_il_default() -> None:
+def test_active_sources_id_none_for_the_default() -> None:
     assert active_sources_id() is None
-    with bind(_altro("a")):
+    with bind(_other_set("a")):
         assert active_sources_id() == "a"
 
 
-def test_impronta_senza_fonti_e_identica_a_prima() -> None:
+def test_fingerprint_without_sources_is_identical_to_before() -> None:
     assert fingerprint(_pois()) == fingerprint(_pois(), sources_id=None)
 
 
-def test_impronta_dipende_dal_set() -> None:
+def test_fingerprint_depends_on_the_set() -> None:
     base = fingerprint(_pois())
     a = fingerprint(_pois(), sources_id="a")
     b = fingerprint(_pois(), sources_id="b")
     assert len({base, a, b}) == 3
 
 
-def test_impronta_con_istat_e_fonti_non_collide() -> None:
+def test_fingerprint_with_istat_and_sources_does_not_collide() -> None:
     assert fingerprint(_pois(), istat_version="v1", sources_id="a") != fingerprint(
         _pois(), istat_version="v1"
     )

@@ -1,22 +1,23 @@
-"""Capture-and-replay degli input POI per la riproducibilità (#34).
+"""Capture-and-replay of the POI inputs for reproducibility (#34).
 
-Ogni snapshot porta la propria PROVENIENZA (#241): la provenance esisteva per le
-run (``RunRecord.provenance``) ma non per le fixture che le alimentano, e le
-fixture sono la radice della catena di riproducibilità. OpenStreetMap è una
-sorgente viva: fra sei mesi la stessa query darà POI diversi, quindi senza
-istante di cattura «questi sono i POI di quella zona» non è verificabile.
+Every snapshot carries its own PROVENANCE (#241): provenance existed for the
+runs (``RunRecord.provenance``) but not for the fixtures that feed them, and the
+fixtures are the root of the reproducibility chain. OpenStreetMap is a
+live source: in six months the same query will return different POIs, so without
+a capture instant "these are the POIs of that zone" is not verifiable.
 
-Il formato su file è un envelope ``{"formato": 2, "provenienza": ..., "poi": [...]}``,
-ma ``load_snapshot`` legge anche la lista nuda dei file catturati prima di #241: i
-4 snapshot committati con #231 devono restare rigiocabili, altrimenti si
-romperebbe il confronto iso-input già pubblicato.
+The on-file format is an envelope ``{"formato": 2, "provenienza": ..., "poi": [...]}``,
+but ``load_snapshot`` also reads the bare list of the files captured before #241: the
+4 snapshots committed with #231 must stay replayable, otherwise the
+already published iso-input comparison would break.
 
-**Quei 4 file non hanno provenienza e non è stata fabbricata**: inventarne
-l'istante di cattura sarebbe stato un record falso. L'unico riferimento temporale
-disponibile per loro è la data del commit che li ha introdotti (#231, 26/07/2026);
-l'avranno reale alla prossima cattura, che però cambierebbe le fixture e quindi la
-comparabilità dei risultati già pubblicati — perciò è una decisione dell'autore,
-non un effetto collaterale.
+**Those 4 files have no provenance and none has been fabricated**: inventing
+the capture instant would have been a false record. The only time reference
+available for them is the date of the commit that introduced them (#231, 26/07/2026);
+they will get a real one at the next capture, which however would change the
+fixtures and hence the
+comparability of the already published results -- so it is a decision for the author,
+not a side effect.
 """
 
 from __future__ import annotations
@@ -44,96 +45,96 @@ from crime_risk_analyzer.rag.retrieval import GeoSource, PoiSource
 from crime_risk_analyzer.sparql_module.osm_mapping import OSM_SELECTORS
 
 
-class ConfigurazioneCanonica(TypedDict):
-    """Costanti del codice che ha SCRITTO il file, non della query che l'ha prodotto.
+class CanonicalConfig(TypedDict):
+    """Constants of the code that WROTE the file, not of the query that produced it.
 
-    La distinzione non è pedanteria: ``capturing_source`` accetta un ``inner``
-    arbitrario e ``fetch_pois`` accetta ``osm_selectors`` su misura, quindi da qui
-    non si può sapere cosa sia stato davvero interrogato. Registrare queste
-    costanti è utile — insieme al commit, dicono con quale binding e con quali cap
-    lavorava il codice — ma il nome deve dire cosa sono, perché una provenienza
-    che afferma piu' di quanto sa è peggio di una che tace.
+    The distinction is not pedantry: ``capturing_source`` accepts an arbitrary
+    ``inner`` and ``fetch_pois`` accepts custom ``osm_selectors``, so from here
+    one cannot know what was really queried. Recording these
+    constants is useful -- together with the commit, they say with which binding and
+    which caps the code was working -- but the name must say what they are, because a
+    provenance that claims more than it knows is worse than one that stays silent.
     """
 
     selettori_hash: str
     n_selettori: int
-    #: #212 li ha cambiati (50->20, 5->3): due fixture indistinguibili possono
-    #: derivare da interrogazioni con cap diversi.
+    #: #212 changed them (50->20, 5->3): two indistinguishable fixtures can
+    #: derive from queries with different caps.
     max_pois: int
     per_selector_cap: int
-    #: Tetto per classe TERMINUS della selezione (#254). E' parte di cosa ha
-    #: prodotto il file quanto i cap della query: la sua assenza identifica uno
-    #: snapshot catturato prima della selezione per prossimita'.
+    #: Per-TERMINUS-class cap of the selection (#254). It is part of what
+    #: produced the file as much as the query caps: its absence identifies a
+    #: snapshot captured before the proximity selection.
     per_class_cap: int
-    #: Tipi di elemento OSM interrogati (#314): con le relation il bacino di
-    #: candidati si allarga e il campione di una zona puo' cambiare (il Colosseo
-    #: entra a Roma). La sua assenza identifica uno snapshot catturato con la
-    #: sola query node+way. Lista, non tupla: deve uguagliare il valore riletto
-    #: dal JSON nel confronto di :func:`describe_configurazione_mismatch`.
+    #: OSM element types queried (#314): with relations the pool of
+    #: candidates widens and the sample of a zone may change (the Colosseum
+    #: enters at Rome). Its absence identifies a snapshot captured with the
+    #: node+way query only. List, not tuple: it must equal the value re-read
+    #: from JSON in the comparison of :func:`describe_config_mismatch`.
     tipi_elemento: list[str]
 
 
 class SnapshotProvenance(TypedDict):
-    """Da dove viene una fixture POI: istante, area, zona, configurazione."""
+    """Where a POI fixture comes from: instant, area, zone, configuration."""
 
-    #: Istante di cattura, ISO-8601 con offset esplicito (UTC). È l'orologio del
-    #: processo che ha chiesto i dati: dice «quando ho chiesto», non «quale stato
-    #: di OSM ho ottenuto» — per quello vedi :attr:`taglio_osm` (#251).
+    #: Capture instant, ISO-8601 with explicit offset (UTC). It is the clock of the
+    #: process that asked for the data: it says "when I asked", not "which state
+    #: of OSM I obtained" -- for that see :attr:`taglio_osm` (#251).
     catturato_il: str
-    #: Bbox interrogato, ``[min_lat, min_lon, max_lat, max_lon]``.
+    #: Bbox queried, ``[min_lat, min_lon, max_lat, max_lon]``.
     bbox: list[float]
     citta: str
-    #: ``None`` solo se il chiamante non l'ha dichiarata: lo slug del nome file è
-    #: lossy, quindi senza questo campo il legame zona↔bbox non è verificabile.
+    #: ``None`` only if the caller did not declare it: the file-name slug is
+    #: lossy, so without this field the zone<->bbox link is not verifiable.
     zona: str | None
-    #: Taglio del DB OSM dichiarato da Overpass e URL interrogato (#251).
-    #: ``NotRequired`` perché uno snapshot in formato envelope scritto fra #241 e
-    #: #251 su disco non ha proprio questa chiave (non ``None``: ASSENTE) — leggerla
-    #: per subscript su un file così vecchio solleverebbe ``KeyError``, va letta con
-    #: ``.get("taglio_osm")``. ``None`` quando la chiave c'è ma il chiamante di
-    #: :func:`capturing_source` non conosceva il taglio (un doppio di test) — un
-    #: dato mancante dichiarato onestamente, non un placeholder fabbricato.
+    #: Cut of the OSM DB declared by Overpass and URL queried (#251).
+    #: ``NotRequired`` because an envelope-format snapshot written between #241 and
+    #: #251 on disk does not have this key at all (not ``None``: ABSENT) -- reading it
+    #: by subscript on such an old file would raise ``KeyError``, it must be read with
+    #: ``.get("taglio_osm")``. ``None`` when the key is there but the caller of
+    #: :func:`capturing_source` did not know the cut (a test double) -- a
+    #: missing datum honestly declared, not a fabricated placeholder.
     #:
-    #: Riuso di uno snapshot esistente (``_snapshot_reusable``, #148) NON forza
-    #: mai una ri-cattura solo per popolare questo campo, nemmeno quando manca del
-    #: tutto: il criterio di accettazione di #251 chiede che gli snapshot esistenti
-    #: restino "leggibili e rigiocabili", non che vengano aggiornati. Un operatore
-    #: che vuole il taglio anche per zone già catturate deve ri-catturare con
-    #: ``--force``, la stessa via già richiesta per qualunque altro aggiornamento
-    #: della configurazione canonica.
+    #: Reuse of an existing snapshot (``_snapshot_reusable``, #148) NEVER forces
+    #: a re-capture just to populate this field, not even when it is missing
+    #: altogether: the acceptance criterion of #251 asks that existing snapshots
+    #: stay "readable and replayable", not that they be updated. An operator
+    #: who wants the cut also for already captured zones must re-capture with
+    #: ``--force``, the same route already required for any other update
+    #: of the canonical configuration.
     taglio_osm: NotRequired[OsmCut | None]
-    configurazione_canonica: ConfigurazioneCanonica
+    configurazione_canonica: CanonicalConfig
 
 
 class SnapshotFile(TypedDict):
-    """Formato su file di una fixture POI (#241)."""
+    """On-file format of a POI fixture (#241)."""
 
-    #: Versione del formato: permette a un lettore piu' vecchio di fallire
-    #: dicendolo, invece di iterare le chiavi di un dizionario credendole POI.
+    #: Format version: lets an older reader fail saying so, instead of
+    #: iterating the keys of a dictionary believing them to be POIs.
     formato: int
     provenienza: SnapshotProvenance
     poi: list[Poi]
 
 
-#: Versione corrente del formato su file (1 = lista nuda pre-#241, implicita).
-FORMATO_SNAPSHOT = 2
+#: Current on-file format version (1 = bare list pre-#241, implicit).
+SNAPSHOT_FORMAT = 2
 
 
-def _selettori_hash() -> str:
-    """Impronta stabile dell'insieme canonico di selettori OSM."""
-    canonico = "\n".join(sorted(OSM_SELECTORS))
-    return hashlib.sha256(canonico.encode("utf-8")).hexdigest()
+def _selectors_hash() -> str:
+    """Stable fingerprint of the canonical set of OSM selectors."""
+    canonical = "\n".join(sorted(OSM_SELECTORS))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def _configurazione_canonica_corrente() -> ConfigurazioneCanonica:
-    """Configurazione canonica del codice CORRENTE (#267).
+def _current_canonical_config() -> CanonicalConfig:
+    """Canonical configuration of the CURRENT code (#267).
 
-    Unica fonte di verità condivisa da ``save_snapshot`` (cosa scrivere) e da
-    :func:`describe_configurazione_mismatch` (con cosa confrontare): tenerle
-    derivate dallo stesso punto evita che scrittura e verifica divergano.
+    Single source of truth shared by ``save_snapshot`` (what to write) and by
+    :func:`describe_config_mismatch` (what to compare against): keeping them
+    derived from the same place prevents writing and checking from diverging.
     """
     return {
-        "selettori_hash": _selettori_hash(),
+        "selettori_hash": _selectors_hash(),
         "n_selettori": len(OSM_SELECTORS),
         "max_pois": MAX_POIS,
         "per_selector_cap": PER_SELECTOR_CAP,
@@ -143,11 +144,11 @@ def _configurazione_canonica_corrente() -> ConfigurazioneCanonica:
 
 
 def snapshot_path(results_dir: Path, key: str) -> Path:
-    """Percorso della fixture POI per una chiave snapshot (#110).
+    """Path of the POI fixture for a snapshot key (#110).
 
-    ``key`` è prodotta da ``harness.make_snapshot_key(citta, zona)`` e NON
-    dipende da mode/model: i bracci comparativi (analyze/claude, analyze/groq,
-    baseline) sulla stessa (citta, zona) condividono lo stesso file snapshot.
+    ``key`` is produced by ``harness.make_snapshot_key(citta, zona)`` and does NOT
+    depend on mode/model: the comparative arms (analyze/claude, analyze/groq,
+    baseline) on the same (citta, zona) share the same snapshot file.
     """
     return results_dir / "snapshots" / f"{key}.json"
 
@@ -162,53 +163,54 @@ def save_snapshot(
     cut: OsmCut | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> None:
-    """Serializza i POI e la loro provenienza su file (crea le cartelle).
+    """Serialize the POIs and their provenance to file (creates the folders).
 
-    ``bbox`` e ``citta`` sono OBBLIGATORI: una provenienza che omette l'area
-    interrogata non serve a nessuno, e renderli opzionali permetteva di scrivere
-    un record con ``"bbox": null``. ``clock`` è iniettabile per i test — un
-    callable e non una stringa, così l'istante non può essere fabbricato a mano:
-    è il campo su cui poggia l'onestà dell'artefatto. ``cut``, se noto, è il
-    taglio del DB OSM dichiarato da Overpass (#251); ``None`` quando il
-    chiamante non lo conosce (un doppio di test) resta un dato mancante
-    dichiarato, non un errore.
+    ``bbox`` and ``citta`` are REQUIRED: a provenance that omits the area
+    queried is of no use to anyone, and making them optional allowed writing
+    a record with ``"bbox": null``. ``clock`` is injectable for tests -- a
+    callable and not a string, so the instant cannot be fabricated by hand:
+    it is the field on which the honesty of the artefact rests. ``cut``, if known,
+    is the
+    cut of the OSM DB declared by Overpass (#251); ``None`` when the
+    caller does not know it (a test double) stays a declared missing
+    datum, not an error.
 
-    Scrive con ``newline=""`` (nessuna traduzione): su Windows il default
-    produceva CRLF nel working tree contro il blob LF in git, e con
-    ``core.autocrlf=false`` le fixture risultavano modificate dopo ogni capture
-    pur essendo identiche nel contenuto (#241, stessa classe di #103).
+    Writes with ``newline=""`` (no translation): on Windows the default
+    produced CRLF in the working tree against the LF blob in git, and with
+    ``core.autocrlf=false`` the fixtures showed up modified after every capture
+    while being identical in content (#241, same class as #103).
     """
-    contenuto: SnapshotFile = {
-        "formato": FORMATO_SNAPSHOT,
+    content: SnapshotFile = {
+        "formato": SNAPSHOT_FORMAT,
         "provenienza": {
             "catturato_il": clock().isoformat(),
             "bbox": [bbox.min_lat, bbox.min_lon, bbox.max_lat, bbox.max_lon],
             "citta": citta,
             "zona": zona,
             "taglio_osm": cut,
-            "configurazione_canonica": _configurazione_canonica_corrente(),
+            "configurazione_canonica": _current_canonical_config(),
         },
         "poi": list(pois),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps(contenuto, ensure_ascii=False, indent=2) + "\n",
+        json.dumps(content, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
         newline="",
     )
 
 
 def load_snapshot(path: Path) -> list[Poi]:
-    """Carica i POI da una fixture salvata, con o senza provenienza (#241).
+    """Load the POIs from a saved fixture, with or without provenance (#241).
 
-    Accetta due forme: l'envelope ``{"provenienza": ..., "poi": [...]}`` scritto
-    da :func:`save_snapshot`, e la lista nuda dei file catturati prima di #241 —
-    i 4 snapshot committati con #231, che devono restare rigiocabili.
+    Accepts two forms: the envelope ``{"provenienza": ..., "poi": [...]}`` written
+    by :func:`save_snapshot`, and the bare list of the files captured before #241 --
+    the 4 snapshots committed with #231, which must stay replayable.
 
-    Solleva :class:`ValueError` su qualunque altra forma: uno snapshot JSON valido
-    ma non riconoscibile non va rigiocato in silenzio come lista vuota. Il
-    chiamante (``_snapshot_reusable``, #148) lo tratta come snapshot da
-    ri-catturare.
+    Raises :class:`ValueError` on any other form: a valid JSON snapshot
+    that is not recognisable must not be silently replayed as an empty list. The
+    caller (``_snapshot_reusable``, #148) treats it as a snapshot to
+    re-capture.
     """
     data: object = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(data, list):
@@ -221,14 +223,14 @@ def load_snapshot(path: Path) -> list[Poi]:
 
 
 def snapshot_provenance(path: Path) -> SnapshotProvenance | None:
-    """Provenienza dichiarata dallo snapshot, se presente (#241, #267).
+    """Provenance declared by the snapshot, if present (#241, #267).
 
-    ``None`` per la lista nuda pre-#241 (nessuna provenienza da leggere), per un
-    file assente/illeggibile, o se non è nel formato envelope atteso. Non
-    solleva MAI: un file mancante o corrotto verrà comunque intercettato da
-    ``load_snapshot`` quando la run lo consuma davvero (isolamento errori del
-    chiamante, #252) — qui interessa solo "provenienza nota o no", non
-    duplicare quella diagnosi.
+    ``None`` for the bare pre-#241 list (no provenance to read), for a
+    missing/unreadable file, or if it is not in the expected envelope format. It
+    NEVER raises: a missing or corrupt file will in any case be caught by
+    ``load_snapshot`` when the run actually consumes it (error isolation of the
+    caller, #252) -- here only "provenance known or not" matters, not
+    duplicating that diagnosis.
     """
     try:
         data: object = json.loads(path.read_text(encoding="utf-8"))
@@ -241,58 +243,55 @@ def snapshot_provenance(path: Path) -> SnapshotProvenance | None:
     return None
 
 
-def describe_configurazione_mismatch(
-    provenienza: SnapshotProvenance | None,
+def describe_config_mismatch(
+    provenance: SnapshotProvenance | None,
 ) -> str | None:
-    """Messaggio d'avviso se la provenienza manca o diverge dalla config attuale.
+    """Warning message if the provenance is missing or diverges from the current config.
 
-    ``None`` = coerente, nessun avviso da dare (#267). Non solleva: i 4
-    snapshot pre-#241 restano rigiocabili (#231), ma non più in silenzio — il
-    chiamante logga l'avviso invece di trattarli come indistinguibili da uno
-    snapshot catturato con la configurazione corrente.
+    ``None`` = consistent, no warning to give (#267). It does not raise: the 4
+    pre-#241 snapshots stay replayable (#231), but no longer silently -- the
+    caller logs the warning instead of treating them as indistinguishable from a
+    snapshot captured with the current configuration.
     """
-    if provenienza is None:
+    if provenance is None:
         return "nessuna provenienza leggibile (pre-#241, non apribile o corrotta)"
-    return describe_configurazione_divergente(
-        provenienza.get("configurazione_canonica")
-    )
+    return describe_config_divergence(provenance.get("configurazione_canonica"))
 
 
-def configurazione_canonica_corrente() -> ConfigurazioneCanonica:
-    """Accessor pubblico della configurazione canonica del codice CORRENTE (#374).
+def current_canonical_config() -> CanonicalConfig:
+    """Public accessor of the canonical configuration of the CURRENT code (#374).
 
-    Per chi (gli esiti C1) deve registrare la stessa configurazione che
-    ``save_snapshot`` scrive, senza importare un nome privato.
+    For whoever (the C1 outcomes) must record the same configuration that
+    ``save_snapshot`` writes, without importing a private name.
     """
-    return _configurazione_canonica_corrente()
+    return _current_canonical_config()
 
 
-def describe_configurazione_divergente(dichiarata: object) -> str | None:
-    """Messaggio d'avviso se la configurazione dichiarata diverge da quella attuale.
+def describe_config_divergence(declared: object) -> str | None:
+    """Warning message if the declared configuration diverges from the current one.
 
-    Nucleo di :func:`describe_configurazione_mismatch`, esposto perche' anche gli
-    esiti C1 (#374) portano una ``configurazione_canonica`` ma non l'envelope
-    completo di uno snapshot POI. ``None`` = coerente.
+    Core of :func:`describe_config_mismatch`, exposed because the C1
+    outcomes (#374) too carry a ``configurazione_canonica`` but not the full
+    envelope of a POI snapshot. ``None`` = consistent.
     """
-    # La configurazione e' castata da JSON esterno (#241): a runtime la chiave puo'
-    # mancare o avere una forma diversa — il check e' per i dati reali, non per lo
+    # The configuration is cast from external JSON (#241): at runtime the key may
+    # be missing or have a different shape -- the check is for real data, not for the
     # static checker.
-    if not isinstance(dichiarata, dict):
+    if not isinstance(declared, dict):
         return "provenienza senza configurazione_canonica"
-    dichiarata = cast(dict[str, object], dichiarata)
-    corrente = _configurazione_canonica_corrente()
-    divergenti = sorted(k for k in corrente if dichiarata.get(k) != corrente[k])
-    if not divergenti:
+    declared = cast(dict[str, object], declared)
+    current = _current_canonical_config()
+    diverging = sorted(k for k in current if declared.get(k) != current[k])
+    if not diverging:
         return None
-    dettagli = ", ".join(
-        f"{k} registrato={dichiarata.get(k)!r} corrente={corrente[k]!r}"
-        for k in divergenti
+    details = ", ".join(
+        f"{k} registrato={declared.get(k)!r} corrente={current[k]!r}" for k in diverging
     )
-    return f"configurazione diversa da quella corrente ({dettagli})"
+    return f"configurazione diversa da quella corrente ({details})"
 
 
 def replay_source(path: Path) -> PoiSource:
-    """PoiSource che rigioca dalla fixture (offline, ignora bbox/citta)."""
+    """PoiSource that replays from the fixture (offline, ignores bbox/citta)."""
 
     async def _source(bbox: Bbox, citta: str) -> list[Poi]:
         return load_snapshot(path)
@@ -300,64 +299,64 @@ def replay_source(path: Path) -> PoiSource:
     return _source
 
 
-#: Sorgente per :func:`capturing_source`: ritorna anche il taglio del DB OSM
-#: dell'invocazione (#251), letto e scritto nella STESSA chiamata — a differenza
-#: di ``PoiSource``, non c'è nulla da ricordare fra una chiamata e l'altra, quindi
-#: nessun vincolo di sequenzialità: sicuro anche se ``_capture`` diventasse
-#: concorrente per case in futuro. ``None`` per chi non conosce il taglio (un
-#: doppio di test, adattato da ``eval.__main__._senza_taglio``).
-PoiSourceConTaglio = Callable[[Bbox, str], Awaitable[tuple[list[Poi], OsmCut | None]]]
+#: Source for :func:`capturing_source`: also returns the OSM DB cut
+#: of the invocation (#251), read and written in the SAME call -- unlike
+#: ``PoiSource``, there is nothing to remember between one call and the next, so
+#: no sequentiality constraint: safe even if ``_capture`` became
+#: concurrent per case in the future. ``None`` for whoever does not know the cut (a
+#: test double, adapted by ``eval.__main__._without_cut``).
+PoiSourceWithCut = Callable[[Bbox, str], Awaitable[tuple[list[Poi], OsmCut | None]]]
 
 
 async def offline_fetch_pois(bbox: Bbox, citta: str) -> tuple[list[Poi], OsmCut]:
-    """Sorgente live della cattura: backoff lungo di cortesia (#232) e taglio del
-    DB OSM dell'invocazione (#251).
+    """Live capture source: long courtesy backoff (#232) and cut of the
+    OSM DB of the invocation (#251).
 
-    Vive qui, accanto a :func:`capturing_source`, e non nel CLI: la politica di
-    ritentativo della cattura è una proprietà della cattura, e come default
-    dell'helper evita che un chiamante ottenga per distrazione quella
-    interattiva, che il 26/07 ha rinunciato al secondo tentativo (504 poi 429)
-    costringendo a un backoff scritto a mano fuori dal codice — cioè a una run
-    non riproducibile.
+    It lives here, next to :func:`capturing_source`, and not in the CLI: the
+    retry policy of the capture is a property of the capture, and as the default
+    of the helper it keeps a caller from absentmindedly getting the
+    interactive one, which on 26/07 gave up on the second attempt (504 then 429)
+    forcing a hand-written backoff outside the code -- i.e. a
+    non-reproducible run.
     """
     return await fetch_pois_with_cut(bbox, citta, retry=OFFLINE_RETRY)
 
 
 def capturing_source(
     path: Path,
-    inner: PoiSourceConTaglio = offline_fetch_pois,
+    inner: PoiSourceWithCut = offline_fetch_pois,
     *,
     zona: str | None = None,
 ) -> PoiSource:
-    """PoiSource che chiama ``inner`` (Overpass reale) e salva lo snapshot.
+    """PoiSource that calls ``inner`` (real Overpass) and saves the snapshot.
 
-    Il ``bbox`` ricevuto finisce nella provenienza (#241): è l'area effettivamente
-    interrogata, non una ricostruita a posteriori. ``zona`` non è ricavabile né dal
-    bbox né dai POI (lo slug del nome file è lossy), quindi va passata dal
-    chiamante perché il legame zona↔bbox resti verificabile dal file.
+    The ``bbox`` received ends up in the provenance (#241): it is the area actually
+    queried, not one reconstructed afterwards. ``zona`` cannot be derived from the
+    bbox nor from the POIs (the file-name slug is lossy), so it must be passed by the
+    caller for the zone<->bbox link to stay verifiable from the file.
 
-    ``inner`` ritorna anche il taglio del DB OSM (#251), che finisce nella
-    provenienza dello snapshot nella STESSA chiamata in cui è stato osservato:
-    nessuno stato intermedio da tenere sincronizzato fra chiamate.
+    ``inner`` also returns the OSM DB cut (#251), which ends up in the
+    snapshot's provenance in the SAME call in which it was observed:
+    no intermediate state to keep synchronized between calls.
     """
 
     async def _source(bbox: Bbox, citta: str) -> list[Poi]:
-        pois, taglio = await inner(bbox, citta)
-        save_snapshot(path, pois, bbox=bbox, citta=citta, zona=zona, cut=taglio)
+        pois, osm_cut = await inner(bbox, citta)
+        save_snapshot(path, pois, bbox=bbox, citta=citta, zona=zona, cut=osm_cut)
         return pois
 
     return _source
 
 
-#: Placeholder deterministico per il geo in fase run. Il geo NON e' consumato a
-#: valle (grounding/generation/metriche lo ignorano; replay_source ignora il bbox),
-#: quindi un valore fisso rende la run ERMETICA (zero Nominatim) senza alterare alcun
-#: output. Vedi #169 / review trasversale #115 (reperto A1).
+#: Deterministic placeholder for the geo in the run phase. The geo is NOT consumed
+#: downstream (grounding/generation/metrics ignore it; replay_source ignores the bbox),
+#: so a fixed value makes the run HERMETIC (zero Nominatim) without altering any
+#: output. See #169 / cross-cutting review #115 (finding A1).
 _PLACEHOLDER_GEO: GeoResult = {"lat": 0.0, "lon": 0.0, "bbox": Bbox(0.0, 0.0, 0.0, 0.0)}
 
 
 def offline_geo_source() -> GeoSource:
-    """GeoSource placeholder deterministico: zero Nominatim, zero I/O (#169)."""
+    """Deterministic placeholder GeoSource: zero Nominatim, zero I/O (#169)."""
 
     async def _source(citta: str, zona: str) -> GeoResult:
         return _PLACEHOLDER_GEO

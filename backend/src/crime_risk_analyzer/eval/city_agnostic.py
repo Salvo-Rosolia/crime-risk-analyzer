@@ -1,12 +1,12 @@
-"""Validazione C1 city-agnostic (#31): copertura POI, boundary, switch.
+"""City-agnostic C1 validation (#31): POI coverage, boundary, switch.
 
-Due fasi separate (come #34): capture live (geocode+Overpass una volta per città)
-e compute deterministico (ricalcolo copertura dagli snapshot contro il grafo
-ontologia). Metriche riportate con soglie a-priori pass/fail (non fanno fallire
-il gate). Il prodotto usa il bbox Nominatim per la zona *by design* (nessuna
-modifica al retrieval); la validazione confini verifica invece il contenimento
-dei POI nel poligono amministrativo reale della città (decisione 3B), con
-`bbox_valid` che resta come semplice sanity check sul bbox non degenere.
+Two separate phases (like #34): live capture (geocode+Overpass once per city)
+and deterministic compute (coverage recomputed from the snapshots against the
+ontology graph). Metrics reported with a-priori pass/fail thresholds (they do not
+fail the gate). The product uses the Nominatim bbox for the zone *by design* (no
+change to retrieval); the boundary validation instead verifies the containment
+of the POIs in the real administrative polygon of the city (decision 3B), with
+`bbox_valid` remaining as a simple sanity check on a non-degenerate bbox.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ from crime_risk_analyzer.eval.geometry import (
     boundary_from_geojson,
     point_in_multipolygon,
 )
-from crime_risk_analyzer.eval.snapshots import configurazione_canonica_corrente
+from crime_risk_analyzer.eval.snapshots import current_canonical_config
 from crime_risk_analyzer.geocoding import (
     GeocodingError,
     ZoneNotFoundError,
@@ -58,18 +58,18 @@ _BOUNDARY_USER_AGENT = (
 
 
 class _BoundaryLocation(Protocol):
-    """Vista tipata minimale del ``geopy.location.Location`` (libreria senza stub)."""
+    """Minimal typed view of ``geopy.location.Location`` (library without stubs)."""
 
     @property
     def raw(self) -> dict[str, object]: ...
 
 
 class _BoundaryGeocoder(Protocol):
-    """Vista tipata minimale del geocoder (geopy senza stub) per la boundary.
+    """Minimal typed view of the geocoder (geopy without stubs) for the boundary.
 
-    Dichiara la firma che serve qui (con ``geometry`` per il poligono) invece di
-    ereditare quella non tipata di ``Nominatim``: la chiamata resta verificabile
-    da pyright strict senza ``# pyright: ignore`` sugli argomenti.
+    Declares the signature needed here (with ``geometry`` for the polygon) instead of
+    inheriting the untyped one of ``Nominatim``: the call stays verifiable
+    by strict pyright without ``# pyright: ignore`` on the arguments.
     """
 
     def geocode(
@@ -88,11 +88,11 @@ def _boundary_geolocator() -> Nominatim:
 
 
 def _boundary_geocode_raw(citta: str) -> _BoundaryLocation | None:
-    """Chiamata effettiva a geopy per il confine, con timeout e country_codes (#170).
+    """Actual call to geopy for the boundary, with timeout and country_codes (#170).
 
-    Ri-risolve ``_boundary_geolocator()`` a ogni chiamata cosi' il monkeypatch dei
-    test resta onorato anche dietro il RateLimiter singleton (mirror di #115).
-    ``geometry='geojson'`` e' cablato: serve il poligono, non un punto.
+    Re-resolves ``_boundary_geolocator()`` on every call so that the test
+    monkeypatch is honoured even behind the singleton RateLimiter (mirror of #115).
+    ``geometry='geojson'`` is wired in: the polygon is needed, not a point.
     """
     settings = get_settings()
     geolocator = cast("_BoundaryGeocoder", _boundary_geolocator())
@@ -106,19 +106,19 @@ def _boundary_geocode_raw(citta: str) -> _BoundaryLocation | None:
 
 @lru_cache(maxsize=1)
 def _boundary_rate_limiter() -> Callable[[str], _BoundaryLocation | None]:
-    """RateLimiter LOCALE attorno a :func:`_boundary_geocode_raw` (#170).
+    """LOCAL RateLimiter around :func:`_boundary_geocode_raw` (#170).
 
-    Secondo call-site Nominatim del progetto: la boundary rispetta la usage
-    policy (~1 req/s) con lo stesso pattern di #115 ma un limiter DEDICATO (non
-    condiviso con ``geocode_zone``), per non toccare la logica core di quel
-    rate-limiter. ``min_delay_seconds`` dai setting; ``max_retries=0`` preserva la
-    semantica a chiamata singola; ``swallow_exceptions=False`` fa propagare
-    ``GeocoderServiceError`` (mappato da :func:`fetch_city_boundary` ->
-    ``GeocodingError``, altrimenti geopy lo inghiottirebbe restituendo ``None``,
-    confuso con "confine non trovato"). ``error_wait_seconds`` >= ``min_delay``
-    per l'assert interno di geopy con env che configurano ``min_delay`` > 5s
-    (inerte con ``max_retries=0``). Cached: lo stato di throttling persiste; i
-    test lo resettano con ``cache_clear()``.
+    Second Nominatim call site of the project: the boundary respects the usage
+    policy (~1 req/s) with the same pattern as #115 but a DEDICATED limiter (not
+    shared with ``geocode_zone``), so as not to touch the core logic of that
+    rate-limiter. ``min_delay_seconds`` from the settings; ``max_retries=0`` preserves
+    the single-call semantics; ``swallow_exceptions=False`` makes
+    ``GeocoderServiceError`` propagate (mapped by :func:`fetch_city_boundary` ->
+    ``GeocodingError``, otherwise geopy would swallow it returning ``None``,
+    confused with "boundary not found"). ``error_wait_seconds`` >= ``min_delay``
+    for the internal assert of geopy with envs that configure ``min_delay`` > 5s
+    (inert with ``max_retries=0``). Cached: the throttling state persists; the
+    tests reset it with ``cache_clear()``.
     """
     min_delay = get_settings().geocoding_min_delay_seconds
     return cast(
@@ -134,10 +134,10 @@ def _boundary_rate_limiter() -> Callable[[str], _BoundaryLocation | None]:
 
 
 def fetch_city_boundary(citta: str) -> CityBoundary:
-    """Scarica il poligono amministrativo reale della città via Nominatim.
+    """Download the real administrative polygon of the city via Nominatim.
 
-    Validation-only: usa un geolocator dedicato e un rate-limiter LOCALE (#170)
-    per non modificare il prodotto ne' interferire col limiter #115.
+    Validation-only: uses a dedicated geolocator and a LOCAL rate-limiter (#170)
+    so as not to modify the product nor interfere with the #115 limiter.
     """
     try:
         location = _boundary_rate_limiter()(citta)
@@ -161,14 +161,14 @@ def fetch_city_boundary(citta: str) -> CityBoundary:
 
 @dataclass(frozen=True)
 class RosterCity:
-    """Città del roster di validazione (dato, non codice)."""
+    """City of the validation roster (data, not code)."""
 
     citta: str
     zona: str
 
 
-#: Roster ≥5 città (spec-valutazione §0). Roma/Milano/Napoli garantite;
-#: Torino/Firenze best-effort sui dati OSM.
+#: Roster of >=5 cities (evaluation-spec section 0). Rome/Milan/Naples guaranteed;
+#: Turin/Florence best-effort on the OSM data.
 ROSTER: tuple[RosterCity, ...] = (
     RosterCity("Roma", "Colosseo"),
     RosterCity("Milano", "Duomo"),
@@ -179,7 +179,7 @@ ROSTER: tuple[RosterCity, ...] = (
 
 
 class CityCapture(BaseModel):
-    """Snapshot di un capture live per una città (versionato per il replay)."""
+    """Snapshot of a live capture for a city (versioned for replay)."""
 
     citta: str
     zona: str
@@ -192,7 +192,7 @@ class CityCapture(BaseModel):
 
 
 class CityAgnosticRecord(BaseModel):
-    """Record calcolato per una città: metriche + esiti soglia."""
+    """Record computed for a city: metrics + threshold outcomes."""
 
     citta: str
     zona: str
@@ -214,14 +214,14 @@ class CityAgnosticRecord(BaseModel):
 
 
 def class_exists(graph: Graph, class_name: str) -> bool:
-    """True se ``class_name`` è dichiarata come ``owl:Class`` nel grafo TERMINUS."""
+    """True if ``class_name`` is declared as ``owl:Class`` in the TERMINUS graph."""
     if class_name == GENERIC_FALLBACK:
         return False
     return (TERMINUS[class_name], RDF.type, OWL.Class) in graph
 
 
 def compute_coverage(pois: list[Poi], graph: Graph) -> tuple[float, float]:
-    """Copertura (verbatim, derivata) sui POI. Lista vuota → (0.0, 0.0)."""
+    """Coverage (verbatim, derived) on the POIs. Empty list -> (0.0, 0.0)."""
     if not pois:
         return (0.0, 0.0)
     n = len(pois)
@@ -231,13 +231,13 @@ def compute_coverage(pois: list[Poi], graph: Graph) -> tuple[float, float]:
 
 
 def bbox_valid(bbox: tuple[float, float, float, float]) -> bool:
-    """True se il bbox è non degenere (area positiva)."""
+    """True if the bbox is non-degenerate (positive area)."""
     min_lat, min_lon, max_lat, max_lon = bbox
     return max_lat > min_lat and max_lon > min_lon
 
 
 def compute_boundary_coverage(pois: list[Poi], boundary: CityBoundary) -> float:
-    """Frazione di POI dentro il poligono amministrativo. Lista vuota → 0.0."""
+    """Fraction of POIs inside the administrative polygon. Empty list -> 0.0."""
     if not pois:
         return 0.0
     inside = sum(
@@ -249,7 +249,7 @@ def compute_boundary_coverage(pois: list[Poi], boundary: CityBoundary) -> float:
 def build_record(
     capture: CityCapture, graph: Graph, ontology_hash: str
 ) -> CityAgnosticRecord:
-    """Calcola il record dalle metriche di un capture."""
+    """Compute the record from the metrics of a capture."""
     verbatim, derived = compute_coverage(capture.pois, graph)
     boundary_cov = compute_boundary_coverage(capture.pois, capture.boundary)
     return CityAgnosticRecord(
@@ -270,34 +270,34 @@ def build_record(
 
 
 def city_slug(citta: str) -> str:
-    """Slug per il nome file dello snapshot."""
+    """Slug for the snapshot file name."""
     return citta.strip().lower().replace(" ", "-")
 
 
 def capture_path(results_dir: Path, citta: str) -> Path:
-    """Percorso dello snapshot versionato per una città."""
+    """Path of the versioned snapshot for a city."""
     return results_dir / "city_agnostic" / "snapshots" / f"{city_slug(citta)}.json"
 
 
-class EsitoProvenienza(BaseModel):
-    """Con quale configurazione del CODICE è stato scritto un esito C1 (#374).
+class OutcomeProvenance(BaseModel):
+    """With which CODE configuration a C1 outcome was written (#374).
 
-    Dice due cose: QUANDO il processo ha scritto l'esito (``catturato_il``,
-    ISO-8601 UTC, orologio del processo: «quando il processo ha finito di
-    scrivere l'esito», DOPO la richiesta a Overpass e non prima, e non «quale
-    stato di OSM ho ottenuto») e le costanti canoniche del codice che l'ha scritto
-    (selettori, cap, tipi di elemento: stessa fonte delle fixture POI, #241).
+    It says two things: WHEN the process wrote the outcome (``catturato_il``,
+    ISO-8601 UTC, process clock: "when the process finished
+    writing the outcome", AFTER the request to Overpass and not before, and not "which
+    state of OSM I obtained") and the canonical constants of the code that wrote it
+    (selectors, caps, element types: same source as the POI fixtures, #241).
 
-    Non dice cosa è stato davvero interrogato: ``capture_city`` accetta una
-    ``poi_source`` arbitraria. Per lo stesso motivo NON porta il ``taglio_osm``
-    (#251): ``PoiSource`` ritorna solo i POI, il taglio non è disponibile qui e un
-    campo che afferma più di quanto si sa è peggio di uno che tace. Lo scopo è
-    rendere visibile una ricattura parziale che mescola esiti prodotti con
-    configurazioni diverse (es. con e senza relation, #314).
+    It does not say what was really queried: ``capture_city`` accepts an
+    arbitrary ``poi_source``. For the same reason it does NOT carry the ``taglio_osm``
+    (#251): ``PoiSource`` returns only the POIs, the cut is not available here and a
+    field that claims more than is known is worse than one that stays silent. The aim is
+    to make visible a partial re-capture that mixes outcomes produced with
+    different configurations (e.g. with and without relations, #314).
 
-    ``configurazione_canonica`` è un dict generico (non il TypedDict di
-    ``snapshots``) perché viene riletto da JSON esterno: la verifica contro la
-    configurazione corrente è in ``describe_configurazione_divergente``.
+    ``configurazione_canonica`` is a generic dict (not the TypedDict of
+    ``snapshots``) because it is re-read from external JSON: the check against the
+    current configuration is in ``describe_config_divergence``.
     """
 
     catturato_il: str
@@ -305,11 +305,11 @@ class EsitoProvenienza(BaseModel):
 
 
 class CaptureOutcome(BaseModel):
-    """Esito di una cattura per città: successo (con capture) o fallimento (errore).
+    """Outcome of a per-city capture: success (with capture) or failure (error).
 
-    ``provenienza`` è presente su ok e failed (anche un fallimento dice con quale
-    configurazione è stato tentato); ``None`` per gli esiti scritti prima di #374,
-    che restano leggibili.
+    ``provenienza`` is present on ok and failed (even a failure says with which
+    configuration it was attempted); ``None`` for outcomes written before #374,
+    which stay readable.
     """
 
     status: Literal["ok", "failed"]
@@ -318,23 +318,23 @@ class CaptureOutcome(BaseModel):
     capture: CityCapture | None = None
     error_type: str | None = None
     error: str | None = None
-    provenienza: EsitoProvenienza | None = None
+    provenienza: OutcomeProvenance | None = None
 
 
-def _provenienza_corrente(clock: Callable[[], datetime]) -> EsitoProvenienza:
-    return EsitoProvenienza(
+def _current_provenance(clock: Callable[[], datetime]) -> OutcomeProvenance:
+    return OutcomeProvenance(
         catturato_il=clock().isoformat(),
-        configurazione_canonica=dict(configurazione_canonica_corrente()),
+        configurazione_canonica=dict(current_canonical_config()),
     )
 
 
 def save_outcome(path: Path, outcome: CaptureOutcome) -> None:
-    """Serializza un esito su file (crea le cartelle).
+    """Serialize an outcome to file (creates the folders).
 
-    ``newline=""``: nessuna traduzione. Su Windows il default scriveva CRLF contro
-    il blob LF in git, e con ``core.autocrlf=false`` ogni ricattura risultava
-    modificata su tutto il file (con ``.gitattributes`` ``* text=auto eol=lf`` il
-    diff è invece vuoto; stessa classe di
+    ``newline=""``: no translation. On Windows the default wrote CRLF against
+    the LF blob in git, and with ``core.autocrlf=false`` every re-capture showed up
+    modified over the whole file (with ``.gitattributes`` ``* text=auto eol=lf`` the
+    diff is instead empty; same class as
     :func:`~crime_risk_analyzer.eval.snapshots.save_snapshot`).
     """
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -344,7 +344,7 @@ def save_outcome(path: Path, outcome: CaptureOutcome) -> None:
 
 
 def load_outcome(path: Path) -> CaptureOutcome:
-    """Carica un esito da uno snapshot versionato."""
+    """Load an outcome from a versioned snapshot."""
     return CaptureOutcome.model_validate_json(path.read_text(encoding="utf-8"))
 
 
@@ -355,12 +355,12 @@ async def capture_city(
     poi_source: PoiSource | None = None,
     boundary_source: BoundarySource = fetch_city_boundary,
 ) -> CityCapture:
-    """Capture live: geocode + fetch POI (cronometrati) + poligono città (non timed)."""
-    # Politica di ritentativo INTERATTIVA di proposito, non quella offline di #232:
-    # qui il tempo di parete È la metrica (``switch_ms``, tempo di aggiunta di una
-    # città nuova). Un backoff di cortesia di minuti la falsificherebbe, misurando
-    # la congestione di Overpass invece del costo di switch. Se la cattura del
-    # roster fallisce, si rilancia: non c'è nulla da preservare come in una run.
+    """Live capture: geocode + fetch POI (timed) + city polygon (not timed)."""
+    # INTERACTIVE retry policy on purpose, not the offline one of #232:
+    # here wall-clock time IS the metric (``switch_ms``, time to add a new
+    # city). A courtesy backoff of minutes would falsify it, measuring
+    # Overpass congestion instead of the switch cost. If the roster capture
+    # fails, it is rerun: there is nothing to preserve as in a run.
     source = poi_source or fetch_pois
     start = time.perf_counter()
     geo = geocode_zone(zona, citta)
@@ -388,10 +388,10 @@ async def capture_roster(
     boundary_source: BoundarySource = fetch_city_boundary,
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> None:
-    """Cattura ogni città del roster isolando i fallimenti per-città (M3).
+    """Capture every city of the roster isolating per-city failures (M3).
 
-    Ogni esito (ok e failed) porta la provenienza (#374). ``clock`` è un callable
-    iniettabile, non una stringa: l'istante non si fabbrica a mano (come in
+    Every outcome (ok and failed) carries the provenance (#374). ``clock`` is an
+    injectable callable, not a string: the instant is not fabricated by hand (as in
     ``save_snapshot``).
     """
     for city in roster:
@@ -407,7 +407,7 @@ async def capture_roster(
                 citta=city.citta,
                 zona=city.zona,
                 capture=capture,
-                provenienza=_provenienza_corrente(clock),
+                provenienza=_current_provenance(clock),
             )
         except (GeocodingError, OverpassError) as exc:
             outcome = CaptureOutcome(
@@ -416,6 +416,6 @@ async def capture_roster(
                 zona=city.zona,
                 error_type=type(exc).__name__,
                 error=str(exc),
-                provenienza=_provenienza_corrente(clock),
+                provenienza=_current_provenance(clock),
             )
         save_outcome(capture_path(results_dir, city.citta), outcome)

@@ -1,38 +1,38 @@
-"""Criterio di vittoria lessicografico (#157, spec-valutazione §2).
+"""Lexicographic winning criterion (#157, evaluation-spec section 2).
 
-Decide il vincitore del confronto tra due modelli sulle MEDIE delle K
-ripetizioni, in ordine lessicografico dichiarato a priori:
-  1. hallucination (piu' basso vince)
-  2. grounding     (piu' alto vince)
-  3. latency_ms    (piu' basso vince)
-  4. cost_usd      (piu' basso vince)
-Due valori sono 'pari' se coincidono alla precisione con cui la metrica viene
-stampata (3/3/0/6 decimali) → si passa all'asse successivo. Parita' su tutti e 4
-gli assi → nessun vincitore (pareggio esplicito), nessun tie-break artificiale.
+Decides the winner of the comparison between two models on the MEANS of the K
+repetitions, in a lexicographic order declared a priori:
+  1. hallucination (lower wins)
+  2. grounding     (higher wins)
+  3. latency_ms    (lower wins)
+  4. cost_usd      (lower wins)
+Two values are 'tied' if they coincide at the precision with which the metric is
+printed (3/3/0/6 decimals) -> move on to the next axis. A tie on all 4
+axes -> no winner (explicit draw), no artificial tie-break.
 
-Gli assi 3 e 4 sono SPAREGGI DISATTIVABILI (#236, ``operational_tiebreak``): su
-una coppia di bracci i cui prompt hanno lunghezza diversa per costruzione — il
-braccio senza ontologia non riceve hazard, vulnerabilita' e citazioni — latenza
-e costo piu' bassi non sono un merito, e un verdetto deciso da loro misurerebbe
-la lunghezza del prompt. Li' la catena si ferma alla qualita' e il pareggio resta
-dichiarato. Tra due MODELLI, che ricevono lo stesso prompt, restano spareggi
-legittimi: il default non cambia.
+Axes 3 and 4 are SWITCHABLE TIE-BREAKS (#236, ``operational_tiebreak``): on
+a pair of arms whose prompts differ in length by construction -- the
+arm without ontology receives no hazard, vulnerability or citations -- lower latency
+and cost are not a merit, and a verdict decided by them would measure
+the prompt length. There the chain stops at quality and the draw stays
+declared. Between two MODELS, which receive the same prompt, they remain
+legitimate tie-breaks: the default does not change.
 
-LIMITE (#164-D): 'grounding' e' un asse ridondante, NON un secondo criterio
-indipendente. E' il complemento lineare di 'hallucination' sullo stesso
-denominatore (le asserzioni): ``hallucination == 1 - grounding`` quando le
-asserzioni sono > 0 (vedi metrics.py). Quindi il tie-break su 'grounding' non
-decide di fatto mai: quando 'hallucination' pareggia (stessa griglia di
-arrotondamento) pareggia anche 'grounding'; e nei corner degeneri (narrativa
-vuota vs piena-senza-asserzioni) e' 'hallucination' a decidere (0.0 vs 1.0).
-'grounding' resta nella catena per trasparenza, non aggiunge informazione
-ortogonale. Un 2° asse davvero ortogonale (copertura/integrita' §2) e' un
-miglioramento futuro, non implementato qui per non alterare la semantica del
-verdetto prima dei dati reali.
+LIMIT (#164-D): 'grounding' is a redundant axis, NOT a second independent
+criterion. It is the linear complement of 'hallucination' over the same
+denominator (the assertions): ``hallucination == 1 - grounding`` when the
+assertions are > 0 (see metrics.py). So the tie-break on 'grounding' in fact
+never decides: when 'hallucination' ties (same rounding grid) 'grounding'
+ties too; and in the degenerate corners (empty narrative vs full-without-assertions)
+it is 'hallucination' that decides (0.0 vs 1.0).
+'grounding' stays in the chain for transparency, it adds no orthogonal
+information. A truly orthogonal 2nd axis (coverage/integrity, section 2) is a
+future improvement, not implemented here so as not to alter the semantics of the
+verdict before the real data.
 
-Nota di scope (#157): l'asse 'hallucination' e' il PROXY testuale gia' in
-Metrics; 'tasso di intervento del filtro' e 'allucinazioni residue' (spec §2)
-sono deliverable separati, non implementati qui.
+Scope note (#157): the 'hallucination' axis is the textual PROXY already in
+Metrics; 'filter intervention rate' and 'residual hallucinations' (spec section 2)
+are separate deliverables, not implemented here.
 """
 
 from __future__ import annotations
@@ -49,51 +49,51 @@ from crime_risk_analyzer.eval.compare import MetricValues
 @dataclass(frozen=True)
 class _AxisSpec:
     name: str
-    ndigits: int  # precisione di stampa = tolleranza di parita'
+    ndigits: int  # print precision = tie tolerance
     higher_better: bool
     get: Callable[[MetricValues], float]
 
 
-#: Assi di QUALITA' (i due proxy testuali): valgono su qualunque coppia di bracci.
+#: QUALITY axes (the two textual proxies): valid on any pair of arms.
 _QUALITY_AXES: tuple[_AxisSpec, ...] = (
     _AxisSpec("hallucination", 3, False, lambda m: m.hallucination),
     _AxisSpec("grounding", 3, True, lambda m: m.grounding),
 )
 
-#: Assi OPERATIVI (misure dirette), usati SOLO come spareggio dopo la qualita'.
-#: Separati dai precedenti perche' non su ogni coppia sono un merito: quando i
-#: due bracci ricevono prompt di lunghezza diversa per costruzione, chi ha il
-#: prompt piu' corto e' piu' rapido ed economico a prescindere da cio' che dice
-#: (#236) — vedi ``operational_tiebreak`` in :func:`decide_winner`.
+#: OPERATIONAL axes (direct measures), used ONLY as a tie-break after quality.
+#: Kept apart from the above because they are not a merit on every pair: when the
+#: two arms receive prompts of different length by construction, the one with the
+#: shorter prompt is faster and cheaper regardless of what it says
+#: (#236) -- see ``operational_tiebreak`` in :func:`decide_winner`.
 _OPERATIONAL_AXES: tuple[_AxisSpec, ...] = (
     _AxisSpec("latency_ms", 0, False, lambda m: m.latency_ms),
     _AxisSpec("cost_usd", 6, False, lambda m: m.cost_usd),
 )
 
-#: Ordine lessicografico + direzione + precisione. Le precisioni combaciano con
-#: i formati di compare.py (grounding/halluc .3f, latency .0f, cost .6f): la
-#: parita' e' definita "a cio' che si stampa".
+#: Lexicographic order + direction + precision. The precisions match the
+#: formats of compare.py (grounding/halluc .3f, latency .0f, cost .6f): a
+#: tie is defined "at what is printed".
 _AXES: tuple[_AxisSpec, ...] = _QUALITY_AXES + _OPERATIONAL_AXES
 
-#: Ragione stampata quando la qualita' pareggia e lo spareggio operativo e'
-#: escluso (#236). Il verdetto trattenuto va MOTIVATO: un ``winner=None`` muto
-#: sarebbe indistinguibile dal pareggio a quattro assi di #157, che e' un altro
-#: fatto (li' anche latenza e costo coincidono). Accenti veri e non apostrofi:
-#: questa stringa finisce nel report Markdown accanto a ``PROMPT_LENGTH_SIDE_EFFECT``
-#: e a ``verdict_na_markdown``, che li usano — il resto del modulo, che il lettore
-#: del report non vede, resta com'e'.
+#: Reason printed when quality ties and the operational tie-break is
+#: excluded (#236). The withheld verdict must be JUSTIFIED: a mute ``winner=None``
+#: would be indistinguishable from the four-axis tie of #157, which is another
+#: fact (there latency and cost coincide too). Real accents and not apostrophes:
+#: this string ends up in the Markdown report next to ``PROMPT_LENGTH_SIDE_EFFECT``
+#: and ``verdict_na_markdown``, which use them -- the rest of the module, which the
+#: report reader does not see, stays as it is.
 NO_OPERATIONAL_TIEBREAK_REASON = (
     "verdetto non decidibile: le metriche di qualità pareggiano e velocità/"
     "costo non sono spareggi validi su questa coppia, perché il prompt del "
     "braccio senza ontologia è strutturalmente più corto"
 )
 
-#: Precisione di stampa per asse, esposta al renderer (Task 4).
+#: Print precision per axis, exposed to the renderer (Task 4).
 AXIS_PRECISION: dict[str, int] = {spec.name: spec.ndigits for spec in _AXES}
 
 
 class AxisComparison(BaseModel):
-    """Confronto su un singolo asse: valori grezzi + esito a precisione di stampa."""
+    """Comparison on a single axis: raw values + outcome at print precision."""
 
     axis: str
     value_a: float
@@ -102,13 +102,13 @@ class AxisComparison(BaseModel):
 
 
 class Winner(BaseModel):
-    """Verdetto lessicografico con motivazione.
+    """Lexicographic verdict with justification.
 
-    ``winner`` e ``deciding_axis`` sono ``None`` in caso di pareggio totale.
-    ``chain`` elenca gli assi valutati fino al decisivo incluso (o tutti quelli
-    AMMESSI se pareggio): rende la decisione auditabile. Un asse escluso dallo
-    spareggio non compare in ``chain`` — non ha prodotto un "pari", non e' stato
-    guardato.
+    ``winner`` and ``deciding_axis`` are ``None`` in case of a total tie.
+    ``chain`` lists the axes evaluated up to and including the deciding one (or all
+    ADMITTED ones on a tie): it makes the decision auditable. An axis excluded from
+    the tie-break does not appear in ``chain`` -- it produced no "tie", it was not
+    looked at.
     """
 
     label_a: str
@@ -116,9 +116,9 @@ class Winner(BaseModel):
     winner: str | None
     deciding_axis: str | None
     chain: list[AxisComparison]
-    #: Perche' non c'e' un vincitore, quando la ragione non e' il semplice
-    #: pareggio su tutti gli assi ammessi (#236: spareggio operativo escluso).
-    #: Vuota nel caso di #157, cosi' il report non cambia dove non deve.
+    #: Why there is no winner, when the reason is not the plain
+    #: tie on all admitted axes (#236: operational tie-break excluded).
+    #: Empty in the #157 case, so the report does not change where it must not.
     no_winner_reason: str = ""
 
 
@@ -140,18 +140,18 @@ def decide_winner(
     label_b: str,
     operational_tiebreak: bool = True,
 ) -> Winner:
-    """Applica il lessicografico §2 sulle medie; ritorna il verdetto motivato.
+    """Apply the lexicographic section 2 on the means; return the justified verdict.
 
-    ``operational_tiebreak=False`` restringe la catena ai soli assi di QUALITA'
-    (:data:`_QUALITY_AXES`): se pareggiano, il verdetto e' «nessun vincitore» con
-    :data:`NO_OPERATIONAL_TIEBREAK_REASON`, non un vincitore silenzioso su
-    latenza o costo. Serve alla coppia con/senza ontologia (#236), in cui il
-    braccio ablato riceve un prompt strutturalmente piu' corto — niente hazard,
-    vulnerabilita' e citazioni — ed e' quindi piu' rapido ed economico PER
-    COSTRUZIONE: uno spareggio su quegli assi premierebbe la lunghezza del
-    prompt. Il default resta ``True``, quindi il confronto tra due MODELLI
-    (#157), dove il prompt e' lo stesso e una latenza piu' bassa e' un merito
-    del modello, non cambia comportamento.
+    ``operational_tiebreak=False`` restricts the chain to the QUALITY axes only
+    (:data:`_QUALITY_AXES`): if they tie, the verdict is "no winner" with
+    :data:`NO_OPERATIONAL_TIEBREAK_REASON`, not a silent winner on
+    latency or cost. It serves the with/without-ontology pair (#236), in which the
+    ablated arm receives a structurally shorter prompt -- no hazard,
+    vulnerability or citations -- and is therefore faster and cheaper BY
+    CONSTRUCTION: a tie-break on those axes would reward prompt
+    length. The default stays ``True``, so the comparison between two MODELS
+    (#157), where the prompt is the same and a lower latency is a merit
+    of the model, does not change behaviour.
     """
     axes = _AXES if operational_tiebreak else _QUALITY_AXES
     chain: list[AxisComparison] = []

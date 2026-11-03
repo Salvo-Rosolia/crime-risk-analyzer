@@ -1,13 +1,13 @@
-"""Test di WIRING dell'entry point ``eval/__main__.main`` (#118).
+"""WIRING tests of the entry point ``eval/__main__.main`` (#118).
 
-Copre il ROUTING degli argomenti: ``main()`` con l'``argv`` di un sottocomando
-deve instradare alla funzione giusta con gli argomenti giusti. Le funzioni
-interne sono mockate (nessuna rete, nessun LLM, nessun grafo reale): qui si
-verifica il dispatch, non il comportamento delle funzioni instradate (testate
-altrove). I branch ``compare``/``compare-repeated``/``gold-sample``/``gold-report``
-hanno i loro test di dispatch nei rispettivi file
-(test_compare/test_repeated_comparison/test_gold, quelli dei due verbi gold
-aggiunti col fix wave di #152); qui copro i branch residui: capture, run,
+Covers the ROUTING of the arguments: ``main()`` with the ``argv`` of a subcommand
+must route to the right function with the right arguments. The internal functions
+are mocked (no network, no LLM, no real graph): here the dispatch is
+verified, not the behaviour of the routed functions (tested
+elsewhere). The ``compare``/``compare-repeated``/``gold-sample``/``gold-report``
+branches have their dispatch tests in the respective files
+(test_compare/test_repeated_comparison/test_gold, those of the two gold verbs
+added with the fix wave of #152); here I cover the residual branches: capture, run,
 aggregate, city-agnostic.
 """
 
@@ -46,7 +46,8 @@ def _write_config(tmp_path: Path, *, mode: Mode) -> Path:
 def test_main_capture_routes_to_capture_with_force(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``capture --config C --results R --force`` → ``_capture`` con ``force=True``."""
+    """``capture --config C --results R --force`` -> ``_capture`` with
+    ``force=True``."""
     calls: list[tuple[Path, Path, bool]] = []
 
     async def fake_capture(
@@ -74,7 +75,8 @@ def test_main_capture_routes_to_capture_with_force(
 def test_main_capture_force_defaults_false(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Senza ``--force`` il dispatch passa ``force=False`` (idempotenza di default)."""
+    """Without ``--force`` the dispatch passes ``force=False`` (idempotent by
+    default)."""
     seen_force: list[bool] = []
 
     async def fake_capture(
@@ -100,9 +102,9 @@ def test_main_capture_force_defaults_false(
 def test_main_capture_returns_nonzero_on_partial_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """#252: se il riepilogo di ``_capture`` riporta case falliti, ``main()``
-    esce con codice diverso da zero — una cattura parziale non è un
-    esperimento completo."""
+    """#252: if the summary of ``_capture`` reports failed cases, ``main()``
+    exits with a non-zero code -- a partial capture is not a complete
+    experiment."""
 
     async def fake_capture(
         config_path: Path, results_dir: Path, *, force: bool = False
@@ -127,15 +129,15 @@ def test_main_capture_returns_nonzero_on_partial_failure(
     assert eval_main.main() != 0
 
 
-# --- run (esercita anche il corpo di _run: build client + run_experiment) -----
+# --- run (also exercises the body of _run: build client + run_experiment) -----
 
 
 def test_main_run_baseline_routes_without_llm_client(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``run`` baseline: _run non costruisce il client (llm_client=None) e inoltra
-    repeat/clean_stale/results_dir a run_experiment. NON mocko _run: cosi' il
-    dispatch E il corpo di _run sono entrambi esercitati."""
+    """``run`` baseline: _run does not build the client (llm_client=None) and forwards
+    repeat/clean_stale/results_dir to run_experiment. I do NOT mock _run: so the
+    dispatch AND the body of _run are both exercised."""
     captured: dict[str, object] = {}
 
     async def fake_run_experiment(config: ExperimentConfig, **kwargs: object) -> None:
@@ -174,8 +176,8 @@ def test_main_run_baseline_routes_without_llm_client(
 def test_main_run_analyze_builds_and_passes_llm_client(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``run`` analyze: _run costruisce il client via build_llm_eval_client e lo
-    inoltra a run_experiment (ramo mode != baseline della riga 133)."""
+    """``run`` analyze: _run builds the client via build_llm_eval_client and forwards it
+    to run_experiment (branch mode != baseline of line 133)."""
     sentinel = object()
     captured: dict[str, object] = {}
 
@@ -194,21 +196,21 @@ def test_main_run_analyze_builds_and_passes_llm_client(
 
     assert eval_main.main() == 0
     assert captured["llm_client"] is sentinel
-    # default del parser: una ripetizione, nessuna pulizia legacy.
+    # parser default: one repetition, no legacy cleaning.
     assert captured["repeat"] == 1
     assert captured["clean_stale"] is False
-    # #357: nessuna pausa di default.
-    assert captured["pausa_secondi"] == 0.0
+    # #357: no pause by default.
+    assert captured["pause_seconds"] == 0.0
 
 
 def test_main_run_no_ontology_builds_and_passes_llm_client(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """#236: anche il braccio ablato e' un braccio CON modello.
+    """#236: the ablated arm too is an arm WITH a model.
 
-    La condizione di ``_run`` e' ``mode != 'baseline'``: se fosse
-    ``mode == 'analyze'`` il nuovo braccio girerebbe con ``llm_client=None`` e
-    l'harness lo manderebbe in errore su ogni caso, in silenzio.
+    The condition of ``_run`` is ``mode != 'baseline'``: if it were
+    ``mode == 'analyze'`` the new arm would run with ``llm_client=None`` and
+    the harness would send it into error on every case, silently.
     """
     sentinel = object()
     captured: dict[str, object] = {}
@@ -237,8 +239,8 @@ def test_main_run_no_ontology_builds_and_passes_llm_client(
 
     assert eval_main.main() == 0
     assert captured["llm_client"] is sentinel
-    # #357: --pausa arriva fino a run_experiment.
-    assert captured["pausa_secondi"] == 0.5
+    # #357: --pausa reaches run_experiment.
+    assert captured["pause_seconds"] == 0.5
 
 
 # --- aggregate ---------------------------------------------------------------
@@ -247,7 +249,7 @@ def test_main_run_no_ontology_builds_and_passes_llm_client(
 def test_main_aggregate_routes_to_write_tables(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``aggregate --experiment E --results R`` → ``write_tables(R, E)``."""
+    """``aggregate --experiment E --results R`` -> ``write_tables(R, E)``."""
     calls: list[tuple[Path, str]] = []
 
     def fake_write_tables(results_dir: Path, experiment: str) -> tuple[Path, Path]:
@@ -269,7 +271,7 @@ def test_main_aggregate_routes_to_write_tables(
 def test_main_city_agnostic_capture_routes_to_capture_roster(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``city-agnostic capture --results R`` → ``capture_roster(ROSTER, R)``."""
+    """``city-agnostic capture --results R`` -> ``capture_roster(ROSTER, R)``."""
     calls: list[tuple[object, Path]] = []
 
     async def fake_capture_roster(roster: object, results_dir: Path) -> None:
@@ -285,7 +287,7 @@ def test_main_city_agnostic_capture_routes_to_capture_roster(
 def test_main_city_agnostic_report_routes_to_build_report(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``city-agnostic report --results R`` → carica il grafo UNA volta e chiama
+    """``city-agnostic report --results R`` -> loads the graph ONCE and calls
     ``build_report(R, graph, ontology_hash())``."""
     graph_sentinel = object()
     settings_sentinel = type("S", (), {"ontology_path": "onto.ttl"})()
@@ -319,21 +321,21 @@ def test_main_city_agnostic_report_routes_to_build_report(
 
 
 @pytest.mark.parametrize(
-    ("avvisi", "atteso"),
+    ("warnings", "expected"),
     [
         (["Roma: esito senza provenienza (pre-#374)"], True),
         ([], False),
     ],
 )
-def test_main_city_agnostic_report_stampa_avvisi_su_stderr(
+def test_main_city_agnostic_report_prints_warnings_on_stderr(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    avvisi: list[str],
-    atteso: bool,
+    warnings: list[str],
+    expected: bool,
 ) -> None:
-    """Gli AVVISO di provenienza vanno anche a schermo (stderr), non solo nei
-    file gitignorati; exit code invariato (0) e nessun output se coerenti."""
+    """The provenance AVVISO lines also go on screen (stderr), not only in the
+    gitignored files; exit code unchanged (0) and no output if consistent."""
     monkeypatch.setattr(
         eval_main, "get_settings", lambda: type("S", (), {"ontology_path": "o"})()
     )
@@ -349,7 +351,7 @@ def test_main_city_agnostic_report_stampa_avvisi_su_stderr(
     ) -> tuple[Path, Path, Path]:
         records = results_dir / "records.json"
         records.write_text(
-            json.dumps({"summary": {"avvisi": avvisi}, "records": []}),
+            json.dumps({"summary": {"avvisi": warnings}, "records": []}),
             encoding="utf-8",
         )
         return (records, results_dir / "report.csv", results_dir / "report.md")
@@ -359,7 +361,7 @@ def test_main_city_agnostic_report_stampa_avvisi_su_stderr(
 
     assert eval_main.main() == 0
     err = capsys.readouterr().err
-    if atteso:
+    if expected:
         assert "AVVISO: Roma: esito senza provenienza (pre-#374)" in err
     else:
         assert "AVVISO" not in err

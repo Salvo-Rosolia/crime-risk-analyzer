@@ -1,14 +1,14 @@
-"""Integration test del warm-up nel lifespan e del fail-fast sui segreti (#111).
+"""Integration test of the lifespan warm-up and of the fail-fast on secrets (#111).
 
-Il ``lifespan`` di ``main.py`` pre-costruisce a startup le risorse costose o
-critiche esposte via ``Depends``: l'ontologia, l'executor SPARQL (indice delle
-restrizioni, parte costosa e POI-indipendente) e il client LLM. Cosi' la prima
-``POST /analyze`` non paga il costo lazy e un misconfig (chiave LLM assente)
-fallisce subito all'avvio (fail-fast), non alla prima richiesta.
+The ``lifespan`` of ``main.py`` pre-builds at startup the expensive or critical
+resources exposed via ``Depends``: the ontology, the SPARQL executor (index of
+the restrictions, the expensive and POI-independent part) and the LLM client.
+So the first ``POST /analyze`` does not pay the lazy cost and a misconfig
+(missing LLM key) fails right at startup (fail-fast), not at the first request.
 
-Nota Starlette: solo l'uso di ``with TestClient(app)`` entra nel lifespan; gli
-altri test che chiamano il client senza context manager non lo attivano, quindi
-non sono toccati dal warm-up.
+Starlette note: only the use of ``with TestClient(app)`` enters the lifespan;
+the other tests that call the client without a context manager do not activate
+it, so they are not touched by the warm-up.
 """
 
 from __future__ import annotations
@@ -29,11 +29,11 @@ from crime_risk_analyzer.sparql_module.query_executor import get_executor
 
 
 @pytest.fixture(autouse=True)
-def _clear_di_caches() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]
-    """Isola ogni test: cache dei provider DI pulite prima e dopo.
+def _clear_caches_fixture() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]
+    """Isolates every test: DI provider caches cleaned before and after.
 
-    Senza reset, l'esito dipenderebbe dall'ordine dei test (una cache popolata
-    da un test precedente maschererebbe il warm-up o il fail-fast).
+    Without a reset, the outcome would depend on the test order (a cache populated
+    by a previous test would mask the warm-up or the fail-fast).
     """
     for cache in (get_settings, get_ontology, get_executor, get_llm_client):
         cache.cache_clear()
@@ -43,45 +43,45 @@ def _clear_di_caches() -> Iterator[None]:  # pyright: ignore[reportUnusedFunctio
 
 
 def test_lifespan_warms_up_executor_and_llm_client() -> None:
-    """All'avvio il lifespan costruisce executor SPARQL e client LLM (warm-up).
+    """At startup the lifespan builds the SPARQL executor and the LLM client (warm-up).
 
-    Le cache partono vuote (fixture): l'unico modo perche' risultino popolate
-    mentre il lifespan e' attivo e' che il warm-up sia avvenuto nello startup.
-    Senza warm-up ``currsize`` resterebbe 0 (RED reale).
+    The caches start empty (fixture): the only way for them to be populated while
+    the lifespan is active is that the warm-up happened in the startup.
+    Without warm-up ``currsize`` would stay 0 (real RED).
     """
     assert get_executor.cache_info().currsize == 0
     assert get_llm_client.cache_info().currsize == 0
 
-    with TestClient(app):  # entra/esce dal lifespan
+    with TestClient(app):  # enters/exits the lifespan
         assert get_executor.cache_info().currsize == 1
         assert get_llm_client.cache_info().currsize == 1
 
 
 def test_lifespan_fails_fast_without_llm_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Con la chiave LLM assente l'avvio dell'app fallisce (fail-fast).
+    """With the LLM key missing the app startup fails (fail-fast).
 
-    Rimuove la chiave del provider di default (claude) solo in questo test e
-    forza il ricalcolo di Settings/client: entrare nel lifespan deve sollevare
-    ``LLMError`` all'avvio, invece di lasciar degradare la prima ``/analyze``.
+    It removes the key of the default provider (claude) only in this test and forces
+    the recomputation of Settings/client: entering the lifespan must raise
+    ``LLMError`` at startup, instead of letting the first ``/analyze`` degrade.
     """
     monkeypatch.setenv("LLM_PROVIDER", "claude")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    # Senza, la chiave di un ``backend/.env`` locale riempirebbe lo stesso Settings.
+    # Without it, the key of a local ``backend/.env`` would fill the same Settings.
     monkeypatch.setitem(Settings.model_config, "env_file", None)
     get_settings.cache_clear()
     get_llm_client.cache_clear()
 
     with pytest.raises(LLMError) as exc_info:
-        with TestClient(app):  # il lifespan deve sollevare in fase di startup
+        with TestClient(app):  # the lifespan must raise during startup
             pass
 
     assert "ANTHROPIC_API_KEY" in str(exc_info.value)
 
 
-def test_lifespan_fallisce_senza_dati_istat_con_interruttore_acceso(
+def test_lifespan_fails_without_istat_data_with_the_switch_on(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Review Focus 5: acceso, i dati mancanti fermano l'avvio."""
+    """Review Focus 5: on, the missing data stops the startup."""
     monkeypatch.setenv("ISTAT_CONTEXT_ENABLED", "true")
     monkeypatch.setattr(istat_data_mod, "_DATA_DIR", tmp_path)
     get_settings.cache_clear()
@@ -94,7 +94,7 @@ def test_lifespan_fallisce_senza_dati_istat_con_interruttore_acceso(
         clear_cache()
 
 
-def test_lifespan_parte_senza_dati_istat_con_interruttore_spento(
+def test_lifespan_starts_without_istat_data_with_the_switch_off(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("ISTAT_CONTEXT_ENABLED", "false")
@@ -108,11 +108,11 @@ def test_lifespan_parte_senza_dati_istat_con_interruttore_spento(
         clear_cache()
 
 
-def test_lifespan_precarica_i_dati_istat_con_interruttore_spento(
+def test_lifespan_preloads_the_istat_data_with_the_switch_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """R9 (review 2): spento, il grounding calcola comunque le righe ISTAT; i dati
-    si caricano all'avvio (senza fallire), non alla prima /analyze sull'event
+    """R9 (review 2): off, the grounding still computes the ISTAT rows; the data is
+    loaded at startup (without failing), not at the first /analyze on the event
     loop."""
     monkeypatch.setenv("ISTAT_CONTEXT_ENABLED", "false")
     get_settings.cache_clear()

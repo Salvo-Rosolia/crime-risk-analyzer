@@ -1,8 +1,8 @@
-"""Binding OSM, etichette e catalogo POI letti dal set attivo (#413).
+"""OSM binding, labels and POI catalog read from the active set (#413).
 
-Con il set di default tutto resta identico alle costanti; con un set custom le
-stesse funzioni leggono il binding e le etichette del set, e due set diversi non
-si mescolano (cache comprese).
+With the default set everything stays identical to the constants; with a custom
+set the same functions read the set's binding and labels, and two different
+sets do not mix (caches included).
 """
 
 from __future__ import annotations
@@ -60,10 +60,10 @@ from crime_risk_analyzer.sparql_module.osm_mapping import (
     YIELDING_SELECTORS,
 )
 
-SID = "sessione-di-prova-AAAA"
+SID = "test-session-AAAAAA"
 
 
-def _custom(id_: str = "c1", **campi: object) -> SourceSet:
+def _custom(id_: str = "c1", **fields: object) -> SourceSet:
     osm = OsmBinding(
         osm_to_class={
             "amenity=bank": "Banca",
@@ -82,11 +82,11 @@ def _custom(id_: str = "c1", **campi: object) -> SourceSet:
     base = dataclasses.replace(
         default_set(), id=id_, kind="custom", osm=osm, labels=labels
     )
-    return dataclasses.replace(base, **campi)  # pyright: ignore[reportArgumentType]
+    return dataclasses.replace(base, **fields)  # pyright: ignore[reportArgumentType]
 
 
-def _parsed_con(labels: dict[str, tuple[str, str]]) -> ParsedSources:
-    """Fonti gia' lette con una classe per etichetta (binding minimo)."""
+def _parsed_with(labels: dict[str, tuple[str, str]]) -> ParsedSources:
+    """Already-read sources with one class per label (minimal binding)."""
     return ParsedSources(
         graph=Graph(),
         vocabulary=TERMINUS_VOCABULARY,
@@ -101,10 +101,10 @@ def _parsed_con(labels: dict[str, tuple[str, str]]) -> ParsedSources:
     )
 
 
-# --- default identico ---
+# --- identical default ---
 
 
-def test_default_binding_e_le_costanti() -> None:
+def test_default_binding_matches_the_constants() -> None:
     osm = current_osm()
     assert dict(osm.osm_to_class) == OSM_TO_TERMINUS
     assert osm.family_order == FAMILY_ORDER
@@ -113,20 +113,20 @@ def test_default_binding_e_le_costanti() -> None:
     assert current_labels() is None
 
 
-def test_default_etichette_dal_json() -> None:
-    # Valori letterali del JSON TERMINUS, non un confronto del codice con se stesso.
+def test_default_labels_from_the_json() -> None:
+    # Literal values of the TERMINUS JSON, not a comparison of the code with itself.
     assert label_it("Bank") == "Banca"
     assert label_en("Bank") == "Bank"
-    # classe assente dal JSON: fallback sul nome normalizzato (IT ed EN uguali)
+    # class absent from the JSON: fallback to the normalized name (IT and EN equal)
     assert label_it("Boh_sconosciuto") == "Boh sconosciuto"
     assert label_en("Boh_sconosciuto") == "Boh sconosciuto"
-    # set custom senza etichette proprie: stesse risposte del default
+    # custom set without own labels: same answers as the default
     with bind(dataclasses.replace(default_set(), id="x", labels=None)):
         assert label_it("Bank") == "Banca"
         assert label_en("Bank") == "Bank"
 
 
-def test_default_etichetta_it_vuota_ripiega_su_en(
+def test_default_empty_it_label_falls_back_to_en(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     record = {
@@ -139,29 +139,29 @@ def test_default_etichetta_it_vuota_ripiega_su_en(
     assert label_it("Xyz") == "Xyz en"
 
 
-def test_default_estrazione_tag_invariata() -> None:
+def test_default_tag_extraction_unchanged() -> None:
     tags = {"tourism": "attraction", "historic": "archaeological_site"}
     assert _extract_osm_tag(tags) == "historic=archaeological_site"
 
 
-# --- binding OSM del set ---
+# --- OSM binding of the set ---
 
 
-def test_estrazione_tag_usa_ordine_e_cedevoli_del_set() -> None:
+def test_tag_extraction_uses_order_and_yielding_selectors_of_the_set() -> None:
     tags = {"amenity": "bank", "shop": "kiosk"}
-    assert _extract_osm_tag(tags) == "amenity=bank"  # default: amenity prima
+    assert _extract_osm_tag(tags) == "amenity=bank"  # default: amenity first
     with bind(_custom()):
-        assert _extract_osm_tag(tags) == "shop=kiosk"  # ordine del set: shop prima
-        cedevole = {"tourism": "attraction", "historic": "ruins"}
-        assert _extract_osm_tag(cedevole) == "historic=ruins"
+        assert _extract_osm_tag(tags) == "shop=kiosk"  # set order: shop first
+        yielding = {"tourism": "attraction", "historic": "ruins"}
+        assert _extract_osm_tag(yielding) == "historic=ruins"
 
 
-def test_tag_non_nel_binding_del_set_non_si_estrae() -> None:
+def test_tag_not_in_the_set_binding_is_not_extracted() -> None:
     with bind(_custom()):
         assert _extract_osm_tag({"amenity": "hospital"}) == ""
 
 
-def test_classe_dei_poi_dal_binding_del_set() -> None:
+def test_poi_class_from_the_set_binding() -> None:
     payload = {
         "elements": [
             {
@@ -179,29 +179,29 @@ def test_classe_dei_poi_dal_binding_del_set() -> None:
     assert [p["terminus_class"] for p in _parse_elements(payload, "Roma")] == ["Bank"]
 
 
-# --- etichette ---
+# --- labels ---
 
 
-def test_etichette_dal_set() -> None:
+def test_labels_from_the_set() -> None:
     with bind(_custom()):
         assert label_it("Banca") == "Istituto di credito"
         assert label_en("Banca") == "Bank"
         assert current_labels() is not None
 
 
-def test_etichetta_it_vuota_ripiega_su_en() -> None:
+def test_empty_it_label_falls_back_to_en() -> None:
     with bind(_custom()):
         assert label_it("Rovina") == "Ruin"
 
 
-def test_classe_senza_etichetta_mostra_il_nome_con_gli_spazi() -> None:
+def test_class_without_label_shows_the_name_with_spaces() -> None:
     with bind(_custom()):
         assert label_it("Gas_station") == "Gas station"
         assert label_en("Gas_station") == "Gas station"
-        assert label_it("Bank") == "Bank"  # non e' del set: niente JSON TERMINUS
+        assert label_it("Bank") == "Bank"  # not in the set: no TERMINUS JSON
 
 
-def test_vocabolario_controllato_segue_il_set() -> None:
+def test_controlled_vocabulary_follows_the_set() -> None:
     with bind(_custom()):
         assert controlled_vocab_for(["Banca", "Gas_station"]) == [
             "Istituto di credito",
@@ -209,30 +209,30 @@ def test_vocabolario_controllato_segue_il_set() -> None:
         ]
 
 
-def test_set_custom_con_labels_none_usa_il_json() -> None:
+def test_custom_set_with_labels_none_uses_the_json() -> None:
     with bind(_custom(labels=None)):
         assert label_it("Bank") == "Banca"
 
 
-# --- catalogo /poi-types ---
+# --- /poi-types catalog ---
 
 
-def test_catalogo_del_set_custom() -> None:
+def test_catalog_of_the_custom_set() -> None:
     with bind(_custom()):
-        tipi = poi_types()
-    assert {t.terminus_class for t in tipi} == {
+        types = poi_types()
+    assert {t.terminus_class for t in types} == {
         "Banca",
         "Gas_station",
         "Monumento",
         "Rovina",
     }
-    assert PoiType(terminus_class="Banca", label_it="Istituto di credito") in tipi
-    etichette = [t.label_it.casefold() for t in tipi]
-    assert etichette == sorted(etichette)
+    assert PoiType(terminus_class="Banca", label_it="Istituto di credito") in types
+    labels_cf = [t.label_it.casefold() for t in types]
+    assert labels_cf == sorted(labels_cf)
 
 
-def test_catalogo_di_set_diversi_non_si_mescola() -> None:
-    altro = _custom(
+def test_catalog_of_different_sets_does_not_mix() -> None:
+    other = _custom(
         "c2",
         osm=OsmBinding(
             osm_to_class={"amenity=bank": "Bank2"},
@@ -241,27 +241,27 @@ def test_catalogo_di_set_diversi_non_si_mescola() -> None:
         ),
         labels={"Bank2": ("Banca due", "Bank two")},
     )
-    default_prima = poi_types()
+    default_before = poi_types()
     with bind(_custom("c1")):
         a = poi_types()
         assert resolve_poi_type("istituto di credito") == "Banca"
-    with bind(altro):
+    with bind(other):
         b = poi_types()
         with pytest.raises(UnknownPoiTypeError):
             resolve_poi_type("istituto di credito")
         assert resolve_poi_type("banca due") == "Bank2"
     assert {t.terminus_class for t in b} == {"Bank2"}
     assert a != b
-    assert poi_types() == default_prima
+    assert poi_types() == default_before
     assert resolve_poi_type("stazione ferroviaria") == "Railway_station"
     with bind(_custom("c1")):
         with pytest.raises(UnknownPoiTypeError):
             resolve_poi_type("stazione ferroviaria")
 
 
-def test_catalogo_custom_non_e_servito_dalla_cache_del_default() -> None:
-    # Un set custom non e' mai servito dalla cache del default, anche se la cache
-    # e' gia' piena.
+def test_custom_catalog_is_not_served_from_the_default_cache() -> None:
+    # A custom set is never served from the default cache, even if the cache
+    # is already full.
     poi_types()
     with bind(_custom("default-lookalike")):
         assert {t.terminus_class for t in poi_types()} != set(OSM_TO_TERMINUS.values())
@@ -275,65 +275,65 @@ def _client(store: SessionStore) -> TestClient:
     return TestClient(app)
 
 
-def test_endpoint_poi_types_ignora_la_sessione_e_serve_il_default() -> None:
-    """#438: l'elenco e' sempre quello del default, anche con un set custom attivo."""
+def test_poi_types_endpoint_ignores_the_session_and_serves_the_default() -> None:
+    """#438: the list is always the default one, even with a custom set active."""
     store = SessionStore(ttl_seconds=100, max_sessions=4)
     store.activate(SID, _custom(), [])
     client = _client(store)
 
-    con_sessione = cast(
+    with_session = cast(
         httpx.Response,
         client.get("/poi-types", headers={"X-Session-Id": SID}),  # pyright: ignore[reportUnknownMemberType]
     )
     default = cast(httpx.Response, client.get("/poi-types"))  # pyright: ignore[reportUnknownMemberType]
 
-    assert con_sessione.status_code == 200
-    assert {t["terminus_class"] for t in con_sessione.json()} == set(
+    assert with_session.status_code == 200
+    assert {t["terminus_class"] for t in with_session.json()} == set(
         OSM_TO_TERMINUS.values()
     )
-    assert con_sessione.json() == default.json()
+    assert with_session.json() == default.json()
 
 
-def test_endpoint_poi_types_con_sessione_scaduta_o_malformata_200() -> None:
-    """#438: niente 410 (ne' 422 per intestazione malformata): serve il default."""
+def test_poi_types_endpoint_with_expired_or_malformed_session_200() -> None:
+    """#438: no 410 (nor 422 for a malformed header): it serves the default."""
     t = [0.0]
     store = SessionStore(ttl_seconds=100, max_sessions=4, clock=lambda: t[0])
     store.activate(SID, _custom(), [])
     client = _client(store)
     t[0] = 101.0
 
-    atteso = cast(httpx.Response, client.get("/poi-types")).json()  # pyright: ignore[reportUnknownMemberType]
+    expected = cast(httpx.Response, client.get("/poi-types")).json()  # pyright: ignore[reportUnknownMemberType]
     for header in (SID, "x"):
         r = cast(
             httpx.Response,
             client.get("/poi-types", headers={"X-Session-Id": header}),  # pyright: ignore[reportUnknownMemberType]
         )
         assert r.status_code == 200
-        assert r.json() == atteso
+        assert r.json() == expected
 
 
-# --- Overpass: selettori del set ---
+# --- Overpass: selectors of the set ---
 
 
 @respx.mock
-async def test_fetch_pois_senza_selettori_usa_quelli_del_set_attivo() -> None:
+async def test_fetch_pois_without_selectors_uses_those_of_the_active_set() -> None:
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(200, json={"elements": []})
     )
     with bind(_custom()):
         await fetch_pois(Bbox(41.88, 12.48, 41.90, 12.50), "Roma")
     query = urllib.parse.unquote_plus(route.calls.last.request.content.decode())
-    for selettore in ("amenity=bank", "shop=kiosk", "historic=ruins"):
-        chiave, _, valore = selettore.partition("=")
-        assert f'["{chiave}"="{valore}"]' in query
-    assert '"hospital"' not in query  # selettore del default, non del set
+    for selector in ("amenity=bank", "shop=kiosk", "historic=ruins"):
+        key, _, value = selector.partition("=")
+        assert f'["{key}"="{value}"]' in query
+    assert '"hospital"' not in query  # default selector, not the set one
 
 
-# --- ambiguita' degli alias: rifiutata alla costruzione del set ---
+# --- alias ambiguity: rejected when building the set ---
 
 
-def test_alias_ambigui_del_set_sono_un_errore_di_validazione() -> None:
-    parsed = _parsed_con(
+def test_ambiguous_set_aliases_are_a_validation_error() -> None:
+    parsed = _parsed_with(
         {
             "Alfa": ("Comune", "Alpha"),
             "Beta": ("comune", "Beta en"),
@@ -342,16 +342,16 @@ def test_alias_ambigui_del_set_sono_un_errore_di_validazione() -> None:
     )
     with pytest.raises(SourceValidationError) as exc:
         build_source_set(parsed)
-    errori = exc.value.report.errors
-    assert {p.code for p in errori} == {"alias_tipo_poi_ambiguo"}
-    messaggi = " ".join(p.message for p in errori)
-    for classe in ("Alfa", "Beta", "Gamma"):
-        assert classe in messaggi
+    errors = exc.value.report.errors
+    assert {p.code for p in errors} == {"alias_tipo_poi_ambiguo"}
+    messages = " ".join(p.message for p in errors)
+    for cls in ("Alfa", "Beta", "Gamma"):
+        assert cls in messages
 
 
-def test_alias_non_ambigui_del_set_si_costruiscono() -> None:
+def test_unambiguous_set_aliases_build() -> None:
     ss = build_source_set(
-        _parsed_con({"Alfa": ("Alfa", "A"), "Beta": ("Beta due", "B")})
+        _parsed_with({"Alfa": ("Alfa", "A"), "Beta": ("Beta due", "B")})
     )
     assert ss.id != DEFAULT_ID
     assert ss.kind == "custom"

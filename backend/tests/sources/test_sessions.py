@@ -1,4 +1,4 @@
-"""Archivio delle sessioni con set di fonti e scadenza (#416)."""
+"""Session store with source sets and expiry (#416)."""
 
 import dataclasses
 from typing import Any, cast
@@ -19,7 +19,7 @@ SID = "a" * 24
 SID2 = "b" * 24
 
 
-class Orologio:
+class Clock:
     def __init__(self) -> None:
         self.t = 0.0
 
@@ -35,12 +35,12 @@ def _ctx() -> ZoneContext:
     return ZoneContext(retrieval=cast(Any, {}), grounded=cast(Any, {}))
 
 
-def _store(ttl: float = 100.0, massimo: int = 2) -> tuple[SessionStore, Orologio]:
-    clock = Orologio()
-    return SessionStore(ttl_seconds=ttl, max_sessions=massimo, clock=clock), clock
+def _store(ttl: float = 100.0, maximum: int = 2) -> tuple[SessionStore, Clock]:
+    clock = Clock()
+    return SessionStore(ttl_seconds=ttl, max_sessions=maximum, clock=clock), clock
 
 
-def test_formato_id_sessione() -> None:
+def test_session_id_format() -> None:
     assert is_valid_session_id("abcDEF012345_-xyz9876")
     assert not is_valid_session_id("corto")
     assert not is_valid_session_id("a" * 129)
@@ -49,13 +49,13 @@ def test_formato_id_sessione() -> None:
     assert not is_valid_session_id("a" * 15 + "è")
 
 
-def test_senza_set_niente() -> None:
+def test_no_set_means_nothing() -> None:
     store, _ = _store()
     assert store.get(SID) is None
     assert store.remaining_seconds(SID) is None
 
 
-def test_attiva_e_legge() -> None:
+def test_activate_and_read() -> None:
     store, _ = _store()
     x = _set("x")
     store.activate(SID, x, [])
@@ -64,20 +64,20 @@ def test_attiva_e_legge() -> None:
     assert store.get(SID2) is None
 
 
-def test_scade_dopo_il_ttl_e_poi_segnala_scaduto() -> None:
+def test_expires_after_ttl_then_reports_expired() -> None:
     store, clock = _store(ttl=100)
     store.activate(SID, _set("x"), [])
     clock.t = 99
     assert store.get(SID) is not None
-    clock.t = 99 + 101  # l'accesso a 99 ha rinnovato la scadenza (finestra mobile)
+    clock.t = 99 + 101  # the access at 99 renewed the expiry (sliding window)
     with pytest.raises(SourcesExpiredError):
         store.get(SID)
-    with pytest.raises(SourcesExpiredError):  # lo stato persiste (#416)
+    with pytest.raises(SourcesExpiredError):  # the state persists (#416)
         store.get(SID)
     assert store.was_expired(SID)
 
 
-def test_nuovo_caricamento_pulisce_lo_scaduto() -> None:
+def test_new_upload_clears_the_expired_state() -> None:
     store, clock = _store(ttl=100)
     store.activate(SID, _set("x"), [])
     clock.t = 101
@@ -89,7 +89,7 @@ def test_nuovo_caricamento_pulisce_lo_scaduto() -> None:
     assert entry is not None and entry.source_set.id == "y"
 
 
-def test_accesso_rinnova_la_scadenza() -> None:
+def test_access_renews_the_expiry() -> None:
     store, clock = _store(ttl=100)
     store.activate(SID, _set("x"), [])
     clock.t = 90
@@ -98,7 +98,7 @@ def test_accesso_rinnova_la_scadenza() -> None:
     assert store.get(SID) is not None
 
 
-def test_peek_non_rinnova() -> None:
+def test_peek_does_not_renew() -> None:
     store, clock = _store(ttl=100)
     store.activate(SID, _set("x"), [])
     clock.t = 90
@@ -107,7 +107,7 @@ def test_peek_non_rinnova() -> None:
     assert store.remaining_seconds(SID) is None
 
 
-def test_stato_scaduto_visibile_senza_consumare() -> None:
+def test_expired_state_visible_without_consuming() -> None:
     store, clock = _store(ttl=100)
     store.activate(SID, _set("x"), [])
     clock.t = 101
@@ -115,7 +115,7 @@ def test_stato_scaduto_visibile_senza_consumare() -> None:
     assert store.was_expired(SID)
 
 
-def test_reset_torna_al_default_e_pulisce_lo_scaduto() -> None:
+def test_reset_returns_to_default_and_clears_the_expired_state() -> None:
     store, clock = _store(ttl=100)
     store.activate(SID, _set("x"), [])
     clock.t = 101
@@ -124,61 +124,61 @@ def test_reset_torna_al_default_e_pulisce_lo_scaduto() -> None:
     assert store.get(SID) is None
 
 
-def test_nuovo_caricamento_sostituisce_e_pulisce_la_cache_del_vecchio() -> None:
+def test_new_upload_replaces_and_clears_the_cache_of_the_old_one() -> None:
     store, _ = _store()
     cache.clear()
-    vecchio = _set("vecchio")
-    store.activate(SID, vecchio, [])
-    with bind(vecchio):
+    old = _set("vecchio")
+    store.activate(SID, old, [])
+    with bind(old):
         cache.put("Roma", "Monti", _ctx(), now=0.0)
     store.activate(SID, _set("nuovo"), [])
-    with bind(vecchio):
+    with bind(old):
         assert cache.get("Roma", "Monti", now=1.0) is None
     entry = store.get(SID)
     assert entry is not None and entry.source_set.id == "nuovo"
 
 
-def test_tetto_di_sessioni_sfratta_la_piu_vecchia() -> None:
-    store, clock = _store(massimo=2)
+def test_session_cap_evicts_the_oldest() -> None:
+    store, clock = _store(maximum=2)
     store.activate(SID, _set("1"), [])
     clock.t = 1
     store.activate(SID2, _set("2"), [])
     clock.t = 2
     store.activate("c" * 24, _set("3"), [])
     with pytest.raises(SourcesExpiredError):
-        store.get(SID)  # sfrattata: l'utente lo deve sapere
+        store.get(SID)  # evicted: the user must know
     assert store.get(SID2) is not None
     assert store.get("c" * 24) is not None
     assert store.count() == 2
 
 
-def test_sfratto_per_tetto_svuota_la_cache_di_zona_del_set_sfrattato() -> None:
-    store, clock = _store(massimo=1)
+def test_cap_eviction_empties_the_zone_cache_of_the_evicted_set() -> None:
+    store, clock = _store(maximum=1)
     cache.clear()
-    vecchio, nuovo = _set("vecchio"), _set("nuovo")
-    store.activate(SID, vecchio, [])
-    with bind(vecchio):
+    old, new = _set("vecchio"), _set("nuovo")
+    store.activate(SID, old, [])
+    with bind(old):
         cache.put("Roma", "Monti", _ctx(), now=0.0)
-    with bind(nuovo):
+    with bind(new):
         cache.put("Roma", "Monti", _ctx(), now=0.0)
     clock.t = 1
-    store.activate(SID2, nuovo, [])  # tetto 1: SID viene sfrattata
-    with bind(vecchio):
+    store.activate(SID2, new, [])  # cap 1: SID gets evicted
+    with bind(old):
         assert cache.get("Roma", "Monti", now=1.0) is None
-    with bind(nuovo):
+    with bind(new):
         assert cache.get("Roma", "Monti", now=1.0) is not None
 
 
-def test_ttl_esposto() -> None:
+def test_ttl_exposed() -> None:
     store, _ = _store(ttl=42)
     assert store.ttl_seconds == 42
 
 
-def test_le_scadenze_ricordate_sono_limitate() -> None:
-    store, clock = _store(ttl=1, massimo=1000)
+def test_remembered_expiries_are_bounded() -> None:
+    store, clock = _store(ttl=1, maximum=1000)
     for i in range(300):
         store.activate(f"{i:016d}", _set(str(i)), [])
     clock.t = 5
     assert store.count() == 0
-    assert not store.was_expired(f"{0:016d}")  # la piu' vecchia e' stata dimenticata
+    assert not store.was_expired(f"{0:016d}")  # the oldest one has been forgotten
     assert store.was_expired(f"{299:016d}")

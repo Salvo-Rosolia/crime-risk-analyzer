@@ -1,18 +1,17 @@
-"""Test della fixture Turtle ridotta ma fedele al pattern OWL reale (#78).
+"""Tests for the reduced Turtle fixture, faithful to the real OWL pattern (#78).
 
-La fixture ``fixtures/ontology_sample.ttl`` e' un estratto minimale ma fedele
-dell'ontologia TERMINUS Crime ENEA (Minardi et al., file reale
-``ontology/terminus-crime.owl``, ghost/gitignored). Serve a CI/test senza
-dipendere dall'ontologia reale completa
-ed e' la base su cui #76 costruira' l'executor SPARQL: per questo i nomi
-(namespace, classi, property) e l'idioma delle restrizioni DEVONO combaciare con
-quelli reali, non inventati.
+The ``fixtures/ontology_sample.ttl`` fixture is a minimal but faithful excerpt
+of the ENEA TERMINUS Crime ontology (Minardi et al., real file
+``ontology/terminus-crime.owl``, ghost/gitignored). It serves CI/tests without
+depending on the full real ontology and is the basis on which #76 will build the
+SPARQL executor: for this reason the names (namespace, classes, properties) and
+the restriction idiom MUST match the real ones, not invented ones.
 
-Questi test verificano *proprieta' semantiche del grafo* (triple, restrizioni
-raggiungibili via il pattern reale e via ``rdfs:subClassOf*``), non il testo del
-Turtle: rdflib non garantisce un ordinamento stabile dei blank node. NON
-implementano l'executor SPARQL #76 — qui si verifica solo a livello di grafo che
-il pattern atteso sia presente ed estraibile con la forma di query canonica
+These tests verify *semantic properties of the graph* (triples, restrictions
+reachable via the real pattern and via ``rdfs:subClassOf*``), not the Turtle
+text: rdflib does not guarantee a stable ordering of blank nodes. They do NOT
+implement the SPARQL executor #76 — here we only check, at graph level, that
+the expected pattern is present and extractable with the canonical query shape
 (``backend/sparql.md``).
 """
 
@@ -32,12 +31,13 @@ def _term(name: str) -> str:
 
 
 def _restriction_fillers(graph: Graph, poi: str, prop: str) -> set[str]:
-    """Filler raggiungibili da ``poi`` per la property ``prop``.
+    """Fillers reachable from ``poi`` for the property ``prop``.
 
-    Usa la forma di query canonica di ``backend/sparql.md``: chiusura
-    ``rdfs:subClassOf*`` sulla classe POI seguita dal pattern a ``owl:Restriction``
-    (``owl:onProperty`` + ``owl:someValuesFrom``). E' la stessa forma che #76
-    implementera' parametrizzata; qui resta inline come verifica del grafo.
+    Uses the canonical query shape from ``backend/sparql.md``: the
+    ``rdfs:subClassOf*`` closure on the POI class followed by the
+    ``owl:Restriction`` pattern (``owl:onProperty`` + ``owl:someValuesFrom``).
+    It is the same shape that #76 will implement in parametrized form; here it
+    stays inline as a graph check.
     """
     rows = graph.query(
         """
@@ -56,7 +56,7 @@ def _restriction_fillers(graph: Graph, poi: str, prop: str) -> set[str]:
 
 
 def test_fixture_loads_with_production_loader() -> None:
-    """La fixture e' Turtle valido, caricabile dal loader di produzione."""
+    """The fixture is valid Turtle, loadable by the production loader."""
     graph = load_ontology(str(FIXTURE))
 
     assert isinstance(graph, Graph)
@@ -64,14 +64,14 @@ def test_fixture_loads_with_production_loader() -> None:
 
 
 def test_fixture_size_in_acceptance_range() -> None:
-    """50-100 triple: minimale ma completa nel pattern (AC #78)."""
+    """50-100 triples: minimal but complete in the pattern (AC #78)."""
     graph = load_ontology(str(FIXTURE))
 
     assert 50 <= len(graph) <= 100
 
 
 def test_uses_real_enea_namespace() -> None:
-    """Le entita' usano l'IRI ENEA reale, non un placeholder."""
+    """The entities use the real ENEA IRI, not a placeholder."""
     graph = load_ontology(str(FIXTURE))
     subjects = {str(s) for s in graph.subjects(RDF.type, OWL.Class)}
 
@@ -82,7 +82,7 @@ def test_uses_real_enea_namespace() -> None:
 
 
 def test_poi_classes_typed_as_system() -> None:
-    """I POI sono ``rdfs:subClassOf tc:System`` (tipizzazione reale, #79)."""
+    """POIs are ``rdfs:subClassOf tc:System`` (real typing, #79)."""
     graph = load_ontology(str(FIXTURE))
     system = TERMINUS["System"]
 
@@ -91,7 +91,7 @@ def test_poi_classes_typed_as_system() -> None:
 
 
 def test_bank_hazard_via_restriction() -> None:
-    """Da ``Bank`` si raggiunge ``Bank_robbery`` via owl:Restriction su havingHazard."""
+    """``Bank_robbery`` is reachable from ``Bank`` via owl:Restriction/havingHazard."""
     graph = load_ontology(str(FIXTURE))
 
     hazards = _restriction_fillers(graph, "Bank", "havingHazard")
@@ -100,7 +100,7 @@ def test_bank_hazard_via_restriction() -> None:
 
 
 def test_archaeological_site_hazards_via_restriction() -> None:
-    """Secondo POI: ``Archaeological_site`` → due hazard via restrizione."""
+    """Second POI: ``Archaeological_site`` → two hazards via restriction."""
     graph = load_ontology(str(FIXTURE))
 
     hazards = _restriction_fillers(graph, "Archaeological_site", "havingHazard")
@@ -110,11 +110,12 @@ def test_archaeological_site_hazards_via_restriction() -> None:
 
 
 def test_petrol_station_banknote_acceptor_theft() -> None:
-    """``Banknote_acceptor_theft`` e' un hazard del suo POI reale (Petrol_station).
+    """``Banknote_acceptor_theft`` is a hazard of its real POI (Petrol_station).
 
-    Divergenza tracciata: spec/issue lo associavano a ``Bank``, ma nell'ontologia
-    reale e' un ``havingHazard`` di ``Petrol_station`` (gli hazard di Bank sono
-    Bank_robbery, ATM_removal, ...). La fixture resta fedele al grafo reale.
+    Tracked divergence: the spec/issue associated it with ``Bank``, but in the
+    real ontology it is a ``havingHazard`` of ``Petrol_station`` (Bank's hazards
+    are Bank_robbery, ATM_removal, ...). The fixture stays faithful to the real
+    graph.
     """
     graph = load_ontology(str(FIXTURE))
 
@@ -124,7 +125,7 @@ def test_petrol_station_banknote_acceptor_theft() -> None:
 
 
 def test_second_object_property_isvulnerableto() -> None:
-    """Copertura della seconda object property sul POI: ``isVulnerableTo``."""
+    """Coverage of the second object property on the POI: ``isVulnerableTo``."""
     graph = load_ontology(str(FIXTURE))
 
     vulns = _restriction_fillers(graph, "Bank", "isVulnerableTo")
@@ -133,10 +134,10 @@ def test_second_object_property_isvulnerableto() -> None:
 
 
 def test_havingvulnerability_present_on_system_aspect() -> None:
-    """La property ``havingVulnerability`` e' presente (sul System_aspect reale).
+    """The ``havingVulnerability`` property is present (on the real System_aspect).
 
-    Nel pattern reale ``havingVulnerability`` lega un ``System_aspect`` (es.
-    Bank_branch) a una Vulnerability, mentre il POI usa ``isVulnerableTo``.
+    In the real pattern ``havingVulnerability`` links a ``System_aspect`` (e.g.
+    Bank_branch) to a Vulnerability, while the POI uses ``isVulnerableTo``.
     """
     graph = load_ontology(str(FIXTURE))
 
@@ -146,9 +147,9 @@ def test_havingvulnerability_present_on_system_aspect() -> None:
 
 
 def test_transitive_subclassof_hazard_hierarchy() -> None:
-    """Gerarchia reale ``Banknote_acceptor_theft → Theft → Anthropic_hazard``.
+    """Real hierarchy ``Banknote_acceptor_theft → Theft → Anthropic_hazard``.
 
-    Base per il test di ereditarieta' transitiva (``subClassOf*``) di #76.
+    Basis for the transitive inheritance (``subClassOf*``) test of #76.
     """
     graph = load_ontology(str(FIXTURE))
 
@@ -161,7 +162,7 @@ def test_transitive_subclassof_hazard_hierarchy() -> None:
 
 
 def test_no_invented_rdfs_labels() -> None:
-    """L'ontologia reale non ha rdfs:label: la fixture non ne inventa."""
+    """The real ontology has no rdfs:label: the fixture does not invent any."""
     graph = load_ontology(str(FIXTURE))
 
     labels = list(graph.triples((None, RDFS.label, None)))
@@ -170,7 +171,7 @@ def test_no_invented_rdfs_labels() -> None:
 
 
 def test_hazard_typed_as_anthropic_hazard() -> None:
-    """Gli hazard sono tipizzati con il loro parent reale ``Anthropic_hazard``."""
+    """Hazards are typed with their real parent ``Anthropic_hazard``."""
     graph = load_ontology(str(FIXTURE))
     anthropic = TERMINUS["Anthropic_hazard"]
 
@@ -179,16 +180,16 @@ def test_hazard_typed_as_anthropic_hazard() -> None:
 
 
 def test_restriction_not_direct_triple() -> None:
-    """I rischi NON sono triple dirette ``?poi tc:havingHazard ?h`` (forma reale)."""
+    """Risks are NOT direct triples ``?poi tc:havingHazard ?h`` (real shape)."""
     graph = load_ontology(str(FIXTURE))
 
     direct = list(graph.triples((TERMINUS["Bank"], TERMINUS["havingHazard"], None)))
 
     assert direct == []
-    # ...ma l'hazard resta raggiungibile via restrizione.
+    # ...but the hazard is still reachable via restriction.
     assert _restriction_fillers(graph, "Bank", "havingHazard") != set()
 
 
 def test_no_unused_object_property_named_uri() -> None:
-    """Guard: l'URI di havingHazard usato e' esattamente quello ENEA reale."""
+    """Guard: the havingHazard URI used is exactly the real ENEA one."""
     assert TERMINUS["havingHazard"] == URIRef(_term("havingHazard"))

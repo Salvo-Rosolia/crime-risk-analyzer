@@ -1,4 +1,4 @@
-"""Test del geocoding zona -> bbox (#15). Nominatim e' sempre mockato."""
+"""Tests for the zone -> bbox geocoding (#15). Nominatim is always mocked."""
 
 from __future__ import annotations
 
@@ -22,14 +22,14 @@ from crime_risk_analyzer.models.geo import Bbox
 
 
 def _clear_geocoding_state() -> None:
-    """Svuota lo stato di modulo condiviso: setting, RateLimiter e i tre store.
+    """Empties the shared module state: settings, RateLimiter and the three stores.
 
-    ``get_settings`` e il RateLimiter singleton (``_get_rate_limited_call``,
-    che porta lo stato di throttling ``_last_call``, condiviso da geocode e
-    reverse dal #318) sono cacheati per processo: senza reset i test si
-    contaminerebbero a vicenda (sleep residui, delay stale dai setting di un
-    altro test). Lo stesso vale per le cache: una voce negativa lasciata da un
-    test (#376) farebbe tornare ``None`` a un altro senza toccare il fake.
+    ``get_settings`` and the singleton RateLimiter (``_get_rate_limited_call``,
+    which carries the throttling state ``_last_call``, shared by geocode and
+    reverse since #318) are cached per process: without a reset the tests would
+    contaminate each other (residual sleeps, stale delay from the settings of
+    another test). The same holds for the caches: a negative entry left by a test
+    (#376) would make ``None`` come back to another one without touching the fake.
     """
     get_settings.cache_clear()
     _geo_mod._get_rate_limited_call.cache_clear()  # pyright: ignore[reportPrivateUsage]
@@ -40,14 +40,14 @@ def _clear_geocoding_state() -> None:
 
 @pytest.fixture(autouse=True)
 def _reset_geocoding_state() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]
-    """Resetta lo stato di modulo condiviso prima/dopo ogni test."""
+    """Resets the shared module state before/after each test."""
     _clear_geocoding_state()
     yield
     _clear_geocoding_state()
 
 
 class _FakeLocation:
-    """Stub del Location di geopy: latitude/longitude + raw['boundingbox']."""
+    """Stub of the geopy Location: latitude/longitude + raw['boundingbox']."""
 
     def __init__(self, lat: float, lon: float, boundingbox: list[str] | None) -> None:
         self.latitude = lat
@@ -58,7 +58,7 @@ class _FakeLocation:
 
 
 class _FakeGeocoder:
-    """Stub del Nominatim: ritorna una location predefinita o solleva."""
+    """Stub of the Nominatim: returns a predefined location or raises."""
 
     def __init__(
         self, location: _FakeLocation | None = None, exc: Exception | None = None
@@ -80,9 +80,9 @@ class _FakeGeocoder:
     def reverse(
         self, query: tuple[float, float], **kwargs: object
     ) -> _FakeLocation | None:
-        """Stub di ``geolocator.reverse`` (#318): registra query e kwargs come
-        ``.geocode`` fa gia' sopra, cosi' i test possono esercitare il ramo
-        reverse di ``_nominatim_dispatch`` invece di monkeypatchare l'accessor.
+        """Stub of ``geolocator.reverse`` (#318): records query and kwargs as
+        ``.geocode`` already does above, so the tests can exercise the reverse branch
+        of ``_nominatim_dispatch`` instead of monkeypatching the accessor.
         """
         self.reverse_queries.append(query)
         self.reverse_calls.append(kwargs)
@@ -98,8 +98,8 @@ def _patch_geocoder(monkeypatch: pytest.MonkeyPatch, fake: _FakeGeocoder) -> Non
 
 
 def test_geocode_zone_returns_lat_lon_bbox(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Zona trovata -> dict con lat, lon e bbox (lat_min, lon_min, lat_max, lon_max)."""
-    # boundingbox di Nominatim: [lat_min, lat_max, lon_min, lon_max] come stringhe.
+    """Zone found -> dict with lat, lon, bbox (lat_min, lon_min, lat_max, lon_max)."""
+    # Nominatim boundingbox: [lat_min, lat_max, lon_min, lon_max] as strings.
     fake = _FakeGeocoder(
         _FakeLocation(41.8902, 12.4922, ["41.88", "41.90", "12.48", "12.50"])
     )
@@ -115,7 +115,7 @@ def test_geocode_zone_returns_lat_lon_bbox(monkeypatch: pytest.MonkeyPatch) -> N
 def test_geocode_zone_query_includes_zone_and_city(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """La query passata a Nominatim contiene zona e citta'."""
+    """The query passed to Nominatim contains zona and citta."""
     fake = _FakeGeocoder(_FakeLocation(45.46, 9.19, ["45.45", "45.47", "9.18", "9.20"]))
     _patch_geocoder(monkeypatch, fake)
 
@@ -126,7 +126,7 @@ def test_geocode_zone_query_includes_zone_and_city(
 
 
 def test_geocode_zone_not_found_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Nominatim ritorna None -> ZoneNotFoundError (zona+citta' nel messaggio)."""
+    """Nominatim returns None -> ZoneNotFoundError (zona+citta in the message)."""
     _patch_geocoder(monkeypatch, _FakeGeocoder(location=None))
 
     with pytest.raises(ZoneNotFoundError, match="Duomo"):
@@ -134,7 +134,7 @@ def test_geocode_zone_not_found_raises(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_geocode_zone_missing_bbox_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Location senza boundingbox -> ZoneNotFoundError (zona non utilizzabile)."""
+    """Location without boundingbox -> ZoneNotFoundError (zone not usable)."""
     _patch_geocoder(monkeypatch, _FakeGeocoder(_FakeLocation(41.0, 12.0, None)))
 
     with pytest.raises(ZoneNotFoundError):
@@ -144,7 +144,7 @@ def test_geocode_zone_missing_bbox_raises(monkeypatch: pytest.MonkeyPatch) -> No
 def test_geocode_zone_bbox_wrong_length_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """boundingbox presente ma di lunghezza inattesa -> ZoneNotFoundError."""
+    """boundingbox present but of unexpected length -> ZoneNotFoundError."""
     _patch_geocoder(
         monkeypatch, _FakeGeocoder(_FakeLocation(41.0, 12.0, ["41.0", "42.0"]))
     )
@@ -156,7 +156,7 @@ def test_geocode_zone_bbox_wrong_length_raises(
 def test_geocode_zone_service_error_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Errore del servizio (timeout/HTTP) -> GeocodingError, non eccezione grezza."""
+    """Service error (timeout/HTTP) -> GeocodingError, not a raw exception."""
     _patch_geocoder(monkeypatch, _FakeGeocoder(exc=GeocoderServiceError("boom")))
 
     with pytest.raises(GeocodingError):
@@ -166,11 +166,11 @@ def test_geocode_zone_service_error_raises(
 def test_geocode_zone_passes_country_codes_and_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """country_codes e timeout arrivano DAI setting, non da valori hardcoded.
+    """country_codes and timeout come FROM the settings, not from hardcoded values.
 
-    Usa sentinelle NON-default (``fr``/``7``) cosi' il test fallisce anche se un
-    domani i valori venissero cablati sul default ("it"/10.0): la sola prova che
-    provengono davvero dalla configurazione.
+    It uses NON-default sentinels (``fr``/``7``) so the test fails even if one day
+    the values were wired to the default ("it"/10.0): the only proof that they
+    really come from the configuration.
     """
     monkeypatch.setenv("GEOCODING_COUNTRY_CODES", "fr")
     monkeypatch.setenv("GEOCODING_TIMEOUT_SECONDS", "7")
@@ -188,7 +188,7 @@ def test_geocode_zone_passes_country_codes_and_timeout(
 
 
 def test_geocode_zone_caches_result(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Con cache_enabled, la seconda chiamata NON interroga il geocoder."""
+    """With cache_enabled, the second call does NOT query the geocoder."""
     fake = _FakeGeocoder(
         _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
     )
@@ -198,15 +198,15 @@ def test_geocode_zone_caches_result(monkeypatch: pytest.MonkeyPatch) -> None:
     second = geocode_zone("Colosseo", "Roma")
 
     assert first == second
-    assert len(fake.queries) == 1  # seconda risposta dalla cache
+    assert len(fake.queries) == 1  # second answer from the cache
 
 
 def test_geocode_zone_cache_disabled_queries_twice(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("CACHE_ENABLED", "false")
-    # min_delay minimo (gt=0) + limiter ricostruito: azzera il ~1s di sleep
-    # reale sulla 2a chiamata mantenendo il vincolo di config.
+    # minimum min_delay (gt=0) + rebuilt limiter: zeroes the ~1s of real sleep on the
+    # 2nd call keeping the config constraint.
     monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.001")
     get_settings.cache_clear()
     _geo_mod._get_rate_limited_call.cache_clear()  # pyright: ignore[reportPrivateUsage]
@@ -219,16 +219,16 @@ def test_geocode_zone_cache_disabled_queries_twice(
     geocode_zone("Colosseo", "Roma")
 
     assert len(fake.queries) == 2
-    # M1: con la cache disabilitata lo store NON viene popolato. Cattura la
-    # mutazione "rimosso solo il read-gate ma il write resta": senza questa
-    # assert, una entry scritta a cache spenta passerebbe inosservata.
+    # M1: with the cache disabled the store is NOT populated. It catches the
+    # mutation "only the read-gate removed but the write stays": without this
+    # assert, an entry written with the cache off would go unnoticed.
     assert len(_geo_mod._CACHE) == 0  # pyright: ignore[reportPrivateUsage]
 
 
 def test_geocode_zone_does_not_cache_errors(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Un fallimento non popola la cache: la chiamata successiva riprova davvero."""
-    # min_delay minimo (gt=0) + limiter ricostruito: azzera il ~1s di sleep
-    # reale tra le 2 chiamate mantenendo il vincolo di config.
+    """A failure does not populate the cache: the next call really retries."""
+    # minimum min_delay (gt=0) + rebuilt limiter: zeroes the ~1s of real sleep
+    # between the 2 calls keeping the config constraint.
     monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.001")
     get_settings.cache_clear()
     _geo_mod._get_rate_limited_call.cache_clear()  # pyright: ignore[reportPrivateUsage]
@@ -243,30 +243,30 @@ def test_geocode_zone_does_not_cache_errors(monkeypatch: pytest.MonkeyPatch) -> 
     _patch_geocoder(monkeypatch, ok)
     result = geocode_zone("Colosseo", "Roma")
     assert result["lat"] == pytest.approx(41.89)
-    assert len(ok.queries) == 1  # non serviva dalla cache un errore
+    assert len(ok.queries) == 1  # it did not serve an error from the cache
 
 
 def test_geocode_zone_cache_key_normalizes_case_and_spaces(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Varianti di case/spazi colpiscono la stessa entry di cache (#115)."""
+    """Case/space variants hit the same cache entry (#115)."""
     fake = _FakeGeocoder(
         _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
     )
     _patch_geocoder(monkeypatch, fake)
     geocode_zone("Colosseo", "Roma")
     geocode_zone("  colosseo  ", " ROMA ")
-    assert len(fake.queries) == 1  # seconda dalla cache grazie alla normalizzazione
+    assert len(fake.queries) == 1  # second from the cache thanks to the normalization
 
 
 def test_geocode_zone_cache_distinguishes_zones(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """C1: zone diverse NON collidono in cache -> due lookup distinti (#115).
+    """C1: different zones do NOT collide in the cache -> two distinct lookups (#115).
 
-    Guardia contro una ``_cache_key`` collassata (che ignorasse la zona): due
-    zone diverse nella stessa citta' devono interrogare il geocoder due volte,
-    non servire la seconda dalla entry della prima.
+    Guard against a collapsed ``_cache_key`` (one that ignored the zone): two
+    different zones in the same city must query the geocoder twice, not serve the
+    second from the entry of the first.
     """
     monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.001")
     get_settings.cache_clear()
@@ -277,7 +277,7 @@ def test_geocode_zone_cache_distinguishes_zones(
     _patch_geocoder(monkeypatch, fake)
 
     geocode_zone("Colosseo", "Roma")
-    geocode_zone("Trastevere", "Roma")  # zona diversa -> NON dalla cache
+    geocode_zone("Trastevere", "Roma")  # different zone -> NOT from the cache
 
     assert len(fake.queries) == 2
 
@@ -285,11 +285,11 @@ def test_geocode_zone_cache_distinguishes_zones(
 def test_geocode_zone_cache_distinguishes_cities(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """C1: stessa zona ma citta' diversa NON collide -> due lookup distinti (#115).
+    """C1: same zone but different city does NOT collide -> two distinct lookups
+    (#115).
 
-    Guardia contro una ``_cache_key`` che ignorasse la citta': "Duomo" a Milano
-    e "Duomo" a Roma sono entita' diverse e devono interrogare il geocoder due
-    volte.
+    Guard against a ``_cache_key`` that ignored the city: "Duomo" in Milano and
+    "Duomo" in Roma are different entities and must query the geocoder twice.
     """
     monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.001")
     get_settings.cache_clear()
@@ -298,7 +298,7 @@ def test_geocode_zone_cache_distinguishes_cities(
     _patch_geocoder(monkeypatch, fake)
 
     geocode_zone("Duomo", "Milano")
-    geocode_zone("Duomo", "Roma")  # citta' diversa -> NON dalla cache
+    geocode_zone("Duomo", "Roma")  # different city -> NOT from the cache
 
     assert len(fake.queries) == 2
 
@@ -306,12 +306,12 @@ def test_geocode_zone_cache_distinguishes_cities(
 def test_geocode_zone_does_not_cache_zone_not_found(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """M2: una zona non trovata (location None) NON viene cacheata (#115).
+    """M2: a zone not found (location None) is NOT cached (#115).
 
-    Cattura la mutazione "negative caching": se la prima ZoneNotFoundError
-    finisse nello store, la seconda chiamata (con un geocoder ora valido) sulla
-    stessa (zona, citta') verrebbe servita dalla cache senza interrogare davvero
-    il servizio, restando bloccata su un errore transitorio.
+    It catches the "negative caching" mutation: if the first ZoneNotFoundError
+    ended up in the store, the second call (with a geocoder now valid) on the same
+    (zona, citta) would be served from the cache without really querying the
+    service, staying stuck on a transient error.
     """
     monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.001")
     get_settings.cache_clear()
@@ -325,11 +325,11 @@ def test_geocode_zone_does_not_cache_zone_not_found(
     result = geocode_zone("Duomo", "Milano")
 
     assert result["lat"] == pytest.approx(45.46)
-    assert len(ok.queries) == 1  # ha DAVVERO interrogato, non servito da negative-cache
+    assert len(ok.queries) == 1  # it REALLY queried, not served from the negative cache
 
 
 def test_rate_limiter_wired_with_settings() -> None:
-    """Il rate-limiter usa min_delay dai setting, max_retries=0, no swallow."""
+    """The rate limiter uses min_delay from the settings, max_retries=0, no swallow."""
     from geopy.extra.rate_limiter import (  # pyright: ignore[reportMissingTypeStubs]
         RateLimiter,
     )
@@ -344,7 +344,7 @@ def test_rate_limiter_wired_with_settings() -> None:
 def test_rate_limiter_builds_with_high_min_delay(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """min_delay > 5s non deve rompere la costruzione del RateLimiter (#115)."""
+    """min_delay > 5s must not break the construction of the RateLimiter (#115)."""
     from geopy.extra.rate_limiter import (  # pyright: ignore[reportMissingTypeStubs]
         RateLimiter,
     )
@@ -359,7 +359,7 @@ def test_rate_limiter_builds_with_high_min_delay(
 
 
 def test_rate_limiter_throttles_second_call(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Due chiamate ravvicinate -> applica un ritardo >= min_delay (clock finto)."""
+    """Two close calls -> applies a delay >= min_delay (fake clock)."""
     monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "1")
     get_settings.cache_clear()
     _geo_mod._get_rate_limited_call.cache_clear()  # pyright: ignore[reportPrivateUsage]
@@ -374,29 +374,29 @@ def test_rate_limiter_throttles_second_call(monkeypatch: pytest.MonkeyPatch) -> 
 
     def fake_sleep(seconds: float) -> None:
         slept.append(seconds)
-        now[0] += seconds  # il tempo avanza di quanto si dorme
+        now[0] += seconds  # time advances by as much as is slept
 
     monkeypatch.setattr("geopy.extra.rate_limiter.sleep", fake_sleep)
     rl = _geo_mod._get_rate_limited_call()  # pyright: ignore[reportPrivateUsage]
     monkeypatch.setattr(rl, "_clock", lambda: now[0])
 
-    geocode_zone("Colosseo", "Roma")  # 1a chiamata: nessuno sleep
-    # cache disabilitata per forzare una 2a chiamata reale
+    geocode_zone("Colosseo", "Roma")  # 1st call: no sleep
+    # cache disabled to force a real 2nd call
     monkeypatch.setenv("CACHE_ENABLED", "false")
     get_settings.cache_clear()
-    geocode_zone("Trastevere", "Roma")  # 2a chiamata: throttle
+    geocode_zone("Trastevere", "Roma")  # 2nd call: throttle
 
     assert slept and slept[0] == pytest.approx(1.0)
 
 
-# --- #170: bound di _CACHE (eviction FIFO) + copia difensiva sul cache-hit ---
+# --- #170: bound of _CACHE (FIFO eviction) + defensive copy on the cache hit ---
 
 
 def test_cache_evicts_oldest_when_full(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Superato _CACHE_MAXSIZE, la entry piu' vecchia (FIFO) viene evitta (#170)."""
+    """Once _CACHE_MAXSIZE is exceeded, the oldest entry (FIFO) is evicted (#170)."""
     monkeypatch.setattr(_geo_mod, "_CACHE_MAXSIZE", 3)
-    # min_delay minimo (gt=0) + limiter ricostruito: azzera il ~1s di sleep reale
-    # tra le chiamate mantenendo il vincolo di config.
+    # minimum min_delay (gt=0) + rebuilt limiter: zeroes the ~1s of real sleep
+    # between the calls keeping the config constraint.
     monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.001")
     get_settings.cache_clear()
     _geo_mod._get_rate_limited_call.cache_clear()  # pyright: ignore[reportPrivateUsage]
@@ -410,42 +410,42 @@ def test_cache_evicts_oldest_when_full(monkeypatch: pytest.MonkeyPatch) -> None:
 
     cache = _geo_mod._CACHE  # pyright: ignore[reportPrivateUsage]
     assert len(cache) == 3
-    # FIFO: "A" (la piu' vecchia) e' stata evitta; "D" (l'ultima) c'e'.
+    # FIFO: "A" (the oldest) was evicted; "D" (the last) is there.
     assert _geo_mod._cache_key("A", "Roma") not in cache  # pyright: ignore[reportPrivateUsage]
     assert _geo_mod._cache_key("D", "Roma") in cache  # pyright: ignore[reportPrivateUsage]
 
 
 def test_cache_hit_returns_defensive_copy(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Un cache-hit ritorna una COPIA: mutarla non avvelena la entry (#170)."""
+    """A cache hit returns a COPY: mutating it does not poison the entry (#170)."""
     fake = _FakeGeocoder(
         _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
     )
     _patch_geocoder(monkeypatch, fake)
 
-    geocode_zone("Colosseo", "Roma")  # popola la cache (miss)
-    hit = geocode_zone("Colosseo", "Roma")  # cache-hit
-    hit["lat"] = 0.0  # un consumer muta il dict ritornato
+    geocode_zone("Colosseo", "Roma")  # populates the cache (miss)
+    hit = geocode_zone("Colosseo", "Roma")  # cache hit
+    hit["lat"] = 0.0  # a consumer mutates the returned dict
 
-    again = geocode_zone("Colosseo", "Roma")  # nuovo cache-hit
-    assert again["lat"] == pytest.approx(41.89)  # la entry in cache e' intatta
+    again = geocode_zone("Colosseo", "Roma")  # new cache hit
+    assert again["lat"] == pytest.approx(41.89)  # the entry in the cache is intact
 
 
 def test_cache_miss_returns_defensive_copy(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Anche il ritorno del cache-miss e' una copia: mutarlo non avvelena (#170)."""
+    """The cache-miss return is a copy too: mutating it does not poison (#170)."""
     fake = _FakeGeocoder(
         _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
     )
     _patch_geocoder(monkeypatch, fake)
 
-    miss = geocode_zone("Colosseo", "Roma")  # cache-miss: costruisce e memorizza
-    miss["lat"] = 0.0  # muta il dict appena ritornato
+    miss = geocode_zone("Colosseo", "Roma")  # cache miss: builds and stores
+    miss["lat"] = 0.0  # mutates the dict just returned
 
-    hit = geocode_zone("Colosseo", "Roma")  # cache-hit sulla entry memorizzata
-    assert hit["lat"] == pytest.approx(41.89)  # la entry in cache non e' aliasata
+    hit = geocode_zone("Colosseo", "Roma")  # cache hit on the stored entry
+    assert hit["lat"] == pytest.approx(41.89)  # the entry in the cache is not aliased
 
 
 def test_get_geolocator_builds_nominatim() -> None:
-    """Il provider di default costruisce un Nominatim (nessuna chiamata di rete)."""
+    """The default provider builds a Nominatim (no network call)."""
     from geopy.geocoders import (  # pyright: ignore[reportMissingTypeStubs]
         Nominatim,
     )
@@ -459,10 +459,11 @@ def test_get_geolocator_builds_nominatim() -> None:
 
 
 def test_get_geolocator_wires_user_agent_into_header() -> None:
-    """Catena costante -> costruttore -> header: l'UA del geolocator == _USER_AGENT.
+    """Constant -> constructor -> header chain: the geolocator UA == _USER_AGENT.
 
-    Fail-if-removed reale sul valore *cablato*: un costruttore con valore divergente
-    (o senza URL di contatto) fa fallire il test, non solo il valore della costante.
+    Real fail-if-removed on the *wired* value: a constructor with a diverging value
+    (or without a contact URL) makes the test fail, not just the value of the
+    constant.
     """
     from crime_risk_analyzer.geocoding import (
         _USER_AGENT,  # pyright: ignore[reportPrivateUsage]
@@ -477,17 +478,18 @@ def test_get_geolocator_wires_user_agent_into_header() -> None:
     assert "https://github.com/Salvo-Rosolia/crime-risk-analyzer" in user_agent
 
 
-# --- #204: pavimento minimo di dimensione del bbox (_enforce_min_bbox) ---
+# --- #204: minimum bbox size floor (_enforce_min_bbox) ---
 
 
 def test_min_bbox_floor_expands_tiny_landmark_bbox(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Un bbox minuscolo (landmark) e' espanso ad almeno 2*half_span su ENTRAMBI
-    gli assi, preservando il punto medio; lat/lon restano quelli di Nominatim (#204).
+    """A tiny bbox (landmark) is expanded to at least 2*half_span on BOTH axes,
+    preserving the midpoint; lat/lon stay those of Nominatim (#204).
     """
-    # boundingbox Nominatim [lat_min, lat_max, lon_min, lon_max]: span ~0.001 gradi
-    # (un edificio: e' il caso che dava 0 POI da Overpass -> mappa non ricentrata).
+    # Nominatim boundingbox [lat_min, lat_max, lon_min, lon_max]: span ~0.001 degrees
+    # (a building: it is the case that gave 0 POIs from Overpass -> map not
+    # recentered).
     fake = _FakeGeocoder(
         _FakeLocation(41.8902, 12.4922, ["41.8897", "41.8907", "12.4917", "12.4927"])
     )
@@ -497,13 +499,13 @@ def test_min_bbox_floor_expands_tiny_landmark_bbox(
     result = geocode_zone("Colosseo", "Roma")
     bbox = result["bbox"]
 
-    # entrambi i lati espansi ad almeno 2*half_span (tolleranza float)
+    # both sides expanded to at least 2*half_span (float tolerance)
     assert bbox.max_lat - bbox.min_lat >= 2 * half_span - 1e-9
     assert bbox.max_lon - bbox.min_lon >= 2 * half_span - 1e-9
-    # espansione SIMMETRICA: il punto medio del bbox originale e' preservato
+    # SYMMETRIC expansion: the midpoint of the original bbox is preserved
     assert (bbox.min_lat + bbox.max_lat) / 2 == pytest.approx(41.8902)
     assert (bbox.min_lon + bbox.max_lon) / 2 == pytest.approx(12.4922)
-    # lat/lon = quelli di Nominatim, invariati dal pavimento sul bbox
+    # lat/lon = those of Nominatim, unchanged by the floor on the bbox
     assert result["lat"] == pytest.approx(41.8902)
     assert result["lon"] == pytest.approx(12.4922)
 
@@ -511,10 +513,10 @@ def test_min_bbox_floor_expands_tiny_landmark_bbox(
 def test_min_bbox_floor_leaves_large_bbox_unchanged(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Un bbox gia' grande (quartiere, span ~0.05 gradi) NON viene rimpicciolito (#204).
+    """An already large bbox (neighborhood, span ~0.05 degrees) is NOT shrunk (#204).
 
-    "Solo-espandi": con un bbox oltre soglia i min/max tengono gli estremi
-    originali, quindi il risultato deve essere identico all'input parsato.
+    "Expand-only": with a bbox beyond the threshold the min/max keep the original
+    extremes, so the result must be identical to the parsed input.
     """
     fake = _FakeGeocoder(
         _FakeLocation(41.885, 12.485, ["41.86", "41.91", "12.46", "12.51"])
@@ -529,8 +531,8 @@ def test_min_bbox_floor_leaves_large_bbox_unchanged(
 def test_min_bbox_floor_expands_single_narrow_axis_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Bbox stretto su UN asse: espande quell'asse, l'altro resta invariato (#204)."""
-    # lat stretto (~0.001), lon gia' ampio (~0.05).
+    """Bbox narrow on ONE axis: expands that axis, the other stays unchanged (#204)."""
+    # narrow lat (~0.001), already wide lon (~0.05).
     fake = _FakeGeocoder(
         _FakeLocation(41.8902, 12.485, ["41.8897", "41.8907", "12.46", "12.51"])
     )
@@ -540,15 +542,16 @@ def test_min_bbox_floor_expands_single_narrow_axis_only(
     result = geocode_zone("Via Stretta", "Roma")
     bbox = result["bbox"]
 
-    # asse lat (stretto) espanso ad almeno 2*half_span (tolleranza float)
+    # lat axis (narrow) expanded to at least 2*half_span (float tolerance)
     assert bbox.max_lat - bbox.min_lat >= 2 * half_span - 1e-9
-    # asse lon (gia' ampio) intatto
+    # lon axis (already wide) intact
     assert bbox.min_lon == pytest.approx(12.46)
     assert bbox.max_lon == pytest.approx(12.51)
 
 
 def test_enforce_min_bbox_expands_when_below_threshold() -> None:
-    """_enforce_min_bbox: bbox sotto soglia -> espanso a 2*half_span, midpoint fermo."""
+    """_enforce_min_bbox: bbox below threshold -> expanded to 2*half_span, midpoint
+    fixed."""
     from crime_risk_analyzer.geocoding import (
         _enforce_min_bbox,  # pyright: ignore[reportPrivateUsage]
     )
@@ -563,7 +566,7 @@ def test_enforce_min_bbox_expands_when_below_threshold() -> None:
 
 
 def test_enforce_min_bbox_noop_when_above_threshold() -> None:
-    """_enforce_min_bbox: bbox gia' oltre soglia -> invariato (non rimpicciolito)."""
+    """_enforce_min_bbox: bbox already beyond threshold -> unchanged (not shrunk)."""
     from crime_risk_analyzer.geocoding import (
         _enforce_min_bbox,  # pyright: ignore[reportPrivateUsage]
     )
@@ -577,7 +580,7 @@ def test_enforce_min_bbox_noop_when_above_threshold() -> None:
 def test_min_bbox_floor_threshold_is_configurable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Cambiare geocoding_min_bbox_half_span_deg cambia l'ampiezza espansa (#204)."""
+    """Changing geocoding_min_bbox_half_span_deg changes the expanded width (#204)."""
     monkeypatch.setenv("GEOCODING_MIN_BBOX_HALF_SPAN_DEG", "0.05")
     get_settings.cache_clear()
     fake = _FakeGeocoder(
@@ -588,18 +591,18 @@ def test_min_bbox_floor_threshold_is_configurable(
     result = geocode_zone("Colosseo", "Roma")
     bbox = result["bbox"]
 
-    # con half_span=0.05 ogni lato e' esteso ad almeno 0.10 gradi (tolleranza float)
+    # with half_span=0.05 every side is extended to at least 0.10 degrees (float
+    # tolerance)
     assert bbox.max_lat - bbox.min_lat >= 0.10 - 1e-9
     assert bbox.max_lon - bbox.min_lon >= 0.10 - 1e-9
 
 
 def test_enforce_min_bbox_noop_at_exact_threshold() -> None:
-    """_enforce_min_bbox: span ESATTAMENTE 2*half_span su ENTRAMBI gli assi ->
-    invariato.
+    """_enforce_min_bbox: span EXACTLY 2*half_span on BOTH axes -> unchanged.
 
-    Caso di confine tra "espandi" e "lascia stare": blinda la logica ``min``/
-    ``max`` contro un futuro refactor a ``<`` vs ``<=`` (un ``<`` stretto
-    lascerebbe passare il caso al ramo espansione).
+    Boundary case between "expand" and "leave alone": it shields the ``min``/
+    ``max`` logic against a future refactor to ``<`` vs ``<=`` (a strict ``<``
+    would let the case through to the expansion branch).
     """
     from crime_risk_analyzer.geocoding import (
         _enforce_min_bbox,  # pyright: ignore[reportPrivateUsage]
@@ -607,8 +610,8 @@ def test_enforce_min_bbox_noop_at_exact_threshold() -> None:
 
     half_span = 0.01
     lat_mid, lon_mid = 41.9, 12.5
-    # bbox costruito come midpoint +/- half_span: span == esattamente 2*half_span
-    # (float-exact, cosi' l'uguaglianza con l'input e' significativa e non flaky).
+    # bbox built as midpoint +/- half_span: span == exactly 2*half_span (float-exact,
+    # so the equality with the input is meaningful and not flaky).
     bbox = Bbox(
         min_lat=lat_mid - half_span,
         min_lon=lon_mid - half_span,
@@ -623,11 +626,11 @@ def test_enforce_min_bbox_noop_at_exact_threshold() -> None:
 def test_min_bbox_floor_expands_degenerate_point_bbox(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Bbox degenere puntuale (min==max su entrambi gli assi) -> espanso a span
-    2*half_span su entrambi gli assi, centrato sul punto (#204).
+    """Degenerate point bbox (min==max on both axes) -> expanded to span
+    2*half_span on both axes, centered on the point (#204).
 
-    E' il vero worst-case del landmark: Nominatim per un feature puntuale ritorna
-    un boundingbox ad area nulla (0 POI da Overpass senza pavimento).
+    It is the real worst case of the landmark: Nominatim for a point feature
+    returns a zero-area boundingbox (0 POIs from Overpass without the floor).
     """
     fake = _FakeGeocoder(
         _FakeLocation(41.8902, 12.4922, ["41.8902", "41.8902", "12.4922", "12.4922"])
@@ -638,15 +641,15 @@ def test_min_bbox_floor_expands_degenerate_point_bbox(
     result = geocode_zone("Fontana di Trevi", "Roma")
     bbox = result["bbox"]
 
-    # entrambi i lati espansi a esattamente 2*half_span
+    # both sides expanded to exactly 2*half_span
     assert bbox.max_lat - bbox.min_lat == pytest.approx(2 * half_span)
     assert bbox.max_lon - bbox.min_lon == pytest.approx(2 * half_span)
-    # centrato sul punto degenere (espansione simmetrica)
+    # centered on the degenerate point (symmetric expansion)
     assert (bbox.min_lat + bbox.max_lat) / 2 == pytest.approx(41.8902)
     assert (bbox.min_lon + bbox.max_lon) / 2 == pytest.approx(12.4922)
 
 
-# --- #318: rate limiter condiviso (geocode+reverse) + reverse/forward liberi ---
+# --- #318: shared rate limiter (geocode+reverse) + free reverse/forward ---
 
 
 class _FakeReverseLocation:
@@ -654,7 +657,7 @@ class _FakeReverseLocation:
         self.raw = {"address": address}
 
 
-def test_reverse_geocode_label_da_address(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_reverse_geocode_label_from_address(monkeypatch: pytest.MonkeyPatch) -> None:
     loc = _FakeReverseLocation({"city": "Roma", "suburb": "Trastevere"})
 
     def _fake_dispatch(op: str, arg: object) -> object:
@@ -669,7 +672,7 @@ def test_reverse_geocode_label_da_address(monkeypatch: pytest.MonkeyPatch) -> No
     assert zona == "Trastevere"
 
 
-def test_reverse_geocode_label_fallback_su_none(
+def test_reverse_geocode_label_fallback_on_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def _none_dispatch(op: str, arg: object) -> object:
@@ -681,7 +684,7 @@ def test_reverse_geocode_label_fallback_su_none(
     assert zona == "zona non identificata"
 
 
-def test_reverse_geocode_label_fallback_su_errore_servizio(
+def test_reverse_geocode_label_fallback_on_service_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def _boom(op: str, arg: object) -> object:
@@ -693,7 +696,7 @@ def test_reverse_geocode_label_fallback_su_errore_servizio(
     assert zona == "zona non identificata"
 
 
-def test_geocode_freeform_successo(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_geocode_freeform_success(monkeypatch: pytest.MonkeyPatch) -> None:
     loc = _FakeReverseLocation({})
     loc.latitude = 41.9  # type: ignore[attr-defined]
     loc.longitude = 12.5  # type: ignore[attr-defined]
@@ -705,7 +708,7 @@ def test_geocode_freeform_successo(monkeypatch: pytest.MonkeyPatch) -> None:
     assert geocoding.geocode_freeform("Duomo di Milano") == (41.9, 12.5)
 
 
-def test_geocode_freeform_nessun_risultato(
+def test_geocode_freeform_no_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def _none_dispatch(op: str, arg: object) -> object:
@@ -715,18 +718,18 @@ def test_geocode_freeform_nessun_risultato(
     assert geocoding.geocode_freeform("xyzxyz") is None
 
 
-# --- #344: cache limitata di geocode_freeform (casella "vai a un luogo") ---
+# --- #344: bounded cache of geocode_freeform ("go to a place" box) ---
 
 
 def _fast_limiter(monkeypatch: pytest.MonkeyPatch) -> None:
-    """min_delay minimo (gt=0) + limiter ricostruito: niente sleep reali."""
+    """minimum min_delay (gt=0) + rebuilt limiter: no real sleeps."""
     monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.001")
     get_settings.cache_clear()
     _geo_mod._get_rate_limited_call.cache_clear()  # pyright: ignore[reportPrivateUsage]
 
 
 def test_geocode_freeform_caches_result(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Con cache_enabled, la stessa query ripetuta NON interroga di nuovo Nominatim."""
+    """With cache_enabled, the same repeated query does NOT query Nominatim again."""
     fake = _FakeGeocoder(_FakeLocation(45.464, 9.19, None))
     _patch_geocoder(monkeypatch, fake)
 
@@ -734,13 +737,13 @@ def test_geocode_freeform_caches_result(monkeypatch: pytest.MonkeyPatch) -> None
     second = geocoding.geocode_freeform("Duomo di Milano")
 
     assert first == second == (45.464, 9.19)
-    assert fake.queries == ["Duomo di Milano"]  # seconda risposta dalla cache
+    assert fake.queries == ["Duomo di Milano"]  # second answer from the cache
 
 
 def test_geocode_freeform_cache_key_normalizes_case_and_spaces(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Maiuscole, spazi ai bordi e spazi multipli interni colpiscono la stessa entry."""
+    """Uppercase, edge spaces and internal multiple spaces hit the same entry."""
     fake = _FakeGeocoder(_FakeLocation(45.464, 9.19, None))
     _patch_geocoder(monkeypatch, fake)
 
@@ -753,7 +756,7 @@ def test_geocode_freeform_cache_key_normalizes_case_and_spaces(
 def test_geocode_freeform_cache_key_uses_casefold_not_lower(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Con ``casefold`` "Straße" e "STRASSE" condividono la entry, ``lower`` no."""
+    """With ``casefold`` "Straße" and "STRASSE" share the entry, ``lower`` does not."""
     fake = _FakeGeocoder(_FakeLocation(46.5, 11.35, None))
     _patch_geocoder(monkeypatch, fake)
 
@@ -766,7 +769,7 @@ def test_geocode_freeform_cache_key_uses_casefold_not_lower(
 def test_geocode_freeform_cache_distinguishes_different_inputs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Testi davvero diversi (cifre, punteggiatura) NON collidono in cache."""
+    """Really different texts (digits, punctuation) do NOT collide in the cache."""
     _fast_limiter(monkeypatch)
     fake = _FakeGeocoder(_FakeLocation(41.9, 12.5, None))
     _patch_geocoder(monkeypatch, fake)
@@ -780,7 +783,7 @@ def test_geocode_freeform_cache_distinguishes_different_inputs(
 def test_geocode_freeform_sends_raw_query_to_nominatim(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """La normalizzazione vale solo per la chiave: a Nominatim va il testo digitato."""
+    """The normalization applies only to the key: Nominatim gets the typed text."""
     fake = _FakeGeocoder(_FakeLocation(41.9, 12.5, None))
     _patch_geocoder(monkeypatch, fake)
 
@@ -792,7 +795,7 @@ def test_geocode_freeform_sends_raw_query_to_nominatim(
 def test_geocode_freeform_cache_disabled_queries_twice(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Con CACHE_ENABLED=false ogni chiamata va a Nominatim e lo store resta vuoto."""
+    """With CACHE_ENABLED=false every call goes to Nominatim, the store stays empty."""
     monkeypatch.setenv("CACHE_ENABLED", "false")
     _fast_limiter(monkeypatch)
     fake = _FakeGeocoder(_FakeLocation(41.9, 12.5, None))
@@ -808,7 +811,7 @@ def test_geocode_freeform_cache_disabled_queries_twice(
 def test_geocode_freeform_does_not_cache_service_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Un errore di servizio non popola la cache: la ripetizione riprova davvero."""
+    """A service error does not populate the cache: the repetition really retries."""
     _fast_limiter(monkeypatch)
     _patch_geocoder(monkeypatch, _FakeGeocoder(exc=GeocoderServiceError("boom")))
     with pytest.raises(GeocodingError):
@@ -821,11 +824,11 @@ def test_geocode_freeform_does_not_cache_service_errors(
     assert len(ok.queries) == 1
 
 
-# --- #376: cache negativa con scadenza per il "nessun risultato" ---
+# --- #376: negative cache with expiry for the "no result" ---
 
 
 def _fake_clock(monkeypatch: pytest.MonkeyPatch, start: float = 1000.0) -> list[float]:
-    """Orologio finto per la cache negativa: si avanza mutando ``now[0]``."""
+    """Fake clock for the negative cache: it is advanced by mutating ``now[0]``."""
     now = [start]
     monkeypatch.setattr(_geo_mod, "_clock", lambda: now[0])
     return now
@@ -840,14 +843,15 @@ def _negative_store() -> dict[str, float]:
 
 
 def test_negative_ttl_is_ten_minutes() -> None:
-    """La scadenza e' breve: un luogo appena mappato su OSM torna trovabile presto."""
+    """The expiry is short: a place just mapped on OSM becomes findable again soon."""
     assert _ttl() == 600.0
 
 
 def test_negative_entry_expires_exactly_at_deadline(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Confine: un istante prima e' valida, a ``now == expires_at`` e' scaduta."""
+    """Boundary: an instant before it is valid, at ``now == expires_at`` it is
+    expired."""
     now = _fake_clock(monkeypatch, start=1000.0 - 0.5)
     _negative_store()["luogo"] = 1000.0
     hit = _geo_mod._negative_cache_hit  # pyright: ignore[reportPrivateUsage]
@@ -863,7 +867,7 @@ def test_negative_entry_expires_exactly_at_deadline(
 def test_geocode_freeform_positive_cache_wins_over_negative(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Stessa chiave in entrambi gli store: vince il punto della cache positiva."""
+    """Same key in both stores: the point of the positive cache wins."""
     _fake_clock(monkeypatch)
     _geo_mod._FREEFORM_CACHE["colosseo"] = (41.89, 12.49)  # pyright: ignore[reportPrivateUsage]
     _negative_store()["colosseo"] = 1e12
@@ -875,11 +879,11 @@ def test_geocode_freeform_positive_cache_wins_over_negative(
 
 
 def test_negative_cache_hit_is_thread_safe(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Molti thread su voci scadute reinserite di continuo: nessuna eccezione.
+    """Many threads on expired entries continuously reinserted: no exception.
 
-    Senza lock due thread leggono la stessa voce scaduta ed entrambi la
-    cancellano: il secondo ``del`` solleva ``KeyError``. Uno switch interval
-    minuscolo forza i cambi di thread a meta' sequenza.
+    Without a lock two threads read the same expired entry and both delete it: the
+    second ``del`` raises ``KeyError``. A tiny switch interval forces thread
+    switches in the middle of the sequence.
     """
     _fake_clock(monkeypatch)
     keys = ["k0", "k1", "k2", "k3"]
@@ -894,9 +898,9 @@ def test_negative_cache_hit_is_thread_safe(monkeypatch: pytest.MonkeyPatch) -> N
         try:
             for i in range(n_ops):
                 key = keys[(tid + i) % len(keys)]
-                put(_negative_store(), key, 0.0)  # gia' scaduta
+                put(_negative_store(), key, 0.0)  # already expired
                 hit(key)
-        except BaseException as exc:  # noqa: BLE001 - raccolte e verificate sotto
+        except BaseException as exc:  # noqa: BLE001 - collected and verified below
             errors.append(exc)
 
     old_interval = sys.getswitchinterval()
@@ -916,7 +920,7 @@ def test_negative_cache_hit_is_thread_safe(monkeypatch: pytest.MonkeyPatch) -> N
 def test_geocode_freeform_caches_no_result_within_ttl(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Entro la scadenza un luogo inesistente non torna a Nominatim."""
+    """Within the expiry a nonexistent place does not go back to Nominatim."""
     _fast_limiter(monkeypatch)
     now = _fake_clock(monkeypatch)
     _patch_geocoder(monkeypatch, _FakeGeocoder(location=None))
@@ -927,14 +931,15 @@ def test_geocode_freeform_caches_no_result_within_ttl(
     now[0] += _ttl() - 1
 
     assert geocoding.geocode_freeform("  luogo   INESISTENTE ") is None
-    assert later.queries == []  # servito dalla cache negativa
+    assert later.queries == []  # served from the negative cache
     assert len(_geo_mod._FREEFORM_CACHE) == 0  # pyright: ignore[reportPrivateUsage]
 
 
 def test_geocode_freeform_negative_entry_expires_and_is_removed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Scaduta la voce, si torna a Nominatim e la voce negativa sparisce."""
+    """Once the entry has expired, we go back to Nominatim and the negative entry
+    disappears."""
     _fast_limiter(monkeypatch)
     now = _fake_clock(monkeypatch)
     _patch_geocoder(monkeypatch, _FakeGeocoder(location=None))
@@ -954,7 +959,7 @@ def test_geocode_freeform_negative_entry_expires_and_is_removed(
 def test_geocode_freeform_expired_negative_entry_is_renewed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Scaduta e ancora senza risultato: nuova richiesta e nuova scadenza da adesso."""
+    """Expired and still without a result: new request and new expiry from now."""
     _fast_limiter(monkeypatch)
     now = _fake_clock(monkeypatch)
     fake = _FakeGeocoder(location=None)
@@ -971,7 +976,7 @@ def test_geocode_freeform_expired_negative_entry_is_renewed(
 def test_geocode_freeform_negative_cache_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Con CACHE_ENABLED=false anche il "nessun risultato" va sempre a Nominatim."""
+    """With CACHE_ENABLED=false the "no result" also always goes to Nominatim."""
     monkeypatch.setenv("CACHE_ENABLED", "false")
     _fast_limiter(monkeypatch)
     fake = _FakeGeocoder(location=None)
@@ -987,7 +992,7 @@ def test_geocode_freeform_negative_cache_disabled(
 def test_geocode_freeform_service_error_not_in_negative_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Un errore di servizio non diventa un "nessun risultato" in cache."""
+    """A service error does not become a cached "no result"."""
     _fast_limiter(monkeypatch)
     _patch_geocoder(monkeypatch, _FakeGeocoder(exc=GeocoderServiceError("boom")))
     with pytest.raises(GeocodingError):
@@ -1004,7 +1009,7 @@ def test_geocode_freeform_service_error_not_in_negative_cache(
 def test_geocode_freeform_negative_cache_evicts_oldest_when_full(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Stesso tetto e stessa eviction FIFO degli altri store."""
+    """Same cap and same FIFO eviction as the other stores."""
     monkeypatch.setattr(_geo_mod, "_CACHE_MAXSIZE", 3)
     _fast_limiter(monkeypatch)
     _fake_clock(monkeypatch)
@@ -1016,14 +1021,14 @@ def test_geocode_freeform_negative_cache_evicts_oldest_when_full(
 
     assert list(_negative_store()) == ["b", "c", "d"]
 
-    geocoding.geocode_freeform("A")  # sfrattata: torna a Nominatim
+    geocoding.geocode_freeform("A")  # evicted: goes back to Nominatim
     assert len(fake.queries) == 5
 
 
 def test_geocode_freeform_negative_cache_is_separate_store(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """I tre store non si mescolano ne' si contendono il tetto."""
+    """The three stores neither mix nor compete for the cap."""
     monkeypatch.setattr(_geo_mod, "_CACHE_MAXSIZE", 2)
     _fast_limiter(monkeypatch)
     _fake_clock(monkeypatch)
@@ -1048,7 +1053,7 @@ def test_geocode_freeform_negative_cache_is_separate_store(
 
 
 def test_clear_geocoding_state_empties_negative_store() -> None:
-    """Il reset della fixture autouse svuota anche la cache negativa."""
+    """The reset of the autouse fixture also empties the negative cache."""
     _negative_store()["fantasma"] = 1e12
 
     _clear_geocoding_state()
@@ -1056,36 +1061,35 @@ def test_clear_geocoding_state_empties_negative_store() -> None:
     assert _negative_store() == {}
 
 
-# --- #376: chiave normalizzata anche per forma Unicode (NFC) ---
+# --- #376: key normalized also by Unicode form (NFC) ---
 
 
 @pytest.mark.parametrize(
     ("first", "second"),
     [
-        # "Citta'" con accento precomposto (U+00E0) e scomposto (a + U+0300).
+        # "Citta'" with precomposed accent (U+00E0) and decomposed (a + U+0300).
         ("Città", "Città"),
         ("CITTÀ", "città"),
-        # Accento scomposto e "ß" insieme: NFC e casefold devono combinarsi.
+        # Decomposed accent and "ß" together: NFC and casefold must combine.
         ("Müllerstraße", "MÜLLERSTRASSE"),
-        # NFC prima di casefold: due ordini canonicamente equivalenti dei segni
-        # diacritici. Senza NFC iniziale casefold trasforma la ypogegrammeni
-        # (U+0345) in "ι" prima che i segni vengano riordinati, e i due testi
-        # restano diversi.
+        # NFC before casefold: two canonically equivalent orders of the diacritic
+        # marks. Without the initial NFC casefold turns the ypogegrammeni (U+0345) into
+        # "ι" before the marks are reordered, and the two texts stay different.
         ("ᾴ", "ᾴ"),
-        # NFC dopo casefold: casefold di U+0390 da' tre code point, quello di
-        # "Ϊ" + U+0301 due (U+03CA + U+0301). Equivalenti, ma diversi senza
-        # una NFC finale.
+        # NFC after casefold: casefold of U+0390 gives three code points, that of
+        # "Ϊ" + U+0301 two (U+03CA + U+0301). Equivalent, but different without a
+        # final NFC.
         ("Ϊ́", "ΐ"),
     ],
 )
 def test_freeform_key_is_canonical_caseless(first: str, second: str) -> None:
-    """Chiave = NFC(casefold(NFC(testo))): la forma di confronto di Unicode."""
+    """Key = NFC(casefold(NFC(text))): the Unicode comparison form."""
     key = _geo_mod._freeform_key  # pyright: ignore[reportPrivateUsage]
     assert key(first) == key(second)
 
 
 def test_freeform_key_keeps_accents() -> None:
-    """NFC non toglie gli accenti: "Citta" e "Città" restano luoghi diversi."""
+    """NFC does not remove the accents: "Citta" and "Città" stay different places."""
     key = _geo_mod._freeform_key  # pyright: ignore[reportPrivateUsage]
     assert key("Citta") != key("Città")
 
@@ -1093,7 +1097,7 @@ def test_freeform_key_keeps_accents() -> None:
 def test_geocode_freeform_nfc_variants_share_entry_raw_text_to_nominatim(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Composto e scomposto: stessa voce di cache, a Nominatim il testo grezzo."""
+    """Composed and decomposed: same cache entry, Nominatim gets the raw text."""
     fake = _FakeGeocoder(_FakeLocation(43.77, 11.25, None))
     _patch_geocoder(monkeypatch, fake)
 
@@ -1106,7 +1110,7 @@ def test_geocode_freeform_nfc_variants_share_entry_raw_text_to_nominatim(
 def test_geocode_freeform_cache_evicts_oldest_when_full(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Stesso tetto: oltre _CACHE_MAXSIZE si sfratta la entry piu' vecchia."""
+    """Same cap: beyond _CACHE_MAXSIZE the oldest entry is evicted."""
     monkeypatch.setattr(_geo_mod, "_CACHE_MAXSIZE", 3)
     _fast_limiter(monkeypatch)
     fake = _FakeGeocoder(_FakeLocation(41.9, 12.5, None))
@@ -1118,14 +1122,15 @@ def test_geocode_freeform_cache_evicts_oldest_when_full(
     cache = _geo_mod._FREEFORM_CACHE  # pyright: ignore[reportPrivateUsage]
     assert list(cache) == ["b", "c", "d"]
 
-    geocoding.geocode_freeform("A")  # sfrattata: torna a Nominatim
+    geocoding.geocode_freeform("A")  # evicted: goes back to Nominatim
     assert len(fake.queries) == 5
 
 
 def test_geocode_freeform_cache_is_separate_from_zone_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Le due cache non si mescolano: la freeform non riempie ne' svuota quella zona."""
+    """The two caches do not mix: the freeform one neither fills nor empties the zone
+    one."""
     _fast_limiter(monkeypatch)
     fake = _FakeGeocoder(
         _FakeLocation(41.89, 12.49, ["41.88", "41.90", "12.48", "12.50"])
@@ -1143,7 +1148,7 @@ def test_geocode_freeform_cache_is_separate_from_zone_cache(
 def test_cache_put_existing_key_on_full_store_evicts_nothing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Store pieno + chiave gia' presente: si aggiorna il valore, nessuno sfratto."""
+    """Full store + key already present: the value is updated, no eviction."""
     monkeypatch.setattr(_geo_mod, "_CACHE_MAXSIZE", 3)
     store: dict[str, int] = {"a": 1, "b": 2, "c": 3}
 
@@ -1153,12 +1158,12 @@ def test_cache_put_existing_key_on_full_store_evicts_nothing(
 
 
 def test_cache_put_and_get_are_thread_safe(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Molti thread su uno store piccolo: nessuna eccezione, tetto mai superato.
+    """Many threads on a small store: no exception, cap never exceeded.
 
-    Senza lock la sequenza "pieno? sfratta, poi inserisci" si interleava: due
-    thread sfrattano la stessa chiave (``KeyError``), uno itera mentre l'altro
-    scrive (``RuntimeError``) o entrambi inseriscono oltre il tetto. Uno switch
-    interval minuscolo forza i cambi di thread a meta' sequenza.
+    Without a lock the sequence "full? evict, then insert" interleaves: two threads
+    evict the same key (``KeyError``), one iterates while the other writes
+    (``RuntimeError``) or both insert beyond the cap. A tiny switch interval forces
+    thread switches in the middle of the sequence.
     """
     maxsize = 4
     monkeypatch.setattr(_geo_mod, "_CACHE_MAXSIZE", maxsize)
@@ -1175,7 +1180,7 @@ def test_cache_put_and_get_are_thread_safe(monkeypatch: pytest.MonkeyPatch) -> N
                 _geo_mod._cache_put(store, f"{tid}-{i}", i)  # pyright: ignore[reportPrivateUsage]
                 _geo_mod._cache_get(store, f"{tid}-{i - 1}")  # pyright: ignore[reportPrivateUsage]
                 sizes.append(len(store))
-        except BaseException as exc:  # noqa: BLE001 - raccolte e verificate sotto
+        except BaseException as exc:  # noqa: BLE001 - collected and verified below
             errors.append(exc)
 
     old_interval = sys.getswitchinterval()
@@ -1194,19 +1199,19 @@ def test_cache_put_and_get_are_thread_safe(monkeypatch: pytest.MonkeyPatch) -> N
     assert len(store) <= maxsize
 
 
-def test_reverse_geocode_label_passa_per_nominatim_dispatch_reale(
+def test_reverse_geocode_label_goes_through_the_real_nominatim_dispatch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Il ramo reverse esercita DAVVERO ``_nominatim_dispatch`` (#318).
+    """The reverse branch REALLY exercises ``_nominatim_dispatch`` (#318).
 
-    A differenza dei test ``reverse_geocode_label_*``/``geocode_freeform_*``
-    qui sopra (che monkeypatchano direttamente ``_get_rate_limited_call``,
-    bypassando ``_nominatim_dispatch``), qui si patcha solo ``_get_geolocator``
-    -- lo stesso stile gia' usato per ``geocode_zone`` -- cosi' il percorso
-    reale ``_get_rate_limited_call() -> _nominatim_dispatch() ->
-    geolocator.reverse(...)`` viene esercitato contro un fake che registra i
-    kwargs ricevuti: una firma sbagliata (``exactly_one``/``addressdetails``/
-    ``timeout``) verrebbe presa qui, non solo da una chiamata live a Nominatim.
+    Unlike the ``reverse_geocode_label_*``/``geocode_freeform_*`` tests above (which
+    monkeypatch ``_get_rate_limited_call`` directly, bypassing
+    ``_nominatim_dispatch``), here only ``_get_geolocator`` is patched -- the same
+    style already used for ``geocode_zone`` -- so the real path
+    ``_get_rate_limited_call() -> _nominatim_dispatch() ->
+    geolocator.reverse(...)`` is exercised against a fake that records the received
+    kwargs: a wrong signature (``exactly_one``/``addressdetails``/``timeout``)
+    would be caught here, not just by a live call to Nominatim.
     """
     loc = _FakeLocation(41.8, 12.5, None)
     loc.raw["address"] = {"city": "Roma", "suburb": "Trastevere"}
@@ -1223,21 +1228,20 @@ def test_reverse_geocode_label_passa_per_nominatim_dispatch_reale(
     assert fake.reverse_calls[0]["timeout"] == get_settings().geocoding_timeout_seconds
 
 
-def test_geocode_e_reverse_condividono_lo_stesso_rate_limiter(
+def test_geocode_and_reverse_share_the_same_rate_limiter(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """geocode e reverse passano DAVVERO per lo stesso RateLimiter (#318).
+    """geocode and reverse REALLY go through the same RateLimiter (#318).
 
-    Non basta che ``_get_rate_limited_call() is _get_rate_limited_call()``:
-    quello sarebbe garantito da ``@lru_cache(maxsize=1)`` per QUALSIASI
-    funzione a zero argomenti, anche se ``geocode_zone``/``reverse_geocode_label``
-    chiamassero due dispatcher/limiter indipendenti (il bug che questo test
-    deve prevenire). Qui si esercitano DAVVERO i due percorsi consumer in
-    sequenza, con un clock finto (stesso stile di
-    ``test_rate_limiter_throttles_second_call``): se i due versi avessero
-    limiter separati, la chiamata reverse -- la "prima" per un limiter
-    indipendente -- non dovrebbe attendere. Lo sleep osservato prova che il
-    ``_last_call`` e' condiviso attraverso le due direzioni.
+    It is not enough that ``_get_rate_limited_call() is _get_rate_limited_call()``:
+    that would be guaranteed by ``@lru_cache(maxsize=1)`` for ANY zero-argument
+    function, even if ``geocode_zone``/``reverse_geocode_label`` called two
+    independent dispatchers/limiters (the bug this test must prevent). Here the two
+    consumer paths are REALLY exercised in sequence, with a fake clock (same style
+    as ``test_rate_limiter_throttles_second_call``): if the two directions had
+    separate limiters, the reverse call -- the "first" for an independent limiter --
+    would not have to wait. The observed sleep proves that the ``_last_call`` is
+    shared across the two directions.
     """
     monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "1")
     get_settings.cache_clear()
@@ -1253,15 +1257,15 @@ def test_geocode_e_reverse_condividono_lo_stesso_rate_limiter(
 
     def fake_sleep(seconds: float) -> None:
         slept.append(seconds)
-        now[0] += seconds  # il tempo avanza di quanto si dorme
+        now[0] += seconds  # time advances by as much as is slept
 
     monkeypatch.setattr("geopy.extra.rate_limiter.sleep", fake_sleep)
     rl = geocoding._get_rate_limited_call()  # pyright: ignore[reportPrivateUsage]
     monkeypatch.setattr(rl, "_clock", lambda: now[0])
 
-    geocode_zone("Colosseo", "Roma")  # prima chiamata in assoluto: nessuno sleep
+    geocode_zone("Colosseo", "Roma")  # very first call: no sleep
     assert not slept
 
-    geocoding.reverse_geocode_label(41.8, 12.5)  # subito dopo, verso diverso
+    geocoding.reverse_geocode_label(41.8, 12.5)  # right after, different direction
 
     assert slept and slept[0] == pytest.approx(1.0)

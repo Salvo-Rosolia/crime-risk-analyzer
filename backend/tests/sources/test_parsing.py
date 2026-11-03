@@ -1,4 +1,4 @@
-"""Lettura e controllo dei cinque file delle fonti (#415)."""
+"""Reading and checking of the five source files (#415)."""
 
 from __future__ import annotations
 
@@ -21,46 +21,46 @@ from crime_risk_analyzer.sources.report import (
     ValidationReport,
 )
 from crime_risk_analyzer.sources.vocabulary import OntologyVocabulary
-from tests.sources._fattorie import (
-    CONFINI,
-    DATI_CSV,
+from tests.sources._factories import (
+    BOUNDARIES,
+    DATA_CSV,
     HAZARD_CSV,
     NS,
-    ONTOLOGIA_TTL,
+    ONTOLOGY_TTL,
     OSM_CSV,
-    VOCABOLARIO,
-    con,
-    confini_json,
-    file_validi,
+    VOCABULARY,
+    boundaries_json,
+    valid_files,
+    with_fields,
 )
 
 
 def _report(files: UploadedFiles) -> ValidationReport:
-    parsed, report = check_sources(files, VOCABOLARIO)
+    parsed, report = check_sources(files, VOCABULARY)
     assert parsed is None
     assert not report.ok
     return report
 
 
-def _codici(problemi: list[Problem]) -> list[str]:
-    return [p.code for p in problemi]
+def _codes(problems: list[Problem]) -> list[str]:
+    return [p.code for p in problems]
 
 
-def _senza_righe_che_iniziano_con(testo: str, prefisso: str) -> bytes:
-    righe = [r for r in testo.splitlines() if not r.startswith(prefisso)]
-    return "\n".join(righe).encode("utf-8")
+def _without_lines_starting_with(text: str, prefix: str) -> bytes:
+    lines = [r for r in text.splitlines() if not r.startswith(prefix)]
+    return "\n".join(lines).encode("utf-8")
 
 
-# --- caso valido ---
+# --- valid case ---
 
 
-def test_caso_valido_restituisce_le_fonti_lette() -> None:
-    parsed, report = read_sources(file_validi(), VOCABOLARIO)
+def test_valid_case_returns_the_parsed_sources() -> None:
+    parsed, report = read_sources(valid_files(), VOCABULARY)
     assert isinstance(parsed, ParsedSources)
     assert report.ok
     assert report.errors == []
     assert report.warnings == []
-    assert parsed.vocabulary == VOCABOLARIO
+    assert parsed.vocabulary == VOCABULARY
     assert len(parsed.graph) > 0
     assert parsed.osm_to_class == {
         "amenity=bank": "Banca",
@@ -69,48 +69,48 @@ def test_caso_valido_restituisce_le_fonti_lette() -> None:
     assert parsed.family_order == ("amenity",)
 
 
-def test_etichette_it_en_dalle_rdfs_label() -> None:
-    parsed, _ = read_sources(file_validi(), VOCABOLARIO)
+def test_it_en_labels_from_rdfs_label() -> None:
+    parsed, _ = read_sources(valid_files(), VOCABULARY)
     assert parsed.labels["Banca"] == ("Banca", "Bank")
     assert parsed.labels["Rapina"] == ("Rapina", "Robbery")
 
 
-def test_dati_stessa_logica_istat() -> None:
-    parsed, _ = read_sources(file_validi(), VOCABOLARIO)
-    delitti = parsed.istat.delitti
-    assert delitti.anno == 2024
-    assert delitti.anno_confronto == 2014
-    assert delitti.voci == {"TOT": "totale", "ROB": "rapine", "THEFT": "furti"}
-    assert delitti.valore("001", "ROB", 2024) == YearValue(
+def test_data_same_istat_logic() -> None:
+    parsed, _ = read_sources(valid_files(), VOCABULARY)
+    crimes = parsed.istat.delitti
+    assert crimes.anno == 2024
+    assert crimes.anno_confronto == 2014
+    assert crimes.voci == {"TOT": "totale", "ROB": "rapine", "THEFT": "furti"}
+    assert crimes.valore("001", "ROB", 2024) == YearValue(
         delitti=100, tasso=80.0, tasso_sotto_soglia=False
     )
-    assert delitti.valore(ITALY_CODE, "ROB", 2014) is not None
-    assert delitti.valore("001", "ROB", 1999) is None
+    assert crimes.valore(ITALY_CODE, "ROB", 2014) is not None
+    assert crimes.valore("001", "ROB", 1999) is None
 
 
-def test_versione_e_hash_del_file_dei_dati() -> None:
-    parsed, _ = read_sources(file_validi(), VOCABOLARIO)
+def test_version_is_the_hash_of_the_data_file() -> None:
+    parsed, _ = read_sources(valid_files(), VOCABULARY)
     assert len(parsed.versione) == 12
     assert parsed.istat.versione == parsed.versione
-    altra = con(data=DATI_CSV.replace("5000", "5001").encode("utf-8"))
-    assert read_sources(altra, VOCABOLARIO)[0].versione != parsed.versione
+    other_files = with_fields(data=DATA_CSV.replace("5000", "5001").encode("utf-8"))
+    assert read_sources(other_files, VOCABULARY)[0].versione != parsed.versione
 
 
-def test_luoghi_con_confini_caricati() -> None:
-    parsed, _ = read_sources(file_validi(), VOCABOLARIO)
-    (luogo,) = parsed.istat.luoghi
-    assert (luogo.codice, luogo.tipo) == ("001", "comune")
-    assert luogo.nome == "Comune di Esempio"
-    assert luogo.nome_breve == "Esempio"
-    assert luogo.provincia is None
-    assert luogo.bbox == (12.0, 41.0, 13.0, 42.0)
-    lon, lat = luogo.punto_interno
+def test_places_with_loaded_boundaries() -> None:
+    parsed, _ = read_sources(valid_files(), VOCABULARY)
+    (place,) = parsed.istat.luoghi
+    assert (place.codice, place.tipo) == ("001", "comune")
+    assert place.nome == "Comune di Esempio"
+    assert place.nome_breve == "Esempio"
+    assert place.provincia is None
+    assert place.bbox == (12.0, 41.0, 13.0, 42.0)
+    lon, lat = place.punto_interno
     assert 12.0 < lon < 13.0
     assert 41.0 < lat < 42.0
 
 
-def test_punto_interno_dentro_un_poligono_a_forma_di_c() -> None:
-    # Il centro del riquadro cade nel "vuoto" della C: il punto interno no.
+def test_interior_point_inside_a_c_shaped_polygon() -> None:
+    # The center of the box falls in the "gap" of the C: the interior point does not.
     c = [
         [10.0, 40.0],
         [14.0, 40.0],
@@ -122,62 +122,64 @@ def test_punto_interno_dentro_un_poligono_a_forma_di_c() -> None:
         [10.0, 44.0],
         [10.0, 40.0],
     ]
-    forma = json.loads(json.dumps(CONFINI))
-    forma["features"][0]["geometry"]["coordinates"] = [c]
-    parsed, report = read_sources(con(boundaries=confini_json(forma)), VOCABOLARIO)
+    shape = json.loads(json.dumps(BOUNDARIES))
+    shape["features"][0]["geometry"]["coordinates"] = [c]
+    parsed, report = read_sources(
+        with_fields(boundaries=boundaries_json(shape)), VOCABULARY
+    )
     assert report.ok
     from crime_risk_analyzer.models.geo import point_in_multipolygon
 
-    (luogo,) = parsed.istat.luoghi
-    assert point_in_multipolygon(luogo.punto_interno, luogo.confine)
+    (place,) = parsed.istat.luoghi
+    assert point_in_multipolygon(place.punto_interno, place.confine)
 
 
-def test_mappatura_hazard_voce() -> None:
-    parsed, _ = read_sources(file_validi(), VOCABOLARIO)
-    rapina = parsed.mappatura["Rapina"]
-    assert rapina.voce_istat == "ROB"
-    assert rapina.corrispondenza == "esatta"
-    assert rapina.rottura_2016 is False
-    furto = parsed.mappatura["Furto"]
-    assert (furto.voce_istat, furto.corrispondenza) == ("THEFT", "piu_larga")
-    assert furto.rottura_2016 is True
-    assert furto.nota == "Serie interrotta nel 2016"
+def test_hazard_item_mapping() -> None:
+    parsed, _ = read_sources(valid_files(), VOCABULARY)
+    robbery = parsed.mappatura["Rapina"]
+    assert robbery.voce_istat == "ROB"
+    assert robbery.corrispondenza == "esatta"
+    assert robbery.rottura_2016 is False
+    theft = parsed.mappatura["Furto"]
+    assert (theft.voce_istat, theft.corrispondenza) == ("THEFT", "piu_larga")
+    assert theft.rottura_2016 is True
+    assert theft.nota == "Serie interrotta nel 2016"
     assert parsed.voci_rottura == frozenset({"THEFT"})
 
 
-def test_hazard_senza_voce() -> None:
+def test_hazard_without_item() -> None:
     hazard = "hazard,voce,corrispondenza\nRapina,,\nFurto,THEFT,esatta\n"
-    parsed, report = read_sources(con(hazard_table=hazard.encode()), VOCABOLARIO)
+    parsed, report = read_sources(with_fields(hazard_table=hazard.encode()), VOCABULARY)
     assert report.ok
     assert parsed.mappatura["Rapina"].voce_istat is None
     assert parsed.mappatura["Rapina"].corrispondenza is None
     assert parsed.voci_rottura == frozenset()
 
 
-def test_colonna_serie_non_confrontabile_assente_la_tendenza_si_calcola() -> None:
+def test_missing_non_comparable_series_column_trend_is_computed() -> None:
     hazard = "hazard,voce,corrispondenza\nRapina,ROB,esatta\n"
-    parsed, report = read_sources(con(hazard_table=hazard.encode()), VOCABOLARIO)
+    parsed, report = read_sources(with_fields(hazard_table=hazard.encode()), VOCABULARY)
     assert report.ok
     assert parsed.voci_rottura == frozenset()
     assert parsed.mappatura["Rapina"].rottura_2016 is False
     assert parsed.mappatura["Rapina"].nota == ""
 
 
-def test_bom_e_crlf_accettati() -> None:
-    def excel(testo: str) -> bytes:
-        return b"\xef\xbb\xbf" + testo.replace("\n", "\r\n").encode("utf-8")
+def test_bom_and_crlf_accepted() -> None:
+    def excel(text: str) -> bytes:
+        return b"\xef\xbb\xbf" + text.replace("\n", "\r\n").encode("utf-8")
 
-    files = con(
+    files = with_fields(
         osm_table=excel(OSM_CSV),
-        data=excel(DATI_CSV),
+        data=excel(DATA_CSV),
         hazard_table=excel(HAZARD_CSV),
     )
-    _, report = read_sources(files, VOCABOLARIO)
+    _, report = read_sources(files, VOCABULARY)
     assert report.ok
     assert report.warnings == []
 
 
-def test_formati_owl_e_rdfxml() -> None:
+def test_owl_and_rdfxml_formats() -> None:
     xml = f"""<?xml version="1.0"?>
 <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
     xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
@@ -194,85 +196,85 @@ def test_formati_owl_e_rdfxml() -> None:
   <owl:Class rdf:about="{NS}Furto"/>
   <owl:Class rdf:about="{NS}Ospedale"/>
 </rdf:RDF>"""
-    for nome in ("mini.owl", "mini.rdf", "mini.xml", "MINI.OWL"):
+    for name in ("mini.owl", "mini.rdf", "mini.xml", "MINI.OWL"):
         parsed, report = read_sources(
-            con(ontology=xml.encode(), ontology_name=nome), VOCABOLARIO
+            with_fields(ontology=xml.encode(), ontology_name=name), VOCABULARY
         )
-        assert report.ok, nome
+        assert report.ok, name
         assert parsed.labels["Banca"] == ("Banca", "Bank")
 
 
-def test_confini_nostri_se_il_file_manca() -> None:
-    base, _ = read_sources(file_validi(), VOCABOLARIO)
+def test_our_boundaries_if_the_file_is_missing() -> None:
+    base, _ = read_sources(valid_files(), VOCABULARY)
     parsed, report = read_sources(
-        con(boundaries=None), VOCABOLARIO, fallback_places=base.istat.luoghi
+        with_fields(boundaries=None), VOCABULARY, fallback_places=base.istat.luoghi
     )
     assert report.ok
     assert parsed.istat.luoghi == base.istat.luoghi
 
 
-def test_luoghi_nostri_senza_dati_non_entrano_nel_set() -> None:
-    base, _ = read_sources(file_validi(), VOCABOLARIO)
-    (luogo,) = base.istat.luoghi
-    altro = replace(luogo, codice="999")
+def test_our_places_without_data_do_not_enter_the_set() -> None:
+    base, _ = read_sources(valid_files(), VOCABULARY)
+    (place,) = base.istat.luoghi
+    other = replace(place, codice="999")
     parsed, report = read_sources(
-        con(boundaries=None), VOCABOLARIO, fallback_places=(luogo, altro)
+        with_fields(boundaries=None), VOCABULARY, fallback_places=(place, other)
     )
     assert [x.codice for x in parsed.istat.luoghi] == ["001"]
     assert report.warnings == []
 
 
-def test_confini_caricati_hanno_la_precedenza_sui_nostri() -> None:
-    base, _ = read_sources(file_validi(), VOCABOLARIO)
-    (luogo,) = base.istat.luoghi
-    nostro = replace(luogo, nome="Nome nostro")
-    parsed, _ = read_sources(file_validi(), VOCABOLARIO, fallback_places=(nostro,))
+def test_loaded_boundaries_take_precedence_over_ours() -> None:
+    base, _ = read_sources(valid_files(), VOCABULARY)
+    (place,) = base.istat.luoghi
+    ours = replace(place, nome="Nome nostro")
+    parsed, _ = read_sources(valid_files(), VOCABULARY, fallback_places=(ours,))
     assert parsed.istat.luoghi[0].nome == "Comune di Esempio"
 
 
-def test_read_sources_solleva_con_il_report() -> None:
+def test_read_sources_raises_with_the_report() -> None:
     with pytest.raises(SourceValidationError) as exc:
-        read_sources(con(osm_table=b""), VOCABOLARIO)
+        read_sources(with_fields(osm_table=b""), VOCABULARY)
     assert not exc.value.report.ok
     assert "osm_table" in str(exc.value)
 
 
-# --- bloccanti: ontologia ---
+# --- blocking: ontology ---
 
 
-def test_turtle_malformato() -> None:
-    report = _report(con(ontology=b"questo non e' turtle @@@"))
-    assert _codici(report.errors) == ["ontologia_illeggibile"]
+def test_malformed_turtle() -> None:
+    report = _report(with_fields(ontology=b"questo non e' turtle @@@"))
+    assert _codes(report.errors) == ["ontologia_illeggibile"]
     assert report.errors[0].file == "ontology"
 
 
-def test_turtle_malformato_messaggio_senza_frammento_di_file() -> None:
-    """#439: riga e causa si', il dump dei byte del file no."""
-    contenuto = (
+def test_malformed_turtle_message_without_file_fragment() -> None:
+    """#439: line and cause yes, the dump of the file bytes no."""
+    content = (
         b"@prefix a: <http://x/> .\na:b a:c a:d .\na:e a:f ;; SEGRETO-NEL-FILE @@@ .\n"
     )
-    report = _report(con(ontology=contenuto))
-    messaggio = report.errors[0].message
-    assert "riga 3" in messaggio
-    assert "objectList expected" in messaggio
-    assert "SEGRETO-NEL-FILE" not in messaggio
-    assert "prefix" not in messaggio
-    assert "\\n" not in messaggio
-    assert "b'" not in messaggio
+    report = _report(with_fields(ontology=content))
+    message = report.errors[0].message
+    assert "riga 3" in message
+    assert "objectList expected" in message
+    assert "SEGRETO-NEL-FILE" not in message
+    assert "prefix" not in message
+    assert "\\n" not in message
+    assert "b'" not in message
 
 
-def test_turtle_stringa_non_chiusa_messaggio_senza_contenuto() -> None:
-    """#439: anche gli errori non-BadSyntax di rdflib non lasciano il file."""
+def test_turtle_unclosed_string_message_without_content() -> None:
+    """#439: rdflib non-BadSyntax errors do not leak the file either."""
     exc = Exception(
         "at line 2 of <>:\nQuote expected in string at ^ in tp://x/> .\n"
         'a:e a:f "^SEGRETO'
     )
-    messaggio = _readable_cause(exc)
-    assert messaggio == "riga 2: Quote expected in string"
+    message = _readable_cause(exc)
+    assert message == "riga 2: Quote expected in string"
 
 
 @pytest.mark.parametrize(
-    ("testo", "atteso"),
+    ("text", "expected"),
     [
         ("\nfoo", "foo"),
         ("  \n  bar  \nbaz", "bar"),
@@ -281,83 +283,83 @@ def test_turtle_stringa_non_chiusa_messaggio_senza_contenuto() -> None:
         ("at line 4 of <>:\n", "riga 4: Exception"),
     ],
 )
-def test_causa_leggibile_prima_riga_non_vuota(testo: str, atteso: str) -> None:
-    assert _readable_cause(Exception(testo)) == atteso
+def test_readable_cause_first_non_empty_line(text: str, expected: str) -> None:
+    assert _readable_cause(Exception(text)) == expected
 
 
-def test_unicode_decode_error_messaggio_senza_byte_del_file() -> None:
-    with pytest.raises(UnicodeDecodeError) as eccezione:
+def test_unicode_decode_error_message_without_file_bytes() -> None:
+    with pytest.raises(UnicodeDecodeError) as exc_info:
         b"\xff\xfe\x00bad".decode("utf-8")
-    assert _readable_cause(eccezione.value).startswith(
-        "'utf-8' codec can't decode byte"
-    )
-    report = _report(con(ontology=b"\xff\xfe\x00bad"))
+    assert _readable_cause(exc_info.value).startswith("'utf-8' codec can't decode byte")
+    report = _report(with_fields(ontology=b"\xff\xfe\x00bad"))
     assert report.errors[0].message.startswith("ontologia non leggibile come turtle")
 
 
-def test_xml_malformato_messaggio_breve_senza_contenuto() -> None:
-    report = _report(con(ontology=b"<rdf:RDF><SEGRETO", ontology_name="mini.owl"))
-    messaggio = report.errors[0].message
-    assert "ontologia non leggibile come xml" in messaggio
-    assert "SEGRETO" not in messaggio
-    assert "\n" not in messaggio
+def test_malformed_xml_short_message_without_content() -> None:
+    report = _report(
+        with_fields(ontology=b"<rdf:RDF><SEGRETO", ontology_name="mini.owl")
+    )
+    message = report.errors[0].message
+    assert "ontologia non leggibile come xml" in message
+    assert "SEGRETO" not in message
+    assert "\n" not in message
 
 
-def test_ontologia_vuota() -> None:
-    report = _report(con(ontology=b"# solo un commento\n"))
-    assert "ontologia_vuota" in _codici(report.errors)
+def test_empty_ontology() -> None:
+    report = _report(with_fields(ontology=b"# solo un commento\n"))
+    assert "ontologia_vuota" in _codes(report.errors)
 
 
-def test_estensione_ontologia_non_supportata() -> None:
-    report = _report(con(ontology_name="mini.docx"))
-    assert "ontologia_formato_non_supportato" in _codici(report.errors)
+def test_unsupported_ontology_extension() -> None:
+    report = _report(with_fields(ontology_name="mini.docx"))
+    assert "ontologia_formato_non_supportato" in _codes(report.errors)
 
 
-def test_ontologia_turtle_non_utf8() -> None:
-    report = _report(con(ontology=b"\xff\xfe\x00bad"))
-    assert "ontologia_illeggibile" in _codici(report.errors)
+def test_non_utf8_turtle_ontology() -> None:
+    report = _report(with_fields(ontology=b"\xff\xfe\x00bad"))
+    assert "ontologia_illeggibile" in _codes(report.errors)
 
 
-def test_vocabolario_non_valido_namespace_e_proprieta() -> None:
-    brutto = OntologyVocabulary(
+def test_invalid_vocabulary_namespace_and_properties() -> None:
+    bad_vocabulary = OntologyVocabulary(
         namespace="non un iri",
         hazard="has Risk>",
         critical_event="hasEvent",
         performer="hasActor",
         vulnerability=("isFragileTo", ""),
     )
-    parsed, report = check_sources(file_validi(), brutto)
+    parsed, report = check_sources(valid_files(), bad_vocabulary)
     assert parsed is None
-    assert _codici(report.errors).count("vocabolario_non_valido") == 3
+    assert _codes(report.errors).count("vocabolario_non_valido") == 3
     assert {p.file for p in report.errors} == {"ontology"}
 
 
-def test_ontologia_senza_restrizioni_sulle_proprieta_configurate() -> None:
-    altro = OntologyVocabulary(
+def test_ontology_without_restrictions_on_the_configured_properties() -> None:
+    other = OntologyVocabulary(
         namespace=NS,
         hazard="altraProprieta",
         critical_event="a",
         performer="b",
         vulnerability=("c",),
     )
-    parsed, report = check_sources(file_validi(), altro)
+    parsed, report = check_sources(valid_files(), other)
     assert parsed is None
-    assert "ontologia_senza_restrizioni" in _codici(report.errors)
+    assert "ontologia_senza_restrizioni" in _codes(report.errors)
 
 
-def test_namespace_sbagliato_non_trova_restrizioni() -> None:
-    altro = replace(VOCABOLARIO, namespace="http://example.org/altro#")
-    parsed, report = check_sources(file_validi(), altro)
+def test_wrong_namespace_finds_no_restrictions() -> None:
+    other = replace(VOCABULARY, namespace="http://example.org/altro#")
+    parsed, report = check_sources(valid_files(), other)
     assert parsed is None
-    assert "ontologia_senza_restrizioni" in _codici(report.errors)
+    assert "ontologia_senza_restrizioni" in _codes(report.errors)
 
 
-# --- bloccanti: tabella OSM ---
+# --- blocking: OSM table ---
 
 
-def test_classe_osm_assente_dall_ontologia() -> None:
+def test_osm_class_missing_from_the_ontology() -> None:
     osm = OSM_CSV + "amenity=cafe,Bar\n"
-    report = _report(con(osm_table=osm.encode()))
+    report = _report(with_fields(osm_table=osm.encode()))
     (p,) = report.errors
     assert p.code == "classe_assente_dall_ontologia"
     assert p.file == "osm_table"
@@ -365,46 +367,46 @@ def test_classe_osm_assente_dall_ontologia() -> None:
     assert "Bar" in p.message
 
 
-def test_osm_intestazione_mancante() -> None:
-    report = _report(con(osm_table=b"amenity=bank,Banca\n"))
-    assert "colonna_mancante" in _codici(report.errors)
+def test_osm_missing_header() -> None:
+    report = _report(with_fields(osm_table=b"amenity=bank,Banca\n"))
+    assert "colonna_mancante" in _codes(report.errors)
     assert all(p.file == "osm_table" for p in report.errors)
 
 
-def test_osm_colonna_mancante_nomina_la_colonna() -> None:
-    report = _report(con(osm_table=b"osm_tag\namenity=bank\n"))
+def test_osm_missing_column_names_the_column() -> None:
+    report = _report(with_fields(osm_table=b"osm_tag\namenity=bank\n"))
     (p,) = report.errors
     assert p.code == "colonna_mancante"
     assert "classe" in p.message
 
 
-def test_osm_tag_non_valido() -> None:
+def test_invalid_osm_tag() -> None:
     osm = OSM_CSV + 'amenity="bank,Banca\nsenza_uguale,Banca\n'
-    report = _report(con(osm_table=osm.encode()))
-    assert _codici(report.errors) == ["osm_tag_non_valido"] * 2
+    report = _report(with_fields(osm_table=osm.encode()))
+    assert _codes(report.errors) == ["osm_tag_non_valido"] * 2
     assert [p.line for p in report.errors] == [4, 5]
 
 
-def test_osm_chiave_duplicata_indica_la_riga() -> None:
+def test_osm_duplicate_key_reports_the_line() -> None:
     osm = OSM_CSV + "amenity=bank,Ospedale\n"
-    report = _report(con(osm_table=osm.encode()))
+    report = _report(with_fields(osm_table=osm.encode()))
     (p,) = report.errors
     assert p.code == "chiave_duplicata"
     assert p.line == 4
 
 
-def test_osm_senza_righe() -> None:
-    report = _report(con(osm_table=b"osm_tag,classe\n"))
-    assert "file_senza_righe" in _codici(report.errors)
+def test_osm_without_rows() -> None:
+    report = _report(with_fields(osm_table=b"osm_tag,classe\n"))
+    assert "file_senza_righe" in _codes(report.errors)
 
 
-def test_osm_file_vuoto() -> None:
-    report = _report(con(osm_table=b""))
-    assert "file_vuoto" in _codici(report.errors)
+def test_osm_empty_file() -> None:
+    report = _report(with_fields(osm_table=b""))
+    assert "file_vuoto" in _codes(report.errors)
 
 
-def test_separatore_punto_e_virgola_errore_chiaro() -> None:
-    report = _report(con(osm_table=b"osm_tag;classe\namenity=bank;Banca\n"))
+def test_semicolon_separator_clear_error() -> None:
+    report = _report(with_fields(osm_table=b"osm_tag;classe\namenity=bank;Banca\n"))
     (p,) = report.errors
     assert p.code == "separatore_non_valido"
     assert ";" in p.message
@@ -412,112 +414,112 @@ def test_separatore_punto_e_virgola_errore_chiaro() -> None:
     assert p.file == "osm_table"
 
 
-def test_csv_non_utf8() -> None:
-    contenuto = "osm_tag,classe\nè=è,è\n".encode("latin-1")
-    report = _report(con(osm_table=contenuto))
-    assert "codifica_non_valida" in _codici(report.errors)
+def test_non_utf8_csv() -> None:
+    content = "osm_tag,classe\nè=è,è\n".encode("latin-1")
+    report = _report(with_fields(osm_table=content))
+    assert "codifica_non_valida" in _codes(report.errors)
 
 
-def test_riga_con_troppe_o_poche_celle() -> None:
+def test_row_with_too_many_or_too_few_cells() -> None:
     osm = OSM_CSV + "amenity=cafe\namenity=bar,Banca,extra\n"
-    report = _report(con(osm_table=osm.encode()))
-    assert _codici(report.errors) == ["riga_malformata"] * 2
+    report = _report(with_fields(osm_table=osm.encode()))
+    assert _codes(report.errors) == ["riga_malformata"] * 2
     assert [p.line for p in report.errors] == [4, 5]
 
 
-# --- bloccanti: tabella hazard ---
+# --- blocking: hazard table ---
 
 
-def test_hazard_assente_dall_ontologia() -> None:
+def test_hazard_missing_from_the_ontology() -> None:
     hazard = HAZARD_CSV + "Scippo,ROB,esatta,no,\n"
-    report = _report(con(hazard_table=hazard.encode()))
+    report = _report(with_fields(hazard_table=hazard.encode()))
     (p,) = report.errors
     assert p.code == "hazard_assente_dall_ontologia"
     assert p.file == "hazard_table"
     assert p.line == 4
 
 
-def test_voce_della_tabella_assente_dai_dati() -> None:
+def test_table_item_missing_from_the_data() -> None:
     hazard = HAZARD_CSV.replace("ROB", "XYZ")
-    report = _report(con(hazard_table=hazard.encode()))
+    report = _report(with_fields(hazard_table=hazard.encode()))
     (p,) = report.errors
     assert p.code == "voce_assente_dai_dati"
     assert p.line == 2
     assert "XYZ" in p.message
 
 
-def test_corrispondenza_non_valida() -> None:
+def test_invalid_match() -> None:
     hazard = "hazard,voce,corrispondenza\nRapina,ROB,quasi\nFurto,THEFT,esatta\n"
-    report = _report(con(hazard_table=hazard.encode()))
+    report = _report(with_fields(hazard_table=hazard.encode()))
     (p,) = report.errors
     assert p.code == "corrispondenza_non_valida"
     assert p.line == 2
 
 
-def test_voce_e_corrispondenza_vuote_insieme() -> None:
+def test_item_and_match_empty_together() -> None:
     hazard = "hazard,voce,corrispondenza\nRapina,ROB,\nFurto,,esatta\n"
-    report = _report(con(hazard_table=hazard.encode()))
-    assert _codici(report.errors) == ["voce_corrispondenza_incoerenti"] * 2
+    report = _report(with_fields(hazard_table=hazard.encode()))
+    assert _codes(report.errors) == ["voce_corrispondenza_incoerenti"] * 2
 
 
-def test_serie_non_confrontabile_valore_non_valido() -> None:
+def test_non_comparable_series_invalid_value() -> None:
     hazard = (
         "hazard,voce,corrispondenza,serie_non_confrontabile\nRapina,ROB,esatta,forse\n"
     )
-    report = _report(con(hazard_table=hazard.encode()))
-    assert _codici(report.errors) == ["valore_non_valido"]
+    report = _report(with_fields(hazard_table=hazard.encode()))
+    assert _codes(report.errors) == ["valore_non_valido"]
 
 
-def test_hazard_duplicato() -> None:
+def test_duplicate_hazard() -> None:
     hazard = HAZARD_CSV + "Furto,THEFT,esatta,no,\n"
-    report = _report(con(hazard_table=hazard.encode()))
+    report = _report(with_fields(hazard_table=hazard.encode()))
     (p,) = report.errors
     assert p.code == "chiave_duplicata"
     assert p.line == 4
 
 
-# --- bloccanti: dati ---
+# --- blocking: data ---
 
 
-def test_riga_nazionale_mancante() -> None:
-    dati = _senza_righe_che_iniziano_con(DATI_CSV, "IT,")
-    report = _report(con(data=dati))
-    assert "riga_nazionale_mancante" in _codici(report.errors)
+def test_missing_national_row() -> None:
+    data_csv = _without_lines_starting_with(DATA_CSV, "IT,")
+    report = _report(with_fields(data=data_csv))
+    assert "riga_nazionale_mancante" in _codes(report.errors)
     assert all(p.file == "data" for p in report.errors)
 
 
-def test_dati_chiave_duplicata() -> None:
-    dati = DATI_CSV + "001,ROB,rapine,2024,1,1.0,no\n"
-    report = _report(con(data=dati.encode()))
+def test_data_duplicate_key() -> None:
+    data_csv = DATA_CSV + "001,ROB,rapine,2024,1,1.0,no\n"
+    report = _report(with_fields(data=data_csv.encode()))
     (p,) = report.errors
     assert p.code == "chiave_duplicata"
     assert p.line == 14
 
 
-def test_dati_valori_non_numerici() -> None:
-    dati = (
-        DATI_CSV + "001,ROB,rapine,20x4,1,1.0,no\n001,THEFT,furti,2023,tanti,1.0,no\n"
+def test_data_non_numeric_values() -> None:
+    data_csv = (
+        DATA_CSV + "001,ROB,rapine,20x4,1,1.0,no\n001,THEFT,furti,2023,tanti,1.0,no\n"
     )
-    report = _report(con(data=dati.encode()))
-    assert _codici(report.errors) == ["valore_non_valido"] * 2
+    report = _report(with_fields(data=data_csv.encode()))
+    assert _codes(report.errors) == ["valore_non_valido"] * 2
     assert [p.line for p in report.errors] == [14, 15]
 
 
-def test_dati_delitti_e_tasso_negativi() -> None:
-    dati = DATI_CSV + "001,ROB,rapine,2023,-1,-2.0,no\n"
-    report = _report(con(data=dati.encode()))
-    assert _codici(report.errors) == ["valore_non_valido"] * 2
+def test_data_negative_crimes_and_rate() -> None:
+    data_csv = DATA_CSV + "001,ROB,rapine,2023,-1,-2.0,no\n"
+    report = _report(with_fields(data=data_csv.encode()))
+    assert _codes(report.errors) == ["valore_non_valido"] * 2
 
 
-def test_dati_tasso_non_finito() -> None:
-    dati = DATI_CSV + "001,ROB,rapine,2023,1,nan,no\n001,ROB,rapine,2022,1,inf,no\n"
-    report = _report(con(data=dati.encode()))
-    assert _codici(report.errors) == ["valore_non_valido"] * 2
+def test_data_non_finite_rate() -> None:
+    data_csv = DATA_CSV + "001,ROB,rapine,2023,1,nan,no\n001,ROB,rapine,2022,1,inf,no\n"
+    report = _report(with_fields(data=data_csv.encode()))
+    assert _codes(report.errors) == ["valore_non_valido"] * 2
 
 
-def test_dati_sotto_soglia_senza_tasso() -> None:
-    dati = DATI_CSV + "001,ROB,rapine,2023,3,,si\n"
-    parsed, report = check_sources(con(data=dati.encode()), VOCABOLARIO)
+def test_data_below_threshold_without_rate() -> None:
+    data_csv = DATA_CSV + "001,ROB,rapine,2023,3,,si\n"
+    parsed, report = check_sources(with_fields(data=data_csv.encode()), VOCABULARY)
     assert report.ok
     assert parsed is not None
     assert parsed.istat.delitti.valore("001", "ROB", 2023) == YearValue(
@@ -525,44 +527,46 @@ def test_dati_sotto_soglia_senza_tasso() -> None:
     )
 
 
-def test_dati_sotto_soglia_con_tasso_incoerente() -> None:
-    dati = DATI_CSV + "001,ROB,rapine,2023,3,0.1,si\n"
-    report = _report(con(data=dati.encode()))
-    assert _codici(report.errors) == ["valore_non_valido"]
+def test_data_below_threshold_with_inconsistent_rate() -> None:
+    data_csv = DATA_CSV + "001,ROB,rapine,2023,3,0.1,si\n"
+    report = _report(with_fields(data=data_csv.encode()))
+    assert _codes(report.errors) == ["valore_non_valido"]
 
 
-def test_dati_dato_mancante_diventa_none() -> None:
-    dati = DATI_CSV + "001,ROB,rapine,2023,,,\n"
-    parsed, report = check_sources(con(data=dati.encode()), VOCABOLARIO)
+def test_data_missing_value_becomes_none() -> None:
+    data_csv = DATA_CSV + "001,ROB,rapine,2023,,,\n"
+    parsed, report = check_sources(with_fields(data=data_csv.encode()), VOCABULARY)
     assert report.ok
     assert parsed is not None
     assert parsed.istat.delitti.valori["001"]["ROB"]["2023"] is None
 
 
-def test_dati_delitti_vuoti_con_tasso_incoerente() -> None:
-    dati = DATI_CSV + "001,ROB,rapine,2023,,5.0,no\n"
-    report = _report(con(data=dati.encode()))
-    assert _codici(report.errors) == ["valore_non_valido"]
+def test_data_empty_crimes_with_inconsistent_rate() -> None:
+    data_csv = DATA_CSV + "001,ROB,rapine,2023,,5.0,no\n"
+    report = _report(with_fields(data=data_csv.encode()))
+    assert _codes(report.errors) == ["valore_non_valido"]
 
 
-def test_dati_etichetta_voce_incoerente() -> None:
-    dati = DATI_CSV + "001,ROB,altro nome,2023,1,1.0,no\n"
-    report = _report(con(data=dati.encode()))
-    assert _codici(report.errors) == ["etichetta_voce_incoerente"]
+def test_data_inconsistent_item_label() -> None:
+    data_csv = DATA_CSV + "001,ROB,altro nome,2023,1,1.0,no\n"
+    report = _report(with_fields(data=data_csv.encode()))
+    assert _codes(report.errors) == ["etichetta_voce_incoerente"]
 
 
-def test_dati_colonne_mancanti_una_per_colonna() -> None:
-    dati = "luogo,voce,anno,delitti\nIT,TOT,2024,1\n"
-    report = _report(con(data=dati.encode()))
-    assert _codici(report.errors) == ["colonna_mancante"] * 2
-    messaggi = " ".join(p.message for p in report.errors)
-    assert "voce_etichetta" in messaggi
-    assert "tasso" in messaggi
+def test_data_missing_columns_one_per_column() -> None:
+    data_csv = "luogo,voce,anno,delitti\nIT,TOT,2024,1\n"
+    report = _report(with_fields(data=data_csv.encode()))
+    assert _codes(report.errors) == ["colonna_mancante"] * 2
+    messages = " ".join(p.message for p in report.errors)
+    assert "voce_etichetta" in messages
+    assert "tasso" in messages
 
 
-def test_dati_tasso_sotto_soglia_colonna_opzionale() -> None:
-    dati = "\n".join(",".join(r.split(",")[:6]) for r in DATI_CSV.splitlines()).encode()
-    parsed, report = check_sources(con(data=dati), VOCABOLARIO)
+def test_data_below_threshold_rate_column_optional() -> None:
+    data_csv = "\n".join(
+        ",".join(r.split(",")[:6]) for r in DATA_CSV.splitlines()
+    ).encode()
+    parsed, report = check_sources(with_fields(data=data_csv), VOCABULARY)
     assert report.ok
     assert parsed is not None
     assert parsed.istat.delitti.valore("001", "ROB", 2024) == YearValue(
@@ -570,13 +574,15 @@ def test_dati_tasso_sotto_soglia_colonna_opzionale() -> None:
     )
 
 
-def test_dati_codici_non_ammessi() -> None:
-    dati = DATI_CSV + "00 1,ROB,rapine,2023,1,1.0,no\n001,R O B,rapine,2023,1,1.0,no\n"
-    report = _report(con(data=dati.encode()))
-    assert "codice_non_valido" in _codici(report.errors)
+def test_data_disallowed_codes() -> None:
+    data_csv = (
+        DATA_CSV + "00 1,ROB,rapine,2023,1,1.0,no\n001,R O B,rapine,2023,1,1.0,no\n"
+    )
+    report = _report(with_fields(data=data_csv.encode()))
+    assert "codice_non_valido" in _codes(report.errors)
 
 
-def test_report_con_tutti_i_problemi_di_un_file() -> None:
+def test_report_with_all_the_problems_of_a_file() -> None:
     osm = (
         "osm_tag,classe\n"
         "amenity=bank,Inesistente\n"
@@ -584,8 +590,8 @@ def test_report_con_tutti_i_problemi_di_un_file() -> None:
         "senza_uguale,Banca\n"
         "amenity=hospital,Altra\n"
     )
-    report = _report(con(osm_table=osm.encode()))
-    assert sorted(_codici(report.errors)) == sorted(
+    report = _report(with_fields(osm_table=osm.encode()))
+    assert sorted(_codes(report.errors)) == sorted(
         [
             "classe_assente_dall_ontologia",
             "chiave_duplicata",
@@ -595,9 +601,9 @@ def test_report_con_tutti_i_problemi_di_un_file() -> None:
     )
 
 
-def test_report_con_problemi_di_file_diversi_in_una_volta() -> None:
+def test_report_with_problems_of_different_files_at_once() -> None:
     report = _report(
-        con(
+        with_fields(
             ontology=b"@@@",
             osm_table=b"osm_tag;classe\n",
             hazard_table=b"",
@@ -612,103 +618,107 @@ def test_report_con_problemi_di_file_diversi_in_una_volta() -> None:
     }
 
 
-# --- confini ---
+# --- boundaries ---
 
 
-def test_nessun_luogo_con_confini() -> None:
-    report = _report(con(boundaries=None))
-    assert _codici(report.errors) == ["nessun_luogo_con_confini"]
+def test_no_place_with_boundaries() -> None:
+    report = _report(with_fields(boundaries=None))
+    assert _codes(report.errors) == ["nessun_luogo_con_confini"]
 
 
-def test_confini_json_illeggibile() -> None:
-    report = _report(con(boundaries=b"{non json"))
-    assert "confini_illeggibili" in _codici(report.errors)
+def test_unreadable_boundaries_json() -> None:
+    report = _report(with_fields(boundaries=b"{non json"))
+    assert "confini_illeggibili" in _codes(report.errors)
     assert all(p.file == "boundaries" for p in report.errors)
 
 
-def test_confini_non_feature_collection() -> None:
-    report = _report(con(boundaries=confini_json({"type": "Feature"})))
-    assert "confini_non_validi" in _codici(report.errors)
+def test_boundaries_not_a_feature_collection() -> None:
+    report = _report(with_fields(boundaries=boundaries_json({"type": "Feature"})))
+    assert "confini_non_validi" in _codes(report.errors)
 
 
-def test_confini_proprieta_mancanti_e_tipo_errato() -> None:
-    brutti = json.loads(json.dumps(CONFINI))
-    brutti["features"][0]["properties"] = {"codice": "001", "tipo": "regione"}
-    report = _report(con(boundaries=confini_json(brutti)))
-    assert "confini_non_validi" in _codici(report.errors)
-    messaggi = " ".join(p.message for p in report.errors)
-    assert "tipo" in messaggi
-    assert "nome" in messaggi
+def test_boundaries_missing_properties_and_wrong_type() -> None:
+    bad = json.loads(json.dumps(BOUNDARIES))
+    bad["features"][0]["properties"] = {"codice": "001", "tipo": "regione"}
+    report = _report(with_fields(boundaries=boundaries_json(bad)))
+    assert "confini_non_validi" in _codes(report.errors)
+    messages = " ".join(p.message for p in report.errors)
+    assert "tipo" in messages
+    assert "nome" in messages
 
 
-def test_confini_geometria_non_supportata() -> None:
-    brutti = json.loads(json.dumps(CONFINI))
-    brutti["features"][0]["geometry"] = {"type": "Point", "coordinates": [1, 2]}
-    report = _report(con(boundaries=confini_json(brutti)))
-    assert "confini_non_validi" in _codici(report.errors)
+def test_boundaries_unsupported_geometry() -> None:
+    bad = json.loads(json.dumps(BOUNDARIES))
+    bad["features"][0]["geometry"] = {"type": "Point", "coordinates": [1, 2]}
+    report = _report(with_fields(boundaries=boundaries_json(bad)))
+    assert "confini_non_validi" in _codes(report.errors)
 
 
-def test_confini_coordinate_fuori_range() -> None:
-    brutti = json.loads(json.dumps(CONFINI))
-    brutti["features"][0]["geometry"]["coordinates"][0][1] = [999.0, 41.0]
-    report = _report(con(boundaries=confini_json(brutti)))
-    assert "confini_non_validi" in _codici(report.errors)
+def test_boundaries_coordinates_out_of_range() -> None:
+    bad = json.loads(json.dumps(BOUNDARIES))
+    bad["features"][0]["geometry"]["coordinates"][0][1] = [999.0, 41.0]
+    report = _report(with_fields(boundaries=boundaries_json(bad)))
+    assert "confini_non_validi" in _codes(report.errors)
 
 
-def test_confini_anello_troppo_corto() -> None:
-    brutti = json.loads(json.dumps(CONFINI))
-    brutti["features"][0]["geometry"]["coordinates"] = [[[1.0, 1.0], [2.0, 2.0]]]
-    report = _report(con(boundaries=confini_json(brutti)))
-    assert "confini_non_validi" in _codici(report.errors)
+def test_boundaries_ring_too_short() -> None:
+    bad = json.loads(json.dumps(BOUNDARIES))
+    bad["features"][0]["geometry"]["coordinates"] = [[[1.0, 1.0], [2.0, 2.0]]]
+    report = _report(with_fields(boundaries=boundaries_json(bad)))
+    assert "confini_non_validi" in _codes(report.errors)
 
 
-def test_confini_codice_duplicato() -> None:
-    doppio = json.loads(json.dumps(CONFINI))
-    doppio["features"].append(doppio["features"][0])
-    report = _report(con(boundaries=confini_json(doppio)))
-    assert "chiave_duplicata" in _codici(report.errors)
+def test_boundaries_duplicate_code() -> None:
+    doubled = json.loads(json.dumps(BOUNDARIES))
+    doubled["features"].append(doubled["features"][0])
+    report = _report(with_fields(boundaries=boundaries_json(doubled)))
+    assert "chiave_duplicata" in _codes(report.errors)
 
 
-def test_confini_multipolygon_accettato() -> None:
-    multi = json.loads(json.dumps(CONFINI))
-    anello = multi["features"][0]["geometry"]["coordinates"]
+def test_boundaries_multipolygon_accepted() -> None:
+    multi = json.loads(json.dumps(BOUNDARIES))
+    ring = multi["features"][0]["geometry"]["coordinates"]
     multi["features"][0]["geometry"] = {
         "type": "MultiPolygon",
-        "coordinates": [anello],
+        "coordinates": [ring],
     }
-    parsed, report = check_sources(con(boundaries=confini_json(multi)), VOCABOLARIO)
+    parsed, report = check_sources(
+        with_fields(boundaries=boundaries_json(multi)), VOCABULARY
+    )
     assert report.ok
     assert parsed is not None
 
 
-def test_avviso_luogo_senza_confini_se_altri_ne_hanno() -> None:
-    dati = DATI_CSV + "002,TOT,totale,2024,10,1.0,no\n"
-    parsed, report = check_sources(con(data=dati.encode()), VOCABOLARIO)
+def test_warning_place_without_boundaries_if_others_have_them() -> None:
+    data_csv = DATA_CSV + "002,TOT,totale,2024,10,1.0,no\n"
+    parsed, report = check_sources(with_fields(data=data_csv.encode()), VOCABULARY)
     assert report.ok
     assert parsed is not None
-    assert _codici(report.warnings) == ["luogo_senza_confini"]
+    assert _codes(report.warnings) == ["luogo_senza_confini"]
     assert [x.codice for x in parsed.istat.luoghi] == ["001"]
     assert "002" in report.warnings[0].message
 
 
-def test_avviso_confini_di_luogo_senza_dati() -> None:
-    extra = json.loads(json.dumps(CONFINI))
-    secondo = json.loads(json.dumps(CONFINI["features"][0]))
-    secondo["properties"]["codice"] = "777"
-    extra["features"].append(secondo)
-    parsed, report = check_sources(con(boundaries=confini_json(extra)), VOCABOLARIO)
+def test_warning_boundaries_of_place_without_data() -> None:
+    extra = json.loads(json.dumps(BOUNDARIES))
+    second = json.loads(json.dumps(BOUNDARIES["features"][0]))
+    second["properties"]["codice"] = "777"
+    extra["features"].append(second)
+    parsed, report = check_sources(
+        with_fields(boundaries=boundaries_json(extra)), VOCABULARY
+    )
     assert report.ok
     assert parsed is not None
-    assert _codici(report.warnings) == ["luogo_senza_dati"]
+    assert _codes(report.warnings) == ["luogo_senza_dati"]
     assert [x.codice for x in parsed.istat.luoghi] == ["001"]
 
 
-# --- avvisi ---
+# --- warnings ---
 
 
-def test_avviso_colonna_in_piu() -> None:
+def test_warning_extra_column() -> None:
     osm = "osm_tag,classe,commento\namenity=bank,Banca,ok\namenity=hospital,Ospedale,\n"
-    parsed, report = check_sources(con(osm_table=osm.encode()), VOCABOLARIO)
+    parsed, report = check_sources(with_fields(osm_table=osm.encode()), VOCABULARY)
     assert report.ok
     assert parsed is not None
     (w,) = report.warnings
@@ -717,27 +727,27 @@ def test_avviso_colonna_in_piu() -> None:
     assert "commento" in w.message
 
 
-def test_avviso_etichette_mancanti_non_blocca() -> None:
-    ttl = ONTOLOGIA_TTL.replace(' rdfs:label "Rapina"@it, "Robbery"@en', "")
+def test_warning_missing_labels_does_not_block() -> None:
+    ttl = ONTOLOGY_TTL.replace(' rdfs:label "Rapina"@it, "Robbery"@en', "")
     ttl = ttl.replace(', "Bank"@en', "")
-    parsed, report = check_sources(con(ontology=ttl.encode()), VOCABOLARIO)
+    parsed, report = check_sources(with_fields(ontology=ttl.encode()), VOCABULARY)
     assert report.ok
     assert parsed is not None
-    assert set(_codici(report.warnings)) == {"etichetta_mancante"}
+    assert set(_codes(report.warnings)) == {"etichetta_mancante"}
     assert {p.file for p in report.warnings} == {"ontology"}
-    # ripiego: nome della classe con l'underscore sostituito da uno spazio
+    # fallback: class name with the underscore replaced by a space
     assert parsed.labels["Rapina"] == ("Rapina", "Rapina")
     assert parsed.labels["Banca"] == ("Banca", "Banca")
 
 
-def test_ripiego_etichetta_sostituisce_underscore() -> None:
-    ttl = ONTOLOGIA_TTL.replace("m:Rapina a", "m:Rapina_a_mano_armata a").replace(
+def test_label_fallback_replaces_underscore() -> None:
+    ttl = ONTOLOGY_TTL.replace("m:Rapina a", "m:Rapina_a_mano_armata a").replace(
         "owl:someValuesFrom m:Rapina ]", "owl:someValuesFrom m:Rapina_a_mano_armata ]"
     )
     ttl = ttl.replace(' rdfs:label "Rapina"@it, "Robbery"@en', "")
     hazard = HAZARD_CSV.replace("Rapina,", "Rapina_a_mano_armata,")
     parsed, report = check_sources(
-        con(ontology=ttl.encode(), hazard_table=hazard.encode()), VOCABOLARIO
+        with_fields(ontology=ttl.encode(), hazard_table=hazard.encode()), VOCABULARY
     )
     assert report.ok
     assert parsed is not None
@@ -747,30 +757,34 @@ def test_ripiego_etichetta_sostituisce_underscore() -> None:
     )
 
 
-def test_avviso_anno_di_confronto_assente() -> None:
-    righe = [r for r in DATI_CSV.splitlines() if ",2014," not in r]
-    parsed, report = check_sources(con(data="\n".join(righe).encode()), VOCABOLARIO)
+def test_warning_missing_comparison_year() -> None:
+    lines = [r for r in DATA_CSV.splitlines() if ",2014," not in r]
+    parsed, report = check_sources(
+        with_fields(data="\n".join(lines).encode()), VOCABULARY
+    )
     assert report.ok
     assert parsed is not None
-    assert "anno_confronto_assente" in _codici(report.warnings)
+    assert "anno_confronto_assente" in _codes(report.warnings)
 
 
-def test_avviso_totale_mancante_per_un_luogo() -> None:
-    dati = _senza_righe_che_iniziano_con(DATI_CSV, "001,TOT")
-    parsed, report = check_sources(con(data=dati), VOCABOLARIO)
+def test_warning_missing_total_for_a_place() -> None:
+    data_csv = _without_lines_starting_with(DATA_CSV, "001,TOT")
+    parsed, report = check_sources(with_fields(data=data_csv), VOCABULARY)
     assert report.ok
     assert parsed is not None
-    assert "totale_mancante" in _codici(report.warnings)
+    assert "totale_mancante" in _codes(report.warnings)
 
 
-def test_avviso_serie_non_confrontabile_incoerente_nella_stessa_voce() -> None:
+def test_warning_inconsistent_non_comparable_series_in_the_same_item() -> None:
     hazard = (
         "hazard,voce,corrispondenza,serie_non_confrontabile\n"
         "Rapina,ROB,esatta,si\nFurto,ROB,piu_larga,no\n"
     )
-    parsed, report = check_sources(con(hazard_table=hazard.encode()), VOCABOLARIO)
+    parsed, report = check_sources(
+        with_fields(hazard_table=hazard.encode()), VOCABULARY
+    )
     assert report.ok
     assert parsed is not None
-    assert "serie_non_confrontabile_incoerente" in _codici(report.warnings)
+    assert "serie_non_confrontabile_incoerente" in _codes(report.warnings)
     assert parsed.voci_rottura == frozenset({"ROB"})
     assert parsed.mappatura["Furto"].rottura_2016 is True

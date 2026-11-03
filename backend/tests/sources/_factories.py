@@ -1,7 +1,7 @@
-"""File di fonti minimi e validi per i test del caricamento (#415).
+"""Minimal, valid source files for the loading tests (#415).
 
-Ogni test parte da :func:`file_validi` e sostituisce solo il pezzo che vuole
-rompere, cosi' il report di un test contiene solo i problemi voluti.
+Each test starts from :func:`valid_files` and replaces only the piece it wants
+to break, so a test's report contains only the intended problems.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from crime_risk_analyzer.sources.vocabulary import OntologyVocabulary
 
 NS = "http://example.org/mini#"
 
-VOCABOLARIO = OntologyVocabulary(
+VOCABULARY = OntologyVocabulary(
     namespace=NS,
     hazard="hasRisk",
     critical_event="hasEvent",
@@ -22,7 +22,7 @@ VOCABOLARIO = OntologyVocabulary(
     vulnerability=("isFragileTo", "hasWeakness"),
 )
 
-ONTOLOGIA_TTL = """
+ONTOLOGY_TTL = """
 @prefix m: <http://example.org/mini#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
@@ -43,7 +43,7 @@ m:Furto a owl:Class ; rdfs:label "Furto"@it, "Theft"@en .
 
 OSM_CSV = "osm_tag,classe\namenity=bank,Banca\namenity=hospital,Ospedale\n"
 
-DATI_CSV = (
+DATA_CSV = (
     "luogo,voce,voce_etichetta,anno,delitti,tasso,tasso_sotto_soglia\n"
     "IT,TOT,totale,2024,2000000,3400.0,no\n"
     "IT,TOT,totale,2014,2100000,3500.0,no\n"
@@ -65,7 +65,7 @@ HAZARD_CSV = (
     "Furto,THEFT,piu_larga,si,Serie interrotta nel 2016\n"
 )
 
-CONFINI = {
+BOUNDARIES = {
     "type": "FeatureCollection",
     "features": [
         {
@@ -93,21 +93,21 @@ CONFINI = {
 }
 
 
-def confini_json(obj: object = CONFINI) -> bytes:
+def boundaries_json(obj: object = BOUNDARIES) -> bytes:
     return json.dumps(obj).encode("utf-8")
 
 
-def file_validi() -> UploadedFiles:
+def valid_files() -> UploadedFiles:
     return UploadedFiles(
-        ontology=ONTOLOGIA_TTL.encode("utf-8"),
+        ontology=ONTOLOGY_TTL.encode("utf-8"),
         ontology_name="mini.ttl",
         osm_table=OSM_CSV.encode("utf-8"),
-        data=DATI_CSV.encode("utf-8"),
+        data=DATA_CSV.encode("utf-8"),
         hazard_table=HAZARD_CSV.encode("utf-8"),
-        boundaries=confini_json(),
+        boundaries=boundaries_json(),
     )
 
 
-def con(**campi: object) -> UploadedFiles:
-    """File validi con alcuni campi sostituiti."""
-    return replace(file_validi(), **campi)  # pyright: ignore[reportArgumentType]
+def with_fields(**fields: object) -> UploadedFiles:
+    """Valid files with some fields replaced."""
+    return replace(valid_files(), **fields)  # pyright: ignore[reportArgumentType]

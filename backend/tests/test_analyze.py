@@ -1,4 +1,4 @@
-"""Test endpoint POST /analyze (#18)."""
+"""Tests for the POST /analyze endpoint (#18)."""
 
 from __future__ import annotations
 
@@ -55,7 +55,7 @@ class _FakeLLMClient:
 
 
 class _RecordingLLMClient:
-    """Spia: registra lo ``user_content`` che l'endpoint fa arrivare al modello."""
+    """Spy: records the ``user_content`` the endpoint sends to the model."""
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
@@ -102,14 +102,14 @@ def _fake_reverse_geocode(lat: float, lon: float) -> tuple[str, str]:
 
 
 def _patch_io(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Patcha la sola I/O che il path a cerchio (#318) attraversa davvero.
+    """Patch only the I/O that the circle path (#318) really goes through.
 
-    Col cerchio ``geocode_zone`` non e' chiamato (lo e' solo nella modalita'
-    citta + zona, vedi ``_patch_zone_io``): ``resolve_circle`` passa sempre un
-    ``geo_source`` proprio. La label
-    citta'/zona arriva da ``area_search.reverse_geocode_label`` (reverse
-    geocode del centro); il bbox da ``bbox_from_circle`` (puro, nessun I/O) —
-    solo la label va quindi simulata qui.
+    With the circle ``geocode_zone`` is not called (it is only called in the
+    citta + zona mode, see ``_patch_zone_io``): ``resolve_circle`` always passes
+    its own ``geo_source``. The citta/zona label comes from
+    ``area_search.reverse_geocode_label`` (reverse geocode of the center); the
+    bbox comes from ``bbox_from_circle`` (pure, no I/O) -- so only the label
+    has to be simulated here.
     """
     monkeypatch.setattr(area_search, "reverse_geocode_label", _fake_reverse_geocode)
 
@@ -131,12 +131,12 @@ def _client(llm: object = None, *, settings: Settings | None = None) -> TestClie
 
 
 def test_analyze_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
-    """#292: la rotta risponde in fase 1 — dati strutturati, ``narrativa`` assente.
+    """#292: the route answers in phase 1 -- structured data, ``narrativa`` absent.
 
-    ``narrativa is None`` non e' un fallback (``fallback`` resta ``False``): dice
-    al client che il testo e' in arrivo da ``POST /analyze/narrativa``. La
-    distinzione e' il contratto su cui il frontend decide se mostrare lo
-    scheletro della narrativa o il messaggio di LLM caduto.
+    ``narrativa is None`` is not a fallback (``fallback`` stays ``False``): it
+    tells the client that the text is on its way from ``POST /analyze/narrativa``.
+    The distinction is the contract on which the frontend decides whether to show
+    the narrativa skeleton or the "LLM down" message.
     """
     _patch_io(monkeypatch)
     resp = cast(
@@ -155,11 +155,11 @@ def test_analyze_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     assert [p["confidence"] for p in body["poi"]] == ["verificato", None]
 
 
-def test_contesto_hash_di_analyze_cambia_con_la_sessione(
+def test_analyze_contesto_hash_changes_with_the_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#416: lo stesso input da sessioni con fonti diverse non condivide l'impronta
-    (e quindi non puo' riusare la narrativa di un altro set)."""
+    """#416: the same input from sessions with different sources does not share the
+    fingerprint (and therefore cannot reuse another set's narrativa)."""
     import dataclasses
 
     from crime_risk_analyzer.sources import routes as sources_routes
@@ -179,50 +179,50 @@ def test_contesto_hash_di_analyze_cambia_con_la_sessione(
     )
     body = {"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0}
     default = client.post("/analyze", json=body).json()["contesto_hash"]
-    con_set = client.post("/analyze", json=body, headers={"X-Session-Id": sid}).json()[
+    with_set = client.post("/analyze", json=body, headers={"X-Session-Id": sid}).json()[
         "contesto_hash"
     ]
-    assert default != con_set
+    assert default != with_set
 
 
-@pytest.mark.parametrize("acceso", [True, False], ids=["istat-acceso", "istat-spento"])
-def test_rotta_analyze_passa_l_interruttore(
-    acceso: bool, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("enabled", [True, False], ids=["istat-acceso", "istat-spento"])
+def test_analyze_route_passes_the_switch(
+    enabled: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """#346: senza l'inoltro ``istat_context_enabled=settings.istat_context_enabled``
-    in ``main.py``, ``poi[].istat`` non arriverebbe mai al client in produzione,
-    qualunque sia il valore di ``Settings.istat_context_enabled``."""
+    """#346: without forwarding ``istat_context_enabled=settings.istat_context_enabled``
+    in ``main.py``, ``poi[].istat`` would never reach the client in production,
+    whatever the value of ``Settings.istat_context_enabled``."""
     from crime_risk_analyzer import analyze_narrative
-    from crime_risk_analyzer.rag.grounding import ground as ground_reale
+    from crime_risk_analyzer.rag.grounding import ground as real_ground
     from tests.istat._factories import BANKROB, istat_poi
 
     _patch_io(monkeypatch)
-    dati = istat_poi(BANKROB)
+    istat_payload = istat_poi(BANKROB)
 
-    def _ground_con_istat(ctx: RetrievalContext) -> GroundedContext:
-        grounded = ground_reale(ctx)
+    def _ground_with_istat(ctx: RetrievalContext) -> GroundedContext:
+        grounded = real_ground(ctx)
         for vr in grounded["validated_risks"]:
-            vr["istat"] = dati
+            vr["istat"] = istat_payload
         return grounded
 
-    monkeypatch.setattr(analyze_narrative, "ground", _ground_con_istat)
+    monkeypatch.setattr(analyze_narrative, "ground", _ground_with_istat)
     resp = cast(
         httpx.Response,
-        _client(settings=Settings(istat_context_enabled=acceso)).post(  # pyright: ignore[reportUnknownMemberType]
+        _client(settings=Settings(istat_context_enabled=enabled)).post(  # pyright: ignore[reportUnknownMemberType]
             "/analyze",
             json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0},
         ),
     )
     assert resp.status_code == 200
-    assert (resp.json()["poi"][0]["istat"] is not None) is acceso
+    assert (resp.json()["poi"][0]["istat"] is not None) is enabled
 
 
 def test_analyze_response_is_gzip_compressed_when_accepted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#346 (O10): l'``IstatPoi`` ripetuto per ogni POI alza il peso della
-    risposta del 50-55%; la compressione GZip lo compensa. ``TestClient``/httpx
-    decomprime il corpo da solo: qui si controlla solo l'header di trasporto."""
+    """#346 (O10): the ``IstatPoi`` repeated for every POI raises the weight of the
+    response by 50-55%; GZip compression compensates for it. ``TestClient``/httpx
+    decompresses the body by itself: here we only check the transport header."""
     _patch_io(monkeypatch)
     resp = cast(
         httpx.Response,
@@ -237,11 +237,11 @@ def test_analyze_response_is_gzip_compressed_when_accepted(
 
 
 def test_analyze_zone_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Un errore alla risoluzione dell'etichetta (reverse geocode) propaga a 422.
+    """An error while resolving the label (reverse geocode) propagates as a 422.
 
-    ``reverse_geocode_label`` reale non solleva mai (fallback cosmetico, #318):
-    questo verifica solo che l'handler centrale di ``ZoneNotFoundError`` resti
-    cablato anche dietro il nuovo ``resolve_circle``.
+    The real ``reverse_geocode_label`` never raises (cosmetic fallback, #318):
+    this only checks that the central ``ZoneNotFoundError`` handler stays wired
+    even behind the new ``resolve_circle``.
     """
 
     def _raise(lat: float, lon: float) -> tuple[str, str]:
@@ -262,11 +262,12 @@ def test_analyze_zone_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_analyze_reports_reverse_geocoded_city(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#318: la ``citta'`` in risposta e' quella del reverse geocode del centro.
+    """#318: the ``citta`` in the response is the one from the reverse geocode of the
+    center.
 
-    Non c'e' piu' un'allowlist (gia' rimossa da #191) ne' un campo ``citta`` in
-    richiesta: verifica che ``center.lat``/``center.lon`` raggiungano
-    ``reverse_geocode_label`` e che l'etichetta restituita finisca in risposta.
+    There is no allowlist anymore (already removed by #191) nor a ``citta`` field
+    in the request: it checks that ``center.lat``/``center.lon`` reach
+    ``reverse_geocode_label`` and that the returned label ends up in the response.
     """
     seen: list[tuple[float, float]] = []
 
@@ -294,11 +295,11 @@ def test_analyze_reports_reverse_geocoded_city(
 
 
 def test_analyze_rejects_out_of_range_radius(monkeypatch: pytest.MonkeyPatch) -> None:
-    """radius_m fuori da [search_radius_min_m, search_radius_max_m] -> 422 (#318).
+    """radius_m outside [search_radius_min_m, search_radius_max_m] -> 422 (#318).
 
-    Validazione Pydantic pre-I/O, come il vecchio limite ``max_length=100`` su
-    ``citta'`` (rimosso insieme al campo): il body malformato non deve
-    raggiungere ne' il reverse geocode ne' Overpass.
+    Pydantic validation before any I/O, like the old ``max_length=100`` limit on
+    ``citta`` (removed together with the field): a malformed body must reach
+    neither the reverse geocode nor Overpass.
     """
     _patch_io(monkeypatch)
     resp = cast(
@@ -311,8 +312,8 @@ def test_analyze_rejects_out_of_range_radius(monkeypatch: pytest.MonkeyPatch) ->
     assert resp.status_code == 422
 
 
-def _pois_per_raggio(citta: str) -> list[Poi]:
-    """Un POI al centro esatto della richiesta + uno a oltre un km (#318)."""
+def _pois_by_radius(citta: str) -> list[Poi]:
+    """One POI at the exact center of the request + one more than a km away (#318)."""
     return [
         {
             "id": "vicino",
@@ -335,25 +336,25 @@ def _pois_per_raggio(citta: str) -> list[Poi]:
     ]
 
 
-def test_analyze_radius_m_raggiunge_davvero_il_filtro_geospaziale(
+def test_analyze_radius_m_really_reaches_the_geospatial_filter(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#318: prova al confine HTTP che ``radius_m`` filtra i POI, non solo che
-    e' validato dal ``field_validator``.
+    """#318: proves at the HTTP boundary that ``radius_m`` filters the POIs, not just
+    that it is validated by the ``field_validator``.
 
-    Senza ``radius_m=request.radius_m`` cablato da ``main.py`` a
-    ``run_analysis_fast``, l'intera suite passerebbe comunque (nulla, a livello
-    di rotta, prova che il raggio raggiunge davvero la pipeline). Il centro
-    della richiesta coincide con ``Banca A`` (distanza ~0 m) mentre ``Bar Roma``
-    e' a oltre un km: un raggio di 150 m (il minimo consentito) deve escludere
-    la seconda dalla response.
+    Without ``radius_m=request.radius_m`` wired from ``main.py`` into
+    ``run_analysis_fast``, the whole suite would pass anyway (nothing, at route
+    level, proves that the radius really reaches the pipeline). The center of the
+    request coincides with ``Banca A`` (distance ~0 m) while ``Bar Roma`` is over
+    a km away: a 150 m radius (the allowed minimum) must exclude the latter from
+    the response.
     """
     monkeypatch.setattr(area_search, "reverse_geocode_label", _fake_reverse_geocode)
 
     async def _fake_fetch(
         bbox: object, citta: str, *args: object, **kwargs: object
     ) -> list[Poi]:
-        return _pois_per_raggio(citta)
+        return _pois_by_radius(citta)
 
     monkeypatch.setattr(retrieval, "fetch_pois", _fake_fetch)
     resp = cast(
@@ -385,17 +386,17 @@ def test_analyze_overpass_down(monkeypatch: pytest.MonkeyPatch) -> None:
     assert resp.json()["detail"]["errore"] == "overpass_non_disponibile"
 
 
-def test_analyze_non_chiama_mai_l_llm(monkeypatch: pytest.MonkeyPatch) -> None:
-    """#292: la fase 1 non spende una chiamata al modello — e' il suo scopo.
+def test_analyze_never_calls_the_llm(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#292: phase 1 does not spend a model call -- that is its whole point.
 
-    Prima la rotta bloccava sull'LLM e i dati strutturati arrivavano solo dopo la
-    narrativa. Se un refactor rimettesse ``run_analysis`` sulla rotta, la spia
-    registrerebbe una chiamata e questo test diventerebbe rosso: e' la guardia
-    della latenza percepita, non un dettaglio di implementazione.
+    Before, the route blocked on the LLM and the structured data arrived only
+    after the narrativa. If a refactor put ``run_analysis`` back on the route, the
+    spy would record a call and this test would turn red: it is the guard of the
+    perceived latency, not an implementation detail.
 
-    I ``risk_models`` restano nella response di fase 1 (li derivano il grounding,
-    non l'LLM): il frontend aggancia i rischi al punto per ``poi_id``, quindi il
-    nome della chiave e' verificato sul filo.
+    The ``risk_models`` stay in the phase 1 response (they come from the
+    grounding, not from the LLM): the frontend attaches the risks to the point by
+    ``poi_id``, so the key name is verified on the wire.
     """
     _patch_io(monkeypatch)
     llm = _RecordingLLMClient()
@@ -418,7 +419,7 @@ def test_analyze_non_chiama_mai_l_llm(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_run_analysis_threads_geo_source(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#169: geo_source passato a run_analysis raggiunge retrieve (nessun geocode)."""
+    """#169: the geo_source passed to run_analysis reaches retrieve (no geocode)."""
 
     def _boom_geocode(zona: str, citta: str) -> GeoResult:
         raise AssertionError("geocode_zone non deve essere chiamato con geo_source")
@@ -445,13 +446,14 @@ async def test_run_analysis_threads_geo_source(
 
 
 async def test_analyze_populates_the_zone_context_cache() -> None:
-    """#197: il contesto calcolato da /analyze resta disponibile a /analyze/poi.
+    """#197: the context computed by /analyze stays available to /analyze/poi.
 
-    L'invariante di prodotto e' la stessa di prima, cambia chi la realizza: dopo
-    lo split (#292) e' la fase 1 della rotta (``run_analysis_fast``) a depositare
-    il contesto, non ``run_analysis`` — che nessuna rotta chiama piu'. Verificato
-    sul contenuto, non solo sulla presenza: il clic su un POI legge da qui la
-    zona, i punti e i rischi validati, quindi e' quello che deve restare intero.
+    The product invariant is the same as before, only who implements it changes:
+    after the split (#292) it is phase 1 of the route (``run_analysis_fast``) that
+    stores the context, not ``run_analysis`` -- which no route calls anymore.
+    Verified on the content, not just on the presence: the click on a POI reads
+    the zone, the points and the validated risks from here, so that is what must
+    stay intact.
     """
 
     async def _geo(citta: str, zona: str) -> GeoResult:
@@ -475,21 +477,21 @@ async def test_analyze_populates_the_zone_context_cache() -> None:
     assert len(cached["grounded"]["validated_risks"]) == 2
 
 
-# --- #242: impronta del contesto nella response ---
-# ``retrieve`` passa la lista di POI COSI' COM'E' dalla source al contesto
-# (``pois = await source(...)``: nessun filtro, nessun riordino), quindi
-# l'impronta della response identifica esattamente la lista prodotta dalla
-# sorgente e il confronto con ``fingerprint(_pois(...))`` e' legittimo.
+# --- #242: context fingerprint in the response ---
+# ``retrieve`` passes the POI list AS IS from the source to the context
+# (``pois = await source(...)``: no filter, no reordering), so the fingerprint
+# of the response identifies exactly the list produced by the source and the
+# comparison with ``fingerprint(_pois(...))`` is legitimate.
 
 
-async def test_run_analysis_espone_l_impronta_del_contesto() -> None:
-    """#242: l'impronta identifica la lista POI della response che la contiene.
+async def test_run_analysis_exposes_the_context_fingerprint() -> None:
+    """#242: the fingerprint identifies the POI list of the response that contains it.
 
-    Non e' (piu') una guardia della rotta: da #292 ``run_analysis`` e' il solo
-    percorso di VALUTAZIONE, e la stessa proprieta' sulla rotta e' verificata da
-    ``test_analyze_narrative`` sulla fase 1. Resta qui perche' il contratto di
-    risposta e' unico, e i due percorsi devono continuare a emettere la stessa
-    impronta della stessa lista.
+    It is no longer a route guard: since #292 ``run_analysis`` is the only
+    EVALUATION path, and the same property on the route is verified by
+    ``test_analyze_narrative`` on phase 1. It stays here because the response
+    contract is single, and the two paths must keep emitting the same fingerprint
+    for the same list.
     """
 
     async def _geo(citta: str, zona: str) -> GeoResult:
@@ -509,41 +511,41 @@ async def test_run_analysis_espone_l_impronta_del_contesto() -> None:
     assert resp.contesto_hash == fingerprint(_pois("Roma"))
 
 
-async def test_impronta_diversa_se_il_set_di_poi_cambia() -> None:
-    """Due catture con POI diversi non possono avere la stessa impronta:
-    e' la condizione perche' /analyze/poi rilevi la divergenza (#242)."""
+async def test_different_fingerprint_if_the_poi_set_changes() -> None:
+    """Two captures with different POIs cannot have the same fingerprint:
+    it is the condition for /analyze/poi to detect the divergence (#242)."""
 
     async def _geo(citta: str, zona: str) -> GeoResult:
         return GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50))
 
-    async def _fetch_pieno(bbox: Bbox, citta: str) -> list[Poi]:
+    async def _fetch_full(bbox: Bbox, citta: str) -> list[Poi]:
         return _pois(citta)
 
-    async def _fetch_ridotto(bbox: Bbox, citta: str) -> list[Poi]:
+    async def _fetch_reduced(bbox: Bbox, citta: str) -> list[Poi]:
         return _pois(citta)[:1]
 
-    pieno = await run_analysis(
+    full = await run_analysis(
         "Roma",
         "Colosseo",
         executor=_FakeProfiler(),
         llm_client=_FakeLLMClient(),
-        poi_source=_fetch_pieno,
+        poi_source=_fetch_full,
         geo_source=_geo,
     )
-    ridotto = await run_analysis(
+    reduced = await run_analysis(
         "Roma",
         "Colosseo",
         executor=_FakeProfiler(),
         llm_client=_FakeLLMClient(),
-        poi_source=_fetch_ridotto,
+        poi_source=_fetch_reduced,
         geo_source=_geo,
     )
-    assert pieno.contesto_hash != ridotto.contesto_hash
+    assert full.contesto_hash != reduced.contesto_hash
 
 
-async def test_baseline_espone_l_impronta_del_contesto() -> None:
-    """Anche la pipeline senza LLM emette l'impronta: la response e' la stessa
-    e il frontend in modalita' Base non deve restare senza (#242)."""
+async def test_baseline_exposes_the_context_fingerprint() -> None:
+    """The pipeline without the LLM emits the fingerprint too: the response is the
+    same and the frontend in Base mode must not be left without it (#242)."""
 
     async def _geo(citta: str, zona: str) -> GeoResult:
         return GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50))
@@ -561,12 +563,12 @@ async def test_baseline_espone_l_impronta_del_contesto() -> None:
     assert resp.contesto_hash == fingerprint(_pois("Roma"))
 
 
-async def test_impronta_baseline_calcolata_dopo_il_filtro_tipo_poi() -> None:
-    """L'impronta identifica la lista RESTITUITA, non quella pre-filtro (#242).
+async def test_baseline_fingerprint_computed_after_the_tipo_poi_filter() -> None:
+    """The fingerprint identifies the RETURNED list, not the pre-filter one (#242).
 
-    Senza questo test un refactor che riportasse ``fingerprint`` sopra
-    ``_filter_pois_by_type`` (#119) resterebbe verde e reintrodurrebbe la
-    divergenza che #242 chiude: un'impronta che identifica POI mai mostrati.
+    Without this test a refactor that moved ``fingerprint`` above
+    ``_filter_pois_by_type`` (#119) would stay green and reintroduce the
+    divergence that #242 closes: a fingerprint identifying POIs never shown.
     """
 
     async def _geo(citta: str, zona: str) -> GeoResult:
@@ -583,43 +585,44 @@ async def test_impronta_baseline_calcolata_dopo_il_filtro_tipo_poi() -> None:
         geo_source=_geo,
         tipo_poi="Bank",
     )
-    filtrati = [p for p in _pois("Roma") if p["terminus_class"] == "Bank"]
-    assert [p.name for p in resp.poi] == [p["name"] for p in filtrati]
-    assert resp.contesto_hash == fingerprint(filtrati)
+    filtered_pois = [p for p in _pois("Roma") if p["terminus_class"] == "Bank"]
+    assert [p.name for p in resp.poi] == [p["name"] for p in filtered_pois]
+    assert resp.contesto_hash == fingerprint(filtered_pois)
     assert resp.contesto_hash != fingerprint(_pois("Roma"))
 
 
-# --- Le due modalita' di ricerca coesistono: cerchio OPPURE citta + zona ---
+# --- The two search modes coexist: circle OR citta + zona ---
 #
-# Il cerchio non sostituisce i due campi testuali. /analyze accetta esattamente
-# una delle due forme e le instrada su resolver diversi, che pero' ritornano lo
-# stesso contratto: da retrieve() in giu' la pipeline non sa quale sia stata usata.
+# The circle does not replace the two text fields. /analyze accepts exactly
+# one of the two forms and routes them to different resolvers, which however
+# return the same contract: from retrieve() down the pipeline does not know
+# which one was used.
 
 
 def _patch_zone_io(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
-    """Come ``_patch_io`` ma per la modalita' citta + zona: geocode + reverse.
+    """Like ``_patch_io`` but for the citta + zona mode: geocode + reverse.
 
-    Qui il bbox NON e' calcolato da centro+raggio: arriva da Nominatim, quindi
-    va simulato anche ``geocode_zone`` (che nel cerchio non viene mai chiamato).
-    Ritorna le coppie (zona, citta) ricevute, per verificare l'instradamento.
+    Here the bbox is NOT computed from center+radius: it comes from Nominatim, so
+    ``geocode_zone`` must be simulated too (it is never called in the circle mode).
+    Returns the (zona, citta) pairs received, to verify the routing.
     """
-    chiamate: list[tuple[str, str]] = []
+    calls: list[tuple[str, str]] = []
 
     def _fake_geocode_zone(zona: str, citta: str) -> GeoResult:
-        chiamate.append((zona, citta))
+        calls.append((zona, citta))
         return GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50))
 
     monkeypatch.setattr(area_search, "geocode_zone", _fake_geocode_zone)
     _patch_io(monkeypatch)
-    return chiamate
+    return calls
 
 
-def test_analyze_accetta_citta_e_zona(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Citta + zona producono la stessa risposta strutturata del cerchio.
+def test_analyze_accepts_citta_and_zona(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Citta + zona produce the same structured response as the circle.
 
-    Le etichette in risposta sono quelle digitate, non il reverse geocode.
+    The labels in the response are the typed ones, not the reverse geocode.
     """
-    chiamate = _patch_zone_io(monkeypatch)
+    calls = _patch_zone_io(monkeypatch)
     resp = cast(
         httpx.Response,
         _client().post(  # pyright: ignore[reportUnknownMemberType]
@@ -628,7 +631,7 @@ def test_analyze_accetta_citta_e_zona(monkeypatch: pytest.MonkeyPatch) -> None:
         ),
     )
     assert resp.status_code == 200
-    assert chiamate == [("Colosseo", "Roma")]
+    assert calls == [("Colosseo", "Roma")]
     body = resp.json()
     assert body["citta"] == "Roma"
     assert body["zona_normalizzata"] == "Colosseo"
@@ -636,10 +639,10 @@ def test_analyze_accetta_citta_e_zona(monkeypatch: pytest.MonkeyPatch) -> None:
     assert len(body["poi"]) == 2
 
 
-def test_analyze_zona_non_trovata_e_422(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Una zona che Nominatim non trova e' un 422 leggibile, non un'area a caso.
+def test_analyze_zone_not_found_is_422(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A zone that Nominatim does not find is a readable 422, not a random area.
 
-    Il messaggio nomina zona e citta': e' quello che il frontend mostra.
+    The message names zona and citta: it is what the frontend shows.
     """
 
     def _raise(zona: str, citta: str) -> GeoResult:
@@ -661,13 +664,13 @@ def test_analyze_zona_non_trovata_e_422(monkeypatch: pytest.MonkeyPatch) -> None
     assert "Roma" in detail["messaggio"]
 
 
-def test_analyze_rifiuta_le_due_modalita_insieme(
+def test_analyze_rejects_both_modes_together(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Cerchio e citta/zona nello stesso body -> 422.
+    """Circle and citta/zona in the same body -> 422.
 
-    Accettarne una in silenzio significherebbe analizzare un'area diversa da
-    quella che l'utente crede di aver scelto.
+    Silently accepting one of them would mean analyzing a different area from the
+    one the user believes to have chosen.
     """
     _patch_zone_io(monkeypatch)
     resp = cast(
@@ -685,10 +688,10 @@ def test_analyze_rifiuta_le_due_modalita_insieme(
     assert resp.status_code == 422
 
 
-def test_analyze_rifiuta_il_body_senza_modalita(
+def test_analyze_rejects_the_body_without_mode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Ne' cerchio ne' citta/zona -> 422: non esiste un'area di default."""
+    """Neither circle nor citta/zona -> 422: there is no default area."""
     _patch_zone_io(monkeypatch)
     resp = cast(
         httpx.Response,
@@ -701,23 +704,23 @@ def test_analyze_rifiuta_il_body_senza_modalita(
     "body",
     [{"citta": "Roma"}, {"zona": "Colosseo"}, {"citta": "Roma", "zona": "   "}],
 )
-def test_analyze_rifiuta_citta_o_zona_mancante(
+def test_analyze_rejects_missing_citta_or_zona(
     monkeypatch: pytest.MonkeyPatch, body: dict[str, str]
 ) -> None:
-    """Servono entrambi i campi testuali, non vuoti."""
-    chiamate = _patch_zone_io(monkeypatch)
+    """Both text fields are required, and non-empty."""
+    calls = _patch_zone_io(monkeypatch)
     resp = cast(
         httpx.Response,
         _client().post("/analyze", json=body),  # pyright: ignore[reportUnknownMemberType]
     )
     assert resp.status_code == 422
-    assert chiamate == []
+    assert calls == []
 
 
-def test_analyze_rifiuta_il_cerchio_senza_raggio(
+def test_analyze_rejects_the_circle_without_radius(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Il centro da solo non basta: il cerchio richiede entrambi i campi."""
+    """The center alone is not enough: the circle requires both fields."""
     _patch_zone_io(monkeypatch)
     resp = cast(
         httpx.Response,

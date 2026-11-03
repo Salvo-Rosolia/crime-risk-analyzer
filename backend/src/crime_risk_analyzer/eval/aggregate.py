@@ -1,4 +1,4 @@
-"""Aggregazione dei RunRecord in tabelle per la tesi (#34)."""
+"""Aggregation of RunRecords into tables for the thesis (#34)."""
 
 from __future__ import annotations
 
@@ -24,11 +24,11 @@ _COLUMNS = [
 
 
 def _vacuous_cell(quality_vacuous: bool | None) -> str:
-    """Cella del marcatore di vacuita' (#240): stringa vuota se non disponibile.
+    """Vacuity-marker cell (#240): empty string when not available.
 
-    Un record pre-#240 non ha ``quality_vacuous`` (``None``): lasciare la cella
-    vuota, invece di stampare "false", evita di far leggere "non vacuo" un dato
-    che semplicemente non e' stato registrato.
+    A pre-#240 record has no ``quality_vacuous`` (``None``): leaving the cell
+    empty, instead of printing "false", avoids making a value that simply was
+    not recorded read as "not vacuous".
     """
     if quality_vacuous is None:
         return ""
@@ -36,7 +36,7 @@ def _vacuous_cell(quality_vacuous: bool | None) -> str:
 
 
 def load_runs(results_dir: Path, experiment: str | None = None) -> list[RunRecord]:
-    """Carica i RunRecord da results/runs/, opz. filtrati per esperimento."""
+    """Load RunRecords from results/runs/, optionally filtered by experiment."""
     runs_dir = results_dir / "runs"
     records: list[RunRecord] = []
     if not runs_dir.exists():
@@ -65,7 +65,7 @@ def _row(rec: RunRecord) -> list[str]:
 
 
 def to_csv(records: list[RunRecord]) -> str:
-    """Serializza i record in CSV (header + una riga per run)."""
+    """Serialize the records to CSV (header + one row per run)."""
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(_COLUMNS)
@@ -75,7 +75,7 @@ def to_csv(records: list[RunRecord]) -> str:
 
 
 def to_markdown(records: list[RunRecord]) -> str:
-    """Serializza i record in tabella markdown."""
+    """Serialize the records to a markdown table."""
     lines = [
         "| " + " | ".join(_COLUMNS) + " |",
         "| " + " | ".join("---" for _ in _COLUMNS) + " |",
@@ -86,13 +86,13 @@ def to_markdown(records: list[RunRecord]) -> str:
 
 
 def write_tables(results_dir: Path, experiment: str) -> tuple[Path, Path]:
-    """Scrive results/<experiment>.csv e .md dai record dell'esperimento."""
+    """Write results/<experiment>.csv and .md from the experiment's records."""
     records = load_runs(results_dir, experiment=experiment)
     csv_path = results_dir / f"{experiment}.csv"
     md_path = results_dir / f"{experiment}.md"
-    # newline="": to_csv() emette gia' \r\n via csv.writer; senza questo, il
-    # text-mode di write_text ritradurrebbe \n->\r\n su Windows (righe spurie).
-    # Cfr. stesso fix in city_agnostic_report.build_report (#31/#103).
+    # newline="": to_csv() already emits \r\n via csv.writer; without this,
+    # write_text's text mode would re-translate \n->\r\n on Windows (spurious rows).
+    # See the same fix in city_agnostic_report.build_report (#31/#103).
     csv_path.write_text(to_csv(records), encoding="utf-8", newline="")
     md_path.write_text(to_markdown(records), encoding="utf-8")
     return csv_path, md_path

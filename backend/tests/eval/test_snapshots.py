@@ -6,9 +6,9 @@ import pytest
 
 from crime_risk_analyzer.eval import snapshots
 from crime_risk_analyzer.eval.snapshots import (
-    FORMATO_SNAPSHOT,
+    SNAPSHOT_FORMAT,
     capturing_source,
-    describe_configurazione_mismatch,
+    describe_config_mismatch,
     load_snapshot,
     offline_fetch_pois,
     offline_geo_source,
@@ -63,27 +63,27 @@ async def test_capturing_source_writes_and_passes_through(tmp_path: Path) -> Non
     source = capturing_source(p, inner=inner)  # type: ignore[arg-type]
     out = await source(Bbox(41.0, 12.0, 41.1, 12.1), "Roma")
     assert out[0]["name"] == "Banca A"
-    assert load_snapshot(p)[0]["name"] == "Banca A"  # è stato scritto
+    assert load_snapshot(p)[0]["name"] == "Banca A"  # it was written
 
 
 async def test_offline_geo_source_returns_deterministic_placeholder() -> None:
     src = offline_geo_source()
     a = await src("Roma", "Colosseo")
     b = await src("Milano", "Duomo")
-    # deterministico e indipendente dagli argomenti
+    # deterministic and independent of the arguments
     assert a == b
     assert isinstance(a["bbox"], Bbox)
     assert a == {"lat": 0.0, "lon": 0.0, "bbox": Bbox(0.0, 0.0, 0.0, 0.0)}
 
 
-# --- #241: provenienza della fixture e newline espliciti ---
-# Gli snapshot sono la RADICE della catena di riproducibilità: la provenance
-# esisteva per le run (RunRecord.provenance) ma non per le fixture che le
-# alimentano. OpenStreetMap è una sorgente viva: senza istante di cattura,
-# «questi sono i POI di quella zona» non è un'affermazione verificabile.
+# --- #241: fixture provenance and explicit newlines ---
+# Snapshots are the ROOT of the reproducibility chain: provenance
+# existed for the runs (RunRecord.provenance) but not for the fixtures that
+# feed them. OpenStreetMap is a live source: without a capture instant,
+# "these are the POIs of that zone" is not a verifiable statement.
 
 
-def test_snapshot_porta_la_provenienza_di_cattura(tmp_path: Path) -> None:
+def test_snapshot_carries_the_capture_provenance(tmp_path: Path) -> None:
     p = tmp_path / "snap.json"
     save_snapshot(
         p,
@@ -94,50 +94,53 @@ def test_snapshot_porta_la_provenienza_di_cattura(tmp_path: Path) -> None:
         clock=lambda: datetime(2026, 7, 26, 18, 40, tzinfo=UTC),
     )
 
-    scritto = json.loads(p.read_text(encoding="utf-8"))
-    assert scritto["formato"] == FORMATO_SNAPSHOT
-    prov = scritto["provenienza"]
+    written = json.loads(p.read_text(encoding="utf-8"))
+    assert written["formato"] == SNAPSHOT_FORMAT
+    prov = written["provenienza"]
     assert prov["catturato_il"] == "2026-07-26T18:40:00+00:00"
     assert prov["bbox"] == [41.0, 12.0, 41.1, 12.1]
     assert prov["citta"] == "Roma"
-    # La zona non è ricavabile dal file: lo slug del nome è lossy, quindi senza
-    # questo campo il legame zona↔bbox non sarebbe verificabile.
+    # The zone cannot be derived from the file: the name slug is lossy, so without
+    # this field the zone<->bbox link would not be verifiable.
     assert prov["zona"] == "Colosseo"
-    # Costanti del codice che ha SCRITTO il file: il nome lo dichiara, perché da
-    # qui non si può sapere cosa un ``inner`` arbitrario abbia interrogato.
+    # Constants of the code that WROTE the file: the name declares it, because from
+    # here one cannot know what an arbitrary ``inner`` queried.
     conf = prov["configurazione_canonica"]
     assert conf["max_pois"] == MAX_POIS
     assert conf["per_selector_cap"] == PER_SELECTOR_CAP
-    # #254: la politica di selezione fa parte di cosa ha prodotto il file. Senza
-    # questo campo due fixture indistinguibili potrebbero venire da tetti per
-    # classe diversi, e uno snapshot pre-#254 non sarebbe riconoscibile come tale.
+    # #254: the selection policy is part of what produced the file. Without
+    # this field two indistinguishable fixtures could come from different per-class
+    # caps, and a pre-#254 snapshot would not be recognisable as such.
     assert conf["per_class_cap"] == PER_CLASS_CAP
     assert conf["n_selettori"] > 0
     assert len(conf["selettori_hash"]) == 64
 
 
-def test_istante_di_cattura_reale_quando_non_iniettato(tmp_path: Path) -> None:
-    """Senza clock iniettato l'istante è quello vero, in UTC con offset esplicito."""
+def test_real_capture_instant_when_not_injected(tmp_path: Path) -> None:
+    """Without an injected clock the instant is the real one, in UTC with explicit
+    offset."""
     p = tmp_path / "snap.json"
     save_snapshot(p, _POIS, bbox=_BBOX, citta="Roma")  # type: ignore[arg-type]
 
-    catturato = json.loads(p.read_text(encoding="utf-8"))["provenienza"]["catturato_il"]
-    assert catturato.endswith("+00:00")
-    assert catturato[:2] == "20"
+    captured_at = json.loads(p.read_text(encoding="utf-8"))["provenienza"][
+        "catturato_il"
+    ]
+    assert captured_at.endswith("+00:00")
+    assert captured_at[:2] == "20"
 
 
-def test_snapshot_legacy_senza_provenienza_resta_leggibile(tmp_path: Path) -> None:
-    """I 4 snapshot committati con #231 sono liste nude: devono restare
-    rigiocabili, altrimenti il confronto iso-input già pubblicato si rompe."""
+def test_legacy_snapshot_without_provenance_stays_readable(tmp_path: Path) -> None:
+    """The 4 snapshots committed with #231 are bare lists: they must stay
+    replayable, otherwise the already published iso-input comparison breaks."""
     p = tmp_path / "legacy.json"
     p.write_text(json.dumps(_POIS), encoding="utf-8")
 
     assert load_snapshot(p)[0]["name"] == "Banca A"
 
 
-def test_snapshot_committati_restano_leggibili() -> None:
-    """Guardia sui file veri, non su una loro imitazione: le fixture in
-    ``results/snapshots/`` sono la radice della catena di riproducibilità."""
+def test_committed_snapshots_stay_readable() -> None:
+    """Guard on the real files, not on an imitation of them: the fixtures in
+    ``results/snapshots/`` are the root of the reproducibility chain."""
     cartella = Path(__file__).parents[2] / "results" / "snapshots"
     file = sorted(cartella.glob("*.json"))
     assert file, "attese le fixture POI versionate in results/snapshots/"
@@ -148,15 +151,15 @@ def test_snapshot_committati_restano_leggibili() -> None:
         assert "terminus_class" in pois[0]
 
 
-def test_scrittura_senza_churn_di_line_ending(tmp_path: Path) -> None:
-    """Nessun CRLF: su Windows il working tree divergeva dal blob in git, e con
-    ``core.autocrlf=false`` i 4 file risultavano modificati dopo ogni capture pur
-    essendo identici nel contenuto (stessa classe del difetto chiuso in #103).
+def test_write_without_line_ending_churn(tmp_path: Path) -> None:
+    """No CRLF: on Windows the working tree diverged from the blob in git, and with
+    ``core.autocrlf=false`` the 4 files showed up modified after every capture while
+    being identical in content (same class of defect closed in #103).
 
-    Onestà sulla portata: questa guardia ha denti solo su Windows. In CI
-    (``ubuntu-latest``) ``write_text`` produce LF anche senza ``newline=""``,
-    quindi il test è verde per costruzione e una rimozione di quel parametro non
-    verrebbe intercettata dalla pipeline.
+    Honesty about the scope: this guard has teeth only on Windows. In CI
+    (``ubuntu-latest``) ``write_text`` produces LF even without ``newline=""``,
+    so the test is green by construction and a removal of that parameter would
+    not be caught by the pipeline.
     """
     p = tmp_path / "snap.json"
     save_snapshot(p, _POIS, bbox=_BBOX, citta="Roma")  # type: ignore[arg-type]
@@ -164,13 +167,13 @@ def test_scrittura_senza_churn_di_line_ending(tmp_path: Path) -> None:
     assert b"\r\n" not in p.read_bytes()
 
 
-# --- #267: la provenienza non basta più a saperla, va anche VERIFICATA ---
-# Un file parsabile non è la stessa cosa di uno catturato con la politica di
-# selezione corrente: senza un confronto esplicito, due esperimenti sulla
-# stessa (citta, zona) possono mescolare in silenzio due configurazioni.
+# --- #267: knowing the provenance is no longer enough, it must also be VERIFIED ---
+# A parseable file is not the same as one captured with the current selection
+# policy: without an explicit comparison, two experiments on the same
+# (citta, zona) can silently mix two configurations.
 
 
-def test_snapshot_provenance_legge_l_envelope(tmp_path: Path) -> None:
+def test_snapshot_provenance_reads_the_envelope(tmp_path: Path) -> None:
     p = tmp_path / "snap.json"
     save_snapshot(p, _POIS, bbox=_BBOX, citta="Roma", zona="Colosseo")  # type: ignore[arg-type]
 
@@ -180,57 +183,57 @@ def test_snapshot_provenance_legge_l_envelope(tmp_path: Path) -> None:
     assert prov["configurazione_canonica"]["max_pois"] == MAX_POIS
 
 
-def test_snapshot_provenance_none_per_file_assente(tmp_path: Path) -> None:
-    """Un file mancante non deve far esplodere il check: lo intercetta il vero
-    consumatore (``load_snapshot`` dentro ``replay_source``), non questa sonda."""
+def test_snapshot_provenance_none_for_missing_file(tmp_path: Path) -> None:
+    """A missing file must not blow up the check: the real consumer catches it
+    (``load_snapshot`` inside ``replay_source``), not this probe."""
     assert snapshot_provenance(tmp_path / "non-esiste.json") is None
 
 
-def test_snapshot_provenance_none_per_lista_nuda_legacy(tmp_path: Path) -> None:
-    """I 4 snapshot pre-#241 sono liste nude: nessuna provenienza da leggere."""
+def test_snapshot_provenance_none_for_legacy_bare_list(tmp_path: Path) -> None:
+    """The pre-#241 snapshots are bare lists: no provenance to read."""
     p = tmp_path / "legacy.json"
     p.write_text(json.dumps(_POIS), encoding="utf-8")
 
     assert snapshot_provenance(p) is None
 
 
-def test_mismatch_none_quando_la_configurazione_e_quella_corrente(
+def test_mismatch_none_when_configuration_is_the_current_one(
     tmp_path: Path,
 ) -> None:
     p = tmp_path / "snap.json"
     save_snapshot(p, _POIS, bbox=_BBOX, citta="Roma")  # type: ignore[arg-type]
 
-    assert describe_configurazione_mismatch(snapshot_provenance(p)) is None
+    assert describe_config_mismatch(snapshot_provenance(p)) is None
 
 
-def test_mismatch_segnala_provenienza_assente() -> None:
-    """#267: la lista nuda pre-#241 riceve un avviso esplicito, non il silenzio."""
-    msg = describe_configurazione_mismatch(None)
+def test_mismatch_reports_missing_provenance() -> None:
+    """#267: the pre-#241 bare list gets an explicit warning, not silence."""
+    msg = describe_config_mismatch(None)
     assert msg is not None
     assert "nessuna provenienza" in msg
 
 
-def test_mismatch_segnala_configurazione_divergente(tmp_path: Path) -> None:
-    """Una fixture catturata con un ``per_class_cap`` diverso da quello corrente
-    (es. pre-#254) non deve essere indistinguibile da una coerente."""
+def test_mismatch_reports_diverging_configuration(tmp_path: Path) -> None:
+    """A fixture captured with a ``per_class_cap`` different from the current one
+    (e.g. pre-#254) must not be indistinguishable from a consistent one."""
     p = tmp_path / "snap.json"
     save_snapshot(p, _POIS, bbox=_BBOX, citta="Roma")  # type: ignore[arg-type]
     prov = snapshot_provenance(p)
     assert prov is not None
     prov["configurazione_canonica"]["per_class_cap"] = PER_CLASS_CAP + 100
 
-    msg = describe_configurazione_mismatch(prov)
+    msg = describe_config_mismatch(prov)
     assert msg is not None
     assert "per_class_cap" in msg
     assert str(PER_CLASS_CAP + 100) in msg
 
 
-def test_provenienza_registra_i_tipi_di_elemento_interrogati(tmp_path: Path) -> None:
-    """#314: i tipi OSM interrogati fanno parte di cosa ha prodotto il file.
+def test_provenance_records_the_queried_element_types(tmp_path: Path) -> None:
+    """#314: the OSM types queried are part of what produced the file.
 
-    Con le relation il bacino di candidati si allarga e il campione di una zona
-    puo' cambiare (il Colosseo entra a Roma). Senza questo campo uno snapshot
-    catturato con la sola query node+way sarebbe indistinguibile da uno nuovo.
+    With relations the pool of candidates widens and the sample of a zone
+    may change (the Colosseum enters at Rome). Without this field a snapshot
+    captured with the node+way query only would be indistinguishable from a new one.
     """
     p = tmp_path / "snap.json"
     save_snapshot(p, _POIS, bbox=_BBOX, citta="Roma")  # type: ignore[arg-type]
@@ -241,31 +244,31 @@ def test_provenienza_registra_i_tipi_di_elemento_interrogati(tmp_path: Path) -> 
     assert conf["tipi_elemento"] == ["node", "way", "relation"]
 
 
-def test_mismatch_segnala_snapshot_catturato_senza_relation(tmp_path: Path) -> None:
-    """Uno snapshot in envelope scritto prima di #314 non ha ``tipi_elemento``:
-    il riuso deve avvisare invece di trattarlo come catturato con la query nuova."""
+def test_mismatch_reports_snapshot_captured_without_relation(tmp_path: Path) -> None:
+    """An envelope snapshot written before #314 has no ``tipi_elemento``:
+    reuse must warn instead of treating it as captured with the new query."""
     p = tmp_path / "snap.json"
     save_snapshot(p, _POIS, bbox=_BBOX, citta="Roma")  # type: ignore[arg-type]
-    # Il file come l'avrebbe scritto il codice pre-#314: stessa provenienza,
-    # senza la chiave nuova.
-    grezzo = json.loads(p.read_text(encoding="utf-8"))
-    del grezzo["provenienza"]["configurazione_canonica"]["tipi_elemento"]
-    p.write_text(json.dumps(grezzo), encoding="utf-8")
+    # The file as the pre-#314 code would have written it: same provenance,
+    # without the new key.
+    raw = json.loads(p.read_text(encoding="utf-8"))
+    del raw["provenienza"]["configurazione_canonica"]["tipi_elemento"]
+    p.write_text(json.dumps(raw), encoding="utf-8")
 
-    msg = describe_configurazione_mismatch(snapshot_provenance(p))
+    msg = describe_config_mismatch(snapshot_provenance(p))
     assert msg is not None
     assert "tipi_elemento" in msg
 
 
-def test_mismatch_segnala_configurazione_canonica_assente_nella_provenienza() -> None:
-    msg = describe_configurazione_mismatch({"catturato_il": "x"})  # type: ignore[typeddict-item]
+def test_mismatch_reports_missing_canonical_configuration_in_provenance() -> None:
+    msg = describe_config_mismatch({"catturato_il": "x"})  # type: ignore[typeddict-item]
     assert msg is not None
     assert "senza configurazione_canonica" in msg
 
 
-async def test_capturing_source_registra_il_bbox_richiesto(tmp_path: Path) -> None:
-    """Il bbox della provenienza è quello con cui la cattura è stata chiesta, non
-    un valore ricostruito a posteriori."""
+async def test_capturing_source_records_the_requested_bbox(tmp_path: Path) -> None:
+    """The provenance bbox is the one with which the capture was requested, not
+    a value reconstructed afterwards."""
     p = tmp_path / "snap.json"
 
     async def inner(bbox: object, citta: str):
@@ -278,28 +281,28 @@ async def test_capturing_source_registra_il_bbox_richiesto(tmp_path: Path) -> No
     assert prov["bbox"] == [41.0, 12.0, 41.1, 12.1]
 
 
-# --- #251: taglio del DB OSM nella provenienza dello snapshot ---
-# ``catturato_il`` dice «quando ho chiesto», non «quale stato di OSM ho
-# ottenuto»: senza il taglio dichiarato da Overpass, «questi sono i POI di
-# quella zona a quell'istante» non è falsificabile contro uno history dump OSM.
+# --- #251: OSM DB cut in the snapshot provenance ---
+# ``catturato_il`` says "when I asked", not "which state of OSM I
+# obtained": without the cut declared by Overpass, "these are the POIs of
+# that zone at that instant" is not falsifiable against an OSM history dump.
 
-_TAGLIO: OsmCut = {
+_OSM_CUT: OsmCut = {
     "timestamp_osm_base": "2026-07-26T17:42:03Z",
     "overpass_url": "https://overpass-api.de/api/interpreter",
 }
 
 
-def test_save_snapshot_registra_il_taglio_osm_quando_fornito(tmp_path: Path) -> None:
+def test_save_snapshot_records_the_osm_cut_when_given(tmp_path: Path) -> None:
     p = tmp_path / "snap.json"
-    save_snapshot(p, _POIS, bbox=_BBOX, citta="Roma", cut=_TAGLIO)  # type: ignore[arg-type]
+    save_snapshot(p, _POIS, bbox=_BBOX, citta="Roma", cut=_OSM_CUT)  # type: ignore[arg-type]
 
     prov = json.loads(p.read_text(encoding="utf-8"))["provenienza"]
-    assert prov["taglio_osm"] == _TAGLIO
+    assert prov["taglio_osm"] == _OSM_CUT
 
 
-def test_save_snapshot_taglio_assente_di_default(tmp_path: Path) -> None:
-    """Un chiamante che non conosce il taglio (es. un doppio di test) dichiara
-    onestamente l'assenza, non fabbrica un valore."""
+def test_save_snapshot_cut_absent_by_default(tmp_path: Path) -> None:
+    """A caller that does not know the cut (e.g. a test double) honestly
+    declares the absence, it does not fabricate a value."""
     p = tmp_path / "snap.json"
     save_snapshot(p, _POIS, bbox=_BBOX, citta="Roma")  # type: ignore[arg-type]
 
@@ -307,26 +310,26 @@ def test_save_snapshot_taglio_assente_di_default(tmp_path: Path) -> None:
     assert prov["taglio_osm"] is None
 
 
-async def test_capturing_source_registra_il_taglio_osm_ritornato_da_inner(
+async def test_capturing_source_records_the_osm_cut_returned_by_inner(
     tmp_path: Path,
 ) -> None:
     p = tmp_path / "snap.json"
 
     async def inner(bbox: object, citta: str):
-        return _POIS, _TAGLIO
+        return _POIS, _OSM_CUT
 
     source = capturing_source(p, inner=inner)  # type: ignore[arg-type]
     await source(_BBOX, "Roma")
 
     prov = json.loads(p.read_text(encoding="utf-8"))["provenienza"]
-    assert prov["taglio_osm"] == _TAGLIO
+    assert prov["taglio_osm"] == _OSM_CUT
 
 
-async def test_capturing_source_senza_taglio_da_inner_non_registra_taglio(
+async def test_capturing_source_without_cut_from_inner_records_no_cut(
     tmp_path: Path,
 ) -> None:
-    """Un doppio di test che ritorna ``None`` per il taglio (i doppi di test
-    esistenti, adattati da ``_senza_taglio``) lo dichiara onestamente assente."""
+    """A test double that returns ``None`` for the cut (the existing test
+    doubles, adapted by ``_without_cut``) declares it honestly absent."""
     p = tmp_path / "snap.json"
 
     async def inner(bbox: object, citta: str):
@@ -339,21 +342,21 @@ async def test_capturing_source_senza_taglio_da_inner_non_registra_taglio(
     assert prov["taglio_osm"] is None
 
 
-async def test_offline_fetch_pois_ritorna_pois_e_taglio_con_politica_offline(
+async def test_offline_fetch_pois_returns_pois_and_cut_with_offline_policy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """La sorgente offline (#232) usa OFFLINE_RETRY e ritorna anche il taglio OSM
-    (#251) nella stessa chiamata, senza stato da ricordare fra una e l'altra."""
-    visti: list[object] = []
+    """The offline source (#232) uses OFFLINE_RETRY and also returns the OSM cut
+    (#251) in the same call, without state to remember between one call and the next."""
+    seen: list[object] = []
 
     async def _fetch_pois_with_cut_fake(bbox: object, citta: str, **kwargs: object):
-        visti.append(kwargs.get("retry"))
-        return _POIS, _TAGLIO
+        seen.append(kwargs.get("retry"))
+        return _POIS, _OSM_CUT
 
     monkeypatch.setattr(snapshots, "fetch_pois_with_cut", _fetch_pois_with_cut_fake)
 
-    pois, taglio = await offline_fetch_pois(_BBOX, "Roma")
+    pois, osm_cut = await offline_fetch_pois(_BBOX, "Roma")
 
     assert pois == _POIS
-    assert taglio == _TAGLIO
-    assert visti == [OFFLINE_RETRY]
+    assert osm_cut == _OSM_CUT
+    assert seen == [OFFLINE_RETRY]

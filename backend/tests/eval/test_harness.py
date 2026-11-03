@@ -1,4 +1,4 @@
-"""Test dell'harness di esecuzione esperimenti (#34, iso-input #110)."""
+"""Tests of the experiment execution harness (#34, iso-input #110)."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ from crime_risk_analyzer.models.vocab import ConfidenceSummary
 from crime_risk_analyzer.orchestrator import AnalyzeResponse, GeoZone, PoiOut
 from crime_risk_analyzer.overpass_client import Poi
 from crime_risk_analyzer.rag.generation import RiskModel
-from tests.eval._doubles import default_llm_response, scrivi_snapshot
+from tests.eval._doubles import default_llm_response, write_snapshot
 
 
 def _fake_geocode_fixture(zona: str, citta: str) -> dict[str, object]:
@@ -39,7 +39,7 @@ def _fake_geocode_fixture(zona: str, citta: str) -> dict[str, object]:
 
 
 def _sample_pois() -> list[Poi]:
-    """Fixture POI minimale condivisa dai test dell'harness."""
+    """Minimal POI fixture shared by the harness tests."""
     return [
         Poi(
             id="1",
@@ -61,7 +61,7 @@ def test_make_run_id_deterministic() -> None:
 
 
 def test_make_run_id_includes_repetition_index() -> None:
-    """Ripetizioni distinte producono run_id distinti; default rep=0 → __rep00."""
+    """Distinct repetitions produce distinct run_ids; default rep=0 -> __rep00."""
     r0 = make_run_id("exp", "Roma", "Centro", "analyze", "claude")
     r0_explicit = make_run_id("exp", "Roma", "Centro", "analyze", "claude", 0)
     r1 = make_run_id("exp", "Roma", "Centro", "analyze", "claude", 1)
@@ -74,14 +74,14 @@ def test_make_run_id_includes_repetition_index() -> None:
 async def test_run_experiment_repeat_writes_k_records_no_overwrite(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """--repeat 3 → 3 record e 3 JSON distinti per caso (nessuna sovrascrittura)."""
+    """--repeat 3 -> 3 records and 3 distinct JSONs per case (no overwriting)."""
     cfg = ExperimentConfig(
         name="exp",
         mode="analyze",
         model="claude",
         cases=[RunCase(citta="Roma", zona="Centro")],
     )
-    scrivi_snapshot(
+    write_snapshot(
         snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
     )
     from crime_risk_analyzer.rag import retrieval
@@ -108,7 +108,7 @@ async def test_run_experiment_repeat_writes_k_records_no_overwrite(
 async def test_run_experiment_writes_records(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Snapshot pre-salvato per ogni caso → replay offline.
+    # Pre-saved snapshot for every case -> offline replay.
     cfg = ExperimentConfig(
         name="exp",
         mode="analyze",
@@ -116,17 +116,17 @@ async def test_run_experiment_writes_records(
         cases=[RunCase(citta="Roma", zona="Centro")],
     )
     rid = make_run_id("exp", "Roma", "Centro", "analyze", "claude")
-    # Snapshot chiavato per (citta, zona), condiviso dai bracci comparativi (#110).
-    scrivi_snapshot(
+    # Snapshot keyed by (citta, zona), shared by the comparative arms (#110).
+    write_snapshot(
         snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
     )
 
-    # geocode mockato (replay ignora il bbox ma retrieve lo richiede)
+    # mocked geocode (replay ignores the bbox but retrieve requires it)
     from crime_risk_analyzer.rag import retrieval
 
     monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
 
-    from tests.eval._doubles import FakeLLMClient, FakeProfiler  # vedi nota sotto
+    from tests.eval._doubles import FakeLLMClient, FakeProfiler  # see note below
 
     records = await run_experiment(
         cfg,
@@ -142,12 +142,12 @@ async def test_run_experiment_writes_records(
     assert records[0].metrics.latency_ms >= 0
 
 
-# --- #267: la run che rigioca uno snapshot riporta la SUA provenienza, non
-# solo il commit di chi la esegue --- (evita che due politiche di selezione
-# diverse finiscano nello stesso esperimento senza alcun segnale)
+# --- #267: the run that replays a snapshot reports ITS provenance, not
+# just the commit of whoever runs it --- (prevents two different selection
+# policies from ending up in the same experiment with no signal)
 
 
-async def test_run_experiment_riporta_la_provenienza_dello_snapshot(
+async def test_run_experiment_reports_the_snapshot_provenance(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     cfg = ExperimentConfig(
@@ -156,7 +156,7 @@ async def test_run_experiment_riporta_la_provenienza_dello_snapshot(
         model="claude",
         cases=[RunCase(citta="Roma", zona="Centro")],
     )
-    scrivi_snapshot(
+    write_snapshot(
         snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
     )
 
@@ -179,11 +179,11 @@ async def test_run_experiment_riporta_la_provenienza_dello_snapshot(
     assert prov.snapshot_configurazione_canonica is not None
 
 
-async def test_run_experiment_avvisa_su_snapshot_senza_provenienza(
+async def test_run_experiment_warns_on_snapshot_without_provenance(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Una fixture pre-#241 (lista nuda) resta rigiocabile ma non più in
-    silenzio: la run logga un avviso invece di trattarla come una qualunque."""
+    """A pre-#241 fixture (bare list) stays replayable but no longer
+    silently: the run logs a warning instead of treating it like any other."""
     import json
 
     cfg = ExperimentConfig(
@@ -218,19 +218,19 @@ async def test_run_experiment_avvisa_su_snapshot_senza_provenienza(
     assert any("nessuna provenienza" in rec.message for rec in caplog.records)
 
 
-async def test_run_experiment_non_avvisa_su_snapshot_mancante(
+async def test_run_experiment_does_not_warn_on_missing_snapshot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Uno snapshot MAI catturato non e' un caso di provenienza da segnalare:
-    e' un fallimento diverso (isolamento #252), non va confuso con un avviso
-    di configurazione divergente prima ancora dell'errore vero e proprio."""
+    """A snapshot NEVER captured is not a provenance case to report: it
+    is a different failure (isolation #252), not to be confused with a warning
+    of diverging configuration before even the real error."""
     cfg = ExperimentConfig(
         name="exp",
         mode="analyze",
         model="claude",
         cases=[RunCase(citta="Roma", zona="Centro")],
     )
-    # Nessuno snapshot scritto per (Roma, Centro).
+    # No snapshot written for (Roma, Centro).
 
     from crime_risk_analyzer.rag import retrieval
 
@@ -252,11 +252,11 @@ async def test_run_experiment_non_avvisa_su_snapshot_mancante(
     assert not any("#267" in rec.message for rec in caplog.records)
 
 
-async def test_run_experiment_ignora_catturato_il_di_tipo_sbagliato(
+async def test_run_experiment_ignores_wrong_type_catturato_il(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Una provenienza con ``catturato_il`` non stringa (dato esterno malformato)
-    non deve far fallire la validazione di ``Provenance`` e con essa la run."""
+    """A provenance with a non-string ``catturato_il`` (malformed external datum)
+    must not make the validation of ``Provenance`` fail, and with it the run."""
     import json
 
     cfg = ExperimentConfig(
@@ -266,10 +266,10 @@ async def test_run_experiment_ignora_catturato_il_di_tipo_sbagliato(
         cases=[RunCase(citta="Roma", zona="Centro")],
     )
     path = snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro"))
-    scrivi_snapshot(path, _sample_pois())
-    scritto = json.loads(path.read_text(encoding="utf-8"))
-    scritto["provenienza"]["catturato_il"] = 12345  # tipo sbagliato
-    path.write_text(json.dumps(scritto), encoding="utf-8")
+    write_snapshot(path, _sample_pois())
+    written = json.loads(path.read_text(encoding="utf-8"))
+    written["provenienza"]["catturato_il"] = 12345  # wrong type
+    path.write_text(json.dumps(written), encoding="utf-8")
 
     from crime_risk_analyzer.rag import retrieval
 
@@ -291,7 +291,7 @@ async def test_run_experiment_ignora_catturato_il_di_tipo_sbagliato(
 
 
 async def test_run_experiment_rejects_non_positive_repeat(tmp_path: Path) -> None:
-    """repeat < 1 → ValueError (niente esperimento vuoto in silenzio)."""
+    """repeat < 1 -> ValueError (no silently empty experiment)."""
     from tests.eval._doubles import FakeProfiler
 
     cfg = ExperimentConfig(
@@ -315,9 +315,9 @@ async def test_run_experiment_rejects_non_positive_repeat(tmp_path: Path) -> Non
 async def test_run_experiment_baseline_no_llm_client(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """run_experiment con mode='baseline' e llm_client=None → status=ok (fix T9).
+    """run_experiment with mode='baseline' and llm_client=None -> status=ok (fix T9).
 
-    Baseline non chiama il provider LLM: passare None non deve fallire.
+    Baseline does not call the LLM provider: passing None must not fail.
     """
     cfg = ExperimentConfig(
         name="base",
@@ -325,8 +325,8 @@ async def test_run_experiment_baseline_no_llm_client(
         model="claude",
         cases=[RunCase(citta="Roma", zona="Centro")],
     )
-    # Snapshot chiavato per (citta, zona) (#110): baseline usa la stessa fixture.
-    scrivi_snapshot(
+    # Snapshot keyed by (citta, zona) (#110): baseline uses the same fixture.
+    write_snapshot(
         snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
     )
 
@@ -351,7 +351,7 @@ async def test_run_experiment_baseline_no_llm_client(
 async def test_run_experiment_error_isolation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Un caso senza snapshot → status=error; l'esperimento continua."""
+    """A case without snapshot -> status=error; the experiment continues."""
     from crime_risk_analyzer.rag import retrieval
 
     monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
@@ -368,12 +368,12 @@ async def test_run_experiment_error_isolation(
         ],
     )
 
-    # Solo (Roma, Centro) ha lo snapshot: chiave per (citta, zona) (#110).
+    # Only (Roma, Centro) has the snapshot: key by (citta, zona) (#110).
     rid_ok = make_run_id("iso", "Roma", "Centro", "analyze", "claude")
-    scrivi_snapshot(
+    write_snapshot(
         snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
     )
-    # Il secondo caso (Prati) non ha snapshot → FileNotFoundError → status=error.
+    # The second case (Prati) has no snapshot -> FileNotFoundError -> status=error.
     rid_err = make_run_id("iso", "Roma", "Prati", "analyze", "claude")
 
     records = await run_experiment(
@@ -392,33 +392,33 @@ async def test_run_experiment_error_isolation(
     assert (tmp_path / "runs" / f"{rid_err}.json").exists()
 
 
-async def test_run_case_non_maschera_un_errore_di_calcolo_delle_metriche(
+async def test_run_case_does_not_mask_a_metrics_computation_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Il ``try`` copre la chiamata al modello, non le metriche a valle.
+    """The ``try`` covers the call to the model, not the downstream metrics.
 
-    Un ``model_id`` non a listino (qui: ``KeyError`` da ``pricing.cost_usd``) e'
-    un bug di codice/configurazione, non un fallimento del provider: deve
-    propagare con il suo traceback invece di diventare un record
-    ``status=ERROR`` con metriche a zero, indistinguibile da "il modello ha
-    fallito". In una run live la differenza e' tutta: assorbirlo brucerebbe la
-    quota Groq della giornata producendo il 100% di record ERROR senza un solo
-    traceback da leggere.
+    A ``model_id`` not in the price list (here: ``KeyError`` from ``pricing.cost_usd``)
+    is a code/configuration bug, not a provider failure: it must
+    propagate with its traceback instead of becoming a record
+    ``status=ERROR`` with zeroed metrics, indistinguishable from "the model
+    failed". In a live run the difference is everything: absorbing it would burn the
+    day's Groq quota producing 100% ERROR records without a single
+    traceback to read.
 
-    Resta vero anche dopo che ``run_experiment`` ha imparato a non morire su un
-    caso rotto: l'isolamento sta un livello SOPRA (con traceback e uno status
-    suo), non dentro questo ``try``. Rimetterlo qui richiuderebbe il buco
-    sbagliato — e questo caso tornerebbe rosso.
+    It stays true even after ``run_experiment`` learned not to die on a
+    broken case: the isolation is one level ABOVE (with traceback and a status
+    of its own), not inside this ``try``. Putting it back here would close the
+    wrong hole -- and this case would turn red.
     """
     from crime_risk_analyzer.llm.client import LLMResponse
     from crime_risk_analyzer.rag import retrieval
     from tests.eval._doubles import FakeLLMClient, FakeProfiler
 
     monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
-    scrivi_snapshot(
+    write_snapshot(
         snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
     )
-    risposta_di_modello_non_prezzato = LLMResponse(
+    unpriced_model_response = LLMResponse(
         text="Analisi: Banca A presenta rischio rapina.",
         llm_used="provider/modello-mai-prezzato",
         tokens_input=10,
@@ -439,23 +439,23 @@ async def test_run_case_non_maschera_un_errore_di_calcolo_delle_metriche(
                 cases=[RunCase(citta="Roma", zona="Centro")],
             ),
             executor=FakeProfiler(),
-            llm_client=FakeLLMClient(risposta_di_modello_non_prezzato),
+            llm_client=FakeLLMClient(unpriced_model_response),
             results_dir=tmp_path,
             code_commit="abc",
             ontology_hash="def",
         )
 
 
-async def test_run_experiment_rifiuta_subito_un_braccio_senza_client(
+async def test_run_experiment_rejects_at_once_an_arm_without_client(
     tmp_path: Path,
 ) -> None:
-    """Una configurazione impossibile si ferma PRIMA di eseguire, non caso per caso.
+    """An impossible configuration stops BEFORE running, not case by case.
 
-    L'isolamento serve ai guasti che riguardano UN caso. Un braccio con modello
-    a cui manca il client non e' quello: fallirebbe identico su tutti i casi e su
-    tutte le ripetizioni, lasciando a terra N record ``HARNESS_ERROR`` che il
-    confronto conterebbe poi come zone fallite. Non c'e' nulla da salvare
-    proseguendo, e l'errore e' noto prima di partire.
+    The isolation serves the failures that concern ONE case. An arm with a model
+    that lacks the client is not that: it would fail identically on all the cases and on
+    all the repetitions, leaving N ``HARNESS_ERROR`` records on the ground that the
+    comparison would then count as failed zones. There is nothing to save
+    by continuing, and the error is known before starting.
     """
     from tests.eval._doubles import FakeProfiler
 
@@ -477,20 +477,21 @@ async def test_run_experiment_rifiuta_subito_un_braccio_senza_client(
     assert not (tmp_path / "runs").exists(), "nessun record scritto: non si parte"
 
 
-async def test_run_experiment_isola_un_errore_di_configurazione_e_prosegue(
+async def test_run_experiment_isolates_a_configuration_error_and_continues(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Un caso che esplode FUORI dal ``try`` di ``run_case`` non abbatte la run.
+    """A case that blows up OUTSIDE the ``try`` of ``run_case`` does not bring down the
+    run.
 
-    L'eccezione che il fix precedente ha lasciato propagare (``KeyError`` dal
-    listino prezzi su un ``llm_used`` non a listino — l'alias versionato che Groq
-    riporta davvero) usciva da ``run_case`` e arrivava fino in cima: l'intero
-    esperimento moriva sul PRIMO caso, perdendo tutti i successivi. In una run
-    live con quota giornaliera e' il danno peggiore, perche' la quota consumata
-    fin li' non torna indietro.
+    The exception that the previous fix let propagate (``KeyError`` from the
+    price list on an ``llm_used`` not in the list -- the versioned alias that Groq
+    really reports) came out of ``run_case`` and reached the top: the whole
+    experiment died on the FIRST case, losing all the following ones. In a live run
+    with a daily quota it is the worst damage, because the quota consumed
+    up to there does not come back.
 
-    Il caso rotto resta rotto (nessuna metrica inventata), ma e' isolato: gli
-    altri casi girano, e il suo record lo dice per cio' che e'.
+    The broken case stays broken (no metric invented), but it is isolated: the
+    other cases run, and its record says what it is.
     """
     from crime_risk_analyzer.llm.client import LLMResponse
     from crime_risk_analyzer.rag import retrieval
@@ -498,19 +499,19 @@ async def test_run_experiment_isola_un_errore_di_configurazione_e_prosegue(
 
     monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
     for zona in ("Centro", "Prati"):
-        scrivi_snapshot(
+        write_snapshot(
             snapshot_path(tmp_path, make_snapshot_key("Roma", zona)), _sample_pois()
         )
 
-    class _PrimoCasoNonPrezzato:
-        """Primo caso: model id fuori listino → KeyError nelle metriche."""
+    class _FirstCaseUnpriced:
+        """First case: model id outside the price list -> KeyError in the metrics."""
 
         def __init__(self) -> None:
-            self.chiamate = 0
+            self.calls = 0
 
         async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
-            self.chiamate += 1
-            if self.chiamate == 1:
+            self.calls += 1
+            if self.calls == 1:
                 return default_llm_response().model_copy(
                     update={"llm_used": "provider/modello-mai-prezzato"}
                 )
@@ -530,7 +531,7 @@ async def test_run_experiment_isola_un_errore_di_configurazione_e_prosegue(
         records = await run_experiment(
             cfg,
             executor=FakeProfiler(),
-            llm_client=_PrimoCasoNonPrezzato(),
+            llm_client=_FirstCaseUnpriced(),
             results_dir=tmp_path,
             code_commit="abc",
             ontology_hash="def",
@@ -539,32 +540,32 @@ async def test_run_experiment_isola_un_errore_di_configurazione_e_prosegue(
     assert len(records) == 2
     assert records[0].status == RunStatus.HARNESS_ERROR
     assert records[1].status == RunStatus.OK
-    # Entrambi i record finiscono su disco: la run e' completa e auditabile.
+    # Both records end up on disk: the run is complete and auditable.
     for zona in ("Centro", "Prati"):
         rid = make_run_id("iso-harness", "Roma", zona, "analyze", "groq")
         assert (tmp_path / "runs" / f"{rid}.json").exists()
 
 
-async def test_un_errore_di_configurazione_non_passa_inosservato(
+async def test_a_configuration_error_does_not_go_unnoticed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Isolare non e' zittire: l'eccezione va loggata CON il suo traceback.
+    """Isolating is not silencing: the exception must be logged WITH its traceback.
 
-    E' la meta' che rende l'isolamento accettabile. Un ``except`` che si limita a
-    scrivere un record marcato riprodurrebbe il bloccante precedente spostato di
-    un livello: la run finirebbe, ma chi legge i risultati non avrebbe modo di
-    sapere che a rompersi e' stato il codice e non il provider.
+    It is the half that makes the isolation acceptable. An ``except`` that just
+    writes a marked record would reproduce the previous blocker moved by
+    one level: the run would finish, but whoever reads the results would have no way of
+    knowing that it was the code that broke and not the provider.
     """
     from crime_risk_analyzer.llm.client import LLMResponse
     from crime_risk_analyzer.rag import retrieval
     from tests.eval._doubles import FakeProfiler, default_llm_response
 
     monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
-    scrivi_snapshot(
+    write_snapshot(
         snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
     )
 
-    class _NonPrezzato:
+    class _Unpriced:
         async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
             return default_llm_response().model_copy(
                 update={"llm_used": "provider/modello-mai-prezzato"}
@@ -579,29 +580,29 @@ async def test_un_errore_di_configurazione_non_passa_inosservato(
                 cases=[RunCase(citta="Roma", zona="Centro")],
             ),
             executor=FakeProfiler(),
-            llm_client=_NonPrezzato(),
+            llm_client=_Unpriced(),
             results_dir=tmp_path,
             code_commit="abc",
             ontology_hash="def",
         )
 
-    errori = [rec for rec in caplog.records if rec.levelname == "ERROR"]
-    assert errori, "l'eccezione isolata deve restare visibile nei log"
-    assert any(rec.exc_info is not None for rec in errori), (
+    errors = [rec for rec in caplog.records if rec.levelname == "ERROR"]
+    assert errors, "l'eccezione isolata deve restare visibile nei log"
+    assert any(rec.exc_info is not None for rec in errors), (
         "senza traceback il log dice che qualcosa e' fallito ma non dove"
     )
-    assert any("Centro" in rec.getMessage() for rec in errori)
+    assert any("Centro" in rec.getMessage() for rec in errors)
 
 
 @pytest.mark.parametrize("mode", ["baseline", "analyze"])
 async def test_run_does_not_geocode_when_replaying(
     mode: Mode, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Run (replay): 0 geocode su ENTRAMBI i rami (baseline/analyze), repeat>1 (#169).
+    """Run (replay): 0 geocode on BOTH branches (baseline/analyze), repeat>1 (#169).
 
-    Copre il fail-if-removed anche sul ramo analyze di ``run_case``: se il wiring
-    di ``geo_source`` sparisse dalla chiamata ``run_analysis``, il ramo analyze
-    tornerebbe a geocodificare live e questo caso fallirebbe.
+    It also covers fail-if-removed on the analyze branch of ``run_case``: if the wiring
+    of ``geo_source`` disappeared from the ``run_analysis`` call, the analyze branch
+    would go back to geocoding live and this case would fail.
     """
     from crime_risk_analyzer.geocoding import GeoResult
     from crime_risk_analyzer.rag import retrieval
@@ -614,9 +615,9 @@ async def test_run_does_not_geocode_when_replaying(
 
     monkeypatch.setattr(retrieval, "geocode_zone", _boom)
 
-    # Pre-salva SOLO lo snapshot POI (nessun file geo esiste in #169).
+    # Pre-save ONLY the POI snapshot (no geo file exists in #169).
     key = make_snapshot_key("Roma", "Colosseo")
-    scrivi_snapshot(snapshot_path(tmp_path, key), _sample_pois())
+    write_snapshot(snapshot_path(tmp_path, key), _sample_pois())
 
     from tests.eval._doubles import FakeLLMClient, FakeProfiler
 
@@ -626,7 +627,7 @@ async def test_run_does_not_geocode_when_replaying(
         model="claude",
         cases=[RunCase(citta="Roma", zona="Colosseo")],
     )
-    # analyze richiede un llm_client (fake gia' usato nel file); baseline no.
+    # analyze requires an llm_client (fake already used in the file); baseline does not.
     llm_client = FakeLLMClient() if mode == "analyze" else None
 
     records = await run_experiment(
@@ -639,15 +640,15 @@ async def test_run_does_not_geocode_when_replaying(
         repeat=2,
     )
     assert calls["n"] == 0
-    # Il test non deve passare per un errore a monte inghiottito da run_case.
+    # The test must not pass through an upstream error swallowed by run_case.
     assert all(r.status == RunStatus.OK for r in records)
 
 
 def test_make_snapshot_key_ignores_mode_and_model() -> None:
-    """La chiave snapshot dipende SOLO da (citta, zona) (#110).
+    """The snapshot key depends ONLY on (citta, zona) (#110).
 
-    I bracci comparativi (analyze/claude, analyze/groq, baseline) condividono la
-    stessa fixture POI; il run_id resta invece per-run (varia con mode/model).
+    The comparative arms (analyze/claude, analyze/groq, baseline) share the
+    same POI fixture; the run_id instead stays per-run (varies with mode/model).
     """
     key = make_snapshot_key("Roma", "Centro Storico")
     assert key == make_snapshot_key("Roma", "Centro Storico")
@@ -662,9 +663,9 @@ def test_make_snapshot_key_ignores_mode_and_model() -> None:
 
 
 def test_make_snapshot_key_is_canonical() -> None:
-    """Chiave canonica: case e whitespace normalizzati (#110).
+    """Canonical key: case and whitespace normalized (#110).
 
-    'Milano' e ' milano ' non devono generare snapshot separati.
+    'Milano' and ' milano ' must not generate separate snapshots.
     """
     assert make_snapshot_key("Milano", "Centro") == make_snapshot_key(
         " milano ", "CENTRO"
@@ -675,10 +676,10 @@ def test_make_snapshot_key_is_canonical() -> None:
 async def test_comparative_arms_share_one_snapshot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """AC #110: model/mode diversi sulla stessa (citta, zona) → STESSO snapshot.
+    """AC #110: different model/mode on the same (citta, zona) -> SAME snapshot.
 
-    Una fixture salvata una volta è rigiocata dai tre bracci (analyze/claude,
-    analyze/groq, baseline): nessuna divergenza di POI tra i bracci.
+    A fixture saved once is replayed by the three arms (analyze/claude,
+    analyze/groq, baseline): no POI divergence between the arms.
     """
     from crime_risk_analyzer.rag import retrieval
 
@@ -687,7 +688,7 @@ async def test_comparative_arms_share_one_snapshot(
     from tests.eval._doubles import FakeLLMClient, FakeProfiler
 
     key = make_snapshot_key("Roma", "Centro")
-    scrivi_snapshot(snapshot_path(tmp_path, key), _sample_pois())
+    write_snapshot(snapshot_path(tmp_path, key), _sample_pois())
 
     cfg_claude = ExperimentConfig(
         name="ablation",
@@ -739,22 +740,22 @@ async def test_comparative_arms_share_one_snapshot(
         )
     )[0]
 
-    # Nessun braccio va in errore per snapshot mancante: leggono tutti la stessa.
+    # No arm goes in error for a missing snapshot: they all read the same one.
     assert rec_claude.status == RunStatus.OK
     assert rec_groq.status == RunStatus.OK
     assert rec_baseline.status == RunStatus.OK
-    # Provenienza auditabile: tutti citano lo stesso snapshot (citta, zona).
+    # Auditable provenance: all cite the same snapshot (citta, zona).
     assert rec_claude.provenance.snapshot_id == key
     assert rec_groq.provenance.snapshot_id == key
     assert rec_baseline.provenance.snapshot_id == key
-    # Iso-input: stessa fixture → stesso conteggio POI per ogni braccio.
+    # Iso-input: same fixture -> same POI count for every arm.
     assert rec_claude.n_poi == rec_groq.n_poi == rec_baseline.n_poi == 1
-    # Un solo file snapshot per (citta, zona): nessuna copia per-braccio.
+    # A single snapshot file per (citta, zona): no per-arm copy.
     assert list((tmp_path / "snapshots").glob("*.json")) == [
         snapshot_path(tmp_path, key)
     ]
-    # N1: le LISTE di POI risolte dai tre bracci sono IDENTICHE (stesso input, non
-    # solo stessa cardinalità), caricate dallo snapshot citato in provenance.
+    # N1: the POI LISTS resolved by the three arms are IDENTICAL (same input, not
+    # just same cardinality), loaded from the snapshot cited in provenance.
     pois_by_arm = [
         load_snapshot(snapshot_path(tmp_path, rec.provenance.snapshot_id))
         for rec in (rec_claude, rec_groq, rec_baseline)
@@ -765,9 +766,9 @@ async def test_comparative_arms_share_one_snapshot(
 async def test_capture_once_replayed_by_other_arm(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """AC #110: cattura live UNA volta per (citta, zona); l'altro braccio rigioca.
+    """AC #110: live capture ONCE per (citta, zona); the other arm replays.
 
-    Con model/mode diversi non parte una seconda query live: la fixture è condivisa.
+    With different model/mode no second live query starts: the fixture is shared.
     """
     from crime_risk_analyzer.rag import retrieval
 
@@ -782,13 +783,13 @@ async def test_capture_once_replayed_by_other_arm(
         calls += 1
         return _sample_pois(), None
 
-    # Braccio A (analyze/claude) cattura live → scrive lo snapshot alla chiave.
+    # Arm A (analyze/claude) captures live -> writes the snapshot at the key.
     key = make_snapshot_key("Roma", "Centro")
     capture = capturing_source(snapshot_path(tmp_path, key), inner=counting_inner)
     await capture(Bbox(41.0, 12.0, 41.1, 12.1), "Roma")
     assert calls == 1
 
-    # Braccio B (baseline/groq) rigioca dallo stesso snapshot: nessuna nuova query.
+    # Arm B (baseline/groq) replays from the same snapshot: no new query.
     cfg_baseline = ExperimentConfig(
         name="ablation",
         mode="baseline",
@@ -804,21 +805,21 @@ async def test_capture_once_replayed_by_other_arm(
         ontology_hash="def",
     )
     assert records[0].status == RunStatus.OK
-    assert calls == 1  # nessuna seconda cattura live
+    assert calls == 1  # no second live capture
     assert records[0].provenance.snapshot_id == key
 
 
 async def test_no_ontology_arm_replays_the_snapshot_of_the_complete_arm(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """#236: i due bracci del confronto C3 girano sullo STESSO snapshot POI.
+    """#236: the two arms of the C3 comparison run on the SAME POI snapshot.
 
-    Il braccio ablato non e' una seconda cattura: la chiave dello snapshot resta
-    ``(citta, zona)`` (#110), quindi la variabile che cambia tra i bracci e' solo
-    il prompt. Il test verifica insieme le due meta' del criterio di accettazione:
-    iso-input (stesso ``snapshot_id``, stessi POI, un solo file di snapshot) e
-    provenienza distinguibile (``run_id``, ``mode`` e ``prompt_hash`` diversi —
-    quest'ultimo perche' i due bracci mandano al modello system prompt diversi).
+    The ablated arm is not a second capture: the snapshot key stays
+    ``(citta, zona)`` (#110), so the variable that changes between the arms is only
+    the prompt. The test verifies together the two halves of the acceptance criterion:
+    iso-input (same ``snapshot_id``, same POIs, a single snapshot file) and
+    distinguishable provenance (different ``run_id``, ``mode`` and ``prompt_hash`` --
+    the latter because the two arms send the model different system prompts).
     """
     import hashlib
 
@@ -828,7 +829,7 @@ async def test_no_ontology_arm_replays_the_snapshot_of_the_complete_arm(
     from tests.eval._doubles import FakeProfiler, default_llm_response
 
     class _HashingLLMClient:
-        """Doppio che hashea il system prompt come fa il client reale (#114)."""
+        """Double that hashes the system prompt as the real client does (#114)."""
 
         def __init__(self) -> None:
             self.calls: list[tuple[str, str]] = []
@@ -843,7 +844,7 @@ async def test_no_ontology_arm_replays_the_snapshot_of_the_complete_arm(
 
     monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
     key = make_snapshot_key("Roma", "Centro")
-    scrivi_snapshot(snapshot_path(tmp_path, key), _sample_pois())
+    write_snapshot(snapshot_path(tmp_path, key), _sample_pois())
     profiler = FakeProfiler(
         {
             "Bank": PoiRiskProfile(
@@ -855,8 +856,8 @@ async def test_no_ontology_arm_replays_the_snapshot_of_the_complete_arm(
     )
 
     client_completo = _HashingLLMClient()
-    client_ablato = _HashingLLMClient()
-    rec_completo = (
+    ablated_client = _HashingLLMClient()
+    full_rec = (
         await run_experiment(
             ExperimentConfig(
                 name="ablation-analyze-groq",
@@ -871,7 +872,7 @@ async def test_no_ontology_arm_replays_the_snapshot_of_the_complete_arm(
             ontology_hash="def",
         )
     )[0]
-    rec_ablato = (
+    ablated_rec = (
         await run_experiment(
             ExperimentConfig(
                 name="ablation-no-ontology-groq",
@@ -880,36 +881,34 @@ async def test_no_ontology_arm_replays_the_snapshot_of_the_complete_arm(
                 cases=[RunCase(citta="Roma", zona="Centro")],
             ),
             executor=profiler,
-            llm_client=client_ablato,
+            llm_client=ablated_client,
             results_dir=tmp_path,
             code_commit="abc",
             ontology_hash="def",
         )
     )[0]
 
-    assert rec_completo.status == RunStatus.OK
-    assert rec_ablato.status == RunStatus.OK
-    # Iso-input: stessa fixture, un solo file catturato, stesso numero di POI.
-    assert (
-        rec_ablato.provenance.snapshot_id == rec_completo.provenance.snapshot_id == key
-    )
-    assert rec_ablato.n_poi == rec_completo.n_poi == 1
+    assert full_rec.status == RunStatus.OK
+    assert ablated_rec.status == RunStatus.OK
+    # Iso-input: same fixture, a single captured file, same number of POIs.
+    assert ablated_rec.provenance.snapshot_id == full_rec.provenance.snapshot_id == key
+    assert ablated_rec.n_poi == full_rec.n_poi == 1
     assert list((tmp_path / "snapshots").glob("*.json")) == [
         snapshot_path(tmp_path, key)
     ]
-    # Provenienza: i due bracci restano distinguibili nei risultati.
-    assert rec_ablato.mode == "no_ontology_prompt"
-    assert rec_completo.mode == "analyze"
-    assert rec_ablato.run_id != rec_completo.run_id
-    assert rec_ablato.provenance.prompt_hash != rec_completo.provenance.prompt_hash
-    # La variabile isolata: l'ontologia arriva al prompt solo nel braccio completo.
+    # Provenance: the two arms stay distinguishable in the results.
+    assert ablated_rec.mode == "no_ontology_prompt"
+    assert full_rec.mode == "analyze"
+    assert ablated_rec.run_id != full_rec.run_id
+    assert ablated_rec.provenance.prompt_hash != full_rec.provenance.prompt_hash
+    # The isolated variable: the ontology reaches the prompt only in the full arm.
     assert "Bank_robbery" in client_completo.calls[0][1]
-    assert "Bank_robbery" not in client_ablato.calls[0][1]
-    assert "  POI: Banca A (Bank)" in client_ablato.calls[0][1]
+    assert "Bank_robbery" not in ablated_client.calls[0][1]
+    assert "  POI: Banca A (Bank)" in ablated_client.calls[0][1]
 
 
-def _molti_pois(n: int) -> list[Poi]:
-    """Snapshot denso: abbastanza punti perche' un budget ridotto tagli."""
+def _many_pois(n: int) -> list[Poi]:
+    """Dense snapshot: enough points for a reduced budget to cut."""
     return [
         Poi(
             id=str(i),
@@ -927,15 +926,15 @@ def _molti_pois(n: int) -> list[Poi]:
 async def test_no_ontology_arm_receives_the_complete_arm_prompt_settings(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """#349: l'harness passa al braccio ablato gli stessi parametri con cui il
-    braccio completo costruisce il prompt (budget, max_tokens, formato,
-    interruttore ISTAT), da un solo punto (``_budget_della_run``), e i due record
-    salvano gli STESSI POI nel prompt anche quando il budget taglia davvero.
+    """#349: the harness passes to the ablated arm the same parameters with which the
+    full arm builds the prompt (budget, max_tokens, format,
+    ISTAT switch), from a single point (``_run_budget``), and the two records
+    save the SAME POIs in the prompt even when the budget really cuts.
 
-    Il budget e' ridotto passando dall'harness (monkeypatch del suo unico punto di
-    calcolo): un letterale in una delle due chiamate farebbe divergere i bracci e
-    questo test lo vedrebbe. Solo con ISTAT spento: ``ExperimentConfig`` non
-    ammette ``istat=True`` fuori da ``mode="analyze"`` (D6).
+    The budget is reduced going through the harness (monkeypatch of its single point of
+    computation): a literal in one of the two calls would make the arms diverge and
+    this test would see it. Only with ISTAT off: ``ExperimentConfig`` does not
+    allow ``istat=True`` outside ``mode="analyze"`` (D6).
     """
     from crime_risk_analyzer.eval import harness
     from crime_risk_analyzer.rag import retrieval
@@ -946,34 +945,34 @@ async def test_no_ontology_arm_receives_the_complete_arm_prompt_settings(
     )
     from tests.eval._doubles import FakeLLMClient, FakeProfiler
 
-    visti: dict[str, dict[str, object]] = {}
-    veri = {
+    seen: dict[str, dict[str, object]] = {}
+    real = {
         "run_analysis": harness.run_analysis,
         "run_no_ontology_prompt": harness.run_no_ontology_prompt,
     }
 
-    def _spia(nome: str):  # noqa: ANN202 — wrapper di test
+    def _spy(name: str):  # noqa: ANN202 -- test wrapper
         async def _f(*args: object, **kwargs: object) -> object:
-            visti[nome] = kwargs
-            return await veri[nome](*args, **kwargs)  # type: ignore[arg-type]
+            seen[name] = kwargs
+            return await real[name](*args, **kwargs)  # type: ignore[arg-type]
 
         return _f
 
-    budget_ridotto = _estimate_tokens(SYSTEM_PROMPT) + DEFAULT_MAX_TOKENS + 200
+    reduced_budget = _estimate_tokens(SYSTEM_PROMPT) + DEFAULT_MAX_TOKENS + 200
 
-    def _budget_ridotto(config: ExperimentConfig) -> tuple[int | None, int | None]:
+    def _reduced_budget(config: ExperimentConfig) -> tuple[int | None, int | None]:
         if config.mode == "baseline":
             return None, None
-        return budget_ridotto, DEFAULT_MAX_TOKENS
+        return reduced_budget, DEFAULT_MAX_TOKENS
 
-    monkeypatch.setattr(harness, "_budget_della_run", _budget_ridotto)
-    monkeypatch.setattr(harness, "run_analysis", _spia("run_analysis"))
+    monkeypatch.setattr(harness, "_run_budget", _reduced_budget)
+    monkeypatch.setattr(harness, "run_analysis", _spy("run_analysis"))
     monkeypatch.setattr(
-        harness, "run_no_ontology_prompt", _spia("run_no_ontology_prompt")
+        harness, "run_no_ontology_prompt", _spy("run_no_ontology_prompt")
     )
     monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
-    scrivi_snapshot(
-        snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _molti_pois(12)
+    write_snapshot(
+        snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _many_pois(12)
     )
     records: dict[str, RunRecord] = {}
     for mode in ("analyze", "no_ontology_prompt"):
@@ -991,32 +990,32 @@ async def test_no_ontology_arm_receives_the_complete_arm_prompt_settings(
             ontology_hash="def",
         )
 
-    chiavi = ("request_token_budget", "max_tokens", "context_format")
-    completo, ablato = visti["run_analysis"], visti["run_no_ontology_prompt"]
-    assert {k: ablato[k] for k in chiavi} == {k: completo[k] for k in chiavi}
-    assert completo["request_token_budget"] == budget_ridotto
-    assert ablato["istat_context_enabled"] is completo["istat_context_enabled"] is False
-    rec_completo, rec_ablato = records["analyze"], records["no_ontology_prompt"]
-    # Un braccio ablato in errore renderebbe il confronto sopra vacuo.
-    assert rec_completo.status is RunStatus.OK
-    assert rec_ablato.status is RunStatus.OK
-    assert rec_completo.poi_nel_prompt is not None
-    assert rec_ablato.poi_nel_prompt is not None
-    assert set(rec_ablato.poi_nel_prompt) == set(rec_completo.poi_nel_prompt)
-    assert 0 < len(rec_ablato.poi_nel_prompt) < rec_ablato.n_poi == 12
-    assert rec_completo.provenance.request_token_budget == budget_ridotto
+    keys = ("request_token_budget", "max_tokens", "context_format")
+    full, ablated = seen["run_analysis"], seen["run_no_ontology_prompt"]
+    assert {k: ablated[k] for k in keys} == {k: full[k] for k in keys}
+    assert full["request_token_budget"] == reduced_budget
+    assert ablated["istat_context_enabled"] is full["istat_context_enabled"] is False
+    full_rec, ablated_rec = records["analyze"], records["no_ontology_prompt"]
+    # An ablated arm in error would make the comparison above vacuous.
+    assert full_rec.status is RunStatus.OK
+    assert ablated_rec.status is RunStatus.OK
+    assert full_rec.poi_nel_prompt is not None
+    assert ablated_rec.poi_nel_prompt is not None
+    assert set(ablated_rec.poi_nel_prompt) == set(full_rec.poi_nel_prompt)
+    assert 0 < len(ablated_rec.poi_nel_prompt) < ablated_rec.n_poi == 12
+    assert full_rec.provenance.request_token_budget == reduced_budget
 
 
 async def test_baseline_record_has_no_poi_in_prompt(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """#349: la baseline non costruisce un prompt, quindi ``poi_nel_prompt`` e'
-    ``None`` come sui record precedenti a #349."""
+    """#349: the baseline builds no prompt, so ``poi_nel_prompt`` is
+    ``None`` like on the records prior to #349."""
     from crime_risk_analyzer.rag import retrieval
     from tests.eval._doubles import FakeProfiler
 
     monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
-    scrivi_snapshot(
+    write_snapshot(
         snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
     )
     [rec] = await run_experiment(
@@ -1038,18 +1037,18 @@ async def test_baseline_record_has_no_poi_in_prompt(
 async def test_no_ontology_arm_is_not_a_vacuous_arm(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Il braccio produce prosa: i proxy di qualita' hanno di che pronunciarsi.
+    """The arm produces prose: the quality proxies have something to pronounce on.
 
-    E' il difetto che #236 chiude rispetto a ``baseline``, muto per costruzione:
-    un braccio senza narrativa fa cadere ``grounding``/``hallucination`` nel ramo
-    vacuo e a valle il verdetto viene TRATTENUTO (#231).
+    It is the defect that #236 closes with respect to ``baseline``, mute by
+    construction: an arm without narrative makes ``grounding``/``hallucination`` fall
+    into the vacuous branch and downstream the verdict is WITHHELD (#231).
     """
-    from crime_risk_analyzer.eval.compare import has_narrativa, is_vacuous_arm
+    from crime_risk_analyzer.eval.compare import has_narrative, is_vacuous_arm
     from crime_risk_analyzer.rag import retrieval
     from tests.eval._doubles import FakeLLMClient, FakeProfiler
 
     monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
-    scrivi_snapshot(
+    write_snapshot(
         snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
     )
     records = await run_experiment(
@@ -1065,19 +1064,19 @@ async def test_no_ontology_arm_is_not_a_vacuous_arm(
         code_commit="abc",
         ontology_hash="def",
     )
-    assert has_narrativa(records[0])
+    assert has_narrative(records[0])
     assert not is_vacuous_arm(records)
 
 
 async def test_no_ontology_arm_is_measured_on_the_block_its_prompt_asks_for(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Il record porta il ``mode``, e il ``mode`` decide su cosa si misura.
+    """The record carries the ``mode``, and the ``mode`` decides what is measured.
 
-    Il prompt ablato chiede per onesta' un blocco ``[SINTESI-LLM]``: se
-    l'harness misurasse ogni braccio sull'etichetta ``[ONTOLOGIA]``, quel
-    braccio prenderebbe 0.0/1.0 per NON-ATTRIBUZIONE su ogni run e il confronto
-    C3 sarebbe deciso dal nome dell'etichetta invece che dall'ancoraggio.
+    The ablated prompt asks for honesty's sake a ``[SINTESI-LLM]`` block: if
+    the harness measured every arm on the ``[ONTOLOGIA]`` label, that
+    arm would get 0.0/1.0 for NON-ATTRIBUTION on every run and the C3 comparison
+    would be decided by the name of the label instead of the anchoring.
     """
     from crime_risk_analyzer.llm.client import LLMResponse
     from crime_risk_analyzer.rag import retrieval
@@ -1087,10 +1086,10 @@ async def test_no_ontology_arm_is_measured_on_the_block_its_prompt_asks_for(
     from tests.eval._doubles import FakeLLMClient, FakeProfiler
 
     monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode_fixture)
-    scrivi_snapshot(
+    write_snapshot(
         snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
     )
-    risposta = LLMResponse(
+    response = LLMResponse(
         text=(
             f"Sintesi della zona.\n\n{LLM_SYNTHESIS_BLOCK_HEADER}\n"
             "Banca A presenta rischio rapina."
@@ -1111,7 +1110,7 @@ async def test_no_ontology_arm_is_measured_on_the_block_its_prompt_asks_for(
             cases=[RunCase(citta="Roma", zona="Centro")],
         ),
         executor=FakeProfiler(),
-        llm_client=FakeLLMClient(risposta),
+        llm_client=FakeLLMClient(response),
         results_dir=tmp_path,
         code_commit="abc",
         ontology_hash="def",
@@ -1121,11 +1120,11 @@ async def test_no_ontology_arm_is_measured_on_the_block_its_prompt_asks_for(
 
 
 async def test_no_ontology_arm_requires_an_llm_client(tmp_path: Path) -> None:
-    """Senza client il braccio non ha senso: e' il braccio CON l'LLM.
+    """Without a client the arm makes no sense: it is the arm WITH the LLM.
 
-    Il ramo di ``run_case`` che solleva e' quello di ``analyze``: se il nuovo mode
-    finisse per sbaglio nel ramo baseline, la run girerebbe senza modello e
-    produrrebbe un secondo braccio muto invece del confronto cercato.
+    The branch of ``run_case`` that raises is that of ``analyze``: if the new mode
+    ended up by mistake in the baseline branch, the run would run without a model and
+    would produce a second mute arm instead of the comparison sought.
     """
     from tests.eval._doubles import FakeProfiler
 
@@ -1154,7 +1153,7 @@ def _legacy_record(experiment: str, citta: str, zona: str):
         RunStatus,
     )
 
-    # run_id in formato PRE-#157: nessun suffisso __rep.
+    # run_id in PRE-#157 format: no __rep suffix.
     return RunRecord(
         run_id=f"{experiment}__{citta}__{zona}__analyze__groq".lower(),
         experiment=experiment,
@@ -1226,7 +1225,7 @@ def test_guard_no_legacy_runs_ignores_repeated_and_other_experiments(
         RunStatus,
     )
 
-    # record __rep dello stesso esperimento: NON deve far scattare la guardia.
+    # __rep record of the same experiment: must NOT trigger the guard.
     rec = RunRecord(
         run_id=make_run_id("exp", "Roma", "Colosseo", "analyze", "groq", 0),
         experiment="exp",
@@ -1252,16 +1251,16 @@ def test_guard_no_legacy_runs_ignores_repeated_and_other_experiments(
         ),
     )
     write_record(tmp_path, rec)
-    # legacy ma di ALTRO esperimento: irrilevante per "exp".
+    # legacy but of ANOTHER experiment: irrelevant for "exp".
     write_record(tmp_path, _legacy_record("other", "Milano", "Duomo"))
-    guard_no_legacy_runs(tmp_path, "exp")  # non solleva
+    guard_no_legacy_runs(tmp_path, "exp")  # does not raise
 
 
 def test_guard_no_legacy_runs_clean_stale_removes_only_target(tmp_path: Path) -> None:
-    """--clean-stale rimuove SOLO i legacy dell'esperimento target.
+    """--clean-stale removes ONLY the legacy ones of the target experiment.
 
-    Sicurezza-dati: un record __rep dello stesso esperimento e un legacy di un
-    ALTRO esperimento non devono essere toccati dalla pulizia.
+    Data safety: a __rep record of the same experiment and a legacy of ANOTHER
+    experiment must not be touched by the cleaning.
     """
     from crime_risk_analyzer.eval.harness import (
         guard_no_legacy_runs,
@@ -1276,9 +1275,9 @@ def test_guard_no_legacy_runs_clean_stale_removes_only_target(tmp_path: Path) ->
         RunStatus,
     )
 
-    # (a) legacy TARGET dell'esperimento "exp": deve essere rimosso.
+    # (a) legacy TARGET of the experiment "exp": must be removed.
     target = write_record(tmp_path, _legacy_record("exp", "Roma", "Colosseo"))
-    # (b) record __rep dello stesso "exp": ripetizione valida, NON va toccata.
+    # (b) __rep record of the same "exp": valid repetition, must NOT be touched.
     rep = RunRecord(
         run_id=make_run_id("exp", "Roma", "Colosseo", "analyze", "groq", 0),
         experiment="exp",
@@ -1304,38 +1303,38 @@ def test_guard_no_legacy_runs_clean_stale_removes_only_target(tmp_path: Path) ->
         ),
     )
     rep_path = write_record(tmp_path, rep)
-    # (c) legacy di ALTRO esperimento: fuori scope, NON va toccato.
+    # (c) legacy of ANOTHER experiment: out of scope, must NOT be touched.
     other = write_record(tmp_path, _legacy_record("other", "Milano", "Duomo"))
 
     guard_no_legacy_runs(tmp_path, "exp", clean_stale=True)
 
-    assert not target.exists()  # (a) rimosso
-    assert rep_path.exists()  # (b) intatto
-    assert other.exists()  # (c) intatto
+    assert not target.exists()  # (a) removed
+    assert rep_path.exists()  # (b) intact
+    assert other.exists()  # (c) intact
     assert legacy_run_paths(tmp_path, "exp") == []
 
 
 async def test_run_experiment_propagates_and_records_the_context_format(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """#273: la variante deve arrivare al prompt E finire nel record.
+    """#273: the variant must reach the prompt AND end up in the record.
 
-    Se arrivasse al prompt senza essere registrata, un A/B fra i due formati
-    produrrebbe record indistinguibili (``prompt_hash`` copre il solo system
-    prompt); se fosse registrata senza arrivare al prompt, il record mentirebbe.
-    Il test chiude entrambi i lati.
+    If it reached the prompt without being recorded, an A/B between the two formats
+    would produce indistinguishable records (``prompt_hash`` covers only the system
+    prompt); if it were recorded without reaching the prompt, the record would lie.
+    The test closes both sides.
     """
     from crime_risk_analyzer.llm.client import LLMResponse
     from tests.eval._doubles import FakeProfiler, default_llm_response
 
-    visti: list[str] = []
+    seen: list[str] = []
 
     class _Recording:
         async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
-            visti.append(user_content)
+            seen.append(user_content)
             return default_llm_response()
 
-    scrivi_snapshot(
+    write_snapshot(
         snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
     )
     from crime_risk_analyzer.rag import retrieval
@@ -1358,24 +1357,24 @@ async def test_run_experiment_propagates_and_records_the_context_format(
     )
 
     assert records[0].provenance.context_format == "per_classe"
-    assert "raggruppati per classe TERMINUS" in visti[0]
+    assert "raggruppati per classe TERMINUS" in seen[0]
 
 
 async def test_run_experiment_default_keeps_the_historical_prompt(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Un esperimento che non nomina il formato non deve muoversi di un byte."""
+    """An experiment that does not name the format must not move by a byte."""
     from crime_risk_analyzer.llm.client import LLMResponse
     from tests.eval._doubles import FakeProfiler, default_llm_response
 
-    visti: list[str] = []
+    seen: list[str] = []
 
     class _Recording:
         async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
-            visti.append(user_content)
+            seen.append(user_content)
             return default_llm_response()
 
-    scrivi_snapshot(
+    write_snapshot(
         snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
     )
     from crime_risk_analyzer.rag import retrieval
@@ -1397,14 +1396,14 @@ async def test_run_experiment_default_keeps_the_historical_prompt(
     )
 
     assert records[0].provenance.context_format == "per_poi"
-    assert "POI RILEVANTI:" in visti[0]
+    assert "POI RILEVANTI:" in seen[0]
 
 
 def test_record_from_response_copies_risk_models() -> None:
-    """_record_from_response copia risk_models dalla response nel RunRecord."""
+    """_record_from_response copies risk_models from the response into the RunRecord."""
     from crime_risk_analyzer.rag.generation import Repro
 
-    # Costruisci una AnalyzeResponse fittizia con risk_models non vuoti.
+    # Build a fake AnalyzeResponse with non-empty risk_models.
     risk_model = RiskModel(poi_id="node/1", poi="Banca A", risks=[])
 
     resp = AnalyzeResponse(
@@ -1429,7 +1428,7 @@ def test_record_from_response_copies_risk_models() -> None:
         ),
     )
 
-    # Chiama _record_from_response direttamente.
+    # Call _record_from_response directly.
     record = _record_from_response(
         run_id="r",
         snapshot_id="s",
@@ -1443,16 +1442,16 @@ def test_record_from_response_copies_risk_models() -> None:
         snapshot_configurazione_canonica=None,
     )
 
-    # Verifica che il record porti i risk_models.
+    # Verify that the record carries the risk_models.
     assert len(record.risk_models) == 1
     assert record.risk_models[0].poi_id == "node/1"
 
 
-async def _run_case_istat(tmp_path: Path, testo: str) -> RunRecord:
-    """Un caso del braccio con ISTAT (Roma/Colosseo, un POI "Banca A") su cui il
-    modello finto scrive ``testo``. #365: le rapine in banca del Comune di Roma
-    restano sotto la soglia di 20 delitti e non entrano nel blocco; i furti
-    (Property_theft) si'."""
+async def _run_case_istat(tmp_path: Path, text: str) -> RunRecord:
+    """A case of the arm with ISTAT (Roma/Colosseo, one POI "Banca A") on which the
+    fake model writes ``text``. #365: the bank robberies of the Municipality of Rome
+    stay under the threshold of 20 crimes and do not enter the block; the thefts
+    (Property_theft) do."""
     from crime_risk_analyzer.models.risk import PoiRiskProfile
     from tests.eval._doubles import FakeLLMClient, FakeProfiler
 
@@ -1467,9 +1466,7 @@ async def _run_case_istat(tmp_path: Path, testo: str) -> RunRecord:
             citta="Roma",
         )
     ]
-    scrivi_snapshot(
-        snapshot_path(tmp_path, make_snapshot_key("Roma", "Colosseo")), pois
-    )
+    write_snapshot(snapshot_path(tmp_path, make_snapshot_key("Roma", "Colosseo")), pois)
     cfg = ExperimentConfig(
         name="istat",
         mode="analyze",
@@ -1477,7 +1474,7 @@ async def _run_case_istat(tmp_path: Path, testo: str) -> RunRecord:
         cases=[RunCase(citta="Roma", zona="Colosseo")],
         istat=True,
     )
-    profili = {
+    profiles = {
         "Bank": PoiRiskProfile(
             terminus_class="Bank",
             hazards=["Bank_robbery", "Property_theft"],
@@ -1487,9 +1484,9 @@ async def _run_case_istat(tmp_path: Path, testo: str) -> RunRecord:
     return await run_case(
         cfg.cases[0],
         cfg,
-        executor=FakeProfiler(profili),
+        executor=FakeProfiler(profiles),
         llm_client=FakeLLMClient(
-            default_llm_response().model_copy(update={"text": testo})
+            default_llm_response().model_copy(update={"text": text})
         ),
         results_dir=tmp_path,
         code_commit="c",
@@ -1497,7 +1494,7 @@ async def _run_case_istat(tmp_path: Path, testo: str) -> RunRecord:
     )
 
 
-async def test_run_case_con_istat_scrive_provenienza_grezzo_e_metriche(
+async def test_run_case_with_istat_writes_provenance_raw_text_and_metrics(
     tmp_path: Path,
 ) -> None:
     from crime_risk_analyzer.istat.data import istat_data
@@ -1506,53 +1503,53 @@ async def test_run_case_con_istat_scrive_provenienza_grezzo_e_metriche(
         "Secondo i dati ISTAT del Comune di Roma i furti hanno un tasso piu' alto "
         "di quello italiano e sono in calo"
     )
-    testo = (
+    text = (
         "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nBanca A: rapina in banca. "
         f"{istat}.\nCirca 999 casi in piu'.\n"
     )
-    rec = await _run_case_istat(tmp_path, testo)
+    rec = await _run_case_istat(tmp_path, text)
     assert rec.provenance.istat is True
     assert rec.provenance.istat_versione_dati == istat_data().versione
-    assert rec.narrativa_grezza == testo
+    assert rec.narrativa_grezza == text
     assert "999" not in rec.narrativa
     assert rec.istat_frasi_scartate == 1
     assert rec.istat_metrics is not None
     assert (rec.istat_metrics.versione, rec.istat_metrics.voci_fornite) == (4, 1)
     assert (rec.istat_metrics.frasi_istat, rec.istat_metrics.voci_citate) == (1, 1)
-    # #369: il record dice quali frasi M1 non ha misurato, e quante.
+    # #369: the record says which sentences M1 did not measure, and how many.
     assert rec.frasi_escluse_m1 == [istat]
     assert rec.istat_metrics.frasi_escluse_m1 == 1
     assert (rec.metrics.grounding, rec.metrics.hallucination) == (0.5, 0.5)
 
 
-async def test_run_case_con_istat_separa_le_escluse_senza_voce_del_prompt(
+async def test_run_case_with_istat_separates_excluded_without_item_of_the_prompt(
     tmp_path: Path,
 ) -> None:
-    """#378: fra le frasi escluse da M1 il record separa quelle che non nominano
-    nessuna voce delle righe ISTAT del prompt, senza toccare M1."""
-    furti = "Secondo i dati ISTAT del Comune di Roma i furti sono in calo"
-    sequestri = (
+    """#378: among the sentences excluded from M1 the record separates those that name
+    no item of the ISTAT rows of the prompt, without touching M1."""
+    thefts = "Secondo i dati ISTAT del Comune di Roma i furti sono in calo"
+    kidnappings = (
         "Secondo i dati ISTAT del Comune di Roma i sequestri di persona sono in aumento"
     )
-    testo = (
+    text = (
         "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nBanca A: rapina in banca. "
-        f"{furti}. {sequestri}.\n"
+        f"{thefts}. {kidnappings}.\n"
     )
-    rec = await _run_case_istat(tmp_path, testo)
-    assert rec.frasi_escluse_m1 == [furti, sequestri]
-    assert rec.frasi_escluse_senza_voce == [sequestri]
+    rec = await _run_case_istat(tmp_path, text)
+    assert rec.frasi_escluse_m1 == [thefts, kidnappings]
+    assert rec.frasi_escluse_senza_voce == [kidnappings]
     assert rec.istat_metrics is not None
     assert rec.istat_metrics.frasi_escluse_m1 == 2
     assert rec.istat_metrics.frasi_escluse_senza_voce == 1
     assert (rec.metrics.grounding, rec.metrics.hallucination) == (1.0, 0.0)
 
 
-async def test_run_case_a_istat_spento_grezzo_uguale_alla_narrativa(
+async def test_run_case_with_istat_off_raw_text_equals_the_narrative(
     tmp_path: Path,
 ) -> None:
     from tests.eval._doubles import FakeLLMClient, FakeProfiler
 
-    scrivi_snapshot(
+    write_snapshot(
         snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
     )
     cfg = ExperimentConfig(
@@ -1580,17 +1577,17 @@ async def test_run_case_a_istat_spento_grezzo_uguale_alla_narrativa(
     assert rec.frasi_escluse_senza_voce is None
 
 
-async def test_m1_su_record_istat_grada_il_grezzo_senza_le_frasi_istat_escluse(
+async def test_m1_on_istat_record_grades_raw_text_without_excluded_istat_sentences(
     tmp_path: Path,
 ) -> None:
-    """F10 (review finale), #369: M1 su un record ISTAT e' calcolato sul grezzo
-    senza le frasi ISTAT che non nominano un POI ne' un rischio, non sul testo
-    filtrato ne' sul grezzo intero.
+    """F10 (final review), #369: M1 on an ISTAT record is computed on the raw text
+    without the ISTAT sentences that name neither a POI nor a risk, not on the filtered
+    text nor on the whole raw text.
 
-    Il blocco misurato ha tre frasi: una ancorata (Banca A), una con un numero
-    inventato senza ancoraggio (tolta dal filtro ma misurata da M1) e una con una
-    cifra ISTAT (tolta dal filtro ed esclusa da M1). Solo cosi' 1 ancorata su 2:
-    il filtrato darebbe 1/1, il grezzo intero 1/3.
+    The measured block has three sentences: one anchored (Banca A), one with an invented
+    number without anchoring (removed by the filter but measured by M1) and one with an
+    ISTAT figure (removed by the filter and excluded from M1). Only so 1 anchored out of
+    2: the filtered would give 1/1, the whole raw text 1/3.
     """
     from crime_risk_analyzer.istat.data import istat_data
     from crime_risk_analyzer.rag.generation import (
@@ -1598,59 +1595,60 @@ async def test_m1_su_record_istat_grada_il_grezzo_senza_le_frasi_istat_escluse(
         DEFAULT_REQUEST_TOKEN_BUDGET,
     )
 
-    dati = istat_data()
-    totale = dati.delitti.valore("058091", "TOT", dati.delitti.anno)
-    assert totale is not None and totale.delitti is not None
-    # Senza separatore delle migliaia: M1 spezza le frasi a ogni punto.
-    cifra = str(totale.delitti)
-    testo = (
+    data = istat_data()
+    total = data.delitti.valore("058091", "TOT", data.delitti.anno)
+    assert total is not None and total.delitti is not None
+    # Without thousands separator: M1 splits the sentences at every period.
+    figure = str(total.delitti)
+    text = (
         "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nBanca A: rapina in banca. "
         "Si stimano 999 episodi l'anno. "
-        f"Nel Comune di Roma si contano {cifra} delitti denunciati nel 2024.\n"
+        f"Nel Comune di Roma si contano {figure} delitti denunciati nel 2024.\n"
     )
-    rec = await _run_case_istat(tmp_path, testo)
+    rec = await _run_case_istat(tmp_path, text)
     assert rec.istat_frasi_scartate == 2
-    assert "999" not in rec.narrativa and cifra not in rec.narrativa
+    assert "999" not in rec.narrativa and figure not in rec.narrativa
     assert (rec.metrics.grounding, rec.metrics.hallucination) == (0.5, 0.5)
-    # F8: il record dice con quale budget la richiesta e' stata costruita.
+    # F8: the record says with which budget the request was built.
     assert rec.provenance.request_token_budget == DEFAULT_REQUEST_TOKEN_BUDGET
     assert rec.provenance.llm_max_tokens == DEFAULT_MAX_TOKENS
 
 
-async def test_m1_su_record_istat_si_ricalcola_dal_record(tmp_path: Path) -> None:
-    """#369: grezzo, POI, rischi e frasi escluse salvati nel record bastano a
-    rifare M1, e una frase ISTAT che nomina un POI resta misurata."""
+async def test_m1_on_istat_record_is_recomputed_from_the_record(tmp_path: Path) -> None:
+    """#369: raw text, POIs, risks and excluded sentences saved in the record are enough
+    to redo M1, and an ISTAT sentence that names a POI stays measured."""
     from crime_risk_analyzer.eval.metrics import (
         _anchors,  # pyright: ignore[reportPrivateUsage]
         _grounded,  # pyright: ignore[reportPrivateUsage]
         _measured_sentences,  # pyright: ignore[reportPrivateUsage]
     )
 
-    testo = (
+    text = (
         "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nBanca A: rapina in banca. "
         "Secondo l'ISTAT a Roma i furti sono in calo. La zona e' affollata. "
         "Secondo l'ISTAT a Roma i furti vicino a Banca A sono in calo.\n"
     )
-    rec = await _run_case_istat(tmp_path, testo)
-    escluse = rec.frasi_escluse_m1
-    assert escluse is not None
-    assert escluse == ["Secondo l'ISTAT a Roma i furti sono in calo"]
+    rec = await _run_case_istat(tmp_path, text)
+    excluded = rec.frasi_escluse_m1
+    assert excluded is not None
+    assert excluded == ["Secondo l'ISTAT a Roma i furti sono in calo"]
     assert rec.narrativa_grezza is not None
-    misurate = _measured_sentences(rec.narrativa_grezza, rec.mode)
-    for esclusa in escluse:
-        misurate.remove(esclusa)
-    risposta = AnalyzeResponse.model_construct(
+    measured = _measured_sentences(rec.narrativa_grezza, rec.mode)
+    for excluded_sentence in excluded:
+        measured.remove(excluded_sentence)
+    response = AnalyzeResponse.model_construct(
         poi=[PoiOut.model_construct(name=m.poi) for m in rec.risk_models],
         risk_models=rec.risk_models,
     )
-    ancorate = _grounded(misurate, _anchors(risposta))
-    assert rec.metrics.grounding == pytest.approx(len(ancorate) / len(misurate))
+    anchored = _grounded(measured, _anchors(response))
+    assert rec.metrics.grounding == pytest.approx(len(anchored) / len(measured))
     assert rec.metrics.grounding == pytest.approx(2 / 3)
 
 
-def test_record_istat_vacuo_non_dichiara_frasi_escluse() -> None:
-    """Review #369: con ISTAT nel prompt ma senza POI ne' rischi M1 e' vacuo. Il
-    record non salva frasi escluse e il report non scrive «N frasi escluse»."""
+def test_vacuous_istat_record_declares_no_excluded_sentences() -> None:
+    """Review #369: with ISTAT in the prompt but without POIs or risks M1 is vacuous.
+    The record saves no excluded sentences and the report does not write «N frasi
+    escluse»."""
     from crime_risk_analyzer.eval.compare import compare_records, to_markdown
     from tests.eval.test_metrics import (
         _resp_istat,  # pyright: ignore[reportPrivateUsage]
@@ -1679,18 +1677,18 @@ def test_record_istat_vacuo_non_dichiara_frasi_escluse() -> None:
     assert record.frasi_escluse_senza_voce == []
     assert record.istat_metrics is not None
     assert record.istat_metrics.frasi_escluse_m1 == 0
-    senza = record.model_copy(update={"experiment": "base", "istat_metrics": None})
+    without = record.model_copy(update={"experiment": "base", "istat_metrics": None})
     md = to_markdown(
-        compare_records([record], [senza], label_a="istat", label_b="base")
+        compare_records([record], [without], label_a="istat", label_b="base")
     )
     assert "`istat`: 0 frasi escluse" in md
 
 
-async def test_baseline_non_registra_un_budget_llm(tmp_path: Path) -> None:
-    """F8: il braccio baseline non chiama l'LLM, il budget resta None."""
+async def test_baseline_does_not_record_an_llm_budget(tmp_path: Path) -> None:
+    """F8: the baseline arm does not call the LLM, the budget stays None."""
     from tests.eval._doubles import FakeProfiler
 
-    scrivi_snapshot(
+    write_snapshot(
         snapshot_path(tmp_path, make_snapshot_key("Roma", "Centro")), _sample_pois()
     )
     cfg = ExperimentConfig(
@@ -1714,38 +1712,38 @@ async def test_baseline_non_registra_un_budget_llm(tmp_path: Path) -> None:
     )
 
 
-def _scrivi_snapshot_casi(tmp_path: Path, casi: list[RunCase]) -> None:
-    for caso in casi:
-        scrivi_snapshot(
-            snapshot_path(tmp_path, make_snapshot_key(caso.citta, caso.zona)),
+def _write_case_snapshots(tmp_path: Path, cases: list[RunCase]) -> None:
+    for case in cases:
+        write_snapshot(
+            snapshot_path(tmp_path, make_snapshot_key(case.citta, case.zona)),
             _sample_pois(),
         )
 
 
-async def _eventi_con_pausa(
+async def _events_with_pause(
     tmp_path: Path, *, mode: Mode, **kwargs: object
 ) -> tuple[list[str], list[RunRecord]]:
-    """Due casi x 2 ripetizioni; modello finto e ``sleep`` finto scrivono nella
-    STESSA lista, cosi' si vede l'ordine reale di pause e chiamate."""
+    """Two cases x 2 repetitions; fake model and fake ``sleep`` write to the
+    SAME list, so the real order of pauses and calls is seen."""
     from crime_risk_analyzer.llm.client import LLMResponse
     from tests.eval._doubles import FakeProfiler, default_llm_response
 
-    eventi: list[str] = []
+    events: list[str] = []
 
-    class _ModelloCheRegistra:
+    class _RecordingModel:
         async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
-            eventi.append("modello")
+            events.append("modello")
             return default_llm_response()
 
-    async def _sleep(secondi: float) -> None:
-        eventi.append(f"pausa {secondi}")
+    async def _sleep(seconds: float) -> None:
+        events.append(f"pausa {seconds}")
 
-    casi = [RunCase(citta="Roma", zona="Centro"), RunCase(citta="Roma", zona="Prati")]
-    _scrivi_snapshot_casi(tmp_path, casi)
+    cases = [RunCase(citta="Roma", zona="Centro"), RunCase(citta="Roma", zona="Prati")]
+    _write_case_snapshots(tmp_path, cases)
     records = await run_experiment(
-        ExperimentConfig(name="p", mode=mode, model="groq", cases=casi),
+        ExperimentConfig(name="p", mode=mode, model="groq", cases=cases),
         executor=FakeProfiler(),
-        llm_client=None if mode == "baseline" else _ModelloCheRegistra(),
+        llm_client=None if mode == "baseline" else _RecordingModel(),
         results_dir=tmp_path,
         code_commit="abc",
         ontology_hash="def",
@@ -1753,39 +1751,39 @@ async def _eventi_con_pausa(
         sleep=_sleep,
         **kwargs,  # type: ignore[arg-type]
     )
-    return eventi, records
+    return events, records
 
 
 @pytest.mark.parametrize("mode", ["analyze", "no_ontology_prompt"])
-async def test_run_experiment_pausa_prima_di_ogni_chiamata(
+async def test_run_experiment_pauses_before_every_call(
     mode: Mode, tmp_path: Path
 ) -> None:
-    """#357: con la pausa si aspetta prima di OGNI chiamata al modello, prima
-    compresa (i due bracci girano come due comandi in fila), in entrambi i bracci
-    che chiamano il modello, e tutte le chiamate arrivano davvero al modello."""
-    eventi, records = await _eventi_con_pausa(tmp_path, mode=mode, pausa_secondi=0.5)
-    assert eventi == ["pausa 0.5", "modello"] * 4
+    """#357: with the pause one waits before EVERY call to the model, first
+    included (the two arms run as two commands in a row), in both arms
+    that call the model, and all the calls really reach the model."""
+    events, records = await _events_with_pause(tmp_path, mode=mode, pause_seconds=0.5)
+    assert events == ["pausa 0.5", "modello"] * 4
     assert [r.status for r in records] == [RunStatus.OK] * 4
 
 
-async def test_run_experiment_nessuna_pausa_di_default(tmp_path: Path) -> None:
-    """Senza il parametro (default 0): nessuna attesa, comportamento di prima."""
-    eventi, _ = await _eventi_con_pausa(tmp_path, mode="analyze")
-    assert eventi == ["modello"] * 4
+async def test_run_experiment_no_pause_by_default(tmp_path: Path) -> None:
+    """Without the parameter (default 0): no wait, behaviour as before."""
+    events, _ = await _events_with_pause(tmp_path, mode="analyze")
+    assert events == ["modello"] * 4
 
 
-async def test_run_experiment_baseline_non_aspetta(tmp_path: Path) -> None:
-    """La baseline non chiama il modello: la pausa non ha motivo di esistere."""
-    eventi, _ = await _eventi_con_pausa(tmp_path, mode="baseline", pausa_secondi=65)
-    assert eventi == []
+async def test_run_experiment_baseline_does_not_wait(tmp_path: Path) -> None:
+    """The baseline does not call the model: the pause has no reason to exist."""
+    events, _ = await _events_with_pause(tmp_path, mode="baseline", pause_seconds=65)
+    assert events == []
 
 
-@pytest.mark.parametrize("pausa", [-1.0, float("nan"), float("inf")])
-async def test_run_experiment_rifiuta_pausa_non_valida(
-    pausa: float, tmp_path: Path
+@pytest.mark.parametrize("pause", [-1.0, float("nan"), float("inf")])
+async def test_run_experiment_rejects_invalid_pause(
+    pause: float, tmp_path: Path
 ) -> None:
-    """Negativa o non finita: ``nan`` spegnerebbe la pausa senza avvisi, ``inf``
-    bloccherebbe la run dopo il primo caso."""
+    """Negative or non-finite: ``nan`` would switch the pause off without warnings,
+    ``inf`` would block the run after the first case."""
     from tests.eval._doubles import FakeProfiler
 
     cfg = ExperimentConfig(
@@ -1794,22 +1792,22 @@ async def test_run_experiment_rifiuta_pausa_non_valida(
         model="claude",
         cases=[RunCase(citta="Roma", zona="Centro")],
     )
-    with pytest.raises(ValueError, match="pausa_secondi"):
+    with pytest.raises(ValueError, match="pause_seconds"):
         await run_experiment(
             cfg,
             executor=FakeProfiler(),
             results_dir=tmp_path,
             code_commit="abc",
             ontology_hash="def",
-            pausa_secondi=pausa,
+            pause_seconds=pause,
         )
 
 
-async def test_run_experiment_annuncia_ogni_pausa(
+async def test_run_experiment_announces_every_pause(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Ogni attesa e' nel log: una run lunga non si confonde con un blocco."""
+    """Every wait is in the log: a long run is not mistaken for a hang."""
     with caplog.at_level("WARNING", logger="crime_risk_analyzer.eval.harness"):
-        await _eventi_con_pausa(tmp_path, mode="analyze", pausa_secondi=0.5)
-    annunci = [r for r in caplog.records if "pausa di 0.5 s" in r.getMessage()]
-    assert len(annunci) == 4
+        await _events_with_pause(tmp_path, mode="analyze", pause_seconds=0.5)
+    announcements = [r for r in caplog.records if "pausa di 0.5 s" in r.getMessage()]
+    assert len(announcements) == 4

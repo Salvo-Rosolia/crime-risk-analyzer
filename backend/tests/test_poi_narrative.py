@@ -1,4 +1,4 @@
-"""Endpoint e orchestrazione della narrativa per POI (#197), offline."""
+"""Endpoint and orchestration of the per-POI narrative (#197), offline."""
 
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ class _FakeLLMClient:
 
 class _RaisingLLMClient:
     async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
-        raise LLMError("provider giu'")
+        raise LLMError("provider down")
 
 
 def _pois(citta: str) -> list[Poi]:
@@ -99,15 +99,15 @@ async def _poi_source(bbox: Bbox, citta: str) -> list[Poi]:
 
 
 async def _prime_cache() -> str:
-    """Popola la cache del contesto di zona eseguendo /analyze con i doppi.
+    """Fills the zone-context cache by running /analyze with the doubles.
 
-    Restituisce l'impronta del contesto (#242): i test la rimandano come farebbe
-    il client, invece di ricalcolarla e finire per testare la funzione contro se
-    stessa.
+    Returns the context fingerprint (#242): the tests send it back as the
+    client would, instead of recomputing it and ending up testing the function
+    against itself.
 
-    La fase 1 della rotta (``run_analysis_fast``, #292) e' l'unica cosa che
-    deposita il contesto di zona: e' esattamente cio' che precede un clic
-    dell'utente su un POI, e non spende una chiamata al modello per arrivarci.
+    Phase 1 of the route (``run_analysis_fast``, #292) is the only thing that
+    deposits the zone context: it is exactly what precedes a user click on a
+    POI, and it spends no model call to get there.
     """
     zone_context_cache.clear()
     resp = await run_analysis_fast(
@@ -125,12 +125,12 @@ def _fake_reverse_geocode(lat: float, lon: float) -> tuple[str, str]:
 
 
 def _patch_io(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Sostituisce reverse geocode e Overpass per i test dell'endpoint HTTP (#318).
+    """Replaces reverse geocode and Overpass for the HTTP endpoint tests (#318).
 
-    ``retrieval.geocode_zone`` non e' chiamato da ``/analyze`` (i test qui usano
-    il cerchio, e ``resolve_circle`` passa sempre un proprio ``geo_source``):
-    la sola I/O da patchare qui e' la label reverse-geocoded
-    (``area_search.reverse_geocode_label``) e Overpass.
+    ``retrieval.geocode_zone`` is not called by ``/analyze`` (the tests here use
+    the circle, and ``resolve_circle`` always passes its own ``geo_source``):
+    the only I/O to patch here is the reverse-geocoded label
+    (``area_search.reverse_geocode_label``) and Overpass.
     """
     monkeypatch.setattr(area_search, "reverse_geocode_label", _fake_reverse_geocode)
 
@@ -149,9 +149,9 @@ def _client(llm: object = None) -> TestClient:
     return TestClient(app, raise_server_exceptions=False)
 
 
-@pytest.mark.parametrize("acceso", [True, False], ids=["istat-acceso", "istat-spento"])
-def test_rotta_poi_legge_l_interruttore_dalle_settings(
-    acceso: bool, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("enabled", [True, False], ids=["istat-on", "istat-off"])
+def test_poi_route_reads_the_switch_from_settings(
+    enabled: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from crime_risk_analyzer.config import Settings, get_settings
     from crime_risk_analyzer.rag.poi_generation import (
@@ -159,21 +159,21 @@ def test_rotta_poi_legge_l_interruttore_dalle_settings(
         POI_SYSTEM_PROMPT_ISTAT,
     )
 
-    sistemi: list[str] = []
+    systems: list[str] = []
 
-    class _Spia(_FakeLLMClient):
+    class _Spy(_FakeLLMClient):
         async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
-            sistemi.append(system_prompt)
+            systems.append(system_prompt)
             return await super().generate(system_prompt, user_content)
 
     _patch_io(monkeypatch)
-    impostazioni = Settings(istat_context_enabled=acceso)
+    settings = Settings(istat_context_enabled=enabled)
     app = create_app()
     app.dependency_overrides[current_executor] = lambda: _FakeProfiler()
-    app.dependency_overrides[get_llm_client] = lambda: _Spia()
-    app.dependency_overrides[get_settings] = lambda: impostazioni
+    app.dependency_overrides[get_llm_client] = lambda: _Spy()
+    app.dependency_overrides[get_settings] = lambda: settings
     client = TestClient(app, raise_server_exceptions=False)
-    contesto_hash = _analizza(client)
+    context_hash = _analyze(client)
     resp = cast(
         httpx.Response,
         client.post(  # pyright: ignore[reportUnknownMemberType]
@@ -182,13 +182,13 @@ def test_rotta_poi_legge_l_interruttore_dalle_settings(
                 "citta": "Roma",
                 "zona": "Colosseo",
                 "poi_id": _POI_ID,
-                "contesto_hash": contesto_hash,
+                "contesto_hash": context_hash,
             },
         ),
     )
     assert resp.status_code == 200
-    assert sistemi == [POI_SYSTEM_PROMPT_ISTAT if acceso else POI_SYSTEM_PROMPT]
-    assert resp.json()["istat_attivo"] is acceso
+    assert systems == [POI_SYSTEM_PROMPT_ISTAT if enabled else POI_SYSTEM_PROMPT]
+    assert resp.json()["istat_attivo"] is enabled
 
 
 def test_risk_model_of_propagates_source() -> None:
@@ -214,35 +214,35 @@ def test_risk_model_of_propagates_source() -> None:
 
 
 async def test_returns_narrative_for_a_poi_in_the_cached_zone() -> None:
-    contesto_hash = await _prime_cache()
+    context_hash = await _prime_cache()
     out = await run_poi_narrative(
         "Roma",
         "Colosseo",
         _POI_ID,
-        contesto_hash=contesto_hash,
+        contesto_hash=context_hash,
         executor=_FakeProfiler(),
         llm_client=_FakeLLMClient(),
     )
     assert out.poi_id == _POI_ID
     assert out.narrativa != ""
     assert out.fallback is False
-    # I rischi del punto portano il suo id, non solo il nome: e' l'id che il
-    # frontend usa per attribuirli, e i nomi OSM non identificano nulla.
+    # The point's risks carry its id, not just the name: the id is what the
+    # frontend uses to attribute them, and OSM names identify nothing.
     assert [(rm.poi_id, rm.poi) for rm in out.risk_models] == [(_POI_ID, "Banca A")]
 
 
 async def test_cache_hit_does_not_touch_overpass() -> None:
-    """Su hit non si spende una chiamata a un servizio pubblico gratuito (#232)."""
-    contesto_hash = await _prime_cache()
+    """On a hit no call is spent on a free public service (#232)."""
+    context_hash = await _prime_cache()
 
     async def _exploding(bbox: Bbox, citta: str) -> list[Poi]:
-        raise AssertionError("Overpass non deve essere chiamato su cache hit")
+        raise AssertionError("Overpass must not be called on a cache hit")
 
     out = await run_poi_narrative(
         "Roma",
         "Colosseo",
         _POI_ID,
-        contesto_hash=contesto_hash,
+        contesto_hash=context_hash,
         executor=_FakeProfiler(),
         llm_client=_FakeLLMClient(),
         poi_source=_exploding,
@@ -251,19 +251,20 @@ async def test_cache_hit_does_not_touch_overpass() -> None:
 
 
 async def test_cold_cache_rebuilds_the_context() -> None:
-    """A cache fredda con OSM invariato il click resta utilizzabile (#242): la
-    ricostruzione coincide con il contesto mostrato, quindi la narrativa esce.
+    """With a cold cache and unchanged OSM the click stays usable (#242): the
+    rebuild coincides with the context shown, so the narrative comes out.
 
-    Scadenza del TTL riprodotta come la vive il client: l'analisi c'e' stata (e
-    l'impronta e' quella), ma la cache non ha piu' il contesto.
+    TTL expiry reproduced as the client experiences it: the analysis happened
+    (and the fingerprint is the right one), but the cache no longer holds the
+    context.
     """
-    contesto_hash = await _prime_cache()
+    context_hash = await _prime_cache()
     zone_context_cache.clear()
     out = await run_poi_narrative(
         "Roma",
         "Colosseo",
         _POI_ID,
-        contesto_hash=contesto_hash,
+        contesto_hash=context_hash,
         executor=_FakeProfiler(),
         llm_client=_FakeLLMClient(),
         poi_source=_poi_source,
@@ -274,8 +275,8 @@ async def test_cold_cache_rebuilds_the_context() -> None:
 
 
 async def test_narrative_context_carries_the_neighbourhood() -> None:
-    """Il prompt del POI deve contenere il vicinato: e' cio' che lo distingue."""
-    contesto_hash = await _prime_cache()
+    """The POI prompt must contain the neighbourhood: it is what sets it apart."""
+    context_hash = await _prime_cache()
     seen: list[str] = []
 
     class _Recording:
@@ -296,7 +297,7 @@ async def test_narrative_context_carries_the_neighbourhood() -> None:
         "Roma",
         "Colosseo",
         _POI_ID,
-        contesto_hash=contesto_hash,
+        contesto_hash=context_hash,
         executor=_FakeProfiler(),
         llm_client=_Recording(),
     )
@@ -306,29 +307,29 @@ async def test_narrative_context_carries_the_neighbourhood() -> None:
 
 
 async def test_unknown_poi_id_raises_poi_not_found() -> None:
-    """Con un'impronta ALLINEATA un id sconosciuto resta un 404, non un 409: il
-    contratto continua a distinguere «il tuo contesto non e' il mio» da «quell'id
-    non e' in questo contesto» (#242)."""
-    contesto_hash = await _prime_cache()
+    """With an ALIGNED fingerprint an unknown id stays a 404, not a 409: the
+    contract keeps distinguishing «your context is not mine» from «that id is
+    not in this context» (#242)."""
+    context_hash = await _prime_cache()
     with pytest.raises(PoiNotFoundError):
         await run_poi_narrative(
             "Roma",
             "Colosseo",
             "non-esiste",
-            contesto_hash=contesto_hash,
+            contesto_hash=context_hash,
             executor=_FakeProfiler(),
             llm_client=_FakeLLMClient(),
         )
 
 
 async def test_llm_error_falls_back_without_raising() -> None:
-    """Stessa politica del percorso di zona: dati strutturati + fallback=True."""
-    contesto_hash = await _prime_cache()
+    """Same policy as the zone path: structured data + fallback=True."""
+    context_hash = await _prime_cache()
     out = await run_poi_narrative(
         "Roma",
         "Colosseo",
         _POI_ID,
-        contesto_hash=contesto_hash,
+        contesto_hash=context_hash,
         executor=_FakeProfiler(),
         llm_client=_RaisingLLMClient(),
     )
@@ -337,15 +338,15 @@ async def test_llm_error_falls_back_without_raising() -> None:
     assert out.risk_models != []
 
 
-# --- #242: l'impronta del contesto rende verificabile l'ancoraggio ---
+# --- #242: the context fingerprint makes the anchoring verifiable ---
 
 
-async def _poi_source_divergente(bbox: Bbox, citta: str) -> list[Poi]:
-    """Cattura OSM diversa: un POI in piu' rispetto a ``_poi_source``.
+async def _divergent_poi_source(bbox: Bbox, citta: str) -> list[Poi]:
+    """Different OSM capture: one more POI than ``_poi_source``.
 
-    E' il caso reale del difetto (#242): fra l'analisi e il click, OSM cambia o
-    il cap MAX_POIS fa entrare un punto, e il vicinato ricostruito non e' quello
-    mostrato in mappa.
+    It is the real case of the defect (#242): between the analysis and the
+    click, OSM changes or the MAX_POIS cap lets a point in, and the rebuilt
+    neighbourhood is not the one shown on the map.
     """
     return [
         *_pois(citta),
@@ -361,47 +362,47 @@ async def _poi_source_divergente(bbox: Bbox, citta: str) -> list[Poi]:
     ]
 
 
-async def test_cache_calda_riscritta_da_una_seconda_analisi_rifiuta() -> None:
-    """Il caso che l'issue non prevedeva, riprodotto per intero: la stessa zona
-    viene ri-analizzata (altro tab, «Rigenera» di zona) e ``put`` sovrascrive la
-    voce di cache. Il client che mostra ancora la PRIMA analisi chiede la
-    narrativa di un POI: senza confronto nascerebbe sul contesto della seconda,
-    in silenzio.
+async def test_warm_cache_overwritten_by_a_second_analysis_rejects() -> None:
+    """The case the issue did not foresee, reproduced in full: the same zone is
+    re-analysed (another tab, zone «Rigenera») and ``put`` overwrites the cache
+    entry. The client that still shows the FIRST analysis asks for the narrative
+    of a POI: without a comparison it would be born on the context of the
+    second, silently.
 
-    Riprodurre la sovrascrittura, invece di mandare una stringa arbitraria, e'
-    cio' che rende il test una prova del criterio di accettazione 2: resterebbe
-    rosso anche se l'impronta fosse memorizzata al momento del ``put`` invece di
-    essere ricalcolata sulla lista che si sta per usare.
+    Reproducing the overwrite, instead of sending an arbitrary string, is what
+    makes the test a proof of acceptance criterion 2: it would stay red even if
+    the fingerprint were stored at ``put`` time instead of being recomputed on
+    the list about to be used.
     """
-    prima = await _prime_cache()
-    # Seconda analisi della STESSA zona: cattura OSM diversa, cache riscritta.
-    seconda = await run_analysis_fast(
+    first = await _prime_cache()
+    # Second analysis of the SAME zone: different OSM capture, cache rewritten.
+    second = await run_analysis_fast(
         "Roma",
         "Colosseo",
         executor=_FakeProfiler(),
-        poi_source=_poi_source_divergente,
+        poi_source=_divergent_poi_source,
         geo_source=_geo_source,
     )
-    assert seconda.contesto_hash != prima
+    assert second.contesto_hash != first
     with pytest.raises(ContextMismatchError):
         await run_poi_narrative(
             "Roma",
             "Colosseo",
             _POI_ID,
-            contesto_hash=prima,
+            contesto_hash=first,
             executor=_FakeProfiler(),
             llm_client=_FakeLLMClient(),
         )
 
 
-async def test_impronta_disallineata_non_spende_una_chiamata_llm() -> None:
-    """Il confronto precede la generazione: un rifiuto non costa token."""
+async def test_mismatched_fingerprint_spends_no_llm_call() -> None:
+    """The comparison precedes generation: a rejection costs no tokens."""
     await _prime_cache()
 
-    class _Esplosivo:
+    class _Exploding:
         async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
             raise AssertionError(
-                "l'LLM non deve essere chiamato su impronta disallineata"
+                "the LLM must not be called on a mismatched fingerprint"
             )
 
     with pytest.raises(ContextMismatchError):
@@ -411,48 +412,48 @@ async def test_impronta_disallineata_non_spende_una_chiamata_llm() -> None:
             _POI_ID,
             contesto_hash="non-combacia",
             executor=_FakeProfiler(),
-            llm_client=_Esplosivo(),
+            llm_client=_Exploding(),
         )
 
 
-async def test_cache_fredda_con_ricostruzione_divergente_rifiuta() -> None:
-    """Il caso descritto da #242: a cache fredda la ricostruzione restituisce un
-    vicinato diverso da quello mostrato -> rifiuto, non prosa silenziosa."""
-    contesto_hash = await _prime_cache()
+async def test_cold_cache_with_divergent_rebuild_rejects() -> None:
+    """The case described by #242: with a cold cache the rebuild returns a
+    neighbourhood different from the one shown -> rejection, not silent prose."""
+    context_hash = await _prime_cache()
     zone_context_cache.clear()
     with pytest.raises(ContextMismatchError):
         await run_poi_narrative(
             "Roma",
             "Colosseo",
             _POI_ID,
-            contesto_hash=contesto_hash,
+            contesto_hash=context_hash,
             executor=_FakeProfiler(),
             llm_client=_FakeLLMClient(),
-            poi_source=_poi_source_divergente,
+            poi_source=_divergent_poi_source,
             geo_source=_geo_source,
         )
-    # Il contesto rifiutato non entra in cache: nessuno l'ha mai avuto davanti, e
-    # occuparebbe uno slot sfrattando, a cache piena, una zona valida (review M1).
+    # The rejected context does not enter the cache: nobody has ever seen it, and
+    # it would take a slot, evicting a valid zone when the cache is full (review M1).
     assert zone_context_cache.get("Roma", "Colosseo") is None
 
 
 async def test_cold_cache_geocode_failure_becomes_context_mismatch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#318 (reperto review I2): a cache fredda SENZA ``geo_source`` (il caso
-    reale della rotta) la ricostruzione fa un geocode FORWARD di ``citta``/
-    ``zona`` — che pero' nascono da un reverse geocode del cerchio, quasi mai
-    una stringa che Nominatim ritrova cercandola in avanti. Il fallimento non
-    deve propagare come 422 "zona non geocodificabile" (l'operatore non ha
-    digitato nulla di sbagliato): diventa lo stesso ``ContextMismatchError`` ->
-    409 del ramo ``contesto_hash``, con lo stesso invito a rilanciare l'analisi
-    (gemello del test omonimo in ``test_analyze_narrative.py``).
+    """#318 (review finding I2): with a cold cache and NO ``geo_source`` (the real
+    case of the route) the rebuild does a FORWARD geocode of ``citta``/``zona``
+    — which however originate from a reverse geocode of the circle, almost never
+    a string that Nominatim finds again when searching forward. The failure
+    must not propagate as a 422 "zona non geocodificabile" (the operator typed
+    nothing wrong): it becomes the same ``ContextMismatchError`` -> 409 of the
+    ``contesto_hash`` branch, with the same invitation to rerun the analysis
+    (twin of the homonymous test in ``test_analyze_narrative.py``).
     """
-    contesto_hash = await _prime_cache()
+    context_hash = await _prime_cache()
     zone_context_cache.clear()
 
     def _boom(zona: str, citta: str) -> GeoResult:
-        raise ZoneNotFoundError("zona ignota")
+        raise ZoneNotFoundError("unknown zone")
 
     monkeypatch.setattr(retrieval, "geocode_zone", _boom)
 
@@ -461,21 +462,21 @@ async def test_cold_cache_geocode_failure_becomes_context_mismatch(
             "Roma",
             "Colosseo",
             _POI_ID,
-            contesto_hash=contesto_hash,
+            contesto_hash=context_hash,
             executor=_FakeProfiler(),
             llm_client=_FakeLLMClient(),
         )
 
 
-async def test_l_impronta_non_entra_nel_prompt() -> None:
-    """Guardia #184/#197: l'impronta e' CONFRONTATA, mai consumata. Se finisse
-    nel prompt sarebbe un dato del client dentro il contesto del modello."""
-    contesto_hash = await _prime_cache()
-    visti: list[str] = []
+async def test_fingerprint_does_not_enter_the_prompt() -> None:
+    """Guard #184/#197: the fingerprint is COMPARED, never consumed. If it ended up
+    in the prompt it would be client data inside the model context."""
+    context_hash = await _prime_cache()
+    seen: list[str] = []
 
-    class _Registrante:
+    class _Recorder:
         async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
-            visti.append(user_content + system_prompt)
+            seen.append(user_content + system_prompt)
             return LLMResponse(
                 text="x",
                 llm_used="fake",
@@ -491,29 +492,29 @@ async def test_l_impronta_non_entra_nel_prompt() -> None:
         "Roma",
         "Colosseo",
         _POI_ID,
-        contesto_hash=contesto_hash,
+        contesto_hash=context_hash,
         executor=_FakeProfiler(),
-        llm_client=_Registrante(),
+        llm_client=_Recorder(),
     )
-    assert contesto_hash not in visti[0]
+    assert context_hash not in seen[0]
 
 
-def _analizza(client: TestClient) -> str:
-    """Esegue l'analisi di zona e restituisce l'impronta, come farebbe il client."""
-    zona = cast(
+def _analyze(client: TestClient) -> str:
+    """Runs the zone analysis and returns the fingerprint, as the client would."""
+    zone_resp = cast(
         httpx.Response,
         client.post(  # pyright: ignore[reportUnknownMemberType]
             "/analyze",
             json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0},
         ),
     )
-    return str(zona.json()["contesto_hash"])
+    return str(zone_resp.json()["contesto_hash"])
 
 
 def test_endpoint_returns_200_and_narrative(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_io(monkeypatch)
     client = _client()
-    contesto_hash = _analizza(client)
+    context_hash = _analyze(client)
     resp = cast(
         httpx.Response,
         client.post(  # pyright: ignore[reportUnknownMemberType]
@@ -522,7 +523,7 @@ def test_endpoint_returns_200_and_narrative(monkeypatch: pytest.MonkeyPatch) -> 
                 "citta": "Roma",
                 "zona": "Colosseo",
                 "poi_id": _POI_ID,
-                "contesto_hash": contesto_hash,
+                "contesto_hash": context_hash,
             },
         ),
     )
@@ -536,7 +537,7 @@ def test_endpoint_returns_200_and_narrative(monkeypatch: pytest.MonkeyPatch) -> 
 def test_endpoint_returns_404_for_unknown_poi(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_io(monkeypatch)
     client = _client()
-    contesto_hash = _analizza(client)
+    context_hash = _analyze(client)
     resp = cast(
         httpx.Response,
         client.post(  # pyright: ignore[reportUnknownMemberType]
@@ -545,7 +546,7 @@ def test_endpoint_returns_404_for_unknown_poi(monkeypatch: pytest.MonkeyPatch) -
                 "citta": "Roma",
                 "zona": "Colosseo",
                 "poi_id": "non-esiste",
-                "contesto_hash": contesto_hash,
+                "contesto_hash": context_hash,
             },
         ),
     )
@@ -556,11 +557,11 @@ def test_endpoint_returns_404_for_unknown_poi(monkeypatch: pytest.MonkeyPatch) -
 def test_endpoint_returns_409_for_mismatched_context(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#242: impronta che non identifica il contesto -> 409 con invito a
-    rilanciare l'analisi, non una narrativa dall'aria normale."""
+    """#242: a fingerprint that does not identify the context -> 409 with an
+    invitation to rerun the analysis, not a normal-looking narrative."""
     _patch_io(monkeypatch)
     client = _client()
-    _analizza(client)
+    _analyze(client)
     resp = cast(
         httpx.Response,
         client.post(  # pyright: ignore[reportUnknownMemberType]
@@ -581,11 +582,11 @@ def test_endpoint_returns_409_for_mismatched_context(
 def test_endpoint_requires_the_context_fingerprint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Il campo e' obbligatorio: senza impronta non esiste una richiesta valida,
-    altrimenti la garanzia di #242 sarebbe opt-in."""
+    """The field is mandatory: without a fingerprint there is no valid request,
+    otherwise the guarantee of #242 would be opt-in."""
     _patch_io(monkeypatch)
     client = _client()
-    _analizza(client)
+    _analyze(client)
     resp = cast(
         httpx.Response,
         client.post(  # pyright: ignore[reportUnknownMemberType]
@@ -599,17 +600,17 @@ def test_endpoint_requires_the_context_fingerprint(
 def test_endpoint_rejects_too_short_contesto_hash(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``contesto_hash`` sotto min_length=64 -> 422, non 409.
+    """``contesto_hash`` below min_length=64 -> 422, not 409.
 
-    Stesso bound di ``ZoneNarrativeRequest``: un'impronta piu' corta di un digest
-    sha256 non ha la forma di un'impronta e si respinge alla validazione, prima
-    che a cache fredda la rotta paghi una ricostruzione (geocoding + Overpass)
-    per rifiutarla comunque. Il 409 resta per l'impronta ben formata che
-    identifica un ALTRO contesto.
+    Same bound as ``ZoneNarrativeRequest``: a fingerprint shorter than a sha256
+    digest does not have the shape of a fingerprint and is rejected at
+    validation, before the route pays a rebuild (geocoding + Overpass) on a cold
+    cache only to reject it anyway. The 409 stays for the well-formed
+    fingerprint that identifies ANOTHER context.
     """
     _patch_io(monkeypatch)
     client = _client()
-    _analizza(client)
+    _analyze(client)
     resp = cast(
         httpx.Response,
         client.post(  # pyright: ignore[reportUnknownMemberType]
@@ -625,18 +626,18 @@ def test_endpoint_rejects_too_short_contesto_hash(
     assert resp.status_code == 422
 
 
-# --- #184: guardia anti-scoring estesa al contratto di ``/analyze/poi`` (#197) ---
-# Stesso pattern exact-set di ``test_orchestrator``: il grep sul payload qui sotto
-# intercetta solo nomi di campo gia' noti, mentre l'insieme esatto rende rosso
-# QUALUNQUE campo nuovo, costringendo a una revisione cosciente del vincolo legale.
+# --- #184: anti-scoring guard extended to the ``/analyze/poi`` contract (#197) ---
+# Same exact-set pattern as ``test_orchestrator``: the payload grep below only
+# catches already-known field names, while the exact set turns ANY new field
+# red, forcing a conscious review of the legal constraint.
 
 
 def test_poi_narrative_request_surface_is_exactly_id_zone_and_fingerprint() -> None:
-    """Contratto della RICHIESTA (#197/#242): il client fornisce la zona, l'id
-    del punto e un'impronta opaca — nient'altro. Il claim di non-iniettabilita'
-    e' un vincolo sulla request: un futuro campo ``terminus_class``/``risks``
-    darebbe al client voce sui dati di rischio, che devono restare ri-derivati
-    dal server. L'insieme esatto lo blocca."""
+    """REQUEST contract (#197/#242): the client supplies the zone, the point id
+    and an opaque fingerprint — nothing else. The non-injectability claim is a
+    constraint on the request: a future ``terminus_class``/``risks`` field would
+    give the client a say on the risk data, which must stay re-derived by the
+    server. The exact set pins it."""
     assert set(PoiNarrativeRequest.model_fields) == {
         "citta",
         "zona",
@@ -646,10 +647,10 @@ def test_poi_narrative_request_surface_is_exactly_id_zone_and_fingerprint() -> N
 
 
 def test_poi_narrative_response_has_no_numeric_danger_scoring_field() -> None:
-    """Contratto della risposta ``/analyze/poi``: nessuno scoring numerico di
-    pericolosita' (_project.md §Vincoli). I campi numerici presenti
-    (``tokens_*``/``latenza_ms``) misurano costo e performance, NON la magnitudo
-    del pericolo. Un campo di rating aggiunto qui romperebbe l'insieme esatto."""
+    """``/analyze/poi`` response contract: no numeric danger scoring
+    (_project.md §Vincoli). The numeric fields present
+    (``tokens_*``/``latenza_ms``) measure cost and performance, NOT the
+    magnitude of danger. A rating field added here would break the exact set."""
     assert set(PoiNarrativeResponse.model_fields) == {
         "poi_id",
         "narrativa",
@@ -669,10 +670,10 @@ def test_poi_narrative_response_has_no_numeric_danger_scoring_field() -> None:
 def test_endpoint_response_never_contains_a_danger_score(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Guardia anti-scoring estesa al nuovo endpoint (#184)."""
+    """Anti-scoring guard extended to the new endpoint (#184)."""
     _patch_io(monkeypatch)
     client = _client()
-    contesto_hash = _analizza(client)
+    context_hash = _analyze(client)
     resp = cast(
         httpx.Response,
         client.post(  # pyright: ignore[reportUnknownMemberType]
@@ -681,11 +682,11 @@ def test_endpoint_response_never_contains_a_danger_score(
                 "citta": "Roma",
                 "zona": "Colosseo",
                 "poi_id": _POI_ID,
-                "contesto_hash": contesto_hash,
+                "contesto_hash": context_hash,
             },
         ),
     )
     assert resp.status_code == 200
     payload = resp.text.lower()
-    for vietato in ("punteggio", "score", "livello di rischio", "pericolosit"):
-        assert vietato not in payload
+    for forbidden in ("punteggio", "score", "livello di rischio", "pericolosit"):
+        assert forbidden not in payload

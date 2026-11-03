@@ -13,7 +13,7 @@ from crime_risk_analyzer.eval.city_agnostic_report import (
     load_outcomes,
 )
 from crime_risk_analyzer.eval.geometry import CityBoundary
-from crime_risk_analyzer.eval.snapshots import configurazione_canonica_corrente
+from crime_risk_analyzer.eval.snapshots import current_canonical_config
 from crime_risk_analyzer.ontology_namespaces import TERMINUS
 from crime_risk_analyzer.overpass_client import Poi
 
@@ -71,20 +71,20 @@ _METRIC_KEYS = ("n_citta", "n_pass_all", "n_failed", "ontology_hash")
 
 
 def _prov(
-    config: dict[str, object] | None = None, istante: str = "2026-10-21T09:30:00+00:00"
-) -> ca.EsitoProvenienza:
-    return ca.EsitoProvenienza(
-        catturato_il=istante,
+    config: dict[str, object] | None = None, instant: str = "2026-10-21T09:30:00+00:00"
+) -> ca.OutcomeProvenance:
+    return ca.OutcomeProvenance(
+        catturato_il=instant,
         configurazione_canonica=(
-            dict(configurazione_canonica_corrente()) if config is None else config
+            dict(current_canonical_config()) if config is None else config
         ),
     )
 
 
 def _seed_with_provenance(
     results_dir: Path,
-    roma: ca.EsitoProvenienza | None,
-    napoli: ca.EsitoProvenienza | None,
+    roma: ca.OutcomeProvenance | None,
+    napoli: ca.OutcomeProvenance | None,
 ) -> None:
     _seed_snapshots(results_dir)
     for citta, prov in (("Roma", roma), ("Napoli", napoli)):
@@ -93,17 +93,17 @@ def _seed_with_provenance(
         ca.save_outcome(path, outcome)
 
 
-def _avvisi(records_path: Path) -> list[str]:
+def _warnings(records_path: Path) -> list[str]:
     data = json.loads(records_path.read_text(encoding="utf-8"))
     return data["summary"]["avvisi"]
 
 
-def test_report_warns_when_provenienza_missing(tmp_path: Path) -> None:
+def test_report_warns_when_provenance_missing(tmp_path: Path) -> None:
     _seed_snapshots(tmp_path)
     records_path, _csv, md_path = build_report(tmp_path, _graph(), "h")
-    avvisi = _avvisi(records_path)
-    assert any("Roma" in a and "senza provenienza" in a for a in avvisi)
-    assert any("Napoli" in a and "senza provenienza" in a for a in avvisi)
+    warnings = _warnings(records_path)
+    assert any("Roma" in a and "senza provenienza" in a for a in warnings)
+    assert any("Napoli" in a and "senza provenienza" in a for a in warnings)
     md = md_path.read_text(encoding="utf-8")
     assert "AVVISO" in md
     assert "- Roma: assente" in md
@@ -113,11 +113,11 @@ def test_report_warns_when_provenienza_missing(tmp_path: Path) -> None:
     assert summary["provenienza"]["Napoli"] is None
 
 
-def test_snapshot_committati_hanno_provenienza_e_config_unica() -> None:
-    """Guardia sui file veri: gli esiti C1 versionati sono tutti ``ok``, con
-    provenienza, e scritti con UNA sola configurazione canonica. Non si confronta
-    con la config corrente (ogni modifica ai selettori romperebbe la CI): solo
-    l'omogeneità fra file."""
+def test_committed_snapshots_have_provenance_and_single_config() -> None:
+    """Guard on the real files: the versioned C1 outcomes are all ``ok``, with
+    provenance, and written with a SINGLE canonical configuration. They are not compared
+    with the current config (every change to the selectors would break CI): only
+    the homogeneity among files."""
     cartella = Path(__file__).parents[2] / "results" / "city_agnostic" / "snapshots"
     file = sorted(cartella.glob("*.json"))
     assert file, "attesi gli esiti C1 versionati in results/city_agnostic/snapshots/"
@@ -137,33 +137,33 @@ def test_snapshot_committati_hanno_provenienza_e_config_unica() -> None:
 
 
 def test_report_warns_when_config_diverges(tmp_path: Path) -> None:
-    corrente = dict(configurazione_canonica_corrente())
-    vecchia = {**corrente, "tipi_elemento": ["node", "way"]}
-    _seed_with_provenance(tmp_path, _prov(vecchia), _prov(vecchia))
+    current = dict(current_canonical_config())
+    old_config = {**current, "tipi_elemento": ["node", "way"]}
+    _seed_with_provenance(tmp_path, _prov(old_config), _prov(old_config))
     records_path, _csv, md_path = build_report(tmp_path, _graph(), "h")
-    avvisi = _avvisi(records_path)
-    assert any("Roma" in a and "tipi_elemento" in a for a in avvisi)
+    warnings = _warnings(records_path)
+    assert any("Roma" in a and "tipi_elemento" in a for a in warnings)
     assert "tipi_elemento" in md_path.read_text(encoding="utf-8")
 
 
-def test_report_warns_when_provenienze_are_mixed(tmp_path: Path) -> None:
-    corrente = dict(configurazione_canonica_corrente())
-    vecchia = {**corrente, "tipi_elemento": ["node", "way"]}
-    _seed_with_provenance(tmp_path, _prov(), _prov(vecchia))
+def test_report_warns_when_provenances_are_mixed(tmp_path: Path) -> None:
+    current = dict(current_canonical_config())
+    old_config = {**current, "tipi_elemento": ["node", "way"]}
+    _seed_with_provenance(tmp_path, _prov(), _prov(old_config))
     records_path, _csv, _md = build_report(tmp_path, _graph(), "h")
-    assert any("miste" in a for a in _avvisi(records_path))
+    assert any("miste" in a for a in _warnings(records_path))
 
 
-def test_report_warns_when_some_have_provenienza_and_some_not(tmp_path: Path) -> None:
+def test_report_warns_when_some_have_provenance_and_some_not(tmp_path: Path) -> None:
     _seed_with_provenance(tmp_path, _prov(), None)
     records_path, _csv, _md = build_report(tmp_path, _graph(), "h")
-    avvisi = _avvisi(records_path)
-    assert any("miste" in a for a in avvisi)
-    assert any("Napoli" in a and "senza provenienza" in a for a in avvisi)
+    warnings = _warnings(records_path)
+    assert any("miste" in a for a in warnings)
+    assert any("Napoli" in a and "senza provenienza" in a for a in warnings)
 
 
 def test_report_no_warning_when_all_consistent(tmp_path: Path) -> None:
-    _seed_with_provenance(tmp_path, _prov(), _prov(istante="2026-10-21T09:31:00+00:00"))
+    _seed_with_provenance(tmp_path, _prov(), _prov(instant="2026-10-21T09:31:00+00:00"))
     records_path, _csv, md_path = build_report(tmp_path, _graph(), "h")
     data = json.loads(records_path.read_text(encoding="utf-8"))
     assert data["summary"]["avvisi"] == []

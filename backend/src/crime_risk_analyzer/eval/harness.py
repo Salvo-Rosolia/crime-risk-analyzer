@@ -1,9 +1,9 @@
-"""Harness di esecuzione di un esperimento di valutazione (#34).
+"""Execution harness of an evaluation experiment (#34).
 
-Vincolo migrazione (#165.4): ``results/runs/`` deve contenere solo run in
-formato #157 (run_id con marker ``__rep{NN}``). Record legacy pre-#157 per lo
-stesso esperimento sono rilevati e rifiutati da ``run`` (o rimossi con
-``--clean-stale``): coesistere con run ``__rep`` corromperebbe fold/compare.
+Migration constraint (#165.4): ``results/runs/`` must contain only runs in
+#157 format (run_id with ``__rep{NN}`` marker). Pre-#157 legacy records for the
+same experiment are detected and rejected by ``run`` (or removed with
+``--clean-stale``): coexisting with ``__rep`` runs would corrupt fold/compare.
 """
 
 from __future__ import annotations
@@ -17,9 +17,9 @@ from pathlib import Path
 
 from crime_risk_analyzer.eval.istat_metrics import (
     compute_istat_metrics,
-    frasi_escluse_senza_voce,
+    excluded_sentences_without_item,
 )
-from crime_risk_analyzer.eval.metrics import compute_metrics, frasi_escluse_m1
+from crime_risk_analyzer.eval.metrics import compute_metrics, m1_excluded_sentences
 from crime_risk_analyzer.eval.schema import (
     ExperimentConfig,
     Metrics,
@@ -29,7 +29,7 @@ from crime_risk_analyzer.eval.schema import (
     RunStatus,
 )
 from crime_risk_analyzer.eval.snapshots import (
-    describe_configurazione_mismatch,
+    describe_config_mismatch,
     offline_geo_source,
     replay_source,
     snapshot_path,
@@ -52,28 +52,28 @@ from crime_risk_analyzer.rag.retrieval import RiskProfiler
 logger = logging.getLogger(__name__)
 
 
-def usa_modello(config: ExperimentConfig) -> bool:
-    """Vero se il braccio chiama il modello: tutti tranne la baseline.
+def uses_model(config: ExperimentConfig) -> bool:
+    """True if the arm calls the model: all except the baseline.
 
-    Un solo punto per questa domanda (#357): prima ogni funzione la ripeteva col
-    proprio confronto su ``config.mode``, e un braccio nuovo senza modello avrebbe
-    dovuto essere aggiunto a mano in ognuno.
+    A single place for this question (#357): previously every function repeated it with
+    its own comparison on ``config.mode``, and a new arm without a model would have
+    had to be added by hand in each.
     """
     return config.mode != "baseline"
 
 
-def _budget_della_run(config: ExperimentConfig) -> tuple[int | None, int | None]:
-    """``(budget della richiesta, max_tokens)`` con cui il braccio costruisce il prompt.
+def _run_budget(config: ExperimentConfig) -> tuple[int | None, int | None]:
+    """``(request budget, max_tokens)`` with which the arm builds the prompt.
 
-    Sono i valori che l'harness passa a :func:`run_analysis` (#345, F8 della review
-    finale): finiscono nella provenienza perche' il budget decide quanti POI
-    entrano nel prompt, e due bracci con budget diversi non isolano una sola
-    variabile. Il braccio senza ontologia gira con la stessa configurazione: il suo
-    prompt non tronca, ma con questi valori ricostruisce quali POI ha tenuto quello
-    completo e elenca solo quelli (#349); la baseline non chiama l'LLM e non ha
-    budget.
+    These are the values the harness passes to :func:`run_analysis` (#345, F8 of the
+    final review): they end up in the provenance because the budget decides how many
+    POIs go into the prompt, and two arms with different budgets do not isolate a single
+    variable. The arm without ontology runs with the same configuration: its
+    prompt does not truncate, but with these values it reconstructs which POIs the
+    full one kept and lists only those (#349); the baseline does not call the LLM and
+    has no budget.
     """
-    if not usa_modello(config):
+    if not uses_model(config):
         return None, None
     return DEFAULT_REQUEST_TOKEN_BUDGET, DEFAULT_MAX_TOKENS
 
@@ -85,24 +85,24 @@ def _slug(text: str) -> str:
 def make_run_id(
     experiment: str, citta: str, zona: str, mode: str, model: str, rep: int = 0
 ) -> str:
-    """run_id deterministico + indice di ripetizione (#157).
+    """Deterministic run_id + repetition index (#157).
 
-    Il suffisso ``__rep{NN}`` (2 cifre) rende distinte le K ripetizioni dello
-    stesso (esperimento, citta, zona, mode, model): rigirare con --repeat K NON
-    sovrascrive piu' i JSON. ``rep=0`` di default (K=1) → ``__rep00``.
+    The ``__rep{NN}`` suffix (2 digits) makes the K repetitions of the same
+    (experiment, citta, zona, mode, model) distinct: re-running with --repeat K does NOT
+    overwrite the JSONs any more. ``rep=0`` by default (K=1) -> ``__rep00``.
     """
     parts = [experiment, citta, zona, mode, model]
     return "__".join(_slug(p) for p in parts) + f"__rep{rep:02d}"
 
 
 def make_snapshot_key(citta: str, zona: str) -> str:
-    """Chiave dello snapshot POI, derivata SOLO da (citta, zona) (#110).
+    """Key of the POI snapshot, derived ONLY from (citta, zona) (#110).
 
-    Indipendente da mode/model: i bracci comparativi (analyze/claude,
-    analyze/groq, baseline) sulla stessa (citta, zona) rigiocano la STESSA
-    fixture POI (confronto iso-input, sblocca #32/#33). Riusa lo stesso
-    ``_slug`` di :func:`make_run_id`, così la normalizzazione di citta/zona
-    resta unica e non diverge tra run_id e chiave snapshot.
+    Independent of mode/model: the comparative arms (analyze/claude,
+    analyze/groq, baseline) on the same (citta, zona) replay the SAME
+    POI fixture (iso-input comparison, unblocks #32/#33). Reuses the same
+    ``_slug`` as :func:`make_run_id`, so the normalisation of citta/zona
+    stays single and does not diverge between run_id and snapshot key.
     """
     return "__".join(_slug(p) for p in (citta, zona))
 
@@ -111,16 +111,16 @@ _REP_MARKER = re.compile(r"__rep\d{2,}$")
 
 
 def is_repeated_run_id(run_id: str) -> bool:
-    """True se il run_id porta il marker di ripetizione ``__rep{NN}`` (#157)."""
+    """True if the run_id carries the repetition marker ``__rep{NN}`` (#157)."""
     return _REP_MARKER.search(run_id) is not None
 
 
 def legacy_run_paths(results_dir: Path, experiment: str) -> list[Path]:
-    """Path dei record dell'esperimento in formato PRE-#157 (senza ``__rep``).
+    """Path of the experiment's records in PRE-#157 format (without ``__rep``).
 
-    Un record legacy per la stessa (citta, zona) di una run ``__rep`` verrebbe
-    trattato come ripetizione stantia da fold/compare: va rilevato prima di
-    scrivere nuove ripetizioni.
+    A legacy record for the same (citta, zona) of a ``__rep`` run would be
+    treated as a stale repetition by fold/compare: it must be detected before
+    writing new repetitions.
     """
     from crime_risk_analyzer.eval.aggregate import load_runs
 
@@ -134,10 +134,10 @@ def legacy_run_paths(results_dir: Path, experiment: str) -> list[Path]:
 def guard_no_legacy_runs(
     results_dir: Path, experiment: str, *, clean_stale: bool = False
 ) -> None:
-    """Difende da record legacy pre-#157 per l'esperimento (#165.4).
+    """Guard against pre-#157 legacy records for the experiment (#165.4).
 
-    ``clean_stale=True`` li rimuove; altrimenti solleva ``ValueError`` con
-    l'elenco e l'indicazione di rigenerare o usare ``--clean-stale``.
+    ``clean_stale=True`` removes them; otherwise raises ``ValueError`` with
+    the list and the indication to regenerate or use ``--clean-stale``.
     """
     legacy = legacy_run_paths(results_dir, experiment)
     if not legacy:
@@ -154,7 +154,7 @@ def guard_no_legacy_runs(
 
 
 def write_record(results_dir: Path, record: RunRecord) -> Path:
-    """Scrive il RunRecord come JSON in results/runs/<run_id>.json."""
+    """Write the RunRecord as JSON in results/runs/<run_id>.json."""
     path = results_dir / "runs" / f"{record.run_id}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(record.model_dump_json(indent=2), encoding="utf-8")
@@ -175,12 +175,12 @@ def _record_from_response(
     snapshot_configurazione_canonica: dict[str, object] | None,
 ) -> RunRecord:
     status = RunStatus.FALLBACK if resp.fallback else RunStatus.OK
-    # #369: con ISTAT, le frasi che M1 non misura (None senza ISTAT).
-    escluse = frasi_escluse_m1(resp, mode=config.mode)
-    # #378: fra queste, quelle senza una voce delle righe ISTAT del prompt.
-    senza_voce = (
-        frasi_escluse_senza_voce(escluse, resp.controllo_istat)
-        if escluse is not None and resp.controllo_istat is not None
+    # #369: with ISTAT, the sentences that M1 does not measure (None without ISTAT).
+    excluded = m1_excluded_sentences(resp, mode=config.mode)
+    # #378: among these, those without an item of the ISTAT rows of the prompt.
+    without_item = (
+        excluded_sentences_without_item(excluded, resp.controllo_istat)
+        if excluded is not None and resp.controllo_istat is not None
         else None
     )
     return RunRecord(
@@ -191,41 +191,41 @@ def _record_from_response(
         mode=config.mode,
         model_id=model_id,
         status=status,
-        # Il ``mode`` decide su quale blocco i proxy testuali si pronunciano
-        # (#236): il braccio ablato etichetta il suo blocco per cio' che e', e
-        # misurarlo sull'etichetta dell'altro lo darebbe per non attribuito.
-        # Sui record con ISTAT (#345, #369) M1 grada il grezzo senza le frasi
-        # che parlano del dato ISTAT e non nominano un POI ne' un rischio: lo
-        # decide ``compute_metrics`` dal controllo che la risposta porta.
+        # The ``mode`` decides on which block the textual proxies pronounce
+        # (#236): the ablated arm labels its block for what it is, and
+        # measuring it on the other's label would give it as not attributed.
+        # On records with ISTAT (#345, #369) M1 grades the raw text without the
+        # sentences that speak of the ISTAT datum and name neither a POI nor a risk: it
+        # is decided by ``compute_metrics`` from the check that the response carries.
         metrics=compute_metrics(resp, mode=config.mode),
-        # ``resp.narrativa`` e' ``str | None`` da #259 (fase 1: narrativa non
-        # ancora generata); l'harness gira solo su ``run_analysis``/``run_baseline``,
-        # che oggi producono sempre una stringa (mai None) — la coercizione e'
-        # difensiva sul tipo, non un cambio di comportamento.
+        # ``resp.narrativa`` is ``str | None`` since #259 (phase 1: narrative not
+        # yet generated); the harness runs only on ``run_analysis``/``run_baseline``,
+        # which today always produce a string (never None) -- the coercion is
+        # defensive on the type, not a change of behaviour.
         narrativa=resp.narrativa or "",
         n_poi=len(resp.poi),
         risk_models=resp.risk_models,
-        # #345: grezzo/metriche ISTAT solo per l'harness (``AnalyzeResponse`` li
-        # esclude dalla response HTTP, ``exclude=True``).
+        # #345: raw text/ISTAT metrics only for the harness (``AnalyzeResponse``
+        # excludes them from the HTTP response, ``exclude=True``).
         narrativa_grezza=resp.narrativa_grezza,
-        # #349: i POI entrati nel prompt, perche' il confronto VERIFICHI che i due
-        # bracci LLM abbiano visto gli stessi punti invece di presumerlo. None per
-        # la baseline (nessun prompt) e sui fallback (nessuna generazione).
+        # #349: the POIs that entered the prompt, so that the comparison VERIFIES that
+        # the two LLM arms saw the same points instead of assuming it. None for
+        # the baseline (no prompt) and on fallbacks (no generation).
         poi_nel_prompt=resp.poi_nel_prompt,
         istat_frasi_scartate=resp.istat_frasi_scartate,
         istat_metrics=(
             compute_istat_metrics(
                 resp.controllo_istat,
-                frasi_escluse_m1=len(escluse or []),
+                frasi_escluse_m1=len(excluded or []),
                 frasi_escluse_senza_voce=(
-                    None if senza_voce is None else len(senza_voce)
+                    None if without_item is None else len(without_item)
                 ),
             )
             if resp.controllo_istat
             else None
         ),
-        frasi_escluse_m1=escluse,
-        frasi_escluse_senza_voce=senza_voce,
+        frasi_escluse_m1=excluded,
+        frasi_escluse_senza_voce=without_item,
         provenance=Provenance(
             code_commit=code_commit,
             ontology_hash=ontology_hash,
@@ -240,8 +240,8 @@ def _record_from_response(
             snapshot_configurazione_canonica=snapshot_configurazione_canonica,
             istat=config.istat,
             istat_versione_dati=resp.istat_versione_dati,
-            request_token_budget=_budget_della_run(config)[0],
-            llm_max_tokens=_budget_della_run(config)[1],
+            request_token_budget=_run_budget(config)[0],
+            llm_max_tokens=_run_budget(config)[1],
         ),
     )
 
@@ -259,13 +259,13 @@ def _error_record(
     snapshot_configurazione_canonica: dict[str, object] | None,
     status: RunStatus = RunStatus.ERROR,
 ) -> RunRecord:
-    """Record di un caso fallito: metriche azzerate, nessuna narrativa.
+    """Record of a failed case: zeroed metrics, no narrative.
 
-    ``status`` distingue CHI ha fallito (vedi :class:`RunStatus`): la pipeline
-    del caso (``ERROR``, default, prodotto da :func:`run_case`) o la
-    strumentazione a valle (``HARNESS_ERROR``, prodotto da
-    :func:`run_experiment`). Il resto del record e' identico perche' identico e'
-    cio' che si puo' dire: non c'e' nulla da misurare in nessuno dei due casi.
+    ``status`` distinguishes WHO failed (see :class:`RunStatus`): the case's
+    pipeline (``ERROR``, default, produced by :func:`run_case`) or the
+    downstream instrumentation (``HARNESS_ERROR``, produced by
+    :func:`run_experiment`). The rest of the record is identical because identical is
+    what can be said: there is nothing to measure in either case.
     """
     return RunRecord(
         run_id=run_id,
@@ -291,22 +291,22 @@ def _error_record(
             snapshot_catturato_il=snapshot_catturato_il,
             snapshot_configurazione_canonica=snapshot_configurazione_canonica,
             istat=config.istat,
-            request_token_budget=_budget_della_run(config)[0],
-            llm_max_tokens=_budget_della_run(config)[1],
+            request_token_budget=_run_budget(config)[0],
+            llm_max_tokens=_run_budget(config)[1],
         ),
     )
 
 
 def _model_id_of(llm_client: _LLMClientLike | None, config: ExperimentConfig) -> str:
-    """Model id del braccio: ``"baseline"``, il ``.model`` del client, o il config.
+    """Model id of the arm: ``"baseline"``, the client's ``.model``, or the config.
 
-    Totale di proposito (accetta ``llm_client=None``): serve anche sul percorso
-    d'ERRORE di :func:`run_experiment`, dove un record va scritto comunque e una
-    seconda eccezione mentre si descrive la prima renderebbe l'isolamento inutile.
-    Il rifiuto di un braccio con modello ma senza client sta altrove, in
-    :func:`_require_llm_client`, dove serve: prima di eseguire.
+    Total on purpose (accepts ``llm_client=None``): it is also needed on the ERROR
+    path of :func:`run_experiment`, where a record must be written anyway and a
+    second exception while describing the first would make the isolation useless.
+    The rejection of an arm with a model but without a client lives elsewhere, in
+    :func:`_require_llm_client`, where it is needed: before executing.
     """
-    if not usa_modello(config):
+    if not uses_model(config):
         return "baseline"
     model = getattr(llm_client, "model", None)
     if isinstance(model, str):
@@ -317,16 +317,16 @@ def _model_id_of(llm_client: _LLMClientLike | None, config: ExperimentConfig) ->
 def _require_llm_client(
     config: ExperimentConfig, llm_client: _LLMClientLike | None
 ) -> None:
-    """Solleva se un braccio CON modello non ha ricevuto il client.
+    """Raise if an arm WITH a model did not receive the client.
 
-    Chiamata sia da :func:`run_case` sia in testa a :func:`run_experiment`, e non
-    solo dalla prima: e' una configurazione impossibile, non il guasto di un
-    singolo caso. Lasciarla cadere nell'isolamento per-caso scriverebbe un record
-    ``HARNESS_ERROR`` per ogni caso e ogni ripetizione — N zone "fallite" nel
-    confronto a valle — per un errore noto prima di partire, in cui non c'e'
-    proprio nulla da salvare proseguendo.
+    Called both by :func:`run_case` and at the head of :func:`run_experiment`, and not
+    only by the former: it is an impossible configuration, not the failure of a
+    single case. Letting it fall into the per-case isolation would write a
+    ``HARNESS_ERROR`` record for every case and every repetition -- N "failed" zones in
+    the downstream comparison -- for an error known before starting, in which there is
+    really nothing to save by continuing.
     """
-    if usa_modello(config) and llm_client is None:
+    if uses_model(config) and llm_client is None:
         raise ValueError(f"llm_client required for mode={config.mode}")
 
 
@@ -341,32 +341,32 @@ async def run_case(
     ontology_hash: str,
     rep: int = 0,
 ) -> RunRecord:
-    """Esegue un caso e ritorna il RunRecord (status=error su eccezione).
+    """Run a case and return the RunRecord (status=error on exception).
 
-    ``llm_client`` e' opzionale: richiesto dai bracci CON modello (``analyze`` e
-    ``no_ontology_prompt``, #236); per ``mode='baseline'`` puo' essere ``None``.
-    Solleva :class:`ValueError` se un braccio con modello riceve ``None``.
+    ``llm_client`` is optional: required by the arms WITH a model (``analyze`` and
+    ``no_ontology_prompt``, #236); for ``mode='baseline'`` it can be ``None``.
+    Raises :class:`ValueError` if an arm with a model receives ``None``.
     """
     _require_llm_client(config, llm_client)
     model_id = _model_id_of(llm_client, config)
     run_id = make_run_id(
         config.name, case.citta, case.zona, config.mode, config.model, rep
     )
-    # Snapshot chiavato per (citta, zona): condiviso dai bracci comparativi (#110).
+    # Snapshot keyed by (citta, zona): shared by the comparative arms (#110).
     snapshot_key = make_snapshot_key(case.citta, case.zona)
     path = snapshot_path(results_dir, snapshot_key)
-    # #267: la provenienza si legge al piu' una volta e alimenta sia l'avviso sia
-    # il record (evita di riparlare il file due volte per la sola provenienza —
-    # il payload POI resta comunque riparsato da ``load_snapshot`` dentro
-    # ``replay_source``, che serve a uno scopo diverso: leggere i punti, non
-    # ispezionare la provenienza). Uno snapshot MANCANTE non e' un caso di
-    # provenienza da segnalare: e' un fallimento diverso, gia' gestito piu'
-    # sotto quando ``replay_source`` lo consuma davvero (isolamento #252) — qui
-    # avviserebbe con un messaggio fuorviante ("configurazione non nota") subito
-    # prima del vero errore "file assente".
-    provenienza = snapshot_provenance(path) if path.exists() else None
+    # #267: the provenance is read at most once and feeds both the warning and
+    # the record (avoids reading the file twice just for the provenance --
+    # the POI payload is however re-parsed by ``load_snapshot`` inside
+    # ``replay_source``, which serves a different purpose: reading the points, not
+    # inspecting the provenance). A MISSING snapshot is not a provenance
+    # case to report: it is a different failure, already handled further
+    # below when ``replay_source`` really consumes it (isolation #252) -- here it
+    # would warn with a misleading message ("configuration not known") right
+    # before the real "file absent" error.
+    provenance = snapshot_provenance(path) if path.exists() else None
     if path.exists():
-        mismatch = describe_configurazione_mismatch(provenienza)
+        mismatch = describe_config_mismatch(provenance)
         if mismatch is not None:
             logger.warning(
                 "snapshot (%s, %s): %s — la run potrebbe mescolare politiche di "
@@ -375,22 +375,22 @@ async def run_case(
                 case.zona,
                 mismatch,
             )
-    # Difensivo sul TIPO, non solo sulla presenza: ``provenienza`` viene da JSON
-    # esterno castato a TypedDict, quindi ``catturato_il`` puo' non essere una
-    # stringa nonostante il tipo dichiarato — un valore non valido qui non deve
-    # far esplodere ``Provenance(...)`` (pydantic non coercerebbe int->str) e
-    # con esso l'intero esperimento.
-    _catturato_il = provenienza.get("catturato_il") if provenienza else None
-    snapshot_catturato_il = _catturato_il if isinstance(_catturato_il, str) else None
-    _conf = provenienza.get("configurazione_canonica") if provenienza else None
+    # Defensive on the TYPE, not only on presence: ``provenance`` comes from external
+    # JSON cast to TypedDict, so ``catturato_il`` may not be a
+    # string despite the declared type -- an invalid value here must not
+    # make ``Provenance(...)`` blow up (pydantic would not coerce int->str) and
+    # with it the whole experiment.
+    _captured_at = provenance.get("catturato_il") if provenance else None
+    snapshot_catturato_il = _captured_at if isinstance(_captured_at, str) else None
+    _conf = provenance.get("configurazione_canonica") if provenance else None
     snapshot_configurazione_canonica = dict(_conf) if isinstance(_conf, dict) else None
     source = replay_source(path)
-    # #349: budget e max_tokens da UN solo punto, lo stesso che li scrive nella
-    # provenienza, per entrambi i bracci LLM: due letterali nelle due chiamate
-    # potrebbero divergere da cio' che il record dichiara.
-    budget, max_tok = _budget_della_run(config)
-    # Geo placeholder deterministico (#169): la run replaya i POI e non deve mai
-    # chiamare Nominatim. Il geo e' dead-downstream, quindi il valore non conta.
+    # #349: budget and max_tokens from ONE single point, the same that writes them into
+    # the provenance, for both LLM arms: two literals in the two calls
+    # could diverge from what the record declares.
+    budget, max_tok = _run_budget(config)
+    # Deterministic placeholder geo (#169): the run replays the POIs and must never
+    # call Nominatim. The geo is dead-downstream, so the value does not matter.
     geo_source = offline_geo_source()
     try:
         if config.mode == "baseline":
@@ -402,20 +402,20 @@ async def run_case(
                 geo_source=geo_source,
             )
         elif config.mode == "no_ontology_prompt":
-            # narrowing per pyright strict
+            # narrowing for pyright strict
             assert llm_client is not None and budget is not None
             assert max_tok is not None
-            # Braccio di ablazione (#236): stesse ``source``/``geo_source`` del
-            # braccio completo — cioe' lo STESSO snapshot POI, che e' il punto.
-            # #349: anche gli stessi parametri del prompt del braccio completo
-            # (budget, max_tokens, formato, interruttore), con cui l'ablato
-            # ricostruisce quali POI quel prompt ha tenuto e li elenca tutti e soli.
-            # Il formato qui e' sempre ``per_poi`` (lo schema rifiuta gli altri per
-            # questo mode) e l'interruttore sempre spento (D6): l'iso-input vale
-            # quindi contro un braccio completo lanciato con quei valori, cioe' la
-            # coppia ``ablation-*-groq`` della tesi; un completo ``per_classe``
-            # sceglierebbe altri POI. La parita' non e' presunta: i due record
-            # salvano ``poi_nel_prompt`` e ``eval/compare.py`` la verifica.
+            # Ablation arm (#236): same ``source``/``geo_source`` as the full
+            # arm -- i.e. the SAME POI snapshot, which is the point.
+            # #349: also the same prompt parameters of the full arm
+            # (budget, max_tokens, format, switch), with which the ablated one
+            # reconstructs which POIs that prompt kept and lists all and only those.
+            # The format here is always ``per_poi`` (the schema rejects the others for
+            # this mode) and the switch always off (D6): the iso-input therefore holds
+            # against a full arm launched with those values, i.e. the
+            # thesis ``ablation-*-groq`` pair; a ``per_classe`` full arm
+            # would choose other POIs. Parity is not presumed: the two records
+            # save ``poi_nel_prompt`` and ``eval/compare.py`` verifies it.
             resp = await run_no_ontology_prompt(
                 case.citta,
                 case.zona,
@@ -429,7 +429,7 @@ async def run_case(
                 max_tokens=max_tok,
             )
         else:
-            # narrowing per pyright strict
+            # narrowing for pyright strict
             assert llm_client is not None and budget is not None
             assert max_tok is not None
             resp = await run_analysis(
@@ -444,7 +444,7 @@ async def run_case(
                 request_token_budget=budget,
                 max_tokens=max_tok,
             )
-    except Exception:  # noqa: BLE001 — un caso rotto non blocca l'esperimento
+    except Exception:  # noqa: BLE001 -- a broken case does not block the experiment
         return _error_record(
             run_id=run_id,
             snapshot_id=snapshot_key,
@@ -456,18 +456,18 @@ async def run_case(
             snapshot_catturato_il=snapshot_catturato_il,
             snapshot_configurazione_canonica=snapshot_configurazione_canonica,
         )
-    # Fuori dal try di proposito: il calcolo delle metriche non e' un evento da
-    # assorbire come "il modello ha fallito". Un ``KeyError`` dal listino prezzi
-    # (#34) su un model_id non prezzato e' un bug di codice/configurazione, e
-    # dentro il try diventerebbe un record status=ERROR con metriche a zero,
-    # indistinguibile da una chiamata LLM andata male: in una run live
-    # brucerebbe la quota della giornata producendo il 100% di record ERROR
-    # senza un solo traceback da leggere.
-    # L'eccezione esce quindi da qui, ma NON arriva piu' in cima: la raccoglie
-    # ``run_experiment`` un livello sopra, che la logga col traceback e le
-    # assegna uno status suo (``HARNESS_ERROR``). Le due meta' dicono cose
-    # diverse — qui "non mascherare", la' "non far morire l'esperimento" — e
-    # servono entrambe.
+    # Outside the try on purpose: the metrics computation is not an event to
+    # absorb as "the model failed". A ``KeyError`` from the price list
+    # (#34) on an unpriced model_id is a code/configuration bug, and
+    # inside the try it would become a status=ERROR record with zeroed metrics,
+    # indistinguishable from a failed LLM call: in a live run it
+    # would burn the day's quota producing 100% ERROR records
+    # without a single traceback to read.
+    # The exception therefore leaves from here, but NO longer reaches the top: it is
+    # caught by ``run_experiment`` one level up, which logs it with the traceback and
+    # assigns it a status of its own (``HARNESS_ERROR``). The two halves say
+    # different things -- here "do not mask", there "do not let the experiment die" --
+    # and both are needed.
     return _record_from_response(
         run_id=run_id,
         snapshot_id=snapshot_key,
@@ -492,69 +492,69 @@ async def run_experiment(
     ontology_hash: str,
     repeat: int = 1,
     clean_stale: bool = False,
-    pausa_secondi: float = 0.0,
+    pause_seconds: float = 0.0,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> list[RunRecord]:
-    """Esegue tutti i casi ``repeat`` volte, scrive i JSON, ritorna i record.
+    """Run all the cases ``repeat`` times, write the JSONs, return the records.
 
-    ``llm_client`` e' opzionale: puo' essere ``None`` per ``mode='baseline'``;
-    per i bracci con modello deve essere fornito, e la mancanza e' rifiutata
-    subito (:func:`_require_llm_client`) invece di diventare N record falliti.
+    ``llm_client`` is optional: it can be ``None`` for ``mode='baseline'``;
+    for the arms with a model it must be supplied, and its absence is rejected
+    at once (:func:`_require_llm_client`) instead of turning into N failed records.
 
-    ``repeat`` (#157): K ripetizioni per stimare la varianza; ogni ripetizione
-    ha un ``rep`` distinto nel run_id (nessuna sovrascrittura). Default 1.
+    ``repeat`` (#157): K repetitions to estimate the variance; each repetition
+    has a distinct ``rep`` in the run_id (no overwriting). Default 1.
 
-    Un caso che esplode non ferma l'esperimento: l'eccezione viene loggata col
-    traceback e il caso prende un record ``status=HARNESS_ERROR`` (distinto da
-    ``ERROR``, che descrive un fallimento della pipeline — vedi
-    :class:`~crime_risk_analyzer.eval.schema.RunStatus`). Nessuna metrica viene
-    inventata: il record resta azzerato ed e' escluso dalle medie a valle.
+    A case that blows up does not stop the experiment: the exception is logged with
+    the traceback and the case gets a ``status=HARNESS_ERROR`` record (distinct from
+    ``ERROR``, which describes a pipeline failure -- see
+    :class:`~crime_risk_analyzer.eval.schema.RunStatus`). No metric is
+    invented: the record stays zeroed and is excluded from the downstream means.
 
-    ``clean_stale`` (#165.4): se ``True`` rimuove i record legacy pre-#157
-    dell'esperimento prima di eseguire; altrimenti la guardia solleva
-    :class:`ValueError` se ne trova (coesistere con run ``__rep`` corrompe
+    ``clean_stale`` (#165.4): if ``True`` removes the pre-#157 legacy records
+    of the experiment before running; otherwise the guard raises
+    :class:`ValueError` if it finds any (coexisting with ``__rep`` runs corrupts
     fold/compare).
 
-    Solleva :class:`ValueError` se ``repeat < 1`` (niente esperimento vuoto
-    in silenzio: senza guardia ``range(repeat)`` ritornerebbe ``[]``).
+    Raises :class:`ValueError` if ``repeat < 1`` (no silently empty experiment:
+    without a guard ``range(repeat)`` would return ``[]``).
 
-    ``pausa_secondi`` (#357): attesa PRIMA di ogni caso dei bracci che chiamano il
-    modello, prima chiamata compresa. Sul provider gratuito una chiamata del
-    braccio con ontologia vale quasi tutto il tetto di token al minuto: due
-    chiamate di fila facevano andare la seconda in timeout, cioe' in una risposta
-    di ripiego scartata dal confronto. Si aspetta anche prima della prima perche' i
-    due bracci girano come due comandi lanciati uno dopo l'altro: senza, la prima
-    chiamata del secondo cadrebbe nello stesso minuto dell'ultima del primo. Ogni
-    attesa e' annunciata nel log (WARNING), cosi' una run lunga non si confonde con
-    un blocco. Limiti dichiarati: si aspetta anche prima di un caso che poi fallisce
-    senza arrivare al modello (non si sa in anticipo); il ``sleep`` non entra nella
-    latenza misurata, ma dopo pause lunghe la chiamata riapre la connessione e il
-    suo tempo (decine di millisecondi) entra nella latenza. Default 0 =
-    comportamento di prima; valori negativi o non finiti sono rifiutati. ``sleep``
-    e' iniettabile per i test.
+    ``pause_seconds`` (#357): wait BEFORE every case of the arms that call the
+    model, first call included. On the free provider one call of the
+    arm with ontology uses almost the whole tokens-per-minute cap: two
+    calls in a row made the second one time out, i.e. a fallback
+    answer discarded by the comparison. It waits also before the first one because the
+    two arms run as two commands launched one after the other: without it, the first
+    call of the second would fall in the same minute as the last of the first. Every
+    wait is announced in the log (WARNING), so a long run is not mistaken for
+    a hang. Declared limits: it also waits before a case that then fails
+    without reaching the model (not known in advance); the ``sleep`` does not enter the
+    measured latency, but after long pauses the call reopens the connection and its
+    time (tens of milliseconds) enters the latency. Default 0 =
+    previous behaviour; negative or non-finite values are rejected. ``sleep``
+    is injectable for tests.
     """
     if repeat < 1:
         raise ValueError(f"repeat deve essere >= 1, ricevuto {repeat}")
-    if not math.isfinite(pausa_secondi) or pausa_secondi < 0:
+    if not math.isfinite(pause_seconds) or pause_seconds < 0:
         raise ValueError(
-            f"pausa_secondi deve essere un numero finito >= 0, ricevuto {pausa_secondi}"
+            f"pause_seconds deve essere un numero finito >= 0, ricevuto {pause_seconds}"
         )
-    aspetta = pausa_secondi > 0 and usa_modello(config)
+    should_wait = pause_seconds > 0 and uses_model(config)
     _require_llm_client(config, llm_client)
     guard_no_legacy_runs(results_dir, config.name, clean_stale=clean_stale)
     records: list[RunRecord] = []
     for rep in range(repeat):
         for case in config.cases:
-            if aspetta:
+            if should_wait:
                 logger.warning(
                     "pausa di %s s prima di (%s, %s) rep %d: tetto di token al minuto "
                     "del provider (#357)",
-                    pausa_secondi,
+                    pause_seconds,
                     case.citta,
                     case.zona,
                     rep,
                 )
-                await sleep(pausa_secondi)
+                await sleep(pause_seconds)
             try:
                 record = await run_case(
                     case,
@@ -566,17 +566,17 @@ async def run_experiment(
                     ontology_hash=ontology_hash,
                     rep=rep,
                 )
-            except Exception as exc:  # noqa: BLE001 — vedi il commento sotto
-                # Cio' che ``run_case`` lascia passare (metriche/listino prezzi,
-                # o un braccio configurato male) morirebbe qui portandosi via
-                # TUTTI i casi e le ripetizioni successive. Su una run live con
-                # quota giornaliera e' il danno peggiore: la quota gia' spesa non
-                # torna, e un ``model_id`` fuori listino la brucerebbe tutta al
-                # primo caso senza nemmeno finire l'esperimento.
-                # Non e' il vecchio try largo dentro ``run_case``: li' l'errore
-                # spariva dentro un record indistinguibile da "il modello ha
-                # fallito", qui esce col suo traceback (``logger.exception``) e
-                # con uno status che lo dice (``HARNESS_ERROR``).
+            except Exception as exc:  # noqa: BLE001 -- see the comment below
+                # What ``run_case`` lets through (metrics/price list,
+                # or a badly configured arm) would die here taking with it
+                # ALL the following cases and repetitions. On a live run with a
+                # daily quota it is the worst damage: the quota already spent does not
+                # come back, and a ``model_id`` outside the price list would burn all of
+                # it at the first case without even finishing the experiment.
+                # It is not the old wide try inside ``run_case``: there the error
+                # vanished inside a record indistinguishable from "the model
+                # failed", here it comes out with its traceback (``logger.exception``)
+                # and with a status that says so (``HARNESS_ERROR``).
                 logger.exception(
                     "harness fallito su (%s, %s) rep %d: %s — record marcato "
                     "'%s', l'esperimento prosegue",
@@ -601,11 +601,11 @@ async def run_experiment(
                     model_id=_model_id_of(llm_client, config),
                     code_commit=code_commit,
                     ontology_hash=ontology_hash,
-                    # Provenienza dello snapshot non riportata: qui non si sa a
-                    # che punto il caso si sia rotto, e rileggere il file per
-                    # descriverlo significherebbe rischiare una seconda
-                    # eccezione mentre si gestisce la prima. ``None`` = "non
-                    # rilevata", che e' la verita' disponibile.
+                    # Snapshot provenance not reported: here it is not known at
+                    # what point the case broke, and re-reading the file to
+                    # describe it would risk a second
+                    # exception while handling the first. ``None`` = "not
+                    # detected", which is the truth available.
                     snapshot_catturato_il=None,
                     snapshot_configurazione_canonica=None,
                     status=RunStatus.HARNESS_ERROR,

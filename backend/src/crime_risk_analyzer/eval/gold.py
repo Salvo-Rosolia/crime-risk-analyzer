@@ -1,18 +1,18 @@
-"""Annotazione gold umana per-rischio (#152).
+"""Per-risk human gold annotation (#152).
 
-Sostituisce l'accordo proxy-vs-gold PER-RUN (Pearson su un giudizio umano
-d'insieme, deprecato: vedi
+Replaces the PER-RUN proxy-vs-gold agreement (Pearson on an overall human
+judgement, deprecated: see
 docs/superpowers/specs/2026-09-10-gold-per-risk-annotation-design.md)
-con l'annotazione PER-SINGOLO-RISCHIO descritta da spec-valutazione.md:
-su un campione di rischi *mantenuti* nell'output finale, l'autore verifica
-manualmente se la fonte citata regge, ricavando due proporzioni — precisione
-del filtro e allucinazioni residue (N≈30-40) — invece di una correlazione.
+with the PER-SINGLE-RISK annotation described by spec-valutazione.md:
+on a sample of risks *kept* in the final output, the author checks
+manually whether the cited source holds up, obtaining two proportions -- precision
+of the filter and residual hallucinations (N~30-40) -- instead of a correlation.
 
-Il gold NON e' prodotto qui: l'autore compila a mano le colonne
-``fonte_verificata``/``note`` del foglio scritto da :func:`write_gold_worksheet`.
-Questo modulo isola i rischi da annotare (:func:`collect_kept_risks`), scrive
-il foglio (:func:`write_gold_worksheet`) e, a compilazione avvenuta, calcola
-il report finale (:func:`build_precision_report`/:func:`write_precision_report`).
+The gold is NOT produced here: the author fills in by hand the columns
+``fonte_verificata``/``note`` of the sheet written by :func:`write_gold_worksheet`.
+This module isolates the risks to annotate (:func:`collect_kept_risks`), writes
+the sheet (:func:`write_gold_worksheet`) and, once it is filled in, computes
+the final report (:func:`build_precision_report`/:func:`write_precision_report`).
 """
 
 from __future__ import annotations
@@ -29,11 +29,11 @@ from crime_risk_analyzer.models.vocab import Confidence, Tag
 
 
 class KeptRiskRow(BaseModel):
-    """Un rischio mantenuto (citato in narrativa), da verificare manualmente.
+    """A kept risk (cited in the narrative), to be checked manually.
 
-    ``fonte_verificata``/``note`` sono compilate ESTERNAMENTE dall'autore:
-    restano ``None``/vuote finche' il foglio scritto da
-    :func:`write_gold_worksheet` non viene riletto dopo la compilazione.
+    ``fonte_verificata``/``note`` are filled in EXTERNALLY by the author:
+    they stay ``None``/empty until the sheet written by
+    :func:`write_gold_worksheet` is re-read after being filled in.
     """
 
     run_id: str
@@ -51,19 +51,19 @@ class KeptRiskRow(BaseModel):
 
 
 def collect_kept_risks(records: list[RunRecord]) -> list[KeptRiskRow]:
-    """Appiattisce in righe annotabili i rischi EFFETTIVAMENTE citati in narrativa.
+    """Flatten into annotatable rows the risks ACTUALLY cited in the narrative.
 
-    ``RunRecord.risk_models`` e' il set grounded COMPLETO, costruito PRIMA
-    della generazione LLM (identico fra analyze/baseline/no_ontology_prompt):
-    non riflette alcun filtro. "Mantenuto" per la spec significa "citato nel
-    blocco [ONTOLOGIA]", non "presente nel set grounded". Filtra quindi su
-    ``status == OK`` E hazard presente nel testo di
-    :func:`~crime_risk_analyzer.eval.metrics.hazards_cited_in` — controllando
-    l'identificatore hazard OPPURE ``hazard_label_it`` OPPURE
-    ``hazard_label_en`` (stesso confronto multi-forma di
-    ``metrics._anchors``, chiude lo stesso caveat EN/IT di #77): un rischio
-    citato in narrativa con l'etichetta italiana non va perso solo perche' il
-    testo non contiene l'identificatore inglese bare.
+    ``RunRecord.risk_models`` is the COMPLETE grounded set, built BEFORE
+    the LLM generation (identical across analyze/baseline/no_ontology_prompt):
+    it reflects no filter. "Kept" for the spec means "cited in the
+    [ONTOLOGIA] block", not "present in the grounded set". So it filters on
+    ``status == OK`` AND hazard present in the text of
+    :func:`~crime_risk_analyzer.eval.metrics.hazards_cited_in` -- checking
+    the hazard identifier OR ``hazard_label_it`` OR
+    ``hazard_label_en`` (same multi-form comparison as
+    ``metrics._anchors``, closes the same EN/IT caveat as #77): a risk
+    cited in the narrative with the Italian label must not be lost just because the
+    text does not contain the bare English identifier.
     """
     rows: list[KeptRiskRow] = []
     for record in records:
@@ -90,11 +90,11 @@ def collect_kept_risks(records: list[RunRecord]) -> list[KeptRiskRow]:
     return rows
 
 
-#: Nome del foglio di annotazione sotto ``results/gold/``. Costante condivisa:
-#: il default di ``--worksheet`` in ``eval/__main__.py`` deve puntare allo
-#: STESSO file che ``write_gold_worksheet`` scrive — ripetere la stringa nei
-#: due punti lascerebbe ``gold-report`` a leggere un path che non esiste al
-#: primo rinomino.
+#: Name of the annotation sheet under ``results/gold/``. Shared constant:
+#: the default of ``--worksheet`` in ``eval/__main__.py`` must point to the
+#: SAME file that ``write_gold_worksheet`` writes -- repeating the string in the
+#: two places would leave ``gold-report`` reading a path that does not exist at the
+#: first rename.
 WORKSHEET_FILENAME = "rischi_da_annotare.csv"
 
 _WORKSHEET_COLUMNS = [
@@ -112,9 +112,7 @@ _WORKSHEET_COLUMNS = [
 
 
 def _worksheet_cells(row: KeptRiskRow) -> list[str]:
-    verificata = (
-        "" if row.fonte_verificata is None else str(row.fonte_verificata).lower()
-    )
+    verified = "" if row.fonte_verificata is None else str(row.fonte_verificata).lower()
     return [
         row.run_id,
         row.citta,
@@ -124,7 +122,7 @@ def _worksheet_cells(row: KeptRiskRow) -> list[str]:
         row.tag or "",
         row.confidence,
         row.source or "",
-        verificata,
+        verified,
         row.note,
     ]
 
@@ -132,17 +130,17 @@ def _worksheet_cells(row: KeptRiskRow) -> list[str]:
 def write_gold_worksheet(
     results_dir: Path, records: list[RunRecord], *, force: bool = False
 ) -> Path:
-    """Scrive ``results/gold/rischi_da_annotare.csv`` (colonne di giudizio vuote).
+    """Write ``results/gold/rischi_da_annotare.csv`` (empty judgement columns).
 
-    Lavora su ``records`` gia' in memoria (il chiamante CLI li carica a monte
-    con ``aggregate.load_runs``), come :func:`collect_kept_risks`, per restare
-    testabile senza I/O.
+    Works on ``records`` already in memory (the CLI caller loads them upstream
+    with ``aggregate.load_runs``), like :func:`collect_kept_risks`, to stay
+    testable without I/O.
 
-    Rifiuta di sovrascrivere un foglio esistente e non vuoto senza ``force``
-    (stessa guardia di ``capture``/``compare``): qui il contenuto perso e' il
-    lavoro di annotazione MANUALE dell'autore, che nessun re-run puo'
-    ricostruire. Un file di dimensione zero (scrittura interrotta) non contiene
-    giudizi da proteggere e viene rimpiazzato senza chiedere.
+    Refuses to overwrite an existing non-empty sheet without ``force``
+    (same guard as ``capture``/``compare``): here the content lost is the
+    author's MANUAL annotation work, which no re-run can
+    rebuild. A zero-size file (interrupted write) holds no
+    judgements to protect and is replaced without asking.
     """
     rows = collect_kept_risks(records)
     out_dir = results_dir / "gold"
@@ -158,28 +156,28 @@ def write_gold_worksheet(
     writer.writerow(_WORKSHEET_COLUMNS)
     for row in rows:
         writer.writerow(_worksheet_cells(row))
-    # newline="": csv.writer emette gia' \r\n; senza questo il text-mode di
-    # write_text ritradurrebbe \n->\r\n su Windows (righe spurie, #103/#241).
+    # newline="": csv.writer already emits \r\n; without this the text mode of
+    # write_text would re-translate \n->\r\n on Windows (spurious rows, #103/#241).
     path.write_text(buf.getvalue(), encoding="utf-8", newline="")
     return path
 
 
-#: Token accettati nella colonna ``fonte_verificata``, compilata A MANO: chi
-#: annota scrive in italiano ("vero", "sì", "x") o in inglese, non solo il
-#: ``true``/``false`` che questo modulo serializza. Confronto su valore
-#: strippato e minuscolo.
+#: Tokens accepted in the ``fonte_verificata`` column, filled in BY HAND: whoever
+#: annotates writes in Italian ("vero", "sì", "x") or in English, not only the
+#: ``true``/``false`` that this module serializes. Comparison on the
+#: stripped, lowercased value.
 _TRUE_TOKENS = frozenset({"true", "vero", "v", "1", "si", "sì", "s", "x", "yes", "y"})
 _FALSE_TOKENS = frozenset({"false", "falso", "f", "0", "no", "n"})
 
 
-def _parse_fonte_verificata(raw: str, *, run_id: str) -> bool | None:
-    """Interpreta una cella ``fonte_verificata`` compilata a mano.
+def _parse_verified_source(raw: str, *, run_id: str) -> bool | None:
+    """Interpret a hand-filled ``fonte_verificata`` cell.
 
-    Fail-loud sui valori fuori vocabolario invece di collassarli a ``False``:
-    un "vero" letto come falso gonfierebbe in silenzio
-    ``allucinazioni_residue`` — il numero per cui l'intero meccanismo esiste.
-    Cella vuota = "nessuno ha ancora guardato" (``None``), non "la fonte non
-    regge".
+    Fail loudly on out-of-vocabulary values instead of collapsing them to ``False``:
+    a "vero" read as false would silently inflate
+    ``allucinazioni_residue`` -- the number for which the whole mechanism exists.
+    Empty cell = "nobody has looked yet" (``None``), not "the source does not
+    hold up".
     """
     value = raw.strip().lower()
     if value == "":
@@ -195,11 +193,11 @@ def _parse_fonte_verificata(raw: str, *, run_id: str) -> bool | None:
 
 
 def load_worksheet(path: Path) -> list[KeptRiskRow]:
-    """Rilegge un foglio (eventualmente compilato) da disco."""
+    """Re-read a sheet (possibly filled in) from disk."""
     rows: list[KeptRiskRow] = []
     with path.open(encoding="utf-8", newline="") as fh:
         for record in csv.DictReader(fh):
-            fonte_verificata = _parse_fonte_verificata(
+            fonte_verificata = _parse_verified_source(
                 record.get("fonte_verificata") or "", run_id=record["run_id"]
             )
             rows.append(
@@ -220,7 +218,7 @@ def load_worksheet(path: Path) -> list[KeptRiskRow]:
 
 
 class PrecisionReport(BaseModel):
-    """Precisione del filtro + allucinazioni residue su un campione annotato."""
+    """Filter precision + residual hallucinations on an annotated sample."""
 
     n_totale: int = Field(ge=0, description="Righe totali nel foglio.")
     n_annotati: int = Field(ge=0, description="Righe con fonte_verificata compilata.")
@@ -233,23 +231,23 @@ class PrecisionReport(BaseModel):
 
 
 def build_precision_report(rows: list[KeptRiskRow]) -> PrecisionReport:
-    """Percentuali sui SOLI rischi annotati; ``None`` con zero annotazioni.
+    """Percentages on the ANNOTATED risks only; ``None`` with zero annotations.
 
-    ``None`` (non ``0.0``) quando ``n_annotati == 0``: una percentuale a zero
-    affermerebbe "nessuna fonte regge" quando in realta' nessuno ha ancora
-    guardato — stesso principio gia' applicato a ``Metrics.quality_vacuous``
+    ``None`` (not ``0.0``) when ``n_annotati == 0``: a percentage at zero
+    would claim "no source holds up" when in reality nobody has yet
+    looked -- same principle already applied to ``Metrics.quality_vacuous``
     (#240).
     """
-    annotati = [r for r in rows if r.fonte_verificata is not None]
-    n_annotati = len(annotati)
-    if n_annotati == 0:
+    annotated = [r for r in rows if r.fonte_verificata is not None]
+    n_annotated = len(annotated)
+    if n_annotated == 0:
         return PrecisionReport(n_totale=len(rows), n_annotati=0)
-    n_verificati = sum(1 for r in annotati if r.fonte_verificata)
+    n_verified = sum(1 for r in annotated if r.fonte_verificata)
     return PrecisionReport(
         n_totale=len(rows),
-        n_annotati=n_annotati,
-        precisione_filtro=n_verificati / n_annotati,
-        allucinazioni_residue=(n_annotati - n_verificati) / n_annotati,
+        n_annotati=n_annotated,
+        precisione_filtro=n_verified / n_annotated,
+        allucinazioni_residue=(n_annotated - n_verified) / n_annotated,
     )
 
 
@@ -288,7 +286,7 @@ def _report_csv(report: PrecisionReport) -> str:
 def write_precision_report(
     results_dir: Path, worksheet_path: Path
 ) -> tuple[Path, Path]:
-    """Legge il foglio (compilato o no) e scrive
+    """Read the sheet (filled in or not) and write
     ``results/gold/gold_report.{csv,md}``.
     """
     rows = load_worksheet(worksheet_path)

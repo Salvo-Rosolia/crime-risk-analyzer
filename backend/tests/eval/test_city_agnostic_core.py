@@ -7,11 +7,11 @@ from crime_risk_analyzer.eval.geometry import CityBoundary
 from crime_risk_analyzer.ontology_namespaces import TERMINUS
 from crime_risk_analyzer.overpass_client import Poi
 
-# Quadrato che contiene (12.0, 41.0): usato come confine città nelle fixture.
+# Square containing (12.0, 41.0): used as city boundary in the fixtures.
 _SQUARE = CityBoundary(
     polygons=[[[(11.0, 40.0), (13.0, 40.0), (13.0, 42.0), (11.0, 42.0)]]]
 )
-# Quadrato lontano: nessun POI dentro.
+# Far-away square: no POI inside.
 _ELSEWHERE = CityBoundary(polygons=[[[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]]])
 
 

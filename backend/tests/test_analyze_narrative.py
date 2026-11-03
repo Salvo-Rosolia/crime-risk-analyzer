@@ -1,7 +1,7 @@
-"""Le due fasi di ``/analyze`` (#259) e le rotte che le espongono (#292).
+"""The two phases of ``/analyze`` (#259) and the routes that expose them (#292).
 
-Fase 1: risposta strutturata veloce, narrativa non ancora generata. Fase 2:
-``POST /analyze/narrativa`` genera il testo sul contesto scaldato dalla fase 1.
+Phase 1: fast structured response, narrativa not generated yet. Phase 2:
+``POST /analyze/narrativa`` generates the text on the context warmed by phase 1.
 """
 
 from __future__ import annotations
@@ -61,13 +61,13 @@ def _pois(citta: str) -> list[Poi]:
     ]
 
 
-def _pois_densi(citta: str) -> list[Poi]:
-    """Cattura OSM diversa da :func:`_pois`: un POI in piu', anch'esso con rischi.
+def _dense_pois(citta: str) -> list[Poi]:
+    """OSM capture different from :func:`_pois`: one more POI, also with risks.
 
-    Serve a due scopi: e' la cattura DIVERGENTE dei test su #242 (fra le due fasi
-    OSM cambia, o il cap ``MAX_POIS`` fa entrare un punto) ed e' il minimo per cui
-    ``build_context_str`` puo' troncare il contesto (con un solo POI non tronca
-    mai), che i test sui tetti di token richiedono.
+    It serves two purposes: it is the DIVERGENT capture of the #242 tests (between
+    the two phases OSM changes, or the ``MAX_POIS`` cap lets a point in) and it is
+    the minimum for which ``build_context_str`` can truncate the context (with a
+    single POI it never truncates), which the token cap tests require.
     """
     return [
         *_pois(citta),
@@ -91,8 +91,8 @@ async def _poi_source(bbox: Bbox, citta: str) -> list[Poi]:
     return _pois(citta)
 
 
-async def _poi_source_divergente(bbox: Bbox, citta: str) -> list[Poi]:
-    return _pois_densi(citta)
+async def _divergent_poi_source(bbox: Bbox, citta: str) -> list[Poi]:
+    return _dense_pois(citta)
 
 
 async def test_fast_response_has_no_narrativa_yet() -> None:
@@ -114,52 +114,52 @@ async def test_fast_response_has_no_narrativa_yet() -> None:
     assert out.messaggio is None
 
 
-@pytest.mark.parametrize("acceso", [True, False], ids=["istat-acceso", "istat-spento"])
-async def test_fast_response_espone_istat_solo_con_interruttore(
-    acceso: bool, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("enabled", [True, False], ids=["istat-acceso", "istat-spento"])
+async def test_fast_response_exposes_istat_only_with_the_switch(
+    enabled: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """#346: la fase 1 e' quella che popola le schede, quindi e' qui che
-    ``poi[].istat`` deve arrivare — e solo con l'interruttore acceso."""
+    """#346: phase 1 is the one that fills the cards, so it is here that
+    ``poi[].istat`` must arrive -- and only with the switch on."""
     zone_context_cache.clear()
     from crime_risk_analyzer import analyze_narrative
-    from crime_risk_analyzer.rag.grounding import ground as ground_reale
+    from crime_risk_analyzer.rag.grounding import ground as real_ground
     from tests.istat._factories import BANKROB, istat_poi
 
-    dati = istat_poi(BANKROB)
+    istat_payload = istat_poi(BANKROB)
 
-    def _ground_con_istat(ctx: RetrievalContext) -> GroundedContext:
-        grounded = ground_reale(ctx)
+    def _ground_with_istat(ctx: RetrievalContext) -> GroundedContext:
+        grounded = real_ground(ctx)
         for vr in grounded["validated_risks"]:
-            vr["istat"] = dati
+            vr["istat"] = istat_payload
         return grounded
 
-    monkeypatch.setattr(analyze_narrative, "ground", _ground_con_istat)
+    monkeypatch.setattr(analyze_narrative, "ground", _ground_with_istat)
     out = await analyze_narrative.run_analysis_fast(
         "Roma",
         "Colosseo",
         executor=_FakeProfiler(),
         poi_source=_poi_source,
         geo_source=_geo_source,
-        istat_context_enabled=acceso,
+        istat_context_enabled=enabled,
     )
-    assert out.poi[0].istat == (dati if acceso else None)
+    assert out.poi[0].istat == (istat_payload if enabled else None)
 
 
 async def test_fast_response_zero_poi_has_explicit_message() -> None:
-    """#260: zero POI in copertura ma zona geocodificata — la response porta
-    ``zona_geo`` (per ricentrare la mappa) e un ``messaggio`` esplicito che
-    distingue questo caso da una zona non trovata."""
+    """#260: zero POIs in coverage but zone geocoded -- the response carries
+    ``zona_geo`` (to recenter the map) and an explicit ``messaggio`` that
+    distinguishes this case from a zone not found."""
     zone_context_cache.clear()
     from crime_risk_analyzer.analyze_narrative import run_analysis_fast
 
-    async def _no_poi(bbox: Bbox, citta: str) -> list[Poi]:
+    async def _no_pois(bbox: Bbox, citta: str) -> list[Poi]:
         return []
 
     out = await run_analysis_fast(
         "Roma",
         "Zona senza POI",
         executor=_FakeProfiler(),
-        poi_source=_no_poi,
+        poi_source=_no_pois,
         geo_source=_geo_source,
     )
     assert out.poi == []
@@ -167,79 +167,79 @@ async def test_fast_response_zero_poi_has_explicit_message() -> None:
     assert out.messaggio is not None
 
 
-async def test_phase1_then_phase2_zero_poi_narrativa_reale_annulla_messaggio() -> None:
-    """#260 (reperto review): la fase 2 ricalcola ``messaggio`` da zero, non
-    eredita quello della fase 1 — se l'LLM scrive comunque prosa reale su un
-    contesto senza POI, un ``messaggio`` che lascia intendere "nulla da vedere"
-    accanto a quella narrativa sarebbe un'informazione contraddittoria per chi
-    legge la response finale."""
+async def test_phase1_then_phase2_zero_poi_real_narrativa_cancels_message() -> None:
+    """#260 (review finding): phase 2 recomputes ``messaggio`` from scratch, it does
+    not inherit the one from phase 1 -- if the LLM writes real prose anyway on a
+    context without POIs, a ``messaggio`` suggesting "nothing to see" next to that
+    narrativa would be contradictory information for whoever reads the final
+    response."""
     zone_context_cache.clear()
     from crime_risk_analyzer.analyze_narrative import (
         run_analysis_fast,
         run_zone_narrative,
     )
 
-    async def _no_poi(bbox: Bbox, citta: str) -> list[Poi]:
+    async def _no_pois(bbox: Bbox, citta: str) -> list[Poi]:
         return []
 
-    fase1 = await run_analysis_fast(
+    phase1 = await run_analysis_fast(
         "Roma",
         "Zona senza POI fase2",
         executor=_FakeProfiler(),
-        poi_source=_no_poi,
+        poi_source=_no_pois,
         geo_source=_geo_source,
     )
-    assert fase1.poi == []
-    assert fase1.narrativa is None
-    assert fase1.messaggio is not None
+    assert phase1.poi == []
+    assert phase1.narrativa is None
+    assert phase1.messaggio is not None
 
-    fase2 = await run_zone_narrative(
+    phase2 = await run_zone_narrative(
         "Roma",
         "Zona senza POI fase2",
-        contesto_hash=fase1.contesto_hash,
+        contesto_hash=phase1.contesto_hash,
         executor=_FakeProfiler(),
         llm_client=_FakeLLMClient(),
     )
-    assert fase2.narrativa != ""
-    assert fase2.messaggio is None
+    assert phase2.narrativa != ""
+    assert phase2.messaggio is None
 
 
 async def test_phase1_then_phase2_zero_poi_llm_fallback_keeps_message() -> None:
-    """Stessa sequenza fase1->fase2 su zona vuota, ma la fase 2 cade sull'LLM:
-    senza narrativa reale, il messaggio esplicito resta l'unica informazione
-    disponibile — non deve sparire solo perche' e' la seconda chiamata."""
+    """Same phase1->phase2 sequence on an empty zone, but phase 2 falls on the LLM:
+    without a real narrativa, the explicit message remains the only information
+    available -- it must not vanish just because it is the second call."""
     zone_context_cache.clear()
     from crime_risk_analyzer.analyze_narrative import (
         run_analysis_fast,
         run_zone_narrative,
     )
 
-    async def _no_poi(bbox: Bbox, citta: str) -> list[Poi]:
+    async def _no_pois(bbox: Bbox, citta: str) -> list[Poi]:
         return []
 
-    fase1 = await run_analysis_fast(
+    phase1 = await run_analysis_fast(
         "Roma",
         "Zona senza POI fase2 fallback",
         executor=_FakeProfiler(),
-        poi_source=_no_poi,
+        poi_source=_no_pois,
         geo_source=_geo_source,
     )
-    fase2 = await run_zone_narrative(
+    phase2 = await run_zone_narrative(
         "Roma",
         "Zona senza POI fase2 fallback",
-        contesto_hash=fase1.contesto_hash,
+        contesto_hash=phase1.contesto_hash,
         executor=_FakeProfiler(),
         llm_client=_RaisingLLMClient(),
     )
-    assert fase2.narrativa == ""
-    assert fase2.fallback is True
-    assert fase2.messaggio is not None
+    assert phase2.narrativa == ""
+    assert phase2.fallback is True
+    assert phase2.messaggio is not None
 
 
 async def test_fast_response_warms_the_zone_context_cache() -> None:
-    """Il contesto resta depositato: /analyze/narrativa e /analyze/poi non devono
-    rifare Overpass (#232). E' la fase 1 l'unica a scaldare la cache — il
-    percorso di valutazione (`run_analysis`) non la tocca."""
+    """The context stays stored: /analyze/narrativa and /analyze/poi must not redo
+    Overpass (#232). Phase 1 is the only one that warms the cache -- the
+    evaluation path (`run_analysis`) does not touch it."""
     zone_context_cache.clear()
     from crime_risk_analyzer.analyze_narrative import run_analysis_fast
 
@@ -254,8 +254,8 @@ async def test_fast_response_warms_the_zone_context_cache() -> None:
 
 
 async def test_fast_response_contesto_hash_matches_the_cached_context() -> None:
-    """L'impronta restituita è quella che /analyze/narrativa dovrà ricevere
-    indietro per passare la verifica (#242)."""
+    """The returned fingerprint is the one /analyze/narrativa must receive back to
+    pass the check (#242)."""
     zone_context_cache.clear()
     from crime_risk_analyzer.analyze_narrative import run_analysis_fast
     from crime_risk_analyzer.context_fingerprint import fingerprint
@@ -272,13 +272,13 @@ async def test_fast_response_contesto_hash_matches_the_cached_context() -> None:
     assert out.contesto_hash == fingerprint(cached["retrieval"]["pois"])
 
 
-# --- #318: radius_m filtra i POI server-side in run_analysis_fast ---
-# Stesso pattern di ``run_baseline`` (Task 5, test_orchestrator.py): il filtro
-# vive fra ``retrieve`` e ``ground``, quindi la cache di zona deve scaldarsi con
-# il contesto GIA' filtrato, non quello grezzo.
+# --- #318: radius_m filters the POIs server-side in run_analysis_fast ---
+# Same pattern as ``run_baseline`` (Task 5, test_orchestrator.py): the filter
+# lives between ``retrieve`` and ``ground``, so the zone cache must be warmed
+# with the ALREADY filtered context, not the raw one.
 
 
-def _pois_per_raggio(citta: str) -> list[Poi]:
+def _pois_by_radius(citta: str) -> list[Poi]:
     return [
         *_pois(citta),
         {
@@ -293,16 +293,16 @@ def _pois_per_raggio(citta: str) -> list[Poi]:
     ]
 
 
-async def _poi_source_per_raggio(bbox: Bbox, citta: str) -> list[Poi]:
-    return _pois_per_raggio(citta)
+async def _poi_source_by_radius(bbox: Bbox, citta: str) -> list[Poi]:
+    return _pois_by_radius(citta)
 
 
-async def test_run_analysis_fast_filtra_per_raggio() -> None:
-    """``radius_m`` filtra i POI server-side dal centro geocodificato (#318).
+async def test_run_analysis_fast_filters_by_radius() -> None:
+    """``radius_m`` filters the POIs server-side from the geocoded center (#318).
 
-    Il centro di ``_geo_source`` (41.89, 12.49) e' a ~166m da ``Banca A`` (entro
-    i 300m richiesti) ma a decine di km da ``Banca Lontana``: solo la prima
-    resta nella risposta.
+    The center of ``_geo_source`` (41.89, 12.49) is ~166m from ``Banca A`` (within
+    the requested 300m) but tens of km from ``Banca Lontana``: only the first one
+    stays in the response.
     """
     zone_context_cache.clear()
     from crime_risk_analyzer.analyze_narrative import run_analysis_fast
@@ -311,17 +311,17 @@ async def test_run_analysis_fast_filtra_per_raggio() -> None:
         "Roma",
         "Raggio",
         executor=_FakeProfiler(),
-        poi_source=_poi_source_per_raggio,
+        poi_source=_poi_source_by_radius,
         geo_source=_geo_source,
         radius_m=300.0,
     )
     assert [p.id for p in out.poi] == ["node/1"]
 
 
-async def test_run_analysis_fast_senza_radius_m_e_identico_a_oggi() -> None:
-    """``radius_m=None`` (il default) non cambia il comportamento pre-#318:
-    stessa chiamata di ``test_fast_response_has_no_narrativa_yet``, nessun
-    filtro applicato (regressione esplicita)."""
+async def test_run_analysis_fast_without_radius_m_is_identical_to_today() -> None:
+    """``radius_m=None`` (the default) does not change the pre-#318 behavior:
+    same call as ``test_fast_response_has_no_narrativa_yet``, no filter applied
+    (explicit regression)."""
     zone_context_cache.clear()
     from crime_risk_analyzer.analyze_narrative import run_analysis_fast
 
@@ -412,12 +412,13 @@ async def test_zone_narrative_cache_hit_does_not_touch_overpass() -> None:
 
 
 async def test_zone_narrative_cold_cache_rebuilds_the_context() -> None:
-    """TTL scaduto fra le due fasi: con OSM invariato la narrativa esce comunque.
+    """TTL expired between the two phases: with OSM unchanged the narrativa still
+    comes out.
 
-    E' il percorso che la rotta rende raggiungibile per davvero (#292): il
-    frontend puo' chiedere il testo molto dopo l'analisi. La ricostruzione
-    coincide col contesto mostrato, quindi passa la verifica di #242, e il
-    contesto torna in cache per i clic successivi sui POI.
+    It is the path that the route makes really reachable (#292): the frontend can
+    ask for the text long after the analysis. The rebuild coincides with the
+    context shown, so it passes the #242 check, and the context goes back into the
+    cache for the subsequent clicks on the POIs.
     """
     from crime_risk_analyzer.analyze_narrative import run_zone_narrative
 
@@ -437,12 +438,12 @@ async def test_zone_narrative_cold_cache_rebuilds_the_context() -> None:
 
 
 async def test_zone_narrative_cold_cache_divergent_rebuild_refuses() -> None:
-    """A cache fredda la ricostruzione da' una lista di POI diversa da quella a
-    schermo -> rifiuto, non prosa silenziosa su un altro vicinato (#242).
+    """On a cold cache the rebuild gives a POI list different from the one on screen
+    -> refusal, not silent prose about another neighborhood (#242).
 
-    E il contesto rifiutato NON entra in cache: nessuno l'ha mai avuto davanti e
-    occuperebbe uno slot sfrattando, a cache piena, una zona valida (stessa
-    scelta di ``run_poi_narrative``).
+    And the refused context does NOT enter the cache: nobody has ever had it in
+    front of them and it would take a slot, evicting a valid zone when the cache is
+    full (same choice as ``run_poi_narrative``).
     """
     from crime_risk_analyzer.analyze_narrative import run_zone_narrative
 
@@ -455,7 +456,7 @@ async def test_zone_narrative_cold_cache_divergent_rebuild_refuses() -> None:
             contesto_hash=contesto_hash,
             executor=_FakeProfiler(),
             llm_client=_FakeLLMClient(),
-            poi_source=_poi_source_divergente,
+            poi_source=_divergent_poi_source,
             geo_source=_geo_source,
         )
     assert zone_context_cache.get("Roma", "Colosseo") is None
@@ -464,13 +465,13 @@ async def test_zone_narrative_cold_cache_divergent_rebuild_refuses() -> None:
 async def test_zone_narrative_cold_cache_geocode_failure_becomes_context_mismatch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#318 (reperto review I2): a cache fredda SENZA ``geo_source`` (il caso
-    reale della rotta) la ricostruzione fa un geocode FORWARD di ``citta``/
-    ``zona`` — che pero' nascono da un reverse geocode del cerchio, quasi mai
-    una stringa che Nominatim ritrova cercandola in avanti. Il fallimento non
-    deve propagare come 422 "zona non geocodificabile" (l'operatore non ha
-    digitato nulla di sbagliato): diventa lo stesso ``ContextMismatchError`` ->
-    409 del ramo ``contesto_hash``, con lo stesso invito a rilanciare l'analisi.
+    """#318 (review finding I2): on a cold cache WITHOUT ``geo_source`` (the real
+    case of the route) the rebuild does a FORWARD geocode of ``citta``/``zona`` --
+    which however come from a reverse geocode of the circle, almost never a string
+    that Nominatim finds again when searched forward. The failure must not
+    propagate as a 422 "zone not geocodable" (the operator typed nothing wrong): it
+    becomes the same ``ContextMismatchError`` -> 409 as the ``contesto_hash``
+    branch, with the same invitation to rerun the analysis.
     """
     contesto_hash = await _prime_cache()
     zone_context_cache.clear()
@@ -493,7 +494,7 @@ async def test_zone_narrative_cold_cache_geocode_failure_becomes_context_mismatc
 
 
 async def test_zone_narrative_context_mismatch_raises() -> None:
-    """Zona ri-analizzata fra le due chiamate (#242): stessa guardia di /analyze/poi."""
+    """Zone re-analyzed between the two calls (#242): same guard as /analyze/poi."""
     from crime_risk_analyzer.analyze_narrative import run_zone_narrative
 
     await _prime_cache()
@@ -522,14 +523,14 @@ async def test_zone_narrative_llm_error_falls_back_without_raising() -> None:
     assert out.narrativa == ""
 
 
-async def test_zone_narrative_dichiara_il_modello_che_ha_scritto() -> None:
-    """Quale dei due modelli ha prodotto la narrativa deve essere osservabile.
+async def test_zone_narrative_declares_the_model_that_wrote() -> None:
+    """Which of the two models produced the narrativa must be observable.
 
-    Lo switch manuale Claude/Groq (`LLM_PROVIDER`, mai failover automatico) è il
-    perno del confronto della tesi: dopo lo split (#292) la fase 1 espone un
-    ``llm_used`` vuoto per costruzione e, senza questo campo, nessuna delle due
-    risposte direbbe più chi ha scritto il testo che si sta leggendo. Stessa
-    fonte del ramo LLM di ``run_analysis``: il ``llm_used`` del generation layer.
+    The manual Claude/Groq switch (`LLM_PROVIDER`, never an automatic failover) is
+    the pivot of the thesis comparison: after the split (#292) phase 1 exposes an
+    empty ``llm_used`` by construction and, without this field, neither response
+    would say anymore who wrote the text being read. Same source as the LLM branch
+    of ``run_analysis``: the ``llm_used`` of the generation layer.
     """
     from crime_risk_analyzer.analyze_narrative import run_zone_narrative
 
@@ -544,9 +545,9 @@ async def test_zone_narrative_dichiara_il_modello_che_ha_scritto() -> None:
     assert out.llm_used == "test-model"
 
 
-async def test_zone_narrative_fallback_non_attribuisce_il_testo_a_un_modello() -> None:
-    """Nel fallback nessun modello ha scritto nulla: ``llm_used`` resta vuoto,
-    come in ``_structured_response`` per il ramo senza LLM."""
+async def test_zone_narrative_fallback_does_not_attribute_the_text_to_a_model() -> None:
+    """In the fallback no model wrote anything: ``llm_used`` stays empty, as in
+    ``_structured_response`` for the branch without LLM."""
     from crime_risk_analyzer.analyze_narrative import run_zone_narrative
 
     contesto_hash = await _prime_cache()
@@ -562,15 +563,15 @@ async def test_zone_narrative_fallback_non_attribuisce_il_testo_a_un_modello() -
 
 
 def test_zone_narrative_response_has_no_numeric_danger_scoring_field() -> None:
-    """Stesso vincolo di `PoiNarrativeResponse` (_project.md §Vincoli): l'insieme
-    esatto impedisce di intrufolare un punteggio numerico di pericolosità.
+    """Same constraint as `PoiNarrativeResponse` (_project.md, Constraints): the exact
+    set prevents sneaking in a numeric danger score.
 
-    ``messaggio`` (#260) è testo esplicativo condizionato su POI/narrativa
-    vuoti, non un punteggio: aggiunta legittima allo stesso titolo di
+    ``messaggio`` (#260) is explanatory text conditioned on empty POIs/narrativa,
+    not a score: a legitimate addition on the same footing as
     ``AnalyzeResponse.messaggio``.
 
-    ``istat_frasi_scartate`` (#345) conta le frasi tolte dal controllo delle
-    cifre: trasparenza sul filtro, non una misura del pericolo."""
+    ``istat_frasi_scartate`` (#345) counts the sentences removed by the figures
+    check: transparency on the filter, not a measure of danger."""
     from crime_risk_analyzer.analyze_narrative import ZoneNarrativeResponse
 
     assert set(ZoneNarrativeResponse.model_fields) == {
@@ -590,15 +591,17 @@ def test_zone_narrative_response_has_no_numeric_danger_scoring_field() -> None:
 
 
 def test_zone_narrative_request_surface_is_citta_zona_domanda_contesto_hash() -> None:
-    """Guardia gemella di
+    """Twin guard of
     ``test_baseline_request_surface_is_cerchio_or_citta_zona_tipo_poi``
-    (`test_orchestrator.py`, #263): fissa l'altro lato dell'asimmetria iso-input.
+    (`test_orchestrator.py`, #263): it fixes the other side of the iso-input
+    asymmetry.
 
-    ``ZoneNarrativeRequest`` porta ``domanda`` ma non ``tipo_poi``; ``BaselineRequest``
-    porta ``tipo_poi`` ma non ``domanda``: asimmetria accettata e documentata (#263,
-    chiusa). Se un domani
-    ``tipo_poi`` compare qui (o ``domanda`` sparisce), va aggiornato insieme al
-    docstring di ``ZoneNarrativeRequest`` e al test gemello su ``BaselineRequest``."""
+    ``ZoneNarrativeRequest`` carries ``domanda`` but not ``tipo_poi``;
+    ``BaselineRequest`` carries ``tipo_poi`` but not ``domanda``: accepted and
+    documented asymmetry (#263, closed). If one day
+    ``tipo_poi`` shows up here (or ``domanda`` disappears), it must be updated
+    together with the docstring of ``ZoneNarrativeRequest`` and with the twin test
+    on ``BaselineRequest``."""
     from crime_risk_analyzer.analyze_narrative import ZoneNarrativeRequest
 
     assert set(ZoneNarrativeRequest.model_fields) == {
@@ -609,10 +612,10 @@ def test_zone_narrative_request_surface_is_citta_zona_domanda_contesto_hash() ->
     }
 
 
-# --- #119: il tetto sulla ``domanda`` vive dove vive il campo ---
-# Era ``AnalyzeRequest`` a portare la domanda; dopo lo split (#292) la fase 1 non
-# chiama il modello e il campo è rimasto solo qui, quindi qui va il bound su
-# token/costo/superficie di prompt-injection.
+# --- #119: the cap on ``domanda`` lives where the field lives ---
+# It was ``AnalyzeRequest`` that carried the domanda; after the split (#292)
+# phase 1 does not call the model and the field stayed only here, so here goes
+# the bound on tokens/cost/prompt-injection surface.
 
 
 def test_zone_narrative_request_rejects_overlong_domanda() -> None:
@@ -634,13 +637,14 @@ def test_zone_narrative_request_accepts_domanda_at_max_length() -> None:
     assert len(req.domanda) == 500
 
 
-# --- #292: le due fasi sulle rotte HTTP ---
-# Stessa impalcatura dei test di ``/analyze/poi``: doppi via ``dependency_overrides``,
-# I/O (geocoding/Overpass) sostituito con monkeypatch, nessuna rete.
+# --- #292: the two phases on the HTTP routes ---
+# Same scaffolding as the ``/analyze/poi`` tests: doubles via
+# ``dependency_overrides``, I/O (geocoding/Overpass) replaced with monkeypatch,
+# no network.
 
 
 class _RecordingLLMClient:
-    """Spia: registra i prompt che la rotta fa arrivare al modello."""
+    """Spy: records the prompts the route sends to the model."""
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
@@ -663,20 +667,20 @@ def _fake_reverse_geocode(lat: float, lon: float) -> tuple[str, str]:
     return ("Roma", "Colosseo")
 
 
-def _patch_io(monkeypatch: pytest.MonkeyPatch, *, densa: bool = False) -> None:
-    """Sostituisce reverse geocode e Overpass per i test delle rotte HTTP (#318).
+def _patch_io(monkeypatch: pytest.MonkeyPatch, *, dense: bool = False) -> None:
+    """Replaces reverse geocode and Overpass for the HTTP route tests (#318).
 
-    ``retrieval.geocode_zone`` non e' chiamato da ``/analyze`` (i test qui usano
-    il cerchio, e ``resolve_circle`` passa sempre un proprio ``geo_source``):
-    la sola I/O da patchare qui e' la label reverse-geocoded
-    (``area_search.reverse_geocode_label``) e Overpass.
+    ``retrieval.geocode_zone`` is not called by ``/analyze`` (the tests here use
+    the circle, and ``resolve_circle`` always passes its own ``geo_source``): the
+    only I/O to patch here is the reverse-geocoded label
+    (``area_search.reverse_geocode_label``) and Overpass.
     """
     monkeypatch.setattr(area_search, "reverse_geocode_label", _fake_reverse_geocode)
 
     async def _fake_fetch(
         bbox: object, citta: str, *args: object, **kwargs: object
     ) -> list[Poi]:
-        return _pois_densi(citta) if densa else _pois(citta)
+        return _dense_pois(citta) if dense else _pois(citta)
 
     monkeypatch.setattr(retrieval, "fetch_pois", _fake_fetch)
 
@@ -690,8 +694,8 @@ def _client(llm: object = None, settings: Settings | None = None) -> TestClient:
     return TestClient(app, raise_server_exceptions=False)
 
 
-def _analizza(client: TestClient) -> str:
-    """Fase 1: analisi di zona; restituisce l'impronta, come farebbe il client."""
+def _post_analyze(client: TestClient) -> str:
+    """Phase 1: zone analysis; returns the fingerprint, as the client would."""
     zone_context_cache.clear()
     zona = cast(
         httpx.Response,
@@ -704,10 +708,10 @@ def _analizza(client: TestClient) -> str:
     return str(zona.json()["contesto_hash"])
 
 
-def _narrativa(
+def _post_narrativa(
     client: TestClient, contesto_hash: str, *, domanda: str | None = None
 ) -> httpx.Response:
-    """Fase 2: la stessa chiamata che fa il frontend dopo aver reso i dati."""
+    """Phase 2: the same call the frontend makes after rendering the data."""
     body: dict[str, str] = {
         "citta": "Roma",
         "zona": "Colosseo",
@@ -721,26 +725,26 @@ def _narrativa(
     )
 
 
-@pytest.mark.parametrize("acceso", [True, False], ids=["istat-acceso", "istat-spento"])
-def test_rotta_di_zona_segue_l_interruttore(
-    acceso: bool, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("enabled", [True, False], ids=["istat-acceso", "istat-spento"])
+def test_zone_route_follows_the_switch(
+    enabled: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from crime_risk_analyzer.rag.generation import SYSTEM_PROMPT, SYSTEM_PROMPT_ISTAT
 
     _patch_io(monkeypatch)
     llm = _RecordingLLMClient()
-    client = _client(llm=llm, settings=Settings(istat_context_enabled=acceso))
-    resp = _narrativa(client, _analizza(client))
+    client = _client(llm=llm, settings=Settings(istat_context_enabled=enabled))
+    resp = _post_narrativa(client, _post_analyze(client))
     assert resp.status_code == 200
-    assert llm.calls[0][0] == (SYSTEM_PROMPT_ISTAT if acceso else SYSTEM_PROMPT)
-    assert resp.json()["istat_attivo"] is acceso
-    assert (resp.json()["istat_versione_dati"] is not None) is acceso
+    assert llm.calls[0][0] == (SYSTEM_PROMPT_ISTAT if enabled else SYSTEM_PROMPT)
+    assert resp.json()["istat_attivo"] is enabled
+    assert (resp.json()["istat_versione_dati"] is not None) is enabled
 
 
-def test_rotta_di_zona_con_scelta_del_modello_usa_il_prompt_di_scelta(
+def test_zone_route_with_model_selection_uses_the_selection_prompt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#366: ``istat_scelta_modello`` arriva fino al prompt, solo con ISTAT acceso."""
+    """#366: ``istat_scelta_modello`` reaches the prompt, only with ISTAT on."""
     from crime_risk_analyzer.rag.generation import (
         SYSTEM_PROMPT,
         SYSTEM_PROMPT_ISTAT_SELECTION,
@@ -752,32 +756,32 @@ def test_rotta_di_zona_con_scelta_del_modello_usa_il_prompt_di_scelta(
         llm=llm,
         settings=Settings(istat_context_enabled=True, istat_scelta_modello=True),
     )
-    assert _narrativa(client, _analizza(client)).status_code == 200
+    assert _post_narrativa(client, _post_analyze(client)).status_code == 200
     assert llm.calls[0][0] == SYSTEM_PROMPT_ISTAT_SELECTION
 
-    llm_spento = _RecordingLLMClient()
-    spento = _client(
-        llm=llm_spento,
+    llm_off = _RecordingLLMClient()
+    disabled = _client(
+        llm=llm_off,
         settings=Settings(istat_context_enabled=False, istat_scelta_modello=True),
     )
-    assert _narrativa(spento, _analizza(spento)).status_code == 200
-    assert llm_spento.calls[0][0] == SYSTEM_PROMPT
+    assert _post_narrativa(disabled, _post_analyze(disabled)).status_code == 200
+    assert llm_off.calls[0][0] == SYSTEM_PROMPT
 
 
-def _chiavi(valore: object) -> set[str]:
-    if isinstance(valore, dict):
-        d = cast(dict[str, object], valore)
-        return set(d) | {k for v in d.values() for k in _chiavi(v)}
-    if isinstance(valore, list):
-        return {k for v in cast(list[object], valore) for k in _chiavi(v)}
+def _keys(value: object) -> set[str]:
+    if isinstance(value, dict):
+        d = cast(dict[str, object], value)
+        return set(d) | {k for v in d.values() for k in _keys(v)}
+    if isinstance(value, list):
+        return {k for v in cast(list[object], value) for k in _keys(v)}
     return set()
 
 
-def test_con_la_scelta_del_modello_il_peso_non_esce_dalle_risposte(
+def test_with_model_selection_the_weight_does_not_leave_the_responses(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """D9 (#366): il peso scelto dal modello non entra nel contratto dell'API ne'
-    nella narrativa (nessun ranking)."""
+    """D9 (#366): the weight chosen by the model does not enter the API contract nor
+    the narrativa (no ranking)."""
     _patch_io(monkeypatch)
     client = _client(
         llm=_RecordingLLMClient(),
@@ -792,22 +796,22 @@ def test_con_la_scelta_del_modello_il_peso_non_esce_dalle_risposte(
         ),
     )
     assert zona.status_code == 200
-    narrativa = _narrativa(client, str(zona.json()["contesto_hash"]))
+    narrativa = _post_narrativa(client, str(zona.json()["contesto_hash"]))
     assert narrativa.status_code == 200
-    for risposta in (zona, narrativa):
-        corpo = risposta.json()
-        assert not {k for k in _chiavi(corpo) if "scelta" in k or "peso" in k}
-        assert "SCELTA DATI ISTAT" not in risposta.text
+    for response_obj in (zona, narrativa):
+        resp_body = response_obj.json()
+        assert not {k for k in _keys(resp_body) if "scelta" in k or "peso" in k}
+        assert "SCELTA DATI ISTAT" not in response_obj.text
 
 
-def test_endpoint_completa_la_narrativa_lasciata_aperta_dalla_fase_1(
+def test_endpoint_completes_the_narrativa_left_open_by_phase_1(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Il percorso reale del prodotto: ``/analyze`` senza testo, poi il testo.
+    """The real product path: ``/analyze`` without text, then the text.
 
-    Le due asserzioni stanno nello stesso test di proposito: e' la sequenza che
-    il frontend esegue, e ``narrativa=None`` della fase 1 ha senso solo se la
-    fase 2 la completa.
+    The two assertions are in the same test on purpose: it is the sequence the
+    frontend runs, and the ``narrativa=None`` of phase 1 makes sense only if
+    phase 2 completes it.
     """
     _patch_io(monkeypatch)
     client = _client()
@@ -821,33 +825,33 @@ def test_endpoint_completa_la_narrativa_lasciata_aperta_dalla_fase_1(
     assert zona.status_code == 200
     assert zona.json()["narrativa"] is None
 
-    resp = _narrativa(client, str(zona.json()["contesto_hash"]))
+    resp = _post_narrativa(client, str(zona.json()["contesto_hash"]))
 
     assert resp.status_code == 200
     body = resp.json()
     assert body["narrativa"] != ""
     assert body["narrativa_fonti"]["ontologia"] != ""
     assert body["fallback"] is False
-    # Sul filo, non solo nel modello: e' la risposta di questa rotta l'unico posto
-    # in cui si puo' vedere quale dei due provider ha scritto il testo.
+    # On the wire, not just in the model: the response of this route is the only
+    # place where it is possible to see which of the two providers wrote the text.
     assert body["llm_used"] == "test-model"
 
 
-def test_endpoint_cache_calda_non_richiama_overpass(
+def test_endpoint_warm_cache_does_not_call_overpass_again(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """La fase 2 riusa il contesto scaldato dalla fase 1 (#232): due chiamate
-    HTTP, una sola cattura OSM — altrimenti lo split costerebbe una chiamata in
-    piu' a un servizio pubblico gratuito."""
+    """Phase 2 reuses the context warmed by phase 1 (#232): two HTTP calls, a single
+    OSM capture -- otherwise the split would cost one more call to a free public
+    service."""
     _patch_io(monkeypatch)
     client = _client()
-    contesto_hash = _analizza(client)
+    contesto_hash = _post_analyze(client)
 
-    async def _esplode(*args: object, **kwargs: object) -> list[Poi]:
+    async def _explodes(*args: object, **kwargs: object) -> list[Poi]:
         raise AssertionError("Overpass non deve essere chiamato in fase 2")
 
-    monkeypatch.setattr(retrieval, "fetch_pois", _esplode)
-    resp = _narrativa(client, contesto_hash)
+    monkeypatch.setattr(retrieval, "fetch_pois", _explodes)
+    resp = _post_narrativa(client, contesto_hash)
 
     assert resp.status_code == 200
     assert resp.json()["narrativa"] != ""
@@ -856,30 +860,30 @@ def test_endpoint_cache_calda_non_richiama_overpass(
 def test_endpoint_returns_409_for_mismatched_context(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#242 sul percorso di zona: impronta che non identifica il contesto -> 409
-    con invito a rilanciare, non una narrativa dall'aria normale. Stesso registro
-    (handler centrale) di ``/analyze/poi``."""
+    """#242 on the zone path: a fingerprint that does not identify the context -> 409
+    with an invitation to rerun, not a normal-looking narrativa. Same register
+    (central handler) as ``/analyze/poi``."""
     _patch_io(monkeypatch)
     client = _client()
-    _analizza(client)
+    _post_analyze(client)
 
-    resp = _narrativa(client, "0" * 64)
+    resp = _post_narrativa(client, "0" * 64)
 
     assert resp.status_code == 409
     assert resp.json()["detail"]["errore"] == "contesto_disallineato"
     assert "rilancia" in resp.json()["detail"]["messaggio"]
 
 
-def test_endpoint_409_non_spende_una_chiamata_llm(
+def test_endpoint_409_does_not_spend_an_llm_call(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Il rifiuto precede la generazione: un 409 non costa token."""
+    """The refusal precedes the generation: a 409 costs no tokens."""
     _patch_io(monkeypatch)
     llm = _RecordingLLMClient()
     client = _client(llm=llm)
-    _analizza(client)
+    _post_analyze(client)
 
-    resp = _narrativa(client, "0" * 64)
+    resp = _post_narrativa(client, "0" * 64)
 
     assert resp.status_code == 409
     assert llm.calls == []
@@ -888,11 +892,11 @@ def test_endpoint_409_non_spende_una_chiamata_llm(
 def test_endpoint_requires_the_context_fingerprint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Il campo e' obbligatorio: senza impronta non esiste una richiesta valida,
-    altrimenti la garanzia di #242 sarebbe opt-in anche qui."""
+    """The field is mandatory: without a fingerprint there is no valid request,
+    otherwise the #242 guarantee would be opt-in here too."""
     _patch_io(monkeypatch)
     client = _client()
-    _analizza(client)
+    _post_analyze(client)
     resp = cast(
         httpx.Response,
         client.post(  # pyright: ignore[reportUnknownMemberType]
@@ -902,18 +906,17 @@ def test_endpoint_requires_the_context_fingerprint(
     assert resp.status_code == 422
 
 
-# --- Validazione del body: gli stessi 422 pre-I/O che ha ``/analyze`` ---
-# La rotta ricostruisce il contesto a cache fredda, quindi un body fuori bound che
-# non fosse respinto dalla validazione costerebbe geocoding e Overpass.
+# --- Body validation: the same pre-I/O 422s that ``/analyze`` has ---
+# The route rebuilds the context on a cold cache, so an out-of-bound body that
+# was not rejected by the validation would cost geocoding and Overpass.
 
 
 def test_endpoint_rejects_overlong_citta(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``citta`` oltre max_length=100 -> 422, come su ``/analyze``: e' una
-    stringa del client che finisce nella chiave di cache e nella query
-    Nominatim (#170)."""
+    """``citta`` over max_length=100 -> 422, as on ``/analyze``: it is a client
+    string that ends up in the cache key and in the Nominatim query (#170)."""
     _patch_io(monkeypatch)
     client = _client()
-    contesto_hash = _analizza(client)
+    contesto_hash = _post_analyze(client)
     resp = cast(
         httpx.Response,
         client.post(  # pyright: ignore[reportUnknownMemberType]
@@ -929,10 +932,10 @@ def test_endpoint_rejects_overlong_citta(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_endpoint_rejects_overlong_zona(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``zona`` oltre max_length=200 -> 422 (stesso bound di ``AnalyzeRequest``)."""
+    """``zona`` over max_length=200 -> 422 (same bound as ``AnalyzeRequest``)."""
     _patch_io(monkeypatch)
     client = _client()
-    contesto_hash = _analizza(client)
+    contesto_hash = _post_analyze(client)
     resp = cast(
         httpx.Response,
         client.post(  # pyright: ignore[reportUnknownMemberType]
@@ -948,20 +951,20 @@ def test_endpoint_rejects_overlong_zona(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_endpoint_rejects_overlong_domanda(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``domanda`` oltre max_length=500 -> 422 sulla ROTTA, non solo nel modello.
+    """``domanda`` over max_length=500 -> 422 on the ROUTE, not only in the model.
 
-    Il bound di ``ZoneNarrativeRequest`` e' verificato altrove sul modello, ma la
-    garanzia che interessa (#119) e' che il tetto valga sul filo: la domanda e'
-    l'unico input NON fidato che raggiunge il prompt, quindi il rifiuto deve
-    arrivare in validazione — prima della ricostruzione del contesto a cache
-    fredda e prima di spendere token su una domanda smisurata.
+    The bound of ``ZoneNarrativeRequest`` is verified elsewhere on the model, but
+    the guarantee that matters (#119) is that the cap holds on the wire: the
+    domanda is the only UNTRUSTED input that reaches the prompt, so the refusal
+    must arrive at validation -- before the rebuild of the context on a cold cache
+    and before spending tokens on an oversized domanda.
     """
     _patch_io(monkeypatch)
     llm = _RecordingLLMClient()
     client = _client(llm=llm)
-    contesto_hash = _analizza(client)
+    contesto_hash = _post_analyze(client)
 
-    resp = _narrativa(client, contesto_hash, domanda="x" * 501)
+    resp = _post_narrativa(client, contesto_hash, domanda="x" * 501)
 
     assert resp.status_code == 422
     assert llm.calls == []
@@ -970,16 +973,15 @@ def test_endpoint_rejects_overlong_domanda(monkeypatch: pytest.MonkeyPatch) -> N
 def test_endpoint_rejects_overlong_contesto_hash(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``contesto_hash`` oltre max_length=64 -> 422 prima di ogni I/O.
+    """``contesto_hash`` over max_length=64 -> 422 before any I/O.
 
-    L'impronta e' un digest sha256 (64 caratteri esadecimali): un valore piu'
-    lungo non puo' identificare alcun contesto, e respingerlo alla validazione
-    evita che a cache fredda la rotta paghi una cattura Overpass per poi
-    rifiutare comunque.
+    The fingerprint is a sha256 digest (64 hexadecimal characters): a longer value
+    cannot identify any context, and rejecting it at validation avoids that on a
+    cold cache the route pays an Overpass capture only to refuse anyway.
     """
     _patch_io(monkeypatch)
     client = _client()
-    _analizza(client)
+    _post_analyze(client)
     resp = cast(
         httpx.Response,
         client.post(  # pyright: ignore[reportUnknownMemberType]
@@ -993,35 +995,35 @@ def test_endpoint_rejects_overlong_contesto_hash(
 def test_endpoint_rejects_too_short_contesto_hash(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``contesto_hash`` sotto min_length=64 -> 422, non 409.
+    """``contesto_hash`` under min_length=64 -> 422, not 409.
 
-    Prima il campo dichiarava solo un tetto e un'impronta corta arrivava intatta
-    fino al confronto con la cache, uscendo come «contesto disallineato»: un
-    responso piu' caro del dovuto, perche' a cache fredda la rotta ricostruisce
-    il contesto (una cattura Overpass) per poi rifiutare un valore che non aveva
-    la forma di un digest sha256. Con ``min_length=64`` la forma si respinge
-    prima di ogni I/O; il 409 resta per il caso che merita, l'impronta ben
-    formata che identifica un ALTRO contesto.
+    Before, the field declared only a cap and a short fingerprint arrived intact
+    up to the comparison with the cache, coming out as "mismatched context": a
+    more expensive response than necessary, because on a cold cache the route
+    rebuilds the context (an Overpass capture) only to refuse a value that did not
+    have the shape of a sha256 digest. With ``min_length=64`` the shape is rejected
+    before any I/O; the 409 stays for the case that deserves it, the well-formed
+    fingerprint that identifies ANOTHER context.
     """
     _patch_io(monkeypatch)
     client = _client()
-    _analizza(client)
-    resp = _narrativa(client, "0" * 8)
+    _post_analyze(client)
+    resp = _post_narrativa(client, "0" * 8)
     assert resp.status_code == 422
 
 
 def test_endpoint_domanda_reaches_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
-    """#119 dopo lo split (#292): la domanda arriva allo user_content da QUI.
+    """#119 after the split (#292): the domanda reaches the user_content from HERE.
 
-    Era la fase 1 a portarla al prompt; ora la fase 1 non chiama il modello,
-    quindi il vettore #119 vive su questa rotta (e il client deve ripeterla).
+    It was phase 1 that carried it to the prompt; now phase 1 does not call the
+    model, so the #119 vector lives on this route (and the client must repeat it).
     """
     _patch_io(monkeypatch)
     llm = _RecordingLLMClient()
     client = _client(llm=llm)
-    contesto_hash = _analizza(client)
+    contesto_hash = _post_analyze(client)
 
-    resp = _narrativa(client, contesto_hash, domanda="Rischi di notte?")
+    resp = _post_narrativa(client, contesto_hash, domanda="Rischi di notte?")
 
     assert resp.status_code == 200
     assert len(llm.calls) == 1
@@ -1032,13 +1034,13 @@ def test_endpoint_domanda_reaches_prompt(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_endpoint_without_domanda_omits_section(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Senza ``domanda`` lo user_content non porta la sezione dedicata."""
+    """Without ``domanda`` the user_content does not carry the dedicated section."""
     _patch_io(monkeypatch)
     llm = _RecordingLLMClient()
     client = _client(llm=llm)
-    contesto_hash = _analizza(client)
+    contesto_hash = _post_analyze(client)
 
-    assert _narrativa(client, contesto_hash).status_code == 200
+    assert _post_narrativa(client, contesto_hash).status_code == 200
 
     _system, user = llm.calls[0]
     assert "DOMANDA UTENTE" not in user
@@ -1047,52 +1049,53 @@ def test_endpoint_without_domanda_omits_section(
 def test_endpoint_llm_down_returns_200_with_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Provider giu' -> 200 con ``fallback=True`` e narrativa vuota, non un 500:
-    i dati strutturati sono gia' a schermo dalla fase 1 e restano validi."""
+    """Provider down -> 200 with ``fallback=True`` and empty narrativa, not a 500:
+    the structured data is already on screen from phase 1 and stays valid."""
     _patch_io(monkeypatch)
     client = _client(llm=_RaisingLLMClient())
-    contesto_hash = _analizza(client)
+    contesto_hash = _post_analyze(client)
 
-    resp = _narrativa(client, contesto_hash)
+    resp = _post_narrativa(client, contesto_hash)
 
     assert resp.status_code == 200
     assert resp.json()["fallback"] is True
     assert resp.json()["narrativa"] == ""
 
 
-def _user_content_di_fase_2(monkeypatch: pytest.MonkeyPatch, settings: Settings) -> str:
-    """Esegue le due fasi con le ``settings`` date e restituisce lo user_content."""
-    _patch_io(monkeypatch, densa=True)
+def _phase_2_user_content(monkeypatch: pytest.MonkeyPatch, settings: Settings) -> str:
+    """Runs the two phases with the given ``settings`` and returns the user_content."""
+    _patch_io(monkeypatch, dense=True)
     llm = _RecordingLLMClient()
     client = _client(llm=llm, settings=settings)
-    contesto_hash = _analizza(client)
-    assert _narrativa(client, contesto_hash).status_code == 200
+    contesto_hash = _post_analyze(client)
+    assert _post_narrativa(client, contesto_hash).status_code == 200
     return llm.calls[0][1]
 
 
-def test_endpoint_propaga_il_budget_di_richiesta_dalle_settings(
+def test_endpoint_propagates_the_request_budget_from_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#210 dopo lo split: il tetto di token viene dalla config, non dai default.
+    """#210 after the split: the token cap comes from the config, not from the
+    defaults.
 
-    La fase 2 e' ormai l'unica chiamata a ``generate_analysis`` del prodotto:
-    se la rotta non propagasse ``Settings``, il tuning del TPM da env sarebbe
-    silenziosamente ignorato. I default di modulo COINCIDONO con quelli di
-    ``Settings``, quindi solo un valore diverso dal default rende visibile la
-    differenza: con un budget minuscolo il contesto va troncato.
+    Phase 2 is now the only ``generate_analysis`` call of the product: if the
+    route did not propagate ``Settings``, the TPM tuning from env would be silently
+    ignored. The module defaults COINCIDE with those of ``Settings``, so only a
+    value different from the default makes the difference visible: with a tiny
+    budget the context must be truncated.
     """
-    user = _user_content_di_fase_2(monkeypatch, Settings(llm_request_token_budget=1))
+    user = _phase_2_user_content(monkeypatch, Settings(llm_request_token_budget=1))
 
     assert "piu' rilevanti su 2" in user
 
 
-def test_endpoint_propaga_i_max_tokens_dalle_settings(
+def test_endpoint_propagates_the_max_tokens_from_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Anche i token riservati all'OUTPUT arrivano da ``Settings``: entrano nel
-    calcolo dell'allowance dello user_content, quindi un valore enorme deve
-    stringere il contesto tanto quanto un budget minuscolo."""
-    user = _user_content_di_fase_2(monkeypatch, Settings(llm_max_tokens=100_000))
+    """The tokens reserved for the OUTPUT also come from ``Settings``: they enter the
+    computation of the user_content allowance, so a huge value must tighten the
+    context as much as a tiny budget."""
+    user = _phase_2_user_content(monkeypatch, Settings(llm_max_tokens=100_000))
 
     assert "piu' rilevanti su 2" in user
 
@@ -1100,107 +1103,108 @@ def test_endpoint_propaga_i_max_tokens_dalle_settings(
 def test_endpoint_response_never_contains_a_danger_score(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Guardia anti-scoring estesa alla nuova rotta (#184)."""
+    """Anti-scoring guard extended to the new route (#184)."""
     _patch_io(monkeypatch)
     client = _client()
-    contesto_hash = _analizza(client)
+    contesto_hash = _post_analyze(client)
 
-    resp = _narrativa(client, contesto_hash)
+    resp = _post_narrativa(client, contesto_hash)
 
     assert resp.status_code == 200
     payload = resp.text.lower()
-    for vietato in ("punteggio", "score", "livello di rischio", "pericolosit"):
-        assert vietato not in payload
+    for forbidden in ("punteggio", "score", "livello di rischio", "pericolosit"):
+        assert forbidden not in payload
 
 
-# --- #292: il prompt della valutazione e quello del prodotto non devono divergere ---
-# I due percorsi chiamano ``generate_analysis`` da moduli diversi e con tetti di
-# token che arrivano da posti diversi: ``eval/harness`` non li passa mai (default
-# di modulo), la rotta li propaga da ``Settings``. La parita' che i numeri della
-# tesi presuppongono non e' quindi un fatto sui default, ma la SIMMETRIA dei
-# parametri: a tetti uguali, prompt uguale. I test qui sotto la provano ai default
-# E fuori dai default, mostrano che i tetti fuori default il prompt li sente
-# davvero (altrimenti la prova sarebbe vacua) e che a tetti diversi la divergenza
-# si vede — cioe' che questa rete si strapperebbe, invece di restare verde.
+# --- #292: the evaluation prompt and the product prompt must not diverge ---
+# The two paths call ``generate_analysis`` from different modules and with token
+# caps that come from different places: ``eval/harness`` never passes them
+# (module default), the route propagates them from ``Settings``. The parity that
+# the thesis numbers presuppose is therefore not a fact about the defaults, but
+# the SYMMETRY of the parameters: same caps, same prompt. The tests below prove
+# it at the defaults AND off the defaults, show that the prompt really feels the
+# off-default caps (otherwise the proof would be vacuous) and that with different
+# caps the divergence shows -- that is, that this net would tear, instead of
+# staying green.
 
-#: ``(request_token_budget, max_tokens)``: i due tetti che modellano il prompt.
-_Tetti = tuple[int, int]
+#: ``(request_token_budget, max_tokens)``: the two caps that shape the prompt.
+_Caps = tuple[int, int]
 
-#: I tetti che entrambi i percorsi usano quando nessuno li passa: e' la coppia
-#: con cui gira ``eval/harness`` e, via ``Settings``, quella della rotta a config
-#: vuota (l'uguaglianza fra i due la fissa
-#: ``test_i_due_percorsi_partono_dagli_stessi_tetti``).
-_TETTI_DEFAULT: _Tetti = (DEFAULT_REQUEST_TOKEN_BUDGET, DEFAULT_MAX_TOKENS)
+#: The caps that both paths use when nobody passes them: it is the pair
+#: ``eval/harness`` runs with and, via ``Settings``, the one of the route with an
+#: empty config (the equality between the two is fixed by
+#: ``test_the_two_paths_start_from_the_same_caps``).
+_DEFAULT_CAPS: _Caps = (DEFAULT_REQUEST_TOKEN_BUDGET, DEFAULT_MAX_TOKENS)
 
-#: Coppia FUORI default scelta perche' il prompt la sente: con un budget minuscolo
-#: l'allowance dello user_content si azzera e il contesto va troncato (cfr. i test
-#: sulla propagazione da ``Settings``). Il caso realistico e' un
-#: ``LLM_REQUEST_TOKEN_BUDGET`` abbassato in produzione per stare sotto il TPM.
-_TETTI_STRETTI: _Tetti = (1, 900)
+#: Pair OFF the defaults chosen because the prompt feels it: with a tiny budget
+#: the user_content allowance goes to zero and the context must be truncated
+#: (cf. the tests on propagation from ``Settings``). The realistic case is a
+#: ``LLM_REQUEST_TOKEN_BUDGET`` lowered in production to stay under the TPM.
+_TIGHT_CAPS: _Caps = (1, 900)
 
 
-async def _prompt_del_prodotto(
-    domanda: str | None, tetti: _Tetti, *, istat: bool = False
+async def _product_prompt(
+    domanda: str | None, caps: _Caps, *, istat: bool = False
 ) -> tuple[str, str]:
-    """Prompt che il PRODOTTO fa arrivare al modello: fase 1 + ``/analyze/narrativa``.
+    """Prompt that the PRODUCT sends to the model: phase 1 + ``/analyze/narrativa``.
 
-    Due POI (``_poi_source_divergente``) perche' e' il minimo in cui contano
-    ordine e troncamento del contesto.
+    Two POIs (``_divergent_poi_source``) because it is the minimum in which the
+    order and the truncation of the context matter.
     """
     from crime_risk_analyzer.analyze_narrative import (
         run_analysis_fast,
         run_zone_narrative,
     )
 
-    budget, max_tokens = tetti
+    budget, max_tokens = caps
     zone_context_cache.clear()
-    fase_1 = await run_analysis_fast(
+    phase_1 = await run_analysis_fast(
         "Roma",
         "Colosseo",
         executor=_FakeProfiler(),
-        poi_source=_poi_source_divergente,
+        poi_source=_divergent_poi_source,
         geo_source=_geo_source,
-        # Stesso interruttore delle due fasi, come nella rotta (Settings): da
-        # #354 l'impronta acceso copre la versione dei dati ISTAT.
+        # Same switch of the two phases, as in the route (Settings): since #354 the
+        # fingerprint with the switch on covers the ISTAT data version.
         istat_context_enabled=istat,
     )
-    spia = _RecordingLLMClient()
+    spy = _RecordingLLMClient()
     await run_zone_narrative(
         "Roma",
         "Colosseo",
-        contesto_hash=fase_1.contesto_hash,
+        contesto_hash=phase_1.contesto_hash,
         executor=_FakeProfiler(),
-        llm_client=spia,
+        llm_client=spy,
         domanda=domanda,
         request_token_budget=budget,
         max_tokens=max_tokens,
         istat_context_enabled=istat,
     )
 
-    assert len(spia.calls) == 1
-    return spia.calls[0]
+    assert len(spy.calls) == 1
+    return spy.calls[0]
 
 
-async def _prompt_della_valutazione(
-    domanda: str | None, tetti: _Tetti, *, istat: bool = False
+async def _evaluation_prompt(
+    domanda: str | None, caps: _Caps, *, istat: bool = False
 ) -> tuple[str, str]:
-    """Prompt che la VALUTAZIONE misura: ``run_analysis``, l'entry point di
+    """Prompt that the EVALUATION measures: ``run_analysis``, the entry point of
     ``eval/harness``.
 
-    I tetti sono espliciti anche qui: il harness li lascia ai default, ma quello
-    che si vuole provare e' la simmetria del parametro, non il suo default (che
-    ha il suo test).
+    The caps are explicit here too: the harness leaves them at the defaults, but
+    what we want to prove is the symmetry of the parameter, not its default (which
+    has its own test).
     """
     from crime_risk_analyzer.orchestrator import run_analysis
 
-    budget, max_tokens = tetti
-    spia = _RecordingLLMClient()
+    budget, max_tokens = caps
+    spy = _RecordingLLMClient()
     await run_analysis(
         "Roma",
         "Colosseo",
         executor=_FakeProfiler(),
-        llm_client=spia,
-        poi_source=_poi_source_divergente,
+        llm_client=spy,
+        poi_source=_divergent_poi_source,
         geo_source=_geo_source,
         domanda=domanda,
         request_token_budget=budget,
@@ -1208,136 +1212,138 @@ async def _prompt_della_valutazione(
         istat_context_enabled=istat,
     )
 
-    assert len(spia.calls) == 1
-    return spia.calls[0]
+    assert len(spy.calls) == 1
+    return spy.calls[0]
 
 
 @pytest.mark.parametrize(
     "domanda", [None, "Rischi di notte?"], ids=["senza-domanda", "con-domanda"]
 )
 @pytest.mark.parametrize(
-    "tetti",
+    "caps",
     [
-        pytest.param(_TETTI_DEFAULT, id="tetti-default"),
-        pytest.param(_TETTI_STRETTI, id="tetti-non-default"),
+        pytest.param(_DEFAULT_CAPS, id="tetti-default"),
+        pytest.param(_TIGHT_CAPS, id="tetti-non-default"),
     ],
 )
-async def test_prompt_del_prodotto_identico_a_quello_della_valutazione(
-    tetti: _Tetti, domanda: str | None
+async def test_product_prompt_identical_to_the_evaluation_one(
+    caps: _Caps, domanda: str | None
 ) -> None:
-    """A parità di contesto grounded E DI TETTI i due percorsi mandano lo STESSO
+    """With the same grounded context AND THE SAME CAPS the two paths send the SAME
     prompt.
 
-    Dopo lo split (#292) la narrativa del prodotto nasce in
-    ``run_zone_narrative``, mentre le metriche di grounding/allucinazione
-    (``eval/harness``) misurano quella di ``run_analysis``: due chiamate a
-    ``generate_analysis`` in moduli diversi. Oggi coincidono byte per byte, ma
-    nulla lo impone — e se un domani uno solo dei due cambiasse (un parametro, un
-    ``context_format``, una domanda trattata in modo diverso) i numeri della tesi
-    parlerebbero di un prompt che l'utente non riceve mai, in silenzio. Questo
-    test è quella rete: non verifica il CONTENUTO del prompt (lo fanno i test del
-    generation layer), solo che i due percorsi restino d'accordo.
+    After the split (#292) the product narrativa is born in
+    ``run_zone_narrative``, while the grounding/hallucination metrics
+    (``eval/harness``) measure the one of ``run_analysis``: two calls to
+    ``generate_analysis`` in different modules. Today they coincide byte for byte,
+    but nothing enforces it -- and if one day only one of the two changed (a
+    parameter, a ``context_format``, a domanda handled differently) the thesis
+    numbers would speak about a prompt that the user never receives, silently. This
+    test is that net: it does not verify the CONTENT of the prompt (the generation
+    layer tests do), only that the two paths stay in agreement.
 
-    I tetti sono ESPLICITI e uguali sui due lati, ai default e fuori dai default:
-    così la parità che si osserva è quella della simmetria dei parametri, non la
-    coincidenza fortunata fra i default di modulo e quelli di ``Settings`` (che è
-    un fatto a parte, e ha il suo test). Con e senza ``domanda`` perché l'input
-    non fidato entra nello user_content solo su un ramo.
+    The caps are EXPLICIT and equal on both sides, at the defaults and off the
+    defaults: so the parity observed is that of the symmetry of the parameters, not
+    the lucky coincidence between the module defaults and those of ``Settings``
+    (which is a separate fact, and has its own test). With and without ``domanda``
+    because the untrusted input enters the user_content only on one branch.
     """
-    prodotto = await _prompt_del_prodotto(domanda, tetti)
-    valutazione = await _prompt_della_valutazione(domanda, tetti)
+    product = await _product_prompt(domanda, caps)
+    valutazione = await _evaluation_prompt(domanda, caps)
 
-    assert prodotto == valutazione
+    assert product == valutazione
 
 
 @pytest.mark.parametrize("istat", [False, True], ids=["istat-spento", "istat-acceso"])
-async def test_prompt_del_prodotto_identico_a_quello_della_valutazione_con_istat(
+async def test_product_prompt_identical_to_the_evaluation_one_with_istat(
     istat: bool,
 ) -> None:
-    """#345: la parita' #292 vale anche con i dati ISTAT (I POI di prova sono a
-    Roma)."""
-    prodotto = await _prompt_del_prodotto(None, _TETTI_DEFAULT, istat=istat)
-    valutazione = await _prompt_della_valutazione(None, _TETTI_DEFAULT, istat=istat)
-    assert prodotto == valutazione
-    assert ("DATI ISTAT" in prodotto[1]) is istat
+    """#345: the #292 parity holds with the ISTAT data too (the test POIs are in
+    Rome)."""
+    product = await _product_prompt(None, _DEFAULT_CAPS, istat=istat)
+    valutazione = await _evaluation_prompt(None, _DEFAULT_CAPS, istat=istat)
+    assert product == valutazione
+    assert ("DATI ISTAT" in product[1]) is istat
 
 
-async def test_i_tetti_stretti_cambiano_davvero_il_prompt() -> None:
-    """La parità a tetti non default non è una prova vacua: quei valori il prompt
-    li sente (contesto troncato), quindi passarli su un lato solo si vedrebbe."""
-    ai_default = await _prompt_del_prodotto(None, _TETTI_DEFAULT)
-    stretti = await _prompt_del_prodotto(None, _TETTI_STRETTI)
+async def test_tight_caps_really_change_the_prompt() -> None:
+    """The parity with non-default caps is not a vacuous proof: the prompt feels those
+    values (truncated context), so passing them on one side only would show."""
+    ai_default = await _product_prompt(None, _DEFAULT_CAPS)
+    tight = await _product_prompt(None, _TIGHT_CAPS)
 
-    assert stretti != ai_default
-    assert "piu' rilevanti su 2" in stretti[1]
+    assert tight != ai_default
+    assert "piu' rilevanti su 2" in tight[1]
 
 
-async def test_prompt_diverge_se_i_due_percorsi_hanno_tetti_diversi() -> None:
-    """Controllo negativo: a tetti diversi i due prompt divergono e il confronto
-    di sopra andrebbe ROSSO.
+async def test_prompt_diverges_if_the_two_paths_have_different_caps() -> None:
+    """Negative check: with different caps the two prompts diverge and the comparison
+    above would go RED.
 
-    È il caso che la parità ai soli default non intercetterebbe: la rotta propaga
-    ``Settings`` (un ``LLM_REQUEST_TOKEN_BUDGET`` configurato in produzione), il
-    harness resta ai default di modulo. Serve a dimostrare che il test di parità
-    misura la simmetria dei parametri e non l'uguaglianza di due prompt che
-    sarebbero identici comunque.
+    It is the case that parity at the defaults alone would not intercept: the route
+    propagates ``Settings`` (a ``LLM_REQUEST_TOKEN_BUDGET`` configured in
+    production), the harness stays at the module defaults. It serves to show that
+    the parity test measures the symmetry of the parameters and not the equality of
+    two prompts that would be identical anyway.
     """
-    prodotto = await _prompt_del_prodotto(None, _TETTI_STRETTI)
-    valutazione = await _prompt_della_valutazione(None, _TETTI_DEFAULT)
+    product = await _product_prompt(None, _TIGHT_CAPS)
+    valutazione = await _evaluation_prompt(None, _DEFAULT_CAPS)
 
-    assert prodotto != valutazione
+    assert product != valutazione
 
 
-def test_i_due_percorsi_partono_dagli_stessi_tetti() -> None:
-    """L'altra metà della garanzia: i tetti di partenza dei due percorsi coincidono.
+def test_the_two_paths_start_from_the_same_caps() -> None:
+    """The other half of the guarantee: the starting caps of the two paths coincide.
 
-    La simmetria dei parametri (test sopra) dà la parità solo se i valori che i
-    due lati ricevono sono gli stessi, e non lo sono per costruzione: il harness
-    non li passa (default di ``run_analysis``), la rotta propaga ``Settings``.
-    Qui si fissa la catena ``run_zone_narrative`` = ``run_analysis`` =
-    ``Settings`` = default di modulo, che un cambio di uno solo dei tre punti
-    romperebbe in silenzio (stesso presidio di
-    ``test_max_tokens_default_is_synced_across_modules``). Usa i DEFAULT dei
-    campi, non un'istanza ``Settings()``, per non dipendere da un ``.env`` locale.
+    The symmetry of the parameters (test above) gives parity only if the values the
+    two sides receive are the same, and they are not by construction: the harness
+    does not pass them (default of ``run_analysis``), the route propagates
+    ``Settings``. Here we fix the chain ``run_zone_narrative`` = ``run_analysis`` =
+    ``Settings`` = module default, which a change of just one of the three points
+    would silently break (same safeguard as
+    ``test_max_tokens_default_is_synced_across_modules``). It uses the field
+    DEFAULTS, not a ``Settings()`` instance, so as not to depend on a local
+    ``.env``.
 
-    Resta fuori dalla portata dei test il caso in cui ``LLM_REQUEST_TOKEN_BUDGET``/
-    ``LLM_MAX_TOKENS`` siano davvero configurati da env: lì i due prompt divergono
-    per davvero, ed è una proprietà del design (le run di valutazione sono pinnate
-    ai default di modulo, non alla config della macchina che le lancia).
+    The case in which ``LLM_REQUEST_TOKEN_BUDGET``/``LLM_MAX_TOKENS`` are really
+    configured from env stays out of the reach of the tests: there the two prompts
+    really diverge, and it is a property of the design (the evaluation runs are
+    pinned to the module defaults, not to the config of the machine that launches
+    them).
     """
     from crime_risk_analyzer.analyze_narrative import run_zone_narrative
     from crime_risk_analyzer.orchestrator import run_analysis
 
-    prodotto = inspect.signature(run_zone_narrative).parameters
+    product = inspect.signature(run_zone_narrative).parameters
     valutazione = inspect.signature(run_analysis).parameters
 
     assert (
-        prodotto["request_token_budget"].default
+        product["request_token_budget"].default
         == valutazione["request_token_budget"].default
         == Settings.model_fields["llm_request_token_budget"].default
         == DEFAULT_REQUEST_TOKEN_BUDGET
     )
     assert (
-        prodotto["max_tokens"].default
+        product["max_tokens"].default
         == valutazione["max_tokens"].default
         == Settings.model_fields["llm_max_tokens"].default
         == DEFAULT_MAX_TOKENS
     )
     assert (
-        prodotto["istat_context_enabled"].default
+        product["istat_context_enabled"].default
         is valutazione["istat_context_enabled"].default
         is False
     )
 
 
-# --- Giro completo in modalita' citta + zona, a cache di zona FREDDA ---
+# --- Full round in citta + zona mode, with a COLD zone cache ---
 #
-# Le etichette della modalita' zona sono il testo digitato proprio perche' la
-# fase 2 possa ricostruire il contesto scaduto rifacendo ``geocode_zone`` sulle
-# etichette ricevute. Qui Nominatim e' simulato IN BASSO (sotto ``geocode_zone``,
-# al livello del geolocator), cosi' fase 1 e ricostruzione passano dalla stessa
-# ``_cache_key`` e dalla stessa query: se le etichette divergessero dal digitato,
-# la ricostruzione cercherebbe un'altra area e la rotta risponderebbe 409.
+# The labels of the zone mode are the typed text precisely so that phase 2 can
+# rebuild the expired context by redoing ``geocode_zone`` on the received labels.
+# Here Nominatim is simulated BELOW (under ``geocode_zone``, at the geolocator
+# level), so phase 1 and the rebuild go through the same ``_cache_key`` and the
+# same query: if the labels diverged from the typed text, the rebuild would look
+# for another area and the route would answer 409.
 
 
 class _FakeNominatimLocation:
@@ -1350,7 +1356,7 @@ class _FakeNominatimLocation:
 
 
 class _FakeNominatim:
-    """Geolocator finto: registra le query forward, vieta il reverse."""
+    """Fake geolocator: records the forward queries, forbids the reverse."""
 
     def __init__(self) -> None:
         self.queries: list[str] = []
@@ -1364,11 +1370,11 @@ class _FakeNominatim:
 
 
 def _patch_nominatim(monkeypatch: pytest.MonkeyPatch) -> _FakeNominatim:
-    """Sostituisce il solo geolocator, lasciando reale tutto cio' che sta sopra.
+    """Replaces only the geolocator, leaving real everything above it.
 
-    Il RateLimiter e' scavalcato (dispatch diretto) per non attendere il
-    ``min_delay`` reale fra le due chiamate; cache, chiave e parsing del bbox
-    restano quelli veri.
+    The RateLimiter is bypassed (direct dispatch) so as not to wait for the real
+    ``min_delay`` between the two calls; cache, key and bbox parsing stay the real
+    ones.
     """
     fake = _FakeNominatim()
     monkeypatch.setattr(geocoding, "_get_geolocator", lambda: fake)
@@ -1388,34 +1394,38 @@ def _patch_nominatim(monkeypatch: pytest.MonkeyPatch) -> _FakeNominatim:
     return fake
 
 
-def test_modalita_zona_ricostruisce_lo_stesso_contesto_a_cache_fredda(
+def test_zone_mode_rebuilds_the_same_context_on_a_cold_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``/analyze`` con citta+zona, cache svuotata, poi narrativa e POI: 200, non 409.
+    """``/analyze`` with citta+zona, cache emptied, then narrativa and POI: 200, not
+    409.
 
-    Fra le due fasi si svuotano sia la cache di zona sia quella del geocoding,
-    cosi' la ricostruzione rifa' davvero la query Nominatim: deve essere la
-    stessa della fase 1, e deve riportare alla stessa lista di POI.
+    Between the two phases both the zone cache and the geocoding one are emptied,
+    so the rebuild really redoes the Nominatim query: it must be the same as in
+    phase 1, and it must lead back to the same POI list.
     """
     nominatim = _patch_nominatim(monkeypatch)
     client = _client()
     zone_context_cache.clear()
 
-    fase1 = cast(
+    phase1 = cast(
         httpx.Response,
         client.post(  # pyright: ignore[reportUnknownMemberType]
             "/analyze",
             json={"citta": " Roma ", "zona": "Colosseo"},
         ),
     )
-    assert fase1.status_code == 200
-    dati = fase1.json()
-    assert (dati["citta"], dati["zona_normalizzata"]) == ("Roma", "Colosseo")
+    assert phase1.status_code == 200
+    phase1_json = phase1.json()
+    assert (phase1_json["citta"], phase1_json["zona_normalizzata"]) == (
+        "Roma",
+        "Colosseo",
+    )
 
     body = {
-        "citta": dati["citta"],
-        "zona": dati["zona_normalizzata"],
-        "contesto_hash": dati["contesto_hash"],
+        "citta": phase1_json["citta"],
+        "zona": phase1_json["zona_normalizzata"],
+        "contesto_hash": phase1_json["contesto_hash"],
     }
 
     zone_context_cache.clear()
@@ -1432,7 +1442,7 @@ def test_modalita_zona_ricostruisce_lo_stesso_contesto_a_cache_fredda(
     poi = cast(
         httpx.Response,
         client.post(  # pyright: ignore[reportUnknownMemberType]
-            "/analyze/poi", json={**body, "poi_id": dati["poi"][0]["id"]}
+            "/analyze/poi", json={**body, "poi_id": phase1_json["poi"][0]["id"]}
         ),
     )
     assert poi.status_code == 200

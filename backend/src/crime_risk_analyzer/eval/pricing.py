@@ -1,38 +1,38 @@
-"""Listino prezzi LLM e calcolo del costo (#34).
+"""LLM price list and cost computation (#34).
 
-Unico punto di verità per i prezzi. Valori in USD per 1M di token, con lo stato
-di verifica indicato riga per riga sotto: la riga Groq è stata verificata sulla
-pagina ufficiale, quella Claude porta ancora la data del valore originale e non
-è stata riverificata.
+Single source of truth for prices. Values in USD per 1M tokens, with the
+verification status noted line by line below: the Groq line was verified on the
+official page, the Claude one still carries the date of the original value and
+has not been re-verified.
 """
 
 from __future__ import annotations
 
-#: (prezzo_input, prezzo_output) in USD per 1.000.000 di token.
+#: (input_price, output_price) in USD per 1,000,000 tokens.
 #:
-#: Le chiavi sono **letterali**, non le costanti ``CLAUDE_MODEL``/``GROQ_MODEL``
-#: di ``llm/client.py``: se fossero le costanti, cambiare model id ri-chiaverebbe
-#: da solo il listino sul modello nuovo lasciandogli il prezzo VECCHIO, e nulla
-#: fallirebbe. Con il letterale, un cambio di modello non accompagnato da una
-#: riga di listino fa fallire rumorosamente ``cost_usd`` (``KeyError``) invece di
-#: produrre tabelle di costo sbagliate in silenzio. Il pin costante -> letterale
-#: è verificato in ``tests/eval/test_pricing.py``.
+#: The keys are **literals**, not the ``CLAUDE_MODEL``/``GROQ_MODEL`` constants
+#: of ``llm/client.py``: if they were the constants, changing the model id would
+#: silently re-key the price list onto the new model leaving it the OLD price, and
+#: nothing would fail. With the literal, a model change not accompanied by a
+#: price-list row makes ``cost_usd`` fail loudly (``KeyError``) instead of
+#: producing wrong cost tables silently. The constant -> literal pin is
+#: verified in ``tests/eval/test_pricing.py``.
 PRICES_USD_PER_MTOK: dict[str, tuple[float, float]] = {
-    # da confermare sulla pagina ufficiale (valore del 2026-06-29, non
-    # riverificato al cambio di modello Groq).
+    # to be confirmed on the official page (value of 2026-06-29, not
+    # re-verified at the Groq model change).
     "claude-sonnet-4-6": (3.00, 15.00),
-    # verificato 2026-09-11 su console.groq.com/docs/model/openai/gpt-oss-120b,
-    # dopo la rimozione di llama-3.3-70b-versatile dal catalogo Groq (il motivo
-    # del cambio è nel commento su ``GROQ_MODEL`` in ``llm/client.py``).
+    # verified 2026-09-11 on console.groq.com/docs/model/openai/gpt-oss-120b,
+    # after llama-3.3-70b-versatile was removed from the Groq catalogue (the reason
+    # for the change is in the comment on ``GROQ_MODEL`` in ``llm/client.py``).
     "openai/gpt-oss-120b": (0.15, 0.60),
 }
 
 
 def cost_usd(model_id: str, tokens_input: int, tokens_output: int) -> float:
-    """Costo stimato in USD per una generazione.
+    """Estimated cost in USD for one generation.
 
-    Solleva ``KeyError`` se il modello non è nel listino (niente costo-zero
-    silenzioso che falserebbe le tabelle).
+    Raises ``KeyError`` if the model is not in the price list (no silent
+    zero cost that would falsify the tables).
     """
     price_in, price_out = PRICES_USD_PER_MTOK[model_id]
     return tokens_input / 1_000_000 * price_in + tokens_output / 1_000_000 * price_out

@@ -1,4 +1,4 @@
-"""Fold delle K ripetizioni per braccio (#157), interamente offline."""
+"""Fold of the K repetitions per arm (#157), entirely offline."""
 
 from __future__ import annotations
 
@@ -57,7 +57,7 @@ def _rec(
 
 
 def test_fold_computes_mean_and_population_std_per_metric() -> None:
-    """3 ripetizioni → media/std di popolazione corrette; latency arrotondata a int."""
+    """3 repetitions -> correct population mean/std; latency rounded to int."""
     recs = [
         _rec(
             "Roma",
@@ -92,7 +92,7 @@ def test_fold_computes_mean_and_population_std_per_metric() -> None:
     mr = folded.mean_records[0]
     assert mr.metrics.grounding == pytest.approx(0.7)
     assert mr.metrics.hallucination == pytest.approx(0.3)
-    assert mr.metrics.latency_ms == 1100  # int arrotondato
+    assert mr.metrics.latency_ms == 1100  # rounded int
     assert mr.metrics.cost_usd == pytest.approx(0.0006)
     assert mr.status == RunStatus.OK
     zv = folded.variances[0]
@@ -104,7 +104,7 @@ def test_fold_computes_mean_and_population_std_per_metric() -> None:
 
 
 def test_fold_k1_has_zero_std() -> None:
-    """K=1 → std = 0 su ogni asse, media = valore singolo."""
+    """K=1 -> std = 0 on every axis, mean = single value."""
     folded = fold_arm(
         [
             _rec(
@@ -130,9 +130,9 @@ def test_fold_k1_has_zero_std() -> None:
 
 
 def test_fold_leaves_quality_vacuous_unset_on_mean_record() -> None:
-    """#240: nessuna regola di aggregazione dichiarata per un booleano su K
-    ripetizioni (documentato in ``_mean_metrics``) — il record-media resta
-    ``None``, anche quando la singola ripetizione valida era vacua."""
+    """#240: no declared aggregation rule for a boolean over K
+    repetitions (documented in ``_mean_metrics``) -- the mean-record stays
+    ``None``, even when the single valid repetition was vacuous."""
     folded = fold_arm(
         [
             _rec(
@@ -152,13 +152,13 @@ def test_fold_leaves_quality_vacuous_unset_on_mean_record() -> None:
 @pytest.mark.parametrize(
     "status", [s for s in RunStatus if s is not RunStatus.OK], ids=lambda s: s.value
 )
-def test_ogni_ripetizione_non_ok_e_scartata_dalla_media(status: RunStatus) -> None:
-    """Il fold scarta OGNI status di fallimento, non solo i due di oggi.
+def test_every_non_ok_repetition_is_dropped_from_the_mean(status: RunStatus) -> None:
+    """The fold drops EVERY failure status, not just today's two.
 
-    Parametrizzato sull'enum: un valore nuovo (``HARNESS_ERROR``) porta metriche
-    azzerate per costruzione, e includerlo nella media di K ripetizioni
-    dimezzerebbe il grounding di una zona per un bug della strumentazione, senza
-    che nulla lo segnali.
+    Parametrized on the enum: a new value (``HARNESS_ERROR``) carries zeroed
+    metrics by construction, and including it in the mean of K repetitions
+    would halve the grounding of a zone because of an instrumentation bug, without
+    anything signalling it.
     """
     recs = [
         _rec(
@@ -188,7 +188,7 @@ def test_ogni_ripetizione_non_ok_e_scartata_dalla_media(status: RunStatus) -> No
 
 
 def test_fold_excludes_error_reps_and_counts_dropped() -> None:
-    """Le ripetizioni ERROR non entrano in media/std; n_dropped le conta."""
+    """ERROR repetitions do not enter mean/std; n_dropped counts them."""
     recs = [
         _rec(
             "Napoli",
@@ -222,14 +222,14 @@ def test_fold_excludes_error_reps_and_counts_dropped() -> None:
     folded = fold_arm(recs)
     mr = folded.mean_records[0]
     assert mr.status == RunStatus.OK
-    assert mr.metrics.grounding == pytest.approx(0.7)  # media di 0.6 e 0.8, non 0.0
+    assert mr.metrics.grounding == pytest.approx(0.7)  # mean of 0.6 and 0.8, not 0.0
     zv = folded.variances[0]
     assert zv.n_reps == 2
     assert zv.n_dropped == 1
 
 
 def test_fold_all_error_zone_becomes_error_record() -> None:
-    """Se TUTTE le ripetizioni sono ERROR → record-media status=ERROR, metriche zero."""
+    """If ALL repetitions are ERROR -> mean-record status=ERROR, zero metrics."""
     recs = [
         _rec(
             "Torino",
@@ -255,7 +255,7 @@ def test_fold_all_error_zone_becomes_error_record() -> None:
     folded = fold_arm(recs)
     mr = folded.mean_records[0]
     assert mr.status == RunStatus.ERROR
-    # tutte e 4 le metriche azzerate (non solo latency_ms).
+    # all 4 metrics zeroed (not just latency_ms).
     assert mr.metrics.grounding == 0.0
     assert mr.metrics.hallucination == 0.0
     assert mr.metrics.latency_ms == 0
@@ -263,7 +263,7 @@ def test_fold_all_error_zone_becomes_error_record() -> None:
     zv = folded.variances[0]
     assert zv.n_reps == 0
     assert zv.n_dropped == 2
-    # tutti e 4 gli assi di std azzerati.
+    # all 4 std axes zeroed.
     assert zv.std.grounding == 0.0
     assert zv.std.hallucination == 0.0
     assert zv.std.latency_ms == 0.0
@@ -271,10 +271,10 @@ def test_fold_all_error_zone_becomes_error_record() -> None:
 
 
 def test_fold_rounds_latency_mean_to_nearest_int() -> None:
-    """Media non intera (1000.333...) → latency_ms=1000 (round, non floor/crash).
+    """Non-integer mean (1000.333...) -> latency_ms=1000 (round, not floor/crash).
 
-    Blinda che round() e' funzionale: Metrics.latency_ms:int solleverebbe su un
-    float frazionario se round() venisse rimosso o sostituito da un cast int().
+    Locks that round() is functional: Metrics.latency_ms:int would raise on a
+    fractional float if round() were removed or replaced by an int() cast.
     """
     recs = [
         _rec(
@@ -294,7 +294,8 @@ def test_fold_rounds_latency_mean_to_nearest_int() -> None:
 
 
 def test_fold_preserves_snapshot_id_for_iso_input() -> None:
-    """Il record-media eredita lo snapshot_id delle ripetizioni (iso-input compare)."""
+    """The mean-record inherits the snapshot_id of the repetitions (iso-input
+    compare)."""
     recs = [
         _rec(
             "Roma",
@@ -317,7 +318,7 @@ def test_fold_empty_raises() -> None:
 
 
 def test_fold_excludes_fallback_reps_and_counts_them() -> None:
-    """Le ripetizioni FALLBACK non entrano in media/std; n_fallback le conta."""
+    """FALLBACK repetitions do not enter mean/std; n_fallback counts them."""
     recs = [
         _rec(
             "Roma",
@@ -352,7 +353,7 @@ def test_fold_excludes_fallback_reps_and_counts_them() -> None:
     folded = fold_arm(recs)
     mr = folded.mean_records[0]
     assert mr.status == RunStatus.OK
-    # media della SOLA ripetizione OK, non dei fallback "perfetti".
+    # mean of the OK repetition ONLY, not of the "perfect" fallbacks.
     assert mr.metrics.grounding == pytest.approx(0.6)
     assert mr.metrics.hallucination == pytest.approx(0.4)
     zv = folded.variances[0]
@@ -362,7 +363,8 @@ def test_fold_excludes_fallback_reps_and_counts_them() -> None:
 
 
 def test_fold_all_fallback_zone_becomes_error_record() -> None:
-    """Zona tutta-FALLBACK → record-media ERROR (esclusa a valle); n_fallback conta."""
+    """All-FALLBACK zone -> ERROR mean-record (excluded downstream); n_fallback
+    counts."""
     recs = [
         _rec(
             "Torino",
@@ -385,7 +387,7 @@ def test_fold_all_fallback_zone_becomes_error_record() -> None:
 
 
 def test_fold_counts_error_and_fallback_separately() -> None:
-    """n_dropped = ERROR + FALLBACK; n_fallback isola i soli FALLBACK."""
+    """n_dropped = ERROR + FALLBACK; n_fallback isolates the FALLBACK ones only."""
     recs = [
         _rec(
             "Napoli",
@@ -423,7 +425,7 @@ def test_fold_counts_error_and_fallback_separately() -> None:
     assert zv.n_fallback == 1
 
 
-def test_fold_somma_le_metriche_istat_delle_ripetizioni() -> None:
+def test_fold_sums_the_istat_metrics_of_the_repetitions() -> None:
     from crime_risk_analyzer.eval.schema import IstatMetrics
 
     def _m(confronti_coerenti: int) -> IstatMetrics:
@@ -468,18 +470,18 @@ def test_fold_somma_le_metriche_istat_delle_ripetizioni() -> None:
             b.model_copy(update={"istat_metrics": _m(1)}),
         ]
     )
-    somma = folded.mean_records[0].istat_metrics
-    assert somma is not None
+    summed = folded.mean_records[0].istat_metrics
+    assert summed is not None
     assert (
-        somma.versione,
-        somma.cifre_totali,
-        somma.cifre_istat,
-        somma.confronti_totali,
-        somma.confronti_coerenti,
+        summed.versione,
+        summed.cifre_totali,
+        summed.cifre_istat,
+        summed.confronti_totali,
+        summed.confronti_coerenti,
     ) == (2, 4, 2, 4, 3)
 
 
-# --- #349: i POI nel prompt non si mediano fra ripetizioni diverse ---
+# --- #349: the POIs in the prompt are not averaged across different repetitions ---
 
 
 def _rep(
@@ -499,15 +501,16 @@ def _rep(
 
 
 def test_fold_carries_the_poi_in_prompt_of_consistent_repetitions() -> None:
-    """Stesso insieme in ogni ripetizione: il record-media lo porta, cosi'
-    ``compare_records`` puo' verificare la parita' anche sul percorso a K."""
+    """Same set in every repetition: the mean-record carries it, so
+    ``compare_records`` can verify the parity also on the K path."""
     folded = fold_arm([_rep(0, ["1", "2"]), _rep(1, ["2", "1"]), _rep(2, ["1", "2"])])
     assert folded.mean_records[0].poi_nel_prompt == ["1", "2"]
 
 
 def test_fold_refuses_repetitions_mixing_present_and_missing_poi() -> None:
-    """Una ripetizione nuova (con ``poi_nel_prompt``) e due vecchie (senza):
-    mediarle mescolerebbe prompt con 9-12 POI e prompt con 20, senza avvisi."""
+    """One new repetition (with ``poi_nel_prompt``) and two old ones (without):
+    averaging them would mix prompts with 9-12 POIs and prompts with 20, without
+    warnings."""
     with pytest.raises(ValueError, match="Roma/Colosseo"):
         fold_arm([_rep(0, ["1", "2"]), _rep(1, None), _rep(2, None)])
 
@@ -518,8 +521,8 @@ def test_fold_refuses_repetitions_with_different_poi_sets() -> None:
 
 
 def test_fold_ignores_the_poi_of_dropped_repetitions() -> None:
-    """Un FALLBACK non entra in media (nessuna generazione, ``poi_nel_prompt``
-    None): non conta nemmeno per la coerenza dei POI."""
+    """A FALLBACK does not enter the mean (no generation, ``poi_nel_prompt``
+    None): it does not count for POI consistency either."""
     folded = fold_arm(
         [_rep(0, ["1"]), _rep(1, None, status=RunStatus.FALLBACK), _rep(2, ["1"])]
     )
@@ -527,7 +530,7 @@ def test_fold_ignores_the_poi_of_dropped_repetitions() -> None:
 
 
 def test_fold_keeps_legacy_repetitions_without_poi_as_none() -> None:
-    """Tutte vecchie: nessun errore, il record-media resta senza POI e il
-    confronto dira' che la parita' non e' verificabile."""
+    """All old: no error, the mean-record stays without POIs and the
+    comparison will say that parity is not verifiable."""
     folded = fold_arm([_rep(0, None), _rep(1, None)])
     assert folded.mean_records[0].poi_nel_prompt is None

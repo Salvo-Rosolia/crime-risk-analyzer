@@ -1,4 +1,4 @@
-"""Test del modulo di configurazione centralizzata."""
+"""Tests for the centralized configuration module."""
 
 from pathlib import Path
 
@@ -7,15 +7,15 @@ from pydantic import SecretStr, ValidationError
 
 from crime_risk_analyzer.config import Settings, get_settings
 
-# `_env_file` è un kwarg runtime di pydantic-settings (`BaseSettings.__init__`
-# lo accetta via **values per disattivare il caricamento del `.env` reale e
-# isolare i test), ma non è esposto nella firma sintetizzata: pyright strict lo
-# segnala come reportCallIssue. Si ignora puntualmente sulla singola chiamata,
-# senza indebolire il type-checking altrove (stesso pattern di test_health.py).
+# `_env_file` is a pydantic-settings runtime kwarg (`BaseSettings.__init__`
+# accepts it via **values to disable loading the real `.env` and isolate the
+# tests), but it is not exposed in the synthesized signature: pyright strict
+# flags it as reportCallIssue. It is ignored on the single call, without
+# weakening the type-checking elsewhere (same pattern as test_health.py).
 
 
 def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Senza env né .env i default sono applicati e le key sono None."""
+    """Without env or .env the defaults are applied and the keys are None."""
     for var in (
         "ANTHROPIC_API_KEY",
         "GROQ_API_KEY",
@@ -37,7 +37,7 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """I valori da environment sovrascrivono i default e sono tipizzati."""
+    """The values from the environment override the defaults and are typed."""
     monkeypatch.setenv("LLM_PROVIDER", "groq")
     monkeypatch.setenv("CACHE_ENABLED", "false")
     monkeypatch.setenv("DEFAULT_CITY", "Milano")
@@ -50,7 +50,7 @@ def test_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_invalid_llm_provider(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Un provider fuori dal Literal solleva ValidationError."""
+    """A provider outside the Literal raises ValidationError."""
     monkeypatch.setenv("LLM_PROVIDER", "openai")
 
     with pytest.raises(ValidationError):
@@ -61,7 +61,7 @@ def test_invalid_llm_provider(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_invalid_llm_timeout_seconds_rejected(
     monkeypatch: pytest.MonkeyPatch, value: str
 ) -> None:
-    """llm_timeout_seconds <= 0 e' respinto al load (deve essere > 0)."""
+    """llm_timeout_seconds <= 0 is rejected at load (must be > 0)."""
     monkeypatch.setenv("LLM_TIMEOUT_SECONDS", value)
 
     with pytest.raises(ValidationError):
@@ -72,7 +72,7 @@ def test_invalid_llm_timeout_seconds_rejected(
 def test_invalid_llm_max_tokens_rejected(
     monkeypatch: pytest.MonkeyPatch, value: str
 ) -> None:
-    """llm_max_tokens < 1 e' respinto al load (almeno 1 token)."""
+    """llm_max_tokens < 1 is rejected at load (at least 1 token)."""
     monkeypatch.setenv("LLM_MAX_TOKENS", value)
 
     with pytest.raises(ValidationError):
@@ -82,7 +82,7 @@ def test_invalid_llm_max_tokens_rejected(
 def test_valid_llm_timeout_and_max_tokens_from_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Valori validi da env vengono accettati e tipizzati."""
+    """Valid values from env are accepted and typed."""
     monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "12.5")
     monkeypatch.setenv("LLM_MAX_TOKENS", "2048")
 
@@ -93,7 +93,7 @@ def test_valid_llm_timeout_and_max_tokens_from_env(
 
 
 def test_llm_request_token_budget_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    """8700 tiene la richiesta reale sotto il TPM 8.000 di gpt-oss-120b su Groq.
+    """8700 keeps the real request under the 8,000 TPM of gpt-oss-120b on Groq.
 
     #345, D14.
     """
@@ -105,7 +105,7 @@ def test_llm_request_token_budget_default(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_llm_request_token_budget_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Il tetto totale di token della richiesta LLM e' sovrascrivibile da env (#210)."""
+    """The total token cap of the LLM request can be overridden from env (#210)."""
     monkeypatch.setenv("LLM_REQUEST_TOKEN_BUDGET", "8000")
 
     settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
@@ -117,7 +117,7 @@ def test_llm_request_token_budget_from_env(monkeypatch: pytest.MonkeyPatch) -> N
 def test_invalid_llm_request_token_budget_rejected(
     monkeypatch: pytest.MonkeyPatch, value: str
 ) -> None:
-    """llm_request_token_budget < 1 e' respinto al load (almeno 1 token, #210)."""
+    """llm_request_token_budget < 1 is rejected at load (at least 1 token, #210)."""
     monkeypatch.setenv("LLM_REQUEST_TOKEN_BUDGET", value)
 
     with pytest.raises(ValidationError):
@@ -125,7 +125,7 @@ def test_invalid_llm_request_token_budget_rejected(
 
 
 def test_secrets_not_leaked() -> None:
-    """SecretStr non espone il valore in repr/str; get_secret_value lo restituisce."""
+    """SecretStr does not expose the value in repr/str; get_secret_value returns it."""
     settings = Settings(
         _env_file=None,  # pyright: ignore[reportCallIssue]
         anthropic_api_key=SecretStr("sk-ant-supersecret"),
@@ -138,7 +138,7 @@ def test_secrets_not_leaked() -> None:
 
 
 def test_get_settings_cached() -> None:
-    """get_settings() restituisce sempre la stessa istanza (lru_cache)."""
+    """get_settings() always returns the same instance (lru_cache)."""
     get_settings.cache_clear()
 
     first = get_settings()
@@ -149,22 +149,22 @@ def test_get_settings_cached() -> None:
 
 
 def test_cors_allow_origins_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Senza env il default e' l'allowlist dev del frontend Angular, mai wildcard."""
+    """Without env the default is the dev allowlist of the Angular frontend, never a
+    wildcard."""
     monkeypatch.delenv("CORS_ALLOW_ORIGINS", raising=False)
 
     settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
 
     assert settings.cors_allow_origins == ["http://localhost:4200"]
-    # Vincolo #106: mai wildcard nell'allowlist (nemmeno di default).
+    # Constraint #106: never a wildcard in the allowlist (not even by default).
     assert "*" not in settings.cors_allow_origins
 
 
 def test_cors_allow_origins_from_env_json(monkeypatch: pytest.MonkeyPatch) -> None:
-    """L'allowlist e' configurabile da env come lista JSON.
+    """The allowlist is configurable from env as a JSON list.
 
-    Convenzione pydantic-settings: i tipi complessi (``list``) sono letti dalla
-    variabile d'ambiente come JSON: una CSV verrebbe respinta con
-    ``SettingsError``.
+    pydantic-settings convention: complex types (``list``) are read from the
+    environment variable as JSON: a CSV would be rejected with ``SettingsError``.
     """
     monkeypatch.setenv(
         "CORS_ALLOW_ORIGINS",
@@ -183,10 +183,10 @@ def test_cors_allow_origins_from_env_json(monkeypatch: pytest.MonkeyPatch) -> No
     "value", ['["*"]', '["http://localhost:4200", "*"]', '["https://*.evil.test"]']
 )
 def test_cors_wildcard_rejected(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
-    """Un wildcard '*' in QUALUNQUE elemento e' respinto al load (#106: mai '*').
+    """A wildcard '*' in ANY element is rejected at load (#106: never '*').
 
-    Blinda l'allowlist contro il rientro silenzioso del wildcard da env, che
-    riaprirebbe la policy a qualunque sito.
+    It shields the allowlist from the silent return of the wildcard from env,
+    which would reopen the policy to any site.
     """
     monkeypatch.setenv("CORS_ALLOW_ORIGINS", value)
 
@@ -195,7 +195,7 @@ def test_cors_wildcard_rejected(monkeypatch: pytest.MonkeyPatch, value: str) -> 
 
 
 def test_cors_empty_list_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Un'allowlist vuota e' respinta al load (disabiliterebbe di fatto il CORS)."""
+    """An empty allowlist is rejected at load (it would effectively disable CORS)."""
     monkeypatch.setenv("CORS_ALLOW_ORIGINS", "[]")
 
     with pytest.raises(ValidationError):
@@ -206,7 +206,7 @@ def test_cors_empty_list_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_cors_blank_origin_rejected(
     monkeypatch: pytest.MonkeyPatch, value: str
 ) -> None:
-    """Un'origine vuota o di soli spazi e' respinta al load."""
+    """An empty or whitespace-only origin is rejected at load."""
     monkeypatch.setenv("CORS_ALLOW_ORIGINS", value)
 
     with pytest.raises(ValidationError):
@@ -214,11 +214,11 @@ def test_cors_blank_origin_rejected(
 
 
 def test_cors_origins_are_trimmed(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Un'origine circondata da spazi e' accettata e MEMORIZZATA trimmata.
+    """An origin surrounded by spaces is accepted and STORED trimmed.
 
-    Senza normalizzazione il valore con spazi passerebbe la validazione ma
-    ``CORSMiddleware`` (match esatto) non lo farebbe mai combaciare con l'header
-    Origin del browser: fallirebbe in sicurezza, ma in silenzio.
+    Without normalization the value with spaces would pass the validation but
+    ``CORSMiddleware`` (exact match) would never make it match the browser's
+    Origin header: it would fail safe, but silently.
     """
     monkeypatch.setenv("CORS_ALLOW_ORIGINS", '["  http://localhost:4200  "]')
 
@@ -228,7 +228,7 @@ def test_cors_origins_are_trimmed(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_geocoding_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Senza env ne' .env i default di geocoding (#115) sono applicati."""
+    """Without env or .env the geocoding defaults (#115) are applied."""
     for var in (
         "GEOCODING_MIN_DELAY_SECONDS",
         "GEOCODING_TIMEOUT_SECONDS",
@@ -249,7 +249,7 @@ def test_geocoding_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_invalid_geocoding_min_delay_rejected(
     monkeypatch: pytest.MonkeyPatch, value: str
 ) -> None:
-    """geocoding_min_delay_seconds <= 0 e' respinto al load (deve essere > 0)."""
+    """geocoding_min_delay_seconds <= 0 is rejected at load (must be > 0)."""
     monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", value)
 
     with pytest.raises(ValidationError):
@@ -260,7 +260,7 @@ def test_invalid_geocoding_min_delay_rejected(
 def test_invalid_geocoding_timeout_rejected(
     monkeypatch: pytest.MonkeyPatch, value: str
 ) -> None:
-    """geocoding_timeout_seconds <= 0 e' respinto al load (deve essere > 0)."""
+    """geocoding_timeout_seconds <= 0 is rejected at load (must be > 0)."""
     monkeypatch.setenv("GEOCODING_TIMEOUT_SECONDS", value)
 
     with pytest.raises(ValidationError):
@@ -271,10 +271,10 @@ def test_invalid_geocoding_timeout_rejected(
 def test_invalid_geocoding_min_bbox_half_span_rejected(
     monkeypatch: pytest.MonkeyPatch, value: str
 ) -> None:
-    """geocoding_min_bbox_half_span_deg <= 0 e' respinto al load (deve essere > 0).
+    """geocoding_min_bbox_half_span_deg <= 0 is rejected at load (must be > 0).
 
-    Un valore 0/negativo degenererebbe il pavimento minimo in un bbox nullo o
-    invertito a runtime (#204): meglio fallire al caricamento.
+    A 0/negative value would degenerate the minimum floor into a null or inverted
+    bbox at runtime (#204): better to fail at load.
     """
     monkeypatch.setenv("GEOCODING_MIN_BBOX_HALF_SPAN_DEG", value)
 
@@ -283,7 +283,7 @@ def test_invalid_geocoding_min_bbox_half_span_rejected(
 
 
 def test_geocoding_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """I valori di geocoding da environment sovrascrivono i default."""
+    """The geocoding values from the environment override the defaults."""
     monkeypatch.setenv("GEOCODING_MIN_DELAY_SECONDS", "0.5")
     monkeypatch.setenv("GEOCODING_TIMEOUT_SECONDS", "20")
     monkeypatch.setenv("GEOCODING_COUNTRY_CODES", "it,sm")
@@ -301,11 +301,11 @@ def test_geocoding_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_geocoding_country_codes_blank_rejected(
     monkeypatch: pytest.MonkeyPatch, value: str
 ) -> None:
-    """Un country_codes vuoto o di soli spazi e' respinto al load (#115).
+    """An empty or whitespace-only country_codes is rejected at load (#115).
 
-    Una stringa vuota disattiverebbe SILENZIOSAMENTE il filtro nazione di
-    Nominatim (il parametro verrebbe ignorato), restituendo zone omonime nella
-    nazione sbagliata: meglio fallire al caricamento con ``ValidationError``.
+    An empty string would SILENTLY disable the Nominatim country filter (the
+    parameter would be ignored), returning homonymous zones in the wrong country:
+    better to fail at load with ``ValidationError``.
     """
     monkeypatch.setenv("GEOCODING_COUNTRY_CODES", value)
 
@@ -316,7 +316,7 @@ def test_geocoding_country_codes_blank_rejected(
 def test_geocoding_country_codes_multi_allowed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Nominatim accetta piu' codici nazione: la CSV "it,sm" resta valida."""
+    """Nominatim accepts several country codes: the CSV "it,sm" stays valid."""
     monkeypatch.setenv("GEOCODING_COUNTRY_CODES", "it,sm")
 
     settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
@@ -325,7 +325,7 @@ def test_geocoding_country_codes_multi_allowed(
 
 
 def test_geocoding_country_codes_trimmed(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Il valore memorizzato e' normalizzato con strip() (spazi ai bordi rimossi)."""
+    """The stored value is normalized with strip() (edge spaces removed)."""
     monkeypatch.setenv("GEOCODING_COUNTRY_CODES", "  it  ")
 
     settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
@@ -334,14 +334,14 @@ def test_geocoding_country_codes_trimmed(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_search_radius_defaults() -> None:
-    """Senza env i default del raggio di ricerca sono applicati (#318)."""
+    """Without env the search radius defaults are applied (#318)."""
     settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
     assert settings.search_radius_min_m == 150.0
     assert settings.search_radius_max_m == 3000.0
 
 
 def test_search_radius_min_ge_max_rejected() -> None:
-    """search_radius_min_m >= max e' respinto al load (#318)."""
+    """search_radius_min_m >= max is rejected at load (#318)."""
     with pytest.raises(ValidationError):
         Settings(
             _env_file=None,  # pyright: ignore[reportCallIssue]
@@ -360,42 +360,42 @@ def test_istat_context_enabled_da_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert Settings(_env_file=None).istat_context_enabled is False  # pyright: ignore[reportCallIssue]
 
 
-def _valori_env_example() -> dict[str, str]:
-    """Coppie ``CHIAVE=valore`` attive (non commentate) di ``backend/.env.example``."""
-    testo = (Path(__file__).resolve().parents[1] / ".env.example").read_text(
+def _env_example_values() -> dict[str, str]:
+    """Active (not commented) ``KEY=value`` pairs of ``backend/.env.example``."""
+    text = (Path(__file__).resolve().parents[1] / ".env.example").read_text(
         encoding="utf-8"
     )
-    valori: dict[str, str] = {}
-    for riga in testo.splitlines():
-        riga = riga.strip()
-        if riga and not riga.startswith("#") and "=" in riga:
-            chiave, valore = riga.split("=", 1)
-            valori[chiave.strip()] = valore.strip()
-    return valori
+    values: dict[str, str] = {}
+    for line in text.splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            values[key.strip()] = value.strip()
+    return values
 
 
-def test_env_example_allineato_ai_default_di_budget_e_istat() -> None:
-    """R3 (review 2): il template non deve suggerire un budget oltre il TPM del
-    modello in uso ne' dimenticare l'interruttore ISTAT."""
-    valori = _valori_env_example()
+def test_env_example_aligned_with_budget_and_istat_defaults() -> None:
+    """R3 (review 2): the template must not suggest a budget beyond the TPM of the
+    model in use nor forget the ISTAT switch."""
+    values = _env_example_values()
     default = Settings.model_fields
-    assert int(valori["LLM_REQUEST_TOKEN_BUDGET"]) == (
+    assert int(values["LLM_REQUEST_TOKEN_BUDGET"]) == (
         default["llm_request_token_budget"].default
     )
-    assert valori["ISTAT_CONTEXT_ENABLED"] == "true"
+    assert values["ISTAT_CONTEXT_ENABLED"] == "true"
     assert default["istat_context_enabled"].default is True
 
 
-def test_istat_scelta_modello_default_spento_e_da_env(
+def test_istat_model_selection_default_off_and_from_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#366: il modo "il modello sceglie le voci" e' opt-in (A/B con le frasi)."""
+    """#366: the "model chooses the voci" mode is opt-in (A/B with sentences)."""
     monkeypatch.delenv("ISTAT_SCELTA_MODELLO", raising=False)
     assert Settings(_env_file=None).istat_scelta_modello is False  # pyright: ignore[reportCallIssue]
     monkeypatch.setenv("ISTAT_SCELTA_MODELLO", "true")
     assert Settings(_env_file=None).istat_scelta_modello is True  # pyright: ignore[reportCallIssue]
 
 
-def test_env_example_ha_l_interruttore_di_scelta_spento() -> None:
-    assert _valori_env_example()["ISTAT_SCELTA_MODELLO"] == "false"
+def test_env_example_has_the_selection_switch_off() -> None:
+    assert _env_example_values()["ISTAT_SCELTA_MODELLO"] == "false"
     assert Settings.model_fields["istat_scelta_modello"].default is False

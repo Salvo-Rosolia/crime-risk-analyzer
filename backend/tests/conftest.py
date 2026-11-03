@@ -1,16 +1,16 @@
-"""Configurazione condivisa dei test.
+"""Shared test configuration.
 
-Prima che venga costruita qualsiasi ``Settings``, punta ``ONTOLOGY_PATH`` alla
-fixture Turtle committata: il warm-up del ``lifespan`` (e ``get_ontology``)
-trovano un grafo valido anche prima che il professore consegni l'ontologia
-reale. ``setdefault`` non sovrascrive un valore già presente nell'ambiente.
+Before any ``Settings`` is built, point ``ONTOLOGY_PATH`` to the committed
+Turtle fixture: the ``lifespan`` warm-up (and ``get_ontology``) find a valid
+graph even before the professor delivers the real ontology.
+``setdefault`` does not overwrite a value already present in the environment.
 
-Il ``lifespan`` scalda anche il client LLM (fail-fast su chiave assente, #111):
-senza una chiave l'avvio dell'app fallirebbe e ogni test che entra nel lifespan
-via ``with TestClient(app)`` si romperebbe. Forniamo chiavi fittizie con lo
-stesso ``setdefault`` usato per ``ONTOLOGY_PATH`` — nessuna rete: gli SDK
-Anthropic/Groq non validano la chiave alla costruzione del client. Il test del
-fail-fast rimuove la chiave in modo mirato (vedi ``test_lifespan.py``).
+The ``lifespan`` also warms up the LLM client (fail-fast on a missing key,
+#111): without a key the app startup would fail and every test entering the
+lifespan via ``with TestClient(app)`` would break. We provide dummy keys with
+the same ``setdefault`` used for ``ONTOLOGY_PATH`` -- no network: the
+Anthropic/Groq SDKs do not validate the key when the client is built. The
+fail-fast test removes the key in a targeted way (see ``test_lifespan.py``).
 """
 
 import os
@@ -27,15 +27,15 @@ os.environ.setdefault("GROQ_API_KEY", "gsk-test-dummy")
 def pytest_collection_modifyitems(
     config: pytest.Config, items: list[pytest.Item]
 ) -> None:
-    """Skippa i test ``integration`` (rete reale) salvo selezione esplicita.
+    """Skip ``integration`` tests (real network) unless explicitly selected.
 
-    Si eseguono solo quando l'utente passa ``-m integration`` (o un'espressione
-    che lo include); la suite di default resta offline e deterministica.
+    They run only when the user passes ``-m integration`` (or an expression
+    that includes it); the default suite stays offline and deterministic.
     """
     expr = config.getoption("-m")
     if isinstance(expr, str) and "integration" in expr:
         return
-    skip = pytest.mark.skip(reason="test di integrazione: usa -m integration")
+    skip = pytest.mark.skip(reason="integration test: use -m integration")
     for item in items:
         if "integration" in item.keywords:
             item.add_marker(skip)

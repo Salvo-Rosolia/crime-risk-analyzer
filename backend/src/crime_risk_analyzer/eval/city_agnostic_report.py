@@ -1,4 +1,4 @@
-"""Report deterministico della validazione C1 (#31): snapshot → tabelle (#34-style)."""
+"""Deterministic report of the C1 validation (#31): snapshots -> tables (#34)."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from crime_risk_analyzer.eval.city_agnostic import (
     build_record,
     capture_path,
 )
-from crime_risk_analyzer.eval.snapshots import describe_configurazione_divergente
+from crime_risk_analyzer.eval.snapshots import describe_config_divergence
 
 _COLUMNS = [
     "citta",
@@ -37,8 +37,8 @@ _COLUMNS = [
 
 
 def load_outcomes(results_dir: Path) -> list[CaptureOutcome]:
-    """Carica tutti gli esiti di cattura da results/city_agnostic/snapshots/."""
-    # Deriva la cartella snapshots dal path builder condiviso, con una città fittizia
+    """Load all the capture outcomes from results/city_agnostic/snapshots/."""
+    # Derive the snapshots folder from the shared path builder, with a dummy city
     snapshots_dir = capture_path(results_dir, "x").parent
     outcomes: list[CaptureOutcome] = []
     if not snapshots_dir.exists():
@@ -76,41 +76,41 @@ def _ok_row(rec: CityAgnosticRecord) -> list[str]:
 
 
 def _failed_row(outcome: CaptureOutcome) -> list[str]:
-    # 3 colonne iniziali (citta, zona, status) + N vuote + 1 finale (pass_all)
+    # 3 initial columns (citta, zona, status) + N blank + 1 final (pass_all)
     # == len(_COLUMNS)
     n_blank = len(_COLUMNS) - 4
     return [outcome.citta, outcome.zona, "failed", *([""] * n_blank), "False"]
 
 
-def _avvisi_provenienza(outcomes: list[CaptureOutcome]) -> list[str]:
-    """Avvisi sulla provenienza degli esiti (#374); mai solleva.
+def _provenance_warnings(outcomes: list[CaptureOutcome]) -> list[str]:
+    """Warnings on the provenance of the outcomes (#374); never raises.
 
-    Tre casi: provenienza assente (esiti pre-#374), configurazione divergente da
-    quella del codice corrente, provenienze diverse fra loro nel roster (una
-    ricattura parziale che mescola esiti prodotti con configurazioni diverse).
-    La provenienza è la configurazione del CODICE che ha scritto il file, non
-    della query: un'assenza di avvisi non prova che i dati siano omogenei sul lato
-    OSM.
+    Three cases: provenance absent (pre-#374 outcomes), configuration diverging from
+    that of the current code, different provenances among themselves in the roster (a
+    partial re-capture that mixes outcomes produced with different configurations).
+    The provenance is the configuration of the CODE that wrote the file, not
+    of the query: an absence of warnings does not prove that the data are homogeneous
+    on the OSM side.
     """
-    avvisi: list[str] = []
-    firme: set[str] = set()
+    warnings: list[str] = []
+    signatures: set[str] = set()
     for o in outcomes:
         if o.provenienza is None:
-            avvisi.append(f"{o.citta}: esito senza provenienza (pre-#374)")
-            firme.add("assente")
+            warnings.append(f"{o.citta}: esito senza provenienza (pre-#374)")
+            signatures.add("assente")
             continue
-        firme.add(json.dumps(o.provenienza.configurazione_canonica, sort_keys=True))
-        divergenza = describe_configurazione_divergente(
-            o.provenienza.configurazione_canonica
+        signatures.add(
+            json.dumps(o.provenienza.configurazione_canonica, sort_keys=True)
         )
-        if divergenza is not None:
-            avvisi.append(f"{o.citta}: {divergenza}")
-    if len(firme) > 1:
-        avvisi.append(
+        divergence = describe_config_divergence(o.provenienza.configurazione_canonica)
+        if divergence is not None:
+            warnings.append(f"{o.citta}: {divergence}")
+    if len(signatures) > 1:
+        warnings.append(
             "provenienze miste: gli esiti del roster non sono stati scritti con la "
             "stessa configurazione (ricattura parziale?)"
         )
-    return avvisi
+    return warnings
 
 
 def _to_csv(rows: list[list[str]]) -> str:
@@ -134,21 +134,21 @@ def _to_markdown(rows: list[list[str]], summary: dict[str, object]) -> str:
         f"{summary['n_pass_all']} · fallite: {summary['n_failed']} · "
         f"ontology_hash: {summary['ontology_hash']}"
     )
-    provenienza = cast("dict[str, str | None]", summary["provenienza"])
+    provenance = cast("dict[str, str | None]", summary["provenienza"])
     lines.append("")
     lines.append("Provenienza (istante di scrittura dell'esito, per città):")
-    for citta, istante in provenienza.items():
-        lines.append(f"- {citta}: {istante or 'assente'}")
-    for avviso in cast("list[str]", summary["avvisi"]):
+    for citta, instant in provenance.items():
+        lines.append(f"- {citta}: {instant or 'assente'}")
+    for warning in cast("list[str]", summary["avvisi"]):
         lines.append("")
-        lines.append(f"AVVISO: {avviso}")
+        lines.append(f"AVVISO: {warning}")
     return "\n".join(lines) + "\n"
 
 
 def build_report(
     results_dir: Path, graph: Graph, ontology_hash: str
 ) -> tuple[Path, Path, Path]:
-    """Aggrega gli snapshot in records.json + report.csv + report.md."""
+    """Aggregate the snapshots into records.json + report.csv + report.md."""
     outcomes = load_outcomes(results_dir)
     rows: list[list[str]] = []
     records: list[CityAgnosticRecord] = []
@@ -178,7 +178,7 @@ def build_report(
             o.citta: o.provenienza.catturato_il if o.provenienza else None
             for o in outcomes
         },
-        "avvisi": _avvisi_provenienza(outcomes),
+        "avvisi": _provenance_warnings(outcomes),
     }
 
     out_dir = results_dir / "city_agnostic"

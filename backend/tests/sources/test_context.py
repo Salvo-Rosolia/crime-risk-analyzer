@@ -1,4 +1,4 @@
-"""Set attivo per richiesta via ContextVar (#411)."""
+"""Active set per request via ContextVar (#411)."""
 
 import asyncio
 import dataclasses
@@ -15,25 +15,25 @@ from crime_risk_analyzer.sources.context import (
 from crime_risk_analyzer.sources.model import SourceSet
 
 
-def _altro(id_: str) -> SourceSet:
+def _other_set(id_: str) -> SourceSet:
     return dataclasses.replace(default_set(), id=id_, kind="custom")
 
 
-def test_fuori_da_bind_e_default() -> None:
+def test_outside_bind_is_default() -> None:
     assert current() is default_set()
     assert current_executor() is default_set().executor
 
 
-def test_dentro_bind_e_il_set_passato_poi_torna_default() -> None:
-    x = _altro("x")
+def test_inside_bind_is_the_given_set_then_back_to_default() -> None:
+    x = _other_set("x")
     with bind(x):
         assert current() is x
         assert current_executor() is x.executor
     assert current() is default_set()
 
 
-def test_bind_annidati_ripristinano_il_precedente() -> None:
-    x, y = _altro("x"), _altro("y")
+def test_nested_binds_restore_the_previous_one() -> None:
+    x, y = _other_set("x"), _other_set("y")
     with bind(x):
         with bind(y):
             assert current() is y
@@ -41,31 +41,31 @@ def test_bind_annidati_ripristinano_il_precedente() -> None:
     assert current() is default_set()
 
 
-def test_bind_ripristina_anche_con_eccezione() -> None:
+def test_bind_restores_even_with_exception() -> None:
     with pytest.raises(RuntimeError):
-        with bind(_altro("x")):
+        with bind(_other_set("x")):
             raise RuntimeError("boom")
     assert current() is default_set()
 
 
-async def test_bind_non_si_vede_fra_task_diversi() -> None:
-    visti: dict[str, str] = {}
-    pronto = asyncio.Event()
+async def test_bind_is_not_visible_across_different_tasks() -> None:
+    seen: dict[str, str] = {}
+    ready = asyncio.Event()
 
-    async def con_set(nome: str) -> None:
-        with bind(_altro(nome)):
-            await pronto.wait()
-            visti[nome] = current().id
+    async def with_set(name: str) -> None:
+        with bind(_other_set(name)):
+            await ready.wait()
+            seen[name] = current().id
 
-    async def senza_set() -> None:
+    async def without_set() -> None:
         await asyncio.sleep(0)
-        visti["nessuno"] = current().id
-        pronto.set()
+        seen["none"] = current().id
+        ready.set()
 
-    await asyncio.gather(con_set("a"), con_set("b"), senza_set())
-    assert visti == {"a": "a", "b": "b", "nessuno": "default"}
+    await asyncio.gather(with_set("a"), with_set("b"), without_set())
+    assert seen == {"a": "a", "b": "b", "none": "default"}
 
 
-async def test_visibile_nel_threadpool() -> None:
-    with bind(_altro("x")):
+async def test_visible_in_threadpool() -> None:
+    with bind(_other_set("x")):
         assert await run_in_threadpool(lambda: current().id) == "x"

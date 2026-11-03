@@ -1,4 +1,4 @@
-"""Test del CLI eval: build_parser e load_config (#34)."""
+"""Tests of the eval CLI: build_parser and load_config (#34)."""
 
 from __future__ import annotations
 
@@ -38,14 +38,14 @@ def test_parser_subcommands() -> None:
 
 
 def test_parser_capture_force_flag() -> None:
-    """--force è opt-in sul sottocomando capture (ri-cattura, #110 M2)."""
+    """--force is opt-in on the capture subcommand (re-capture, #110 M2)."""
     ns = build_parser().parse_args(["capture", "--config", "exp.json", "--force"])
     assert ns.command == "capture"
     assert ns.force is True
 
 
 def test_parser_capture_force_defaults_false() -> None:
-    """Senza --force la cattura è idempotente (skip-if-exists, #110 M2)."""
+    """Without --force the capture is idempotent (skip-if-exists, #110 M2)."""
     ns = build_parser().parse_args(["capture", "--config", "exp.json"])
     assert ns.force is False
 
@@ -68,14 +68,14 @@ def test_load_config(tmp_path: Path) -> None:
     assert cfg.cases[0].citta == "Roma"
 
 
-# --- (C) build_llm_eval_client honora config.model ---
+# --- (C) build_llm_eval_client honours config.model ---
 
 
 def test_build_llm_eval_client_uses_config_model_groq(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """build_llm_eval_client(config) con config.model='groq' deve restituire
-    un LLMClient con provider='groq', indipendentemente dal settings."""
+    """build_llm_eval_client(config) with config.model='groq' must return
+    an LLMClient with provider='groq', regardless of the settings."""
     import crime_risk_analyzer.eval.cli as cli_mod
 
     monkeypatch.setattr(
@@ -95,8 +95,8 @@ def test_build_llm_eval_client_uses_config_model_groq(
 def test_build_llm_eval_client_uses_config_model_claude(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """build_llm_eval_client(config) con config.model='claude' deve restituire
-    un LLMClient con provider='claude', anche se settings dice groq."""
+    """build_llm_eval_client(config) with config.model='claude' must return
+    an LLMClient with provider='claude', even if settings says groq."""
     import crime_risk_analyzer.eval.cli as cli_mod
 
     monkeypatch.setattr(cli_mod, "get_settings", lambda: _settings(llm_provider="groq"))
@@ -112,7 +112,7 @@ def test_build_llm_eval_client_uses_config_model_claude(
 
 
 def test_parser_compare_subcommand() -> None:
-    """#32: sottocomando compare a due bracci (experiment-a vs experiment-b)."""
+    """#32: two-arm compare subcommand (experiment-a vs experiment-b)."""
     ns = build_parser().parse_args(
         ["compare", "--experiment-a", "full", "--experiment-b", "base"]
     )
@@ -126,7 +126,7 @@ def test_parser_compare_subcommand() -> None:
 
 
 def test_parser_compare_optional_labels_and_out() -> None:
-    """Label e stem di output sono opzionali e parametrizzabili (generico)."""
+    """Output label and stem are optional and parametrizable (generic)."""
     ns = build_parser().parse_args(
         [
             "compare",
@@ -189,7 +189,7 @@ def test_parser_run_has_repeat_default_one() -> None:
 
 
 def test_parser_run_repeat_accepts_explicit_value() -> None:
-    """--repeat 3 (non solo il default) -> ns.repeat==3, come int (non str)."""
+    """--repeat 3 (not just the default) -> ns.repeat==3, as int (not str)."""
     ns = build_parser().parse_args(["run", "--config", "x.json", "--repeat", "3"])
     assert ns.repeat == 3
 
@@ -202,7 +202,7 @@ def test_compare_parsers_accept_force_flag() -> None:
             [cmd, "--experiment-a", "a", "--experiment-b", "b", "--force"]
         )
         assert ns.force is True
-    # default assente → False
+    # default absent -> False
     ns = build_parser().parse_args(
         ["compare", "--experiment-a", "a", "--experiment-b", "b"]
     )
@@ -219,7 +219,7 @@ def test_run_parser_accepts_clean_stale_flag() -> None:
 
 
 def test_parser_accepts_gold_sample() -> None:
-    """gold-sample: estrae i rischi da annotare da un esperimento."""
+    """gold-sample: extracts the risks to annotate from an experiment."""
     parser = build_parser()
     ns = parser.parse_args(
         ["gold-sample", "--results", "r", "--experiment", "exp", "--mode", "analyze"]
@@ -230,46 +230,46 @@ def test_parser_accepts_gold_sample() -> None:
 
 
 def test_parser_gold_sample_force_defaults_false() -> None:
-    """Il foglio annotato a mano si sovrascrive solo con --force esplicito."""
+    """The hand-annotated sheet is overwritten only with an explicit --force."""
     parser = build_parser()
     assert parser.parse_args(["gold-sample", "--results", "r"]).force is False
     assert parser.parse_args(["gold-sample", "--results", "r", "--force"]).force is True
 
 
 def test_parser_gold_sample_rejects_unknown_mode() -> None:
-    """--mode e' vincolato ad ``analyze``: un typo (o un braccio diverso)
-    produrrebbe altrimenti in silenzio un foglio vuoto o privo di senso — il
-    meccanismo e' definito sul blocco [ONTOLOGIA] del braccio di prodotto."""
+    """--mode is constrained to ``analyze``: a typo (or a different arm)
+    would otherwise silently produce an empty or meaningless sheet -- the
+    mechanism is defined on the [ONTOLOGIA] block of the product arm."""
     parser = build_parser()
     with pytest.raises(SystemExit):
         parser.parse_args(["gold-sample", "--results", "r", "--mode", "baseline"])
 
 
 def test_parser_accepts_gold_report() -> None:
-    """gold-report: calcola il report di precisione dal foglio annotato."""
+    """gold-report: computes the precision report from the annotated sheet."""
     parser = build_parser()
     ns = parser.parse_args(["gold-report", "--results", "r"])
     assert ns.command == "gold-report"
 
 
 def test_parser_rejects_old_gold_verb() -> None:
-    """Il vecchio verbo 'gold' non esiste più (#152)."""
+    """The old verb 'gold' no longer exists (#152)."""
     parser = build_parser()
     with pytest.raises(SystemExit):
         parser.parse_args(["gold", "--results", "r"])
 
 
-def test_parser_run_pausa() -> None:
-    """#357: --pausa accetta secondi decimali, default 0."""
+def test_parser_run_pause() -> None:
+    """#357: --pausa accepts decimal seconds, default 0."""
     ns = build_parser().parse_args(["run", "--config", "exp.json", "--pausa", "0.5"])
     assert ns.pausa == 0.5
     assert isinstance(ns.pausa, float)
     assert build_parser().parse_args(["run", "--config", "exp.json"]).pausa == 0.0
 
 
-@pytest.mark.parametrize("valore", ["-5", "nan", "inf", "boh"])
-def test_parser_run_pausa_rifiuta_valori_non_validi(valore: str) -> None:
-    """Errore d'uso subito (exit 2), prima di caricare ontologia e client."""
+@pytest.mark.parametrize("value", ["-5", "nan", "inf", "boh"])
+def test_parser_run_pause_rejects_invalid_values(value: str) -> None:
+    """Usage error at once (exit 2), before loading ontology and client."""
     with pytest.raises(SystemExit) as exc:
-        build_parser().parse_args(["run", "--config", "exp.json", "--pausa", valore])
+        build_parser().parse_args(["run", "--config", "exp.json", "--pausa", value])
     assert exc.value.code == 2

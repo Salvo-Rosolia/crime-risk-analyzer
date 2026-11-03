@@ -12,7 +12,7 @@ from geopy.exc import GeocoderServiceError  # pyright: ignore[reportMissingTypeS
 from crime_risk_analyzer.config import get_settings
 from crime_risk_analyzer.eval import city_agnostic as ca
 from crime_risk_analyzer.eval.geometry import CityBoundary
-from crime_risk_analyzer.eval.snapshots import configurazione_canonica_corrente
+from crime_risk_analyzer.eval.snapshots import current_canonical_config
 from crime_risk_analyzer.geocoding import GeocodingError, ZoneNotFoundError
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.overpass_client import OverpassError, Poi
@@ -24,13 +24,13 @@ _BOUNDARY = CityBoundary(
 
 @pytest.fixture(autouse=True)
 def _reset_boundary_state() -> Iterator[None]:  # pyright: ignore[reportUnusedFunction]
-    """Resetta lo stato di modulo condiviso prima/dopo ogni test (#170).
+    """Reset the shared module state before/after each test (#170).
 
-    ``get_settings`` e il RateLimiter locale della boundary
-    (``_boundary_rate_limiter``, che porta lo stato di throttling ``_last_call``)
-    sono cacheati per processo: senza reset i test di ``fetch_city_boundary`` si
-    contaminerebbero (sleep residui del throttle, delay stale dai setting di un
-    altro test). Mirror di ``_reset_geocoding_state`` per #115.
+    ``get_settings`` and the boundary's local RateLimiter
+    (``_boundary_rate_limiter``, which carries the throttling state ``_last_call``)
+    are cached per process: without a reset the ``fetch_city_boundary`` tests would
+    contaminate each other (residual throttle sleeps, stale delay from the settings of
+    another test). Mirror of ``_reset_geocoding_state`` for #115.
     """
     get_settings.cache_clear()
     ca._boundary_rate_limiter.cache_clear()  # pyright: ignore[reportPrivateUsage]
@@ -56,14 +56,14 @@ def _fake_boundary(citta: str) -> CityBoundary:
 
 
 class _FakeLocation:
-    """Doppio minimale di ``geopy.location.Location`` per i test di boundary."""
+    """Minimal double of ``geopy.location.Location`` for the boundary tests."""
 
     def __init__(self, raw: dict[str, object]) -> None:
         self.raw = raw
 
 
 class _FakeGeolocator:
-    """Doppio minimale di ``Nominatim`` per i test di ``fetch_city_boundary``."""
+    """Minimal double of ``Nominatim`` for the ``fetch_city_boundary`` tests."""
 
     def __init__(
         self,
@@ -113,28 +113,28 @@ def test_save_and_load_outcome_roundtrip(tmp_path: Path) -> None:
     assert ca.load_outcome(path) == outcome
 
 
-def test_save_outcome_scrive_fine_riga_lf(
+def test_save_outcome_writes_lf_line_endings(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Niente traduzione a CRLF su Windows: gli snapshot sono versionati (#241).
+    """No translation to CRLF on Windows: the snapshots are versioned (#241).
 
-    Il controllo sui byte vale solo su Windows (su Linux ``write_text`` scrive LF
-    comunque), quindi si verifica anche che ``newline=""`` sia davvero passato.
+    The check on the bytes holds only on Windows (on Linux ``write_text`` writes LF
+    anyway), so it is also verified that ``newline=""`` is really passed.
     """
-    chiamate: list[dict[str, object]] = []
-    originale = Path.write_text
+    calls: list[dict[str, object]] = []
+    original = Path.write_text
 
-    def _spia(self: Path, data: str, *args: Any, **kwargs: Any) -> int:
-        chiamate.append(dict(kwargs))
-        return originale(self, data, *args, **kwargs)
+    def _spy(self: Path, data: str, *args: Any, **kwargs: Any) -> int:
+        calls.append(dict(kwargs))
+        return original(self, data, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "write_text", _spia)
+    monkeypatch.setattr(Path, "write_text", _spy)
     outcome = ca.CaptureOutcome(
         status="ok", citta="Roma", zona="Colosseo", capture=_capture()
     )
     path = ca.capture_path(tmp_path, "Roma")
     ca.save_outcome(path, outcome)
-    assert chiamate[-1].get("newline") == ""
+    assert calls[-1].get("newline") == ""
     assert b"\r\n" not in path.read_bytes()
 
 
@@ -179,12 +179,13 @@ def test_fetch_city_boundary_returns_boundary_for_valid_polygon(
 def test_fetch_city_boundary_passes_timeout_and_country_codes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """timeout e country_codes arrivano DAI setting, non da valori hardcoded (#170).
+    """timeout and country_codes come FROM the settings, not from hardcoded values
+    (#170).
 
-    Sentinelle NON-default (``fr``/``7``) cosi' il test fallisce anche se un
-    domani i valori venissero cablati sul default: la sola prova che provengono
-    davvero dalla configurazione. ``geometry='geojson'`` resta cablato (necessario
-    per ottenere il poligono).
+    NON-default sentinels (``fr``/``7``) so the test fails even if one
+    day the values were wired to the default: the only proof that they really come
+    from the configuration. ``geometry='geojson'`` stays wired in (needed
+    to obtain the polygon).
     """
     monkeypatch.setenv("GEOCODING_COUNTRY_CODES", "fr")
     monkeypatch.setenv("GEOCODING_TIMEOUT_SECONDS", "7")
@@ -208,10 +209,11 @@ def test_fetch_city_boundary_passes_timeout_and_country_codes(
 
 
 def test_boundary_rate_limiter_wired_with_settings() -> None:
-    """Il rate-limiter locale usa min_delay dai setting, max_retries=0, no swallow.
+    """The local rate-limiter uses min_delay from the settings, max_retries=0, no
+    swallow.
 
-    Mirror del limiter #115 di ``geocode_zone``, ma LOCALE (non condiviso): la
-    boundary rispetta la usage policy Nominatim senza toccare la logica #115.
+    Mirror of the #115 limiter of ``geocode_zone``, but LOCAL (not shared): the
+    boundary respects the Nominatim usage policy without touching the #115 logic.
     """
     from geopy.extra.rate_limiter import (  # pyright: ignore[reportMissingTypeStubs]
         RateLimiter,
@@ -295,7 +297,7 @@ async def test_capture_roster_isolates_failures(
 async def test_capture_roster_continues_after_failure_precedes_success(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """M3: una città che fallisce non deve far sparire quella successiva."""
+    """M3: a city that fails must not make the following one disappear."""
 
     def _fake_geocode(zona: str, citta: str) -> dict[str, object]:
         if citta == "Napoli":
@@ -320,10 +322,10 @@ async def test_capture_roster_continues_after_failure_precedes_success(
 
 
 def test_boundary_geolocator_wires_user_agent_into_header() -> None:
-    """Catena costante -> costruttore -> header per il geolocator di boundary.
+    """Constant -> constructor -> header chain for the boundary geolocator.
 
-    L'UA effettivo == _BOUNDARY_USER_AGENT (label ``-eval`` preservata) e contiene
-    l'URL di contatto: fail-if-removed reale sul valore cablato nel costruttore.
+    The effective UA == _BOUNDARY_USER_AGENT (``-eval`` label preserved) and contains
+    the contact URL: real fail-if-removed on the value wired into the constructor.
     """
     geolocator = ca._boundary_geolocator()  # pyright: ignore[reportPrivateUsage]
     headers = cast("dict[str, str]", geolocator.headers)  # pyright: ignore[reportUnknownMemberType]
@@ -356,17 +358,17 @@ async def test_capture_roster_isolates_overpass_failure(
     assert roma.error_type == "OverpassError"
 
 
-_ISTANTE = datetime(2026, 10, 21, 9, 30, tzinfo=UTC)
+_INSTANT = datetime(2026, 10, 21, 9, 30, tzinfo=UTC)
 
 
 def _fixed_clock() -> datetime:
-    return _ISTANTE
+    return _INSTANT
 
 
-def test_outcome_roundtrip_preserves_provenienza(tmp_path: Path) -> None:
-    prov = ca.EsitoProvenienza(
-        catturato_il=_ISTANTE.isoformat(),
-        configurazione_canonica=dict(configurazione_canonica_corrente()),
+def test_outcome_roundtrip_preserves_provenance(tmp_path: Path) -> None:
+    prov = ca.OutcomeProvenance(
+        catturato_il=_INSTANT.isoformat(),
+        configurazione_canonica=dict(current_canonical_config()),
     )
     outcome = ca.CaptureOutcome(
         status="ok",
@@ -383,7 +385,7 @@ def test_outcome_roundtrip_preserves_provenienza(tmp_path: Path) -> None:
     assert loaded.provenienza.catturato_il == "2026-10-21T09:30:00+00:00"
 
 
-def test_old_outcome_without_provenienza_loads_as_none(tmp_path: Path) -> None:
+def test_old_outcome_without_provenance_loads_as_none(tmp_path: Path) -> None:
     outcome = ca.CaptureOutcome(
         status="failed", citta="Roma", zona="Colosseo", error_type="X", error="e"
     )
@@ -395,7 +397,7 @@ def test_old_outcome_without_provenienza_loads_as_none(tmp_path: Path) -> None:
     assert ca.load_outcome(path).provenienza is None
 
 
-async def test_capture_roster_writes_provenienza_on_ok_and_failed(
+async def test_capture_roster_writes_provenance_on_ok_and_failed(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     def _fake_geocode(zona: str, citta: str) -> dict[str, object]:
@@ -421,17 +423,14 @@ async def test_capture_roster_writes_provenienza_on_ok_and_failed(
         outcome = ca.load_outcome(ca.capture_path(tmp_path, citta))
         assert outcome.status == status
         assert outcome.provenienza is not None
-        assert outcome.provenienza.catturato_il == _ISTANTE.isoformat()
-        assert (
-            outcome.provenienza.configurazione_canonica
-            == configurazione_canonica_corrente()
-        )
-        assert "taglio_osm" not in ca.EsitoProvenienza.model_fields
+        assert outcome.provenienza.catturato_il == _INSTANT.isoformat()
+        assert outcome.provenienza.configurazione_canonica == current_canonical_config()
+        assert "taglio_osm" not in ca.OutcomeProvenance.model_fields
 
 
 @pytest.mark.integration
 async def test_capture_city_live_roma() -> None:
-    """Capture live reale su una città garantita (skip default; -m integration)."""
+    """Real live capture on a guaranteed city (skip default; -m integration)."""
     capture = await ca.capture_city("Roma", "Colosseo")
     assert capture.pois
     assert ca.bbox_valid(capture.bbox)
@@ -440,7 +439,7 @@ async def test_capture_city_live_roma() -> None:
 
 @pytest.mark.integration
 async def test_capture_roster_live_roma(tmp_path: Path) -> None:
-    """Driver reale end-to-end su Roma (skip default; -m integration)."""
+    """Real end-to-end driver on Rome (skip default; -m integration)."""
     await ca.capture_roster((ca.RosterCity("Roma", "Colosseo"),), tmp_path)
     outcome = ca.load_outcome(ca.capture_path(tmp_path, "Roma"))
     assert outcome.status == "ok"

@@ -1,8 +1,8 @@
-"""Ancoraggio ai rischi separato da quello ai nomi dei POI (#359).
+"""Risk anchoring separate from the one on POI names (#359).
 
-La funzione lavora sullo stesso blocco e sulle stesse frasi di M1, ma divide le
-frasi ancorate in due: quelle che nominano un rischio e quelle che nominano
-soltanto un punto.
+The function works on the same block and the same sentences as M1, but splits the
+anchored sentences in two: those that name a risk and those that name
+only a point.
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ def _calc(narrativa: str, poi: str = "Banca X") -> RiskAnchoring | None:
     )
 
 
-def test_frase_con_etichetta_italiana_del_rischio() -> None:
+def test_sentence_with_italian_risk_label() -> None:
     r = _calc(_onto("Possibile rapina in banca nella zona."))
     assert r is not None
     assert r == RiskAnchoring(
@@ -61,20 +61,20 @@ def test_frase_con_etichetta_italiana_del_rischio() -> None:
     assert r.ancoraggio_rischi == 1.0
 
 
-def test_frase_con_solo_il_nome_del_poi() -> None:
+def test_sentence_with_only_the_poi_name() -> None:
     r = _calc(_onto("La Banca X attira molte persone."))
     assert r is not None
     assert (r.frasi_ancorate_rischio, r.frasi_ancorate_solo_poi) == (0, 1)
     assert r.ancoraggio_rischi == 0.0
 
 
-def test_frase_con_rischio_e_poi_conta_come_rischio() -> None:
+def test_sentence_with_risk_and_poi_counts_as_risk() -> None:
     r = _calc(_onto("Alla Banca X e' possibile una rapina in banca."))
     assert r is not None
     assert (r.frasi_ancorate_rischio, r.frasi_ancorate_solo_poi) == (1, 0)
 
 
-def test_frase_senza_ancoraggi() -> None:
+def test_sentence_without_anchors() -> None:
     r = _calc(_onto("Zona molto frequentata. Rapina in banca possibile."))
     assert r is not None
     assert r.frasi_misurate == 2
@@ -82,17 +82,17 @@ def test_frase_senza_ancoraggi() -> None:
     assert r.ancoraggio_rischi == pytest.approx(0.5)
 
 
-def test_identifier_del_rischio_ancora() -> None:
+def test_risk_identifier_anchors() -> None:
     r = _calc(_onto("Rischio Bank_robbery."))
     assert r is not None and r.frasi_ancorate_rischio == 1
 
 
-def test_narrativa_vuota_non_gradabile() -> None:
+def test_empty_narrative_not_gradable() -> None:
     assert _calc("") is None
     assert _calc("   ") is None
 
 
-def test_nessun_ancoraggio_non_gradabile() -> None:
+def test_no_anchor_not_gradable() -> None:
     assert (
         risk_anchoring(
             _onto("Rapina in banca."), mode="analyze", poi_names=[], risk_models=[]
@@ -101,7 +101,7 @@ def test_nessun_ancoraggio_non_gradabile() -> None:
     )
 
 
-def test_senza_blocco_misurato_non_conforme() -> None:
+def test_without_measured_block_not_conforming() -> None:
     r = _calc("Testo libero che parla di rapina in banca alla Banca X.")
     assert r is not None
     assert r == RiskAnchoring(
@@ -114,8 +114,8 @@ def test_senza_blocco_misurato_non_conforme() -> None:
     assert r.ancoraggio_rischi == 0.0
 
 
-def test_blocco_dell_altro_braccio_non_conforme() -> None:
-    # Il braccio ablato si misura sul suo blocco: [ONTOLOGIA] non conta.
+def test_other_arms_block_not_conforming() -> None:
+    # The ablated arm is measured on its own block: [ONTOLOGIA] does not count.
     models = _models()
     r = risk_anchoring(
         _onto("Rapina in banca."),
@@ -126,7 +126,7 @@ def test_blocco_dell_altro_braccio_non_conforme() -> None:
     assert r is not None and r.conforme is False
 
 
-def test_braccio_ablato_misurato_sul_suo_blocco() -> None:
+def test_ablated_arm_measured_on_its_own_block() -> None:
     models = _models()
     r = risk_anchoring(
         "Sintesi.\n\nRischi dalla sintesi del modello [SINTESI-LLM]\n"
@@ -144,9 +144,9 @@ def test_braccio_ablato_misurato_sul_suo_blocco() -> None:
     )
 
 
-def test_frase_con_poi_e_rischio_conta_in_tutte_e_due_le_voci() -> None:
-    # La regola piu' severa "POI e rischio nella stessa frase" (#264): la frase
-    # con il punto e il rischio e' ancorata dal rischio e conta anche qui.
+def test_sentence_with_poi_and_risk_counts_in_both_items() -> None:
+    # The stricter rule "POI and risk in the same sentence" (#264): the sentence
+    # with the point and the risk is anchored by the risk and counts here too.
     r = _calc(_onto("Alla Banca X c'e' rischio di rapina in banca. Rapina in banca."))
     assert r == RiskAnchoring(
         frasi_misurate=2,
@@ -157,13 +157,14 @@ def test_frase_con_poi_e_rischio_conta_in_tutte_e_due_le_voci() -> None:
     )
 
 
-def test_poi_senza_nome_scartato() -> None:
-    # Un nome vuoto non deve ancorare ogni frase ("" in s e' sempre vero).
-    # Dal #264 senza POI con un nome non c'e' nulla che ancori una frase: non gradabile.
+def test_nameless_poi_discarded() -> None:
+    # An empty name must not anchor every sentence ("" in s is always true).
+    # Since #264 without a POI with a name there is nothing to anchor a sentence: not
+    # gradable.
     assert _calc(_onto("Zona molto frequentata."), poi="") is None
 
 
-def test_solo_poi_senza_nome_e_rischi_non_gradabile() -> None:
+def test_only_nameless_poi_and_risks_not_gradable() -> None:
     assert (
         risk_anchoring(
             _onto("Zona."), mode="analyze", poi_names=["", "  "], risk_models=[]
@@ -172,7 +173,7 @@ def test_solo_poi_senza_nome_e_rischi_non_gradabile() -> None:
     )
 
 
-def test_header_presente_ma_blocco_vuoto_non_conforme() -> None:
+def test_header_present_but_empty_block_not_conforming() -> None:
     r = _calc(
         "Sintesi della zona.\n\nRischi da ontologia [ONTOLOGIA]\n\n"
         "Rischi dal contesto [CONTESTO]\nRapina in banca alla Banca X."
@@ -209,7 +210,7 @@ def _response(narrativa: str) -> AnalyzeResponse:
         citta="Roma",
         zona_normalizzata="Centro",
         poi=poi,
-        # Come in produzione: una voce per POI, anche senza rischi.
+        # As in production: one entry per POI, even without risks.
         risk_models=[*_models(), RiskModel(poi_id="2", poi="Bar Y", risks=[])],
         narrativa=narrativa,
         confidence_summary=ConfidenceSummary(verificato=1),
@@ -237,8 +238,9 @@ def _response(narrativa: str) -> AnalyzeResponse:
         "",
     ],
 )
-def test_poi_piu_poi_e_rischio_coincide_con_m1(body: str) -> None:
-    # M1 conta ancorata la frase che nomina un POI (#264): solo POI, o POI e rischio.
+def test_poi_plus_poi_and_risk_matches_m1(body: str) -> None:
+    # M1 counts as anchored the sentence that names a POI (#264): POI only, or POI and
+    # risk.
     resp = _response(_onto(body))
     graded = _grade(resp, "analyze")
     r = risk_anchoring(
@@ -254,5 +256,5 @@ def test_poi_piu_poi_e_rischio_coincide_con_m1(body: str) -> None:
             r.frasi_misurate,
         ) == graded
     else:
-        # Non conforme: M1 da' (0, 1), qui zero frasi e ancoraggio 0.0.
+        # Not conforming: M1 gives (0, 1), here zero sentences and anchoring 0.0.
         assert graded == (0, 1) and r.frasi_misurate == 0

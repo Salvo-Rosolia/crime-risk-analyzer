@@ -72,8 +72,8 @@ def test_loads_the_real_files() -> None:
     assert len(data.luoghi) == 214
     assert data.versione == data.delitti.estratto_il
     assert data.delitti.anno == 2024
-    roma = data.delitti.valore("058091", "THEFT", 2024)
-    assert roma is not None and roma.delitti > 0
+    rome = data.delitti.valore("058091", "THEFT", 2024)
+    assert rome is not None and rome.delitti > 0
     assert data.delitti.valore("058091", "NONESISTE", 2024) is None
 
 

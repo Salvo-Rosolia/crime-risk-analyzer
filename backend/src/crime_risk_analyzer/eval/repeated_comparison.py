@@ -1,10 +1,10 @@
-"""Report esteso del confronto modelli con K ripetizioni (#157).
+"""Extended report of the model comparison with K repetitions (#157).
 
-Compone il riuso: fold delle ripetizioni (repeat.fold_arm) → record-media per
-zona → compare.compare_records (tabelle #33) → decide_winner (verdetto) +
-tabella varianza. Scrive <stem>.md e <stem>.json ESTESI, senza toccare
-compare.py. Le tabelle CSV/MD/JSON di #33 restano il contratto stabile; qui si
-AGGIUNGE varianza + vincitore.
+Composes the reuse: fold of the repetitions (repeat.fold_arm) -> mean-record per
+zone -> compare.compare_records (tables #33) -> decide_winner (verdict) +
+variance table. Writes EXTENDED <stem>.md and <stem>.json, without touching
+compare.py. The CSV/MD/JSON tables of #33 stay the stable contract; here
+variance + winner are ADDED.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ from crime_risk_analyzer.eval.winner import (
 
 logger = logging.getLogger(__name__)
 
-#: Caveat di scope (#157): l'asse allucinazione del verdetto e' il proxy testuale.
+#: Scope caveat (#157): the hallucination axis of the verdict is the textual proxy.
 _SCOPE_NOTE = (
     "> **Nota (#157).** Verdetto sulle MEDIE; la ±std e' riportata ma non "
     "decide. L'asse `hallucination` e' il *proxy testuale* gia' in `Metrics`: "
@@ -57,7 +57,7 @@ def _fmt(axis: str, value: float) -> str:
 
 
 def _k_of(a: FoldedArm, b: FoldedArm) -> int:
-    """K = massimo numero di ripetizioni per zona (valide + scartate)."""
+    """K = maximum number of repetitions per zone (valid + discarded)."""
     return max(
         (v.n_reps + v.n_dropped for v in (*a.variances, *b.variances)),
         default=0,
@@ -65,16 +65,16 @@ def _k_of(a: FoldedArm, b: FoldedArm) -> int:
 
 
 def _k_range(a: FoldedArm, b: FoldedArm) -> tuple[int, int]:
-    """(min, max) di ripetizioni totali (valide + scartate) su zone/bracci.
+    """(min, max) of total repetitions (valid + discarded) across zones/arms.
 
-    ``min != max`` -> K disomogeneo: bracci con --repeat diversi o run parziali.
+    ``min != max`` -> inhomogeneous K: arms with different --repeat or partial runs.
     """
     ks = [v.n_reps + v.n_dropped for v in (*a.variances, *b.variances)]
     return (min(ks), max(ks)) if ks else (0, 0)
 
 
-#: Getter tipizzati metrica→valore per le medie (``Metrics``, come in
-#: ``ZoneComparison.a``/``b``): stessa mappatura asse→valore di compare.py.
+#: Typed metric->value getters for the means (``Metrics``, as in
+#: ``ZoneComparison.a``/``b``): same axis->value mapping as compare.py.
 _GETTERS: dict[str, Callable[[Metrics], float]] = {
     "grounding": lambda mt: mt.grounding,
     "hallucination": lambda mt: mt.hallucination,
@@ -82,9 +82,9 @@ _GETTERS: dict[str, Callable[[Metrics], float]] = {
     "cost_usd": lambda mt: mt.cost_usd,
 }
 
-#: Getter tipizzati metrica→valore per la deviazione standard (``MetricValues``,
-#: come in ``ZoneVariance.std``): stessa mappatura asse→valore, tipo diverso
-#: dell'input (std e' gia' float ovunque, incluso ``latency_ms``).
+#: Typed metric->value getters for the standard deviation (``MetricValues``,
+#: as in ``ZoneVariance.std``): same axis->value mapping, different type
+#: of the input (std is already float everywhere, including ``latency_ms``).
 _STD_GETTERS: dict[str, Callable[[MetricValues], float]] = {
     "grounding": lambda s: s.grounding,
     "hallucination": lambda s: s.hallucination,
@@ -101,10 +101,10 @@ def variance_markdown(
     *,
     k_hi: int | None = None,
 ) -> str:
-    """Tabella `media ± std` per zona/metrica sui due bracci (K ripetizioni).
+    """`mean ± std` table per zone/metric on the two arms (K repetitions).
 
-    ``k_hi`` (Task 3, #165.2): se valorizzato e diverso da ``k``, l'header
-    mostra il range ``K={k}..{k_hi}`` invece del singolo ``K`` massimo.
+    ``k_hi`` (Task 3, #165.2): if set and different from ``k``, the header
+    shows the range ``K={k}..{k_hi}`` instead of the single maximum ``K``.
     """
     std_a: dict[tuple[str, str], ZoneVariance] = {
         (v.citta, v.zona): v for v in folded_a.variances
@@ -157,7 +157,7 @@ def variance_markdown(
 
 
 def _n_reps_range(folded: FoldedArm) -> tuple[int, int]:
-    """Min/max ripetizioni valide (n_reps) tra le zone del braccio (0,0 se vuoto)."""
+    """Min/max valid repetitions (n_reps) among the arm's zones (0,0 if empty)."""
     reps = [v.n_reps for v in folded.variances]
     return (min(reps), max(reps)) if reps else (0, 0)
 
@@ -170,26 +170,26 @@ def winner_markdown(
     folded_b: FoldedArm | None = None,
     k_hi: int | None = None,
 ) -> str:
-    """Sezione esito del criterio proxy: caveat, verdetto esplorativo, catena.
+    """Outcome section of the proxy criterion: caveat, exploratory verdict, chain.
 
-    Il label e' volutamente *esplorativo* (E, #164): l'esito e' sul PROXY
-    testuale, non sulla metrica 'vera' §2. Il ``_SCOPE_NOTE`` PRECEDE il verdetto.
-    Se ``folded_a``/``folded_b`` sono forniti, sotto il verdetto viene stampata
-    la base campionaria (n_reps/range, F #164). ``k_hi`` (Task 3, #165.2): se
-    valorizzato e diverso da ``k``, l'header mostra il range ``K={k}..{k_hi}``.
+    The label is deliberately *exploratory* (E, #164): the outcome is on the textual
+    PROXY, not on the 'true' metric section 2. The ``_SCOPE_NOTE`` PRECEDES the verdict.
+    If ``folded_a``/``folded_b`` are supplied, below the verdict the sampling
+    basis is printed (n_reps/range, F #164). ``k_hi`` (Task 3, #165.2): if
+    set and different from ``k``, the header shows the range ``K={k}..{k_hi}``.
 
-    Senza vincitore ci sono due frasi diverse, perché sono due fatti diversi:
-    il pareggio su tutti gli assi (#157) e il verdetto non decidibile perché lo
-    spareggio su velocità/costo è escluso (#236, ``Winner.no_winner_reason``).
+    Without a winner there are two different sentences, because they are two different
+    facts: the tie on all axes (#157) and the verdict not decidable because the
+    tie-break on speed/cost is excluded (#236, ``Winner.no_winner_reason``).
     """
     k_label = f"{k}" if k_hi is None or k_hi == k else f"{k}..{k_hi}"
     lines = [f"### Esito del criterio proxy (esplorativo, K={k_label})", ""]
     lines.append(_SCOPE_NOTE)
     lines.append("")
     if winner.winner is None and winner.no_winner_reason:
-        # Spareggio operativo escluso (#236): il pareggio sulla qualità non è il
-        # pareggio a quattro assi, e dirlo con la stessa frase confonderebbe due
-        # fatti diversi. La ragione arriva dal verdetto, non è riscritta qui.
+        # Operational tie-break excluded (#236): the tie on quality is not the
+        # four-axis tie, and saying it with the same sentence would confuse two
+        # different facts. The reason comes from the verdict, it is not rewritten here.
         lines.append(
             f"**Nessun braccio prevale sul proxy.** {winner.no_winner_reason} "
             f"(`{winner.label_a}` vs `{winner.label_b}`)."
@@ -202,7 +202,7 @@ def winner_markdown(
         )
     else:
         dec = winner.deciding_axis
-        assert dec is not None  # winner!=None → deciding_axis valorizzato
+        assert dec is not None  # winner!=None -> deciding_axis set
         last = winner.chain[-1]
         lines.append(
             f"**Su questa run `{winner.winner}` ha scorato meglio sul criterio "
@@ -224,12 +224,12 @@ def winner_markdown(
     lines.append("| --- | --- | --- | --- |")
     for c in winner.chain:
         if c.outcome == "tie":
-            esito = "pari"
+            outcome = "pari"
         else:
-            esito = winner.label_a if c.outcome == "a" else winner.label_b
+            outcome = winner.label_a if c.outcome == "a" else winner.label_b
         lines.append(
             f"| {c.axis} | {_fmt(c.axis, c.value_a)} | "
-            f"{_fmt(c.axis, c.value_b)} | {esito} |"
+            f"{_fmt(c.axis, c.value_b)} | {outcome} |"
         )
     return "\n".join(lines) + "\n"
 
@@ -237,13 +237,13 @@ def winner_markdown(
 def verdict_na_markdown(
     vacuous_arms: list[str], vacuous_zones: list[VacuousZone], k_label: str
 ) -> str:
-    """Sezione «verdetto trattenuto»: manca il testo, gli assi non reggono.
+    """ "Withheld verdict" section: the text is missing, the axes do not hold.
 
-    Sostituisce :func:`winner_markdown` quando la vacuità tocca un braccio intero
-    o anche solo una zona (#231): stessa intestazione (struttura del report
-    stabile), ma al posto del verdetto la ragione per cui su questi assi non se ne
-    può emettere nessuno — in nessuna delle due direzioni. Una sola zona vacua
-    basta: entra nella media che il criterio lessicografico confronta.
+    Replaces :func:`winner_markdown` when vacuity touches a whole arm
+    or even just one zone (#231): same heading (stable report
+    structure), but in place of the verdict the reason why on these axes none
+    can be issued -- in neither direction. A single vacuous zone
+    is enough: it enters the mean that the lexicographic criterion compares.
     """
     return (
         f"### Esito del criterio proxy (esplorativo, K={k_label})\n"
@@ -260,11 +260,11 @@ def verdict_na_markdown(
 
 
 def istat_no_winner_markdown(k_label: str) -> str:
-    """Sezione esito della coppia ontologia vs ontologia + ISTAT (#345, D12).
+    """Outcome section of the ontology vs ontology + ISTAT pair (#345, D12).
 
-    Il verdetto e' trattenuto per disegno, non per vacuita': entrambi i bracci
-    possono aver scritto la narrativa, quindi il testo della vacuita' (con la sua
-    lista di zone mute) sarebbe falso. Stessa intestazione delle altre sezioni.
+    The verdict is withheld by design, not by vacuity: both arms
+    may have written the narrative, so the vacuity text (with its
+    list of mute zones) would be false. Same heading as the other sections.
     """
     return (
         f"### Esito del criterio proxy (esplorativo, K={k_label})\n"
@@ -283,27 +283,27 @@ def build_repeated_report(
     stem: str | None = None,
     force: bool = False,
 ) -> tuple[Path, Path]:
-    """Carica i due esperimenti, ripiega le ripetizioni, confronta e scrive report.
+    """Load the two experiments, fold the repetitions, compare and write the report.
 
-    Scrive ``<stem>.md`` (tabelle #33 + varianza + vincitore) e ``<stem>.json``
-    (comparison #33 + oggetti ``winner`` e ``variance``). Ritorna i due path.
-    Se un file target esiste e ``force`` è ``False`` solleva
-    :class:`FileExistsError` (guardia anti-sovrascrittura, #165).
+    Writes ``<stem>.md`` (tables #33 + variance + winner) and ``<stem>.json``
+    (comparison #33 + ``winner`` and ``variance`` objects). Returns the two paths.
+    If a target file exists and ``force`` is ``False`` raises
+    :class:`FileExistsError` (anti-overwrite guard, #165).
 
-    Se manca la narrativa — un braccio muto in ogni run, o anche una sola zona su
-    cui un braccio tace (#231) — il verdetto
-    è TRATTENUTO: ``winner`` è ``None`` nel JSON, ``quality_verdict.applicable``
-    è ``False`` e il Markdown motiva l'astensione al posto del vincitore. Le
-    tabelle (incluse le operative) restano invariate.
+    If the narrative is missing -- an arm mute in every run, or even a single zone on
+    which an arm is silent (#231) -- the verdict
+    is WITHHELD: ``winner`` is ``None`` in the JSON, ``quality_verdict.applicable``
+    is ``False`` and the Markdown justifies the abstention in place of the winner. The
+    tables (including the operational ones) stay unchanged.
 
-    Se dopo il ripiegamento delle ripetizioni non resta nessuna zona utilizzabile
-    (ogni braccio in ERROR/FALLBACK su ogni zona, #239) scrive comunque un
-    report — Markdown/JSON delle zone escluse, nessun verdetto — e rilancia
-    :class:`~crime_risk_analyzer.eval.compare.NoUsableOutputError`. La guardia
-    anti-sovrascrittura (``FileExistsError``) propaga invariata; un altro
-    fallimento di scrittura (``OSError``: disco pieno, permessi) è solo loggato,
-    e viene comunque rilanciata ``NoUsableOutputError`` — mai l'``OSError`` — così
-    il chiamante CLI esce con un exit code pulito invece di un traceback (#239).
+    If after folding the repetitions no usable zone remains
+    (every arm in ERROR/FALLBACK on every zone, #239) it still writes a
+    report -- Markdown/JSON of the excluded zones, no verdict -- and re-raises
+    :class:`~crime_risk_analyzer.eval.compare.NoUsableOutputError`. The
+    anti-overwrite guard (``FileExistsError``) propagates unchanged; another
+    write failure (``OSError``: disk full, permissions) is only logged,
+    and ``NoUsableOutputError`` is still re-raised -- never the ``OSError`` -- so
+    the CLI caller exits with a clean exit code instead of a traceback (#239).
     """
     la = label_a or experiment_a
     lb = label_b or experiment_b
@@ -313,8 +313,8 @@ def build_repeated_report(
     folded_b = fold_arm(runs_b)
     resolved = stem or f"{experiment_a}_vs_{experiment_b}_repeated"
     try:
-        # #359: l'ancoraggio ai rischi si calcola sulle ripetizioni, non sul
-        # record-media (che non porta la narrativa di ognuna ne' i risk_models).
+        # #359: the risk anchoring is computed on the repetitions, not on the
+        # mean-record (which carries neither the narrative of each nor the risk_models).
         comparison = compare_records(
             folded_a.mean_records,
             folded_b.mean_records,
@@ -335,17 +335,17 @@ def build_repeated_report(
                 results_dir,
             )
         raise exc
-    # Nessun verdetto se manca il testo, a livello di braccio O di singola zona
-    # (#231): premierebbe il silenzio. La vacuità arriva dai record-media, che
-    # conservano la DISPONIBILITÀ di narrativa (repeat._representative_narrativa),
-    # non una media di testi (che non esiste). `quality_verdict` e' gia' stato
-    # calcolato una volta dentro compare_records (#238): non lo si ricalcola qui.
+    # No verdict if the text is missing, at arm level OR single zone
+    # (#231): it would reward silence. Vacuity comes from the mean-records, which
+    # keep the AVAILABILITY of narrative (repeat._representative_narrative),
+    # not an average of texts (which does not exist). `quality_verdict` has already been
+    # computed once inside compare_records (#238): it is not recomputed here.
     withheld = not comparison.quality_verdict.applicable
-    # Su questa coppia il braccio ablato ha un prompt strutturalmente piu' corto,
-    # quindi latenza e costo piu' bassi non sono un merito (#236): escludendoli
-    # dallo spareggio, se la qualita' pareggia il verdetto resta dichiaratamente
-    # non decidibile invece di premiare il prompt piu' breve. Il predicato e' lo
-    # stesso di compare.py, non un secondo riconoscimento della coppia.
+    # On this pair the ablated arm has a structurally shorter prompt,
+    # so lower latency and cost are not a merit (#236): excluding them
+    # from the tie-break, if quality ties the verdict stays declaredly
+    # not decidable instead of rewarding the shorter prompt. The predicate is the
+    # same as compare.py, not a second recognition of the pair.
     winner = (
         None
         if withheld
@@ -360,7 +360,7 @@ def build_repeated_report(
         )
     )
     k_lo, k_hi = _k_range(folded_a, folded_b)
-    k = _k_of(folded_a, folded_b)  # max, per il payload JSON (contratto stabile)
+    k = _k_of(folded_a, folded_b)  # max, for the JSON payload (stable contract)
     warning = (
         f"> ⚠️ K disomogeneo tra zone/bracci (K={k_lo}..{k_hi}): il verdetto "
         "fa la media di zone con basi campionarie diverse.\n\n"
@@ -377,11 +377,11 @@ def build_repeated_report(
             comparison.vacuous_arms, comparison.vacuous_zones, k_label
         )
     else:
-        # Trattenuto senza vacuita': l'unico altro motivo e' la coppia ISTAT
-        # (compare._quality_verdict, D12), e il testo deve dire quello.
+        # Withheld without vacuity: the only other reason is the ISTAT pair
+        # (compare._quality_verdict, D12), and the text must say that.
         verdict_section = istat_no_winner_markdown(k_label)
-    # #359: il rimando alla sezione sull'ancoraggio ai rischi sta vicino al
-    # verdetto, non sopra la tabella; il verdetto non usa quelle misure.
+    # #359: the pointer to the risk-anchoring section sits next to the
+    # verdict, not above the table; the verdict does not use those measures.
     pointer = risk_anchoring_pointer(comparison)
     if pointer:
         verdict_section = verdict_section.rstrip("\n") + "\n\n" + pointer + "\n"
@@ -400,18 +400,18 @@ def build_repeated_report(
         + "\n"
     )
     comparison_json = json.loads(to_json(comparison))
-    # `quality_verdict` vive SOLO al livello superiore del payload (chiave
-    # sorella qui sotto): e' la stessa identica posizione in cui lo trova un
-    # lettore di `compare` (che non ha alcun wrapper "comparison"), non due
-    # copie byte-identiche a due profondita' diverse nello stesso file (#238 —
-    # reperto di review: prima di questo pop, model_dump/to_json includeva
-    # gia' il campo qui dentro, perche' e' un campo vero di Comparison).
+    # `quality_verdict` lives ONLY at the top level of the payload (sibling key
+    # below): it is the very same position in which a reader of `compare`
+    # finds it (which has no "comparison" wrapper), not two
+    # byte-identical copies at two different depths in the same file (#238 --
+    # review finding: before this pop, model_dump/to_json already included
+    # the field in here, because it is a real field of Comparison).
     comparison_json.pop("quality_verdict", None)
     payload = {
         "comparison": comparison_json,
         "winner": winner.model_dump() if winner is not None else None,
-        # Stesso campo di Comparison scritto da write_comparison (#238): niente
-        # dizionario ricostruito a mano che potrebbe divergere.
+        # Same field of Comparison written by write_comparison (#238): no
+        # hand-rebuilt dictionary that could diverge.
         "quality_verdict": comparison.quality_verdict.model_dump(),
         "variance": {
             "k": k,
@@ -425,11 +425,11 @@ def build_repeated_report(
     json_path = results_dir / f"{resolved}.json"
     guard_no_overwrite([md_path, json_path], force)
     md_path.write_text(md, encoding="utf-8")
-    # ensure_ascii=False: coerente con to_json/model_dump_json (usato per
-    # "comparison" qui sotto), che non fa mai l'escape dei caratteri non-ASCII —
-    # senza, lo stesso identico testo (es. "quality_verdict.reason", #238)
-    # finirebbe con un encoding diverso a seconda di quale dei due comandi
-    # (compare vs compare-repeated) ha scritto il file.
+    # ensure_ascii=False: consistent with to_json/model_dump_json (used for
+    # "comparison" below), which never escapes non-ASCII characters --
+    # without it, the very same text (e.g. "quality_verdict.reason", #238)
+    # would end up with a different encoding depending on which of the two commands
+    # (compare vs compare-repeated) wrote the file.
     json_path.write_text(
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )

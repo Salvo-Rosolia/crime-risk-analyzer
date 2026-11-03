@@ -1,9 +1,9 @@
-"""Test del confronto a due bracci (#32).
+"""Tests of the two-arm comparison (#32).
 
-Primitiva GENERICA (bracci A vs B qualsiasi): unisce i RunRecord di due
-esperimenti per ``(citta, zona)`` e calcola il delta delle 4 metriche. La
-riusa #33 (claude vs groq). I test sono offline: costruiscono i record a mano,
-nessuna run live LLM/Overpass.
+GENERIC primitive (any arms A vs B): joins the RunRecords of two
+experiments by ``(citta, zona)`` and computes the delta of the 4 metrics. It is
+reused by #33 (claude vs groq). The tests are offline: they build the records by hand,
+no live LLM/Overpass run.
 """
 
 from __future__ import annotations
@@ -68,10 +68,10 @@ def _rec(
     poi_nel_prompt: tuple[str, ...] | None = ("1",),
     n_poi: int = 1,
 ) -> RunRecord:
-    """RunRecord minimale con metriche controllate per i test di confronto.
+    """Minimal RunRecord with controlled metrics for the comparison tests.
 
-    ``poi_nel_prompt`` di default e' l'unico punto della zona (``n_poi=1``): la
-    condizione dei record prodotti dopo #349 senza taglio.
+    ``poi_nel_prompt`` by default is the only point of the zone (``n_poi=1``): the
+    condition of the records produced after #349 without cut.
     """
     return RunRecord(
         run_id=f"{experiment}__{citta}__{zona}__{mode}__{model}".lower(),
@@ -106,7 +106,7 @@ def _rec(
 
 
 def _arm_a_with_error() -> list[RunRecord]:
-    """Braccio A con una zona (Napoli) in ERROR: metriche azzerate come l'harness."""
+    """Arm A with a zone (Napoli) in ERROR: zeroed metrics like the harness."""
     return _arm_a() + [
         _rec(
             "full",
@@ -122,7 +122,7 @@ def _arm_a_with_error() -> list[RunRecord]:
 
 
 def _arm_b_napoli_ok() -> list[RunRecord]:
-    """Braccio B con Napoli OK (metriche reali): stesso set di zone di A."""
+    """Arm B with Napoli OK (real metrics): same set of zones as A."""
     return _arm_b() + [
         _rec(
             "base",
@@ -189,7 +189,7 @@ def _arm_b() -> list[RunRecord]:
 
 
 def test_compare_records_joins_and_computes_per_zone_delta() -> None:
-    """Unisce per (citta, zona) e calcola delta = A - B su ogni metrica."""
+    """Join by (citta, zona) and compute delta = A - B on every metric."""
     cmp = compare_records(_arm_a(), _arm_b(), label_a="full", label_b="base")
     assert isinstance(cmp, Comparison)
     by_zone = {(z.citta, z.zona): z for z in cmp.zones}
@@ -203,7 +203,7 @@ def test_compare_records_joins_and_computes_per_zone_delta() -> None:
 
 
 def test_compare_records_sorts_zones_deterministically() -> None:
-    """L'ordine delle zone è deterministico (sorted per (citta, zona))."""
+    """The order of the zones is deterministic (sorted by (citta, zona))."""
     cmp = compare_records(_arm_a(), _arm_b(), label_a="full", label_b="base")
     assert [(z.citta, z.zona) for z in cmp.zones] == [
         ("Milano", "Duomo"),
@@ -212,7 +212,7 @@ def test_compare_records_sorts_zones_deterministically() -> None:
 
 
 def test_compare_records_aggregate_means_and_mean_delta() -> None:
-    """L'aggregato è la media per braccio; mean_delta == mean_a - mean_b."""
+    """The aggregate is the mean per arm; mean_delta == mean_a - mean_b."""
     cmp = compare_records(_arm_a(), _arm_b(), label_a="full", label_b="base")
     assert cmp.mean_a.grounding == pytest.approx(0.85)
     assert cmp.mean_b.grounding == pytest.approx(0.45)
@@ -231,14 +231,15 @@ def test_compare_records_labels_are_preserved() -> None:
 
 
 def test_compare_records_raises_on_zone_key_mismatch() -> None:
-    """Set di (citta, zona) diversi tra i bracci → errore (iso-input violato)."""
-    arm_b = [_arm_b()[0]]  # manca (Milano, Duomo)
+    """Different sets of (citta, zona) between the arms -> error (iso-input
+    violated)."""
+    arm_b = [_arm_b()[0]]  # (Milano, Duomo) is missing
     with pytest.raises(ValueError, match="(?i)zone|citta|zona|iso"):
         compare_records(_arm_a(), arm_b, label_a="full", label_b="base")
 
 
 def test_compare_records_raises_on_duplicate_zone_within_arm() -> None:
-    """Due record per la stessa (citta, zona) nello stesso braccio → errore."""
+    """Two records for the same (citta, zona) in the same arm -> error."""
     dup = _arm_a() + [
         _rec(
             "full",
@@ -255,35 +256,35 @@ def test_compare_records_raises_on_duplicate_zone_within_arm() -> None:
 
 
 def test_compare_records_raises_on_empty() -> None:
-    """Nessuna zona in comune (bracci vuoti) → errore, niente media su 0."""
+    """No zone in common (empty arms) -> error, no mean over 0."""
     with pytest.raises(ValueError):
         compare_records([], [], label_a="a", label_b="b")
 
 
 def test_zone_comparison_delta_type() -> None:
-    """Il delta è un MetricValues (può essere negativo, fuori da [0,1])."""
+    """The delta is a MetricValues (can be negative, outside [0,1])."""
     cmp = compare_records(_arm_b(), _arm_a(), label_a="base", label_b="full")
     z = cmp.zones[0]
     assert isinstance(z, ZoneComparison)
     assert isinstance(z.delta, MetricValues)
-    assert z.delta.grounding < 0  # base - full è negativo
+    assert z.delta.grounding < 0  # base - full is negative
 
 
-# --- M1: i record in ERROR non inquinano delta/medie ----------------------
+# --- M1: ERROR records do not pollute deltas/means ----------------------
 
 
 def test_error_zone_excluded_from_zones_and_means() -> None:
-    """Una zona in ERROR (metriche azzerate) è esclusa da zone comparate e medie."""
+    """A zone in ERROR (zeroed metrics) is excluded from compared zones and means."""
     cmp = compare_records(
         _arm_a_with_error(), _arm_b_napoli_ok(), label_a="full", label_b="base"
     )
-    # Napoli (ERROR in A) NON compare tra le zone confrontate.
+    # Napoli (ERROR in A) does NOT appear among the compared zones.
     assert [(z.citta, z.zona) for z in cmp.zones] == [
         ("Milano", "Duomo"),
         ("Roma", "Colosseo"),
     ]
-    # Le medie sono identiche al caso a 2 zone tutte-OK: lo zero di Napoli non
-    # entra nell'aggregato (niente media silenziosa su un record azzerato).
+    # The means are identical to the 2-zone all-OK case: Napoli's zero does not
+    # enter the aggregate (no silent mean over a zeroed record).
     baseline = compare_records(_arm_a(), _arm_b(), label_a="full", label_b="base")
     assert cmp.mean_a.grounding == pytest.approx(baseline.mean_a.grounding)
     assert cmp.mean_b.grounding == pytest.approx(baseline.mean_b.grounding)
@@ -294,17 +295,17 @@ def test_error_zone_excluded_from_zones_and_means() -> None:
 @pytest.mark.parametrize(
     "status", [s for s in RunStatus if s is not RunStatus.OK], ids=lambda s: s.value
 )
-def test_ogni_status_diverso_da_ok_e_tenuto_fuori_dalle_medie(
+def test_every_status_other_than_ok_is_kept_out_of_the_means(
     status: RunStatus,
 ) -> None:
-    """Nessuno status di fallimento entra nelle medie, presenti e futuri.
+    """No failure status enters the means, present and future.
 
-    Parametrizzato sull'enum e non sulla coppia ERROR/FALLBACK di oggi: un nuovo
-    valore (``HARNESS_ERROR``) nasce con metriche azzerate per costruzione, e se
-    qualcuno dimentica di aggiungerlo a ``_EXCLUDED_STATUSES`` quegli zeri
-    finiscono nella media come se fossero una misura — un braccio peggiorerebbe
-    per un bug della strumentazione, in silenzio. Questo caso fallisce al posto
-    della tabella.
+    Parametrized on the enum and not on today's ERROR/FALLBACK pair: a new
+    value (``HARNESS_ERROR``) is born with zeroed metrics by construction, and if
+    someone forgets to add it to ``_EXCLUDED_STATUSES`` those zeros
+    end up in the mean as if they were a measure -- an arm would get worse
+    because of an instrumentation bug, silently. This case fails in place
+    of the table.
     """
     arm_a = _arm_a() + [
         _rec(
@@ -331,7 +332,7 @@ def test_ogni_status_diverso_da_ok_e_tenuto_fuori_dalle_medie(
 
 
 def test_error_zone_reported_with_both_statuses() -> None:
-    """La zona fallita è riportata con lo status di ENTRAMBI i bracci."""
+    """The failed zone is reported with the status of BOTH arms."""
     cmp = compare_records(
         _arm_a_with_error(), _arm_b_napoli_ok(), label_a="full", label_b="base"
     )
@@ -349,7 +350,7 @@ def test_no_failed_zones_when_all_ok() -> None:
 
 
 def test_fallback_zone_is_excluded_from_comparison() -> None:
-    """FALLBACK ha narrativa vuota → metriche non di qualità: la zona è esclusa."""
+    """FALLBACK has an empty narrative -> non-quality metrics: the zone is excluded."""
     arm_a = _arm_a() + [
         _rec(
             "full",
@@ -375,7 +376,7 @@ def test_fallback_zone_is_excluded_from_comparison() -> None:
         )
     ]
     cmp = compare_records(arm_a, arm_b, label_a="full", label_b="base")
-    # Napoli (FALLBACK in A) NON è tra le zone confrontate.
+    # Napoli (FALLBACK in A) is NOT among the compared zones.
     assert [(z.citta, z.zona) for z in cmp.zones] == [
         ("Milano", "Duomo"),
         ("Roma", "Colosseo"),
@@ -384,7 +385,7 @@ def test_fallback_zone_is_excluded_from_comparison() -> None:
 
 
 def test_fallback_zone_reported_with_status() -> None:
-    """L'esclusione FALLBACK è tracciata (non silenziosa): status nel FailedZone."""
+    """The FALLBACK exclusion is traced (not silent): status in the FailedZone."""
     arm_a = _arm_a() + [
         _rec(
             "full",
@@ -415,7 +416,7 @@ def test_fallback_zone_reported_with_status() -> None:
 
 
 def test_raises_when_all_zones_fallback() -> None:
-    """Un braccio interamente in FALLBACK → nessuna zona valida → errore chiaro."""
+    """An arm entirely in FALLBACK -> no valid zone -> clear error."""
     arm_a = [
         _rec(
             "full",
@@ -445,7 +446,7 @@ def test_raises_when_all_zones_fallback() -> None:
 
 
 def test_no_usable_output_error_carries_label_and_failed_zones() -> None:
-    """#239: l'eccezione porta i dati per il report, non solo un messaggio."""
+    """#239: the exception carries the data for the report, not just a message."""
     arm_a = [
         _rec(
             "full",
@@ -483,7 +484,7 @@ def test_no_usable_output_error_carries_label_and_failed_zones() -> None:
 
 
 def test_raises_when_all_zones_error() -> None:
-    """Se non resta alcuna zona valida → errore esplicito (niente media su nulla)."""
+    """If no valid zone remains -> explicit error (no mean over nothing)."""
     arm_a = [
         _rec(
             "full",
@@ -512,11 +513,12 @@ def test_raises_when_all_zones_error() -> None:
         compare_records(arm_a, arm_b, label_a="full", label_b="base")
 
 
-# --- m1: iso-input a livello di record (snapshot_id) -----------------------
+# --- m1: iso-input at record level (snapshot_id) -----------------------
 
 
 def test_raises_on_snapshot_id_mismatch() -> None:
-    """Stessa (citta, zona) ma snapshot_id diverso tra i bracci → errore iso-input."""
+    """Same (citta, zona) but different snapshot_id between the arms -> iso-input
+    error."""
     arm_a = [
         _rec(
             "full",
@@ -546,11 +548,11 @@ def test_raises_on_snapshot_id_mismatch() -> None:
         compare_records(arm_a, arm_b, label_a="full", label_b="base")
 
 
-# --- serializzazione: CSV / Markdown --------------------------------------
+# --- serialization: CSV / Markdown --------------------------------------
 
 
 def test_to_csv_labeled_headers_and_mean_row() -> None:
-    """Header parametrizzati sulle label + riga aggregata (media)."""
+    """Headers parametrized on the labels + aggregate row (mean)."""
     csv = to_csv(compare_records(_arm_a(), _arm_b(), label_a="full", label_b="base"))
     lines = csv.strip().splitlines()
     header = lines[0]
@@ -560,14 +562,14 @@ def test_to_csv_labeled_headers_and_mean_row() -> None:
     assert "grounding_delta" in header
     assert "latency_ms_delta" in header
     assert "cost_usd_delta" in header
-    assert "MEDIA" in csv  # riga aggregata
+    assert "MEDIA" in csv  # aggregate row
 
 
 def test_to_csv_delta_has_sign() -> None:
-    """Il delta è formattato col segno esplicito (+/-)."""
+    """The delta is formatted with the explicit sign (+/-)."""
     csv = to_csv(compare_records(_arm_a(), _arm_b(), label_a="full", label_b="base"))
-    assert "+0.400" in csv  # delta grounding
-    assert "+1900" in csv  # delta latency (Roma)
+    assert "+0.400" in csv  # grounding delta
+    assert "+1900" in csv  # latency delta (Roma)
 
 
 def test_to_markdown_table_with_headers_and_mean() -> None:
@@ -577,12 +579,13 @@ def test_to_markdown_table_with_headers_and_mean() -> None:
     assert "|" in md
     assert "grounding_delta" in md
     assert "MEDIA" in md
-    # separatore di tabella markdown
+    # markdown table separator
     assert "---" in md
 
 
 def test_to_markdown_reports_failed_zones_section() -> None:
-    """La sezione zone escluse compare nel markdown, con status di entrambi i bracci."""
+    """The excluded-zones section appears in the markdown, with the status of both
+    arms."""
     cmp = compare_records(
         _arm_a_with_error(), _arm_b_napoli_ok(), label_a="full", label_b="base"
     )
@@ -595,11 +598,12 @@ def test_to_markdown_reports_failed_zones_section() -> None:
 
 
 def test_csv_is_rectangular_with_failed_zones() -> None:
-    """Opzione (a): con zone in ERROR il CSV resta RETTANGOLARE e non le include.
+    """Option (a): with zones in ERROR the CSV stays RECTANGULAR and does not include
+    them.
 
-    Le zone fallite NON entrano nel CSV numerico (niente riga ragged, pandas le
-    carica pulite) ma NON spariscono: restano in ``Comparison.failed`` (e nel
-    report Markdown).
+    The failed zones do NOT enter the numeric CSV (no ragged row, pandas loads
+    them clean) but do NOT disappear: they stay in ``Comparison.failed`` (and in the
+    Markdown report).
     """
     import csv as _csv
     import io as _io
@@ -611,36 +615,36 @@ def test_csv_is_rectangular_with_failed_zones() -> None:
     rows = list(_csv.reader(_io.StringIO(csv_text)))
     header_width = len(rows[0])
     for row in rows:
-        assert len(row) == header_width  # nessuna riga di larghezza diversa
-    # header + zone valide (Milano, Roma) + MEDIA; Napoli (ERROR) escluso.
+        assert len(row) == header_width  # no row of different width
+    # header + valid zones (Milano, Roma) + MEDIA; Napoli (ERROR) excluded.
     assert len(rows) == len(cmp.zones) + 2
     assert "Napoli" not in csv_text
     assert "status_full" not in csv_text
-    # Non perso: accessibile programmaticamente.
+    # Not lost: accessible programmatically.
     assert [(f.citta, f.zona) for f in cmp.failed] == [("Napoli", "Garibaldi")]
 
 
 def test_no_failed_section_in_markdown_when_all_ok() -> None:
-    """Senza fallimenti non c'è sezione zone escluse nel report Markdown."""
+    """Without failures there is no excluded-zones section in the Markdown report."""
     cmp = compare_records(_arm_a(), _arm_b(), label_a="full", label_b="base")
     assert "escluse" not in to_markdown(cmp).lower()
 
 
 def test_main_table_rows_match_header_width() -> None:
-    """m2: header e righe dati derivano dalla stessa fonte → stessa larghezza."""
+    """m2: header and data rows derive from the same source -> same width."""
     import csv as _csv
     import io as _io
 
     cmp = compare_records(_arm_a(), _arm_b(), label_a="full", label_b="base")
     rows = list(_csv.reader(_io.StringIO(to_csv(cmp))))
     header_width = len(rows[0])
-    # header + una riga per zona + riga MEDIA, tutte della stessa larghezza.
+    # header + one row per zone + MEDIA row, all of the same width.
     assert len(rows) == len(cmp.zones) + 2
     for row in rows:
         assert len(row) == header_width
 
 
-# --- scrittura su disco ----------------------------------------------------
+# --- writing to disk ----------------------------------------------------
 
 
 def test_write_comparison_writes_csv_and_md(tmp_path: Path) -> None:
@@ -656,11 +660,12 @@ def test_write_comparison_writes_csv_and_md(tmp_path: Path) -> None:
 def test_write_comparison_csv_uses_newline_empty(
     tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:
-    """Regressione stile #103 per il file NUOVO: CSV scritto con newline="".
+    """#103-style regression for the NEW file: CSV written with newline="".
 
-    ``csv.writer`` emette già ``\\r\\n``; senza ``newline=""`` il text-mode di
-    ``write_text`` su Windows ritradurrebbe ``\\n`` in ``\\r\\n`` (righe spurie).
-    Guard deterministico e cross-platform: spia il KWARG passato a write_text.
+    ``csv.writer`` already emits ``\\r\\n``; without ``newline=""`` the text mode of
+    ``write_text`` on Windows would re-translate ``\\n`` into ``\\r\\n`` (spurious
+    rows). Deterministic and cross-platform guard: it spies the KWARG passed to
+    write_text.
     """
     cmp = compare_records(_arm_a(), _arm_b(), label_a="full", label_b="base")
 
@@ -686,7 +691,7 @@ def test_write_comparison_csv_uses_newline_empty(
 
 
 def test_compare_experiments_end_to_end(tmp_path: Path) -> None:
-    """Da record su disco (due esperimenti) a tabelle: load → join → write."""
+    """From records on disk (two experiments) to tables: load -> join -> write."""
     for rec in _arm_a():
         write_record(tmp_path, rec)
     for rec in _arm_b():
@@ -699,7 +704,7 @@ def test_compare_experiments_end_to_end(tmp_path: Path) -> None:
     text = csv_path.read_text(encoding="utf-8")
     assert "grounding_analyze" in text
     assert "grounding_baseline" in text
-    assert "+0.400" in text  # delta grounding Roma verificato end-to-end
+    assert "+0.400" in text  # Roma grounding delta verified end-to-end
 
 
 def test_compare_experiments_custom_stem(tmp_path: Path) -> None:
@@ -744,10 +749,10 @@ def _all_fallback_arm(experiment: str, mode: Mode) -> list[RunRecord]:
 def test_compare_experiments_writes_report_and_raises_when_all_zones_fail(
     tmp_path: Path,
 ) -> None:
-    """#239: nessun output utilizzabile → report su disco, non un traceback nudo.
+    """#239: no usable output -> report on disk, not a bare traceback.
 
-    Entrambe le zone sono escluse (una FALLBACK, una ERROR su A): niente MEDIA,
-    niente tabella di metriche, nessun verdetto — solo le zone escluse.
+    Both zones are excluded (one FALLBACK, one ERROR on A): no MEDIA,
+    no metrics table, no verdict -- only the excluded zones.
     """
     for rec in _all_fallback_arm("full", "analyze"):
         write_record(tmp_path, rec)
@@ -769,12 +774,12 @@ def test_compare_experiments_writes_report_and_raises_when_all_zones_fail(
     csv_text = csv_path.read_text(encoding="utf-8")
     assert "Roma" in csv_text
     assert "Milano" in csv_text
-    assert "MEDIA" not in csv_text  # nessuna media: non c'è nulla da mediare
+    assert "MEDIA" not in csv_text  # no mean: there is nothing to average
 
     md_text = md_path.read_text(encoding="utf-8")
     assert "Nessun output utilizzabile" in md_text
     assert "Nessun verdetto" in md_text
-    assert "grounding" not in md_text.lower()  # nessuna tabella di metriche
+    assert "grounding" not in md_text.lower()  # no metrics table
 
     payload = json.loads(json_path.read_text(encoding="utf-8"))
     assert payload["winner"] is None
@@ -785,9 +790,9 @@ def test_compare_experiments_writes_report_and_raises_when_all_zones_fail(
 def test_compare_experiments_still_raises_no_usable_output_if_report_write_fails(
     tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:
-    """#239 (follow-up review): un OSError nella scrittura del report non deve
-    sostituire NoUsableOutputError — altrimenti il CLI perde l'exit code pulito
-    e torna a un traceback non gestito (esattamente ciò che #239 doveva evitare).
+    """#239 (review follow-up): an OSError in the report write must not
+    replace NoUsableOutputError -- otherwise the CLI loses the clean exit code
+    and goes back to an unhandled traceback (exactly what #239 was meant to avoid).
     """
     import crime_risk_analyzer.eval.compare as compare_mod
 
@@ -805,14 +810,14 @@ def test_compare_experiments_still_raises_no_usable_output_if_report_write_fails
         compare_experiments(
             tmp_path, "full", "base", label_a="analyze", label_b="baseline"
         )
-    # Nessun file scritto: _boom ha sostituito la scrittura reale.
+    # No file written: _boom replaced the real write.
     assert not (tmp_path / "full_vs_base.md").exists()
 
 
 def test_compare_experiments_propagates_file_exists_error_from_report_write(
     tmp_path: Path,
 ) -> None:
-    """La guardia anti-sovrascrittura resta prioritaria anche su questo ramo."""
+    """The anti-overwrite guard stays prioritary also on this branch."""
     for rec in _all_fallback_arm("full", "analyze"):
         write_record(tmp_path, rec)
     for rec in _all_fallback_arm("base", "baseline"):
@@ -828,7 +833,7 @@ def test_compare_experiments_propagates_file_exists_error_from_report_write(
 def test_main_compare_returns_1_on_no_usable_output(
     tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:
-    """#239: il comando CLI `compare` segnala il fallimento con exit code 1."""
+    """#239: the CLI command `compare` signals the failure with exit code 1."""
     import sys
 
     import crime_risk_analyzer.eval.__main__ as eval_main
@@ -857,10 +862,10 @@ def test_main_compare_returns_1_on_no_usable_output(
 def test_main_compare_dispatch_writes_tables(
     tmp_path: Path, monkeypatch: MonkeyPatch
 ) -> None:
-    """DoD #32: le tabelle di ablation sono rigenerabili con UN comando CLI.
+    """DoD #32: the ablation tables are regenerable with ONE CLI command.
 
-    Guida ``eval.__main__.main`` con argv del sottocomando ``compare``: dai
-    record su disco produce i file CSV/MD del confronto.
+    Drives ``eval.__main__.main`` with the argv of the ``compare`` subcommand: from the
+    records on disk it produces the CSV/MD files of the comparison.
     """
     import sys
 
@@ -900,7 +905,7 @@ def test_compare_experiments_refuses_overwrite_without_force(tmp_path: Path) -> 
     from crime_risk_analyzer.eval.compare import compare_experiments
     from crime_risk_analyzer.eval.harness import write_record
 
-    # due bracci minimi, una zona OK ciascuno, stesso snapshot_id
+    # two minimal arms, one OK zone each, same snapshot_id
     from crime_risk_analyzer.eval.schema import (
         Metrics,
         Provenance,
@@ -942,12 +947,12 @@ def test_compare_experiments_refuses_overwrite_without_force(tmp_path: Path) -> 
     compare_experiments(tmp_path, "a-exp", "b-exp", stem="dup", force=True)
 
 
-# --- Braccio strutturalmente vacuo: assi di qualita' non applicabili (#231) ---
+# --- Structurally vacuous arm: quality axes not applicable (#231) ---
 #
-# Osservato sulla prima run reale: il braccio `baseline` (nessun LLM) non produce
-# narrativa, cade nel ramo VACUO di metrics.py (grounding 1.0 / hallucination 0.0)
-# e cosi' "vince" gli assi di qualita' per assenza di testo da giudicare. La
-# regola vacua e' corretta per il FALLBACK; qui va marcata come non interpretabile.
+# Observed on the first real run: the `baseline` arm (no LLM) produces no
+# narrative, falls into the VACUOUS branch of metrics.py (grounding 1.0 / hallucination
+# 0.0) and so "wins" the quality axes for absence of text to judge. The
+# vacuous rule is correct for FALLBACK; here it must be marked as not interpretable.
 
 
 def _analyze_rec(
@@ -981,7 +986,7 @@ def _analyze_rec(
 
 
 def _silent_rec(citta: str, zona: str, *, narrativa: str = "") -> RunRecord:
-    """Record del braccio senza LLM: status OK, nessuna narrativa (by design)."""
+    """Record of the arm without LLM: status OK, no narrative (by design)."""
     return _rec(
         "baseline-exp",
         citta,
@@ -996,7 +1001,7 @@ def _silent_rec(citta: str, zona: str, *, narrativa: str = "") -> RunRecord:
     )
 
 
-def test_compare_records_flags_arm_that_never_produces_narrativa() -> None:
+def test_compare_records_flags_arm_that_never_produces_narrative() -> None:
     comparison = compare_records(
         [_analyze_rec("Roma", "Colosseo")],
         [_silent_rec("Roma", "Colosseo")],
@@ -1006,8 +1011,8 @@ def test_compare_records_flags_arm_that_never_produces_narrativa() -> None:
     assert comparison.vacuous_arms == ["baseline"]
 
 
-def test_compare_records_does_not_flag_arm_with_narrativa_on_some_zones() -> None:
-    """Un braccio muto su UNA zona ma parlante su un'altra NON e' vacuo."""
+def test_compare_records_does_not_flag_arm_with_narrative_on_some_zones() -> None:
+    """An arm mute on ONE zone but speaking on another is NOT vacuous."""
     comparison = compare_records(
         [_analyze_rec("Roma", "Colosseo"), _analyze_rec("Milano", "Duomo")],
         [
@@ -1020,7 +1025,7 @@ def test_compare_records_does_not_flag_arm_with_narrativa_on_some_zones() -> Non
     assert comparison.vacuous_arms == []
 
 
-def test_compare_records_flags_arm_whose_narrativa_is_only_whitespace() -> None:
+def test_compare_records_flags_arm_whose_narrative_is_only_whitespace() -> None:
     comparison = compare_records(
         [_analyze_rec("Roma", "Colosseo")],
         [_silent_rec("Roma", "Colosseo", narrativa="   \n  ")],
@@ -1040,13 +1045,13 @@ def test_markdown_marks_quality_axes_not_applicable_for_vacuous_arm() -> None:
     md = to_markdown(comparison)
     assert VACUOUS_CAVEAT_HEAD in md
     assert "`baseline`" in md
-    # Il caveat deve precedere la nota metodologica generica: si legge prima.
+    # The caveat must precede the generic methodological note: it is read first.
     assert md.index(VACUOUS_CAVEAT_HEAD) < md.index("Nota metodologica")
 
 
 def test_markdown_does_not_claim_operational_axes_are_compared_when_vacuous() -> None:
-    """#237: il caveat di vacuità non deve promettere un confronto operativo che
-    non viene mai dichiarato — solo dati grezzi leggibili nelle tabelle."""
+    """#237: the vacuity caveat must not promise an operational comparison that
+    is never declared -- only raw data readable in the tables."""
     comparison = compare_records(
         [_analyze_rec("Roma", "Colosseo")],
         [_silent_rec("Roma", "Colosseo")],
@@ -1068,12 +1073,12 @@ def test_markdown_has_no_quality_caveat_when_both_arms_generate() -> None:
     assert VACUOUS_CAVEAT_HEAD not in to_markdown(comparison)
 
 
-# --- Vacuita' per ZONA, non solo per braccio (#231, review C2) --------------
+# --- Vacuity per ZONE, not just per arm (#231, review C2) --------------
 #
-# `status=OK` con narrativa vuota e' raggiungibile in produzione: il client Groq
-# ritorna `content or ""` senza sollevare (llm/client.py), quindi l'orchestrator
-# risponde fallback=False e l'harness registra OK. Una singola zona muta prende
-# hallucination 0.000 vacuo e puo' spostare la media che decide il verdetto.
+# `status=OK` with empty narrative is reachable in production: the Groq client
+# returns `content or ""` without raising (llm/client.py), so the orchestrator
+# answers fallback=False and the harness records OK. A single mute zone gets
+# hallucination 0.000 vacuous and can shift the mean that decides the verdict.
 
 
 def test_compare_records_flags_the_single_zone_where_an_arm_stays_silent() -> None:
@@ -1086,7 +1091,7 @@ def test_compare_records_flags_the_single_zone_where_an_arm_stays_silent() -> No
         label_a="analyze",
         label_b="baseline",
     )
-    # Il braccio non e' vacuo (parla su Milano), ma Roma resta non interpretabile.
+    # The arm is not vacuous (speaks on Milano), but Roma stays not interpretable.
     assert comparison.vacuous_arms == []
     assert [(z.citta, z.zona, z.arms) for z in comparison.vacuous_zones] == [
         ("Roma", "Colosseo", ["baseline"])
@@ -1094,12 +1099,12 @@ def test_compare_records_flags_the_single_zone_where_an_arm_stays_silent() -> No
 
 
 def test_compare_records_flags_zone_vacuous_for_no_anchors_not_just_silence() -> None:
-    """#240: ``has_narrativa`` da sola non copre "narrativa piena ma zona senza
-    POI/ancoraggi da citare" — lo dichiarava il suo stesso confine (docstring
-    pre-#240 di ``is_vacuous_arm``). Un record con narrativa NON vuota ma
-    ``metrics.quality_vacuous=True`` (il ramo vacuo di ``metrics.py::_grade`` per
-    assenza di ancoraggi) deve comunque finire in ``vacuous_zones``: prima del
-    fix qui sarebbe passato inosservato perche' il testo c'era.
+    """#240: ``has_narrative`` alone does not cover "full narrative but zone without
+    POIs/anchors to cite" -- its own boundary declared it (pre-#240 docstring
+    of ``is_vacuous_arm``). A record with a NON-empty narrative but
+    ``metrics.quality_vacuous=True`` (the vacuous branch of ``metrics.py::_grade`` for
+    absence of anchors) must still end up in ``vacuous_zones``: before the
+    fix it would have gone unnoticed because the text was there.
     """
     comparison = compare_records(
         [_analyze_rec("Roma", "Colosseo")],
@@ -1151,8 +1156,8 @@ def test_markdown_names_the_vacuous_zone_when_the_arm_is_not_wholly_silent() -> 
 
 
 def test_markdown_puts_the_vacuity_warning_before_the_numbers() -> None:
-    """L'avviso deve precedere la tabella: chi legge non deve incontrare prima
-    un delta di qualità che l'avviso poi smentisce (review C1)."""
+    """The warning must precede the table: whoever reads must not first meet
+    a quality delta that the warning then contradicts (review C1)."""
     comparison = compare_records(
         [_analyze_rec("Roma", "Colosseo")],
         [_silent_rec("Roma", "Colosseo")],
@@ -1164,11 +1169,11 @@ def test_markdown_puts_the_vacuity_warning_before_the_numbers() -> None:
 
 
 def test_is_vacuous_arm_is_false_for_an_arm_without_records() -> None:
-    """Un braccio vuoto non è muto: non è un braccio (regola documentata)."""
+    """An empty arm is not mute: it is not an arm (documented rule)."""
     assert is_vacuous_arm([]) is False
 
 
-# --- #236: il report dichiara quale variabile isola il confronto --------------
+# --- #236: the report declares which variable the comparison isolates --------------
 
 
 def _no_ontology_rec(
@@ -1183,13 +1188,13 @@ def _no_ontology_rec(
     n_poi: int = 1,
     status: RunStatus = RunStatus.OK,
 ) -> RunRecord:
-    """Record del braccio ablato: con LLM, prompt senza contributo ontologico.
+    """Record of the ablated arm: with LLM, prompt without ontological contribution.
 
-    Modello e temperatura coincidono per default con quelli di
-    :func:`_analyze_rec`: e' la condizione reale della coppia (i due esperimenti
-    ``ablation-*-groq`` girano sullo stesso provider) e la sola in cui il
-    confronto isola davvero il contributo ontologico del prompt. I test del
-    confronto CONFUSO li sovrascrivono per far divergere un braccio.
+    Model and temperature coincide by default with those of
+    :func:`_analyze_rec`: it is the real condition of the pair (the two experiments
+    ``ablation-*-groq`` run on the same provider) and the only one in which the
+    comparison really isolates the ontological contribution of the prompt. The tests of
+    the CONFOUNDED comparison override them to make an arm diverge.
     """
     return _rec(
         "no-ontology-exp",
@@ -1211,10 +1216,10 @@ def _no_ontology_rec(
 
 
 def test_comparison_declares_the_isolated_variable_for_the_c3_pair() -> None:
-    """Il confronto analyze vs no_ontology_prompt sa cosa sta isolando.
+    """The analyze vs no_ontology_prompt comparison knows what it is isolating.
 
-    La dichiarazione e' DERIVATA dai modi dei record, non cablata sul nome
-    dell'esperimento: due bracci qualsiasi restano etichettabili liberamente.
+    The declaration is DERIVED from the modes of the records, not wired to the name
+    of the experiment: any two arms stay freely labellable.
     """
     comparison = compare_records(
         [_analyze_rec("Roma", "Colosseo")],
@@ -1227,10 +1232,10 @@ def test_comparison_declares_the_isolated_variable_for_the_c3_pair() -> None:
 
 
 def test_comparison_declares_nothing_for_other_pairs() -> None:
-    """Su una coppia che non isola l'ontologia il report resta com'era.
+    """On a pair that does not isolate the ontology the report stays as it was.
 
-    ``analyze`` vs ``baseline`` (o due modelli) non manipola il contributo
-    ontologico: dichiarare che lo isola sarebbe falso.
+    ``analyze`` vs ``baseline`` (or two models) does not manipulate the ontological
+    contribution: declaring that it isolates it would be false.
     """
     comparison = compare_records(
         [_analyze_rec("Roma", "Colosseo")],
@@ -1243,11 +1248,11 @@ def test_comparison_declares_nothing_for_other_pairs() -> None:
 
 
 def test_markdown_declares_the_isolated_variable_before_the_numbers() -> None:
-    """La dichiarazione precede la tabella e non promette piu' del proxy.
+    """The declaration precedes the table and does not promise more than the proxy.
 
-    Va letta PRIMA dei delta (come l'avviso di vacuita'), e deve dire che le due
-    colonne di qualita' restano proxy testuali: il confronto isola l'ontologia,
-    non certifica la qualita' dell'analisi.
+    It must be read BEFORE the deltas (like the vacuity warning), and must say that the
+    two quality columns stay textual proxies: the comparison isolates the ontology,
+    it does not certify the quality of the analysis.
     """
     comparison = compare_records(
         [_analyze_rec("Roma", "Colosseo")],
@@ -1262,7 +1267,7 @@ def test_markdown_declares_the_isolated_variable_before_the_numbers() -> None:
 
 
 def test_isolated_variable_survives_in_the_json_report(tmp_path: Path) -> None:
-    """Anche il deliverable machine-readable dichiara la variabile isolata."""
+    """The machine-readable deliverable also declares the isolated variable."""
     write_record(tmp_path, _analyze_rec("Roma", "Colosseo"))
     write_record(tmp_path, _no_ontology_rec("Roma", "Colosseo"))
     compare_experiments(
@@ -1278,13 +1283,13 @@ def test_isolated_variable_survives_in_the_json_report(tmp_path: Path) -> None:
 
 
 def test_isolated_variable_does_not_claim_a_shared_model_when_models_differ() -> None:
-    """La coppia di modi non basta a promettere «stesso modello».
+    """The pair of modes is not enough to promise "same model".
 
-    I modi dicono cosa cambia nel PROMPT, non con che generatore la prosa e'
-    stata scritta: confrontando una run Claude con una run Groq la frase «i due
-    bracci condividono modello» e' falsa, e attribuirebbe all'ancoraggio
-    ontologico un delta prodotto da due modelli diversi — in un report che
-    finisce nel capitolo di valutazione della tesi.
+    The modes say what changes in the PROMPT, not with which generator the prose was
+    written: comparing a Claude run with a Groq run the sentence "the two
+    arms share model" is false, and it would attribute to the ontological
+    anchoring a delta produced by two different models -- in a report that
+    ends up in the evaluation chapter of the thesis.
     """
     comparison = compare_records(
         [_analyze_rec("Roma", "Colosseo")],
@@ -1295,19 +1300,19 @@ def test_isolated_variable_does_not_claim_a_shared_model_when_models_differ() ->
     note = comparison.isolated_variable
     assert "condividono modello" not in note
     assert ISOLATED_VARIABLE_HEAD not in note
-    # Non basta tacere: la nota deve dire perche' il delta non e' attribuibile
-    # all'ontologia, e nominare i due modelli che il lettore sta confrontando.
+    # It is not enough to stay silent: the note must say why the delta is not
+    # attributable to the ontology, and name the two models the reader is comparing.
     assert CONFOUNDED_VARIABLE_HEAD in note
     assert "`claude`" in note
     assert "`groq`" in note
 
 
 def test_isolated_variable_does_not_claim_a_shared_temperature_when_it_varies() -> None:
-    """Stesso modello ma temperature diverse: la variabile resta confusa.
+    """Same model but different temperatures: the variable stays confounded.
 
-    La temperatura decide quanto la prosa si allontana dal prompt, cioe' proprio
-    l'asse che i proxy misurano: promettere «stessa temperatura» senza guardare
-    la provenienza sposterebbe sull'ontologia un delta di campionamento.
+    The temperature decides how far the prose moves from the prompt, i.e. precisely
+    the axis that the proxies measure: promising "same temperature" without looking at
+    the provenance would shift onto the ontology a sampling delta.
     """
     comparison = compare_records(
         [_analyze_rec("Roma", "Colosseo")],
@@ -1324,18 +1329,18 @@ def test_isolated_variable_does_not_claim_a_shared_temperature_when_it_varies() 
 def test_isolated_variable_does_not_claim_isolation_when_context_format_differs() -> (
     None
 ):
-    """Terza dimensione dell'impostazione: il FORMATO del blocco POI (#273).
+    """Third dimension of the setting: the FORMAT of the POI block (#273).
 
-    ``per_classe`` scrive l'insieme di hazard una volta per classe invece di
-    ripeterlo per punto: e' un secondo prompt, e #273 esiste proprio perche' non
-    e' ovvio quale dei due faccia nominare piu' punti — cioe' agisce sull'asse
-    che i proxy misurano. Confrontare un braccio raggruppato con l'ablato (che
-    per costruzione e' sempre ``per_poi``, lo schema rifiuta il resto)
-    cambierebbe formato E contributo ontologico insieme.
+    ``per_classe`` writes the set of hazards once per class instead of
+    repeating it per point: it is a second prompt, and #273 exists precisely because it
+    is not obvious which of the two makes more points be named -- i.e. it acts on the
+    axis that the proxies measure. Comparing a grouped arm with the ablated one (which
+    by construction is always ``per_poi``, the schema rejects the rest)
+    would change format AND ontological contribution together.
 
-    Difesa in profondita': nessuna config committata usa oggi ``per_classe``,
-    quindi qui non si sta chiudendo un bug attivo ma la porta da cui entrerebbe
-    il primo A/B sul formato.
+    Defence in depth: no committed config uses ``per_classe`` today,
+    so here no active bug is being closed but the door through which the
+    first A/B on the format would enter.
     """
     comparison = compare_records(
         [_analyze_rec("Roma", "Colosseo", context_format="per_classe")],
@@ -1351,11 +1356,11 @@ def test_isolated_variable_does_not_claim_isolation_when_context_format_differs(
 
 
 def test_isolated_variable_does_not_claim_a_shared_model_within_a_mixed_arm() -> None:
-    """Un braccio che mescola due modelli non ha un modello da dichiarare.
+    """An arm that mixes two models has no model to declare.
 
-    ``load_runs`` filtra per nome esperimento: se lo stesso esperimento e' stato
-    rilanciato cambiando provider, il braccio arriva misto. Non c'e' un valore
-    unico da dire condiviso, quindi la nota non lo promette.
+    ``load_runs`` filters by experiment name: if the same experiment was
+    re-run changing provider, the arm arrives mixed. There is no single value
+    to say shared, so the note does not promise it.
     """
     comparison = compare_records(
         [_analyze_rec("Roma", "Colosseo"), _analyze_rec("Milano", "Duomo")],
@@ -1372,11 +1377,11 @@ def test_isolated_variable_does_not_claim_a_shared_model_within_a_mixed_arm() ->
 
 
 def test_markdown_warns_before_the_numbers_when_the_pair_is_confounded() -> None:
-    """L'avviso arriva nel report, e prima della tabella come la dichiarazione.
+    """The warning arrives in the report, and before the table like the declaration.
 
-    E' il documento che finisce nel capitolo di valutazione: leggere i delta e
-    solo dopo scoprire che i bracci non sono confrontabili e' l'ordine in cui si
-    sbaglia a leggere (stessa regola dell'avviso di vacuita').
+    It is the document that ends up in the evaluation chapter: reading the deltas and
+    only afterwards discovering that the arms are not comparable is the order in which
+    one misreads (same rule as the vacuity warning).
     """
     comparison = compare_records(
         [_analyze_rec("Roma", "Colosseo")],
@@ -1390,12 +1395,12 @@ def test_markdown_warns_before_the_numbers_when_the_pair_is_confounded() -> None
 
 
 def test_the_c3_note_warns_that_speed_and_cost_come_from_prompt_length() -> None:
-    """Il braccio ablato e' piu' veloce ed economico PER COSTRUZIONE.
+    """The ablated arm is faster and cheaper BY CONSTRUCTION.
 
-    Il suo prompt non porta hazard, vulnerabilita' e citazioni: e' piu' corto,
-    quindi consuma meno token e impiega meno tempo qualunque sia la qualita'
-    della prosa. Chi legge la tabella operativa vede un vantaggio dove c'e' solo
-    meno testo, percio' il report lo dichiara accanto alla variabile isolata.
+    Its prompt carries no hazard, vulnerability or citations: it is shorter,
+    so it consumes fewer tokens and takes less time whatever the quality
+    of the prose. Whoever reads the operational table sees an advantage where there is
+    just less text, so the report declares it next to the isolated variable.
     """
     comparison = compare_records(
         [_analyze_rec("Roma", "Colosseo")],
@@ -1408,11 +1413,11 @@ def test_the_c3_note_warns_that_speed_and_cost_come_from_prompt_length() -> None
 
 
 def test_the_prompt_length_warning_survives_a_confounded_pair() -> None:
-    """L'avviso resta anche quando la variabile NON e' isolata.
+    """The warning stays also when the variable is NOT isolated.
 
-    La lunghezza dei due prompt e' una proprieta' dei prompt: non dipende dal
-    fatto che i bracci condividano modello e temperatura, ne' da come vanno gli
-    assi di qualita'.
+    The length of the two prompts is a property of the prompts: it does not depend on
+    whether the arms share model and temperature, nor on how the quality axes
+    go.
     """
     comparison = compare_records(
         [_analyze_rec("Roma", "Colosseo")],
@@ -1425,7 +1430,7 @@ def test_the_prompt_length_warning_survives_a_confounded_pair() -> None:
 
 
 def test_the_prompt_length_warning_is_absent_from_other_pairs() -> None:
-    """Su ``analyze`` vs ``baseline`` non c'e' un prompt piu' corto da spiegare."""
+    """On ``analyze`` vs ``baseline`` there is no shorter prompt to explain."""
     comparison = compare_records(
         [_analyze_rec("Roma", "Colosseo")],
         [_silent_rec("Roma", "Colosseo")],
@@ -1436,32 +1441,35 @@ def test_the_prompt_length_warning_is_absent_from_other_pairs() -> None:
 
 
 def test_is_ontology_isolating_pair_recognizes_only_the_c3_pair() -> None:
-    """Il predicato che il verdetto consuma vive qui, derivato dai modi.
+    """The predicate that the verdict consumes lives here, derived from the modes.
 
-    E' lo stesso riconoscimento della nota di isolamento: una seconda copia a
-    valle potrebbe divergere proprio sulla coppia che conta.
+    It is the same recognition as the isolation note: a second copy
+    downstream could diverge precisely on the pair that matters.
     """
     analyze = [_analyze_rec("Roma", "Colosseo")]
     assert is_ontology_isolating_pair(analyze, [_no_ontology_rec("Roma", "Colosseo")])
     assert not is_ontology_isolating_pair(analyze, [_silent_rec("Roma", "Colosseo")])
     assert not is_ontology_isolating_pair(analyze, [_analyze_rec("Roma", "Colosseo")])
-    # Braccio MISTO: non esiste una coppia di modi da riconoscere.
-    misto = [_analyze_rec("Roma", "Colosseo"), _no_ontology_rec("Milano", "Duomo")]
-    ablato = [_no_ontology_rec("Roma", "Colosseo"), _no_ontology_rec("Milano", "Duomo")]
-    assert not is_ontology_isolating_pair(misto, ablato)
+    # MIXED arm: there is no pair of modes to recognise.
+    mixed = [_analyze_rec("Roma", "Colosseo"), _no_ontology_rec("Milano", "Duomo")]
+    ablated = [
+        _no_ontology_rec("Roma", "Colosseo"),
+        _no_ontology_rec("Milano", "Duomo"),
+    ]
+    assert not is_ontology_isolating_pair(mixed, ablated)
 
 
-# --- #236: il controllo di coerenza guarda i record giusti, e anche il seed ----
+# --- #236: the consistency check looks at the right records, and also the seed ----
 
 
 def test_a_fallback_record_does_not_confound_the_pair_by_itself() -> None:
-    """Il placeholder del fallback non e' un'impostazione dell'esperimento.
+    """The fallback placeholder is not a setting of the experiment.
 
-    ``_structured_response`` scrive sempre ``Repro(temperature=0.0)`` quando l'LLM
-    cade, qualunque temperatura sia configurata: con una temperatura reale diversa
-    da 0.0 il braccio sembrerebbe misto e il report dichiarerebbe un confondimento
-    mai configurato. Le medie escludono gia' ERROR/FALLBACK (#163) — il controllo
-    di coerenza deve guardare gli stessi record.
+    ``_structured_response`` always writes ``Repro(temperature=0.0)`` when the LLM
+    drops, whatever temperature is configured: with a real temperature different
+    from 0.0 the arm would look mixed and the report would declare a confound
+    never configured. The means already exclude ERROR/FALLBACK (#163) -- the consistency
+    check must look at the same records.
     """
     comparison = compare_records(
         [
@@ -1487,12 +1495,12 @@ def test_a_fallback_record_does_not_confound_the_pair_by_itself() -> None:
 
 
 def test_isolated_variable_does_not_claim_isolation_when_the_seed_differs() -> None:
-    """Quarta dimensione dell'impostazione: il seed di campionamento.
+    """Fourth dimension of the setting: the sampling seed.
 
-    Due semi diversi fanno campionare al modello due prose diverse dallo stesso
-    prompt: e' l'asse che i proxy misurano, quindi il delta non sarebbe
-    attribuibile all'ancoraggio ontologico piu' di quanto lo sia con due
-    temperature diverse.
+    Two different seeds make the model sample two different prose from the same
+    prompt: it is the axis that the proxies measure, so the delta would not be
+    attributable to the ontological anchoring any more than it is with two
+    different temperatures.
     """
     comparison = compare_records(
         [_analyze_rec("Roma", "Colosseo", seed=0)],
@@ -1508,7 +1516,7 @@ def test_isolated_variable_does_not_claim_isolation_when_the_seed_differs() -> N
 
 
 def test_the_isolated_note_lists_the_seed_among_the_shared_settings() -> None:
-    """Cio' che la nota promette condiviso e' cio' che ha verificato."""
+    """What the note promises shared is what it verified."""
     comparison = compare_records(
         [_analyze_rec("Roma", "Colosseo", seed=7)],
         [_no_ontology_rec("Roma", "Colosseo", seed=7)],
@@ -1519,20 +1527,20 @@ def test_the_isolated_note_lists_the_seed_among_the_shared_settings() -> None:
     assert "seed" in comparison.isolated_variable
 
 
-# --- #236 + #231: la dichiarazione di isolamento non contraddice la vacuita' ---
+# --- #236 + #231: the isolation declaration does not contradict vacuity ---
 #
-# I due blocchi che aprono il report parlano degli STESSI assi: uno diceva che il
-# delta di qualita' misura l'effetto dell'ontologia, l'altro che su quegli assi il
-# confronto non e' interpretabile in nessuna direzione. Erano stampati entrambi,
-# incondizionatamente, nello stesso documento.
+# The two blocks that open the report speak of the SAME axes: one said that the
+# quality delta measures the effect of the ontology, the other that on those axes the
+# comparison is not interpretable in any direction. Both were printed,
+# unconditionally, in the same document.
 
 
 def _c3_pair_with_one_silent_zone() -> Comparison:
-    """Coppia C3 isolata (stesso modello/temperatura/formato) con UNA zona muta.
+    """Isolated C3 pair (same model/temperature/format) with ONE mute zone.
 
-    Stato raggiungibile in produzione: il client ritorna ``content or ""`` senza
-    sollevare, quindi una zona con ``status=OK`` e narrativa vuota entra
-    nell'aggregato con ``grounding``/``hallucination`` vacui (#231).
+    State reachable in production: the client returns ``content or ""`` without
+    raising, so a zone with ``status=OK`` and empty narrative enters
+    the aggregate with vacuous ``grounding``/``hallucination`` (#231).
     """
     return compare_records(
         [_analyze_rec("Roma", "Colosseo"), _analyze_rec("Milano", "Duomo")],
@@ -1548,12 +1556,12 @@ def _c3_pair_with_one_silent_zone() -> Comparison:
 def test_isolation_does_not_claim_a_measured_delta_when_quality_axes_are_vacuous() -> (
     None
 ):
-    """Un solo blocco per volta puo' parlare degli assi di qualita'.
+    """Only one block at a time can speak of the quality axes.
 
-    Con isolamento verificato E vacuita' il report affermava e negava la stessa
-    cosa a due righe di distanza: «il delta misura l'effetto dell'ancoraggio
-    ontologico» e, subito sotto, «su questi assi il confronto NON e'
-    interpretabile in nessuna direzione».
+    With verified isolation AND vacuity the report asserted and denied the same
+    thing two lines apart: "the delta measures the effect of the ontological
+    anchoring" and, right below, "on these axes the comparison is NOT
+    interpretable in any direction".
     """
     md = to_markdown(_c3_pair_with_one_silent_zone())
     assert VACUOUS_CAVEAT_HEAD in md
@@ -1561,11 +1569,12 @@ def test_isolation_does_not_claim_a_measured_delta_when_quality_axes_are_vacuous
 
 
 def test_isolation_still_says_what_changes_between_the_arms_when_vacuous() -> None:
-    """La dichiarazione non sparisce: dice cosa cambia, senza promettere il delta.
+    """The declaration does not disappear: it says what changes, without promising the
+    delta.
 
-    Il disegno dei due bracci resta isolato (stesso modello, temperatura,
-    formato) e l'avviso sulla lunghezza del prompt serve ancora, perche' la
-    tabella operativa e' stampata comunque.
+    The design of the two arms stays isolated (same model, temperature,
+    format) and the warning on the prompt length is still needed, because the
+    operational table is printed anyway.
     """
     comparison = _c3_pair_with_one_silent_zone()
     note = comparison.isolated_variable
@@ -1575,7 +1584,7 @@ def test_isolation_still_says_what_changes_between_the_arms_when_vacuous() -> No
 
 
 def test_isolation_keeps_claiming_the_measured_delta_without_vacuity() -> None:
-    """Non-regressione: senza vacuita' la nota resta quella di prima."""
+    """Non-regression: without vacuity the note stays as before."""
     comparison = compare_records(
         [_analyze_rec("Roma", "Colosseo")],
         [_no_ontology_rec("Roma", "Colosseo")],
@@ -1588,7 +1597,7 @@ def test_isolation_keeps_claiming_the_measured_delta_without_vacuity() -> None:
     assert VACUOUS_CAVEAT_HEAD not in md
 
 
-# --- #349: la parita' di POI nel prompt e' verificata, non presunta ---
+# --- #349: POI parity in the prompt is verified, not presumed ---
 
 
 def _c3(a: list[RunRecord], b: list[RunRecord]) -> Comparison:
@@ -1596,9 +1605,9 @@ def _c3(a: list[RunRecord], b: list[RunRecord]) -> Comparison:
 
 
 def test_isolation_is_not_claimed_on_records_without_poi_in_prompt() -> None:
-    """Record precedenti a #349 (``poi_nel_prompt`` assente): la parita' non e'
-    verificabile, quindi la variabile NON e' dichiarata isolata e il report dice
-    perche', caso per caso."""
+    """Records prior to #349 (``poi_nel_prompt`` absent): parity is not
+    verifiable, so the variable is NOT declared isolated and the report says
+    why, case by case."""
     note = _c3(
         [_analyze_rec("Roma", "Colosseo", poi_nel_prompt=None)],
         [_no_ontology_rec("Roma", "Colosseo", poi_nel_prompt=None)],
@@ -1620,7 +1629,8 @@ def test_isolation_is_not_claimed_when_one_arm_lacks_poi_in_prompt() -> None:
 
 
 def test_isolation_is_not_claimed_when_the_poi_sets_differ() -> None:
-    """Il caso che #349 chiude: 20 POI contro 9-12. Insiemi diversi = due variabili."""
+    """The case that #349 closes: 20 POIs against 9-12. Different sets = two
+    variables."""
     note = _c3(
         [
             _analyze_rec("Roma", "Colosseo", poi_nel_prompt=("1", "2"), n_poi=3),
@@ -1640,8 +1650,8 @@ def test_isolation_is_not_claimed_when_the_poi_sets_differ() -> None:
 
 
 def test_isolation_holds_when_the_sets_match_in_a_different_order() -> None:
-    """L'ordine diverge per costruzione (il completo per rilevanza, l'ablato
-    nell'ordine del recupero): conta l'INSIEME."""
+    """The order diverges by construction (the full one by relevance, the ablated
+    in the retrieval one): the SET counts."""
     note = _c3(
         [_analyze_rec("Roma", "Colosseo", poi_nel_prompt=("2", "1"), n_poi=2)],
         [_no_ontology_rec("Roma", "Colosseo", poi_nel_prompt=("1", "2"), n_poi=2)],
@@ -1651,8 +1661,9 @@ def test_isolation_holds_when_the_sets_match_in_a_different_order() -> None:
 
 
 def test_isolation_ignores_zones_excluded_from_the_comparison() -> None:
-    """Un FALLBACK non ha generato prosa (``poi_nel_prompt`` None) ed e' gia'
-    escluso da medie e delta: non rende confusa la variabile sulle altre zone."""
+    """A FALLBACK did not generate prose (``poi_nel_prompt`` None) and is already
+    excluded from means and deltas: it does not make the variable confounded on the
+    other zones."""
     note = _c3(
         [_analyze_rec("Roma", "Colosseo"), _analyze_rec("Milano", "Duomo")],
         [
@@ -1668,8 +1679,8 @@ def test_isolation_ignores_zones_excluded_from_the_comparison() -> None:
 def test_isolation_with_a_cut_declares_the_subset_and_an_undetermined_direction() -> (
     None
 ):
-    """Stessi POI ma non tutti: il report lo dice, con N su M per caso, chi li ha
-    scelti e che il verso dell'effetto non e' determinato."""
+    """Same POIs but not all of them: the report says so, with N out of M per case, who
+    chose them and that the direction of the effect is not determined."""
     comparison = _c3(
         [
             _analyze_rec("Roma", "Colosseo", poi_nel_prompt=("3", "1"), n_poi=5),
@@ -1690,9 +1701,9 @@ def test_isolation_with_a_cut_declares_the_subset_and_an_undetermined_direction(
 
 
 def test_isolated_note_says_the_points_are_the_same_and_verified() -> None:
-    """La nota diceva che l'unica differenza era il PROMPT e che l'ablato riceve
-    "solo nome e classe dei punti": resta vero solo dicendo che sono gli STESSI
-    punti, verificati sui record."""
+    """The note said that the only difference was the PROMPT and that the ablated one
+    receives "solo nome e classe dei punti": it stays true only by saying that they are
+    the SAME points, verified on the records."""
     note = _c3(
         [_analyze_rec("Roma", "Colosseo")], [_no_ontology_rec("Roma", "Colosseo")]
     ).isolated_variable
@@ -1700,8 +1711,8 @@ def test_isolated_note_says_the_points_are_the_same_and_verified() -> None:
 
 
 def test_compare_experiments_writes_the_vacuity_warning_to_disk(tmp_path: Path) -> None:
-    """AC3: il percorso non ripetuto (quello che il CLI `compare` chiama) deve
-    portare l'avviso nel .md e `vacuous_arms` nel .json scritti su disco."""
+    """AC3: the non-repeated path (the one the CLI `compare` calls) must
+    carry the warning in the .md and `vacuous_arms` in the .json written to disk."""
     write_record(tmp_path, _analyze_rec("Roma", "Colosseo"))
     write_record(tmp_path, _silent_rec("Roma", "Colosseo"))
     compare_experiments(
@@ -1717,30 +1728,30 @@ def test_compare_experiments_writes_the_vacuity_warning_to_disk(tmp_path: Path) 
     payload = json.loads((tmp_path / "cli.json").read_text(encoding="utf-8"))
     assert payload["vacuous_arms"] == ["baseline"]
     assert payload["vacuous_zones"][0]["zona"] == "Colosseo"
-    # #238: lo stesso campo esplicito del report ripetuto, anche qui — un
-    # lettore non deve ispezionare la forma di vacuous_arms/vacuous_zones per
-    # sapere se gli assi di qualita' sono leggibili.
+    # #238: the same explicit field of the repeated report, here too -- a
+    # reader must not inspect the shape of vacuous_arms/vacuous_zones to
+    # know whether the quality axes are readable.
     assert payload["quality_verdict"]["applicable"] is False
     assert payload["quality_verdict"]["vacuous_arms"] == ["baseline"]
     assert payload["quality_verdict"]["reason"] == (
         "manca la narrativa su cui i proxy di qualità si pronunciano: "
         "metriche vacue (#231)"
     )
-    # ensure_ascii=False: lo stesso identico testo non deve finire con un
-    # encoding diverso a seconda che l'abbia scritto `compare` o
-    # `compare-repeated` (#238).
+    # ensure_ascii=False: the very same text must not end up with a different
+    # encoding depending on whether `compare` or
+    # `compare-repeated` wrote it (#238).
     assert "qualità" in (tmp_path / "cli.json").read_text(encoding="utf-8")
 
 
 def test_write_comparison_json_reports_quality_verdict_applicable_when_not_vacuous(
     tmp_path: Path,
 ) -> None:
-    """#238: stesso campo del percorso ripetuto, qui a `applicable: True`."""
+    """#238: same field as the repeated path, here at `applicable: True`."""
     cmp = compare_records(_arm_a(), _arm_b(), label_a="full", label_b="base")
     write_comparison(tmp_path, cmp, "ablation")
     payload = json.loads((tmp_path / "ablation.json").read_text(encoding="utf-8"))
     assert payload["quality_verdict"]["applicable"] is True
     assert payload["quality_verdict"]["vacuous_arms"] == []
     assert payload["quality_verdict"]["reason"] == ""
-    # Le chiavi gia' scritte da #33/#157 restano al livello piatto di sempre.
+    # The keys already written by #33/#157 stay at the usual flat level.
     assert payload["label_a"] == "full"

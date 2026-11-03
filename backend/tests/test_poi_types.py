@@ -1,8 +1,8 @@
-"""Test del catalogo dei tipi POI e della normalizzazione di ``tipo_poi`` (#143).
+"""Tests for the POI type catalog and the normalization of ``tipo_poi`` (#143).
 
-Il catalogo sono le classi TERMINUS che il mapping OSM puo' davvero produrre (i
-valori distinti di ``OSM_TO_TERMINUS``), con l'etichetta IT del vocabolario #77.
-Nessuna rete: tutto deriva da dati statici del package.
+The catalog is the TERMINUS classes that the OSM mapping can actually produce
+(the distinct values of ``OSM_TO_TERMINUS``), with the IT label from the #77
+vocabulary. No network: everything derives from static package data.
 """
 
 from __future__ import annotations
@@ -30,14 +30,14 @@ from crime_risk_analyzer.sparql_module.osm_mapping import (
     OSM_TO_TERMINUS,
 )
 
-# --- catalogo ---
+# --- catalog ---
 
 
 def test_catalog_is_exactly_the_distinct_mapped_classes() -> None:
     classes = [t.terminus_class for t in poi_types()]
     assert len(classes) == len(set(classes))
     assert set(classes) == set(OSM_TO_TERMINUS.values())
-    # Il fallback dei tag non coperti non e' un tipo selezionabile.
+    # The fallback for uncovered tags is not a selectable type.
     assert GENERIC_FALLBACK not in classes
 
 
@@ -56,7 +56,7 @@ def test_catalog_contains_bank_with_italian_label() -> None:
     assert PoiType(terminus_class="Bank", label_it="Banca") in poi_types()
 
 
-# --- normalizzazione ---
+# --- normalization ---
 
 
 @pytest.mark.parametrize(
@@ -98,7 +98,7 @@ def test_resolve_poi_type_error_message_shows_stripped_input() -> None:
 
 
 def test_every_catalog_entry_resolves_by_class_and_by_label() -> None:
-    """Nessuna collisione: ogni nome e ogni etichetta portano alla propria classe."""
+    """No collision: every name and every label leads to its own class."""
     for t in poi_types():
         assert resolve_poi_type(t.terminus_class) == t.terminus_class
         assert resolve_poi_type(t.label_it) == t.terminus_class
@@ -117,7 +117,7 @@ def test_get_poi_types_endpoint_shape_and_order() -> None:
     assert {"terminus_class": "Bank", "label_it": "Banca"} in body
 
 
-# --- BaselineRequest: forma del campo ---
+# --- BaselineRequest: shape of the field ---
 
 _CIRCLE: dict[str, object] = {
     "center": {"lat": 41.89, "lon": 12.49},
@@ -130,7 +130,7 @@ def test_baseline_request_strips_tipo_poi_and_blank_is_none() -> None:
         BaselineRequest.model_validate({**_CIRCLE, "tipo_poi": "  bank "}).tipo_poi
         == "bank"
     )
-    # Strip prima del tetto: soli spazi oltre max_length restano "assente".
+    # Strip before the cap: only spaces beyond max_length stay "absent".
     assert (
         BaselineRequest.model_validate({**_CIRCLE, "tipo_poi": " " * 300}).tipo_poi
         is None
@@ -142,19 +142,19 @@ def test_baseline_request_rejects_overlong_tipo_poi() -> None:
         BaselineRequest.model_validate({**_CIRCLE, "tipo_poi": "x" * 101})
 
 
-# --- review #143: immutabilita', fail-fast, vocabolario, apostrofi ---
+# --- review #143: immutability, fail-fast, vocabulary, apostrophes ---
 
 
 def test_poi_type_is_frozen() -> None:
-    """Le voci vivono nella cache di ``poi_types()``: nessuno deve poterle mutare."""
+    """The entries live in the ``poi_types()`` cache: nobody may mutate them."""
     entry = poi_types()[0]
     with pytest.raises(ValidationError):
         entry.label_it = "manomesso"  # pyright: ignore[reportAttributeAccessIssue]
 
 
 def test_every_entry_has_a_real_italian_label() -> None:
-    """Ogni voce ha una ``label_it`` vera nel vocabolario #77, non il fallback
-    EN/nome: e' quanto afferma il docstring di :mod:`poi_types`."""
+    """Every entry has a real ``label_it`` in the #77 vocabulary, not the
+    EN/name fallback: this is what the :mod:`poi_types` docstring states."""
     records = terminus_labels._records()  # pyright: ignore[reportPrivateUsage]
     for t in poi_types():
         rec = records.get(t.terminus_class)

@@ -1,6 +1,6 @@
-"""CLI della fondazione di valutazione (#34).
+"""CLI of the evaluation foundation (#34).
 
-Sottocomandi: capture/run/aggregate/compare/city-agnostic/gold-sample/gold-report.
+Subcommands: capture/run/aggregate/compare/city-agnostic/gold-sample/gold-report.
 """
 
 from __future__ import annotations
@@ -17,12 +17,12 @@ from crime_risk_analyzer.llm.client import LLMClient, build_llm_client
 
 
 def load_config(path: Path) -> ExperimentConfig:
-    """Carica un ExperimentConfig da file JSON."""
+    """Load an ExperimentConfig from a JSON file."""
     return ExperimentConfig.model_validate_json(Path(path).read_text(encoding="utf-8"))
 
 
 def code_commit() -> str:
-    """git rev-parse HEAD (vuoto se non disponibile)."""
+    """git rev-parse HEAD (empty if not available)."""
     try:
         return subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -35,7 +35,7 @@ def code_commit() -> str:
 
 
 def ontology_hash() -> str:
-    """sha256 del file ontologia configurato (vuoto se non trovato)."""
+    """sha256 of the configured ontology file (empty if not found)."""
     settings = get_settings()
     path = Path(settings.ontology_path)
     if not path.exists():
@@ -44,37 +44,37 @@ def ontology_hash() -> str:
 
 
 def build_llm_eval_client(config: ExperimentConfig) -> LLMClient:
-    """Client LLM con temperature=0 per il determinismo nella pipeline eval.
+    """LLM client with temperature=0 for determinism in the eval pipeline.
 
-    Rispetta ``config.model`` come provider override, cosi' il ``run_id``
-    riporta il provider effettivamente usato (fix I1). Chiamare solo quando
-    ``config.mode != 'baseline'`` (fix T9): baseline non usa l'LLM.
+    Honours ``config.model`` as provider override, so the ``run_id`` reports
+    the provider actually used (fix I1). Call only when
+    ``config.mode != 'baseline'`` (fix T9): baseline does not use the LLM.
     """
     return build_llm_client(get_settings(), provider=config.model).with_temperature(
         0.0, 0
     )
 
 
-def _secondi(testo: str) -> float:
-    """Secondi di ``--pausa``: numero finito e non negativo (#357).
+def _seconds(text: str) -> float:
+    """Seconds of ``--pausa``: finite, non-negative number (#357).
 
-    ``float`` da solo accetta ``nan`` (che spegnerebbe la pausa senza avvisi) e
-    ``inf`` (che bloccherebbe la run dopo il primo caso): qui escono come errore
-    d'uso, prima di caricare ontologia e client.
+    ``float`` alone accepts ``nan`` (which would silently switch the pause off) and
+    ``inf`` (which would block the run after the first case): here they come out
+    as a usage error, before loading ontology and client.
     """
     try:
-        valore = float(testo)
+        value = float(text)
     except ValueError as exc:
-        raise argparse.ArgumentTypeError(f"non e' un numero: {testo!r}") from exc
-    if not math.isfinite(valore) or valore < 0:
+        raise argparse.ArgumentTypeError(f"non e' un numero: {text!r}") from exc
+    if not math.isfinite(value) or value < 0:
         raise argparse.ArgumentTypeError(
-            f"deve essere un numero finito >= 0, ricevuto {testo!r}"
+            f"deve essere un numero finito >= 0, ricevuto {text!r}"
         )
-    return valore
+    return value
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Parser per tutti i sottocomandi di valutazione."""
+    """Parser for all the evaluation subcommands."""
     parser = argparse.ArgumentParser(prog="crime_risk_analyzer.eval")
     sub = parser.add_subparsers(dest="command", required=True)
     for name in ("capture", "run"):
@@ -82,7 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--config", required=True)
         p.add_argument("--results", default="results")
         if name == "capture":
-            # Idempotenza di default (skip-if-exists, #110 M2); --force ri-cattura.
+            # Idempotent by default (skip-if-exists, #110 M2); --force re-captures.
             p.add_argument(
                 "--force",
                 action="store_true",
@@ -97,7 +97,7 @@ def build_parser() -> argparse.ArgumentParser:
             )
             p.add_argument(
                 "--pausa",
-                type=_secondi,
+                type=_seconds,
                 default=0.0,
                 help=(
                     "secondi di attesa prima di ogni chiamata al modello, prima "
@@ -113,7 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
     agg = sub.add_parser("aggregate")
     agg.add_argument("--experiment", required=True)
     agg.add_argument("--results", default="results")
-    # compare (#32): confronto a due bracci generico (A vs B), riusato da #33.
+    # compare (#32): generic two-arm comparison (A vs B), reused by #33.
     cmp_parser = sub.add_parser("compare")
     cmp_parser.add_argument("--experiment-a", required=True)
     cmp_parser.add_argument("--experiment-b", required=True)
@@ -124,7 +124,7 @@ def build_parser() -> argparse.ArgumentParser:
     cmp_parser.add_argument(
         "--force", action="store_true", help="sovrascrive i file di output esistenti"
     )
-    # compare-repeated (#157): report esteso con K ripetizioni (varianza) + vincitore.
+    # compare-repeated (#157): extended report with K repetitions (variance) + winner.
     rep_parser = sub.add_parser("compare-repeated")
     rep_parser.add_argument("--experiment-a", required=True)
     rep_parser.add_argument("--experiment-b", required=True)
@@ -138,13 +138,13 @@ def build_parser() -> argparse.ArgumentParser:
     ca_parser = sub.add_parser("city-agnostic")
     ca_parser.add_argument("phase", choices=["capture", "report"])
     ca_parser.add_argument("--results", default="results")
-    # Annotazione gold per-rischio (#152): due fasi, due verbi.
+    # Per-risk gold annotation (#152): two phases, two verbs.
     gold_sample = sub.add_parser("gold-sample")
     gold_sample.add_argument("--results", default="results")
     gold_sample.add_argument("--experiment", default=None)
-    # choices vincolato: il meccanismo è definito sul blocco [ONTOLOGIA] del
-    # braccio di prodotto, quindi un typo (o --mode baseline) produrrebbe in
-    # silenzio un foglio vuoto o privo di senso invece di un errore.
+    # choices constrained: the mechanism is defined on the [ONTOLOGIA] block of the
+    # product arm, so a typo (or --mode baseline) would silently produce an empty
+    # or meaningless worksheet instead of an error.
     gold_sample.add_argument("--mode", default="analyze", choices=["analyze"])
     gold_sample.add_argument(
         "--force",

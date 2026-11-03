@@ -1,9 +1,9 @@
-"""Test del grounding layer (#24): RetrievalContext grezzo -> context validato.
+"""Tests for the grounding layer (#24): raw RetrievalContext -> validated context.
 
-ground() non chiama rete ne' modello: i RetrievalContext sono costruiti a mano e
-non servono mock. Non e' piu' una funzione pura in senso stretto (#345): con i
-dati ISTAT legge la copia locale dei dati, caricata una volta e tenuta in cache.
-Il caso 8 aggancia l'output al consumer reale (generation).
+ground() calls neither network nor model: the RetrievalContext objects are built
+by hand and need no mock. It is no longer a pure function in the strict sense
+(#345): with the ISTAT data it reads the local copy of the data, loaded once
+and kept in cache. Case 8 hooks the output to the real consumer (generation).
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from crime_risk_analyzer.istat.rows import IstatPoi as _IstatPoi
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.models.geo import Bbox as _Bbox
 from crime_risk_analyzer.models.risk import PoiRiskProfile
-from crime_risk_analyzer.models.risk import PoiRiskProfile as _Profilo
+from crime_risk_analyzer.models.risk import PoiRiskProfile as _Profile
 from crime_risk_analyzer.models.vocab import ConfidenceSummary
 from crime_risk_analyzer.overpass_client import Poi
 from crime_risk_analyzer.overpass_client import Poi as _Poi
@@ -51,8 +51,9 @@ def _profile(
     stakeholders: list[str] | None = None,
     sparql_paths: list[str] | None = None,
 ) -> PoiRiskProfile:
-    """Profilo sintetico. Gli assi si passano da qui e non con ``model_copy(update=)``,
-    che bypasserebbe la validazione Pydantic del modello."""
+    """Synthetic profile. The axes are passed from here and not with
+    ``model_copy(update=)``, which would bypass the Pydantic validation of the
+    model."""
     return PoiRiskProfile(
         terminus_class=terminus_class,
         hazards=hazards or [],
@@ -104,7 +105,8 @@ def test_ground_happy_path_multi_class() -> None:
     assert len(out["validated_risks"]) == 2
     vr0 = out["validated_risks"][0]
     assert vr0["poi"] == "Banca A"
-    # L'id nasce qui: e' la chiave con cui i rischi restano attribuibili al punto.
+    # The id is born here: it is the key with which the risks stay attributable to
+    # the point.
     assert vr0["poi_id"] == "1"
     assert out["validated_risks"][1]["poi_id"] == "2"
     assert vr0["terminus_class"] == "Bank"
@@ -116,7 +118,7 @@ def test_ground_happy_path_multi_class() -> None:
             "source": "Bank → havingHazard → Robbery",
         }
     ]
-    # Da #256 ogni asse porta la propria citazione, non il solo nome.
+    # Since #256 every axis carries its own citation, not just the name.
     assert vr0["vulnerabilities"] == [
         {
             "name": "Poor_surveillance",
@@ -126,15 +128,15 @@ def test_ground_happy_path_multi_class() -> None:
     assert vr0["sparql_path"] == "Bank → havingHazard → Robbery"
 
 
-def test_ground_ancora_tutti_e_quattro_gli_assi_col_proprio_path() -> None:
-    """L'executor estrae quattro assi TERMINUS: il grounding li ancora tutti (#270).
+def test_ground_anchors_all_four_axes_with_their_own_path() -> None:
+    """The executor extracts four TERMINUS axes: the grounding anchors them all (#270).
 
-    Prima solo gli hazard diventavano rischi con citazione; gli eventi critici erano
-    calcolati a ogni richiesta e non letti da nessuno, e le vulnerabilita' arrivavano
-    al prompt come stringhe nude, senza il path che le ancora all'ontologia. Un asse
-    senza citazione non e' verificabile, quindi non puo' essere mostrato accanto a
-    quelli che lo sono. Lo stakeholder e' rimasto fuori fino a #270, quando il
-    vocabolario controllato ha coperto i 72 filler senza etichetta italiana.
+    Before, only the hazards became risks with a citation; the critical events were
+    computed at every request and read by nobody, and the vulnerabilities reached
+    the prompt as bare strings, without the path that anchors them to the ontology.
+    An axis without a citation is not verifiable, so it cannot be shown next to
+    those that are. The stakeholder stayed out until #270, when the controlled
+    vocabulary covered the 72 fillers without an Italian label.
     """
     prof = _profile(
         "Bank",
@@ -168,17 +170,15 @@ def test_ground_ancora_tutti_e_quattro_gli_assi_col_proprio_path() -> None:
     ]
 
 
-def test_ground_trova_il_path_anche_sulla_seconda_property_della_vulnerabilita() -> (
-    None
-):
-    """La vulnerabilita' usa DUE property (divergenza #78): entrambe vanno cercate.
+def test_ground_finds_the_path_also_on_the_second_vulnerability_property() -> None:
+    """The vulnerability uses TWO properties (divergence #78): both must be searched.
 
-    Se ``OntologyConfig.vulnerability`` perdesse ``havingVulnerability``, un filler che
-    nell'ontologia arriva da quella property non troverebbe il proprio path e
-    ``_source_for`` ne SINTETIZZEREBBE uno su ``isVulnerableTo``: una citazione
-    sintatticamente perfetta e FALSA, silenziosa, indistinguibile a valle da una
-    vera — in un layer che esiste per la verificabilita'. Senza questo test la
-    mutazione lasciava la suite verde.
+    If ``OntologyConfig.vulnerability`` lost ``havingVulnerability``, a filler that
+    in the ontology comes from that property would not find its own path and
+    ``_source_for`` would SYNTHESIZE one on ``isVulnerableTo``: a syntactically
+    perfect and FALSE citation, silent, indistinguishable downstream from a real
+    one -- in a layer that exists for verifiability. Without this test the mutation
+    left the suite green.
     """
     prof = _profile(
         "Bank",
@@ -199,7 +199,7 @@ def test_ground_trova_il_path_anche_sulla_seconda_property_della_vulnerabilita()
 
 
 def test_ground_source_uses_inherited_path() -> None:
-    # hazard ereditato: il path cita System (superclasse), non Bank
+    # inherited hazard: the path cites System (superclass), not Bank
     prof = _profile(
         "Bank",
         hazards=["Crime_explosion"],
@@ -214,7 +214,7 @@ def test_ground_source_uses_inherited_path() -> None:
 
 
 def test_ground_source_fallback_when_missing() -> None:
-    # nessun path havingHazard per Robbery -> source sintetizzato sulla classe del POI
+    # no havingHazard path for Robbery -> source synthesized on the POI class
     prof = _profile(
         "Bank",
         hazards=["Robbery"],
@@ -238,8 +238,8 @@ def test_ground_includes_generic_poi_with_empty_risks() -> None:
 
     vr = out["validated_risks"][0]
     assert vr["poi"] == "Bar"
-    # Anche un POI senza rischi porta il proprio id: il consumatore aggancia per id
-    # tutti i punti, non solo quelli coperti dall'ontologia.
+    # Even a POI without risks carries its own id: the consumer hooks all the points
+    # by id, not only those covered by the ontology.
     assert vr["poi_id"] == "1"
     assert vr["risks"] == []
     assert vr["vulnerabilities"] == []
@@ -258,7 +258,7 @@ def test_ground_zero_pois() -> None:
 
 
 def test_ground_confidence_summary_counts_all_verificato() -> None:
-    # POI tutti con nome OSM -> ogni rischio e' verificato (doppio ancoraggio)
+    # POIs all with an OSM name -> every risk is verified (double anchoring)
     bank = _profile(
         "Bank",
         hazards=["Robbery", "Fraud"],
@@ -284,8 +284,8 @@ def test_ground_confidence_summary_counts_all_verificato() -> None:
 
 
 def test_ground_named_poi_risks_are_verificato() -> None:
-    # #202: POI con nome OSM = entita' verificabile -> hazard ontologico verificato
-    # (doppio ancoraggio: ontologia + POI OSM identificabile).
+    # #202: POI with an OSM name = verifiable entity -> verified ontological hazard
+    # (double anchoring: ontology + identifiable OSM POI).
     prof = _profile(
         "Bank", hazards=["Robbery"], sparql_paths=["Bank → havingHazard → Robbery"]
     )
@@ -297,9 +297,9 @@ def test_ground_named_poi_risks_are_verificato() -> None:
 
 
 def test_ground_anonymous_poi_risks_are_da_confermare() -> None:
-    # #202: feature OSM senza nome = ancoraggio OSM debole -> hazard ontologico
-    # da_confermare. La FONTE resta l'ontologia: il tag NON cambia (cambia solo la
-    # forza probatoria).
+    # #202: OSM feature without a name = weak OSM anchoring -> ontological hazard
+    # da_confermare. The SOURCE stays the ontology: the tag does NOT change (only the
+    # probative force changes).
     prof = _profile(
         "Bank", hazards=["Robbery"], sparql_paths=["Bank → havingHazard → Robbery"]
     )
@@ -311,7 +311,7 @@ def test_ground_anonymous_poi_risks_are_da_confermare() -> None:
 
 
 def test_ground_whitespace_name_poi_is_da_confermare() -> None:
-    # #202: un nome di soli whitespace e' una feature anonima -> da_confermare.
+    # #202: a whitespace-only name is an anonymous feature -> da_confermare.
     prof = _profile(
         "Bank", hazards=["Robbery"], sparql_paths=["Bank → havingHazard → Robbery"]
     )
@@ -321,7 +321,7 @@ def test_ground_whitespace_name_poi_is_da_confermare() -> None:
 
 
 def test_ground_confidence_summary_mixed_counts() -> None:
-    # #202: input reale misto -> conteggi reali con verificato>0 E da_confermare>0.
+    # #202: real mixed input -> real counts with verificato>0 AND da_confermare>0.
     bank = _profile(
         "Bank",
         hazards=["Robbery", "Fraud"],
@@ -347,7 +347,7 @@ def test_ground_confidence_summary_mixed_counts() -> None:
 
 
 def test_ground_poi_without_hazards_has_none_sparql_path() -> None:
-    # classe reale ma profilo senza hazard -> risks vuoti, sparql_path None
+    # real class but profile without hazards -> empty risks, sparql_path None
     out = ground(_ctx([_poi("1", "X", "Bank")], {"Bank": _profile("Bank")}))
 
     vr = out["validated_risks"][0]
@@ -364,13 +364,13 @@ def test_ground_output_conforms_to_generation_consumer() -> None:
     )
     out = ground(_ctx([_poi("1", "Banca", "Bank")], {"Bank": bank}, zona="Centro"))
 
-    # build_context_str (consumer pubblico) non solleva e serializza zona + POI
+    # build_context_str (public consumer) does not raise and serializes zone + POI
     prompt = build_context_str(dict(out))
     assert "Centro" in prompt
     assert "Banca" in prompt
     assert "Robbery" in prompt
 
-    # ogni rischio e' un RiskItem valido (cio' che _risk_models_from_context costruisce)
+    # every risk is a valid RiskItem (what _risk_models_from_context builds)
     for vr in out["validated_risks"]:
         for risk in vr["risks"]:
             item = RiskItem.model_validate(
@@ -383,16 +383,16 @@ def test_ground_output_conforms_to_generation_consumer() -> None:
             assert item.tag == "ONTOLOGIA"
             assert item.confidence == "verificato"
 
-    # confidence_summary validabile dal modello canonico
+    # confidence_summary validatable by the canonical model
     cs = ConfidenceSummary.model_validate(out["confidence_summary"])
     assert cs.verificato == 1
     assert cs.da_confermare == 0
 
 
-# --- #345: luogo e righe ISTAT calcolati nel grounding ---
+# --- #345: place and ISTAT rows computed in the grounding ---
 
 
-def _contesto_istat(lat: float, lon: float, hazards: list[str]) -> _Ctx:
+def _istat_context(lat: float, lon: float, hazards: list[str]) -> _Ctx:
     poi = _Poi(
         id="node/1",
         name="Banca A",
@@ -402,7 +402,7 @@ def _contesto_istat(lat: float, lon: float, hazards: list[str]) -> _Ctx:
         terminus_class="Bank",
         citta="Roma",
     )
-    profilo = _Profilo(
+    ontology_profile = _Profile(
         terminus_class="Bank",
         hazards=hazards,
         sparql_paths=[f"Bank → havingHazard → {h}" for h in hazards],
@@ -414,13 +414,13 @@ def _contesto_istat(lat: float, lon: float, hazards: list[str]) -> _Ctx:
             lat=lat, lon=lon, bbox=_Bbox(lat - 0.01, lon - 0.01, lat + 0.01, lon + 0.01)
         ),
         pois=[poi],
-        profiles={"Bank": profilo},
+        profiles={"Bank": ontology_profile},
         stats=_Stats(n_pois=1, n_classes=1),
     )
 
 
-def test_ground_calcola_le_righe_istat_dalle_coordinate_del_poi() -> None:
-    out = _ground(_contesto_istat(41.8902, 12.4922, ["Bank_robbery", "Landslide"]))
+def test_ground_computes_the_istat_rows_from_the_poi_coordinates() -> None:
+    out = _ground(_istat_context(41.8902, 12.4922, ["Bank_robbery", "Landslide"]))
     istat = out["validated_risks"][0].get("istat")
     assert isinstance(istat, _IstatPoi)
     assert istat.cornice.luogo_codice == "058091"
@@ -428,16 +428,18 @@ def test_ground_calcola_le_righe_istat_dalle_coordinate_del_poi() -> None:
     assert istat.righe[0].collegamenti[0].hazard == "Bank_robbery"
 
 
-def test_ground_senza_righe_istat_fuori_dai_poligoni_o_senza_voci() -> None:
-    mare = _ground(_contesto_istat(41.0, 12.0, ["Bank_robbery"]))
-    senza_voci = _ground(_contesto_istat(41.8902, 12.4922, ["Landslide"]))
-    assert mare["validated_risks"][0].get("istat") is None
-    assert senza_voci["validated_risks"][0].get("istat") is None
+def test_ground_without_istat_rows_outside_the_polygons_or_without_voci() -> None:
+    sea = _ground(_istat_context(41.0, 12.0, ["Bank_robbery"]))
+    without_voci = _ground(_istat_context(41.8902, 12.4922, ["Landslide"]))
+    assert sea["validated_risks"][0].get("istat") is None
+    assert without_voci["validated_risks"][0].get("istat") is None
 
 
-def test_ground_senza_dati_istat_non_fallisce(monkeypatch: _pytest.MonkeyPatch) -> None:
+def test_ground_without_istat_data_does_not_fail(
+    monkeypatch: _pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(_rows_mod, "istat_data_or_none", lambda: None)
-    out = _ground(_contesto_istat(41.8902, 12.4922, ["Bank_robbery"]))
+    out = _ground(_istat_context(41.8902, 12.4922, ["Bank_robbery"]))
     assert out["validated_risks"][0].get("istat") is None
     assert out["validated_risks"][0]["risks"][0]["hazard"] == "Bank_robbery"
 
@@ -462,10 +464,10 @@ def _custom_ontology_set() -> SourceSet:
     )
 
 
-def test_ground_usa_le_proprieta_dell_ontologia_attiva_nel_fallback() -> None:
-    """Senza path nei ``sparql_paths`` la citazione sintetizzata usa le proprieta'
-    del set attivo, non quelle TERMINUS: ``Bank -> havingHazard`` non esiste in
-    un'ontologia che chiama la proprieta' ``hasRisk`` (#434)."""
+def test_ground_uses_the_active_ontology_properties_in_the_fallback() -> None:
+    """Without a path in the ``sparql_paths`` the synthesized citation uses the
+    properties of the active set, not the TERMINUS ones: ``Bank -> havingHazard``
+    does not exist in an ontology that calls the property ``hasRisk`` (#434)."""
     from crime_risk_analyzer.sources.context import bind
 
     custom = _custom_ontology_set()
@@ -487,9 +489,9 @@ def test_ground_usa_le_proprieta_dell_ontologia_attiva_nel_fallback() -> None:
     assert vr["sparql_path"] == "Bank → hasRisk → Robbery"
 
 
-def test_ground_riconosce_i_path_con_le_proprieta_dell_ontologia_attiva() -> None:
-    """Un path reale ereditato da una superclasse con proprieta' custom viene preso
-    dai ``sparql_paths`` e non sintetizzato da ``terminus_class``."""
+def test_ground_recognizes_the_paths_with_the_active_ontology_properties() -> None:
+    """A real path inherited from a superclass with a custom property is taken from the
+    ``sparql_paths`` and not synthesized from ``terminus_class``."""
     from crime_risk_analyzer.sources.context import bind
 
     custom = _custom_ontology_set()

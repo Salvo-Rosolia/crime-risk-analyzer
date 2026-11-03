@@ -63,7 +63,7 @@ def _rec(
 
 
 def _cited_record(run_id: str = "r1", *, mode: Mode = "analyze") -> RunRecord:
-    """Record con UN rischio citato in narrativa (una riga annotabile)."""
+    """Record with ONE risk cited in the narrative (one annotatable row)."""
     return _rec(
         run_id,
         status=RunStatus.OK,
@@ -89,7 +89,7 @@ def _cited_record(run_id: str = "r1", *, mode: Mode = "analyze") -> RunRecord:
     )
 
 
-def test_collect_kept_risks_keeps_only_hazards_cited_in_narrativa() -> None:
+def test_collect_kept_risks_keeps_only_hazards_cited_in_narrative() -> None:
     rec = _rec(
         "r1",
         status=RunStatus.OK,
@@ -235,14 +235,14 @@ def test_write_gold_worksheet_and_reread_roundtrip(tmp_path: Path) -> None:
     assert reloaded[0].fonte_verificata is None
 
 
-def _mark_fonte_verificata(path: Path, *, value: str) -> None:
-    """Riscrive il foglio impostando ``fonte_verificata`` sulla PRIMA riga dati.
+def _mark_verified_source(path: Path, *, value: str) -> None:
+    """Rewrite the sheet setting ``fonte_verificata`` on the FIRST data row.
 
-    Individua la colonna per NOME (non per posizione fissa): un replace su
-    stringa fissa come ``",,"`` dipenderebbe dall'esatto layout di colonne
-    vuote prodotto da ``write_gold_worksheet`` e si romperebbe silenziosamente
-    se un'altra colonna vuota lo precedesse. Simula la compilazione manuale
-    del foglio da parte dell'autore senza assumere nulla sulla posizione.
+    Finds the column by NAME (not by fixed position): a replace on a fixed
+    string like ``",,"`` would depend on the exact layout of empty columns
+    produced by ``write_gold_worksheet`` and would silently break
+    if another empty column preceded it. It simulates the manual filling
+    of the sheet by the author without assuming anything about the position.
     """
     with path.open(encoding="utf-8", newline="") as fh:
         rows = list(csv.reader(fh))
@@ -258,14 +258,14 @@ def _mark_fonte_verificata(path: Path, *, value: str) -> None:
 
 def test_write_precision_report_after_manual_edit(tmp_path: Path) -> None:
     worksheet_path = write_gold_worksheet(tmp_path, [_cited_record()])
-    # Simula la compilazione manuale: imposta fonte_verificata=true sulla riga.
-    _mark_fonte_verificata(worksheet_path, value="true")
+    # Simulate the manual filling: set fonte_verificata=true on the row.
+    _mark_verified_source(worksheet_path, value="true")
     csv_path, md_path = write_precision_report(tmp_path, worksheet_path)
     assert csv_path.exists() and md_path.exists()
     assert "precisione del filtro: 100.0%" in md_path.read_text(encoding="utf-8")
 
 
-# --- validazione dei valori annotati a mano (fail-loud sui token ignoti) ------
+# --- validation of the hand-annotated values (fail-loud on unknown tokens) ------
 
 
 @pytest.mark.parametrize(
@@ -288,70 +288,70 @@ def test_write_precision_report_after_manual_edit(tmp_path: Path) -> None:
     ],
 )
 def test_load_worksheet_reads_truthy_tokens_as_true(tmp_path: Path, value: str) -> None:
-    """Un annotatore italiano scrive «vero»/«x»/«sì», non solo ``true``.
+    """An Italian annotator writes "vero"/"x"/"sì", not only ``true``.
 
-    Prima questi valori collassavano a ``False`` in silenzio, corrompendo
-    proprio ``allucinazioni_residue`` — il numero per cui il meccanismo esiste.
+    Before, these values silently collapsed to ``False``, corrupting
+    precisely ``allucinazioni_residue`` -- the number for which the mechanism exists.
     """
     path = write_gold_worksheet(tmp_path, [_cited_record()])
-    _mark_fonte_verificata(path, value=value)
+    _mark_verified_source(path, value=value)
     assert load_worksheet(path)[0].fonte_verificata is True
 
 
 @pytest.mark.parametrize("value", ["false", "FALSO", "falso", "f", "0", "no", "N", "n"])
 def test_load_worksheet_reads_falsy_tokens_as_false(tmp_path: Path, value: str) -> None:
     path = write_gold_worksheet(tmp_path, [_cited_record()])
-    _mark_fonte_verificata(path, value=value)
+    _mark_verified_source(path, value=value)
     assert load_worksheet(path)[0].fonte_verificata is False
 
 
 def test_load_worksheet_reads_blank_as_not_annotated(tmp_path: Path) -> None:
-    """Cella vuota = «nessuno ha ancora guardato», non «la fonte non regge»."""
+    """Empty cell = "nobody has looked yet", not "the source does not hold up"."""
     path = write_gold_worksheet(tmp_path, [_cited_record()])
-    _mark_fonte_verificata(path, value="   ")
+    _mark_verified_source(path, value="   ")
     assert load_worksheet(path)[0].fonte_verificata is None
 
 
 def test_load_worksheet_rejects_unrecognized_value(tmp_path: Path) -> None:
-    """Fail-loud: un valore fuori vocabolario NON diventa ``False`` in silenzio.
+    """Fail-loud: a value outside the vocabulary does NOT silently become ``False``.
 
-    Il messaggio nomina il valore e la run, cosi' chi ha compilato il foglio
-    sa quale cella correggere.
+    The message names the value and the run, so whoever filled the sheet
+    knows which cell to correct.
     """
     path = write_gold_worksheet(tmp_path, [_cited_record("r-strana")])
-    _mark_fonte_verificata(path, value="boh")
+    _mark_verified_source(path, value="boh")
     with pytest.raises(ValueError, match="boh") as exc:
         load_worksheet(path)
     assert "r-strana" in str(exc.value)
 
 
-# --- guardia sulla sovrascrittura del lavoro umano (--force) -----------------
+# --- guard on overwriting human work (--force) -----------------
 
 
 def test_write_gold_worksheet_refuses_to_overwrite_without_force(
     tmp_path: Path,
 ) -> None:
-    """Il foglio annotato a mano non e' ricomputabile: senza ``force`` si rifiuta.
+    """The hand-annotated sheet is not recomputable: without ``force`` it refuses.
 
-    Stessa guardia di ``capture``/``compare``, qui su un output il cui costo di
-    ricostruzione e' umano.
+    Same guard as ``capture``/``compare``, here on an output whose cost of
+    reconstruction is human.
     """
     path = write_gold_worksheet(tmp_path, [_cited_record()])
-    _mark_fonte_verificata(path, value="true")
-    # Byte grezzi (non ``read_text``): il confronto deve cogliere anche una
-    # riscrittura che cambia solo i terminatori di riga (#103/#241).
+    _mark_verified_source(path, value="true")
+    # Raw bytes (not ``read_text``): the comparison must also catch a
+    # rewrite that changes only the line terminators (#103/#241).
     before = path.read_bytes()
 
     with pytest.raises(FileExistsError, match="force"):
         write_gold_worksheet(tmp_path, [_cited_record()])
 
-    # Il file annotato e' rimasto intatto: il rifiuto avviene PRIMA di scrivere.
+    # The annotated file stayed intact: the refusal happens BEFORE writing.
     assert path.read_bytes() == before
 
 
 def test_write_gold_worksheet_force_overwrites(tmp_path: Path) -> None:
     path = write_gold_worksheet(tmp_path, [_cited_record()])
-    _mark_fonte_verificata(path, value="true")
+    _mark_verified_source(path, value="true")
 
     write_gold_worksheet(tmp_path, [_cited_record()], force=True)
 
@@ -361,7 +361,7 @@ def test_write_gold_worksheet_force_overwrites(tmp_path: Path) -> None:
 def test_write_gold_worksheet_overwrites_empty_file_without_force(
     tmp_path: Path,
 ) -> None:
-    """Un file vuoto (scrittura interrotta) non contiene lavoro da proteggere."""
+    """An empty file (interrupted write) contains no work to protect."""
     (tmp_path / "gold").mkdir(parents=True)
     (tmp_path / "gold" / WORKSHEET_FILENAME).write_text("", encoding="utf-8")
 
@@ -370,16 +370,16 @@ def test_write_gold_worksheet_overwrites_empty_file_without_force(
     assert len(load_worksheet(path)) == 1
 
 
-# --- vincolo legale: nessuno scoring numerico di pericolosita' ---------------
+# --- legal constraint: no numeric danger scoring ---------------
 
 
 def test_kept_risk_row_has_no_numeric_scoring_field() -> None:
-    """Vincolo legale (_project.md §Vincoli): nessuno scoring numerico.
+    """Legal constraint (_project.md, Constraints): no numeric scoring.
 
-    ``KeptRiskRow`` e' della stessa famiglia di ``RiskItem``/``RiskModel``
-    (porta hazard/tag/confidence) e attraversa il foglio di annotazione: un
-    campo ``score``/``gravita``/``risk_level`` aggiunto qui romperebbe
-    l'insieme esatto, forzando una revisione cosciente.
+    ``KeptRiskRow`` is of the same family as ``RiskItem``/``RiskModel``
+    (it carries hazard/tag/confidence) and crosses the annotation sheet: a
+    ``score``/``gravita``/``risk_level`` field added here would break
+    the exact set, forcing a conscious review.
     """
     assert set(KeptRiskRow.model_fields) == {
         "run_id",
@@ -395,7 +395,7 @@ def test_kept_risk_row_has_no_numeric_scoring_field() -> None:
     }
 
 
-# --- dispatch CLI dei due verbi gold (main() end-to-end, funzioni mockate) ---
+# --- CLI dispatch of the two gold verbs (main() end-to-end, mocked functions) ---
 
 
 def _set_argv(monkeypatch: pytest.MonkeyPatch, *args: str) -> None:
@@ -405,8 +405,8 @@ def _set_argv(monkeypatch: pytest.MonkeyPatch, *args: str) -> None:
 def test_main_gold_sample_filters_records_by_mode(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """``gold-sample`` inoltra a ``write_gold_worksheet`` SOLO le run del mode
-    richiesto, e riporta a schermo quante righe ha scritto."""
+    """``gold-sample`` forwards to ``write_gold_worksheet`` ONLY the runs of the
+    requested mode, and reports on screen how many rows it wrote."""
     analyze = _cited_record("r-analyze", mode="analyze")
     baseline = _cited_record("r-baseline", mode="baseline")
     seen: dict[str, object] = {}
@@ -442,8 +442,8 @@ def test_main_gold_sample_filters_records_by_mode(
 def test_main_gold_sample_reports_an_empty_worksheet(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Zero righe deve VEDERSI: un foglio col solo header ed exit code 0 e'
-    altrimenti indistinguibile da un successo con dati."""
+    """Zero rows must be VISIBLE: a sheet with just the header and exit code 0 is
+    otherwise indistinguishable from a success with data."""
     not_cited = _rec(
         "r1",
         status=RunStatus.OK,
@@ -480,8 +480,8 @@ def test_main_gold_sample_reports_an_empty_worksheet(
 def test_main_gold_sample_forwards_force(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """``--force`` arriva fino a ``write_gold_worksheet`` (altrimenti la guardia
-    sarebbe inaggirabile da riga di comando)."""
+    """``--force`` reaches ``write_gold_worksheet`` (otherwise the guard
+    would be impossible to bypass from the command line)."""
     seen: dict[str, object] = {}
 
     def fake_write(
@@ -506,7 +506,7 @@ def test_main_gold_sample_forwards_force(
 def test_main_gold_report_defaults_to_the_standard_worksheet_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Senza ``--worksheet`` si legge il foglio scritto da ``gold-sample``."""
+    """Without ``--worksheet`` the sheet written by ``gold-sample`` is read."""
     calls: list[tuple[Path, Path]] = []
 
     def fake_report(results_dir: Path, worksheet_path: Path) -> tuple[Path, Path]:
@@ -530,15 +530,15 @@ def test_main_gold_report_uses_explicit_worksheet_path(
         return results_dir / "a.csv", results_dir / "a.md"
 
     monkeypatch.setattr(eval_main, "write_precision_report", fake_report)
-    altro = tmp_path / "altro.csv"
+    other = tmp_path / "altro.csv"
     _set_argv(
         monkeypatch,
         "gold-report",
         "--results",
         str(tmp_path),
         "--worksheet",
-        str(altro),
+        str(other),
     )
 
     assert eval_main.main() == 0
-    assert calls == [(tmp_path, altro)]
+    assert calls == [(tmp_path, other)]

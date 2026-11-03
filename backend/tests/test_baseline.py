@@ -1,4 +1,4 @@
-"""Test endpoint POST /analyze/baseline (#90)."""
+"""Tests for the POST /analyze/baseline endpoint (#90)."""
 
 from __future__ import annotations
 
@@ -60,13 +60,13 @@ def _fake_reverse_geocode(lat: float, lon: float) -> tuple[str, str]:
 
 
 def _patch_io(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Patcha la sola I/O che il path a cerchio (#318) attraversa davvero.
+    """Patch only the I/O that the circle path (#318) really goes through.
 
-    Col cerchio ``geocode_zone`` non e' chiamato (lo e' solo nella modalita'
-    citta + zona): ``resolve_circle`` passa sempre un ``geo_source`` proprio. La label
-    citta'/zona arriva da ``area_search.reverse_geocode_label`` (reverse
-    geocode del centro); il bbox da ``bbox_from_circle`` (puro, nessun I/O) —
-    solo la label va quindi simulata qui.
+    With the circle ``geocode_zone`` is not called (it is only called in the
+    citta + zona mode): ``resolve_circle`` always passes its own ``geo_source``.
+    The citta/zona label comes from ``area_search.reverse_geocode_label`` (reverse
+    geocode of the center); the bbox comes from ``bbox_from_circle`` (pure, no
+    I/O) -- so only the label has to be simulated here.
     """
     monkeypatch.setattr(area_search, "reverse_geocode_label", _fake_reverse_geocode)
 
@@ -105,11 +105,12 @@ def test_baseline_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_baseline_reports_reverse_geocoded_city(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#318: la ``citta'`` in risposta e' quella del reverse geocode del centro.
+    """#318: the ``citta`` in the response is the one from the reverse geocode of the
+    center.
 
-    Non c'e' piu' un'allowlist (gia' rimossa da #191) ne' un campo ``citta`` in
-    richiesta: verifica che ``center.lat``/``center.lon`` raggiungano
-    ``reverse_geocode_label`` e che l'etichetta restituita finisca in risposta.
+    There is no allowlist anymore (already removed by #191) nor a ``citta`` field
+    in the request: it checks that ``center.lat``/``center.lon`` reach
+    ``reverse_geocode_label`` and that the returned label ends up in the response.
     """
     seen: list[tuple[float, float]] = []
 
@@ -139,11 +140,11 @@ def test_baseline_reports_reverse_geocoded_city(
 def test_baseline_rejects_out_of_range_radius(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """radius_m fuori da [search_radius_min_m, search_radius_max_m] -> 422 (#318).
+    """radius_m outside [search_radius_min_m, search_radius_max_m] -> 422 (#318).
 
-    Validazione Pydantic pre-I/O, come il vecchio limite ``max_length=100`` su
-    ``citta'`` (rimosso insieme al campo): il body malformato non deve
-    raggiungere ne' il reverse geocode ne' Overpass.
+    Pydantic validation before any I/O, like the old ``max_length=100`` limit on
+    ``citta`` (removed together with the field): a malformed body must reach
+    neither the reverse geocode nor Overpass.
     """
     _patch_io(monkeypatch)
     resp = cast(
@@ -156,8 +157,8 @@ def test_baseline_rejects_out_of_range_radius(
     assert resp.status_code == 422
 
 
-def _pois_per_raggio(citta: str) -> list[Poi]:
-    """Un POI al centro esatto della richiesta + uno a oltre un km (#318)."""
+def _pois_by_radius(citta: str) -> list[Poi]:
+    """One POI at the exact center of the request + one more than a km away (#318)."""
     return [
         {
             "id": "vicino",
@@ -180,25 +181,25 @@ def _pois_per_raggio(citta: str) -> list[Poi]:
     ]
 
 
-def test_baseline_radius_m_raggiunge_davvero_il_filtro_geospaziale(
+def test_baseline_radius_m_really_reaches_the_geospatial_filter(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#318: prova al confine HTTP che ``radius_m`` filtra i POI, non solo che
-    e' validato dal ``field_validator`` (gemello di
-    ``test_analyze_radius_m_raggiunge_davvero_il_filtro_geospaziale``).
+    """#318: proves at the HTTP boundary that ``radius_m`` filters the POIs, not just
+    that it is validated by the ``field_validator`` (twin of
+    ``test_analyze_radius_m_really_reaches_the_geospatial_filter``).
 
-    Senza ``radius_m=request.radius_m`` cablato da ``main.py`` a
-    ``run_baseline``, l'intera suite passerebbe comunque. Il centro della
-    richiesta coincide con ``Banca A`` (distanza ~0 m) mentre ``Bar Roma`` e' a
-    oltre un km: un raggio di 150 m (il minimo consentito) deve escludere la
-    seconda dalla response.
+    Without ``radius_m=request.radius_m`` wired from ``main.py`` into
+    ``run_baseline``, the whole suite would pass anyway. The center of the request
+    coincides with ``Banca A`` (distance ~0 m) while ``Bar Roma`` is over a km
+    away: a 150 m radius (the allowed minimum) must exclude the latter from the
+    response.
     """
     monkeypatch.setattr(area_search, "reverse_geocode_label", _fake_reverse_geocode)
 
     async def _fake_fetch(
         bbox: object, citta: str, *args: object, **kwargs: object
     ) -> list[Poi]:
-        return _pois_per_raggio(citta)
+        return _pois_by_radius(citta)
 
     monkeypatch.setattr(retrieval, "fetch_pois", _fake_fetch)
     resp = cast(
@@ -213,11 +214,11 @@ def test_baseline_radius_m_raggiunge_davvero_il_filtro_geospaziale(
 
 
 def test_baseline_zone_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Un errore alla risoluzione dell'etichetta (reverse geocode) propaga a 422.
+    """An error while resolving the label (reverse geocode) propagates as a 422.
 
-    ``reverse_geocode_label`` reale non solleva mai (fallback cosmetico, #318):
-    questo verifica solo che l'handler centrale di ``ZoneNotFoundError`` resti
-    cablato anche dietro il nuovo ``resolve_circle``.
+    The real ``reverse_geocode_label`` never raises (cosmetic fallback, #318):
+    this only checks that the central ``ZoneNotFoundError`` handler stays wired
+    even behind the new ``resolve_circle``.
     """
 
     def _raise(lat: float, lon: float) -> tuple[str, str]:
@@ -234,16 +235,16 @@ def test_baseline_zone_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
     assert resp.status_code == 422
 
 
-def test_baseline_accetta_citta_e_zona(monkeypatch: pytest.MonkeyPatch) -> None:
-    """La baseline accetta la stessa seconda modalita' di ``/analyze``.
+def test_baseline_accepts_citta_and_zona(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The baseline accepts the same second mode as ``/analyze``.
 
-    I due bracci dell'ablation devono poter analizzare la stessa area scelta
-    nello stesso modo: il bbox arriva da ``geocode_zone`` su (zona, citta).
+    The two arms of the ablation must be able to analyze the same area chosen in
+    the same way: the bbox comes from ``geocode_zone`` on (zona, citta).
     """
-    chiamate: list[tuple[str, str]] = []
+    calls: list[tuple[str, str]] = []
 
     def _fake_geocode_zone(zona: str, citta: str) -> GeoResult:
-        chiamate.append((zona, citta))
+        calls.append((zona, citta))
         return GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50))
 
     monkeypatch.setattr(area_search, "geocode_zone", _fake_geocode_zone)
@@ -256,7 +257,7 @@ def test_baseline_accetta_citta_e_zona(monkeypatch: pytest.MonkeyPatch) -> None:
         ),
     )
     assert resp.status_code == 200
-    assert chiamate == [("Colosseo", "Roma")]
+    assert calls == [("Colosseo", "Roma")]
     assert resp.json()["citta"] == "Roma"
 
 
@@ -326,8 +327,8 @@ def test_baseline_filters_by_tipo_poi(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert base.status_code == 200
     assert filtered.status_code == 200
-    # tipo_poi e' ora CABLATO server-side (#119): senza filtro entrambe le classi,
-    # con tipo_poi=Bank solo i POI di classe TERMINUS "Bank" (niente GenericUrbanPOI).
+    # tipo_poi is now WIRED server-side (#119): without a filter both classes, with
+    # tipo_poi=Bank only the POIs of TERMINUS class "Bank" (no GenericUrbanPOI).
     assert [p["terminus_class"] for p in base.json()["poi"]] == [
         "Bank",
         "GenericUrbanPOI",
@@ -341,10 +342,10 @@ def test_baseline_filters_by_tipo_poi(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_baseline_tipo_poi_is_normalized_to_canonical_class(
     monkeypatch: pytest.MonkeyPatch, tipo_poi: str
 ) -> None:
-    """#143: il campo libero della UI non deve dare una lista vuota silenziosa.
+    """#143: the free-text field of the UI must not give a silent empty list.
 
-    Maiuscole, spazi ai bordi e l'etichetta IT arrivano al filtro come la classe
-    TERMINUS canonica.
+    Uppercase, edge spaces and the IT label reach the filter as the canonical
+    TERMINUS class.
     """
     _patch_io(monkeypatch)
     resp = cast(
@@ -388,10 +389,10 @@ def test_baseline_blank_tipo_poi_is_no_filter(
 def test_baseline_unknown_tipo_poi_is_422_before_any_io(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#143: tipo sconosciuto -> 422 nel formato degli errori di dominio, non [].
+    """#143: unknown type -> 422 in the domain error format, not [].
 
-    Il rifiuto arriva prima di geocoding e Overpass: un input invalido non costa
-    chiamate di rete.
+    The refusal arrives before geocoding and Overpass: an invalid input costs no
+    network calls.
     """
 
     def _boom(*args: object, **kwargs: object) -> object:
@@ -422,7 +423,7 @@ def test_baseline_unknown_tipo_poi_is_422_before_any_io(
 async def test_run_baseline_threads_geo_source(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """#169: geo_source passato a run_baseline raggiunge retrieve (nessun geocode)."""
+    """#169: geo_source passed to run_baseline reaches retrieve (no geocode)."""
 
     def _boom_geocode(zona: str, citta: str) -> GeoResult:
         raise AssertionError("geocode_zone non deve essere chiamato con geo_source")

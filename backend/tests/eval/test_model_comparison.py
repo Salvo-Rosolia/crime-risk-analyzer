@@ -1,17 +1,17 @@
-"""Confronto Claude vs Groq (#33), interamente offline.
+"""Claude vs Groq comparison (#33), entirely offline.
 
-Il comparatore a due bracci vive gia' in :mod:`crime_risk_analyzer.eval.compare`
-(#32, GENERICO su label libere): #33 lo RIUSA per ``claude`` vs ``groq`` senza
-ricostruirlo. Qui si blindano due contratti del deliverable #33:
+The two-arm comparator already lives in :mod:`crime_risk_analyzer.eval.compare`
+(#32, GENERIC on free labels): #33 REUSES it for ``claude`` vs ``groq`` without
+rebuilding it. Here two contracts of the #33 deliverable are locked:
 
-1. le config esperimento versionate in ``backend/experiments/`` per il confronto
-   modelli (entrambe ``mode=analyze``, stesse 4 zone ``ROSTER[:4]`` → iso-input);
-2. le estensioni di ``compare`` richieste dall'issue (report JSON, tabella
-   costo/latenza separata dalla qualita', caveat sui proxy testuali).
+1. the experiment configs versioned in ``backend/experiments/`` for the model
+   comparison (both ``mode=analyze``, same 4 zones ``ROSTER[:4]`` -> iso-input);
+2. the extensions of ``compare`` requested by the issue (JSON report,
+   cost/latency table separate from quality, caveat on the textual proxies).
 
-Nessuna run live: i ``RunRecord`` dei due bracci sono costruiti a mano con
-metriche sintetiche (come i test di #32). Nessuna chiamata LLM (Claude e' a
-pagamento e non si esegue; il modello Groq non viene interrogato in test).
+No live run: the ``RunRecord``s of the two arms are built by hand with
+synthetic metrics (like the #32 tests). No LLM call (Claude is
+paid and is not run; the Groq model is not queried in tests).
 """
 
 from __future__ import annotations
@@ -46,12 +46,12 @@ from crime_risk_analyzer.models.vocab import ConfidenceSummary
 from crime_risk_analyzer.orchestrator import AnalyzeResponse, GeoZone, PoiOut
 from crime_risk_analyzer.rag.generation import Repro, RiskItem, RiskModel
 
-#: backend/experiments (test_file → eval → tests → backend).
+#: backend/experiments (test_file -> eval -> tests -> backend).
 EXPERIMENTS_DIR = Path(__file__).resolve().parents[2] / "experiments"
 
-#: I due bracci del confronto modelli. Il braccio Claude riusa la config
-#: analyze/claude gia' presente (#32); il braccio Groq e' la nuova config
-#: analyze/groq (serve anche per un'ablation gratuita futura).
+#: The two arms of the model comparison. The Claude arm reuses the already present
+#: analyze/claude config (#32); the Groq arm is the new analyze/groq
+#: config (it also serves for a future free ablation).
 CLAUDE_ARM = "ablation-analyze"
 GROQ_ARM = "ablation-analyze-groq"
 
@@ -61,11 +61,11 @@ def _zones(name: str) -> list[tuple[str, str]]:
     return [(c.citta, c.zona) for c in cfg.cases]
 
 
-# --- contratto config: i due bracci analyze/claude e analyze/groq -----------
+# --- config contract: the two arms analyze/claude and analyze/groq -----------
 
 
 def test_groq_arm_config_parses_with_expected_name_mode_model() -> None:
-    """La nuova config analyze/groq esiste, parsa e ha mode/model attesi."""
+    """The new analyze/groq config exists, parses and has the expected mode/model."""
     cfg = load_config(EXPERIMENTS_DIR / f"{GROQ_ARM}.json")
     assert cfg.name == GROQ_ARM
     assert cfg.mode == "analyze"
@@ -73,14 +73,14 @@ def test_groq_arm_config_parses_with_expected_name_mode_model() -> None:
 
 
 def test_claude_arm_is_analyze_claude() -> None:
-    """Il braccio Claude riusato e' analyze/claude (documenta il riuso #32)."""
+    """The reused Claude arm is analyze/claude (documents the #32 reuse)."""
     cfg = load_config(EXPERIMENTS_DIR / f"{CLAUDE_ARM}.json")
     assert cfg.mode == "analyze"
     assert cfg.model == "claude"
 
 
 def test_both_model_arms_share_the_same_four_zones() -> None:
-    """Confronto iso-input: i due modelli girano sulle STESSE 4 (citta, zona)."""
+    """Iso-input comparison: the two models run on the SAME 4 (citta, zona)."""
     zones_claude = _zones(CLAUDE_ARM)
     zones_groq = _zones(GROQ_ARM)
     assert len(zones_groq) == 4
@@ -88,18 +88,18 @@ def test_both_model_arms_share_the_same_four_zones() -> None:
 
 
 def test_model_arms_zones_anchored_to_c1_roster() -> None:
-    """Le 4 zone sono le prime 4 del roster di validazione C1 (#31)."""
+    """The 4 zones are the first 4 of the C1 validation roster (#31)."""
     roster_pairs = [(city.citta, city.zona) for city in ROSTER]
     assert _zones(GROQ_ARM) == roster_pairs[:4]
 
 
-# --- confronto a due modelli (offline, record sintetici) --------------------
+# --- two-model comparison (offline, synthetic records) --------------------
 
-#: Metriche sintetiche per zona (grounding, hallucination, latency_ms, cost_usd),
-#: allineate posizionalmente a ROSTER[:4]. Scenario verosimile ma INVENTATO
-#: (nessuna run reale): Claude piu' accurato ma piu' caro e lento; il braccio
-#: Groq piu' economico e veloce con qualita' proxy piu' bassa. Servono solo a
-#: rendere delta e separazione costo/latenza verificabili offline.
+#: Synthetic metrics per zone (grounding, hallucination, latency_ms, cost_usd),
+#: positionally aligned with ROSTER[:4]. Plausible but INVENTED scenario
+#: (no real run): Claude more accurate but more expensive and slow; the Groq
+#: arm cheaper and faster with lower proxy quality. They only serve to
+#: make the deltas and the cost/latency separation verifiable offline.
 _CLAUDE_METRICS: tuple[tuple[float, float, int, float], ...] = (
     (0.90, 0.10, 3200, 0.0120),
     (0.85, 0.15, 3000, 0.0110),
@@ -125,11 +125,11 @@ def _rec(
     latency_ms: int,
     cost_usd: float,
 ) -> RunRecord:
-    """RunRecord ``analyze`` sintetico; snapshot_id per (citta, zona) → iso-input.
+    """Synthetic ``analyze`` RunRecord; snapshot_id per (citta, zona) -> iso-input.
 
-    Lo ``snapshot_id`` deriva SOLO da (citta, zona) via
-    :func:`make_snapshot_key` (come l'harness, #110): i due bracci sulla stessa
-    zona citano lo stesso snapshot, quindi il confronto e' iso-input.
+    The ``snapshot_id`` derives ONLY from (citta, zona) via
+    :func:`make_snapshot_key` (like the harness, #110): the two arms on the same
+    zone cite the same snapshot, so the comparison is iso-input.
     """
     return RunRecord(
         run_id=f"{experiment}__{citta}__{zona}".lower(),
@@ -189,7 +189,7 @@ def _groq_arm() -> list[RunRecord]:
 
 
 def test_two_model_comparison_computes_per_zone_delta() -> None:
-    """Riuso di compare_records su claude vs groq: delta = claude - groq."""
+    """Reuse of compare_records on claude vs groq: delta = claude - groq."""
     cmp = compare_records(_claude_arm(), _groq_arm(), label_a="claude", label_b="groq")
     by_zone = {(z.citta, z.zona): z for z in cmp.zones}
     roma = by_zone[("Roma", "Colosseo")]
@@ -202,13 +202,13 @@ def test_two_model_comparison_computes_per_zone_delta() -> None:
 
 
 def test_two_model_comparison_labels_preserved() -> None:
-    """Le label del report sono claude/groq (il comparatore e' generico)."""
+    """The report labels are claude/groq (the comparator is generic)."""
     cmp = compare_records(_claude_arm(), _groq_arm(), label_a="claude", label_b="groq")
     assert (cmp.label_a, cmp.label_b) == ("claude", "groq")
 
 
 def test_to_json_report_has_both_models_delta_and_aggregate() -> None:
-    """Report JSON: 4 metriche affiancate claude/groq + delta, per-caso e medio."""
+    """JSON report: 4 metrics side by side claude/groq + delta, per case and mean."""
     cmp = compare_records(_claude_arm(), _groq_arm(), label_a="claude", label_b="groq")
     data = json.loads(to_json(cmp))
     assert data["label_a"] == "claude"
@@ -223,12 +223,12 @@ def test_to_json_report_has_both_models_delta_and_aggregate() -> None:
     assert roma["a"]["cost_usd"] == pytest.approx(0.0120)
     assert roma["b"]["cost_usd"] == pytest.approx(0.0006)
     assert roma["delta"]["grounding"] == pytest.approx(0.20)
-    # aggregato presente
+    # aggregate present
     assert "mean_a" in data and "mean_b" in data and "mean_delta" in data
 
 
 def test_operational_markdown_has_only_cost_and_latency_columns() -> None:
-    """Tabella separata: SOLO costo/latenza, nessuna metrica di qualita'."""
+    """Separate table: ONLY cost/latency, no quality metric."""
     cmp = compare_records(_claude_arm(), _groq_arm(), label_a="claude", label_b="groq")
     op = operational_markdown(cmp)
     for col in (
@@ -240,13 +240,13 @@ def test_operational_markdown_has_only_cost_and_latency_columns() -> None:
         "cost_usd_delta",
     ):
         assert col in op
-    # le metriche-proxy di qualita' NON compaiono nella tabella operativa
+    # the quality proxy metrics do NOT appear in the operational table
     assert "grounding" not in op
     assert "hallucination" not in op
 
 
 def test_operational_markdown_marked_as_operational_with_mean_row() -> None:
-    """La tabella e' etichettata come operativa e porta la riga aggregata."""
+    """The table is labelled as operational and carries the aggregate row."""
     cmp = compare_records(_claude_arm(), _groq_arm(), label_a="claude", label_b="groq")
     op = operational_markdown(cmp)
     assert "operativ" in op.lower()
@@ -254,31 +254,31 @@ def test_operational_markdown_marked_as_operational_with_mean_row() -> None:
 
 
 def test_proxy_caveat_flags_quality_metrics_as_textual_proxies() -> None:
-    """Il caveat avverte che grounding/hallucination sono proxy TESTUALI."""
+    """The caveat warns that grounding/hallucination are TEXTUAL proxies."""
     lc = PROXY_CAVEAT.lower()
     assert "proxy" in lc
     assert "grounding" in lc
     assert "hallucination" in lc
-    # distingue le misure operative dirette (costo/latenza)
+    # distinguishes the direct operational measures (cost/latency)
     assert "cost" in lc or "latenz" in lc or "operativ" in lc
 
 
 def test_to_markdown_embeds_main_table_operational_section_and_caveat() -> None:
-    """Il report MD unisce: tabella qualita' + tabella operativa separata + caveat."""
+    """The MD report joins: quality table + separate operational table + caveat."""
     cmp = compare_records(_claude_arm(), _groq_arm(), label_a="claude", label_b="groq")
     md = to_markdown(cmp)
-    # tabella principale con le 4 metriche affiancate + delta
+    # main table with the 4 metrics side by side + delta
     assert "grounding_claude" in md
     assert "grounding_groq" in md
     assert "grounding_delta" in md
-    # sezione operativa separata, embeddata verbatim
+    # separate operational section, embedded verbatim
     assert operational_markdown(cmp).strip() in md
-    # caveat metodologico presente
+    # methodological caveat present
     assert PROXY_CAVEAT.strip() in md
 
 
 def test_write_comparison_also_writes_json_sibling(tmp_path: Path) -> None:
-    """write_comparison emette anche <stem>.json accanto a .csv/.md (report #33)."""
+    """write_comparison also emits <stem>.json next to .csv/.md (report #33)."""
     cmp = compare_records(_claude_arm(), _groq_arm(), label_a="claude", label_b="groq")
     csv_path, md_path = write_comparison(tmp_path, cmp, "claude_vs_groq")
     json_path = tmp_path / "claude_vs_groq.json"
@@ -286,15 +286,15 @@ def test_write_comparison_also_writes_json_sibling(tmp_path: Path) -> None:
     data = json.loads(json_path.read_text(encoding="utf-8"))
     assert data["label_a"] == "claude"
     assert data["label_b"] == "groq"
-    # backward-compat #32: csv + md restano prodotti e restano i path ritornati
+    # backward-compat #32: csv + md are still produced and the returned paths stay
     assert csv_path.exists() and md_path.exists()
 
 
-# --- regressione reperto A (#163): metrica → verdetto -----------------------
+# --- regression finding A (#163): metric -> verdict -----------------------
 
 
 def _resp163(narrativa: str) -> AnalyzeResponse:
-    """AnalyzeResponse con ancoraggi {"banca a", "bank_robbery"}; narrativa data."""
+    """AnalyzeResponse with anchors {"banca a", "bank_robbery"}; given narrative."""
     return AnalyzeResponse(
         citta="Roma",
         zona_normalizzata="Centro",
@@ -354,24 +354,27 @@ def _mv(resp: AnalyzeResponse) -> MetricValues:
 
 
 def _ont163(*sentences: str) -> str:
-    """Narrativa a blocchi (#196/#229): corpo del blocco [ONTOLOGIA] dalle frasi date.
+    """Block narrative (#196/#229): body of the [ONTOLOGIA] block from the given
+    sentences.
 
-    M1 grada il corpo del blocco [ONTOLOGIA]; la fonte e' nell'header, non inline.
+    M1 grades the body of the [ONTOLOGIA] block; the source is in the header, not
+    inline.
     """
     body = "\n".join(sentences)
     return f"Sintesi della zona.\n\nRischi da ontologia [ONTOLOGIA]\n{body}"
 
 
 def test_arm_padding_ontology_with_unanchored_claims_loses_on_hallucination() -> None:
-    """Guard end-to-end (analogo M1 del reperto A #163): chi riempie il blocco
-    [ONTOLOGIA] di asserzioni NON ancorate perde l'asse allucinazione.
+    """End-to-end guard (M1 analogue of finding A #163): whoever fills the
+    [ONTOLOGIA] block with NOT anchored assertions loses the hallucination axis.
 
-    Entrambi i bracci hanno stesso costo/latenza (stesso _resp163) → decide solo
-    l'asse hallucination. Sotto M1 (#229) la "citazione" non e' piu' un tag inline ma
-    l'appartenenza al blocco [ONTOLOGIA]: un braccio che nel blocco cita i dati in ogni
-    frase ha hallucination 0.0; un braccio che padda il blocco con 3 asserzioni che non
-    nominano alcun dato reale sale a 0.75 e perde. (Valori metrica identici al guard
-    #163 originale: solo la forma della narrativa passa da inline-tag a blocchi.)
+    Both arms have the same cost/latency (same _resp163) -> only the
+    hallucination axis decides. Under M1 (#229) the "citation" is no longer an inline
+    tag but belonging to the [ONTOLOGIA] block: an arm that cites the data in every
+    sentence in the block has hallucination 0.0; an arm that pads the block with 3
+    assertions that name no real datum goes up to 0.75 and loses. (Metric values
+    identical to the original #163 guard: only the form of the narrative goes from
+    inline-tag to blocks.)
     """
     well = _mv(
         _ont163_resp(

@@ -1,8 +1,8 @@
-"""Doppi e helper di test condivisi tra test_orchestrator, test_harness e
+"""Shared test doubles and helpers for test_orchestrator, test_harness and
 test_no_ontology_generation (#34, #349).
 
-Non e' un file di test (nessuna funzione test_*): pytest non raccoglie nulla.
-Estratto da test_orchestrator.py per evitare duplicazione.
+This is not a test file (no test_* function): pytest collects nothing.
+Extracted from test_orchestrator.py to avoid duplication.
 """
 
 from __future__ import annotations
@@ -15,27 +15,27 @@ from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.models.risk import PoiRiskProfile
 from crime_risk_analyzer.overpass_client import Poi
 
-#: Area di prova per gli snapshot scritti come fixture.
-BBOX_DI_PROVA = Bbox(41.0, 12.0, 41.1, 12.1)
+#: Sample area for snapshots written as fixtures.
+TEST_BBOX = Bbox(41.0, 12.0, 41.1, 12.1)
 
 
-def scrivi_snapshot(path: Path, pois: list[Poi], *, citta: str = "Roma") -> None:
-    """``save_snapshot`` con una provenienza di prova.
+def write_snapshot(path: Path, pois: list[Poi], *, citta: str = "Roma") -> None:
+    """``save_snapshot`` with a sample provenance.
 
-    Da #241 area e citta' sono obbligatorie in ``save_snapshot``: una provenienza
-    che omette l'area interrogata non serve a nessuno. I test che usano lo
-    snapshot solo come FIXTURE (idempotenza, replay, skip) non hanno nulla da dire
-    sulla provenienza: passano da qui invece di ripetere valori che non stanno
-    verificando. Chi verifica la provenienza chiama ``save_snapshot`` diretto.
+    Since #241 area and city are mandatory in ``save_snapshot``: a provenance
+    that omits the area queried is of no use to anyone. The tests that use the
+    snapshot only as a FIXTURE (idempotence, replay, skip) have nothing to say
+    about the provenance: they go through here instead of repeating values they are not
+    verifying. Whoever verifies the provenance calls ``save_snapshot`` directly.
     """
-    save_snapshot(path, pois, bbox=BBOX_DI_PROVA, citta=citta)
+    save_snapshot(path, pois, bbox=TEST_BBOX, citta=citta)
 
 
 class FakeProfiler:
-    """Doppio di RiskProfiler per test senza SPARQL.
+    """RiskProfiler double for tests without SPARQL.
 
-    Costruibile senza argomenti (harness test); accetta un dizionario opzionale
-    per i test dell'orchestratore che iniettano profili specifici.
+    Constructible without arguments (harness test); accepts an optional dictionary
+    for the orchestrator tests that inject specific profiles.
     """
 
     def __init__(self, profiles: dict[str, PoiRiskProfile] | None = None) -> None:
@@ -48,10 +48,10 @@ class FakeProfiler:
 
 
 class FakeLLMClient:
-    """Doppio di _LLMClientLike per test senza provider LLM reale.
+    """_LLMClientLike double for tests without a real LLM provider.
 
-    Costruibile senza argomenti (harness test); accetta una risposta opzionale
-    per i test dell'orchestratore che controllano valori specifici.
+    Constructible without arguments (harness test); accepts an optional response
+    for the orchestrator tests that check specific values.
     """
 
     def __init__(self, response: LLMResponse | None = None) -> None:
@@ -62,7 +62,7 @@ class FakeLLMClient:
 
 
 def default_llm_response() -> LLMResponse:
-    """Risposta LLM di default usata da FakeLLMClient() senza argomenti."""
+    """Default LLM response used by FakeLLMClient() without arguments."""
     return LLMResponse(
         text="Analisi: Banca A presenta rischio rapina.",
         llm_used="claude-sonnet-4-6",
@@ -75,10 +75,10 @@ def default_llm_response() -> LLMResponse:
     )
 
 
-def righe_poi(user_content: str) -> list[str]:
-    """Righe d'intestazione dei punti (``  POI: ...``) di uno user_content.
+def poi_lines(user_content: str) -> list[str]:
+    """Header lines of the points (``  POI: ...``) of a user_content.
 
-    Unico helper per entrambi i bracci (#349): le righe sono le stesse per
-    costruzione (``generation.poi_line``), quindi anche chi le estrae.
+    Single helper for both arms (#349): the lines are the same by
+    construction (``generation.poi_line``), so is whoever extracts them.
     """
     return [r for r in user_content.splitlines() if r.startswith("  POI: ")]

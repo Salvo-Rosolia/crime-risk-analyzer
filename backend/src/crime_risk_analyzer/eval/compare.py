@@ -1,22 +1,22 @@
-"""Confronto a due bracci di esperimenti di valutazione (#32).
+"""Two-arm comparison of evaluation experiments (#32).
 
-Primitiva GENERICA: dati i ``RunRecord`` di DUE esperimenti (braccio A e braccio
-B), li unisce per ``(citta, zona)`` e calcola il DELTA (A - B) delle quattro
-metriche — ``grounding``, ``hallucination``, ``latency_ms``, ``cost_usd`` —
-producendo una tabella per-zona più una riga aggregata (media), serializzabile
-in CSV e Markdown.
+GENERIC primitive: given the ``RunRecord``s of TWO experiments (arm A and arm
+B), it joins them by ``(citta, zona)`` and computes the DELTA (A - B) of the four
+metrics -- ``grounding``, ``hallucination``, ``latency_ms``, ``cost_usd`` --
+producing a per-zone table plus an aggregate row (mean), serializable
+to CSV and Markdown.
 
-Le run in ERROR (metriche azzerate dall'harness) e in FALLBACK (narrativa vuota
-→ metriche non rappresentative della qualità) NON entrano in delta/medie: le
-zone corrispondenti sono escluse dall'aggregato e riportate esplicitamente in
-una sezione dedicata (nulla è scartato o mediato in silenzio). Solo le run
-``OK`` restano incluse (#163).
+Runs in ERROR (metrics zeroed by the harness) and in FALLBACK (empty narrative
+-> metrics not representative of quality) do NOT enter deltas/means: the
+corresponding zones are excluded from the aggregate and explicitly reported in
+a dedicated section (nothing is discarded or averaged silently). Only ``OK``
+runs stay included (#163).
 
-Non è cablata su analyze/baseline: i bracci sono etichettati liberamente
-(``label_a``/``label_b``). L'ablation (#32) confronta ``analyze`` vs
-``baseline``; #33 riuserà la stessa primitiva per ``claude`` vs ``groq``.
+It is not wired to analyze/baseline: the arms are labelled freely
+(``label_a``/``label_b``). The ablation (#32) compares ``analyze`` vs
+``baseline``; #33 will reuse the same primitive for ``claude`` vs ``groq``.
 
-Riusa lo stile e l'helper ``load_runs`` di :mod:`aggregate` senza modificarlo.
+Reuses the style and the ``load_runs`` helper of :mod:`aggregate` without modifying it.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from pydantic import BaseModel
 
 from crime_risk_analyzer.eval.aggregate import load_runs
 from crime_risk_analyzer.eval.metrics import (
-    FrasiEscluseIncoerentiError,
+    InconsistentExcludedSentencesError,
     RiskAnchoring,
     risk_anchoring,
 )
@@ -40,24 +40,24 @@ from crime_risk_analyzer.eval.schema import IstatMetrics, Metrics, RunRecord, Ru
 
 logger = logging.getLogger(__name__)
 
-#: Etichetta della riga aggregata nelle tabelle.
+#: Label of the aggregate row in the tables.
 _MEAN_LABEL = "MEDIA"
 
-#: Status che escludono una zona dal confronto: metriche non rappresentative
-#: della qualità (ERROR = azzerate dall'harness; FALLBACK = narrativa vuota, #163;
-#: HARNESS_ERROR = azzerate anch'esse, ma per un guasto della strumentazione a
-#: valle della pipeline). Vale la regola generale: **tutto ciò che non è OK sta
-#: fuori dalle medie** — un nuovo status nasce senza misura, e includerlo
-#: significherebbe far peggiorare un braccio per un bug. Il vincolo è verificato
-#: sull'enum intero in ``test_compare.py``.
+#: Statuses that exclude a zone from the comparison: metrics not representative
+#: of quality (ERROR = zeroed by the harness; FALLBACK = empty narrative, #163;
+#: HARNESS_ERROR = zeroed too, but because of an instrumentation failure
+#: downstream of the pipeline). The general rule applies: **everything that is not OK
+#: stays out of the means** -- a new status is born without a measure, and including it
+#: would make an arm get worse because of a bug. The constraint is verified
+#: on the whole enum in ``test_compare.py``.
 _EXCLUDED_STATUSES = (RunStatus.ERROR, RunStatus.FALLBACK, RunStatus.HARNESS_ERROR)
 
 
 def guard_no_overwrite(paths: list[Path], force: bool) -> None:
-    """Solleva FileExistsError se un file target esiste e ``force`` e' False.
+    """Raise FileExistsError if a target file exists and ``force`` is False.
 
-    Protegge da sovrascritture accidentali (es. stesso --out per compare e
-    compare-repeated: X.csv resterebbe orfano). ``--force`` bypassa la guardia.
+    Protects from accidental overwrites (e.g. same --out for compare and
+    compare-repeated: X.csv would be left orphaned). ``--force`` bypasses the guard.
     """
     if force:
         return
@@ -71,10 +71,10 @@ def guard_no_overwrite(paths: list[Path], force: bool) -> None:
 
 
 class MetricValues(BaseModel):
-    """Quattro metriche come float, per medie e delta.
+    """Four metrics as floats, for means and deltas.
 
-    A differenza di :class:`~crime_risk_analyzer.eval.schema.Metrics` non impone
-    ``[0,1]``: un delta (A - B) può essere negativo, e ``latency_ms`` medio è un
+    Unlike :class:`~crime_risk_analyzer.eval.schema.Metrics` it does not impose
+    ``[0,1]``: a delta (A - B) can be negative, and mean ``latency_ms`` is a
     float.
     """
 
@@ -85,7 +85,7 @@ class MetricValues(BaseModel):
 
 
 class ZoneComparison(BaseModel):
-    """Confronto di una singola zona ``(citta, zona)`` tra i due bracci."""
+    """Comparison of a single zone ``(citta, zona)`` between the two arms."""
 
     citta: str
     zona: str
@@ -95,10 +95,10 @@ class ZoneComparison(BaseModel):
 
 
 class FailedZone(BaseModel):
-    """Zona esclusa dall'aggregato perché un braccio è in ``ERROR`` o ``FALLBACK``.
+    """Zone excluded from the aggregate because an arm is in ``ERROR`` or ``FALLBACK``.
 
-    Riporta lo status di ENTRAMBI i bracci così l'esclusione è tracciabile
-    (quale braccio è fallito o in fallback), non silenziosa.
+    Reports the status of BOTH arms so the exclusion is traceable
+    (which arm failed or fell back), not silent.
     """
 
     citta: str
@@ -108,21 +108,21 @@ class FailedZone(BaseModel):
 
 
 class VacuousZone(BaseModel):
-    """Zona su cui un braccio non ha prodotto narrativa (#231).
+    """Zone on which an arm produced no narrative (#231).
 
-    Non è un'esclusione: la zona resta nell'aggregato (le misure operative sono
-    valide). Segnala che su QUELLA zona le metriche di qualità del braccio in
-    ``arms`` sono vacue, quindi la media che ne discende non regge un verdetto.
+    It is not an exclusion: the zone stays in the aggregate (the operational measures
+    are valid). It signals that on THAT zone the quality metrics of the arm in
+    ``arms`` are vacuous, so the resulting mean does not support a verdict.
     """
 
     citta: str
     zona: str
-    #: Label dei bracci rimasti muti su questa zona (uno o entrambi).
+    #: Labels of the arms that stayed mute on this zone (one or both).
     arms: list[str]
 
 
 class IstatZoneMetrics(BaseModel):
-    """Metriche ISTAT (#345) dei due bracci su una zona, affiancate: nessun delta."""
+    """ISTAT metrics (#345) of the two arms on a zone, side by side: no delta."""
 
     citta: str
     zona: str
@@ -131,23 +131,23 @@ class IstatZoneMetrics(BaseModel):
 
 
 class RiskAnchoringArm(BaseModel):
-    """Ancoraggio ai rischi di un braccio, su una zona o sull'intero braccio (#359).
+    """Risk anchoring of an arm, on a zone or on the whole arm (#359).
 
-    Esplorativo e affiancato a M1: il verdetto non lo usa. Contano solo le
-    narrative gradabili (:func:`~crime_risk_analyzer.eval.metrics.risk_anchoring`
-    diverso da ``None``) delle run ``OK`` da cui si ricostruisce il testo che M1
-    misura: tutte quelle senza dati ISTAT e quelle con metriche ISTAT dalla
-    versione 4, misurate sul grezzo senza le frasi ISTAT escluse (#377). Queste
-    ultime sono contate in ``run_istat_incluse`` e le loro frasi escluse in
-    ``frasi_istat_escluse``; le run ISTAT da cui il testo non si ricostruisce
-    sono contate in ``run_istat_escluse`` (vedi :func:`_record_anchoring`).
-    I totali sono somme di frasi; le ``quota_*`` sono frazioni sulle frasi
-    misurate (``None`` se nessuna frase); ``frasi_misurate_media``,
-    ``ancoraggio_rischi`` e ``ancoraggio_rischi_conformi`` sono medie per
-    narrativa sulla zona e, per il braccio intero, medie delle zone (come le
-    medie M1 del confronto). ``ancoraggio_rischi`` conta le narrative non conformi
-    come 0; ``ancoraggio_rischi_conformi`` le esclude. ``None`` dove non c'e'
-    nessuna narrativa da mediare.
+    Exploratory and placed alongside M1: the verdict does not use it. Only the
+    gradable narratives count (:func:`~crime_risk_analyzer.eval.metrics.risk_anchoring`
+    different from ``None``) of the ``OK`` runs from which the text that M1
+    measures can be rebuilt: all those without ISTAT data and those with ISTAT metrics
+    from version 4, measured on the raw text without the excluded ISTAT sentences
+    (#377). The latter are counted in ``run_istat_incluse`` and their excluded sentences
+    in ``frasi_istat_escluse``; the ISTAT runs from which the text cannot be rebuilt
+    are counted in ``run_istat_escluse`` (see :func:`_record_anchoring`).
+    The totals are sums of sentences; the ``quota_*`` are fractions of the measured
+    sentences (``None`` if no sentence); ``frasi_misurate_media``,
+    ``ancoraggio_rischi`` and ``ancoraggio_rischi_conformi`` are per-narrative means
+    on the zone and, for the whole arm, means of the zones (like the
+    M1 means of the comparison). ``ancoraggio_rischi`` counts the non-conforming
+    narratives as 0; ``ancoraggio_rischi_conformi`` excludes them. ``None`` where there
+    is no narrative to average.
     """
 
     narrative_gradabili: int
@@ -167,7 +167,7 @@ class RiskAnchoringArm(BaseModel):
 
 
 class RiskAnchoringZone(BaseModel):
-    """Ancoraggio ai rischi dei due bracci su una zona (#359)."""
+    """Risk anchoring of the two arms on a zone (#359)."""
 
     citta: str
     zona: str
@@ -176,27 +176,27 @@ class RiskAnchoringZone(BaseModel):
 
 
 class RiskAnchoringSection(BaseModel):
-    """Sezione «Ancoraggio ai rischi (esplorativo)» del confronto (#359)."""
+    """ "Risk anchoring (exploratory)" section of the comparison (#359)."""
 
     zones: list[RiskAnchoringZone]
     a: RiskAnchoringArm
     b: RiskAnchoringArm
-    #: Label dei bracci in cui le frasi ancorate solo da nomi di POI sono piu'
-    #: di quelle che nominano un POI e un rischio insieme (:func:`solo_poi_prevale`):
-    #: fa comparire il rimando alla sezione vicino al verdetto.
+    #: Labels of the arms in which the sentences anchored only by POI names are more
+    #: than those that name a POI and a risk together (:func:`poi_only_prevails`):
+    #: it makes the pointer to the section appear next to the verdict.
     solo_poi_prevale: list[str]
 
 
 class QualityVerdict(BaseModel):
-    """Risponde da sola: "il verdetto di qualità è applicabile?" (#238).
+    """Answers by itself: "is the quality verdict applicable?" (#238).
 
-    Prima di questo campo, pareggio (nessuna zona vacua, ma i 4 assi coincidono)
-    e astensione (metriche vacue, #231) erano indistinguibili senza ispezionare
-    la FORMA di ``winner`` nel report ripetuto — e il report non ripetuto non
-    aveva alcun modo di rispondere alla stessa domanda. Campo del modello
-    :class:`Comparison`, non bolted-on nei singoli writer: qualunque futuro
-    consumatore di ``to_json``/``model_dump`` lo riceve per costruzione, non per
-    disciplina di chi scrive il payload.
+    Before this field, a tie (no vacuous zone, but the 4 axes coincide)
+    and abstention (vacuous metrics, #231) were indistinguishable without inspecting
+    the SHAPE of ``winner`` in the repeated report -- and the non-repeated report had
+    no way of answering the same question. A field of the
+    :class:`Comparison` model, not bolted-on in the individual writers: any future
+    consumer of ``to_json``/``model_dump`` receives it by construction, not by
+    discipline of whoever writes the payload.
     """
 
     applicable: bool
@@ -206,7 +206,7 @@ class QualityVerdict(BaseModel):
 
 
 class Comparison(BaseModel):
-    """Confronto: zone comparate + aggregato + zone escluse (ERROR/FALLBACK)."""
+    """Comparison: compared zones + aggregate + excluded zones (ERROR/FALLBACK)."""
 
     label_a: str
     label_b: str
@@ -214,55 +214,56 @@ class Comparison(BaseModel):
     mean_a: MetricValues
     mean_b: MetricValues
     mean_delta: MetricValues
-    #: Zone escluse dall'aggregato (un braccio in ERROR o FALLBACK); vuota se nessuna.
-    #: Sempre valorizzata da :func:`compare_records`.
+    #: Zones excluded from the aggregate (an arm in ERROR or FALLBACK); empty if none.
+    #: Always set by :func:`compare_records`.
     failed: list[FailedZone]
-    #: Label dei bracci STRUTTURALMENTE VACUI (#231): nessuna run del braccio ha
-    #: prodotto narrativa. Su un braccio muto ``grounding``/``hallucination``
-    #: cadono nel ramo vacuo di ``metrics.py`` (1.0/0.0 per assenza di testo da
-    #: giudicare), quindi gli assi di qualità NON sono interpretabili: chi legge
-    #: il confronto va avvertito e nessun verdetto va emesso su quegli assi.
-    #: Vuota nel caso normale (entrambi i bracci generano).
+    #: Labels of the STRUCTURALLY VACUOUS arms (#231): no run of the arm
+    #: produced narrative. On a mute arm ``grounding``/``hallucination``
+    #: fall into the vacuous branch of ``metrics.py`` (1.0/0.0 for absence of text to
+    #: judge), so the quality axes are NOT interpretable: whoever reads
+    #: the comparison must be warned and no verdict must be issued on those axes.
+    #: Empty in the normal case (both arms generate).
     vacuous_arms: list[str] = []
-    #: Zone su cui un braccio è rimasto muto pur non essendo muto in assoluto
-    #: (#231): granularità più fine di ``vacuous_arms``, perché una sola zona
-    #: vacua sposta la media che decide il verdetto. Sovrainsieme: se un braccio
-    #: è in ``vacuous_arms``, tutte le sue zone sono anche qui.
+    #: Zones on which an arm stayed mute while not being mute overall
+    #: (#231): finer granularity than ``vacuous_arms``, because a single
+    #: vacuous zone shifts the mean that decides the verdict. Superset: if an arm
+    #: is in ``vacuous_arms``, all its zones are also here.
     vacuous_zones: list[VacuousZone] = []
-    #: Dichiarazione di COSA il confronto manipola, quando i modi dei due bracci
-    #: la rendono derivabile (#236); vuota altrimenti — e allora il report resta
-    #: identico a prima. Non è una conclusione: dice quale variabile cambia tra i
-    #: bracci, mentre la lettura dei delta di qualità resta vincolata al
-    #: :data:`PROXY_CAVEAT`. Sulla coppia di modi giusta ma con impostazioni
-    #: divergenti (modello o temperatura) porta l'avviso OPPOSTO
-    #: (:data:`CONFOUNDED_VARIABLE_HEAD`): il campo non afferma mai che la
-    #: variabile è isolata senza averlo verificato sui record.
+    #: Declaration of WHAT the comparison manipulates, when the modes of the two arms
+    #: make it derivable (#236); empty otherwise -- and then the report stays
+    #: identical to before. It is not a conclusion: it says which variable changes
+    #: between the arms, while the reading of the quality deltas stays bound to the
+    #: :data:`PROXY_CAVEAT`. On the right pair of modes but with diverging
+    #: settings (model or temperature) it carries the OPPOSITE warning
+    #: (:data:`CONFOUNDED_VARIABLE_HEAD`): the field never claims that the
+    #: variable is isolated without having verified it on the records.
     isolated_variable: str = ""
-    #: Derivato da ``vacuous_arms``/``vacuous_zones`` qui sopra, sempre in fase
-    #: di costruzione (#238): vedi :class:`QualityVerdict`.
+    #: Derived from ``vacuous_arms``/``vacuous_zones`` above, always at construction
+    #: time (#238): see :class:`QualityVerdict`.
     quality_verdict: QualityVerdict
-    #: Metriche ISTAT per zona (#345), solo se almeno un braccio le ha. Affiancate
-    #: e mai mediate in un verdetto (D12).
+    #: ISTAT metrics per zone (#345), only if at least one arm has them. Placed side by
+    #: side and never averaged into a verdict (D12).
     istat_metrics: list[IstatZoneMetrics] = []
-    #: Avviso quando i due bracci hanno metriche ISTAT di versioni diverse (#369):
-    #: M1 e' gradato con regole diverse. Campo del modello, come
-    #: ``isolated_variable``, cosi' JSON e Markdown dicono la stessa cosa; vuoto
-    #: altrimenti.
+    #: Warning when the two arms have ISTAT metrics of different versions (#369):
+    #: M1 is graded with different rules. Field of the model, like
+    #: ``isolated_variable``, so JSON and Markdown say the same thing; empty
+    #: otherwise.
     avviso_versioni_istat: str = ""
-    #: Avviso quando i record dei due bracci, o dentro un braccio, hanno versioni
-    #: diverse di M1 (#408): grounding/hallucination sono gradati con semantiche
-    #: diverse. Non rifiuta, avvisa; vuoto altrimenti. Campo del modello come
+    #: Warning when the records of the two arms, or within an arm, have different
+    #: versions of M1 (#408): grounding/hallucination are graded with different
+    #: semantics. It does not reject, it warns; empty otherwise. Field of the model like
     #: ``avviso_versioni_istat``.
     avviso_versioni_m1: str = ""
-    #: Ancoraggio ai rischi separato da quello ai nomi dei POI (#359), calcolato
-    #: dai record al momento del report. ``None`` se nessun braccio ha una
-    #: narrativa gradabile (es. baseline contro baseline). Non entra nel verdetto.
+    #: Risk anchoring separate from the one on POI names (#359), computed
+    #: from the records at report time. ``None`` if no arm has a
+    #: gradable narrative (e.g. baseline against baseline). It does not enter the
+    #: verdict.
     ancoraggio_rischi: RiskAnchoringSection | None = None
 
 
 @dataclass(frozen=True)
 class _MetricSpec:
-    """Fonte unica per colonne e formattazione di una metrica (evita drift m2)."""
+    """Single source for the columns and formatting of a metric (avoids m2 drift)."""
 
     name: str
     value_fmt: str
@@ -277,8 +278,8 @@ _HALLUCINATION_SPEC = _MetricSpec(
 _LATENCY_SPEC = _MetricSpec("latency_ms", "{:.0f}", "{:+.0f}", lambda m: m.latency_ms)
 _COST_SPEC = _MetricSpec("cost_usd", "{:.6f}", "{:+.6f}", lambda m: m.cost_usd)
 
-#: Ordine e formato delle 4 metriche. Guida SIA le intestazioni SIA le righe:
-#: aggiungere una metrica qui aggiorna header e celle in modo coerente.
+#: Order and format of the 4 metrics. Drives BOTH the headers AND the rows:
+#: adding a metric here updates header and cells consistently.
 _METRIC_SPECS: tuple[_MetricSpec, ...] = (
     _GROUNDING_SPEC,
     _HALLUCINATION_SPEC,
@@ -286,18 +287,18 @@ _METRIC_SPECS: tuple[_MetricSpec, ...] = (
     _COST_SPEC,
 )
 
-#: Sottoinsieme "operativo" (misure DIRETTE): guida la tabella costo/latenza
-#: separata dalle metriche-proxy di qualità (#33). Stesse spec del set completo
-#: → stesso formato/segno, nessuna duplicazione di formattazione.
+#: "Operational" subset (DIRECT measures): drives the cost/latency table
+#: separate from the textual quality proxy metrics (#33). Same specs as the full set
+#: -> same format/sign, no duplication of formatting.
 _OPERATIONAL_SPECS: tuple[_MetricSpec, ...] = (_LATENCY_SPEC, _COST_SPEC)
 
-#: Caveat metodologico stampato in coda al report Markdown (#33). ``grounding``
-#: e ``hallucination`` sono PROXY TESTUALI (stimati da pattern sui tag fonte e
-#: sui nomi dei POI in ``metrics.py``), non giudizi umani di qualità;
-#: ``latency_ms`` e ``cost_usd`` sono invece misure operative dirette. Il
-#: confronto proxy-vs-annotazione umana PER-RUN su queste metriche aggregate
-#: e' stato rimosso (#152): ``eval/gold.py`` valida oggi a un'altra grana
-#: (per-rischio, non su grounding/hallucination aggregati per run).
+#: Methodological caveat printed at the end of the Markdown report (#33). ``grounding``
+#: and ``hallucination`` are TEXTUAL PROXIES (estimated from patterns on source tags and
+#: on POI names in ``metrics.py``), not human judgements of quality;
+#: ``latency_ms`` and ``cost_usd`` are instead direct operational measures. The
+#: PER-RUN proxy-vs-human-annotation comparison on these aggregate metrics
+#: was removed (#152): ``eval/gold.py`` today validates at another grain
+#: (per-risk, not on grounding/hallucination aggregated per run).
 PROXY_CAVEAT = (
     "> **Nota metodologica.** `grounding` e `hallucination` sono *proxy "
     "testuali* (copertura delle citazioni e frazione di asserzioni non "
@@ -310,11 +311,11 @@ PROXY_CAVEAT = (
 )
 
 
-#: Titolo della sezione esplorativa sull'ancoraggio ai rischi (#359).
+#: Title of the exploratory section on risk anchoring (#359).
 RISK_ANCHORING_HEAD = "### Ancoraggio ai rischi (esplorativo)"
 
-#: Nota fissa della sezione (#359): cosa separa, perche' e' in parte circolare e
-#: cosa non puo' dire.
+#: Fixed note of the section (#359): what it separates, why it is partly circular and
+#: what it cannot say.
 RISK_ANCHORING_NOTE = (
     "> **Come leggere questa sezione.** Il `grounding` della tabella principale "
     "conta come ancorata solo una frase che nomina un punto (da M1 v3): un "
@@ -342,8 +343,8 @@ RISK_ANCHORING_NOTE = (
 )
 
 
-#: Frase della sezione quando delle run con dati ISTAT ne restano fuori
-#: (#359, #377): M1 le ha misurate su un testo che dal record non si ricostruisce.
+#: Sentence of the section when some runs with ISTAT data are left out of it
+#: (#359, #377): M1 measured them on a text that cannot be rebuilt from the record.
 RISK_ANCHORING_ISTAT_EXCLUDED = (
     "Restano fuori dalla sezione le run con dati ISTAT da cui non si ricostruisce "
     "il testo misurato dal `grounding`: record scritti prima della versione 4 "
@@ -352,8 +353,8 @@ RISK_ANCHORING_ISTAT_EXCLUDED = (
     "testo del modello"
 )
 
-#: Avviso della sezione quando contiene run con dati ISTAT (#377): misura il
-#: testo che misura M1, ricostruito dal record (grezzo meno ``frasi_escluse_m1``).
+#: Warning of the section when it contains runs with ISTAT data (#377): it measures the
+#: text that M1 measures, rebuilt from the record (raw text minus ``frasi_escluse_m1``).
 RISK_ANCHORING_ISTAT_INCLUDED = (
     "> **Run con dati ISTAT.** Per queste run la sezione misura lo stesso testo "
     "del `grounding`: quello scritto dal modello prima del filtro delle cifre, "
@@ -367,54 +368,55 @@ RISK_ANCHORING_ISTAT_INCLUDED = (
 )
 
 
-#: Titolo dell'avviso di vacuità (#231). Stampato PRIMA delle tabelle: chi legge
-#: deve sapere che su questi assi il confronto non è interpretabile prima di
-#: incontrare i numeri, non dopo. Fonte unica del wording (lo riusa il report
-#: ripetuto per motivare il verdetto trattenuto).
+#: Title of the vacuity warning (#231). Printed BEFORE the tables: whoever reads
+#: must know that on these axes the comparison is not interpretable before
+#: meeting the numbers, not after. Single source of the wording (the repeated
+#: report reuses it to justify the withheld verdict).
 VACUOUS_CAVEAT_HEAD = "> ⚠️ **Assi di qualità non applicabili.**"
 
-#: Spiegazione del perché un braccio muto non merita 1.0/0.0. Condivisa tra il
-#: caveat delle tabelle e la sezione «verdetto trattenuto» del report ripetuto:
-#: una sola formulazione, nessun drift tra i due moduli.
+#: Explanation of why a mute arm does not deserve 1.0/0.0. Shared between the
+#: caveat of the tables and the "withheld verdict" section of the repeated report:
+#: a single formulation, no drift between the two modules.
 VACUOUS_REASON = (
     "`grounding`/`hallucination` cadono nel ramo vacuo di `metrics.py` "
     "(1.0/0.0 perché non c'è testo da giudicare), che non è un merito"
 )
 
-#: Cosa dire delle misure operative (latenza, costo) quando gli assi di qualità
-#: sono vacui: sono numeri grezzi leggibili nelle tabelle, non un confronto
-#: dichiarato su di essi — dirlo con "restano confrontabili" prometterebbe un
-#: esito che il report non calcola né stampa (#237). Fonte unica del wording,
-#: condivisa fra il caveat delle tabelle qui sotto e la sezione «verdetto
-#: trattenuto» del report ripetuto: stesso motivo del pattern già usato per
-#: VACUOUS_REASON, per non lasciare che le due formulazioni divergano di nuovo.
+#: What to say about the operational measures (latency, cost) when the quality axes
+#: are vacuous: they are raw numbers readable in the tables, not a comparison
+#: declared on them -- saying "they remain comparable" would promise an
+#: outcome that the report neither computes nor prints (#237). Single source of the
+#: wording, shared between the caveat of the tables below and the "withheld
+#: verdict" section of the repeated report: same reason as the pattern already used for
+#: VACUOUS_REASON, so the two formulations do not diverge again.
 OPERATIONAL_AXES_NOTE = (
     "i valori operativi (latenza, costo) restano leggibili nelle tabelle, letti "
     "direttamente e non come un confronto dichiarato"
 )
 
 
-#: Titolo della dichiarazione di variabile isolata (#236). Come l'avviso di
-#: vacuità apre il report: chi legge deve sapere COSA distingue i due bracci
-#: prima di incontrare i delta, non dopo.
+#: Title of the isolated-variable declaration (#236). Like the vacuity
+#: warning it opens the report: whoever reads must know WHAT distinguishes the two arms
+#: before meeting the deltas, not after.
 ISOLATED_VARIABLE_HEAD = "> **Variabile isolata.**"
 
-#: Titolo del caso opposto (#236): i modi ISOLEREBBERO l'ontologia, ma i bracci
-#: non girano con la stessa impostazione (modello o temperatura diversi), quindi
-#: tra loro cambia più di una variabile. Va dove andrebbe la dichiarazione, per
-#: la stessa ragione: dire il falso in cima al report è peggio che non dire
-#: nulla, e tacere lascerebbe il delta senza istruzioni di lettura.
+#: Title of the opposite case (#236): the modes WOULD ISOLATE the ontology, but the arms
+#: do not run with the same setting (different model or temperature), so
+#: between them more than one variable changes. It goes where the declaration would go,
+#: for the same reason: saying something false at the top of the report is worse than
+#: saying nothing, and staying silent would leave the delta without reading
+#: instructions.
 CONFOUNDED_VARIABLE_HEAD = "> ⚠️ **Variabile non isolata.**"
 
-#: Avviso che accompagna SEMPRE la coppia con/senza ontologia (#236), in qualunque
-#: dei due rami della nota: le differenze operative osservate tra questi bracci
-#: non sono un merito. Il prompt ablato non porta hazard, vulnerabilità e
-#: citazioni, quindi è più corto per costruzione e consuma meno token in meno
-#: tempo a prescindere da cosa scriva. Va detto accanto alla dichiarazione della
-#: variabile perché la tabella operativa (#33) affianca latenza e costo come
-#: fossero un esito del confronto — e su questa coppia sono un esito della
-#: lunghezza del testo inviato. Coerente con l'esclusione dello spareggio
-#: operativo dal verdetto (``winner.decide_winner``, ``operational_tiebreak``).
+#: Warning that ALWAYS accompanies the with/without-ontology pair (#236), in either
+#: of the two branches of the note: the operational differences observed between these
+#: arms are not a merit. The ablated prompt carries no hazard, vulnerability or
+#: citations, so it is shorter by construction and consumes fewer tokens in less
+#: time regardless of what it writes. It must be said next to the declaration of the
+#: variable because the operational table (#33) places latency and cost side by side as
+#: if they were an outcome of the comparison -- and on this pair they are an outcome of
+#: the length of the text sent. Consistent with the exclusion of the operational
+#: tie-break from the verdict (``winner.decide_winner``, ``operational_tiebreak``).
 PROMPT_LENGTH_SIDE_EFFECT = (
     "Le eventuali differenze di `latency_ms`/`cost_usd` tra questi due bracci "
     "NON sono un merito: il prompt senza ontologia è strutturalmente più corto "
@@ -423,10 +425,11 @@ PROMPT_LENGTH_SIDE_EFFECT = (
     "velocità e costo non sono spareggi validi e il verdetto non li usa."
 )
 
-#: Cosa il delta di qualità significa quando la variabile È isolata (#236) e gli
-#: assi di qualità sono leggibili. Costante nominata perché è l'affermazione più
-#: impegnativa del report — quella che un lettore cita — e perché il ramo vacuo
-#: deve poterla SOSTITUIRE, non affiancare (vedi :data:`VACUOUS_DELTA_CLAIM`).
+#: What the quality delta means when the variable IS isolated (#236) and the
+#: quality axes are readable. A named constant because it is the most
+#: committing claim of the report -- the one a reader quotes -- and because the vacuous
+#: branch must be able to REPLACE it, not sit beside it (see
+#: :data:`VACUOUS_DELTA_CLAIM`).
 ISOLATED_DELTA_CLAIM = (
     "Il delta su `grounding`/`hallucination` misura quindi l'effetto "
     "dell'ancoraggio ontologico nel prompt, a parità di punti, su quanto la prosa "
@@ -434,17 +437,18 @@ ISOLATED_DELTA_CLAIM = (
     "con la forza di un giudizio umano (vedi la nota metodologica)."
 )
 
-#: Titolo dell'avviso di validità quando i due bracci vedono gli stessi POI ma
-#: non tutti quelli della zona (#349): il braccio completo tronca per budget e
-#: l'ablato elenca lo stesso sottoinsieme. La parità è verificata; la SCELTA dei
-#: punti però viene dal taglio del completo, cioè dall'ontologia, e va detta.
+#: Title of the validity warning when the two arms see the same POIs but
+#: not all those of the zone (#349): the full arm truncates by budget and
+#: the ablated one lists the same subset. Parity is verified; the CHOICE of
+#: points however comes from the full arm's cut, i.e. from the ontology, and must be
+#: said.
 POI_SUBSET_VALIDITY_HEAD = "**Validità: stessi POI, ma non tutti quelli della zona.**"
 
-#: Corpo dell'avviso (#349). Il verso NON è determinato: il taglio tiene le classi
-#: con molti rischi (Polizia, Scuola, Ospedale) e scarta quelle con pochi
-#: (farmacie, banche), i cui rischi sono vicini a ciò che un modello senza
-#: ontologia scriverebbe comunque — quindi non si può dire che la scelta aiuti uno
-#: dei due bracci, e non va scritto.
+#: Body of the warning (#349). The direction is NOT determined: the cut keeps the
+#: classes with many risks (Police, School, Hospital) and discards those with few
+#: (pharmacies, banks), whose risks are close to what a model without
+#: ontology would write anyway -- so one cannot say that the choice helps one
+#: of the two arms, and it must not be written.
 POI_SUBSET_VALIDITY_BODY = (
     "li ha scelti il taglio per budget del braccio completo, per rilevanza "
     "(numero di rischi dell'ontologia), e l'altro braccio elenca gli stessi. Il "
@@ -454,14 +458,14 @@ POI_SUBSET_VALIDITY_BODY = (
     "comunque. Va dichiarato nella lettura del delta."
 )
 
-#: Sostituisce :data:`ISOLATED_DELTA_CLAIM` quando il confronto ha assi di qualità
-#: vacui (#231): basta UNA zona muta in un braccio. I due blocchi che aprono il
-#: report parlano degli stessi assi, quindi affermare che il delta misura
-#: l'effetto dell'ontologia e poi che quegli assi non sono interpretabili in
-#: nessuna direzione è una contraddizione dentro lo stesso documento. L'isolamento
-#: resta vero come proprietà del DISEGNO (i due bracci condividono l'impostazione,
-#: è verificato sui record) e va detto: è il delta a non essere leggibile, non il
-#: disegno a essere sbagliato.
+#: Replaces :data:`ISOLATED_DELTA_CLAIM` when the comparison has vacuous quality
+#: axes (#231): ONE mute zone in an arm is enough. The two blocks that open the
+#: report speak of the same axes, so claiming that the delta measures
+#: the effect of the ontology and then that those axes are not interpretable in
+#: any direction is a contradiction within the same document. The isolation
+#: stays true as a property of the DESIGN (the two arms share the setting,
+#: it is verified on the records) and must be said: it is the delta that is not
+#: readable, not the design that is wrong.
 VACUOUS_DELTA_CLAIM = (
     "L'isolamento riguarda però il DISEGNO dei due bracci, non i numeri di "
     "questo confronto: qui `grounding`/`hallucination` cadono nel ramo vacuo "
@@ -469,34 +473,34 @@ VACUOUS_DELTA_CLAIM = (
     "va letto come effetto dell'ancoraggio ontologico, in nessuna direzione."
 )
 
-#: Coppia di ``mode`` che manipola il contributo ontologico nel prompt (#236):
-#: cambia cosa il prompt porta al modello. È l'unica coppia di bracci per cui il
-#: modulo dichiara la variabile — ``analyze`` vs ``baseline`` manipola la
-#: presenza dell'LLM, due modelli manipolano il modello. NECESSARIA ma non
-#: sufficiente: che il resto dell'impostazione sia condiviso lo verificano
-#: :data:`_SHARED_SETTINGS` (modello, temperatura, formato del contesto) e
-#: ``compare_records`` (lo snapshot POI), non questa coppia.
+#: Pair of ``mode``s that manipulates the ontological contribution in the prompt (#236):
+#: it changes what the prompt carries to the model. It is the only pair of arms for
+#: which the module declares the variable -- ``analyze`` vs ``baseline`` manipulates the
+#: presence of the LLM, two models manipulate the model. NECESSARY but not
+#: sufficient: that the rest of the setting is shared is verified by
+#: :data:`_SHARED_SETTINGS` (model, temperature, context format) and
+#: ``compare_records`` (the POI snapshot), not by this pair.
 _ONTOLOGY_ISOLATING_MODES = frozenset({"analyze", "no_ontology_prompt"})
 
-#: Titolo della dichiarazione per la coppia ontologia vs ontologia + ISTAT (#345).
+#: Title of the declaration for the ontology vs ontology + ISTAT pair (#345).
 ISTAT_ISOLATED_VARIABLE_HEAD = "> **Variabile isolata: ISTAT.**"
 
-#: Su questa coppia nessun vincitore automatico (D12).
+#: On this pair no automatic winner (D12).
 ISTAT_NO_WINNER_REASON = (
     "confronto ontologia vs ontologia + ISTAT: nessun vincitore automatico (D12); "
     "grounding/hallucination servono solo a verificare che ISTAT non peggiori "
     "l'ancoraggio e le metriche ISTAT sono affiancate"
 )
 
-#: Limite dello splitter di M1 sulle frasi ISTAT (#369, C1), parte della nota.
+#: Limit of the M1 splitter on ISTAT sentences (#369, C1), part of the note.
 ISTAT_M1_SPLITTER_LIMIT = (
     "Limite: M1 spezza le frasi a ogni punto, quindi una frase ISTAT con "
     "«d.lgs. 7/2016» o «134.169» diventa più pezzi, e un pezzo senza le parole del "
     "dato ISTAT resta misurato come non ancorato."
 )
 
-#: Nota sotto la tabella ISTAT (#369): su cosa e' gradato M1 nel braccio con ISTAT
-#: e quali limiti ne discendono.
+#: Note under the ISTAT table (#369): what M1 is graded on in the arm with ISTAT
+#: and which limits follow from it.
 ISTAT_M1_REDUCED_TEXT = (
     "> **M1 su un testo ridotto.** Nel braccio con i dati ISTAT `grounding` e "
     "`hallucination` sono calcolati sul testo del modello prima del filtro, senza "
@@ -511,9 +515,9 @@ ISTAT_M1_REDUCED_TEXT = (
     "ISTAT."
 )
 
-#: Nota sulle frasi escluse da M1 che non nominano una voce del prompt (#378),
-#: sotto quella sul testo ridotto: candidate da leggere a mano, non un verdetto.
-ISTAT_ESCLUSE_SENZA_VOCE_TEXT = (
+#: Note on the sentences excluded from M1 that name no item of the prompt (#378),
+#: under the one on the reduced text: candidates to read by hand, not a verdict.
+ISTAT_EXCLUDED_WITHOUT_ITEM_TEXT = (
     "> **Frasi escluse senza voce ISTAT del prompt.** Sono le frasi escluse che "
     "non nominano nessuna voce delle righe ISTAT passate al modello né un rischio "
     "collegato a quelle righe. Le voci si riconoscono per etichetta e per rischio "
@@ -529,59 +533,59 @@ ISTAT_ESCLUSE_SENZA_VOCE_TEXT = (
     "inventato non è fra queste."
 )
 
-#: Titolo dell'avviso quando i due bracci hanno metriche ISTAT di versioni
-#: diverse (#369, D2): M1 e' gradato con regole diverse nei due bracci.
+#: Title of the warning when the two arms have ISTAT metrics of different
+#: versions (#369, D2): M1 is graded with different rules in the two arms.
 ISTAT_VERSIONS_DIFFER_HEAD = "> ⚠️ **Metriche ISTAT di versioni diverse.**"
 
-#: Titolo dell'avviso quando i record hanno versioni diverse di M1 (#408),
-#: fra i due bracci o dentro uno: grounding/hallucination non sono confrontabili.
+#: Title of the warning when the records have different versions of M1 (#408),
+#: between the two arms or within one: grounding/hallucination are not comparable.
 M1_VERSIONS_DIFFER_HEAD = "> ⚠️ **Metriche M1 di versioni diverse.**"
 
-#: Effetto collaterale dichiarato: il blocco ISTAT occupa budget (#345, D14).
+#: Declared side effect: the ISTAT block occupies budget (#345, D14).
 ISTAT_BUDGET_SIDE_EFFECT = (
     "Il blocco DATI ISTAT occupa parte del budget di token del prompt: su una zona "
     "densa il braccio con ISTAT puo' ricevere meno POI di quello senza, e anche "
     "questo e' un effetto della variabile, non un difetto del confronto."
 )
 
-#: Impostazioni che i due bracci devono CONDIVIDERE perché la coppia di modi
-#: isoli davvero il solo contributo ontologico del prompt: coppie ``(nome
-#: leggibile, accesso al record)``. Il ``mode`` dice cosa cambia nel prompt, non
-#: con quale generatore la prosa è stata scritta, né con quale forma il blocco POI
-#: è stato reso, né con quale campionamento il testo è stato estratto: una run
-#: Claude contro una run Groq cambia prompt E modello insieme, un braccio
-#: ``per_classe`` contro uno ``per_poi`` cambia prompt E formato — che #273 tiene
-#: opzionale proprio perché non è ovvio quale dei due faccia nominare più punti —
-#: e due semi diversi fanno estrarre dallo stesso prompt due prose diverse. Sono
-#: tutte dimensioni che agiscono sull'asse che i proxy misurano. Lo
-#: ``snapshot_id`` non è qui perché ``compare_records`` lo impone già sollevando
-#: su divergenza.
+#: Settings that the two arms must SHARE for the pair of modes
+#: to really isolate only the ontological contribution of the prompt: pairs ``(readable
+#: name, record access)``. The ``mode`` says what changes in the prompt, not
+#: with which generator the prose was written, nor with which form the POI block
+#: was rendered, nor with which sampling the text was drawn: a Claude
+#: run against a Groq run changes prompt AND model together, a ``per_classe``
+#: arm against a ``per_poi`` one changes prompt AND format -- which #273 keeps
+#: optional precisely because it is not obvious which of the two makes more points be
+#: named -- and two different seeds make two different prose come out of the same
+#: prompt. They are all dimensions that act on the axis the proxies measure. The
+#: ``snapshot_id`` is not here because ``compare_records`` already enforces it by
+#: raising on divergence.
 _SHARED_SETTINGS: tuple[tuple[str, Callable[[RunRecord], object]], ...] = (
     ("modello", lambda rec: rec.model_id),
     ("temperatura", lambda rec: rec.provenance.temperature),
     ("formato del contesto", lambda rec: rec.provenance.context_format),
     ("seed di campionamento", lambda rec: rec.provenance.seed),
-    # #345: il budget decide quanti POI entrano nel prompt (F8 della review
-    # finale): un record vecchio (budget non registrato) contro uno nuovo non
-    # condivide l'impostazione, anche se modello e seed coincidono.
+    # #345: the budget decides how many POIs go into the prompt (F8 of the final
+    # review): an old record (budget not recorded) against a new one does not
+    # share the setting, even if model and seed coincide.
     (
         "budget di token della richiesta",
         lambda rec: rec.provenance.request_token_budget,
     ),
     ("max_tokens della risposta", lambda rec: rec.provenance.llm_max_tokens),
-    # #345: il confronto della tesi gira a ISTAT spento (D6); se un braccio lo
-    # avesse acceso cambierebbe anche il prompt, e va detto.
+    # #345: the thesis comparison runs with ISTAT off (D6); if an arm had
+    # turned it on the prompt would change too, and that must be said.
     ("dati ISTAT nel prompt", lambda rec: rec.provenance.istat),
 )
 
-#: Impostazioni condivise della coppia ISTAT: tutte tranne ISTAT, che e' la variabile.
-_SETTINGS_SENZA_ISTAT = tuple(
+#: Shared settings of the ISTAT pair: all except ISTAT, which is the variable.
+_SETTINGS_WITHOUT_ISTAT = tuple(
     s for s in _SHARED_SETTINGS if s[0] != "dati ISTAT nel prompt"
 )
 
 
 def _single_mode(records: list[RunRecord]) -> str:
-    """``mode`` del braccio se è uno solo; ``""`` se il braccio è misto o vuoto."""
+    """``mode`` of the arm if there is only one; ``""`` if the arm is mixed or empty."""
     modes = {rec.mode for rec in records}
     return next(iter(modes)) if len(modes) == 1 else ""
 
@@ -589,20 +593,20 @@ def _single_mode(records: list[RunRecord]) -> str:
 def _observed(
     records: list[RunRecord], get: Callable[[RunRecord], object]
 ) -> list[str]:
-    """Valori distinti (citati, ordinati) di un'impostazione dentro un braccio."""
+    """Distinct values (cited, sorted) of a setting within an arm."""
     return sorted({f"`{get(rec)}`" for rec in records})
 
 
 def _configured_records(records: list[RunRecord]) -> list[RunRecord]:
-    """Record che descrivono l'impostazione REALE dell'esperimento (#163).
+    """Records that describe the REAL setting of the experiment (#163).
 
-    Esclude ERROR e FALLBACK, gli stessi status che ``compare_records`` tiene
-    fuori da medie e delta. Un record di fallback non riporta la temperatura
-    configurata ma il placeholder di ``_structured_response``
-    (``Repro(temperature=0.0)``, scritto per costruzione quando l'LLM cade):
-    leggerlo come impostazione farebbe apparire misto un braccio che gira con
-    un'unica temperatura, e dichiarare confusa una variabile che nessuno ha
-    confuso.
+    Excludes ERROR and FALLBACK, the same statuses that ``compare_records`` keeps
+    out of means and deltas. A fallback record does not report the configured
+    temperature but the placeholder of ``_structured_response``
+    (``Repro(temperature=0.0)``, written by construction when the LLM drops):
+    reading it as a setting would make an arm that runs with a single
+    temperature look mixed, and declare confounded a variable that nobody
+    confounded.
     """
     return [rec for rec in records if rec.status not in _EXCLUDED_STATUSES]
 
@@ -615,19 +619,19 @@ def _setting_mismatch(
     label_b: str,
     settings: tuple[tuple[str, Callable[[RunRecord], object]], ...] = _SHARED_SETTINGS,
 ) -> str:
-    """Prima impostazione di ``settings`` che i bracci NON condividono.
+    """First of ``settings`` that the arms do NOT share.
 
-    Ritorna una descrizione con i valori osservati per braccio, o ``""`` se
-    l'impostazione è la stessa da entrambi i lati. Un braccio con valori MISTI
-    conta come mancata condivisione: non esiste un valore unico da dichiarare
-    condiviso, quindi il confronto non isola nulla nemmeno lì. Vale anche per un
-    braccio i cui record sono TUTTI falliti (nessun valore osservabile): non c'è
-    un'impostazione da dichiarare condivisa — ``compare_records`` solleva prima,
-    su quel caso, perché non resterebbe alcuna zona da confrontare.
+    Returns a description with the values observed per arm, or ``""`` if
+    the setting is the same on both sides. An arm with MIXED values
+    counts as not shared: there is no single value to declare
+    shared, so the comparison isolates nothing there either. It also holds for an
+    arm whose records have ALL failed (no observable value): there is no
+    setting to declare shared -- ``compare_records`` raises first,
+    on that case, because no zone would remain to compare.
 
-    ``settings`` default a :data:`_SHARED_SETTINGS` (coppia ontologia vs senza
-    ontologia); la coppia ISTAT (#345) passa :data:`_SETTINGS_SENZA_ISTAT`, perché
-    lì ISTAT è la variabile e non un'impostazione da condividere.
+    ``settings`` defaults to :data:`_SHARED_SETTINGS` (ontology vs without
+    ontology pair); the ISTAT pair (#345) passes :data:`_SETTINGS_WITHOUT_ISTAT`,
+    because there ISTAT is the variable and not a setting to share.
     """
     for name, get in settings:
         seen_a = _observed(_configured_records(arm_a), get)
@@ -643,12 +647,12 @@ def _setting_mismatch(
 def _paired_configured(
     arm_a: list[RunRecord], arm_b: list[RunRecord]
 ) -> list[tuple[str, RunRecord, RunRecord]]:
-    """Casi ``(citta, zona)`` presenti in entrambi i bracci fra i record che
-    descrivono l'impostazione reale (:func:`_configured_records`), ordinati.
+    """Cases ``(citta, zona)`` present in both arms among the records that
+    describe the real setting (:func:`_configured_records`), sorted.
 
-    Sono le zone che ``compare_records`` confronta davvero: una zona in
-    ERROR/FALLBACK e' gia' esclusa da medie e delta, e un fallback non ha
-    generato prosa (quindi nemmeno ``poi_nel_prompt``).
+    They are the zones that ``compare_records`` really compares: a zone in
+    ERROR/FALLBACK is already excluded from means and deltas, and a fallback did not
+    generate prose (so not ``poi_nel_prompt`` either).
     """
     index_b = {(r.citta, r.zona): r for r in _configured_records(arm_b)}
     return [
@@ -665,70 +669,73 @@ def _poi_nel_prompt_mismatch(
     label_a: str,
     label_b: str,
 ) -> str:
-    """Casi in cui la parita' dei POI nel prompt NON e' verificata (#349).
+    """Cases in which POI parity in the prompt is NOT verified (#349).
 
-    Gemello di :func:`_setting_mismatch` per un'impostazione che vive per caso e
-    non per braccio: quali punti il prompt ha elencato. Il confronto la VERIFICA
-    sui record invece di presumerla: per ogni caso confrontato ``poi_nel_prompt``
-    deve esserci in entrambi i record e gli INSIEMI devono coincidere (l'ordine
-    diverge per costruzione: il completo per rilevanza, l'ablato in quello del
-    recupero). Ritorna ``""`` se tutto torna, altrimenti una descrizione caso per
-    caso: insiemi diversi, o record senza il campo, cioe' precedenti a #349.
+    Twin of :func:`_setting_mismatch` for a setting that lives per case and
+    not per arm: which points the prompt listed. The comparison VERIFIES it
+    on the records instead of presuming it: for every compared case ``poi_nel_prompt``
+    must be there in both records and the SETS must coincide (the order
+    diverges by construction: the full one by relevance, the ablated in that of
+    retrieval). Returns ``""`` if all is well, otherwise a description case by
+    case: different sets, or records without the field, i.e. prior to #349.
     """
-    problemi: list[str] = []
-    for caso, rec_a, rec_b in _paired_configured(arm_a, arm_b):
+    problems: list[str] = []
+    for case_key, rec_a, rec_b in _paired_configured(arm_a, arm_b):
         poi_a, poi_b = rec_a.poi_nel_prompt, rec_b.poi_nel_prompt
         if poi_a is None or poi_b is None:
-            senza = [
+            without_label = [
                 f"`{label}`"
                 for label, poi in ((label_a, poi_a), (label_b, poi_b))
                 if poi is None
             ]
-            problemi.append(
-                f"{caso}: record senza `poi_nel_prompt` in {' e '.join(senza)}, "
+            problems.append(
+                f"{case_key}: record senza `poi_nel_prompt` in "
+                f"{' e '.join(without_label)}, "
                 "cioè precedenti a #349, quindi la parità non è verificabile"
             )
         elif set(poi_a) != set(poi_b):
-            problemi.append(
-                f"{caso}: insiemi diversi (`{label_a}` {len(poi_a)} POI, "
+            problems.append(
+                f"{case_key}: insiemi diversi (`{label_a}` {len(poi_a)} POI, "
                 f"`{label_b}` {len(poi_b)} POI)"
             )
-    return f"POI nel prompt ({'; '.join(problemi)})" if problemi else ""
+    return f"POI nel prompt ({'; '.join(problems)})" if problems else ""
 
 
 def _poi_subset_note(arm_a: list[RunRecord], arm_b: list[RunRecord]) -> str:
-    """Avviso di validita' quando gli stessi POI sono un sottoinsieme della zona.
+    """Validity warning when the same POIs are a subset of the zone.
 
-    Chiamata solo a parita' verificata (:func:`_poi_nel_prompt_mismatch` vuoto):
-    elenca i casi in cui i punti nel prompt sono meno di quelli della zona
-    (``n_poi``), con N su M. ``""`` se nessun caso e' tagliato.
+    Called only on verified parity (:func:`_poi_nel_prompt_mismatch` empty):
+    lists the cases in which the points in the prompt are fewer than those of the zone
+    (``n_poi``), with N out of M. ``""`` if no case is cut.
     """
-    tagliati = [
-        f"{caso} {len(rec_a.poi_nel_prompt)} su {rec_a.n_poi}"
-        for caso, rec_a, _rec_b in _paired_configured(arm_a, arm_b)
+    truncated = [
+        f"{case_key} {len(rec_a.poi_nel_prompt)} su {rec_a.n_poi}"
+        for case_key, rec_a, _rec_b in _paired_configured(arm_a, arm_b)
         if rec_a.poi_nel_prompt is not None and len(rec_a.poi_nel_prompt) < rec_a.n_poi
     ]
-    if not tagliati:
+    if not truncated:
         return ""
     return (
         f"{POI_SUBSET_VALIDITY_HEAD} Zona per zona, i due bracci vedono N POI su "
-        f"M ({'; '.join(tagliati)}): {POI_SUBSET_VALIDITY_BODY}"
+        f"M ({'; '.join(truncated)}): {POI_SUBSET_VALIDITY_BODY}"
     )
 
 
 def is_ontology_isolating_pair(arm_a: list[RunRecord], arm_b: list[RunRecord]) -> bool:
-    """True se i modi dei due bracci sono la coppia che manipola l'ontologia (#236).
+    """True if the modes of the two arms are the pair that manipulates the ontology
+    (#236).
 
-    Derivato dai RECORD (il loro ``mode``), non dal nome degli esperimenti, come
-    :func:`isolated_variable_note` che lo riusa: su qualunque altra coppia
-    ritorna ``False`` e nulla cambia. Un braccio MISTO (più di un ``mode``) non
-    è riconoscibile e vale ``False``.
+    Derived from the RECORDS (their ``mode``), not from the name of the experiments,
+    like
+    :func:`isolated_variable_note` which reuses it: on any other pair
+    it returns ``False`` and nothing changes. A MIXED arm (more than one ``mode``) is
+    not recognisable and counts as ``False``.
 
-    Lo consuma anche il verdetto a valle (``repeated_comparison``) per escludere
-    velocità e costo dallo spareggio: su questa coppia sono un effetto della
-    lunghezza del prompt (:data:`PROMPT_LENGTH_SIDE_EFFECT`), non un merito.
-    Predicato ESPORTATO invece di ricontrollato là: due riconoscimenti della
-    stessa coppia divergerebbero proprio sul caso che conta.
+    The downstream verdict (``repeated_comparison``) also consumes it to exclude
+    speed and cost from the tie-break: on this pair they are an effect of the
+    prompt length (:data:`PROMPT_LENGTH_SIDE_EFFECT`), not a merit.
+    Predicate EXPORTED instead of rechecked there: two recognitions of the
+    same pair would diverge precisely on the case that matters.
     """
     modes = frozenset({_single_mode(arm_a), _single_mode(arm_b)})
     return modes == _ONTOLOGY_ISOLATING_MODES
@@ -742,45 +749,45 @@ def isolated_variable_note(
     label_b: str,
     quality_axes_vacuous: bool,
 ) -> str:
-    """Dichiara la variabile manipolata, se i modi dei due bracci la rendono nota.
+    """Declare the manipulated variable, if the modes of the two arms make it known.
 
-    Derivata dai RECORD (il loro ``mode``), non dal nome degli esperimenti: il
-    confronto resta la primitiva generica di #32, e su qualunque altra coppia
-    questa funzione ritorna ``""`` lasciando il report invariato.
+    Derived from the RECORDS (their ``mode``), not from the name of the experiments: the
+    comparison stays the generic primitive of #32, and on any other pair
+    this function returns ``""`` leaving the report unchanged.
 
-    Che i bracci condividano modello, temperatura, formato del contesto e seed è
-    VERIFICATO sui record (:func:`_setting_mismatch`, su :data:`_SHARED_SETTINGS`),
-    non dedotto dai modi: due run con generatori diversi cambiano prompt e modello
-    insieme, e su quella coppia la funzione dichiara che la variabile NON è
-    isolata invece di prometterlo. Il controllo guarda i soli record che
-    descrivono l'impostazione reale (:func:`_configured_records`). Lo stesso vale
-    per i POI elencati nel prompt (#349, :func:`_poi_nel_prompt_mismatch`): il
-    braccio completo tronca per budget, e la variabile è isolata solo se, caso
-    per caso, i due record salvano lo stesso insieme. Se è lo stesso ma non è
-    tutta la zona, la nota aggiunge l'avviso di validità
+    That the arms share model, temperature, context format and seed is
+    VERIFIED on the records (:func:`_setting_mismatch`, on :data:`_SHARED_SETTINGS`),
+    not deduced from the modes: two runs with different generators change prompt and
+    model together, and on that pair the function declares that the variable is NOT
+    isolated instead of promising it. The check looks only at the records that
+    describe the real setting (:func:`_configured_records`). The same holds
+    for the POIs listed in the prompt (#349, :func:`_poi_nel_prompt_mismatch`): the
+    full arm truncates by budget, and the variable is isolated only if, case
+    by case, the two records save the same set. If it is the same but not
+    the whole zone, the note adds the validity warning
     (:data:`POI_SUBSET_VALIDITY_HEAD`).
 
-    Il testo dice cosa cambia e cosa NON cambia tra i bracci, e si ferma lì: la
-    lettura dei delta di qualità resta quella del :data:`PROXY_CAVEAT` (proxy
-    testuali, non giudizi umani). Dichiarare la variabile serve proprio a non
-    leggere un delta come una misura della bontà dell'analisi.
+    The text says what changes and what does NOT change between the arms, and stops
+    there: the reading of the quality deltas stays that of the :data:`PROXY_CAVEAT`
+    (textual proxies, not human judgements). Declaring the variable serves precisely not
+    to read a delta as a measure of the goodness of the analysis.
 
-    ``quality_axes_vacuous`` (dal predicato condiviso
-    :func:`has_vacuous_quality_axes`, l'unico che decide se stampare l'avviso di
-    vacuità) sostituisce l'affermazione sul significato del delta: i due blocchi
-    che aprono il report parlano degli STESSI assi, e con la vacuità in gioco uno
-    diceva che il delta misura l'effetto dell'ontologia mentre l'altro, due righe
-    sotto, che su quegli assi non c'è nulla da leggere in nessuna direzione. Il
-    disegno resta isolato — quello è verificato sui record — ma i suoi numeri no.
+    ``quality_axes_vacuous`` (from the shared predicate
+    :func:`has_vacuous_quality_axes`, the only one that decides whether to print the
+    vacuity warning) replaces the claim about the meaning of the delta: the two blocks
+    that open the report speak of the SAME axes, and with vacuity in play one
+    said that the delta measures the effect of the ontology while the other, two lines
+    below, that on those axes there is nothing to read in any direction. The
+    design stays isolated -- that is verified on the records -- but its numbers do not.
 
-    Tutti i rami chiudono con :data:`PROMPT_LENGTH_SIDE_EFFECT`: che il braccio
-    ablato sia più rapido ed economico è una proprietà dei due prompt, quindi va
-    detto sia quando la variabile è isolata sia quando non lo è, e la tabella
-    operativa è stampata anche quando gli assi di qualità sono vacui.
+    All branches close with :data:`PROMPT_LENGTH_SIDE_EFFECT`: that the ablated
+    arm is faster and cheaper is a property of the two prompts, so it must be
+    said both when the variable is isolated and when it is not, and the operational
+    table is printed even when the quality axes are vacuous.
     """
     if not is_ontology_isolating_pair(arm_a, arm_b):
         return ""
-    con, senza = (
+    with_label, without_label = (
         (label_a, label_b) if _single_mode(arm_a) == "analyze" else (label_b, label_a)
     )
     mismatch = _setting_mismatch(
@@ -789,8 +796,9 @@ def isolated_variable_note(
     if mismatch:
         return (
             f"{CONFOUNDED_VARIABLE_HEAD} Tra i due bracci cambia il PROMPT "
-            f"(`{con}` riceve gli hazard che l'ontologia associa alle classi dei "
-            f"punti, `{senza}` solo nome e classe dei punti), ma non condividono "
+            f"(`{with_label}` riceve gli hazard che l'ontologia associa alle "
+            f"classi dei punti, `{without_label}` solo nome e classe dei punti), "
+            "ma non condividono "
             f"la stessa impostazione: {mismatch}. Cambia quindi più di una "
             "variabile e il delta su `grounding`/`hallucination` NON è "
             "attribuibile all'ancoraggio ontologico: per isolarlo, rilanciare i "
@@ -803,47 +811,50 @@ def isolated_variable_note(
         "strutturati della risposta "
         "(`poi[]`, `risk_models`, confidence, quindi gli stessi ancoraggi su cui "
         "i proxy si calcolano). L'unica differenza è il PROMPT: sugli stessi "
-        f"punti, `{con}` riceve gli hazard che l'ontologia associa alle loro "
-        f"classi, `{senza}` riceve solo nome e classe."
+        f"punti, `{with_label}` riceve gli hazard che l'ontologia associa alle loro "
+        f"classi, `{without_label}` riceve solo nome e classe."
     )
     claim = VACUOUS_DELTA_CLAIM if quality_axes_vacuous else ISOLATED_DELTA_CLAIM
     subset = _poi_subset_note(arm_a, arm_b)
-    parti = [
+    parts = [
         what_changes,
         claim,
         *([subset] if subset else []),
         PROMPT_LENGTH_SIDE_EFFECT,
     ]
-    return " ".join(parti)
+    return " ".join(parts)
 
 
-def _istat_di(records: list[RunRecord]) -> set[bool]:
+def _arm_istat_values(records: list[RunRecord]) -> set[bool]:
     return {rec.provenance.istat for rec in records}
 
 
 def is_istat_isolating_pair(arm_a: list[RunRecord], arm_b: list[RunRecord]) -> bool:
-    """True per la coppia ontologia vs ontologia + ISTAT (#345): due bracci
-    ``analyze``, ciascuno con un solo valore di ``istat``, diversi fra loro."""
+    """True for the ontology vs ontology + ISTAT pair (#345): two ``analyze``
+    arms, each with a single value of ``istat``, different from each other."""
     if _single_mode(arm_a) != "analyze" or _single_mode(arm_b) != "analyze":
         return False
-    a, b = _istat_di(arm_a), _istat_di(arm_b)
+    a, b = _arm_istat_values(arm_a), _arm_istat_values(arm_b)
     return len(a) == 1 and len(b) == 1 and a != b
 
 
 def istat_isolated_variable_note(
     arm_a: list[RunRecord], arm_b: list[RunRecord], *, label_a: str, label_b: str
 ) -> str:
-    """Dichiarazione della variabile per la coppia ISTAT (#345); ``""`` altrove."""
+    """Declaration of the variable for the ISTAT pair (#345); ``""`` elsewhere."""
     if not is_istat_isolating_pair(arm_a, arm_b):
         return ""
-    con, senza = (label_a, label_b) if True in _istat_di(arm_a) else (label_b, label_a)
+    with_label, without_label = (
+        (label_a, label_b) if True in _arm_istat_values(arm_a) else (label_b, label_a)
+    )
     mismatch = _setting_mismatch(
-        arm_a, arm_b, label_a=label_a, label_b=label_b, settings=_SETTINGS_SENZA_ISTAT
+        arm_a, arm_b, label_a=label_a, label_b=label_b, settings=_SETTINGS_WITHOUT_ISTAT
     )
     if mismatch:
         return (
             f"{CONFOUNDED_VARIABLE_HEAD} Tra i due bracci cambia il blocco DATI ISTAT "
-            f"nel prompt (`{con}` lo riceve, `{senza}` no), ma non condividono la "
+            f"nel prompt (`{with_label}` lo riceve, `{without_label}` no), "
+            "ma non condividono la "
             f"stessa impostazione: {mismatch}. Cambia quindi piu' di una variabile: "
             "per isolare l'effetto dei dati ISTAT, rilanciare i due bracci con la "
             f"stessa impostazione. {ISTAT_BUDGET_SIDE_EFFECT}"
@@ -854,7 +865,8 @@ def istat_isolated_variable_note(
         "della richiesta, snapshot POI e dati strutturati della risposta. "
         "L'unica differenza e' il blocco DATI "
         "ISTAT nel prompt, con le regole che lo accompagnano e il controllo delle "
-        f"cifre: `{con}` lo riceve, `{senza}` no. Nessun vincitore automatico (D12): "
+        f"cifre: `{with_label}` lo riceve, `{without_label}` no. "
+        "Nessun vincitore automatico (D12): "
         "`grounding`/`hallucination` servono solo a verificare che ISTAT non "
         "peggiori l'ancoraggio, le metriche ISTAT sono affiancate. "
         f"{ISTAT_BUDGET_SIDE_EFFECT}"
@@ -862,17 +874,17 @@ def istat_isolated_variable_note(
 
 
 def _quote_arms(labels: list[str]) -> tuple[str, str]:
-    """(label citate, verbo concordato) per i messaggi di vacuità."""
+    """(cited labels, agreed verb) for the vacuity messages."""
     quoted = " e ".join(f"`{label}`" for label in dict.fromkeys(labels))
     verbo = "non produce" if len(set(labels)) == 1 else "non producono"
     return quoted, verbo
 
 
 def vacuity_subject(vacuous_arms: list[str], vacuous_zones: list[VacuousZone]) -> str:
-    """Frase che dice CHI è rimasto muto e DOVE (braccio intero o singole zone).
+    """Sentence that says WHO stayed mute and WHERE (whole arm or single zones).
 
-    Preferisce la formulazione per braccio quando il braccio è muto ovunque: è
-    più informativa di elencarne tutte le zone.
+    Prefers the per-arm formulation when the arm is mute everywhere: it is
+    more informative than listing all its zones.
     """
     if vacuous_arms:
         quoted, verbo = _quote_arms(vacuous_arms)
@@ -887,17 +899,17 @@ def vacuity_subject(vacuous_arms: list[str], vacuous_zones: list[VacuousZone]) -
 def has_vacuous_quality_axes(
     vacuous_arms: list[str], vacuous_zones: list[VacuousZone]
 ) -> bool:
-    """True se su questo confronto ``grounding``/``hallucination`` non si leggono.
+    """True if on this comparison ``grounding``/``hallucination`` cannot be read.
 
-    UNICO punto in cui si decide che gli assi di qualità sono vacui (#231), e per
-    questo esportato: lo consumano l'avviso in cima al report
-    (:func:`to_markdown`), la dichiarazione di variabile isolata
-    (:func:`isolated_variable_note`) e il verdetto trattenuto del report ripetuto.
-    Tre condizioni scritte a mano potrebbero divergere, e divergerebbero facendo
-    dire al documento una cosa e la sua negazione sugli stessi assi.
+    SINGLE place where it is decided that the quality axes are vacuous (#231), and for
+    that reason exported: it is consumed by the warning at the top of the report
+    (:func:`to_markdown`), the isolated-variable declaration
+    (:func:`isolated_variable_note`) and the withheld verdict of the repeated report.
+    Three hand-written conditions could diverge, and they would diverge making the
+    document say one thing and its negation on the same axes.
 
-    Basta UNA zona muta in un braccio: entra nella media che il confronto stampa
-    e che il criterio lessicografico userebbe per decidere.
+    ONE mute zone in an arm is enough: it enters the mean that the comparison prints
+    and that the lexicographic criterion would use to decide.
     """
     return bool(vacuous_arms or vacuous_zones)
 
@@ -908,18 +920,18 @@ def _quality_verdict(
     *,
     istat_pair: bool = False,
 ) -> QualityVerdict:
-    """Costruisce il :class:`QualityVerdict` di un confronto (#238).
+    """Build the :class:`QualityVerdict` of a comparison (#238).
 
-    Chiamata una sola volta, dentro :func:`compare_records`, cosi' il campo
-    finisce sul modello :class:`Comparison` stesso: qualunque writer presente o
-    futuro lo eredita da ``to_json``/``model_dump`` senza ricostruirlo a mano
-    (la duplicazione che questa funzione elimina — vedi il modulo
-    ``repeated_comparison``, che prima aveva la sua propria copia).
+    Called only once, inside :func:`compare_records`, so the field
+    ends up on the :class:`Comparison` model itself: any present or
+    future writer inherits it from ``to_json``/``model_dump`` without rebuilding it by
+    hand (the duplication this function eliminates -- see the module
+    ``repeated_comparison``, which previously had its own copy).
 
-    ``istat_pair`` (#345): sulla coppia ontologia vs ontologia + ISTAT nessun
-    vincitore e' automatico (D12), anche quando nessuna zona e' vacua — e' una
-    seconda ragione per trattenere il verdetto, controllata solo se la vacuita'
-    non lo ha gia' trattenuto.
+    ``istat_pair`` (#345): on the ontology vs ontology + ISTAT pair no
+    winner is automatic (D12), even when no zone is vacuous -- it is a
+    second reason to withhold the verdict, checked only if vacuity
+    has not already withheld it.
     """
     withheld = has_vacuous_quality_axes(vacuous_arms, vacuous_zones)
     if not withheld and istat_pair:
@@ -943,7 +955,7 @@ def _quality_verdict(
 
 
 def _vacuous_caveat(vacuous_arms: list[str], vacuous_zones: list[VacuousZone]) -> str:
-    """Avviso per le tabelle: perché gli assi di qualità non si leggono."""
+    """Warning for the tables: why the quality axes cannot be read."""
     return (
         f"{VACUOUS_CAVEAT_HEAD} {vacuity_subject(vacuous_arms, vacuous_zones)}: "
         f"{VACUOUS_REASON}. Su questi assi il confronto NON è interpretabile in "
@@ -951,50 +963,50 @@ def _vacuous_caveat(vacuous_arms: list[str], vacuous_zones: list[VacuousZone]) -
     )
 
 
-def has_narrativa(record: RunRecord) -> bool:
-    """True se il record porta narrativa non vuota (#231).
+def has_narrative(record: RunRecord) -> bool:
+    """True if the record carries a non-empty narrative (#231).
 
-    Unico punto in cui si decide cosa conta come «ha parlato». ``status=OK`` con
-    narrativa vuota è raggiungibile in produzione — il client ritorna
-    ``content or ""`` senza sollevare, quindi l'orchestrator risponde
-    ``fallback=False`` — perciò lo status NON basta a riconoscere una zona muta.
+    Single place where it is decided what counts as "has spoken". ``status=OK`` with
+    empty narrative is reachable in production -- the client returns
+    ``content or ""`` without raising, so the orchestrator answers
+    ``fallback=False`` -- hence the status is NOT enough to recognise a mute zone.
     """
     return bool(record.narrativa.strip())
 
 
 def _record_quality_vacuous(record: RunRecord) -> bool:
-    """True se le metriche di qualita' del record sono vacue (#240).
+    """True if the record's quality metrics are vacuous (#240).
 
-    Legge ``metrics.quality_vacuous`` quando disponibile: e' un sovrainsieme di
-    :func:`has_narrativa`, perche' ``metrics.py::_grade`` cade nel ramo vacuo sia
-    a narrativa assente sia a narrativa piena ma senza alcun POI con un nome da
-    citare (zona senza POI) — il confine che ``has_narrativa`` da sola dichiarava di non
-    coprire. Sui record pre-#240 (``quality_vacuous is None``, dato non
-    disponibile) ricade su ``has_narrativa``: stesso comportamento di prima
-    dell'introduzione di questo campo.
+    Reads ``metrics.quality_vacuous`` when available: it is a superset of
+    :func:`has_narrative`, because ``metrics.py::_grade`` falls into the vacuous branch
+    both on absent narrative and on full narrative but without any POI with a name to
+    cite (zone without POIs) -- the boundary that ``has_narrative`` alone declared it
+    did not cover. On pre-#240 records (``quality_vacuous is None``, data not
+    available) it falls back on ``has_narrative``: same behaviour as before
+    the introduction of this field.
     """
     if record.metrics.quality_vacuous is not None:
         return record.metrics.quality_vacuous
-    return not has_narrativa(record)
+    return not has_narrative(record)
 
 
 def is_vacuous_arm(records: list[RunRecord]) -> bool:
-    """True se NESSUN record del braccio ha metriche di qualita' gradabili (#231).
+    """True if NO record of the arm has gradable quality metrics (#231).
 
-    Un braccio è vacuo per costruzione (``mode='baseline'``: nessun LLM), perché
-    non ha mai prodotto testo, o perché le zone che copre non avevano alcun
-    ancoraggio da citare (#240: ``_record_quality_vacuous``). In tutti i casi non
-    esiste materiale su cui i proxy di qualità possano dire qualcosa. Un braccio
-    che tace su ALCUNE zone e parla su altre NON è vacuo: quelle zone sono
-    raccolte in ``Comparison.vacuous_zones`` e trattengono comunque il verdetto.
+    An arm is vacuous by construction (``mode='baseline'``: no LLM), because it
+    never produced text, or because the zones it covers had no
+    anchor to cite (#240: ``_record_quality_vacuous``). In all cases there
+    is no material on which the quality proxies can say anything. An arm
+    that is silent on SOME zones and speaks on others is NOT vacuous: those zones are
+    collected in ``Comparison.vacuous_zones`` and still withhold the verdict.
 
-    Un braccio vuoto (nessun record) non è vacuo: non è un braccio.
+    An empty arm (no records) is not vacuous: it is not an arm.
     """
     return bool(records) and all(_record_quality_vacuous(rec) for rec in records)
 
 
 def _to_values(m: Metrics) -> MetricValues:
-    """Proietta una :class:`Metrics` (latency int) in :class:`MetricValues`."""
+    """Project a :class:`Metrics` (latency int) into :class:`MetricValues`."""
     return MetricValues(
         grounding=m.grounding,
         hallucination=m.hallucination,
@@ -1004,7 +1016,7 @@ def _to_values(m: Metrics) -> MetricValues:
 
 
 def _delta(a: Metrics, b: Metrics) -> MetricValues:
-    """Delta per-metrica A - B (può essere negativo)."""
+    """Per-metric delta A - B (can be negative)."""
     return MetricValues(
         grounding=a.grounding - b.grounding,
         hallucination=a.hallucination - b.hallucination,
@@ -1014,7 +1026,7 @@ def _delta(a: Metrics, b: Metrics) -> MetricValues:
 
 
 def _mean(values: list[MetricValues]) -> MetricValues:
-    """Media per-metrica su una lista non vuota di :class:`MetricValues`."""
+    """Per-metric mean over a non-empty list of :class:`MetricValues`."""
     n = len(values)
     return MetricValues(
         grounding=float(sum(v.grounding for v in values) / n),
@@ -1025,7 +1037,7 @@ def _mean(values: list[MetricValues]) -> MetricValues:
 
 
 def _index_by_zone(records: list[RunRecord]) -> dict[tuple[str, str], RunRecord]:
-    """Indicizza i record per ``(citta, zona)``; errore su chiave duplicata."""
+    """Index the records by ``(citta, zona)``; error on duplicate key."""
     index: dict[tuple[str, str], RunRecord] = {}
     for rec in records:
         key = (rec.citta, rec.zona)
@@ -1038,40 +1050,40 @@ def _index_by_zone(records: list[RunRecord]) -> dict[tuple[str, str], RunRecord]
     return index
 
 
-def _rifiuta_versioni_istat_miste(records: list[RunRecord], label: str) -> None:
-    """Solleva :class:`ValueError` se il braccio mescola versioni delle metriche
-    ISTAT (#369).
+def _reject_mixed_istat_versions(records: list[RunRecord], label: str) -> None:
+    """Raise :class:`ValueError` if the arm mixes versions of the ISTAT
+    metrics (#369).
 
-    M1 dei record con ISTAT e' gradato su un testo che dipende dalla versione,
-    quindi la media del braccio mescolerebbe misure diverse. Come per i POI nel
-    prompt (#349), meglio rifiutare che lasciare una media che nessuno distingue a
-    valle. I record senza metriche ISTAT (nessuna riga nel prompt) non contano.
+    M1 of the records with ISTAT is graded on a text that depends on the version,
+    so the arm's mean would mix different measures. As for the POIs in the
+    prompt (#349), better to reject than to leave a mean that nobody tells apart
+    downstream. Records without ISTAT metrics (no row in the prompt) do not count.
     """
-    versioni = {r.istat_metrics.versione for r in records if r.istat_metrics}
-    if len(versioni) > 1:
+    versions = {r.istat_metrics.versione for r in records if r.istat_metrics}
+    if len(versions) > 1:
         raise ValueError(
             f"il braccio `{label}` mescola metriche ISTAT di versioni diverse "
-            f"{sorted(versioni)}: M1 dei record con ISTAT e' gradato su testi "
+            f"{sorted(versions)}: M1 dei record con ISTAT e' gradato su testi "
             "diversi a seconda della versione; rigirare il braccio con lo stesso "
             "codice"
         )
 
 
 class NoUsableOutputError(ValueError):
-    """Nessuna zona valida da confrontare: tutti i record sono ERROR/FALLBACK (#239).
+    """No valid zone to compare: all records are ERROR/FALLBACK (#239).
 
-    Sottoclasse di :class:`ValueError` (chi già intercettava ``ValueError``
-    intorno a :func:`compare_records` continua a funzionare) ma distinta dagli
-    altri ``ValueError`` che la funzione solleva: quelli segnalano un INPUT
-    malformato (zone che non coincidono, record duplicati, ``snapshot_id``
-    divergente) e devono continuare a propagare come traceback — qui invece
-    l'input è valido, semplicemente nessun braccio ha prodotto output
-    utilizzabile su nessuna zona (scenario reale: quota LLM esaurita durante una
-    run offline, #232). I chiamanti CLI (:func:`compare_experiments`,
+    Subclass of :class:`ValueError` (whoever already caught ``ValueError``
+    around :func:`compare_records` keeps working) but distinct from the
+    other ``ValueError``s that the function raises: those signal a malformed
+    INPUT (zones that do not match, duplicate records, diverging
+    ``snapshot_id``) and must keep propagating as a traceback -- here instead
+    the input is valid, simply no arm produced usable output
+    on any zone (real scenario: LLM quota exhausted during an offline
+    run, #232). The CLI callers (:func:`compare_experiments`,
     :func:`~crime_risk_analyzer.eval.repeated_comparison.build_repeated_report`)
-    la intercettano per scrivere un report che spiega COSA è fallito, per zona e
-    per braccio, invece di lasciar propagare un traceback nudo — mai un verdetto
-    (vedi :func:`write_no_usable_output_report`).
+    catch it to write a report that explains WHAT failed, per zone and
+    per arm, instead of letting a bare traceback propagate -- never a verdict
+    (see :func:`write_no_usable_output_report`).
     """
 
     def __init__(self, label_a: str, label_b: str, failed: list[FailedZone]) -> None:
@@ -1093,38 +1105,38 @@ def compare_records(
     label_b: str,
     anchoring_records: tuple[list[RunRecord], list[RunRecord]] | None = None,
 ) -> Comparison:
-    """Unisce due bracci per ``(citta, zona)`` e calcola i delta A - B.
+    """Join two arms by ``(citta, zona)`` and compute the A - B deltas.
 
-    ``anchoring_records`` (#359): record da cui calcolare la sezione
-    sull'ancoraggio ai rischi, se diversi da ``arm_a``/``arm_b``. Il report a K
-    ripetizioni passa le ripetizioni, perche' il record-media non porta ne' la
-    narrativa di ogni ripetizione ne' i ``risk_models``.
+    ``anchoring_records`` (#359): records from which to compute the section
+    on risk anchoring, if different from ``arm_a``/``arm_b``. The K-repetition report
+    passes the repetitions, because the mean-record carries neither the
+    narrative of each repetition nor the ``risk_models``.
 
-    Le zone in cui un braccio è in ``ERROR`` (metriche azzerate) o ``FALLBACK``
-    (narrativa vuota → metriche non di qualità) sono escluse da zone comparate e
-    medie, e raccolte in ``Comparison.failed`` (#163). Solo ``OK`` resta incluso.
+    The zones in which an arm is in ``ERROR`` (zeroed metrics) or ``FALLBACK``
+    (empty narrative -> non-quality metrics) are excluded from compared zones and
+    means, and collected in ``Comparison.failed`` (#163). Only ``OK`` stays included.
 
-    Le zone su cui un braccio non ha prodotto narrativa sono marcate in
-    ``Comparison.vacuous_zones``, e un braccio muto su TUTTE le zone anche in
-    ``Comparison.vacuous_arms`` (#231): lì le metriche di qualità sono vacue, non
-    un merito, e a valle nessun verdetto va emesso su quegli assi. Non è un
-    errore e non esclude zone: le misure operative (latenza, costo) restano
-    valide, ma nessun confronto viene dichiarato su di esse (#237) — vanno
-    lette direttamente nelle tabelle.
+    The zones on which an arm produced no narrative are marked in
+    ``Comparison.vacuous_zones``, and an arm mute on ALL the zones also in
+    ``Comparison.vacuous_arms`` (#231): there the quality metrics are vacuous, not
+    a merit, and downstream no verdict must be issued on those axes. It is not an
+    error and excludes no zones: the operational measures (latency, cost) stay
+    valid, but no comparison is declared on them (#237) -- they must be
+    read directly in the tables.
 
-    Solleva :class:`ValueError` se: un braccio ha record duplicati per una zona;
-    i due bracci coprono zone diverse (iso-input violato); una zona appaiata ha
-    ``snapshot_id`` divergente tra i bracci (iso-input a livello di record); un
-    braccio mescola metriche ISTAT di versioni diverse (#369, M1 gradato su testi
-    diversi: :func:`_rifiuta_versioni_istat_miste`).
-    Solleva :class:`NoUsableOutputError` (sottoclasse di ``ValueError``, #239) se
-    non resta alcuna zona valida da confrontare — l'input è valido, è l'esito ad
-    essere degenere.
+    Raises :class:`ValueError` if: an arm has duplicate records for a zone;
+    the two arms cover different zones (iso-input violated); a paired zone has
+    diverging ``snapshot_id`` between the arms (iso-input at record level); an
+    arm mixes ISTAT metrics of different versions (#369, M1 graded on different
+    texts: :func:`_reject_mixed_istat_versions`).
+    Raises :class:`NoUsableOutputError` (subclass of ``ValueError``, #239) if
+    no valid zone remains to compare -- the input is valid, it is the outcome that
+    is degenerate.
     """
     index_a = _index_by_zone(arm_a)
     index_b = _index_by_zone(arm_b)
-    _rifiuta_versioni_istat_miste(arm_a, label_a)
-    _rifiuta_versioni_istat_miste(arm_b, label_b)
+    _reject_mixed_istat_versions(arm_a, label_a)
+    _reject_mixed_istat_versions(arm_b, label_b)
     keys_a = set(index_a)
     keys_b = set(index_b)
     if keys_a != keys_b:
@@ -1143,12 +1155,12 @@ def compare_records(
     for key in sorted(keys_a):
         rec_a = index_a[key]
         rec_b = index_b[key]
-        # Iso-input a livello di record: la stessa (citta, zona) deve citare lo
-        # stesso snapshot_id in entrambi i bracci. Difesa-in-profondità (record
-        # manomessi a mano, o un futuro snapshot_id derivato dal contenuto POI).
-        # NON intercetta un --force: quello sovrascrive il file snapshot ma lascia
-        # l'id invariato (derivato solo da (citta, zona)), quindi una divergenza
-        # di CONTENUTO tra i bracci non emergerebbe qui.
+        # Iso-input at record level: the same (citta, zona) must cite the
+        # same snapshot_id in both arms. Defence in depth (records
+        # tampered with by hand, or a future snapshot_id derived from the POI content).
+        # It does NOT catch a --force: that overwrites the snapshot file but leaves
+        # the id unchanged (derived only from (citta, zona)), so a divergence
+        # of CONTENT between the arms would not emerge here.
         sid_a = rec_a.provenance.snapshot_id
         sid_b = rec_b.provenance.snapshot_id
         if sid_a != sid_b:
@@ -1156,9 +1168,9 @@ def compare_records(
                 f"snapshot_id divergente per (citta, zona)={key}: "
                 f"A={sid_a!r} B={sid_b!r} (confronto iso-input violato)"
             )
-        # ERROR (metriche azzerate dall'harness) e FALLBACK (narrativa vuota →
-        # metriche non rappresentative della qualità) sono esclusi, non mediati
-        # (#163). Riportati tra le zone fallite: esclusione tracciata, non muta.
+        # ERROR (metrics zeroed by the harness) and FALLBACK (empty narrative ->
+        # metrics not representative of quality) are excluded, not averaged
+        # (#163). Reported among the failed zones: traced exclusion, not mute.
         if rec_a.status in _EXCLUDED_STATUSES or rec_b.status in _EXCLUDED_STATUSES:
             failed.append(
                 FailedZone(
@@ -1169,11 +1181,11 @@ def compare_records(
                 )
             )
             continue
-        # Zona muta (#231): status OK ma metriche di qualita' non gradabili per un
-        # braccio — nessun testo prodotto, oppure narrativa piena su una zona
-        # senza POI/ancoraggi da citare (#240). La zona resta comparata (le
-        # misure operative valgono), ma le sue metriche di qualità sono vacue e
-        # non possono sostenere un verdetto.
+        # Mute zone (#231): status OK but quality metrics not gradable for an
+        # arm -- no text produced, or full narrative on a zone
+        # without POIs/anchors to cite (#240). The zone stays compared (the operational
+        # measures hold), but its quality metrics are vacuous and
+        # cannot support a verdict.
         silent = [
             label
             for label, rec in ((label_a, rec_a), (label_b, rec_b))
@@ -1225,10 +1237,10 @@ def compare_records(
                 arm_b,
                 label_a=label_a,
                 label_b=label_b,
-                # La nota è calcolata QUI, non nei renderer, perché la vacuità è
-                # nota solo dopo il join: così il campo (che finisce anche nel
-                # JSON) e l'avviso del Markdown non possono raccontare due storie
-                # diverse.
+                # The note is computed HERE, not in the renderers, because vacuity is
+                # known only after the join: so the field (which also ends up in the
+                # JSON) and the Markdown warning cannot tell two different
+                # stories.
                 quality_axes_vacuous=has_vacuous_quality_axes(vacuous, vacuous_zones),
             )
             or istat_isolated_variable_note(
@@ -1239,8 +1251,8 @@ def compare_records(
             vacuous, vacuous_zones, istat_pair=is_istat_isolating_pair(arm_a, arm_b)
         ),
         istat_metrics=istat_zone,
-        avviso_versioni_istat=_avviso_versioni_istat(istat_zone, label_a, label_b),
-        avviso_versioni_m1=_avviso_versioni_m1(
+        avviso_versioni_istat=_istat_versions_warning(istat_zone, label_a, label_b),
+        avviso_versioni_m1=_m1_versions_warning(
             source_a,
             source_b,
             {(z.citta, z.zona) for z in zones},
@@ -1257,56 +1269,57 @@ def compare_records(
     )
 
 
-#: Prima versione delle metriche ISTAT i cui record salvano le frasi escluse da
-#: M1 (#369): da li' il testo che M1 misura si ricostruisce dal record (#377).
-_VERSIONE_ISTAT_RICOSTRUIBILE = 4
+#: First version of the ISTAT metrics whose records save the sentences excluded from
+#: M1 (#369): from there the text that M1 measures can be rebuilt from the record
+#: (#377).
+_ISTAT_VERSION_RECONSTRUCTIBLE = 4
 
 
 def _record_anchoring(record: RunRecord) -> RiskAnchoring | None:
-    """Ancoraggio ai rischi di un record, dai soli dati salvati (#359).
+    """Risk anchoring of a record, from the saved data alone (#359).
 
-    I nomi dei POI vengono da ``risk_models[].poi``: ``risk_models`` ha una voce
-    per ogni POI, anche fuori ontologia (``risks=[]``), nello stesso ordine di
-    ``resp.poi`` (invariante dell'orchestrator), quindi sono gli stessi nomi che
-    M1 usa.
+    The POI names come from ``risk_models[].poi``: ``risk_models`` has one entry
+    for every POI, even outside the ontology (``risks=[]``), in the same order as
+    ``resp.poi`` (orchestrator invariant), so they are the same names that
+    M1 uses.
 
-    Senza dati ISTAT si misura ``RunRecord.narrativa``. Con i dati ISTAT M1 grada
-    il grezzo senza le frasi ISTAT escluse (#369): si misura lo stesso testo,
-    ricostruito da ``narrativa_grezza`` e ``frasi_escluse_m1`` (#377). Va
-    chiamata solo sui record da cui il testo si ricostruisce
-    (:func:`_istat_non_ricostruibile` falso).
+    Without ISTAT data ``RunRecord.narrativa`` is measured. With ISTAT data M1 grades
+    the raw text without the excluded ISTAT sentences (#369): the same text is measured,
+    rebuilt from ``narrativa_grezza`` and ``frasi_escluse_m1`` (#377). It must be
+    called only on records from which the text can be rebuilt
+    (:func:`_istat_not_reconstructible` false).
 
     Raises:
-        FrasiEscluseIncoerentiError: le frasi escluse del record non sono fra
-            le frasi del grezzo.
+        InconsistentExcludedSentencesError: the excluded sentences of the record are not
+            among the sentences of the raw text.
     """
-    con_istat = record.istat_metrics is not None
+    with_istat = record.istat_metrics is not None
     return risk_anchoring(
-        record.narrativa_grezza if con_istat else record.narrativa,
+        record.narrativa_grezza if with_istat else record.narrativa,
         mode=record.mode,
         poi_names=[m.poi for m in record.risk_models],
         risk_models=record.risk_models,
-        frasi_escluse=(record.frasi_escluse_m1 or []) if con_istat else [],
+        excluded_sentences=(record.frasi_escluse_m1 or []) if with_istat else [],
     )
 
 
-def _istat_non_ricostruibile(record: RunRecord) -> bool:
-    """True se il record ha dati ISTAT ma il testo misurato da M1 non si
-    ricostruisce (#359, #377).
+def _istat_not_reconstructible(record: RunRecord) -> bool:
+    """True if the record has ISTAT data but the text measured by M1 cannot
+    be rebuilt (#359, #377).
 
-    ``istat_metrics`` e' scritto dall'harness esattamente quando la risposta
-    porta il controllo delle cifre ISTAT, cioe' quando M1 grada il grezzo senza
-    le frasi ISTAT escluse invece della narrativa: e' lo stesso segnale,
-    piu' preciso di ``provenance.istat`` (ISTAT richiesto ma magari senza dati
-    nel prompt). Il testo si ricostruisce dalla versione 4 delle metriche ISTAT
-    (prima M1 escludeva altre frasi) e solo se il record ha sia il grezzo sia
-    le frasi escluse.
+    ``istat_metrics`` is written by the harness exactly when the response
+    carries the ISTAT figures check, i.e. when M1 grades the raw text without
+    the excluded ISTAT sentences instead of the narrative: it is the same signal,
+    more precise than ``provenance.istat`` (ISTAT requested but perhaps without data
+    in the prompt). The text can be rebuilt from version 4 of the ISTAT metrics
+    (before, M1 excluded other sentences) and only if the record has both the raw text
+    and the excluded sentences.
     """
     m = record.istat_metrics
     if m is None:
         return False
     return (
-        m.versione < _VERSIONE_ISTAT_RICOSTRUIBILE
+        m.versione < _ISTAT_VERSION_RECONSTRUCTIBLE
         or record.narrativa_grezza is None
         or record.frasi_escluse_m1 is None
     )
@@ -1321,59 +1334,59 @@ def _mean_or_none(values: list[float]) -> float | None:
 
 
 def _zone_anchoring(records: list[RunRecord]) -> RiskAnchoringArm:
-    """Aggrega le narrative gradabili delle run ``OK`` di una zona (#359)."""
+    """Aggregate the gradable narratives of the ``OK`` runs of a zone (#359)."""
     ok = [r for r in records if r.status is RunStatus.OK]
-    inclusi: list[RunRecord] = []
+    included: list[RunRecord] = []
     computed: list[RiskAnchoring | None] = []
     for r in ok:
-        if _istat_non_ricostruibile(r):
+        if _istat_not_reconstructible(r):
             continue
         try:
             computed.append(_record_anchoring(r))
-        except FrasiEscluseIncoerentiError as exc:
-            # Un record incoerente resta fuori come i non ricostruibili: non
-            # deve far fallire tutto il report.
+        except InconsistentExcludedSentencesError as exc:
+            # An inconsistent record stays out like the non-reconstructible ones: it
+            # must not make the whole report fail.
             logger.warning("ancoraggio ai rischi: run %s esclusa: %s", r.run_id, exc)
             continue
-        inclusi.append(r)
-    istat_inclusi = [r for r in inclusi if r.istat_metrics is not None]
+        included.append(r)
+    istat_included = [r for r in included if r.istat_metrics is not None]
     graded = [r for r in computed if r is not None]
-    conformi = [r.ancoraggio_rischi for r in graded if r.conforme]
-    misurate = sum(r.frasi_misurate for r in graded)
-    rischio = sum(r.frasi_ancorate_rischio for r in graded)
-    solo_poi = sum(r.frasi_ancorate_solo_poi for r in graded)
-    poi_e_rischio = sum(r.frasi_ancorate_poi_e_rischio for r in graded)
+    conforming = [r.ancoraggio_rischi for r in graded if r.conforme]
+    measured = sum(r.frasi_misurate for r in graded)
+    risk = sum(r.frasi_ancorate_rischio for r in graded)
+    poi_only = sum(r.frasi_ancorate_solo_poi for r in graded)
+    poi_and_risk = sum(r.frasi_ancorate_poi_e_rischio for r in graded)
     return RiskAnchoringArm(
         narrative_gradabili=len(graded),
         non_conformi=sum(1 for r in graded if not r.conforme),
-        frasi_misurate=misurate,
-        frasi_ancorate_rischio=rischio,
-        frasi_ancorate_solo_poi=solo_poi,
-        frasi_ancorate_poi_e_rischio=poi_e_rischio,
+        frasi_misurate=measured,
+        frasi_ancorate_rischio=risk,
+        frasi_ancorate_solo_poi=poi_only,
+        frasi_ancorate_poi_e_rischio=poi_and_risk,
         frasi_misurate_media=_mean_or_none([float(r.frasi_misurate) for r in graded]),
-        quota_rischio=_share(rischio, misurate),
-        quota_solo_poi=_share(solo_poi, misurate),
+        quota_rischio=_share(risk, measured),
+        quota_solo_poi=_share(poi_only, measured),
         ancoraggio_rischi=_mean_or_none([r.ancoraggio_rischi for r in graded]),
-        ancoraggio_rischi_conformi=_mean_or_none(conformi),
-        run_istat_escluse=len(ok) - len(inclusi),
-        run_istat_incluse=len(istat_inclusi),
-        frasi_istat_escluse=sum(len(r.frasi_escluse_m1 or []) for r in istat_inclusi),
+        ancoraggio_rischi_conformi=_mean_or_none(conforming),
+        run_istat_escluse=len(ok) - len(included),
+        run_istat_incluse=len(istat_included),
+        frasi_istat_escluse=sum(len(r.frasi_escluse_m1 or []) for r in istat_included),
     )
 
 
 def _arm_anchoring(zones: list[RiskAnchoringArm]) -> RiskAnchoringArm:
-    """Braccio intero: somme dei totali, medie delle zone gradabili (#359)."""
-    misurate = sum(z.frasi_misurate for z in zones)
-    rischio = sum(z.frasi_ancorate_rischio for z in zones)
-    solo_poi = sum(z.frasi_ancorate_solo_poi for z in zones)
-    poi_e_rischio = sum(z.frasi_ancorate_poi_e_rischio for z in zones)
-    medie_frasi = [
+    """Whole arm: sums of the totals, means of the gradable zones (#359)."""
+    measured = sum(z.frasi_misurate for z in zones)
+    risk = sum(z.frasi_ancorate_rischio for z in zones)
+    poi_only = sum(z.frasi_ancorate_solo_poi for z in zones)
+    poi_and_risk = sum(z.frasi_ancorate_poi_e_rischio for z in zones)
+    sentence_means = [
         z.frasi_misurate_media for z in zones if z.frasi_misurate_media is not None
     ]
-    medie_ancoraggio = [
+    anchoring_means = [
         z.ancoraggio_rischi for z in zones if z.ancoraggio_rischi is not None
     ]
-    medie_conformi = [
+    conforming_means = [
         z.ancoraggio_rischi_conformi
         for z in zones
         if z.ancoraggio_rischi_conformi is not None
@@ -1381,28 +1394,28 @@ def _arm_anchoring(zones: list[RiskAnchoringArm]) -> RiskAnchoringArm:
     return RiskAnchoringArm(
         narrative_gradabili=sum(z.narrative_gradabili for z in zones),
         non_conformi=sum(z.non_conformi for z in zones),
-        frasi_misurate=misurate,
-        frasi_ancorate_rischio=rischio,
-        frasi_ancorate_solo_poi=solo_poi,
-        frasi_ancorate_poi_e_rischio=poi_e_rischio,
-        frasi_misurate_media=_mean_or_none(medie_frasi),
-        quota_rischio=_share(rischio, misurate),
-        quota_solo_poi=_share(solo_poi, misurate),
-        ancoraggio_rischi=_mean_or_none(medie_ancoraggio),
-        ancoraggio_rischi_conformi=_mean_or_none(medie_conformi),
+        frasi_misurate=measured,
+        frasi_ancorate_rischio=risk,
+        frasi_ancorate_solo_poi=poi_only,
+        frasi_ancorate_poi_e_rischio=poi_and_risk,
+        frasi_misurate_media=_mean_or_none(sentence_means),
+        quota_rischio=_share(risk, measured),
+        quota_solo_poi=_share(poi_only, measured),
+        ancoraggio_rischi=_mean_or_none(anchoring_means),
+        ancoraggio_rischi_conformi=_mean_or_none(conforming_means),
         run_istat_escluse=sum(z.run_istat_escluse for z in zones),
         run_istat_incluse=sum(z.run_istat_incluse for z in zones),
         frasi_istat_escluse=sum(z.frasi_istat_escluse for z in zones),
     )
 
 
-def solo_poi_prevale(arm: RiskAnchoringArm) -> bool:
-    """True se nel braccio le frasi solo POI superano quelle con POI e rischio.
+def poi_only_prevails(arm: RiskAnchoringArm) -> bool:
+    """True if in the arm the POI-only sentences exceed those with POI and risk.
 
-    Le frasi ancorate di M1 sono solo ``solo_poi`` e ``poi_e_rischio`` (#408): il
-    confronto e' fra queste due. ``frasi_ancorate_rischio`` non va bene, perche'
-    include le frasi da rischio senza punto, che M1 non conta come ancorate.
-    Confronto stretto (#359): a parita' il rimando non compare.
+    The anchored sentences of M1 are only ``solo_poi`` and ``poi_e_rischio`` (#408): the
+    comparison is between these two. ``frasi_ancorate_rischio`` is not suitable, because
+    it includes the risk sentences without a point, which M1 does not count as anchored.
+    Strict comparison (#359): on a tie the pointer does not appear.
     """
     return arm.frasi_ancorate_solo_poi > arm.frasi_ancorate_poi_e_rischio
 
@@ -1415,7 +1428,7 @@ def _risk_anchoring_section(
     label_a: str,
     label_b: str,
 ) -> RiskAnchoringSection | None:
-    """Sezione sull'ancoraggio ai rischi, sulle sole zone confrontate (#359)."""
+    """Section on risk anchoring, on the compared zones only (#359)."""
 
     def of_zone(arm: list[RunRecord], key: tuple[str, str]) -> RiskAnchoringArm:
         return _zone_anchoring([r for r in arm if (r.citta, r.zona) == key])
@@ -1439,7 +1452,7 @@ def _risk_anchoring_section(
         solo_poi_prevale=[
             label
             for label, arm in ((label_a, total_a), (label_b, total_b))
-            if solo_poi_prevale(arm)
+            if poi_only_prevails(arm)
         ],
     )
 
@@ -1447,10 +1460,10 @@ def _risk_anchoring_section(
 def _columns(
     label_a: str, label_b: str, specs: tuple[_MetricSpec, ...] = _METRIC_SPECS
 ) -> list[str]:
-    """Intestazioni: per ogni metrica in ``specs``, valore A, valore B, delta.
+    """Headers: for every metric in ``specs``, value A, value B, delta.
 
-    ``specs`` default all'insieme completo (tabella principale); passando
-    :data:`_OPERATIONAL_SPECS` genera le sole colonne costo/latenza (#33).
+    ``specs`` defaults to the full set (main table); passing
+    :data:`_OPERATIONAL_SPECS` generates only the cost/latency columns (#33).
     """
     cols = ["citta", "zona"]
     for spec in specs:
@@ -1461,12 +1474,12 @@ def _columns(
 
 
 def _failed_columns(label_a: str, label_b: str) -> list[str]:
-    """Intestazioni della sezione zone escluse (status per braccio)."""
+    """Headers of the excluded-zones section (status per arm)."""
     return ["citta", "zona", f"status_{label_a}", f"status_{label_b}"]
 
 
 def _failed_row(failed: FailedZone) -> list[str]:
-    """Riga di una zona esclusa; allineata a :func:`_failed_columns`."""
+    """Row of an excluded zone; aligned with :func:`_failed_columns`."""
     return [failed.citta, failed.zona, failed.status_a, failed.status_b]
 
 
@@ -1478,10 +1491,10 @@ def _fmt_row(
     d: MetricValues,
     specs: tuple[_MetricSpec, ...] = _METRIC_SPECS,
 ) -> list[str]:
-    """Una riga formattata; i delta portano il segno esplicito (+/-).
+    """A formatted row; the deltas carry the explicit sign (+/-).
 
-    Derivata dallo stesso ``specs`` di :func:`_columns`: header e righe non
-    possono disallinearsi (una sola fonte di verità), qualunque sottoinsieme.
+    Derived from the same ``specs`` as :func:`_columns`: headers and rows cannot
+    misalign (a single source of truth), for any subset.
     """
     cells = [citta, zona]
     for spec in specs:
@@ -1494,7 +1507,7 @@ def _fmt_row(
 def _rows(
     comparison: Comparison, specs: tuple[_MetricSpec, ...] = _METRIC_SPECS
 ) -> list[list[str]]:
-    """Righe per-zona (solo zone valide) seguite dalla riga aggregata (media)."""
+    """Per-zone rows (valid zones only) followed by the aggregate row (mean)."""
     rows = [
         _fmt_row(z.citta, z.zona, _to_values(z.a), _to_values(z.b), z.delta, specs)
         for z in comparison.zones
@@ -1513,12 +1526,12 @@ def _rows(
 
 
 def to_csv(comparison: Comparison) -> str:
-    """Serializza il confronto in CSV: tabella RETTANGOLARE (zone valide + MEDIA).
+    """Serialize the comparison to CSV: RECTANGULAR table (valid zones + MEAN).
 
-    Le zone escluse (un braccio in ERROR) NON entrano nel CSV, che resta una
-    tabella uniforme caricabile da pandas/``csv.reader`` senza righe ragged; sono
-    riportate nel report Markdown (:func:`to_markdown`) e restano accessibili in
-    ``Comparison.failed``: nessun fallimento sparisce in silenzio.
+    The excluded zones (an arm in ERROR) do NOT enter the CSV, which stays a
+    uniform table loadable by pandas/``csv.reader`` without ragged rows; they are
+    reported in the Markdown report (:func:`to_markdown`) and stay accessible in
+    ``Comparison.failed``: no failure disappears silently.
     """
     buf = io.StringIO()
     writer = csv.writer(buf)
@@ -1529,7 +1542,7 @@ def to_csv(comparison: Comparison) -> str:
 
 
 def _markdown_table(cols: list[str], rows: list[list[str]]) -> list[str]:
-    """Righe markdown di una tabella (header + separatore + dati)."""
+    """Markdown rows of a table (header + separator + data)."""
     lines = [
         "| " + " | ".join(cols) + " |",
         "| " + " | ".join("---" for _ in cols) + " |",
@@ -1539,7 +1552,7 @@ def _markdown_table(cols: list[str], rows: list[list[str]]) -> list[str]:
 
 
 class NoUsableOutputReport(BaseModel):
-    """Forma JSON di ``NoUsableOutputError``: ``failed``, mai un verdetto (#239)."""
+    """JSON shape of ``NoUsableOutputError``: ``failed``, never a verdict (#239)."""
 
     label_a: str
     label_b: str
@@ -1549,12 +1562,12 @@ class NoUsableOutputReport(BaseModel):
 
 
 def no_usable_output_markdown(exc: NoUsableOutputError) -> str:
-    """Report Markdown per un confronto senza nessuna zona utilizzabile (#239).
+    """Markdown report for a comparison with no usable zone (#239).
 
-    Nessuna tabella di metriche, nessun verdetto: solo la sezione delle zone
-    escluse (stesso formato della sezione omonima di :func:`to_markdown`), così
-    chi legge vede subito quale zona e quale braccio hanno fallito e con quale
-    status, invece di un traceback.
+    No metrics table, no verdict: only the excluded-zones section
+    (same format as the homonymous section of :func:`to_markdown`), so
+    whoever reads sees at once which zone and which arm failed and with which
+    status, instead of a traceback.
     """
     fcols = _failed_columns(exc.label_a, exc.label_b)
     lines = [
@@ -1571,7 +1584,7 @@ def no_usable_output_markdown(exc: NoUsableOutputError) -> str:
 
 
 def no_usable_output_csv(exc: NoUsableOutputError) -> str:
-    """CSV delle zone escluse: stesso schema della sezione di :func:`to_csv`."""
+    """CSV of the excluded zones: same schema as the section of :func:`to_csv`."""
     buf = io.StringIO()
     writer = csv.writer(buf)
     writer.writerow(_failed_columns(exc.label_a, exc.label_b))
@@ -1581,7 +1594,7 @@ def no_usable_output_csv(exc: NoUsableOutputError) -> str:
 
 
 def no_usable_output_json(exc: NoUsableOutputError) -> str:
-    """JSON strutturato del fallimento: ``failed``, ``winner`` sempre ``None``."""
+    """Structured JSON of the failure: ``failed``, ``winner`` always ``None``."""
     return NoUsableOutputReport(
         label_a=exc.label_a, label_b=exc.label_b, failed=exc.failed
     ).model_dump_json(indent=2)
@@ -1590,14 +1603,14 @@ def no_usable_output_json(exc: NoUsableOutputError) -> str:
 def write_no_usable_output_report(
     results_dir: Path, exc: NoUsableOutputError, stem: str, *, force: bool = False
 ) -> tuple[Path, Path, Path]:
-    """Scrive ``results/<stem>.{csv,md,json}`` per un confronto senza esito (#239).
+    """Write ``results/<stem>.{csv,md,json}`` for a comparison with no outcome (#239).
 
-    Stessa convenzione di nomi di :func:`write_comparison`: i chiamanti CLI
+    Same naming convention as :func:`write_comparison`: the CLI callers
     (:func:`compare_experiments`,
     :func:`~crime_risk_analyzer.eval.repeated_comparison.build_repeated_report`)
-    restituiscono al proprio chiamante solo i due path del proprio contratto
-    esistente, ignorando il terzo — nessuno dei due rompe la propria firma di
-    ritorno per questo caso degenere.
+    give back to their own caller only the two paths of their own
+    existing contract, ignoring the third -- neither breaks its own return
+    signature for this degenerate case.
     """
     csv_path = results_dir / f"{stem}.csv"
     md_path = results_dir / f"{stem}.md"
@@ -1610,12 +1623,12 @@ def write_no_usable_output_report(
 
 
 def operational_markdown(comparison: Comparison) -> str:
-    """Tabella costo/latenza (metriche operative), SEPARATA dalla qualità (#33).
+    """Cost/latency table (operational metrics), SEPARATE from quality (#33).
 
-    Ri-presenta le sole misure DIRETTE (``latency_ms``, ``cost_usd``) affiancate
-    A/B + delta, per-zona e in media, riusando il join+delta già in
-    ``comparison`` (nessun ricalcolo). Le metriche di qualità restano nella
-    tabella principale e sono proxy testuali: vedi :data:`PROXY_CAVEAT`.
+    Re-presents only the DIRECT measures (``latency_ms``, ``cost_usd``) side by side
+    A/B + delta, per zone and on average, reusing the join+delta already in
+    ``comparison`` (no recomputation). The quality metrics stay in the main
+    table and are textual proxies: see :data:`PROXY_CAVEAT`.
     """
     cols = _columns(comparison.label_a, comparison.label_b, _OPERATIONAL_SPECS)
     lines = ["### Costo e latenza (metriche operative)", ""]
@@ -1623,8 +1636,8 @@ def operational_markdown(comparison: Comparison) -> str:
     return "\n".join(lines) + "\n"
 
 
-#: Colonne della tabella ISTAT, una cella ciascuna in :func:`_cella_istat`.
-_COLONNE_ISTAT = (
+#: Columns of the ISTAT table, one cell each in :func:`_istat_cells`.
+_ISTAT_COLUMNS = (
     "versione",
     "cifre ISTAT scritte",
     "voci citate/fornite",
@@ -1640,12 +1653,12 @@ _COLONNE_ISTAT = (
 )
 
 
-def _cella_istat(m: IstatMetrics | None) -> list[str]:
-    """Celle di un braccio; sui record di versione 1 (#345) i campi nati con la
-    versione 2 (#365) non esistevano e valgono ``n/d``, come le frasi escluse da
-    M1 (#369) prima della versione 4."""
+def _istat_cells(m: IstatMetrics | None) -> list[str]:
+    """Cells of an arm; on version 1 records (#345) the fields born with
+    version 2 (#365) did not exist and count as ``n/d``, like the sentences excluded
+    from M1 (#369) before version 4."""
     if m is None:
-        return ["-"] * len(_COLONNE_ISTAT)
+        return ["-"] * len(_ISTAT_COLUMNS)
     v1 = m.versione < 2
     return [
         str(m.versione),
@@ -1663,39 +1676,39 @@ def _cella_istat(m: IstatMetrics | None) -> list[str]:
     ]
 
 
-def _avviso_versioni_istat(
+def _istat_versions_warning(
     zone: list[IstatZoneMetrics], label_a: str, label_b: str
 ) -> str:
-    """Avviso se i due bracci hanno metriche ISTAT di versioni diverse (#369, D2).
+    """Warning if the two arms have ISTAT metrics of different versions (#369, D2).
 
-    Dentro un braccio le versioni miste sono rifiutate
-    (:func:`_rifiuta_versioni_istat_miste`); fra due bracci con ISTAT (es. due
-    modelli, o una run vecchia contro una nuova) il confronto resta possibile, ma
-    M1 dei due bracci e' gradato con regole diverse e il report lo dice prima
-    delle tabelle. ``""`` se le versioni coincidono o un braccio non ha ISTAT.
+    Within an arm mixed versions are rejected
+    (:func:`_reject_mixed_istat_versions`); between two arms with ISTAT (e.g. two
+    models, or an old run against a new one) the comparison remains possible, but
+    M1 of the two arms is graded with different rules and the report says so before
+    the tables. ``""`` if the versions coincide or an arm has no ISTAT.
     """
-    versioni_a = {z.a.versione for z in zone if z.a}
-    versioni_b = {z.b.versione for z in zone if z.b}
-    if not versioni_a or not versioni_b or versioni_a == versioni_b:
+    versions_a = {z.a.versione for z in zone if z.a}
+    versions_b = {z.b.versione for z in zone if z.b}
+    if not versions_a or not versions_b or versions_a == versions_b:
         return ""
     return (
         f"{ISTAT_VERSIONS_DIFFER_HEAD} `{label_a}`: versione "
-        f"{', '.join(map(str, sorted(versioni_a)))}; `{label_b}`: "
-        f"versione {', '.join(map(str, sorted(versioni_b)))}. Nei due bracci "
+        f"{', '.join(map(str, sorted(versions_a)))}; `{label_b}`: "
+        f"versione {', '.join(map(str, sorted(versions_b)))}. Nei due bracci "
         "`grounding`/`hallucination` escludono le frasi ISTAT con regole diverse: "
         "il delta su quegli assi mescola l'effetto dei bracci con quello della "
         "regola. Per un confronto pulito, rigirare i bracci con lo stesso codice."
     )
 
 
-def _versioni_m1(
+def _m1_versions(
     records: list[RunRecord], zone: set[tuple[str, str]]
 ) -> set[int | None]:
-    """Versioni di M1 dei record che entrano davvero nel confronto (#408).
+    """M1 versions of the records that really enter the comparison (#408).
 
-    Contano solo le zone effettivamente confrontate (non quelle in ``failed``) e,
-    fra i loro record, non quelli esclusi per status ne' quelli con qualita'
-    vacua: su questi ``grounding``/``hallucination`` non dipendono dalla versione.
+    Only the zones actually compared count (not those in ``failed``) and,
+    among their records, not those excluded by status nor those with vacuous
+    quality: on these ``grounding``/``hallucination`` do not depend on the version.
     """
     return {
         r.metrics.versione
@@ -1706,40 +1719,40 @@ def _versioni_m1(
     }
 
 
-def _versioni_m1_testo(versioni: set[int | None]) -> str:
-    """Versioni ordinate, ``n/d`` per i record che non la registrano (#408)."""
-    note = sorted(v for v in versioni if v is not None)
-    return ", ".join([*map(str, note), *(["n/d"] if None in versioni else [])])
+def _m1_versions_text(versions: set[int | None]) -> str:
+    """Sorted versions, ``n/d`` for the records that do not record it (#408)."""
+    note = sorted(v for v in versions if v is not None)
+    return ", ".join([*map(str, note), *(["n/d"] if None in versions else [])])
 
 
-def _avviso_versioni_m1(
+def _m1_versions_warning(
     arm_a: list[RunRecord],
     arm_b: list[RunRecord],
     zone: set[tuple[str, str]],
     label_a: str,
     label_b: str,
 ) -> str:
-    """Avviso se M1 ha versioni diverse, fra i bracci o dentro uno (#408).
+    """Warning if M1 has different versions, between the arms or within one (#408).
 
-    Come :func:`_avviso_versioni_istat` segnala senza rifiutare: grounding e
-    hallucination sono gradati con semantiche diverse, e il report lo dice prima
-    delle tabelle. ``""`` se tutti i record condividono la stessa versione
-    (anche ``n/d``, cioe' tutti precedenti al campo).
+    Like :func:`_istat_versions_warning` it signals without rejecting: grounding and
+    hallucination are graded with different semantics, and the report says so before
+    the tables. ``""`` if all records share the same version
+    (even ``n/d``, i.e. all prior to the field).
     """
-    versioni_a = _versioni_m1(arm_a, zone)
-    versioni_b = _versioni_m1(arm_b, zone)
-    tutte = versioni_a | versioni_b
-    if len(tutte) <= 1:
+    versions_a = _m1_versions(arm_a, zone)
+    versions_b = _m1_versions(arm_b, zone)
+    all_versions = versions_a | versions_b
+    if len(all_versions) <= 1:
         return ""
-    if None in tutte:
-        coda = (
+    if None in all_versions:
+        tail = (
             "Con n/d (record scritto prima che la versione fosse registrata) non "
             "si sa se le versioni differiscano davvero: puo' essere un falso "
             "allarme. Se differiscono, il delta su `grounding`/`hallucination` "
             "mescola l'effetto dei bracci con quello della metrica."
         )
     else:
-        coda = (
+        tail = (
             "`grounding`/`hallucination` sono gradati con semantiche diverse: il "
             "delta su quegli assi mescola l'effetto dei bracci con quello della "
             "metrica. Per un confronto pulito, rigirare i bracci con lo stesso "
@@ -1747,63 +1760,63 @@ def _avviso_versioni_m1(
         )
     return (
         f"{M1_VERSIONS_DIFFER_HEAD} `{label_a}`: versione "
-        f"{_versioni_m1_testo(versioni_a)}; `{label_b}`: versione "
-        f"{_versioni_m1_testo(versioni_b)}. {coda}"
+        f"{_m1_versions_text(versions_a)}; `{label_b}`: versione "
+        f"{_m1_versions_text(versions_b)}. {tail}"
     )
 
 
-def _frasi_escluse_del_braccio(metriche: list[IstatMetrics]) -> str:
-    """Totale delle frasi escluse da M1 nelle zone di un braccio (#369) e, fra
-    queste, di quelle senza voce ISTAT del prompt (#378)."""
-    if any(m.versione < 4 for m in metriche):
+def _arm_excluded_sentences(metrics: list[IstatMetrics]) -> str:
+    """Total of the sentences excluded from M1 in the zones of an arm (#369) and, among
+    these, of those without an ISTAT item of the prompt (#378)."""
+    if any(m.versione < 4 for m in metrics):
         return "n/d (record precedenti alla versione 4)"
-    escluse = f"{sum(m.frasi_escluse_m1 for m in metriche)} frasi escluse"
-    senza_voce = [m.frasi_escluse_senza_voce for m in metriche]
-    if any(n is None for n in senza_voce):
+    excluded = f"{sum(m.frasi_escluse_m1 for m in metrics)} frasi escluse"
+    without_item = [m.frasi_escluse_senza_voce for m in metrics]
+    if any(n is None for n in without_item):
         return (
-            f"{escluse}, di cui n/d senza voce ISTAT del prompt (record senza il "
+            f"{excluded}, di cui n/d senza voce ISTAT del prompt (record senza il "
             "conteggio)"
         )
-    totale = sum(n for n in senza_voce if n is not None)
-    return f"{escluse}, di cui {totale} senza voce ISTAT del prompt"
+    total = sum(n for n in without_item if n is not None)
+    return f"{excluded}, di cui {total} senza voce ISTAT del prompt"
 
 
 def istat_markdown(comparison: Comparison) -> str:
-    """Tabella delle metriche ISTAT affiancate (#345): nessun delta, nessun
-    vincitore. Sotto, la nota sul testo ridotto su cui M1 e' gradato (#369) con
-    il totale delle frasi escluse per braccio."""
-    nomi = _COLONNE_ISTAT
+    """Table of the ISTAT metrics side by side (#345): no delta, no
+    winner. Below, the note on the reduced text on which M1 is graded (#369) with
+    the total of the excluded sentences per arm."""
+    names = _ISTAT_COLUMNS
     cols = [
         "citta",
         "zona",
-        *(f"{n} ({comparison.label_a})" for n in nomi),
-        *(f"{n} ({comparison.label_b})" for n in nomi),
+        *(f"{n} ({comparison.label_a})" for n in names),
+        *(f"{n} ({comparison.label_b})" for n in names),
     ]
-    righe = [
-        [z.citta, z.zona, *_cella_istat(z.a), *_cella_istat(z.b)]
+    rows = [
+        [z.citta, z.zona, *_istat_cells(z.a), *_istat_cells(z.b)]
         for z in comparison.istat_metrics
     ]
     lines = ["### Metriche ISTAT (affiancate, nessun vincitore)", ""]
-    lines.extend(_markdown_table(cols, righe))
-    bracci = [
-        (label, [m for m in metriche if m is not None])
-        for label, metriche in (
+    lines.extend(_markdown_table(cols, rows))
+    arms = [
+        (label, [m for m in metrics if m is not None])
+        for label, metrics in (
             (comparison.label_a, [z.a for z in comparison.istat_metrics]),
             (comparison.label_b, [z.b for z in comparison.istat_metrics]),
         )
     ]
-    totali = [
-        f"`{label}`: {_frasi_escluse_del_braccio(metriche)}"
-        for label, metriche in bracci
-        if metriche
+    totals = [
+        f"`{label}`: {_arm_excluded_sentences(metrics)}"
+        for label, metrics in arms
+        if metrics
     ]
     lines += [
         "",
         ISTAT_M1_REDUCED_TEXT,
         ">",
-        f"> Frasi escluse da M1 — {'; '.join(totali)}.",
+        f"> Frasi escluse da M1 — {'; '.join(totals)}.",
         "",
-        ISTAT_ESCLUSE_SENZA_VOCE_TEXT,
+        ISTAT_EXCLUDED_WITHOUT_ITEM_TEXT,
     ]
     return "\n".join(lines) + "\n"
 
@@ -1834,9 +1847,9 @@ def _anchoring_row(
 
 
 def risk_anchoring_markdown(comparison: Comparison) -> str:
-    """Sezione «Ancoraggio ai rischi (esplorativo)» (#359); vuota se assente."""
-    sez = comparison.ancoraggio_rischi
-    if sez is None:
+    """ "Risk anchoring (exploratory)" section (#359); empty if absent."""
+    section = comparison.ancoraggio_rischi
+    if section is None:
         return ""
     cols = [
         "citta",
@@ -1852,49 +1865,49 @@ def risk_anchoring_markdown(comparison: Comparison) -> str:
     ]
     la, lb = comparison.label_a, comparison.label_b
     rows: list[list[str]] = []
-    for z in sez.zones:
+    for z in section.zones:
         rows.append(_anchoring_row(z.citta, z.zona, la, z.a))
         rows.append(_anchoring_row(z.citta, z.zona, lb, z.b))
-    rows.append(_anchoring_row(_MEAN_LABEL, "", la, sez.a))
-    rows.append(_anchoring_row(_MEAN_LABEL, "", lb, sez.b))
+    rows.append(_anchoring_row(_MEAN_LABEL, "", la, section.a))
+    rows.append(_anchoring_row(_MEAN_LABEL, "", lb, section.b))
     lines = [RISK_ANCHORING_HEAD, ""]
     lines.extend(_markdown_table(cols, rows))
     lines.append("")
     lines.append(
-        f"> Frasi del braccio — `{la}`: {sez.a.frasi_misurate} misurate, "
-        f"{sez.a.frasi_ancorate_rischio} da rischio, "
-        f"{sez.a.frasi_ancorate_solo_poi} solo POI, "
-        f"{sez.a.frasi_ancorate_poi_e_rischio} POI e rischio; `{lb}`: "
-        f"{sez.b.frasi_misurate} misurate, {sez.b.frasi_ancorate_rischio} da "
-        f"rischio, {sez.b.frasi_ancorate_solo_poi} solo POI, "
-        f"{sez.b.frasi_ancorate_poi_e_rischio} POI e rischio."
+        f"> Frasi del braccio — `{la}`: {section.a.frasi_misurate} misurate, "
+        f"{section.a.frasi_ancorate_rischio} da rischio, "
+        f"{section.a.frasi_ancorate_solo_poi} solo POI, "
+        f"{section.a.frasi_ancorate_poi_e_rischio} POI e rischio; `{lb}`: "
+        f"{section.b.frasi_misurate} misurate, {section.b.frasi_ancorate_rischio} da "
+        f"rischio, {section.b.frasi_ancorate_solo_poi} solo POI, "
+        f"{section.b.frasi_ancorate_poi_e_rischio} POI e rischio."
     )
-    incluse = [
+    included_runs = [
         f"`{label}`: {arm.run_istat_incluse} run, {arm.frasi_istat_escluse} "
         + (
             "frase ISTAT esclusa"
             if arm.frasi_istat_escluse == 1
             else "frasi ISTAT escluse"
         )
-        for label, arm in ((la, sez.a), (lb, sez.b))
+        for label, arm in ((la, section.a), (lb, section.b))
         if arm.run_istat_incluse
     ]
-    if incluse:
+    if included_runs:
         lines += [
             "",
             RISK_ANCHORING_ISTAT_INCLUDED,
             ">",
-            f"> Run con dati ISTAT nella sezione — {'; '.join(incluse)}.",
+            f"> Run con dati ISTAT nella sezione — {'; '.join(included_runs)}.",
         ]
-    escluse = [
+    excluded = [
         f"`{label}`: {arm.run_istat_escluse}"
-        for label, arm in ((la, sez.a), (lb, sez.b))
+        for label, arm in ((la, section.a), (lb, section.b))
         if arm.run_istat_escluse
     ]
-    if escluse:
+    if excluded:
         lines.append("")
         lines.append(
-            f"> {RISK_ANCHORING_ISTAT_EXCLUDED} (run escluse — {', '.join(escluse)})."
+            f"> {RISK_ANCHORING_ISTAT_EXCLUDED} (run escluse — {', '.join(excluded)})."
         )
     lines.append("")
     lines.append(RISK_ANCHORING_NOTE)
@@ -1902,54 +1915,55 @@ def risk_anchoring_markdown(comparison: Comparison) -> str:
 
 
 def risk_anchoring_pointer(comparison: Comparison) -> str:
-    """Righe che rimandano alla sezione (#359), una per braccio; vuota se nessuna.
+    """Lines that point to the section (#359), one per arm; empty if none.
 
-    Una riga per ogni braccio in cui le frasi ancorate solo da nomi di POI sono
-    piu' di quelle che nominano un punto e un rischio (:func:`solo_poi_prevale`).
+    One line for every arm in which the sentences anchored only by POI names are
+    more than those that name a point and a risk (:func:`poi_only_prevails`).
     """
-    sez = comparison.ancoraggio_rischi
-    if sez is None:
+    section = comparison.ancoraggio_rischi
+    if section is None:
         return ""
-    titolo = RISK_ANCHORING_HEAD.removeprefix("### ")
+    title = RISK_ANCHORING_HEAD.removeprefix("### ")
     return "\n\n".join(
         f"> Per «{label}» le frasi ancorate solo da un nome di punto superano "
-        f"quelle che nominano un punto e un rischio: vedi la sezione «{titolo}»."
-        for label in sez.solo_poi_prevale
+        f"quelle che nominano un punto e un rischio: vedi la sezione «{title}»."
+        for label in section.solo_poi_prevale
     )
 
 
 def to_markdown(comparison: Comparison, *, anchoring_pointer: bool = True) -> str:
-    """Report Markdown del confronto.
+    """Markdown report of the comparison.
 
-    Compone: la dichiarazione della variabile isolata quando è derivabile (#236),
-    tabella principale (4 metriche affiancate A/B + delta, per-zona + media),
-    tabella costo/latenza separata (#33), l'avviso sui bracci vacui quando
-    presenti (#231), caveat metodologico sui proxy testuali, e — se presenti — la
-    sezione delle zone escluse (run in errore).
+    Composes: the isolated-variable declaration when derivable (#236),
+    main table (4 metrics side by side A/B + delta, per zone + mean),
+    separate cost/latency table (#33), the warning on vacuous arms when
+    present (#231), methodological caveat on the textual proxies, and -- if present --
+    the section of the excluded zones (runs in error).
 
-    La sezione sull'ancoraggio ai rischi (#359) sta prima del caveat; il rimando
-    (:func:`risk_anchoring_pointer`) segue la tabella principale.
-    ``anchoring_pointer=False`` lo omette: il report a K ripetizioni lo mette
-    vicino al verdetto.
+    The section on risk anchoring (#359) comes before the caveat; the pointer
+    (:func:`risk_anchoring_pointer`) follows the main table.
+    ``anchoring_pointer=False`` omits it: the K-repetition report puts it
+    next to the verdict.
     """
     cols = _columns(comparison.label_a, comparison.label_b)
     lines: list[str] = []
-    # Variabile isolata (#236): apre il report per la stessa ragione dell'avviso
-    # di vacuità — dice come vanno letti i delta, quindi va letta prima di essi.
+    # Isolated variable (#236): opens the report for the same reason as the
+    # vacuity warning -- it says how the deltas are to be read, so it must be read
+    # before them.
     if comparison.isolated_variable:
         lines.append(comparison.isolated_variable)
         lines.append("")
-    # Versioni ISTAT diverse fra i bracci (#369): cambia il testo che M1 grada.
+    # Different ISTAT versions between the arms (#369): changes the text that M1 grades.
     if comparison.avviso_versioni_istat:
         lines.append(comparison.avviso_versioni_istat)
         lines.append("")
-    # Versioni M1 diverse (#408): grounding/hallucination non confrontabili.
+    # Different M1 versions (#408): grounding/hallucination not comparable.
     if comparison.avviso_versioni_m1:
         lines.append(comparison.avviso_versioni_m1)
         lines.append("")
-    # Vacuità (#231): l'avviso apre il report, PRIMA della tabella. Al contrario
-    # chi legge incontrerebbe un delta di qualità e solo dopo la nota che lo
-    # dichiara non interpretabile — l'ordine in cui si sbaglia a leggere.
+    # Vacuity (#231): the warning opens the report, BEFORE the table. Otherwise
+    # whoever reads would meet a quality delta and only afterwards the note that
+    # declares it not interpretable -- the order in which one misreads.
     if has_vacuous_quality_axes(comparison.vacuous_arms, comparison.vacuous_zones):
         lines.append(_vacuous_caveat(comparison.vacuous_arms, comparison.vacuous_zones))
         lines.append("")
@@ -1958,7 +1972,7 @@ def to_markdown(comparison: Comparison, *, anchoring_pointer: bool = True) -> st
     if pointer:
         lines.append("")
         lines.append(pointer)
-    # Vista operativa separata + caveat sui proxy di qualità (#33).
+    # Separate operational view + caveat on the quality proxies (#33).
     lines.append("")
     lines.append(operational_markdown(comparison).rstrip("\n"))
     if comparison.istat_metrics:
@@ -1982,12 +1996,12 @@ def to_markdown(comparison: Comparison, *, anchoring_pointer: bool = True) -> st
 
 
 def to_json(comparison: Comparison) -> str:
-    """Report JSON strutturato del confronto (#33).
+    """Structured JSON report of the comparison (#33).
 
-    Serializza l'intero :class:`Comparison`: 4 metriche affiancate A/B + delta
-    per-caso (``zones``), aggregato (``mean_a``/``mean_b``/``mean_delta``) e zone
-    escluse (``failed``). Forma machine-readable del deliverable; le metriche di
-    qualità restano proxy testuali (vedi :data:`PROXY_CAVEAT`).
+    Serializes the whole :class:`Comparison`: 4 metrics side by side A/B + delta
+    per case (``zones``), aggregate (``mean_a``/``mean_b``/``mean_delta``) and excluded
+    zones (``failed``). Machine-readable form of the deliverable; the quality
+    metrics stay textual proxies (see :data:`PROXY_CAVEAT`).
     """
     return comparison.model_dump_json(indent=2)
 
@@ -1995,29 +2009,29 @@ def to_json(comparison: Comparison) -> str:
 def write_comparison(
     results_dir: Path, comparison: Comparison, stem: str, *, force: bool = False
 ) -> tuple[Path, Path]:
-    """Scrive ``results/<stem>.{csv,md,json}`` dal confronto.
+    """Write ``results/<stem>.{csv,md,json}`` from the comparison.
 
-    Ritorna i due path TABELLARI ``(csv, md)`` — contratto stabile ereditato da
-    #32 (rigenerazione delle tabelle con un comando). Il ``.json`` (report
-    machine-readable richiesto da #33) è un artefatto SIBLING: scritto accanto,
-    NON incluso nel valore di ritorno, per non rompere l'unpacking a due dei
-    chiamanti #32 (``compare_experiments`` e i test dell'ablation).
+    Returns the two TABULAR paths ``(csv, md)`` -- stable contract inherited from
+    #32 (regeneration of the tables with one command). The ``.json`` (machine-readable
+    report required by #33) is a SIBLING artefact: written alongside,
+    NOT included in the return value, so as not to break the two-element unpacking of
+    the #32 callers (``compare_experiments`` and the ablation tests).
 
-    Se uno dei tre file target esiste e ``force`` è ``False`` solleva
-    :class:`FileExistsError` (guardia anti-sovrascrittura, #165).
+    If one of the three target files exists and ``force`` is ``False`` raises
+    :class:`FileExistsError` (anti-overwrite guard, #165).
     """
     csv_path = results_dir / f"{stem}.csv"
     md_path = results_dir / f"{stem}.md"
     json_path = results_dir / f"{stem}.json"
     guard_no_overwrite([csv_path, md_path, json_path], force)
-    # newline="": to_csv() emette gia' \r\n via csv.writer; senza questo, il
-    # text-mode di write_text ritradurrebbe \n->\r\n su Windows (righe spurie).
-    # Stesso accorgimento del fix #103 in aggregate.write_tables (qui replicato
-    # sul file nuovo, NON ri-applicato ad aggregate.py).
+    # newline="": to_csv() already emits \r\n via csv.writer; without this, the
+    # write_text text mode would re-translate \n->\r\n on Windows (spurious rows).
+    # Same measure as fix #103 in aggregate.write_tables (here replicated
+    # on the new file, NOT re-applied to aggregate.py).
     csv_path.write_text(to_csv(comparison), encoding="utf-8", newline="")
     md_path.write_text(to_markdown(comparison), encoding="utf-8")
-    # `quality_verdict` (#238) e' un campo di Comparison come `isolated_variable`:
-    # `to_json` lo scrive gia' senza bisogno di comporre il payload a mano qui.
+    # `quality_verdict` (#238) is a field of Comparison like `isolated_variable`:
+    # `to_json` already writes it without needing to compose the payload by hand here.
     json_path.write_text(to_json(comparison), encoding="utf-8")
     return csv_path, md_path
 
@@ -2032,23 +2046,23 @@ def compare_experiments(
     stem: str | None = None,
     force: bool = False,
 ) -> tuple[Path, Path]:
-    """Carica i record dei due esperimenti da disco, confronta e scrive le tabelle.
+    """Load the records of the two experiments from disk, compare and write the tables.
 
-    ``label_a``/``label_b`` default al nome dell'esperimento; ``stem`` default a
-    ``<experiment_a>_vs_<experiment_b>``. ``force`` bypassa la guardia
-    anti-sovrascrittura sui file di output (#165).
+    ``label_a``/``label_b`` default to the experiment name; ``stem`` defaults to
+    ``<experiment_a>_vs_<experiment_b>``. ``force`` bypasses the anti-overwrite
+    guard on the output files (#165).
 
-    Se nessuna zona resta utilizzabile (entrambi i bracci in ERROR/FALLBACK su
-    ogni zona, #239) scrive comunque un report — CSV/Markdown/JSON delle zone
-    escluse, nessun verdetto — e rilancia :class:`NoUsableOutputError`, così il
-    chiamante CLI può segnalare un exit code non-zero senza duplicare la
-    risoluzione di ``stem``. La guardia anti-sovrascrittura (:class:`FileExistsError`)
-    propaga invariata anche in questo ramo (stesso comportamento del percorso di
-    successo). Se invece la scrittura del report fallisce per un altro motivo
-    (disco pieno, permessi: :class:`OSError`), l'errore di scrittura è solo
-    loggato — continua a essere rilanciata ``NoUsableOutputError``, mai
-    l'``OSError``, così il chiamante CLI esce comunque con un exit code pulito
-    invece di un secondo traceback imprevisto (#239).
+    If no zone remains usable (both arms in ERROR/FALLBACK on
+    every zone, #239) it still writes a report -- CSV/Markdown/JSON of the excluded
+    zones, no verdict -- and re-raises :class:`NoUsableOutputError`, so the
+    CLI caller can signal a non-zero exit code without duplicating the
+    resolution of ``stem``. The anti-overwrite guard (:class:`FileExistsError`)
+    propagates unchanged in this branch too (same behaviour as the
+    success path). If instead the report write fails for another reason
+    (disk full, permissions: :class:`OSError`), the write error is only
+    logged -- ``NoUsableOutputError`` keeps being re-raised, never
+    the ``OSError``, so the CLI caller still exits with a clean exit code
+    instead of a second unexpected traceback (#239).
     """
     arm_a = load_runs(results_dir, experiment=experiment_a)
     arm_b = load_runs(results_dir, experiment=experiment_b)

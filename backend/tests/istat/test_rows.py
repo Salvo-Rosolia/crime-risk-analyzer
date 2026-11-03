@@ -129,9 +129,9 @@ def test_format_without_comparison() -> None:
 def test_real_row_thefts_comune_di_roma() -> None:
     """ISTAT values extracted on 2026-10-06: a data update may change them."""
     data = istat_data()
-    roma = place_of(41.8902, 12.4922, data=data)
-    assert roma is not None
-    r = istat_row(data, roma, "THEFT", links=(make_link(),))
+    rome = place_of(41.8902, 12.4922, data=data)
+    assert rome is not None
+    r = istat_row(data, rome, "THEFT", links=(make_link(),))
     values = (r.delitti, r.delitti_confronto, r.tasso, r.tasso_italia, r.variazione_pct)
     assert values == (
         134169,
@@ -150,9 +150,9 @@ def test_real_row_rate_below_threshold_and_break() -> None:
     fires = istat_row(data, rho, "FOREARS")
     assert fires.tasso is None and fires.tasso_sotto_soglia
     assert fires.motivo_senza_variazione == REASON_BELOW_THRESHOLD
-    roma = place_of(41.8902, 12.4922, data=data)
-    assert roma is not None
-    damages = istat_row(data, roma, "DAMAGE")
+    rome = place_of(41.8902, 12.4922, data=data)
+    assert rome is not None
+    damages = istat_row(data, rome, "DAMAGE")
     assert damages.rottura_2016 and damages.variazione_pct is None
     assert damages.motivo_senza_variazione == REASON_BREAK_2016
 
@@ -190,9 +190,9 @@ def test_the_frame_does_not_compute_the_variation_for_the_2016_break() -> None:
     computed and the row says why (#353). The rule comes from the
     catalog, not from a separate list."""
     data = istat_data()
-    milano = place_of(45.4642, 9.19, data=data)
-    assert milano is not None
-    total = istat_row(data, milano, "TOT")
+    milan = place_of(45.4642, 9.19, data=data)
+    assert milan is not None
+    total = istat_row(data, milan, "TOT")
     # The case is not vacuous: without the break the variation would be computable.
     assert variation(total.delitti, total.delitti_confronto, break_2016=False) == (
         -13,

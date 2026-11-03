@@ -1,11 +1,11 @@
-"""L'impronta del contesto copre la versione dei dati ISTAT (#354), offline.
+"""The context fingerprint covers the ISTAT data version (#354), offline.
 
-Con l'interruttore acceso il prompt dipende anche dai dati ISTAT: se i dati si
-aggiornano fra la fase 1 e il clic, ``/analyze/poi`` e ``/analyze/narrativa``
-devono rifiutare (409) come per un cambio dei POI. Spento, l'impronta resta
-quella di prima. I dati "aggiornati" sono simulati sostituendo la versione letta
-da :mod:`~crime_risk_analyzer.context_fingerprint`, l'unico punto da cui calcolo
-e confronto la prendono.
+With the switch on the prompt depends on the ISTAT data too: if the data is
+updated between phase 1 and the click, ``/analyze/poi`` and
+``/analyze/narrativa`` must refuse (409) as for a change of the POIs. Off, the
+fingerprint stays the previous one. The "updated" data is simulated by replacing
+the version read from :mod:`~crime_risk_analyzer.context_fingerprint`, the only
+point from which computation and comparison take it.
 """
 
 from __future__ import annotations
@@ -89,27 +89,27 @@ async def _poi_source(bbox: Bbox, citta: str) -> list[Poi]:
     return _pois(citta)
 
 
-def _client(monkeypatch: pytest.MonkeyPatch, *, acceso: bool) -> TestClient:
+def _client(monkeypatch: pytest.MonkeyPatch, *, enabled: bool) -> TestClient:
     zone_context_cache.clear()
 
-    def _etichetta(lat: float, lon: float) -> tuple[str, str]:
+    def _fake_label(lat: float, lon: float) -> tuple[str, str]:
         return ("Roma", "Colosseo")
 
-    monkeypatch.setattr(area_search, "reverse_geocode_label", _etichetta)
+    monkeypatch.setattr(area_search, "reverse_geocode_label", _fake_label)
 
     async def _fetch(bbox: object, citta: str, *a: object, **k: object) -> list[Poi]:
         return _pois(citta)
 
     monkeypatch.setattr(retrieval, "fetch_pois", _fetch)
-    impostazioni = Settings(istat_context_enabled=acceso)
+    custom_settings = Settings(istat_context_enabled=enabled)
     app = create_app()
     app.dependency_overrides[current_executor] = lambda: _Profiler()
     app.dependency_overrides[get_llm_client] = lambda: _LLM()
-    app.dependency_overrides[get_settings] = lambda: impostazioni
+    app.dependency_overrides[get_settings] = lambda: custom_settings
     return TestClient(app, raise_server_exceptions=False)
 
 
-def _fase_1(client: TestClient) -> str:
+def _phase_1(client: TestClient) -> str:
     resp = cast(
         httpx.Response,
         client.post(  # pyright: ignore[reportUnknownMemberType]
@@ -121,91 +121,93 @@ def _fase_1(client: TestClient) -> str:
     return str(resp.json()["contesto_hash"])
 
 
-def _clic(client: TestClient, rotta: str, contesto_hash: str) -> httpx.Response:
+def _click(client: TestClient, route: str, contesto_hash: str) -> httpx.Response:
     body: dict[str, str] = {
         "citta": "Roma",
         "zona": "Colosseo",
         "contesto_hash": contesto_hash,
     }
-    if rotta == "/analyze/poi":
+    if route == "/analyze/poi":
         body["poi_id"] = _POI_ID
     return cast(
         httpx.Response,
-        client.post(rotta, json=body),  # pyright: ignore[reportUnknownMemberType]
+        client.post(route, json=body),  # pyright: ignore[reportUnknownMemberType]
     )
 
 
-def _dati_aggiornati(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Simula un aggiornamento dei dati ISTAT dopo la fase 1."""
+def _updated_data(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Simulates an update of the ISTAT data after phase 1."""
     monkeypatch.setattr(
         context_fingerprint, "istat_data_version", lambda: "2025@2027-01-01"
     )
 
 
-def test_la_versione_dei_dati_esiste_nel_repo() -> None:
-    """Precondizione: senza dati la versione sarebbe ``None`` e i test con
-    interruttore acceso non distinguerebbero nulla."""
+def test_the_data_version_exists_in_the_repo() -> None:
+    """Precondition: without data the version would be ``None`` and the tests with
+    the switch on would not distinguish anything."""
     assert data_version() is not None
 
 
-def test_istat_versione_per_segue_l_interruttore() -> None:
+def test_istat_version_for_follows_the_switch() -> None:
     assert istat_version_for(False) is None
     assert istat_version_for(True) == data_version()
 
 
-def test_fase_1_spenta_ha_l_impronta_di_prima(monkeypatch: pytest.MonkeyPatch) -> None:
-    client = _client(monkeypatch, acceso=False)
-    assert _fase_1(client) == fingerprint(_pois("Roma"))
-
-
-def test_fase_1_accesa_porta_la_versione_dei_dati(
+def test_phase_1_off_has_the_previous_fingerprint(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    client = _client(monkeypatch, acceso=True)
-    contesto_hash = _fase_1(client)
+    client = _client(monkeypatch, enabled=False)
+    assert _phase_1(client) == fingerprint(_pois("Roma"))
+
+
+def test_phase_1_on_carries_the_data_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _client(monkeypatch, enabled=True)
+    contesto_hash = _phase_1(client)
     assert contesto_hash == fingerprint(_pois("Roma"), istat_version=data_version())
     assert contesto_hash != fingerprint(_pois("Roma"))
 
 
-@pytest.mark.parametrize("rotta", ["/analyze/poi", "/analyze/narrativa"])
-def test_dati_aggiornati_fra_fase_1_e_clic_danno_409(
-    rotta: str, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("route", ["/analyze/poi", "/analyze/narrativa"])
+def test_data_updated_between_phase_1_and_click_gives_409(
+    route: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    client = _client(monkeypatch, acceso=True)
-    contesto_hash = _fase_1(client)
-    _dati_aggiornati(monkeypatch)
-    resp = _clic(client, rotta, contesto_hash)
+    client = _client(monkeypatch, enabled=True)
+    contesto_hash = _phase_1(client)
+    _updated_data(monkeypatch)
+    resp = _click(client, route, contesto_hash)
     assert resp.status_code == 409
     assert resp.json()["detail"]["errore"] == "contesto_disallineato"
 
 
-@pytest.mark.parametrize("rotta", ["/analyze/poi", "/analyze/narrativa"])
-@pytest.mark.parametrize("acceso", [True, False], ids=["istat-acceso", "istat-spento"])
-def test_stessa_versione_nessun_409(
-    rotta: str, acceso: bool, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("route", ["/analyze/poi", "/analyze/narrativa"])
+@pytest.mark.parametrize("enabled", [True, False], ids=["istat-acceso", "istat-spento"])
+def test_same_version_no_409(
+    route: str, enabled: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    client = _client(monkeypatch, acceso=acceso)
-    resp = _clic(client, rotta, _fase_1(client))
+    client = _client(monkeypatch, enabled=enabled)
+    resp = _click(client, route, _phase_1(client))
     assert resp.status_code == 200
 
 
-@pytest.mark.parametrize("rotta", ["/analyze/poi", "/analyze/narrativa"])
-def test_interruttore_spento_ignora_la_versione_dei_dati(
-    rotta: str, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("route", ["/analyze/poi", "/analyze/narrativa"])
+def test_switch_off_ignores_the_data_version(
+    route: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Spento, i dati ISTAT non entrano nel prompt: un loro aggiornamento non
-    deve invalidare l'analisi a schermo."""
-    client = _client(monkeypatch, acceso=False)
-    contesto_hash = _fase_1(client)
-    _dati_aggiornati(monkeypatch)
-    assert _clic(client, rotta, contesto_hash).status_code == 200
+    """Off, the ISTAT data does not enter the prompt: an update of it must not
+    invalidate the analysis on screen."""
+    client = _client(monkeypatch, enabled=False)
+    contesto_hash = _phase_1(client)
+    _updated_data(monkeypatch)
+    assert _click(client, route, contesto_hash).status_code == 200
 
 
-# --- Percorsi di valutazione: interruttore della run ---
+# --- Evaluation paths: run switch ---
 
 
-@pytest.mark.parametrize("acceso", [True, False], ids=["istat-acceso", "istat-spento"])
-async def test_run_analysis_usa_l_interruttore_della_run(acceso: bool) -> None:
+@pytest.mark.parametrize("enabled", [True, False], ids=["istat-acceso", "istat-spento"])
+async def test_run_analysis_uses_the_run_switch(enabled: bool) -> None:
     resp = await run_analysis(
         "Roma",
         "Colosseo",
@@ -213,15 +215,15 @@ async def test_run_analysis_usa_l_interruttore_della_run(acceso: bool) -> None:
         llm_client=_LLM(),
         poi_source=_poi_source,
         geo_source=_geo_source,
-        istat_context_enabled=acceso,
+        istat_context_enabled=enabled,
     )
-    attesa = data_version() if acceso else None
-    assert resp.contesto_hash == fingerprint(_pois("Roma"), istat_version=attesa)
+    expected = data_version() if enabled else None
+    assert resp.contesto_hash == fingerprint(_pois("Roma"), istat_version=expected)
 
 
-@pytest.mark.parametrize("acceso", [True, False], ids=["istat-acceso", "istat-spento"])
-async def test_braccio_senza_ontologia_usa_l_interruttore_della_run(
-    acceso: bool,
+@pytest.mark.parametrize("enabled", [True, False], ids=["istat-acceso", "istat-spento"])
+async def test_no_ontology_arm_uses_the_run_switch(
+    enabled: bool,
 ) -> None:
     resp = await run_no_ontology_prompt(
         "Roma",
@@ -230,7 +232,7 @@ async def test_braccio_senza_ontologia_usa_l_interruttore_della_run(
         llm_client=_LLM(),
         poi_source=_poi_source,
         geo_source=_geo_source,
-        istat_context_enabled=acceso,
+        istat_context_enabled=enabled,
     )
-    attesa = data_version() if acceso else None
-    assert resp.contesto_hash == fingerprint(_pois("Roma"), istat_version=attesa)
+    expected = data_version() if enabled else None
+    assert resp.contesto_hash == fingerprint(_pois("Roma"), istat_version=expected)
