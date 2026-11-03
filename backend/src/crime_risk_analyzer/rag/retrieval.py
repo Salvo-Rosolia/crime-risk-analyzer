@@ -52,7 +52,7 @@ class RiskProfiler(Protocol):
     ``RiskQueryExecutor`` satisfies it; the tests pass a fake that traces the calls.
     """
 
-    def profile(self, terminus_class: str) -> PoiRiskProfile: ...
+    def profile(self, ontology_class: str) -> PoiRiskProfile: ...
 
 
 class RetrievalStats(TypedDict):
@@ -65,7 +65,7 @@ class RetrievalStats(TypedDict):
 class RetrievalContext(TypedDict):
     """Raw ``context_dict`` (pre-grounding) produced by :func:`retrieve`.
 
-    The risk of a POI is obtained with ``profiles[poi["terminus_class"]]``.
+    The risk of a POI is obtained with ``profiles[poi["ontology_class"]]``.
     """
 
     citta: str
@@ -110,8 +110,8 @@ async def retrieve(
     source = poi_source or fetch_pois
     pois = await source(geo["bbox"], citta)
     profiles: dict[str, PoiRiskProfile] = {
-        terminus_class: executor.profile(terminus_class)
-        for terminus_class in {poi["terminus_class"] for poi in pois}
+        ontology_class: executor.profile(ontology_class)
+        for ontology_class in {poi["ontology_class"] for poi in pois}
     }
     return RetrievalContext(
         citta=citta,

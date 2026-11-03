@@ -21,7 +21,7 @@
         "lat": 40.851941,
         "lon": 14.2700324,
         "osm_tags": "shop=mall",
-        "terminus_class": "Shopping_center",
+        "ontology_class": "Shopping_center",
         "citta": "Napoli"
       },
       {
@@ -30,7 +30,7 @@
         "lat": 40.8518304,
         "lon": 14.2698397,
         "osm_tags": "railway=subway_entrance",
-        "terminus_class": "Railway_station",
+        "ontology_class": "Railway_station",
         "citta": "Napoli"
       },
       {
@@ -39,7 +39,7 @@
         "lat": 40.8518924,
         "lon": 14.2700419,
         "osm_tags": "railway=station",
-        "terminus_class": "Railway_station",
+        "ontology_class": "Railway_station",
         "citta": "Napoli"
       },
       {
@@ -48,7 +48,7 @@
         "lat": 40.8524495,
         "lon": 14.270471,
         "osm_tags": "railway=station",
-        "terminus_class": "Railway_station",
+        "ontology_class": "Railway_station",
         "citta": "Napoli"
       },
       {
@@ -57,7 +57,7 @@
         "lat": 40.8515792,
         "lon": 14.2695204,
         "osm_tags": "shop=tobacco",
-        "terminus_class": "Tobacco_store",
+        "ontology_class": "Tobacco_store",
         "citta": "Napoli"
       },
       {
@@ -66,7 +66,7 @@
         "lat": 40.8531187,
         "lon": 14.2695387,
         "osm_tags": "shop=jewelry",
-        "terminus_class": "Jewellery",
+        "ontology_class": "Jewellery",
         "citta": "Napoli"
       },
       {
@@ -75,7 +75,7 @@
         "lat": 40.8516787,
         "lon": 14.2704305,
         "osm_tags": "amenity=pharmacy",
-        "terminus_class": "Pharmacy",
+        "ontology_class": "Pharmacy",
         "citta": "Napoli"
       },
       {
@@ -84,7 +84,7 @@
         "lat": 40.8516477,
         "lon": 14.2687364,
         "osm_tags": "amenity=atm",
-        "terminus_class": "Bank",
+        "ontology_class": "Bank",
         "citta": "Napoli"
       },
       {
@@ -93,7 +93,7 @@
         "lat": 40.851508,
         "lon": 14.2688291,
         "osm_tags": "amenity=bank",
-        "terminus_class": "Bank",
+        "ontology_class": "Bank",
         "citta": "Napoli"
       },
       {
@@ -102,7 +102,7 @@
         "lat": 40.8524501,
         "lon": 14.2681935,
         "osm_tags": "highway=bus_stop",
-        "terminus_class": "Bus_stops",
+        "ontology_class": "Bus_stops",
         "citta": "Napoli"
       },
       {
@@ -111,7 +111,7 @@
         "lat": 40.8514957,
         "lon": 14.268656,
         "osm_tags": "shop=tobacco",
-        "terminus_class": "Tobacco_store",
+        "ontology_class": "Tobacco_store",
         "citta": "Napoli"
       },
       {
@@ -120,7 +120,7 @@
         "lat": 40.8517121,
         "lon": 14.2709043,
         "osm_tags": "amenity=bank",
-        "terminus_class": "Bank",
+        "ontology_class": "Bank",
         "citta": "Napoli"
       },
       {
@@ -129,7 +129,7 @@
         "lat": 40.8521714,
         "lon": 14.267791,
         "osm_tags": "historic=memorial",
-        "terminus_class": "Historical_monument",
+        "ontology_class": "Historical_monument",
         "citta": "Napoli"
       },
       {
@@ -138,7 +138,7 @@
         "lat": 40.8536554,
         "lon": 14.2703123,
         "osm_tags": "amenity=place_of_worship",
-        "terminus_class": "Place_of_worship",
+        "ontology_class": "Place_of_worship",
         "citta": "Napoli"
       },
       {
@@ -147,7 +147,7 @@
         "lat": 40.8528935,
         "lon": 14.2713787,
         "osm_tags": "amenity=bus_station",
-        "terminus_class": "Bus_stops",
+        "ontology_class": "Bus_stops",
         "citta": "Napoli"
       },
       {
@@ -156,7 +156,7 @@
         "lat": 40.8529386,
         "lon": 14.2713616,
         "osm_tags": "highway=bus_stop",
-        "terminus_class": "Bus_stops",
+        "ontology_class": "Bus_stops",
         "citta": "Napoli"
       },
       {
@@ -165,7 +165,7 @@
         "lat": 40.853887,
         "lon": 14.2688014,
         "osm_tags": "amenity=pharmacy",
-        "terminus_class": "Pharmacy",
+        "ontology_class": "Pharmacy",
         "citta": "Napoli"
       },
       {
@@ -174,7 +174,7 @@
         "lat": 40.8529753,
         "lon": 14.2717924,
         "osm_tags": "amenity=police",
-        "terminus_class": "National_police",
+        "ontology_class": "National_police",
         "citta": "Napoli"
       },
       {
@@ -183,7 +183,7 @@
         "lat": 40.8525562,
         "lon": 14.2673405,
         "osm_tags": "amenity=pharmacy",
-        "terminus_class": "Pharmacy",
+        "ontology_class": "Pharmacy",
         "citta": "Napoli"
       },
       {
@@ -192,7 +192,7 @@
         "lat": 40.8524856,
         "lon": 14.2672969,
         "osm_tags": "office=government",
-        "terminus_class": "Government_office",
+        "ontology_class": "Government_office",
         "citta": "Napoli"
       }
     ],

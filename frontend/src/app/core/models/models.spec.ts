@@ -17,13 +17,13 @@ describe('models (/analyze contract)', () => {
         {
           id: '1',
           name: 'Colosseo',
-          terminus_class: 'ArchaeologicalSite',
+          ontology_class: 'ArchaeologicalSite',
           lat: 41.8908,
           lon: 12.4918,
           confidence: 'verificato',
           sparql_path: 'ArchaeologicalSite → hasAnthropicHazard → borseggioTuristi',
-          terminus_label_it: 'Sito archeologico',
-          terminus_label_en: 'Archaeological site',
+          ontology_label_it: 'Sito archeologico',
+          ontology_label_en: 'Archaeological site',
         },
       ],
       risk_models: [
@@ -71,13 +71,13 @@ describe('models (/analyze contract)', () => {
     const poi: Poi = {
       id: '2',
       name: 'Vicolo Oscuro',
-      terminus_class: 'Alley',
+      ontology_class: 'Alley',
       lat: 0,
       lon: 0,
       confidence: null,
       sparql_path: null,
-      terminus_label_it: '',
-      terminus_label_en: '',
+      ontology_label_it: '',
+      ontology_label_en: '',
     };
     expect(poi.confidence).toBeNull();
   });

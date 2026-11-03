@@ -57,7 +57,7 @@ def nearest_neighbours(
     return [
         NeighbourPoi(
             name=p["name"],
-            label_it=label_it(p["terminus_class"]),
+            label_it=label_it(p["ontology_class"]),
             distance_m=round(distance),
         )
         for distance, _, p in scored[:k]
@@ -78,7 +78,7 @@ def zone_composition(pois: list[Poi], *, top: int = 3) -> str:
     Total ordering: decreasing count, at equal count label in
     alphabetical order.
     """
-    counts = Counter(label_it(p["terminus_class"]) for p in pois)
+    counts = Counter(label_it(p["ontology_class"]) for p in pois)
     ranked = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:top]
     if not ranked:
         return "0 punti di interesse selezionati nel contesto della zona."

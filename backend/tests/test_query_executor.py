@@ -80,11 +80,11 @@ def test_bank_stakeholders_via_having_performer(executor: RiskQueryExecutor) -> 
     assert "Bank_customer" in profile.stakeholders
 
 
-def test_bank_terminus_class_echoed(executor: RiskQueryExecutor) -> None:
+def test_bank_ontology_class_echoed(executor: RiskQueryExecutor) -> None:
     """The profile reports the TERMINUS class queried."""
     profile = executor.profile("Bank")
 
-    assert profile.terminus_class == "Bank"
+    assert profile.ontology_class == "Bank"
 
 
 # --- Archaeological_site ---------------------------------------------------
@@ -243,7 +243,7 @@ def test_profile_is_pydantic_model_with_expected_fields(
     dumped = profile.model_dump()
     assert set(dumped) == {
         "poi_name",
-        "terminus_class",
+        "ontology_class",
         "hazards",
         "critical_events",
         "vulnerabilities",
@@ -267,8 +267,8 @@ def test_executor_reuses_index_across_profiles(executor: RiskQueryExecutor) -> N
     bank = executor.profile("Bank")
     petrol = executor.profile("Petrol_station")
 
-    assert bank.terminus_class == "Bank"
-    assert petrol.terminus_class == "Petrol_station"
+    assert bank.ontology_class == "Bank"
+    assert petrol.ontology_class == "Petrol_station"
     assert bank.hazards != petrol.hazards
 
 

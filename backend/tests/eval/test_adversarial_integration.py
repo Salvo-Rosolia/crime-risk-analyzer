@@ -138,7 +138,7 @@ _POI: Poi = {
     "lat": 41.889,
     "lon": 12.472,
     "osm_tags": "amenity=bank",
-    "terminus_class": "Bank",
+    "ontology_class": "Bank",
     "citta": "Roma",
 }
 
@@ -149,7 +149,7 @@ _GEO: GeoResult = {
 }
 
 _BANK_PROFILE = PoiRiskProfile(
-    terminus_class="Bank",
+    ontology_class="Bank",
     hazards=["Bank_robbery"],
     sparql_paths=["Bank → havingHazard → Bank_robbery"],
 )

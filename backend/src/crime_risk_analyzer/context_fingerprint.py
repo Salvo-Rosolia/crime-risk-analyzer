@@ -78,7 +78,7 @@ def fingerprint(
     """sha256 hexdigest of the POI list of the zone context.
 
     Only the fields that feed the POI prompt enter the digest: ``id``,
-    ``name``, ``terminus_class`` (zone composition and IT labels) and
+    ``name``, ``ontology_class`` (zone composition and IT labels) and
     ``lat``/``lon`` (neighbour distances). ``osm_tags`` and ``citta`` stay out,
     as they do not feed it: a re-tag on OSM must not invalidate a still valid
     narrative.
@@ -108,7 +108,7 @@ def fingerprint(
     so phase 2 of one cannot accept that of the other.
     """
     rows = [
-        [poi["id"], poi["name"], poi["terminus_class"], poi["lat"], poi["lon"]]
+        [poi["id"], poi["name"], poi["ontology_class"], poi["lat"], poi["lon"]]
         for poi in pois
     ]
     payload: object

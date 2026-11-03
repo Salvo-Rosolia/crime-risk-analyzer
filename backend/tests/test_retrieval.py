@@ -26,7 +26,7 @@ _GEO: GeoResult = GeoResult(
 
 
 def _poi(
-    poi_id: str, name: str, terminus_class: str, *, osm_tags: str = "amenity=bank"
+    poi_id: str, name: str, ontology_class: str, *, osm_tags: str = "amenity=bank"
 ) -> Poi:
     return Poi(
         id=poi_id,
@@ -34,7 +34,7 @@ def _poi(
         lat=41.9,
         lon=12.5,
         osm_tags=osm_tags,
-        terminus_class=terminus_class,
+        ontology_class=ontology_class,
         citta="Roma",
     )
 
@@ -46,10 +46,10 @@ class _FakeProfiler:
         self._profiles = profiles
         self.calls: list[str] = []
 
-    def profile(self, terminus_class: str) -> PoiRiskProfile:
-        self.calls.append(terminus_class)
+    def profile(self, ontology_class: str) -> PoiRiskProfile:
+        self.calls.append(ontology_class)
         return self._profiles.get(
-            terminus_class, PoiRiskProfile(terminus_class=terminus_class)
+            ontology_class, PoiRiskProfile(ontology_class=ontology_class)
         )
 
 
@@ -77,8 +77,8 @@ async def test_retrieve_happy_path_multi_class(monkeypatch: pytest.MonkeyPatch) 
         _poi("3", "Museo", "Museum", osm_tags="tourism=museum"),
     ]
     profiles = {
-        "Bank": PoiRiskProfile(terminus_class="Bank", hazards=["Robbery"]),
-        "Museum": PoiRiskProfile(terminus_class="Museum", hazards=["Theft"]),
+        "Bank": PoiRiskProfile(ontology_class="Bank", hazards=["Robbery"]),
+        "Museum": PoiRiskProfile(ontology_class="Museum", hazards=["Theft"]),
     }
     _patch_io(monkeypatch, pois=pois)
 
@@ -228,14 +228,14 @@ async def test_retrieve_uses_injected_poi_source(
                 "lat": 41.89,
                 "lon": 12.49,
                 "osm_tags": "amenity=bank",
-                "terminus_class": "Bank",
+                "ontology_class": "Bank",
                 "citta": "Roma",
             }
         ]
 
     class _Prof:
-        def profile(self, terminus_class: str) -> PoiRiskProfile:
-            return PoiRiskProfile(terminus_class=terminus_class)
+        def profile(self, ontology_class: str) -> PoiRiskProfile:
+            return PoiRiskProfile(ontology_class=ontology_class)
 
     ctx = await retrieval.retrieve(
         "Roma",

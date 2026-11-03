@@ -29,10 +29,10 @@ def test_mapping_covers_required_categories() -> None:
 
 def test_mapping_values_are_bare_class_names() -> None:
     """Values are bare class names (no tc: prefix, none empty)."""
-    for terminus_class in OSM_TO_TERMINUS.values():
-        assert terminus_class
-        assert not terminus_class.startswith("tc:")
-        assert ":" not in terminus_class
+    for ontology_class in OSM_TO_TERMINUS.values():
+        assert ontology_class
+        assert not ontology_class.startswith("tc:")
+        assert ":" not in ontology_class
 
 
 def test_spec_bindings_present() -> None:

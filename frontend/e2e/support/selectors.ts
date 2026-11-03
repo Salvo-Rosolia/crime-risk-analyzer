@@ -145,7 +145,7 @@ export const S = {
       .getByRole('button', { name: mode === 'base' ? 'Base' : 'Completo', exact: true }),
   /** BASE state: optional "Tipo POI" select (`#cra-base-poi-type`, #143 — replaces the free
    * text: first option "Tutti i tipi" [value=""], then the label_it with value=canonical
-   * terminus_class from `GET /poi-types`). */
+   * ontology_class from `GET /poi-types`). */
   basePoiTypeField: (p: Page): Locator => p.locator('#cra-base-poi-type'),
   /** BASE state: options of the "Tipo POI" select (`#cra-base-poi-type option`, #143). */
   basePoiTypeOptions: (p: Page): Locator => p.locator('#cra-base-poi-type option'),

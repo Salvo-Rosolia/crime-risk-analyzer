@@ -151,7 +151,7 @@ async def test_baseline_with_fake_pois_cites_the_example_ontology() -> None:
                 "lat": 41.89,
                 "lon": 12.49,
                 "osm_tags": "amenity=bank",
-                "terminus_class": "Bank",
+                "ontology_class": "Bank",
                 "citta": city,
             }
         ]
@@ -173,4 +173,4 @@ async def test_baseline_with_fake_pois_cites_the_example_ontology() -> None:
         cls, _prop, entity = (part.strip() for part in r.source.split("→"))
         assert (cls, entity) == ("Bank", r.hazard)
     assert response.poi[0].sparql_path is not None
-    assert response.poi[0].terminus_label_it == "Banca"
+    assert response.poi[0].ontology_label_it == "Banca"

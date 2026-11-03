@@ -5,24 +5,24 @@
     {
       "id": "r1",
       "name": "Colosseo",
-      "terminus_class": "ArchaeologicalSite",
+      "ontology_class": "ArchaeologicalSite",
       "lat": 41.8902,
       "lon": 12.4922,
       "confidence": "verificato",
       "sparql_path": "ArchaeologicalSite → hasAnthropicHazard → borseggioTuristi",
-      "terminus_label_it": "Sito archeologico",
-      "terminus_label_en": "Archaeological site"
+      "ontology_label_it": "Sito archeologico",
+      "ontology_label_en": "Archaeological site"
     },
     {
       "id": "r2",
       "name": "Arco di Costantino",
-      "terminus_class": "Monument",
+      "ontology_class": "Monument",
       "lat": 41.8897,
       "lon": 12.4905,
       "confidence": "da_confermare",
       "sparql_path": "Monument → hasEnvironmentalHazard → scarsaIlluminazione",
-      "terminus_label_it": "Monumento",
-      "terminus_label_en": "Monument"
+      "ontology_label_it": "Monumento",
+      "ontology_label_en": "Monument"
     }
   ],
   "risk_models": [

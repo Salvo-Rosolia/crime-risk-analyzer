@@ -46,7 +46,7 @@ def _resp(
             PoiOut(
                 id="1",
                 name="Banca A",
-                terminus_class="Bank",
+                ontology_class="Bank",
                 lat=41.0,
                 lon=12.0,
                 confidence="verificato",
@@ -292,7 +292,7 @@ def test_empty_poi_name_does_not_anchor_everything() -> None:
     nameless = PoiOut(
         id="2",
         name="",
-        terminus_class="Bank",
+        ontology_class="Bank",
         lat=41.0,
         lon=12.0,
         confidence="verificato",

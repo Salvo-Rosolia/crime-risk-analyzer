@@ -21,7 +21,7 @@
         "lat": 45.464656,
         "lon": 9.1894751,
         "osm_tags": "railway=station",
-        "terminus_class": "Railway_station",
+        "ontology_class": "Railway_station",
         "citta": "Milano"
       },
       {
@@ -30,7 +30,7 @@
         "lat": 45.4648556,
         "lon": 9.1893457,
         "osm_tags": "amenity=pharmacy",
-        "terminus_class": "Pharmacy",
+        "ontology_class": "Pharmacy",
         "citta": "Milano"
       },
       {
@@ -39,7 +39,7 @@
         "lat": 45.4649559,
         "lon": 9.1891348,
         "osm_tags": "amenity=library",
-        "terminus_class": "Public_building",
+        "ontology_class": "Public_building",
         "citta": "Milano"
       },
       {
@@ -48,7 +48,7 @@
         "lat": 45.4647182,
         "lon": 9.1900275,
         "osm_tags": "tourism=attraction",
-        "terminus_class": "Historical_monument",
+        "ontology_class": "Historical_monument",
         "citta": "Milano"
       },
       {
@@ -57,7 +57,7 @@
         "lat": 45.4641881,
         "lon": 9.1892606,
         "osm_tags": "historic=monument",
-        "terminus_class": "Historical_monument",
+        "ontology_class": "Historical_monument",
         "citta": "Milano"
       },
       {
@@ -66,7 +66,7 @@
         "lat": 45.4648414,
         "lon": 9.1901924,
         "osm_tags": "amenity=community_centre",
-        "terminus_class": "Public_building",
+        "ontology_class": "Public_building",
         "citta": "Milano"
       },
       {
@@ -75,7 +75,7 @@
         "lat": 45.4644431,
         "lon": 9.1903007,
         "osm_tags": "historic=archaeological_site",
-        "terminus_class": "Archaeological_site",
+        "ontology_class": "Archaeological_site",
         "citta": "Milano"
       },
       {
@@ -84,7 +84,7 @@
         "lat": 45.4645315,
         "lon": 9.188593,
         "osm_tags": "highway=bus_stop",
-        "terminus_class": "Bus_stops",
+        "ontology_class": "Bus_stops",
         "citta": "Milano"
       },
       {
@@ -93,7 +93,7 @@
         "lat": 45.4649528,
         "lon": 9.1886543,
         "osm_tags": "amenity=bank",
-        "terminus_class": "Bank",
+        "ontology_class": "Bank",
         "citta": "Milano"
       },
       {
@@ -102,7 +102,7 @@
         "lat": 45.4645224,
         "lon": 9.1884811,
         "osm_tags": "railway=subway_entrance",
-        "terminus_class": "Railway_station",
+        "ontology_class": "Railway_station",
         "citta": "Milano"
       },
       {
@@ -111,7 +111,7 @@
         "lat": 45.4645704,
         "lon": 9.188421,
         "osm_tags": "amenity=bureau_de_change",
-        "terminus_class": "Bank",
+        "ontology_class": "Bank",
         "citta": "Milano"
       },
       {
@@ -120,7 +120,7 @@
         "lat": 45.4644886,
         "lon": 9.188417,
         "osm_tags": "amenity=bureau_de_change",
-        "terminus_class": "Bank",
+        "ontology_class": "Bank",
         "citta": "Milano"
       },
       {
@@ -129,7 +129,7 @@
         "lat": 45.4641385,
         "lon": 9.1885548,
         "osm_tags": "railway=station",
-        "terminus_class": "Railway_station",
+        "ontology_class": "Railway_station",
         "citta": "Milano"
       },
       {
@@ -138,7 +138,7 @@
         "lat": 45.4653777,
         "lon": 9.1901311,
         "osm_tags": "tourism=museum",
-        "terminus_class": "Museum",
+        "ontology_class": "Museum",
         "citta": "Milano"
       },
       {
@@ -147,7 +147,7 @@
         "lat": 45.4641471,
         "lon": 9.1884189,
         "osm_tags": "amenity=pharmacy",
-        "terminus_class": "Pharmacy",
+        "ontology_class": "Pharmacy",
         "citta": "Milano"
       },
       {
@@ -156,7 +156,7 @@
         "lat": 45.4656112,
         "lon": 9.1900061,
         "osm_tags": "tourism=attraction",
-        "terminus_class": "Historical_monument",
+        "ontology_class": "Historical_monument",
         "citta": "Milano"
       },
       {
@@ -165,7 +165,7 @@
         "lat": 45.4639353,
         "lon": 9.1905817,
         "osm_tags": "man_made=pipeline",
-        "terminus_class": "Pipeline",
+        "ontology_class": "Pipeline",
         "citta": "Milano"
       },
       {
@@ -174,7 +174,7 @@
         "lat": 45.4643185,
         "lon": 9.1877747,
         "osm_tags": "shop=tobacco",
-        "terminus_class": "Tobacco_store",
+        "ontology_class": "Tobacco_store",
         "citta": "Milano"
       },
       {
@@ -183,7 +183,7 @@
         "lat": 45.4633932,
         "lon": 9.1902304,
         "osm_tags": "tourism=museum",
-        "terminus_class": "Museum",
+        "ontology_class": "Museum",
         "citta": "Milano"
       },
       {
@@ -192,7 +192,7 @@
         "lat": 45.4632081,
         "lon": 9.1896532,
         "osm_tags": "shop=tobacco",
-        "terminus_class": "Tobacco_store",
+        "ontology_class": "Tobacco_store",
         "citta": "Milano"
       }
     ],

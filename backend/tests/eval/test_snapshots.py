@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from crime_risk_analyzer.eval import __main__ as eval_main
 from crime_risk_analyzer.eval import snapshots
 from crime_risk_analyzer.eval.snapshots import (
     SNAPSHOT_FORMAT,
@@ -23,7 +24,10 @@ from crime_risk_analyzer.overpass_client import (
     PER_CLASS_CAP,
     PER_SELECTOR_CAP,
     OsmCut,
+    Poi,
 )
+
+_snapshot_reusable = eval_main._snapshot_reusable  # pyright: ignore[reportPrivateUsage]
 
 _POIS = [
     {
@@ -32,7 +36,7 @@ _POIS = [
         "lat": 41.0,
         "lon": 12.0,
         "osm_tags": "amenity=bank",
-        "terminus_class": "Bank",
+        "ontology_class": "Bank",
         "citta": "Roma",
     }
 ]
@@ -138,6 +142,20 @@ def test_legacy_snapshot_without_provenance_stays_readable(tmp_path: Path) -> No
     assert load_snapshot(p)[0]["name"] == "Banca A"
 
 
+def _tracked_snapshot_pois() -> list[tuple[str, list[dict[str, object]]]]:
+    """POIs of ALL the tracked snapshots: the 4 ``results/snapshots`` fixtures
+    (envelope) and the 5 ``results/city_agnostic/snapshots`` outcomes (POIs
+    nested in ``capture``)."""
+    results = Path(__file__).parents[2] / "results"
+    out: list[tuple[str, list[dict[str, object]]]] = []
+    for f in sorted((results / "snapshots").glob("*.json")):
+        out.append((f.name, [dict(p) for p in load_snapshot(f)]))
+    for f in sorted((results / "city_agnostic" / "snapshots").glob("*.json")):
+        data = json.loads(f.read_text(encoding="utf-8"))
+        out.append((f"city_agnostic/{f.name}", data["capture"]["pois"]))
+    return out
+
+
 def test_committed_snapshots_stay_readable() -> None:
     """Guard on the real files, not on an imitation of them: the fixtures in
     ``results/snapshots/`` are the root of the reproducibility chain."""
@@ -148,7 +166,43 @@ def test_committed_snapshots_stay_readable() -> None:
         pois = load_snapshot(f)
         assert isinstance(pois, list)
         assert pois, f"snapshot vuoto: {f.name}"
-        assert "terminus_class" in pois[0]
+
+
+def test_committed_snapshots_pois_have_the_poi_keys() -> None:
+    """Every POI of every tracked snapshot carries exactly the keys of ``Poi``:
+    in particular ``ontology_class`` and not the pre-#418 ``terminus_class``."""
+    snaps = _tracked_snapshot_pois()
+    assert len(snaps) == 9, [name for name, _ in snaps]
+    expected = set(Poi.__required_keys__)
+    assert "ontology_class" in expected
+    for name, pois in snaps:
+        assert pois, f"snapshot vuoto: {name}"
+        for poi in pois:
+            assert set(poi) == expected, (name, poi.get("id"))
+            assert "terminus_class" not in poi
+
+
+def test_load_snapshot_rejects_pre_rename_envelope(tmp_path: Path) -> None:
+    """A snapshot captured before the ontology_class rename (key
+    ``terminus_class``) is not replayable: clear error, not a later KeyError."""
+    old = [{k: v for k, v in _POIS[0].items() if k != "ontology_class"}]
+    old[0]["terminus_class"] = "Bank"
+    p = tmp_path / "old.json"
+    p.write_text(json.dumps({"provenienza": {}, "poi": old}), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="ontology_class"):
+        load_snapshot(p)
+    assert _snapshot_reusable(p) is False
+
+
+def test_load_snapshot_rejects_pre_rename_bare_list(tmp_path: Path) -> None:
+    old = [{"id": "1", "name": "A", "terminus_class": "Bank"}]
+    p = tmp_path / "old.json"
+    p.write_text(json.dumps(old), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="--force"):
+        load_snapshot(p)
+    assert _snapshot_reusable(p) is False
 
 
 def test_write_without_line_ending_churn(tmp_path: Path) -> None:

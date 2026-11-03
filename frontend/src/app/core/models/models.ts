@@ -10,12 +10,12 @@ export type NarrativeSourceTag = SourceTag | 'ISTAT';
 
 /**
  * POI type selectable in the optional "Tipo POI" filter of the base-system panel (#143): `GET
- * /poi-types` already returns it sorted by `label_it`. `terminus_class` is the canonical (English)
+ * /poi-types` already returns it sorted by `label_it`. `ontology_class` is the canonical (English)
  * value the backend compares exactly in `/analyze/baseline`; `label_it` is the only label shown in
  * the `<select>`.
  */
 export interface PoiType {
-  terminus_class: string;
+  ontology_class: string;
   label_it: string;
 }
 
@@ -76,7 +76,7 @@ export interface IstatPoi {
 export interface Poi {
   id: string;
   name: string;
-  terminus_class: string;
+  ontology_class: string;
   lat: number;
   lon: number;
   /** `null` if the POI is outside the ontology (no risk to qualify, #220): no confidence badge,
@@ -84,9 +84,9 @@ export interface Poi {
   confidence: Confidence | null;
   sparql_path: string | null;
   /** Controlled IT label of the class (display, #77). Always present on the BE (default ""). */
-  terminus_label_it: string;
+  ontology_label_it: string;
   /** Corrected EN label of the class (display, #77). Always present on the BE (default ""). */
-  terminus_label_en: string;
+  ontology_label_en: string;
   /**
    * The TERMINUS axes beyond hazards (#256/#270), each with its own citation.
    * Mandatory on the backend (always serialized), optional here because they are additive and

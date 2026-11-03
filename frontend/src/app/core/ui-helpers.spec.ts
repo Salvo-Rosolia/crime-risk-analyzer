@@ -58,13 +58,13 @@ describe('ui-helpers', () => {
     const poi: Poi = {
       id: '1',
       name: 'Colosseo',
-      terminus_class: 'ArchaeologicalSite',
+      ontology_class: 'ArchaeologicalSite',
       lat: 0,
       lon: 0,
       confidence: 'verificato',
       sparql_path: 'A → B → C',
-      terminus_label_it: 'Sito archeologico',
-      terminus_label_en: 'Archaeological site',
+      ontology_label_it: 'Sito archeologico',
+      ontology_label_en: 'Archaeological site',
     };
     const rm: RiskModel[] = [
       {
@@ -92,13 +92,13 @@ describe('ui-helpers', () => {
     const secondBranch: Poi = {
       id: '2',
       name: 'Farmacia Roma',
-      terminus_class: 'Pharmacy',
+      ontology_class: 'Pharmacy',
       lat: 0,
       lon: 0,
       confidence: 'verificato',
       sparql_path: 'Pharmacy → havingHazard → Theft',
-      terminus_label_it: 'Farmacia',
-      terminus_label_en: 'Pharmacy',
+      ontology_label_it: 'Farmacia',
+      ontology_label_en: 'Pharmacy',
     };
     const rm: RiskModel[] = [
       {
@@ -139,13 +139,13 @@ describe('ui-helpers', () => {
     const anonymousPharmacy: Poi = {
       id: '22',
       name: '',
-      terminus_class: 'Pharmacy',
+      ontology_class: 'Pharmacy',
       lat: 0,
       lon: 0,
       confidence: 'da_confermare',
       sparql_path: 'Pharmacy → havingHazard → Theft',
-      terminus_label_it: 'Farmacia',
-      terminus_label_en: 'Pharmacy',
+      ontology_label_it: 'Farmacia',
+      ontology_label_en: 'Pharmacy',
     };
     const rm: RiskModel[] = [
       {
@@ -179,21 +179,21 @@ describe('ui-helpers', () => {
     expect(out.groups['ONTOLOGIA'].map((r) => r.hazard)).toEqual(['Theft']);
   });
 
-  it('buildDetailModel: poiLabel prefers terminus_label_it, falls back to terminus_class if the label is missing', () => {
+  it('buildDetailModel: poiLabel prefers ontology_label_it, falls back to ontology_class if the label is missing', () => {
     const poiWithLabel: Poi = {
       id: '1',
       name: 'Colosseo',
-      terminus_class: 'ArchaeologicalSite',
+      ontology_class: 'ArchaeologicalSite',
       lat: 0,
       lon: 0,
       confidence: 'verificato',
       sparql_path: null,
-      terminus_label_it: 'Sito archeologico',
-      terminus_label_en: 'Archaeological site',
+      ontology_label_it: 'Sito archeologico',
+      ontology_label_en: 'Archaeological site',
     };
     expect(buildDetailModel(poiWithLabel, []).poiLabel).toBe('Sito archeologico');
 
-    const poiWithoutLabel: Poi = { ...poiWithLabel, terminus_label_it: '' };
+    const poiWithoutLabel: Poi = { ...poiWithLabel, ontology_label_it: '' };
     expect(buildDetailModel(poiWithoutLabel, []).poiLabel).toBe('ArchaeologicalSite');
   });
 
@@ -246,29 +246,29 @@ describe('ui-helpers', () => {
     expect(orderGroupsByTag(groups).map((g) => g.tag)).toEqual(['ONTOLOGIA', 'OTHER']);
   });
 
-  it('buildBaseRows: one row per (POI, hazard) pair, Categoria = raw tc:terminus_class', () => {
+  it('buildBaseRows: one row per (POI, hazard) pair, Categoria = raw tc:ontology_class', () => {
     const poi: Poi[] = [
       {
         id: '1',
         name: 'Colosseo',
-        terminus_class: 'Archaeological_site',
+        ontology_class: 'Archaeological_site',
         lat: 0,
         lon: 0,
         confidence: 'verificato',
         sparql_path: null,
-        terminus_label_it: 'Sito archeologico',
-        terminus_label_en: 'Archaeological site',
+        ontology_label_it: 'Sito archeologico',
+        ontology_label_en: 'Archaeological site',
       },
       {
         id: '2',
         name: 'Banca X',
-        terminus_class: 'Bank',
+        ontology_class: 'Bank',
         lat: 0,
         lon: 0,
         confidence: 'da_confermare',
         sparql_path: null,
-        terminus_label_it: 'Banca',
-        terminus_label_en: 'Bank',
+        ontology_label_it: 'Banca',
+        ontology_label_en: 'Bank',
       },
     ];
     const riskModels: RiskModel[] = [
@@ -323,24 +323,24 @@ describe('ui-helpers', () => {
       {
         id: '11',
         name: '',
-        terminus_class: 'Bank',
+        ontology_class: 'Bank',
         lat: 0,
         lon: 0,
         confidence: 'da_confermare',
         sparql_path: null,
-        terminus_label_it: 'Banca',
-        terminus_label_en: 'Bank',
+        ontology_label_it: 'Banca',
+        ontology_label_en: 'Bank',
       },
       {
         id: '22',
         name: '',
-        terminus_class: 'School',
+        ontology_class: 'School',
         lat: 0,
         lon: 0,
         confidence: 'da_confermare',
         sparql_path: null,
-        terminus_label_it: 'Scuola',
-        terminus_label_en: 'School',
+        ontology_label_it: 'Scuola',
+        ontology_label_en: 'School',
       },
     ];
     const riskModels: RiskModel[] = [
@@ -382,13 +382,13 @@ describe('ui-helpers', () => {
       {
         id: '1',
         name: 'Solo',
-        terminus_class: 'Alley',
+        ontology_class: 'Alley',
         lat: 0,
         lon: 0,
         confidence: 'verificato',
         sparql_path: null,
-        terminus_label_it: '',
-        terminus_label_en: '',
+        ontology_label_it: '',
+        ontology_label_en: '',
       },
     ];
     expect(buildBaseRows(poi, [])).toEqual([]);
@@ -415,13 +415,13 @@ describe('ui-helpers', () => {
     const poi: Poi = {
       id: '1',
       name: 'Bar <Test> & "Co"',
-      terminus_class: 'Bank',
+      ontology_class: 'Bank',
       lat: 0,
       lon: 0,
       confidence: 'da_confermare',
       sparql_path: null,
-      terminus_label_it: 'Banca',
-      terminus_label_en: 'Bank',
+      ontology_label_it: 'Banca',
+      ontology_label_en: 'Bank',
     };
     const html = poiPopupHTML(poi, 3);
     expect(html).toContain('3. Bar &lt;Test&gt; &amp; &quot;Co&quot;');
@@ -430,17 +430,17 @@ describe('ui-helpers', () => {
     expect(html).toContain(CONF.da_confermare.label);
   });
 
-  it('poiPopupHTML: falls back to terminus_class if the IT label is missing', () => {
+  it('poiPopupHTML: falls back to ontology_class if the IT label is missing', () => {
     const poi: Poi = {
       id: '1',
       name: 'Vicolo',
-      terminus_class: 'Alley',
+      ontology_class: 'Alley',
       lat: 0,
       lon: 0,
       confidence: 'verificato',
       sparql_path: null,
-      terminus_label_it: '',
-      terminus_label_en: '',
+      ontology_label_it: '',
+      ontology_label_en: '',
     };
     expect(poiPopupHTML(poi, 1)).toContain('Alley');
   });
@@ -449,13 +449,13 @@ describe('ui-helpers', () => {
     const poi = {
       id: '1',
       name: 'X',
-      terminus_class: 'Y',
+      ontology_class: 'Y',
       lat: 0,
       lon: 0,
       confidence: 'boh' as Poi['confidence'],
       sparql_path: null,
-      terminus_label_it: '',
-      terminus_label_en: '',
+      ontology_label_it: '',
+      ontology_label_en: '',
     };
     expect(() => poiPopupHTML(poi, 1)).not.toThrow();
     expect(poiPopupHTML(poi, 1)).toContain(DIM_COLOR);
@@ -465,13 +465,13 @@ describe('ui-helpers', () => {
     const poi: Poi = {
       id: '1',
       name: 'Vicolo Oscuro',
-      terminus_class: 'Alley',
+      ontology_class: 'Alley',
       lat: 0,
       lon: 0,
       confidence: null,
       sparql_path: null,
-      terminus_label_it: 'Vicolo',
-      terminus_label_en: 'Alley',
+      ontology_label_it: 'Vicolo',
+      ontology_label_en: 'Alley',
     };
     const html = poiPopupHTML(poi, 1);
     expect(html).not.toContain('cra-poi-popup-conf');
@@ -482,13 +482,13 @@ describe('ui-helpers', () => {
     const poi: Poi = {
       id: '1',
       name: '',
-      terminus_class: 'Bank',
+      ontology_class: 'Bank',
       lat: 0,
       lon: 0,
       confidence: 'da_confermare',
       sparql_path: null,
-      terminus_label_it: 'Banca',
-      terminus_label_en: 'Bank',
+      ontology_label_it: 'Banca',
+      ontology_label_en: 'Bank',
     };
     const html = poiPopupHTML(poi, 4);
     expect(html).toContain('4. Banca (senza nome su OSM)');
@@ -498,20 +498,20 @@ describe('ui-helpers', () => {
     const withName: Poi = {
       id: '1',
       name: 'Colosseo',
-      terminus_class: 'Archaeological_site',
+      ontology_class: 'Archaeological_site',
       lat: 0,
       lon: 0,
       confidence: 'verificato',
       sparql_path: null,
-      terminus_label_it: 'Sito archeologico',
-      terminus_label_en: 'Archaeological site',
+      ontology_label_it: 'Sito archeologico',
+      ontology_label_en: 'Archaeological site',
     };
     expect(poiNameDisplayLabel(withName)).toBe('Colosseo');
 
     const withoutName: Poi = { ...withName, name: '' };
     expect(poiNameDisplayLabel(withoutName)).toBe('Sito archeologico (senza nome su OSM)');
 
-    const withoutNameNorLabel: Poi = { ...withName, name: '', terminus_label_it: '' };
+    const withoutNameNorLabel: Poi = { ...withName, name: '', ontology_label_it: '' };
     expect(poiNameDisplayLabel(withoutNameNorLabel)).toBe(
       'Archaeological_site (senza nome su OSM)',
     );
@@ -521,13 +521,13 @@ describe('ui-helpers', () => {
     const poi: Poi = {
       id: '1',
       name: '   ',
-      terminus_class: 'Bank',
+      ontology_class: 'Bank',
       lat: 0,
       lon: 0,
       confidence: 'da_confermare',
       sparql_path: null,
-      terminus_label_it: 'Banca',
-      terminus_label_en: 'Bank',
+      ontology_label_it: 'Banca',
+      ontology_label_en: 'Bank',
     };
     expect(poiNameDisplayLabel(poi)).toBe('Banca (senza nome su OSM)');
   });

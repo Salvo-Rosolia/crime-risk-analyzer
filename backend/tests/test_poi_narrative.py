@@ -30,7 +30,7 @@ from crime_risk_analyzer.sources.context import current_executor
 _POI_ID = "node/1"
 
 _BANK = PoiRiskProfile(
-    terminus_class="Bank",
+    ontology_class="Bank",
     hazards=["Bank_robbery", "Property_theft"],
     vulnerabilities=["Accesso non controllato"],
     sparql_paths=["Bank → havingHazard → Bank_robbery"],
@@ -38,9 +38,9 @@ _BANK = PoiRiskProfile(
 
 
 class _FakeProfiler:
-    def profile(self, terminus_class: str) -> PoiRiskProfile:
+    def profile(self, ontology_class: str) -> PoiRiskProfile:
         return {"Bank": _BANK}.get(
-            terminus_class, PoiRiskProfile(terminus_class=terminus_class)
+            ontology_class, PoiRiskProfile(ontology_class=ontology_class)
         )
 
 
@@ -75,7 +75,7 @@ def _pois(citta: str) -> list[Poi]:
             "lat": 41.8900,
             "lon": 12.4920,
             "osm_tags": "amenity=bank",
-            "terminus_class": "Bank",
+            "ontology_class": "Bank",
             "citta": citta,
         },
         {
@@ -84,7 +84,7 @@ def _pois(citta: str) -> list[Poi]:
             "lat": 41.8901,
             "lon": 12.4921,
             "osm_tags": "amenity=school",
-            "terminus_class": "School",
+            "ontology_class": "School",
             "citta": citta,
         },
     ]
@@ -203,7 +203,7 @@ def test_risk_model_of_propagates_source() -> None:
                 "source": "Bank → havingHazard → Bank_robbery",
             }
         ],
-        "terminus_class": "Bank",
+        "ontology_class": "Bank",
         "critical_events": [],
         "vulnerabilities": [],
         "stakeholders": [],
@@ -356,7 +356,7 @@ async def _divergent_poi_source(bbox: Bbox, citta: str) -> list[Poi]:
             "lat": 41.8902,
             "lon": 12.4922,
             "osm_tags": "amenity=pharmacy",
-            "terminus_class": "Pharmacy",
+            "ontology_class": "Pharmacy",
             "citta": citta,
         },
     ]
@@ -635,7 +635,7 @@ def test_endpoint_rejects_too_short_contesto_hash(
 def test_poi_narrative_request_surface_is_exactly_id_zone_and_fingerprint() -> None:
     """REQUEST contract (#197/#242): the client supplies the zone, the point id
     and an opaque fingerprint — nothing else. The non-injectability claim is a
-    constraint on the request: a future ``terminus_class``/``risks`` field would
+    constraint on the request: a future ``ontology_class``/``risks`` field would
     give the client a say on the risk data, which must stay re-derived by the
     server. The exact set pins it."""
     assert set(PoiNarrativeRequest.model_fields) == {

@@ -302,7 +302,7 @@ def _resp163(narrativa: str) -> AnalyzeResponse:
             PoiOut(
                 id="1",
                 name="Banca A",
-                terminus_class="Bank",
+                ontology_class="Bank",
                 lat=41.0,
                 lon=12.0,
                 confidence="verificato",

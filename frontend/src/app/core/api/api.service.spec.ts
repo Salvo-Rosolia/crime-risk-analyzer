@@ -12,8 +12,8 @@ import {
 } from '@core/models/models';
 
 const poiTypes = [
-  { terminus_class: 'Bank', label_it: 'Banca' },
-  { terminus_class: 'Railway_station', label_it: 'Stazione ferroviaria' },
+  { ontology_class: 'Bank', label_it: 'Banca' },
+  { ontology_class: 'Railway_station', label_it: 'Stazione ferroviaria' },
 ];
 
 const resp: AnalyzeResponse = {

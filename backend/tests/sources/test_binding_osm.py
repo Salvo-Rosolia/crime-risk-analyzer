@@ -175,8 +175,8 @@ def test_poi_class_from_the_set_binding() -> None:
     }
     with bind(_custom()):
         pois = _parse_elements(payload, "Roma")
-    assert [p["terminus_class"] for p in pois] == ["Banca"]
-    assert [p["terminus_class"] for p in _parse_elements(payload, "Roma")] == ["Bank"]
+    assert [p["ontology_class"] for p in pois] == ["Banca"]
+    assert [p["ontology_class"] for p in _parse_elements(payload, "Roma")] == ["Bank"]
 
 
 # --- labels ---
@@ -220,13 +220,13 @@ def test_custom_set_with_labels_none_uses_the_json() -> None:
 def test_catalog_of_the_custom_set() -> None:
     with bind(_custom()):
         types = poi_types()
-    assert {t.terminus_class for t in types} == {
+    assert {t.ontology_class for t in types} == {
         "Banca",
         "Gas_station",
         "Monumento",
         "Rovina",
     }
-    assert PoiType(terminus_class="Banca", label_it="Istituto di credito") in types
+    assert PoiType(ontology_class="Banca", label_it="Istituto di credito") in types
     labels_cf = [t.label_it.casefold() for t in types]
     assert labels_cf == sorted(labels_cf)
 
@@ -250,7 +250,7 @@ def test_catalog_of_different_sets_does_not_mix() -> None:
         with pytest.raises(UnknownPoiTypeError):
             resolve_poi_type("istituto di credito")
         assert resolve_poi_type("banca due") == "Bank2"
-    assert {t.terminus_class for t in b} == {"Bank2"}
+    assert {t.ontology_class for t in b} == {"Bank2"}
     assert a != b
     assert poi_types() == default_before
     assert resolve_poi_type("stazione ferroviaria") == "Railway_station"
@@ -264,7 +264,7 @@ def test_custom_catalog_is_not_served_from_the_default_cache() -> None:
     # is already full.
     poi_types()
     with bind(_custom("default-lookalike")):
-        assert {t.terminus_class for t in poi_types()} != set(OSM_TO_TERMINUS.values())
+        assert {t.ontology_class for t in poi_types()} != set(OSM_TO_TERMINUS.values())
 
 
 def _client(store: SessionStore) -> TestClient:
@@ -288,7 +288,7 @@ def test_poi_types_endpoint_ignores_the_session_and_serves_the_default() -> None
     default = cast(httpx.Response, client.get("/poi-types"))  # pyright: ignore[reportUnknownMemberType]
 
     assert with_session.status_code == 200
-    assert {t["terminus_class"] for t in with_session.json()} == set(
+    assert {t["ontology_class"] for t in with_session.json()} == set(
         OSM_TO_TERMINUS.values()
     )
     assert with_session.json() == default.json()

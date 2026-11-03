@@ -33,7 +33,7 @@ from crime_risk_analyzer.rag.retrieval import RetrievalContext
 from crime_risk_analyzer.sources.context import current_executor
 
 _BANK = PoiRiskProfile(
-    terminus_class="Bank",
+    ontology_class="Bank",
     hazards=["Bank_robbery", "Property_theft"],
     vulnerabilities=["Accesso non controllato"],
     sparql_paths=["Bank → havingHazard → Bank_robbery"],
@@ -41,9 +41,9 @@ _BANK = PoiRiskProfile(
 
 
 class _FakeProfiler:
-    def profile(self, terminus_class: str) -> PoiRiskProfile:
+    def profile(self, ontology_class: str) -> PoiRiskProfile:
         return {"Bank": _BANK}.get(
-            terminus_class, PoiRiskProfile(terminus_class=terminus_class)
+            ontology_class, PoiRiskProfile(ontology_class=ontology_class)
         )
 
 
@@ -55,7 +55,7 @@ def _pois(citta: str) -> list[Poi]:
             "lat": 41.8900,
             "lon": 12.4920,
             "osm_tags": "amenity=bank",
-            "terminus_class": "Bank",
+            "ontology_class": "Bank",
             "citta": citta,
         },
     ]
@@ -77,7 +77,7 @@ def _dense_pois(citta: str) -> list[Poi]:
             "lat": 41.8901,
             "lon": 12.4921,
             "osm_tags": "amenity=bank",
-            "terminus_class": "Bank",
+            "ontology_class": "Bank",
             "citta": citta,
         },
     ]
@@ -287,7 +287,7 @@ def _pois_by_radius(citta: str) -> list[Poi]:
             "lat": 42.100,
             "lon": 12.700,
             "osm_tags": "amenity=bank",
-            "terminus_class": "Bank",
+            "ontology_class": "Bank",
             "citta": citta,
         },
     ]

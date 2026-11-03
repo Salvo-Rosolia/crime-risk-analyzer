@@ -14,12 +14,12 @@ def _response(narrativa: str) -> AnalyzeResponse:
             PoiOut(
                 id="1",
                 name="Banca X",
-                terminus_class="Bank",
+                ontology_class="Bank",
                 lat=1.0,
                 lon=2.0,
                 confidence="verificato",
-                terminus_label_it="Banca",
-                terminus_label_en="Bank",
+                ontology_label_it="Banca",
+                ontology_label_en="Bank",
             )
         ],
         risk_models=[

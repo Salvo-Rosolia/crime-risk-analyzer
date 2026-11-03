@@ -46,7 +46,7 @@ def _poi() -> Poi:
         "lat": 41.0,
         "lon": 12.0,
         "osm_tags": "amenity=bank",
-        "terminus_class": "Bank",
+        "ontology_class": "Bank",
         "citta": "Roma",
     }
 

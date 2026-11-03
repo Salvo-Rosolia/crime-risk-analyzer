@@ -6,13 +6,13 @@ function makePoi(overrides: Partial<Poi>): Poi {
   return {
     id: '1',
     name: 'Colosseo',
-    terminus_class: 'Archaeological_site',
+    ontology_class: 'Archaeological_site',
     lat: 0,
     lon: 0,
     confidence: 'verificato',
     sparql_path: null,
-    terminus_label_it: 'Sito archeologico',
-    terminus_label_en: 'Archaeological site',
+    ontology_label_it: 'Sito archeologico',
+    ontology_label_en: 'Archaeological site',
     ...overrides,
   };
 }
@@ -26,15 +26,15 @@ describe('PoiPanelComponent', () => {
       id: '2',
       name: 'Bar X',
       confidence: 'da_confermare',
-      terminus_class: 'Bank',
-      terminus_label_it: 'Banca',
+      ontology_class: 'Bank',
+      ontology_label_it: 'Banca',
     }),
     makePoi({
       id: '3',
       name: 'Vicolo Y',
       confidence: null,
-      terminus_class: 'Alley',
-      terminus_label_it: '',
+      ontology_class: 'Alley',
+      ontology_label_it: '',
     }),
   ];
 
@@ -45,7 +45,7 @@ describe('PoiPanelComponent', () => {
     fixture.detectChanges();
   });
 
-  it('lists one card for each POI with IT label (fallback to terminus_class if absent)', () => {
+  it('lists one card for each POI with IT label (fallback to ontology_class if absent)', () => {
     const text = fixture.nativeElement.textContent;
     expect(text).toContain('Colosseo');
     expect(text).toContain('Banca');
@@ -162,8 +162,8 @@ describe('PoiPanelComponent', () => {
         id: '4',
         name: '',
         confidence: 'da_confermare',
-        terminus_class: 'School',
-        terminus_label_it: 'Scuola',
+        ontology_class: 'School',
+        ontology_label_it: 'Scuola',
       }),
     ]);
     fixture.detectChanges();

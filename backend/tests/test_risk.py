@@ -14,8 +14,8 @@ from pydantic import ValidationError
 from crime_risk_analyzer.models.risk import PoiRiskProfile
 
 
-def test_terminus_class_is_required() -> None:
-    """``terminus_class`` has no default: without it, the model cannot be built."""
+def test_ontology_class_is_required() -> None:
+    """``ontology_class`` has no default: without it, the model cannot be built."""
     with pytest.raises(ValidationError):
         PoiRiskProfile()  # pyright: ignore[reportCallIssue]
 
@@ -23,7 +23,7 @@ def test_terminus_class_is_required() -> None:
 def test_defaults_are_empty_lists_not_none() -> None:
     """No risk == empty list, never ``None`` (model contract): with only the
     TERMINUS class every dimension is ``[]`` and ``poi_name`` is None."""
-    profile = PoiRiskProfile(terminus_class="Bank")
+    profile = PoiRiskProfile(ontology_class="Bank")
 
     assert profile.poi_name is None
     assert profile.hazards == []
@@ -37,8 +37,8 @@ def test_default_lists_are_independent_instances() -> None:
     """``default_factory`` (not a shared mutable default): mutating one
     instance's list must NOT touch another instance. Guards against the classic
     bug of a mutable default shared at class level."""
-    a = PoiRiskProfile(terminus_class="Bank")
-    b = PoiRiskProfile(terminus_class="Bank")
+    a = PoiRiskProfile(ontology_class="Bank")
+    b = PoiRiskProfile(ontology_class="Bank")
 
     a.hazards.append("Robbery")
 
@@ -51,7 +51,7 @@ def test_preserves_all_populated_fields() -> None:
     """Every populated field is preserved verbatim (no normalization)."""
     profile = PoiRiskProfile(
         poi_name="Banca Intesa Sanpaolo",
-        terminus_class="Bank",
+        ontology_class="Bank",
         hazards=["Robbery", "Theft"],
         critical_events=["Cash_theft"],
         vulnerabilities=["Unattended_entrance"],
@@ -60,7 +60,7 @@ def test_preserves_all_populated_fields() -> None:
     )
 
     assert profile.poi_name == "Banca Intesa Sanpaolo"
-    assert profile.terminus_class == "Bank"
+    assert profile.ontology_class == "Bank"
     assert profile.hazards == ["Robbery", "Theft"]
     assert profile.critical_events == ["Cash_theft"]
     assert profile.vulnerabilities == ["Unattended_entrance"]
@@ -74,7 +74,7 @@ def test_has_no_numeric_danger_scoring_field() -> None:
     someone reintroduces a ``score``/``risk_level`` field."""
     assert set(PoiRiskProfile.model_fields) == {
         "poi_name",
-        "terminus_class",
+        "ontology_class",
         "hazards",
         "critical_events",
         "vulnerabilities",
@@ -85,9 +85,9 @@ def test_has_no_numeric_danger_scoring_field() -> None:
 
 def test_serializes_to_dict_with_all_keys() -> None:
     """``model_dump`` exposes the full shape (raw input of the citation layer)."""
-    dumped = PoiRiskProfile(terminus_class="Bank", hazards=["Robbery"]).model_dump()
+    dumped = PoiRiskProfile(ontology_class="Bank", hazards=["Robbery"]).model_dump()
 
-    assert dumped["terminus_class"] == "Bank"
+    assert dumped["ontology_class"] == "Bank"
     assert dumped["hazards"] == ["Robbery"]
     assert dumped["critical_events"] == []
     assert dumped["poi_name"] is None

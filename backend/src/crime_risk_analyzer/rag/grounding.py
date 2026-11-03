@@ -121,7 +121,7 @@ class ValidatedRisk(TypedDict):
 
     poi_id: str
     poi: str
-    terminus_class: str
+    ontology_class: str
     risks: list[GroundedRisk]
     #: The TERMINUS axes beyond the hazards (#256): the executor already extracted them
     #: on every request, but nobody read ``critical_events`` and the vulnerabilities
@@ -159,7 +159,7 @@ def _source_for(profile: PoiRiskProfile, props: tuple[str, ...], filler: str) ->
 
     A filler can be inherited from a superclass via ``rdfs:subClassOf*``: the real
     path cites that class, so it must be TAKEN from the ``sparql_paths`` (not
-    synthesised from ``terminus_class``). Fallback synthesised on the first property
+    synthesised from ``ontology_class``). Fallback synthesised on the first property
     only if no path matches (not expected: ``sparql_paths`` has a path per
     filler).
     """
@@ -167,7 +167,7 @@ def _source_for(profile: PoiRiskProfile, props: tuple[str, ...], filler: str) ->
         parts = [segment.strip() for segment in path.split("→")]
         if len(parts) == 3 and parts[1] in props and parts[2] == filler:
             return path
-    return f"{profile.terminus_class} → {props[0]} → {filler}"
+    return f"{profile.ontology_class} → {props[0]} → {filler}"
 
 
 def _entities(
@@ -201,7 +201,7 @@ def ground(context: RetrievalContext) -> GroundedContext:
     n_verified = 0
     n_to_confirm = 0
     for poi in context["pois"]:
-        profile = context["profiles"][poi["terminus_class"]]
+        profile = context["profiles"][poi["ontology_class"]]
         confidence = confidence_from_poi_name(poi["name"])
         risks: list[GroundedRisk] = [
             {
@@ -220,7 +220,7 @@ def ground(context: RetrievalContext) -> GroundedContext:
             {
                 "poi_id": poi["id"],
                 "poi": poi["name"],
-                "terminus_class": poi["terminus_class"],
+                "ontology_class": poi["ontology_class"],
                 "risks": risks,
                 "critical_events": _entities(
                     profile, props_critical_event, profile.critical_events

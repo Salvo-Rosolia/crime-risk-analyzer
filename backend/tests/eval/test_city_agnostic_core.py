@@ -15,14 +15,14 @@ _SQUARE = CityBoundary(
 _ELSEWHERE = CityBoundary(polygons=[[[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]]])
 
 
-def _poi(name: str, terminus_class: str) -> Poi:
+def _poi(name: str, ontology_class: str) -> Poi:
     return {
         "id": name,
         "name": name,
         "lat": 41.0,
         "lon": 12.0,
         "osm_tags": "amenity=bank",
-        "terminus_class": terminus_class,
+        "ontology_class": ontology_class,
         "citta": "Roma",
     }
 

@@ -47,7 +47,7 @@ def _sample_pois() -> list[Poi]:
             lat=41.0,
             lon=12.0,
             osm_tags="amenity=bank",
-            terminus_class="Bank",
+            ontology_class="Bank",
             citta="Roma",
         )
     ]
@@ -848,7 +848,7 @@ async def test_no_ontology_arm_replays_the_snapshot_of_the_complete_arm(
     profiler = FakeProfiler(
         {
             "Bank": PoiRiskProfile(
-                terminus_class="Bank",
+                ontology_class="Bank",
                 hazards=["Bank_robbery"],
                 sparql_paths=["Bank → havingHazard → Bank_robbery"],
             )
@@ -916,7 +916,7 @@ def _many_pois(n: int) -> list[Poi]:
             lat=41.0,
             lon=12.0,
             osm_tags="amenity=bank",
-            terminus_class="Bank",
+            ontology_class="Bank",
             citta="Roma",
         )
         for i in range(n)
@@ -1462,7 +1462,7 @@ async def _run_case_istat(tmp_path: Path, text: str) -> RunRecord:
             lat=41.8902,
             lon=12.4922,
             osm_tags="amenity=bank",
-            terminus_class="Bank",
+            ontology_class="Bank",
             citta="Roma",
         )
     ]
@@ -1476,7 +1476,7 @@ async def _run_case_istat(tmp_path: Path, text: str) -> RunRecord:
     )
     profiles = {
         "Bank": PoiRiskProfile(
-            terminus_class="Bank",
+            ontology_class="Bank",
             hazards=["Bank_robbery", "Property_theft"],
             sparql_paths=["Bank → havingHazard → Bank_robbery"],
         )

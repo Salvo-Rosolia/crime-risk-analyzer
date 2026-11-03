@@ -8,13 +8,13 @@ function makePoi(overrides: Partial<Poi> = {}): Poi {
   return {
     id: '1',
     name: 'Colosseo',
-    terminus_class: 'Archaeological_site',
+    ontology_class: 'Archaeological_site',
     lat: 41.89,
     lon: 12.49,
     confidence: 'verificato',
     sparql_path: 'Archaeological_site → havingHazard → Pickpocketing',
-    terminus_label_it: 'Sito archeologico',
-    terminus_label_en: 'Archaeological site',
+    ontology_label_it: 'Sito archeologico',
+    ontology_label_en: 'Archaeological site',
     ...overrides,
   };
 }
@@ -348,7 +348,7 @@ describe('DetailPanelComponent', () => {
   });
 
   it('#261: a POI without a name (anonymous OSM feature) shows the class fallback in the header and in the aria-label, not a blank row', () => {
-    setup(makePoi({ name: '', terminus_class: 'Bank', terminus_label_it: 'Banca' }));
+    setup(makePoi({ name: '', ontology_class: 'Bank', ontology_label_it: 'Banca' }));
     expect(fixture.nativeElement.querySelector('.cra-detail-name').textContent.trim()).toBe(
       'Banca (senza nome su OSM)',
     );

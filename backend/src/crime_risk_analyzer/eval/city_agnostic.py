@@ -225,8 +225,8 @@ def compute_coverage(pois: list[Poi], graph: Graph) -> tuple[float, float]:
     if not pois:
         return (0.0, 0.0)
     n = len(pois)
-    derived = sum(1 for p in pois if p["terminus_class"] != GENERIC_FALLBACK) / n
-    verbatim = sum(1 for p in pois if class_exists(graph, p["terminus_class"])) / n
+    derived = sum(1 for p in pois if p["ontology_class"] != GENERIC_FALLBACK) / n
+    verbatim = sum(1 for p in pois if class_exists(graph, p["ontology_class"])) / n
     return (verbatim, derived)
 
 

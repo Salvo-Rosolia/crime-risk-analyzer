@@ -97,7 +97,7 @@ def test_default_identical() -> None:
             "lat": 41.89,
             "lon": 12.49,
             "osm_tags": "amenity=bank",
-            "terminus_class": "Bank",
+            "ontology_class": "Bank",
             "citta": "Roma",
         }
     ]
@@ -173,7 +173,7 @@ def test_fingerprint_changes_with_the_set_version() -> None:
             "lat": 41.89,
             "lon": 12.49,
             "osm_tags": "amenity=bank",
-            "terminus_class": "Bank",
+            "ontology_class": "Bank",
             "citta": "Roma",
         }
     ]

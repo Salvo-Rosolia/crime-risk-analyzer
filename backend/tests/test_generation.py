@@ -84,7 +84,7 @@ def _context_dict(**overrides: Any) -> dict[str, Any]:
             {
                 "poi": "Colosseo",
                 "poi_id": "1",
-                "terminus_class": "HeritageAttractionSite",
+                "ontology_class": "HeritageAttractionSite",
                 "risks": [
                     {
                         "hazard": "MassTouristTargeting",
@@ -150,7 +150,7 @@ def _two_poi_same_class() -> dict[str, Any]:
             {
                 "poi": "Colosseo (MB)",
                 "poi_id": "1",
-                "terminus_class": "Bus_stops",
+                "ontology_class": "Bus_stops",
                 "risks": risk_items,
                 "vulnerabilities": vuln,
                 "sparql_path": "Bus_stops → havingHazard → Crime_explosion",
@@ -158,7 +158,7 @@ def _two_poi_same_class() -> dict[str, Any]:
             {
                 "poi": "",
                 "poi_id": "2",
-                "terminus_class": "Bus_stops",
+                "ontology_class": "Bus_stops",
                 "risks": anonymous,
                 "vulnerabilities": vuln,
                 "sparql_path": "Bus_stops → havingHazard → Crime_explosion",
@@ -166,7 +166,7 @@ def _two_poi_same_class() -> dict[str, Any]:
             {
                 "poi": "Arco di Costantino",
                 "poi_id": "3",
-                "terminus_class": "Historical_monument",
+                "ontology_class": "Historical_monument",
                 "risks": [
                     {
                         "hazard": "Damage_to_the_monument",
@@ -323,7 +323,7 @@ def test_build_context_str_handles_poi_without_risks() -> None:
         validated_risks=[
             {
                 "poi": "Bar Roma",
-                "terminus_class": "GenericUrbanPOI",
+                "ontology_class": "GenericUrbanPOI",
                 "risks": [],
                 "vulnerabilities": [],
                 "sparql_path": None,
@@ -415,7 +415,7 @@ def _poi_entry(
     return {
         "poi": f"POI {label}",
         "poi_id": f"id-{label}",
-        "terminus_class": "Bank",
+        "ontology_class": "Bank",
         "risks": [
             {
                 "hazard": f"Hazard{label}_{j}",
@@ -651,7 +651,7 @@ async def test_generate_analysis_poi_order_follows_the_prompt_format(
     """With the grouped format the prompt lists the points by class: the exposed order
     is the one of the prompt, not the selection one."""
     a, b, c = _poi_entry("A", 1), _poi_entry("B", 1), _poi_entry("C", 1)
-    b["terminus_class"] = "School"
+    b["ontology_class"] = "School"
     client = _FakeLLMClient(_llm_response())
 
     result = await generate_analysis(
@@ -1238,7 +1238,7 @@ def _real_context() -> dict[str, Any]:
             {
                 "poi": "Colosseo-Fori Imperiali",
                 "poi_id": "node/1",
-                "terminus_class": "Bus_stops",
+                "ontology_class": "Bus_stops",
                 "risks": [
                     {
                         "hazard": "Crime_explosion",

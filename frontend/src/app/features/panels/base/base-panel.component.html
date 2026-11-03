@@ -25,8 +25,8 @@
       <label for="cra-base-poi-type">Tipo POI <span class="cra-optional">(opzionale)</span></label>
       <select id="cra-base-poi-type" (change)="onPoiTypeChange($event)">
         <option value="" [selected]="poiType() === ''">Tutti i tipi</option>
-        @for (t of poiTypes(); track t.terminus_class) {
-          <option [value]="t.terminus_class" [selected]="t.terminus_class === poiType()">
+        @for (t of poiTypes(); track t.ontology_class) {
+          <option [value]="t.ontology_class" [selected]="t.ontology_class === poiType()">
             {{ t.label_it }}
           </option>
         }

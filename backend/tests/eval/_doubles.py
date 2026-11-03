@@ -41,9 +41,9 @@ class FakeProfiler:
     def __init__(self, profiles: dict[str, PoiRiskProfile] | None = None) -> None:
         self._profiles: dict[str, PoiRiskProfile] = profiles or {}
 
-    def profile(self, terminus_class: str) -> PoiRiskProfile:
+    def profile(self, ontology_class: str) -> PoiRiskProfile:
         return self._profiles.get(
-            terminus_class, PoiRiskProfile(terminus_class=terminus_class)
+            ontology_class, PoiRiskProfile(ontology_class=ontology_class)
         )
 
 

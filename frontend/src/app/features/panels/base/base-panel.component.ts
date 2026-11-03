@@ -50,7 +50,7 @@ export class BasePanelComponent implements OnInit {
   readonly zone = input<string>('');
   readonly cityChange = output<string>();
   readonly zoneChange = output<string>();
-  /** `terminus_class` selected in the "Tipo POI" select, or empty string for "Tutti i tipi"
+  /** `ontology_class` selected in the "Tipo POI" select, or empty string for "Tutti i tipi"
    * (no filter): same state shared in the shell as `city`/`zone` (#143, review finding),
    * so it survives the Full↔Base remount and is cleared with "+ Nuova richiesta" together with the rest
    * of the area, instead of a local copy that a mode round trip would silently lose. */

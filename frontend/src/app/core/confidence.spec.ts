@@ -52,13 +52,13 @@ describe('confidence', () => {
     const basePoiFixture: Poi = {
       id: '1',
       name: 'Test POI',
-      terminus_class: 'x',
+      ontology_class: 'x',
       lat: 0,
       lon: 0,
       confidence: 'verificato',
       sparql_path: null,
-      terminus_label_it: '',
-      terminus_label_en: '',
+      ontology_label_it: '',
+      ontology_label_en: '',
     };
 
     it('counts as anchored only the POIs with non-null confidence', () => {
@@ -114,13 +114,13 @@ describe('confidence', () => {
     const poi = (id: string, confidence: Poi['confidence']): Poi => ({
       id,
       name: id,
-      terminus_class: 'x',
+      ontology_class: 'x',
       lat: 0,
       lon: 0,
       confidence,
       sparql_path: null,
-      terminus_label_it: '',
-      terminus_label_en: '',
+      ontology_label_it: '',
+      ontology_label_en: '',
     });
     const pois: Poi[] = [
       poi('1', 'verificato'),

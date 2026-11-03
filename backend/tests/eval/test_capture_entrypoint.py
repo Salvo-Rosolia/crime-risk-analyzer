@@ -47,7 +47,7 @@ def _sample_pois() -> list[Poi]:
             lat=41.0,
             lon=12.0,
             osm_tags="amenity=bank",
-            terminus_class="Bank",
+            ontology_class="Bank",
             citta="Roma",
         )
     ]
@@ -62,7 +62,7 @@ def _sentinel_pois() -> list[Poi]:
             lat=0.0,
             lon=0.0,
             osm_tags="x=y",
-            terminus_class="Bank",
+            ontology_class="Bank",
             citta="Roma",
         )
     ]
