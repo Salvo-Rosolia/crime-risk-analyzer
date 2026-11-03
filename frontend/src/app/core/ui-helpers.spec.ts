@@ -246,7 +246,7 @@ describe('ui-helpers', () => {
     expect(orderGroupsByTag(groups).map((g) => g.tag)).toEqual(['ONTOLOGIA', 'OTHER']);
   });
 
-  it('buildBaseRows: one row per (POI, hazard) pair, Categoria = raw tc:ontology_class', () => {
+  it('buildBaseRows: one row per (POI, hazard) pair, Categoria = raw ontology_class, no namespace prefix', () => {
     const poi: Poi[] = [
       {
         id: '1',
@@ -311,10 +311,10 @@ describe('ui-helpers', () => {
         poiId: '1',
         poiName: 'Colosseo',
         hazardLabel: 'Borseggio',
-        category: 'tc:Archaeological_site',
+        category: 'Archaeological_site',
       },
-      { poiId: '1', poiName: 'Colosseo', hazardLabel: 'h2', category: 'tc:Archaeological_site' },
-      { poiId: '2', poiName: 'Banca X', hazardLabel: 'Rapina', category: 'tc:Bank' },
+      { poiId: '1', poiName: 'Colosseo', hazardLabel: 'h2', category: 'Archaeological_site' },
+      { poiId: '2', poiName: 'Banca X', hazardLabel: 'Rapina', category: 'Bank' },
     ]);
   });
 
@@ -372,8 +372,8 @@ describe('ui-helpers', () => {
       },
     ];
     expect(buildBaseRows(anonymous, riskModels)).toEqual([
-      { poiId: '11', poiName: '', hazardLabel: 'Rapina in banca', category: 'tc:Bank' },
-      { poiId: '22', poiName: '', hazardLabel: 'Vandalismo', category: 'tc:School' },
+      { poiId: '11', poiName: '', hazardLabel: 'Rapina in banca', category: 'Bank' },
+      { poiId: '22', poiName: '', hazardLabel: 'Vandalismo', category: 'School' },
     ]);
   });
 

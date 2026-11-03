@@ -428,7 +428,7 @@ describe('BasePanelComponent', () => {
     const text = fixture.nativeElement.textContent;
     expect(text).toContain('Colosseo');
     expect(text).toContain('Borseggio');
-    expect(text).toContain('tc:Archaeological_site');
+    expect(text).toContain('Archaeological_site');
     expect(text).toContain('2');
   });
 

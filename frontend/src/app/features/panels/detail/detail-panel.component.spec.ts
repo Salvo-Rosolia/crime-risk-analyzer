@@ -71,12 +71,18 @@ describe('DetailPanelComponent', () => {
     fixture?.nativeElement.remove();
   });
 
-  it('shows POI name, terminus class with tc: prefix + IT label, and the pin number', () => {
+  it('shows POI name, ontology class without prefix + IT label, and the pin number', () => {
     setup(makePoi(), riskModels, 3);
     const text = fixture.nativeElement.textContent;
     expect(text).toContain('Colosseo');
-    expect(text).toContain('tc:Archaeological_site · Sito archeologico');
+    expect(text).toContain('Archaeological_site · Sito archeologico');
     expect(fixture.nativeElement.querySelector('.cra-detail-pin').textContent.trim()).toBe('3');
+  });
+
+  it('does not repeat the class when the IT label falls back to it', () => {
+    setup(makePoi({ ontology_class: 'Bank', ontology_label_it: undefined }));
+    const cls = fixture.nativeElement.querySelector('.cra-detail-class').textContent;
+    expect(cls.trim()).toBe('Bank');
   });
 
   it('shows the POI confidence badge in the header', () => {

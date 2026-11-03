@@ -15,7 +15,10 @@
         }
       </div>
       <div class="cra-detail-class">
-        tc:{{ poi().ontology_class }} · {{ detailModel().poiLabel }}
+        {{ poi().ontology_class
+        }}{{
+          detailModel().poiLabel !== poi().ontology_class ? ' · ' + detailModel().poiLabel : ''
+        }}
       </div>
     </div>
   </div>
