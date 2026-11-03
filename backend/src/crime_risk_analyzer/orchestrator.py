@@ -229,8 +229,8 @@ class BaselineRequest(_AreaRequest):
         max_length=100,
         description=(
             "Filtro server-side per tipo di POI (opzionale, #119/#143): nome della "
-            "classe TERMINUS o etichetta IT del catalogo GET /poi-types, senza "
-            "distinzione di maiuscole; None/vuoto = nessun filtro, tipo non "
+            "classe dell'ontologia attiva o etichetta IT del catalogo GET /poi-types, "
+            "senza distinzione di maiuscole; None/vuoto = nessun filtro, tipo non "
             "riconosciuto = 422."
         ),
     )
@@ -277,7 +277,7 @@ class PoiOut(BaseModel):
 
     id: str
     name: str
-    terminus_class: str
+    ontology_class: str
     lat: float
     lon: float
     confidence: Confidence | None = Field(
@@ -289,17 +289,17 @@ class PoiOut(BaseModel):
         ),
     )
     sparql_path: str | None = None
-    terminus_label_it: str = Field(
+    ontology_label_it: str = Field(
         default="", description="Etichetta IT controllata della classe (display)."
     )
-    terminus_label_en: str = Field(
+    ontology_label_en: str = Field(
         default="", description="Etichetta EN corretta della classe (display)."
     )
     critical_events: list[OntologyItem] = Field(
         default_factory=list[OntologyItem],
         description=(
-            "Eventi critici della classe TERMINUS (havingCriticalEvent), ciascuno "
-            "con la propria citazione (#256)."
+            "Eventi critici della classe dell'ontologia (havingCriticalEvent), "
+            "ciascuno con la propria citazione (#256)."
         ),
     )
     vulnerabilities: list[OntologyItem] = Field(
@@ -334,10 +334,10 @@ class PoiOut(BaseModel):
 
     @model_validator(mode="after")
     def _fill_labels(self) -> PoiOut:
-        if not self.terminus_label_it:
-            self.terminus_label_it = label_it(self.terminus_class)
-        if not self.terminus_label_en:
-            self.terminus_label_en = label_en(self.terminus_class)
+        if not self.ontology_label_it:
+            self.ontology_label_it = label_it(self.ontology_class)
+        if not self.ontology_label_en:
+            self.ontology_label_en = label_en(self.ontology_class)
         return self
 
 
@@ -534,7 +534,7 @@ def _build_poi_list(
             PoiOut(
                 id=poi["id"],
                 name=poi["name"],
-                terminus_class=poi["terminus_class"],
+                ontology_class=poi["ontology_class"],
                 lat=poi["lat"],
                 lon=poi["lon"],
                 confidence=confidence,
@@ -701,7 +701,7 @@ def _generated_response(
 class RiskProfiler(Protocol):
     """Minimal surface of the SPARQL executor used by the pipeline (DI)."""
 
-    def profile(self, terminus_class: str) -> PoiRiskProfile: ...
+    def profile(self, ontology_class: str) -> PoiRiskProfile: ...
 
 
 class _LLMClientLike(Protocol):
@@ -950,7 +950,7 @@ def _filter_pois(
     POI list (same invariant as :func:`_build_poi_list`).
     """
     pois = [poi for poi in ctx["pois"] if keep(poi)]
-    classes = {poi["terminus_class"] for poi in pois}
+    classes = {poi["ontology_class"] for poi in pois}
     profiles = {cls: ctx["profiles"][cls] for cls in classes}
     return RetrievalContext(
         citta=ctx["citta"],
@@ -963,10 +963,10 @@ def _filter_pois(
 
 
 def _filter_pois_by_type(
-    ctx: RetrievalContext, terminus_class: str
+    ctx: RetrievalContext, ontology_class: str
 ) -> RetrievalContext:
-    """Restricts the ``RetrievalContext`` to POIs of the given TERMINUS class."""
-    return _filter_pois(ctx, lambda poi: poi["terminus_class"] == terminus_class)
+    """Restricts the ``RetrievalContext`` to POIs of the given ontology class."""
+    return _filter_pois(ctx, lambda poi: poi["ontology_class"] == ontology_class)
 
 
 def _filter_pois_by_radius(
@@ -1002,7 +1002,7 @@ async def run_baseline(
     ``tipo_poi`` filter (both, before the grounding). ``None`` = no radius
     filter (behaviour unchanged).
 
-    ``tipo_poi`` (optional, #119) filters the POIs server-side by TERMINUS class
+    ``tipo_poi`` (optional, #119) filters the POIs server-side by ontology class
     (:func:`_filter_pois_by_type`), applied before the grounding. ``None`` or
     empty/whitespace string = no filter (behaviour unchanged). The
     comparison is exact: the expected value is already the canonical class name, which

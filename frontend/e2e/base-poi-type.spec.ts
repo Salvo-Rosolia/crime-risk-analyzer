@@ -10,7 +10,7 @@ import error422PoiType from './fixtures/error-422-tipo-poi.json';
  * BASE state: "Tipo POI" select (#143) — replaces the old free text (placeholder "es.
  * Railway_station"), which the backend compared exactly and case-sensitively, giving a silent
  * empty list on an unrecognized value (e.g. "banca" or "railway_station"). The select populates the
- * options from `GET /poi-types` (IT labels, values = canonical terminus_class) and the body of
+ * options from `GET /poi-types` (IT labels, values = canonical ontology_class) and the body of
  * `/analyze/baseline` carries `tipo_poi` ONLY when the user chose something other than
  * "Tutti i tipi".
  */
@@ -74,7 +74,7 @@ test.describe('BASE state: "Tipo POI" select submit', () => {
     expect(body).not.toHaveProperty('tipo_poi');
   });
 
-  test('selecting a type sends the canonical terminus_class (not the Italian label)', async ({
+  test('selecting a type sends the canonical ontology_class (not the Italian label)', async ({
     page,
   }) => {
     let body: unknown;
@@ -91,7 +91,7 @@ test.describe('BASE state: "Tipo POI" select submit', () => {
     await S.baseSubmitButton(page).click();
 
     await expect(S.baseTableRows(page)).toHaveCount(2);
-    expect(body).toMatchObject({ tipo_poi: poiTypesFixture[1].terminus_class });
+    expect(body).toMatchObject({ tipo_poi: poiTypesFixture[1].ontology_class });
   });
 });
 

@@ -34,7 +34,7 @@ from crime_risk_analyzer.sparql_module.osm_mapping import (
 
 
 def test_catalog_is_exactly_the_distinct_mapped_classes() -> None:
-    classes = [t.terminus_class for t in poi_types()]
+    classes = [t.ontology_class for t in poi_types()]
     assert len(classes) == len(set(classes))
     assert set(classes) == set(OSM_TO_TERMINUS.values())
     # The fallback for uncovered tags is not a selectable type.
@@ -43,17 +43,17 @@ def test_catalog_is_exactly_the_distinct_mapped_classes() -> None:
 
 def test_catalog_labels_come_from_controlled_vocabulary() -> None:
     for t in poi_types():
-        assert t.label_it == label_it(t.terminus_class)
+        assert t.label_it == label_it(t.ontology_class)
         assert t.label_it
 
 
 def test_catalog_is_sorted_by_label_casefold() -> None:
-    keys = [(t.label_it.casefold(), t.terminus_class) for t in poi_types()]
+    keys = [(t.label_it.casefold(), t.ontology_class) for t in poi_types()]
     assert keys == sorted(keys)
 
 
 def test_catalog_contains_bank_with_italian_label() -> None:
-    assert PoiType(terminus_class="Bank", label_it="Banca") in poi_types()
+    assert PoiType(ontology_class="Bank", label_it="Banca") in poi_types()
 
 
 # --- normalization ---
@@ -100,8 +100,8 @@ def test_resolve_poi_type_error_message_shows_stripped_input() -> None:
 def test_every_catalog_entry_resolves_by_class_and_by_label() -> None:
     """No collision: every name and every label leads to its own class."""
     for t in poi_types():
-        assert resolve_poi_type(t.terminus_class) == t.terminus_class
-        assert resolve_poi_type(t.label_it) == t.terminus_class
+        assert resolve_poi_type(t.ontology_class) == t.ontology_class
+        assert resolve_poi_type(t.label_it) == t.ontology_class
 
 
 # --- endpoint ---
@@ -112,9 +112,9 @@ def test_get_poi_types_endpoint_shape_and_order() -> None:
     resp = cast(httpx.Response, client.get("/poi-types"))  # pyright: ignore[reportUnknownMemberType]
     assert resp.status_code == 200
     body = cast(list[dict[str, str]], resp.json())
-    assert all(set(item) == {"terminus_class", "label_it"} for item in body)
+    assert all(set(item) == {"ontology_class", "label_it"} for item in body)
     assert body == [t.model_dump() for t in poi_types()]
-    assert {"terminus_class": "Bank", "label_it": "Banca"} in body
+    assert {"ontology_class": "Bank", "label_it": "Banca"} in body
 
 
 # --- BaselineRequest: shape of the field ---
@@ -157,9 +157,9 @@ def test_every_entry_has_a_real_italian_label() -> None:
     EN/name fallback: this is what the :mod:`poi_types` docstring states."""
     records = terminus_labels._records()  # pyright: ignore[reportPrivateUsage]
     for t in poi_types():
-        rec = records.get(t.terminus_class)
-        assert rec is not None, t.terminus_class
-        assert rec["label_it"], t.terminus_class
+        rec = records.get(t.ontology_class)
+        assert rec is not None, t.ontology_class
+        assert rec["label_it"], t.ontology_class
         assert t.label_it == rec["label_it"]
 
 
@@ -167,8 +167,8 @@ def test_lookup_fails_fast_on_alias_shared_by_two_classes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     clash = (
-        PoiType(terminus_class="Alpha", label_it="Comune"),
-        PoiType(terminus_class="Beta", label_it="comune"),
+        PoiType(ontology_class="Alpha", label_it="Comune"),
+        PoiType(ontology_class="Beta", label_it="comune"),
     )
     monkeypatch.setattr(poi_types_module, "poi_types", lambda: clash)
     with pytest.raises(RuntimeError, match="ambiguo"):
@@ -178,7 +178,7 @@ def test_lookup_fails_fast_on_alias_shared_by_two_classes(
 def test_lookup_accepts_label_equal_to_its_own_class(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    same = (PoiType(terminus_class="Cinema", label_it="Cinema"),)
+    same = (PoiType(ontology_class="Cinema", label_it="Cinema"),)
     monkeypatch.setattr(poi_types_module, "poi_types", lambda: same)
     table = poi_types_module._lookup.__wrapped__()  # pyright: ignore[reportPrivateUsage]
     assert table == {"cinema": "Cinema"}

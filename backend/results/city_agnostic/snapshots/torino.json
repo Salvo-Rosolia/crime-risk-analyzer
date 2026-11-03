@@ -21,7 +21,7 @@
         "lat": 45.0627539,
         "lon": 7.6789575,
         "osm_tags": "railway=station",
-        "terminus_class": "Railway_station",
+        "ontology_class": "Railway_station",
         "citta": "Torino"
       },
       {
@@ -30,7 +30,7 @@
         "lat": 45.0628583,
         "lon": 7.678867,
         "osm_tags": "highway=bus_stop",
-        "terminus_class": "Bus_stops",
+        "ontology_class": "Bus_stops",
         "citta": "Torino"
       },
       {
@@ -39,7 +39,7 @@
         "lat": 45.0625554,
         "lon": 7.6789821,
         "osm_tags": "highway=bus_stop",
-        "terminus_class": "Bus_stops",
+        "ontology_class": "Bus_stops",
         "citta": "Torino"
       },
       {
@@ -48,7 +48,7 @@
         "lat": 45.0630157,
         "lon": 7.679093,
         "osm_tags": "railway=subway_entrance",
-        "terminus_class": "Railway_station",
+        "ontology_class": "Railway_station",
         "citta": "Torino"
       },
       {
@@ -57,7 +57,7 @@
         "lat": 45.0629787,
         "lon": 7.6791944,
         "osm_tags": "railway=subway_entrance",
-        "terminus_class": "Railway_station",
+        "ontology_class": "Railway_station",
         "citta": "Torino"
       },
       {
@@ -66,7 +66,7 @@
         "lat": 45.0631972,
         "lon": 7.6784932,
         "osm_tags": "amenity=pharmacy",
-        "terminus_class": "Pharmacy",
+        "ontology_class": "Pharmacy",
         "citta": "Torino"
       },
       {
@@ -75,7 +75,7 @@
         "lat": 45.0621026,
         "lon": 7.6788808,
         "osm_tags": "shop=jewelry",
-        "terminus_class": "Jewellery",
+        "ontology_class": "Jewellery",
         "citta": "Torino"
       },
       {
@@ -84,7 +84,7 @@
         "lat": 45.0633415,
         "lon": 7.6793839,
         "osm_tags": "historic=monument",
-        "terminus_class": "Historical_monument",
+        "ontology_class": "Historical_monument",
         "citta": "Torino"
       },
       {
@@ -93,7 +93,7 @@
         "lat": 45.0636894,
         "lon": 7.6792501,
         "osm_tags": "historic=memorial",
-        "terminus_class": "Historical_monument",
+        "ontology_class": "Historical_monument",
         "citta": "Torino"
       },
       {
@@ -102,7 +102,7 @@
         "lat": 45.0637232,
         "lon": 7.6789695,
         "osm_tags": "shop=jewelry",
-        "terminus_class": "Jewellery",
+        "ontology_class": "Jewellery",
         "citta": "Torino"
       },
       {
@@ -111,7 +111,7 @@
         "lat": 45.0617238,
         "lon": 7.6789525,
         "osm_tags": "historic=memorial",
-        "terminus_class": "Historical_monument",
+        "ontology_class": "Historical_monument",
         "citta": "Torino"
       },
       {
@@ -120,7 +120,7 @@
         "lat": 45.0628991,
         "lon": 7.6773612,
         "osm_tags": "amenity=post_office",
-        "terminus_class": "Post_office",
+        "ontology_class": "Post_office",
         "citta": "Torino"
       },
       {
@@ -129,7 +129,7 @@
         "lat": 45.0628802,
         "lon": 7.6773183,
         "osm_tags": "amenity=atm",
-        "terminus_class": "Bank",
+        "ontology_class": "Bank",
         "citta": "Torino"
       },
       {
@@ -138,7 +138,7 @@
         "lat": 45.0619481,
         "lon": 7.6775952,
         "osm_tags": "shop=supermarket",
-        "terminus_class": "Shopping_center",
+        "ontology_class": "Shopping_center",
         "citta": "Torino"
       },
       {
@@ -147,7 +147,7 @@
         "lat": 45.0625208,
         "lon": 7.6770144,
         "osm_tags": "amenity=pharmacy",
-        "terminus_class": "Pharmacy",
+        "ontology_class": "Pharmacy",
         "citta": "Torino"
       },
       {
@@ -156,7 +156,7 @@
         "lat": 45.0641351,
         "lon": 7.6782607,
         "osm_tags": "amenity=bank",
-        "terminus_class": "Bank",
+        "ontology_class": "Bank",
         "citta": "Torino"
       },
       {
@@ -165,7 +165,7 @@
         "lat": 45.0642593,
         "lon": 7.6784046,
         "osm_tags": "amenity=pharmacy",
-        "terminus_class": "Pharmacy",
+        "ontology_class": "Pharmacy",
         "citta": "Torino"
       },
       {
@@ -174,7 +174,7 @@
         "lat": 45.0622406,
         "lon": 7.6810667,
         "osm_tags": "shop=supermarket",
-        "terminus_class": "Shopping_center",
+        "ontology_class": "Shopping_center",
         "citta": "Torino"
       },
       {
@@ -183,7 +183,7 @@
         "lat": 45.0613503,
         "lon": 7.6777646,
         "osm_tags": "shop=jewelry",
-        "terminus_class": "Jewellery",
+        "ontology_class": "Jewellery",
         "citta": "Torino"
       },
       {
@@ -192,7 +192,7 @@
         "lat": 45.0611013,
         "lon": 7.6785259,
         "osm_tags": "amenity=bureau_de_change",
-        "terminus_class": "Bank",
+        "ontology_class": "Bank",
         "citta": "Torino"
       }
     ],

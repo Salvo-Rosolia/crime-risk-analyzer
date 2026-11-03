@@ -52,20 +52,20 @@ from tests.eval._doubles import poi_lines
 from tests.istat._factories import BANKROB, istat_poi
 
 
-def _poi(poi_id: str, name: str, terminus_class: str) -> dict[str, object]:
+def _poi(poi_id: str, name: str, ontology_class: str) -> dict[str, object]:
     return {
         "id": poi_id,
         "name": name,
         "lat": 41.89,
         "lon": 12.49,
         "osm_tags": "amenity=bank",
-        "terminus_class": terminus_class,
+        "ontology_class": ontology_class,
         "citta": "Roma",
     }
 
 
 def _vr(
-    poi: str, terminus_class: str, hazards: list[str], *, poi_id: str
+    poi: str, ontology_class: str, hazards: list[str], *, poi_id: str
 ) -> dict[str, object]:
     """Synthetic validated risk. ``poi_id`` is MANDATORY and keyword-only: with a
     default, a fixture could pair a POI with id ``"1"`` to risks with an empty id
@@ -75,14 +75,14 @@ def _vr(
             "hazard": h,
             "tag": "ONTOLOGIA",
             "confidence": "verificato",
-            "source": f"{terminus_class} → havingHazard → {h}",
+            "source": f"{ontology_class} → havingHazard → {h}",
         }
         for h in hazards
     ]
     return {
         "poi": poi,
         "poi_id": poi_id,
-        "terminus_class": terminus_class,
+        "ontology_class": ontology_class,
         "risks": risks,
         # The three non-hazard axes besides the hazards (#256/#270): empty by
         # default, the tests that check them populate them explicitly.
@@ -124,7 +124,7 @@ def _patch_io(monkeypatch: pytest.MonkeyPatch, pois: list[Poi] | None = None) ->
                 "lat": 41.89,
                 "lon": 12.49,
                 "osm_tags": "amenity=bank",
-                "terminus_class": "Bank",
+                "ontology_class": "Bank",
                 "citta": "Roma",
             }
         ]
@@ -162,20 +162,20 @@ async def _poi_source(bbox: Bbox, citta: str) -> list[Poi]:
             "lat": 41.8902,
             "lon": 12.4922,
             "osm_tags": "historic=monument",
-            "terminus_class": "Historical_monument",
+            "ontology_class": "Historical_monument",
             "citta": citta,
         }
     ]
 
 
 _BANK_PROFILE = PoiRiskProfile(
-    terminus_class="Bank",
+    ontology_class="Bank",
     hazards=["Bank_robbery"],
     sparql_paths=["Bank → havingHazard → Bank_robbery"],
 )
 
 _SCHOOL_PROFILE = PoiRiskProfile(
-    terminus_class="School",
+    ontology_class="School",
     hazards=["Vandalism"],
     sparql_paths=["School → havingHazard → Vandalism"],
 )
@@ -596,7 +596,7 @@ async def test_run_analysis_anonymous_poi_da_confermare_end_to_end(
             "lat": 41.89,
             "lon": 12.49,
             "osm_tags": "amenity=bank",
-            "terminus_class": "Bank",
+            "ontology_class": "Bank",
             "citta": "Roma",
         }
     ]
@@ -630,7 +630,7 @@ async def test_risk_models_distinguish_two_anonymous_pois_of_different_class(
             "lat": 41.89,
             "lon": 12.49,
             "osm_tags": "amenity=bank",
-            "terminus_class": "Bank",
+            "ontology_class": "Bank",
             "citta": "Roma",
         },
         {
@@ -639,7 +639,7 @@ async def test_risk_models_distinguish_two_anonymous_pois_of_different_class(
             "lat": 41.90,
             "lon": 12.50,
             "osm_tags": "amenity=school",
-            "terminus_class": "School",
+            "ontology_class": "School",
             "citta": "Roma",
         },
     ]
@@ -752,7 +752,7 @@ async def test_run_analysis_accepts_poi_source(monkeypatch: pytest.MonkeyPatch) 
                 "lat": 41.89,
                 "lon": 12.49,
                 "osm_tags": "amenity=bank",
-                "terminus_class": "Bank",
+                "ontology_class": "Bank",
                 "citta": "Roma",
             }
         ]
@@ -867,7 +867,7 @@ def _ctx_with_two_pois() -> RetrievalContext:
         "lat": 41.900,
         "lon": 12.500,
         "osm_tags": "amenity=bank",
-        "terminus_class": "Bank",
+        "ontology_class": "Bank",
         "citta": "Roma",
     }
     far: Poi = {
@@ -876,7 +876,7 @@ def _ctx_with_two_pois() -> RetrievalContext:
         "lat": 42.100,
         "lon": 12.700,
         "osm_tags": "amenity=bank",
-        "terminus_class": "Bank",
+        "ontology_class": "Bank",
         "citta": "Roma",
     }
     return RetrievalContext(
@@ -884,7 +884,7 @@ def _ctx_with_two_pois() -> RetrievalContext:
         zona="Trastevere",
         geo={"lat": 41.900, "lon": 12.500, "bbox": Bbox(41.8, 12.4, 42.0, 12.6)},
         pois=[near, far],
-        profiles={"Bank": PoiRiskProfile(terminus_class="Bank")},
+        profiles={"Bank": PoiRiskProfile(ontology_class="Bank")},
         stats=RetrievalStats(n_pois=2, n_classes=1),
     )
 
@@ -918,7 +918,7 @@ def _two_pois() -> list[Poi]:
             "lat": 41.89,
             "lon": 12.49,
             "osm_tags": "amenity=bank",
-            "terminus_class": "Bank",
+            "ontology_class": "Bank",
             "citta": "Roma",
         },
         {
@@ -927,7 +927,7 @@ def _two_pois() -> list[Poi]:
             "lat": 41.90,
             "lon": 12.50,
             "osm_tags": "amenity=bar",
-            "terminus_class": "GenericUrbanPOI",
+            "ontology_class": "GenericUrbanPOI",
             "citta": "Roma",
         },
     ]
@@ -944,7 +944,7 @@ async def test_run_baseline_filters_by_tipo_poi(
         tipo_poi="Bank",
     )
     # only the POIs of TERMINUS class "Bank": the GenericUrbanPOI is excluded
-    assert [p.terminus_class for p in resp.poi] == ["Bank"]
+    assert [p.ontology_class for p in resp.poi] == ["Bank"]
     assert [p.name for p in resp.poi] == ["Banca A"]
     assert [m.poi for m in resp.risk_models] == ["Banca A"]
 
@@ -959,7 +959,7 @@ async def test_run_baseline_no_filter_when_none(
         executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
     )
     # default (None): no filter, all POIs pass (behaviour unchanged)
-    assert [p.terminus_class for p in resp.poi] == ["Bank", "GenericUrbanPOI"]
+    assert [p.ontology_class for p in resp.poi] == ["Bank", "GenericUrbanPOI"]
 
 
 async def test_run_baseline_blank_tipo_poi_is_no_filter(
@@ -973,7 +973,7 @@ async def test_run_baseline_blank_tipo_poi_is_no_filter(
         tipo_poi="   ",
     )
     # empty/whitespace tipo_poi = no filter (not an empty set of POIs)
-    assert [p.terminus_class for p in resp.poi] == ["Bank", "GenericUrbanPOI"]
+    assert [p.ontology_class for p in resp.poi] == ["Bank", "GenericUrbanPOI"]
 
 
 async def test_run_baseline_tipo_poi_no_match_yields_empty(
@@ -1002,7 +1002,7 @@ def _pois_for_radius() -> list[Poi]:
             "lat": 41.89,
             "lon": 12.49,
             "osm_tags": "amenity=bank",
-            "terminus_class": "Bank",
+            "ontology_class": "Bank",
             "citta": "Roma",
         },
         {
@@ -1011,7 +1011,7 @@ def _pois_for_radius() -> list[Poi]:
             "lat": 41.90,
             "lon": 12.50,
             "osm_tags": "amenity=bar",
-            "terminus_class": "GenericUrbanPOI",
+            "ontology_class": "GenericUrbanPOI",
             "citta": "Roma",
         },
         {
@@ -1020,7 +1020,7 @@ def _pois_for_radius() -> list[Poi]:
             "lat": 42.10,
             "lon": 12.70,
             "osm_tags": "amenity=bank",
-            "terminus_class": "Bank",
+            "ontology_class": "Bank",
             "citta": "Roma",
         },
     ]
@@ -1117,7 +1117,7 @@ def _banks_and_schools(n: int) -> list[Poi]:
                 "lat": 41.89,
                 "lon": 12.49,
                 "osm_tags": "amenity=x",
-                "terminus_class": class_name,
+                "ontology_class": class_name,
                 "citta": "Roma",
             }
         )
@@ -1125,7 +1125,7 @@ def _banks_and_schools(n: int) -> list[Poi]:
 
 
 _SCHOOL_PROFILE_RICH = PoiRiskProfile(
-    terminus_class="School",
+    ontology_class="School",
     hazards=["Vandalism", "School_theft", "Damage_in_the_school"],
     sparql_paths=[
         "School → havingHazard → Vandalism",
@@ -1374,9 +1374,9 @@ async def test_run_analysis_exposes_the_istat_fields_and_hides_the_raw() -> None
     from tests.eval._doubles import FakeLLMClient
 
     class _FakeProfilerRome:
-        def profile(self, terminus_class: str) -> PoiRiskProfile:
+        def profile(self, ontology_class: str) -> PoiRiskProfile:
             return PoiRiskProfile(
-                terminus_class="Bank",
+                ontology_class="Bank",
                 hazards=["Bank_robbery", "Property_theft"],
                 sparql_paths=["Bank → havingHazard → Bank_robbery"],
             )
@@ -1389,7 +1389,7 @@ async def test_run_analysis_exposes_the_istat_fields_and_hides_the_raw() -> None
                 "lat": 41.8902,
                 "lon": 12.4922,
                 "osm_tags": "amenity=bank",
-                "terminus_class": "Bank",
+                "ontology_class": "Bank",
                 "citta": citta,
             }
         ]
@@ -1688,13 +1688,13 @@ def test_poi_out_has_no_numeric_danger_scoring_field() -> None:
     assert set(PoiOut.model_fields) == {
         "id",
         "name",
-        "terminus_class",
+        "ontology_class",
         "lat",
         "lon",
         "confidence",
         "sparql_path",
-        "terminus_label_it",
-        "terminus_label_en",
+        "ontology_label_it",
+        "ontology_label_en",
         # #256/#270: the TERMINUS axes besides the hazards. They are QUALITATIVE
         # LISTS of anchored entities, no count and no gradation: they do not open
         # the scoring vector this test defends.
@@ -1762,7 +1762,7 @@ def test_poi_out_ontology_axes_reject_numeric_value() -> None:
             PoiOut(
                 id="1",
                 name="Banca A",
-                terminus_class="Bank",
+                ontology_class="Bank",
                 lat=41.9,
                 lon=12.5,
                 **{axis: 3},  # pyright: ignore[reportArgumentType]
@@ -1794,7 +1794,7 @@ def test_poi_out_confidence_rejects_numeric_value() -> None:
         PoiOut(
             id="1",
             name="Banca A",
-            terminus_class="Bank",
+            ontology_class="Bank",
             lat=41.89,
             lon=12.49,
             confidence=0.5,  # pyright: ignore[reportArgumentType]

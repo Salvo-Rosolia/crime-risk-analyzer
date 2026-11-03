@@ -62,7 +62,7 @@ def _zone_ctx(
             {
                 "poi_id": "node/1",
                 "poi": "Banca A",
-                "terminus_class": class_name,
+                "ontology_class": class_name,
                 "risks": [
                     {
                         "hazard": hazard,

@@ -87,8 +87,8 @@ export function ontologyDisplayLabel(item: Pick<OntologyItem, 'name' | 'label_it
 }
 
 /** Controlled IT label of the POI class (#77) with fallback to the raw class identifier. */
-export function poiDisplayLabel(poi: Pick<Poi, 'terminus_class' | 'terminus_label_it'>): string {
-  return poi.terminus_label_it || poi.terminus_class;
+export function poiDisplayLabel(poi: Pick<Poi, 'ontology_class' | 'ontology_label_it'>): string {
+  return poi.ontology_label_it || poi.ontology_class;
 }
 
 /**
@@ -101,7 +101,7 @@ export function poiDisplayLabel(poi: Pick<Poi, 'terminus_class' | 'terminus_labe
  * so here it aligns the UI with a POI that the backend marks da_confermare.
  */
 export function poiNameDisplayLabel(
-  poi: Pick<Poi, 'name' | 'terminus_class' | 'terminus_label_it'>,
+  poi: Pick<Poi, 'name' | 'ontology_class' | 'ontology_label_it'>,
 ): string {
   const name = poi.name?.trim();
   return name || `${poiDisplayLabel(poi)} (senza nome su OSM)`;
@@ -109,7 +109,7 @@ export function poiNameDisplayLabel(
 
 export interface DetailModel {
   poi: Poi;
-  /** Preferred IT label of the POI (fallback to terminus_class if missing). */
+  /** Preferred IT label of the POI (fallback to ontology_class if missing). */
   poiLabel: string;
   sparqlParts: string[];
   groups: Record<string, RiskItem[]>;
@@ -592,7 +592,7 @@ export function buildBaseRows(
         poiId: p.id,
         poiName: p.name,
         hazardLabel: hazardDisplayLabel(risk),
-        category: `tc:${p.terminus_class}`,
+        category: `tc:${p.ontology_class}`,
       });
     }
   }
@@ -671,7 +671,7 @@ export function buildSourceTabs(sources: SourceProse | null | undefined): Narrat
  * `forEach` of the following markers.
  */
 export function poiPopupHTML(
-  poi: Pick<Poi, 'name' | 'confidence' | 'terminus_class' | 'terminus_label_it'>,
+  poi: Pick<Poi, 'name' | 'confidence' | 'ontology_class' | 'ontology_label_it'>,
   n: number,
 ): string {
   const confLine = poi.confidence

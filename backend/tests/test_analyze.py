@@ -26,17 +26,17 @@ from crime_risk_analyzer.rag.retrieval import RetrievalContext
 from crime_risk_analyzer.sources.context import current_executor
 
 _BANK = PoiRiskProfile(
-    terminus_class="Bank",
+    ontology_class="Bank",
     hazards=["Bank_robbery"],
     sparql_paths=["Bank → havingHazard → Bank_robbery"],
 )
 
 
 class _FakeProfiler:
-    def profile(self, terminus_class: str) -> PoiRiskProfile:
+    def profile(self, ontology_class: str) -> PoiRiskProfile:
         profiles = {"Bank": _BANK}
         return profiles.get(
-            terminus_class, PoiRiskProfile(terminus_class=terminus_class)
+            ontology_class, PoiRiskProfile(ontology_class=ontology_class)
         )
 
 
@@ -82,7 +82,7 @@ def _pois(citta: str) -> list[Poi]:
             "lat": 41.89,
             "lon": 12.49,
             "osm_tags": "amenity=bank",
-            "terminus_class": "Bank",
+            "ontology_class": "Bank",
             "citta": citta,
         },
         {
@@ -91,7 +91,7 @@ def _pois(citta: str) -> list[Poi]:
             "lat": 41.90,
             "lon": 12.50,
             "osm_tags": "amenity=bar",
-            "terminus_class": "GenericUrbanPOI",
+            "ontology_class": "GenericUrbanPOI",
             "citta": citta,
         },
     ]
@@ -321,7 +321,7 @@ def _pois_by_radius(citta: str) -> list[Poi]:
             "lat": 41.89,
             "lon": 12.49,
             "osm_tags": "amenity=bank",
-            "terminus_class": "Bank",
+            "ontology_class": "Bank",
             "citta": citta,
         },
         {
@@ -330,7 +330,7 @@ def _pois_by_radius(citta: str) -> list[Poi]:
             "lat": 41.90,
             "lon": 12.50,
             "osm_tags": "amenity=bar",
-            "terminus_class": "GenericUrbanPOI",
+            "ontology_class": "GenericUrbanPOI",
             "citta": citta,
         },
     ]
@@ -585,7 +585,7 @@ async def test_baseline_fingerprint_computed_after_the_tipo_poi_filter() -> None
         geo_source=_geo,
         tipo_poi="Bank",
     )
-    filtered_pois = [p for p in _pois("Roma") if p["terminus_class"] == "Bank"]
+    filtered_pois = [p for p in _pois("Roma") if p["ontology_class"] == "Bank"]
     assert [p.name for p in resp.poi] == [p["name"] for p in filtered_pois]
     assert resp.contesto_hash == fingerprint(filtered_pois)
     assert resp.contesto_hash != fingerprint(_pois("Roma"))

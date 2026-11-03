@@ -5,13 +5,13 @@
     {
       "id": "1",
       "name": "Colosseo",
-      "terminus_class": "ArchaeologicalSite",
+      "ontology_class": "ArchaeologicalSite",
       "lat": 41.8902,
       "lon": 12.4922,
       "confidence": "verificato",
       "sparql_path": "ArchaeologicalSite → hasAnthropicHazard → borseggioTuristi",
-      "terminus_label_it": "Sito archeologico",
-      "terminus_label_en": "Archaeological site",
+      "ontology_label_it": "Sito archeologico",
+      "ontology_label_en": "Archaeological site",
       "critical_events": [
         {
           "name": "danneggiamentoPatrimonio",
@@ -40,57 +40,57 @@
     {
       "id": "2",
       "name": "Piazza Venezia",
-      "terminus_class": "Square",
+      "ontology_class": "Square",
       "lat": 41.8955,
       "lon": 12.4823,
       "confidence": "da_confermare",
       "sparql_path": "Square → hasEnvironmentalHazard → scarsaIlluminazione",
-      "terminus_label_it": "Piazza",
-      "terminus_label_en": "Square"
+      "ontology_label_it": "Piazza",
+      "ontology_label_en": "Square"
     },
     {
       "id": "3",
       "name": "Vicolo Oscuro",
-      "terminus_class": "Alley",
+      "ontology_class": "Alley",
       "lat": 41.8933,
       "lon": 12.4834,
       "confidence": null,
       "sparql_path": null,
-      "terminus_label_it": "Vicolo",
-      "terminus_label_en": "Alley"
+      "ontology_label_it": "Vicolo",
+      "ontology_label_en": "Alley"
     },
     {
       "id": "4",
       "name": "Fontana di Trevi",
-      "terminus_class": "Fountain",
+      "ontology_class": "Fountain",
       "lat": 41.9009,
       "lon": 12.4833,
       "confidence": "verificato",
       "sparql_path": "Fountain → hasAnthropicHazard → furtoConDestrezza",
-      "terminus_label_it": "Fontana monumentale",
-      "terminus_label_en": "Monumental fountain"
+      "ontology_label_it": "Fontana monumentale",
+      "ontology_label_en": "Monumental fountain"
     },
     {
       "id": "5",
       "name": "Sottopasso Buio",
-      "terminus_class": "Underpass",
+      "ontology_class": "Underpass",
       "lat": 41.8912,
       "lon": 12.4945,
       "confidence": null,
       "sparql_path": null,
-      "terminus_label_it": "Sottopasso",
-      "terminus_label_en": "Underpass"
+      "ontology_label_it": "Sottopasso",
+      "ontology_label_en": "Underpass"
     },
     {
       "id": "6",
       "name": "Vicolo Cieco",
-      "terminus_class": "Alley",
+      "ontology_class": "Alley",
       "lat": 41.8927,
       "lon": 12.4838,
       "confidence": null,
       "sparql_path": null,
-      "terminus_label_it": "Vicolo",
-      "terminus_label_en": "Alley"
+      "ontology_label_it": "Vicolo",
+      "ontology_label_en": "Alley"
     }
   ],
   "risk_models": [

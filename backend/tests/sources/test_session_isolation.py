@@ -25,7 +25,7 @@ def _ctx(marker: str) -> ZoneContext:
 def _pois() -> list[Poi]:
     poi = cast(
         Poi,
-        {"id": "node/1", "name": "A", "terminus_class": "Bank", "lat": 1.0, "lon": 2.0},
+        {"id": "node/1", "name": "A", "ontology_class": "Bank", "lat": 1.0, "lon": 2.0},
     )
     return [poi]
 

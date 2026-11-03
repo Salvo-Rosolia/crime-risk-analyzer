@@ -10,13 +10,13 @@ const dataWithRows: AnalyzeResponse = {
     {
       id: '1',
       name: 'Colosseo',
-      terminus_class: 'Archaeological_site',
+      ontology_class: 'Archaeological_site',
       lat: 0,
       lon: 0,
       confidence: 'verificato',
       sparql_path: null,
-      terminus_label_it: 'Sito archeologico',
-      terminus_label_en: 'Archaeological site',
+      ontology_label_it: 'Sito archeologico',
+      ontology_label_en: 'Archaeological site',
     },
   ],
   risk_models: [
@@ -55,8 +55,8 @@ const dataWithRows: AnalyzeResponse = {
 };
 
 const poiTypesFixture = [
-  { terminus_class: 'Bank', label_it: 'Banca' },
-  { terminus_class: 'Railway_station', label_it: 'Stazione ferroviaria' },
+  { ontology_class: 'Bank', label_it: 'Banca' },
+  { ontology_class: 'Railway_station', label_it: 'Stazione ferroviaria' },
 ];
 
 describe('BasePanelComponent', () => {
@@ -165,7 +165,7 @@ describe('BasePanelComponent', () => {
       expect(select.value).toBe('Bank');
     });
 
-    it('selecting an option emits poiTypeChange towards the shell with the canonical terminus_class (not the Italian label)', () => {
+    it('selecting an option emits poiTypeChange towards the shell with the canonical ontology_class (not the Italian label)', () => {
       const spy = jest.fn();
       fixture.componentInstance.poiTypeChange.subscribe(spy);
       selectPoiType('Railway_station');

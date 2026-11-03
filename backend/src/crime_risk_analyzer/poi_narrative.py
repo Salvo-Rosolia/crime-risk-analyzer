@@ -250,7 +250,7 @@ async def run_poi_narrative(
             citta=citta,
             zona=zona,
             poi_name=poi["name"],
-            poi_label_it=label_it(poi["terminus_class"]),
+            poi_label_it=label_it(poi["ontology_class"]),
             risks=vr["risks"],
             # Only the name goes to the prompt: the citation that #256 adds is for
             # the UI. So the text of the per-POI prompt stays identical.

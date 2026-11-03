@@ -108,7 +108,7 @@ def _poi(poi_id: str = "node/1", istat: IstatPoi | None = None) -> dict[str, Any
     poi: dict[str, Any] = {
         "poi_id": poi_id,
         "poi": f"Banca {poi_id}",
-        "terminus_class": "Bank",
+        "ontology_class": "Bank",
         "risks": [
             {
                 "hazard": "Bank_robbery",

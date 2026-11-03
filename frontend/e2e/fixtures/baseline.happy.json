@@ -5,24 +5,24 @@
     {
       "id": "b1",
       "name": "Duomo di Milano",
-      "terminus_class": "ReligiousSite",
+      "ontology_class": "ReligiousSite",
       "lat": 45.4642,
       "lon": 9.19,
       "confidence": "verificato",
       "sparql_path": null,
-      "terminus_label_it": "Sito religioso",
-      "terminus_label_en": "Religious site"
+      "ontology_label_it": "Sito religioso",
+      "ontology_label_en": "Religious site"
     },
     {
       "id": "b2",
       "name": "Galleria Vittorio Emanuele II",
-      "terminus_class": "ShoppingArcade",
+      "ontology_class": "ShoppingArcade",
       "lat": 45.4656,
       "lon": 9.19,
       "confidence": "verificato",
       "sparql_path": null,
-      "terminus_label_it": "Galleria commerciale",
-      "terminus_label_en": "Shopping arcade"
+      "ontology_label_it": "Galleria commerciale",
+      "ontology_label_en": "Shopping arcade"
     }
   ],
   "risk_models": [

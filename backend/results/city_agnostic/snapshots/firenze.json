@@ -21,7 +21,7 @@
         "lat": 43.7732288,
         "lon": 11.2498723,
         "osm_tags": "amenity=atm",
-        "terminus_class": "Bank",
+        "ontology_class": "Bank",
         "citta": "Firenze"
       },
       {
@@ -30,7 +30,7 @@
         "lat": 43.7735998,
         "lon": 11.2505097,
         "osm_tags": "amenity=pharmacy",
-        "terminus_class": "Pharmacy",
+        "ontology_class": "Pharmacy",
         "citta": "Firenze"
       },
       {
@@ -39,7 +39,7 @@
         "lat": 43.7729523,
         "lon": 11.2503202,
         "osm_tags": "shop=jewelry",
-        "terminus_class": "Jewellery",
+        "ontology_class": "Jewellery",
         "citta": "Firenze"
       },
       {
@@ -48,7 +48,7 @@
         "lat": 43.7729995,
         "lon": 11.2508214,
         "osm_tags": "tourism=gallery",
-        "terminus_class": "Museum",
+        "ontology_class": "Museum",
         "citta": "Firenze"
       },
       {
@@ -57,7 +57,7 @@
         "lat": 43.773899,
         "lon": 11.24954,
         "osm_tags": "historic=memorial",
-        "terminus_class": "Historical_monument",
+        "ontology_class": "Historical_monument",
         "citta": "Firenze"
       },
       {
@@ -66,7 +66,7 @@
         "lat": 43.7730369,
         "lon": 11.248841,
         "osm_tags": "tourism=museum",
-        "terminus_class": "Museum",
+        "ontology_class": "Museum",
         "citta": "Firenze"
       },
       {
@@ -75,7 +75,7 @@
         "lat": 43.7734129,
         "lon": 11.2487203,
         "osm_tags": "shop=supermarket",
-        "terminus_class": "Shopping_center",
+        "ontology_class": "Shopping_center",
         "citta": "Firenze"
       },
       {
@@ -84,7 +84,7 @@
         "lat": 43.7743625,
         "lon": 11.2503153,
         "osm_tags": "amenity=pharmacy",
-        "terminus_class": "Pharmacy",
+        "ontology_class": "Pharmacy",
         "citta": "Firenze"
       },
       {
@@ -93,7 +93,7 @@
         "lat": 43.7744172,
         "lon": 11.2503937,
         "osm_tags": "amenity=bureau_de_change",
-        "terminus_class": "Bank",
+        "ontology_class": "Bank",
         "citta": "Firenze"
       },
       {
@@ -102,7 +102,7 @@
         "lat": 43.773424,
         "lon": 11.2485024,
         "osm_tags": "highway=bus_stop",
-        "terminus_class": "Bus_stops",
+        "ontology_class": "Bus_stops",
         "citta": "Firenze"
       },
       {
@@ -111,7 +111,7 @@
         "lat": 43.7745182,
         "lon": 11.2502697,
         "osm_tags": "amenity=pharmacy",
-        "terminus_class": "Pharmacy",
+        "ontology_class": "Pharmacy",
         "citta": "Firenze"
       },
       {
@@ -120,7 +120,7 @@
         "lat": 43.773885,
         "lon": 11.2515312,
         "osm_tags": "amenity=atm",
-        "terminus_class": "Bank",
+        "ontology_class": "Bank",
         "citta": "Firenze"
       },
       {
@@ -129,7 +129,7 @@
         "lat": 43.7743112,
         "lon": 11.2490545,
         "osm_tags": "tourism=museum",
-        "terminus_class": "Museum",
+        "ontology_class": "Museum",
         "citta": "Firenze"
       },
       {
@@ -138,7 +138,7 @@
         "lat": 43.7723127,
         "lon": 11.2509217,
         "osm_tags": "amenity=library",
-        "terminus_class": "Public_building",
+        "ontology_class": "Public_building",
         "citta": "Firenze"
       },
       {
@@ -147,7 +147,7 @@
         "lat": 43.7735708,
         "lon": 11.2482355,
         "osm_tags": "amenity=place_of_worship",
-        "terminus_class": "Place_of_worship",
+        "ontology_class": "Place_of_worship",
         "citta": "Firenze"
       },
       {
@@ -156,7 +156,7 @@
         "lat": 43.7746763,
         "lon": 11.24942,
         "osm_tags": "amenity=place_of_worship",
-        "terminus_class": "Place_of_worship",
+        "ontology_class": "Place_of_worship",
         "citta": "Firenze"
       },
       {
@@ -165,7 +165,7 @@
         "lat": 43.7722229,
         "lon": 11.251509,
         "osm_tags": "shop=jewelry",
-        "terminus_class": "Jewellery",
+        "ontology_class": "Jewellery",
         "citta": "Firenze"
       },
       {
@@ -174,7 +174,7 @@
         "lat": 43.7720562,
         "lon": 11.2512337,
         "osm_tags": "shop=jewelry",
-        "terminus_class": "Jewellery",
+        "ontology_class": "Jewellery",
         "citta": "Firenze"
       },
       {
@@ -183,7 +183,7 @@
         "lat": 43.7748902,
         "lon": 11.2504209,
         "osm_tags": "historic=memorial",
-        "terminus_class": "Historical_monument",
+        "ontology_class": "Historical_monument",
         "citta": "Firenze"
       },
       {
@@ -192,7 +192,7 @@
         "lat": 43.7724149,
         "lon": 11.2517914,
         "osm_tags": "amenity=place_of_worship",
-        "terminus_class": "Place_of_worship",
+        "ontology_class": "Place_of_worship",
         "citta": "Firenze"
       }
     ],

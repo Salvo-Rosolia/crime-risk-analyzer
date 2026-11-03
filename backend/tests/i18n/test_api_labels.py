@@ -42,14 +42,14 @@ def test_risk_item_keeps_explicit_labels() -> None:
     assert item.hazard_label_it == "Custom"
 
 
-def test_poi_out_autofills_terminus_labels() -> None:
+def test_poi_out_autofills_ontology_labels() -> None:
     poi = PoiOut(
         id="1",
         name="Banca X",
-        terminus_class="Bank",
+        ontology_class="Bank",
         lat=1.0,
         lon=2.0,
         confidence="verificato",
     )
-    assert poi.terminus_label_it == "Banca"
-    assert poi.terminus_label_en == "Bank"
+    assert poi.ontology_label_it == "Banca"
+    assert poi.ontology_label_en == "Bank"

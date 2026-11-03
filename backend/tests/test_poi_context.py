@@ -23,14 +23,14 @@ def test_haversine_matches_known_distance() -> None:
     assert d == pytest.approx(700.0, rel=0.15)
 
 
-def _poi(poi_id: str, name: str, terminus_class: str, lat: float, lon: float) -> Poi:
+def _poi(poi_id: str, name: str, ontology_class: str, lat: float, lon: float) -> Poi:
     return Poi(
         id=poi_id,
         name=name,
         lat=lat,
         lon=lon,
         osm_tags="",
-        terminus_class=terminus_class,
+        ontology_class=ontology_class,
         citta="Roma",
     )
 

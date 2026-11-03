@@ -2,7 +2,7 @@
 
 Queries Overpass in the bounding box of a city for a list of OSM keys and
 returns the POIs in the RETRIEVAL contract: each POI exposes ``id``, ``name``,
-``lat``, ``lon``, ``osm_tags``, ``terminus_class`` and ``citta``. The
+``lat``, ``lon``, ``osm_tags``, ``ontology_class`` and ``citta``. The
 ``confidence`` and ``sparql_path`` fields are NOT added here: they are produced
 by the downstream grounding/SPARQL layer.
 
@@ -223,7 +223,7 @@ class Poi(TypedDict):
     lat: float
     lon: float
     osm_tags: str
-    terminus_class: str
+    ontology_class: str
     citta: str
 
 
@@ -409,7 +409,7 @@ def _to_poi(element: Mapping[str, object], citta: str) -> Poi | None:
         lat=lat,
         lon=lon,
         osm_tags=osm_tag,
-        terminus_class=current_osm().map(osm_tag),
+        ontology_class=current_osm().map(osm_tag),
         citta=citta,
     )
 
@@ -598,11 +598,11 @@ def select_pois(
     for poi in ordered:
         if len(chosen) >= max_pois:
             break
-        terminus_class_name = poi["terminus_class"]
-        if per_class.get(terminus_class_name, 0) >= per_class_cap:
+        ontology_class_name = poi["ontology_class"]
+        if per_class.get(ontology_class_name, 0) >= per_class_cap:
             discarded.append(poi)
             continue
-        per_class[terminus_class_name] = per_class.get(terminus_class_name, 0) + 1
+        per_class[ontology_class_name] = per_class.get(ontology_class_name, 0) + 1
         chosen.append(poi)
     if len(chosen) < max_pois:
         chosen.extend(discarded[: max_pois - len(chosen)])
@@ -775,7 +775,7 @@ async def fetch_pois(
     """Fetches the POIs inside ``bbox`` for the OSM selectors ``osm_selectors``.
 
     Default: the whole OSM binding of the active set (``None``). Enriches each POI
-    with ``terminus_class`` (#13). Retries if an attempt times out **or**
+    with ``ontology_class`` (#13). Retries if an attempt times out **or**
     answers with a retryable status (:data:`_RETRYABLE_STATUS`, 429/5xx),
     according to ``retry``; once the policy is exhausted, :class:`OverpassError`. A
     200 response carrying an interruption remark is retried like a

@@ -6,13 +6,13 @@ function makePoi(overrides: Partial<Poi> = {}): Poi {
   return {
     id: '1',
     name: 'Colosseo',
-    terminus_class: 'Archaeological_site',
+    ontology_class: 'Archaeological_site',
     lat: 41.89,
     lon: 12.49,
     confidence: 'verificato',
     sparql_path: null,
-    terminus_label_it: 'Sito archeologico',
-    terminus_label_en: 'Archaeological site',
+    ontology_label_it: 'Sito archeologico',
+    ontology_label_en: 'Archaeological site',
     ...overrides,
   };
 }

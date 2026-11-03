@@ -30,20 +30,20 @@ from crime_risk_analyzer.rag.retrieval import RetrievalStats as _Stats
 from crime_risk_analyzer.sources.model import SourceSet
 
 
-def _poi(poi_id: str, name: str, terminus_class: str) -> Poi:
+def _poi(poi_id: str, name: str, ontology_class: str) -> Poi:
     return Poi(
         id=poi_id,
         name=name,
         lat=41.9,
         lon=12.5,
         osm_tags="amenity=bank",
-        terminus_class=terminus_class,
+        ontology_class=ontology_class,
         citta="Roma",
     )
 
 
 def _profile(
-    terminus_class: str,
+    ontology_class: str,
     *,
     hazards: list[str] | None = None,
     critical_events: list[str] | None = None,
@@ -55,7 +55,7 @@ def _profile(
     ``model_copy(update=)``, which would bypass the Pydantic validation of the
     model."""
     return PoiRiskProfile(
-        terminus_class=terminus_class,
+        ontology_class=ontology_class,
         hazards=hazards or [],
         critical_events=critical_events or [],
         vulnerabilities=vulnerabilities or [],
@@ -109,7 +109,7 @@ def test_ground_happy_path_multi_class() -> None:
     # the point.
     assert vr0["poi_id"] == "1"
     assert out["validated_risks"][1]["poi_id"] == "2"
-    assert vr0["terminus_class"] == "Bank"
+    assert vr0["ontology_class"] == "Bank"
     assert vr0["risks"] == [
         {
             "hazard": "Robbery",
@@ -399,11 +399,11 @@ def _istat_context(lat: float, lon: float, hazards: list[str]) -> _Ctx:
         lat=lat,
         lon=lon,
         osm_tags="amenity=bank",
-        terminus_class="Bank",
+        ontology_class="Bank",
         citta="Roma",
     )
     ontology_profile = _Profile(
-        terminus_class="Bank",
+        ontology_class="Bank",
         hazards=hazards,
         sparql_paths=[f"Bank → havingHazard → {h}" for h in hazards],
     )
@@ -491,7 +491,7 @@ def test_ground_uses_the_active_ontology_properties_in_the_fallback() -> None:
 
 def test_ground_recognizes_the_paths_with_the_active_ontology_properties() -> None:
     """A real path inherited from a superclass with a custom property is taken from the
-    ``sparql_paths`` and not synthesized from ``terminus_class``."""
+    ``sparql_paths`` and not synthesized from ``ontology_class``."""
     from crime_risk_analyzer.sources.context import bind
 
     custom = _custom_ontology_set()

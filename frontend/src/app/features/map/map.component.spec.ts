@@ -56,13 +56,13 @@ function makePoi(overrides: Partial<Poi> = {}): Poi {
   return {
     id: '0',
     name: 'P0',
-    terminus_class: 'Bank',
+    ontology_class: 'Bank',
     lat: 41.9,
     lon: 12.5,
     confidence: 'verificato',
     sparql_path: null,
-    terminus_label_it: 'Banca',
-    terminus_label_en: 'Bank',
+    ontology_label_it: 'Banca',
+    ontology_label_en: 'Bank',
     ...overrides,
   };
 }
@@ -246,7 +246,7 @@ describe('MapComponent', () => {
       fixture.componentRef.setInput(
         'data',
         makeResp([
-          makePoi({ name: 'Stazione Termini', terminus_label_it: 'Stazione ferroviaria' }),
+          makePoi({ name: 'Stazione Termini', ontology_label_it: 'Stazione ferroviaria' }),
         ]),
       );
       fixture.detectChanges();

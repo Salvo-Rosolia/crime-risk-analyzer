@@ -30,8 +30,8 @@ class PoiRiskProfile(BaseModel):
         default=None,
         description="Nome leggibile del POI OSM (es. 'Banca Intesa Sanpaolo').",
     )
-    terminus_class: str = Field(
-        description="Classe TERMINUS bare interrogata (es. 'Bank')."
+    ontology_class: str = Field(
+        description="Classe dell'ontologia attiva, bare interrogata (es. 'Bank')."
     )
     hazards: list[str] = Field(
         default_factory=list,

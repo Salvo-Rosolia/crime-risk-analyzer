@@ -49,7 +49,7 @@ _SET_VULN_IT = "Zona poco sorvegliata"
 _SET_NEIGHBOUR_IT = "Plesso scolastico"
 
 _BANK = PoiRiskProfile(
-    terminus_class=_CLASS,
+    ontology_class=_CLASS,
     hazards=[_HAZARD],
     vulnerabilities=[_VULN],
     sparql_paths=[f"{_CLASS} → havingHazard → {_HAZARD}"],
@@ -57,11 +57,11 @@ _BANK = PoiRiskProfile(
 
 
 class _FakeProfiler:
-    def profile(self, terminus_class: str) -> PoiRiskProfile:
+    def profile(self, ontology_class: str) -> PoiRiskProfile:
         return (
             _BANK
-            if terminus_class == _CLASS
-            else PoiRiskProfile(terminus_class=terminus_class)
+            if ontology_class == _CLASS
+            else PoiRiskProfile(ontology_class=ontology_class)
         )
 
 
@@ -96,7 +96,7 @@ def _pois(city: str) -> list[Poi]:
             "lat": 41.8900,
             "lon": 12.4920,
             "osm_tags": "amenity=bank",
-            "terminus_class": _CLASS,
+            "ontology_class": _CLASS,
             "citta": city,
         },
         {
@@ -105,7 +105,7 @@ def _pois(city: str) -> list[Poi]:
             "lat": 41.8905,
             "lon": 12.4925,
             "osm_tags": "amenity=school",
-            "terminus_class": _NEIGHBOUR_CLASS,
+            "ontology_class": _NEIGHBOUR_CLASS,
             "citta": city,
         },
     ]

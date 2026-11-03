@@ -40,7 +40,7 @@ class PoiType(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    terminus_class: str
+    ontology_class: str
     label_it: str
 
 
@@ -72,11 +72,11 @@ def _catalog() -> tuple[PoiType, ...]:
     deterministic and independent of the process locale.
     """
     entries = [
-        PoiType(terminus_class=cls, label_it=label_it(cls))
+        PoiType(ontology_class=cls, label_it=label_it(cls))
         for cls in set(current_osm().osm_to_class.values())
     ]
     return tuple(
-        sorted(entries, key=lambda t: (t.label_it.casefold(), t.terminus_class))
+        sorted(entries, key=lambda t: (t.label_it.casefold(), t.ontology_class))
     )
 
 
@@ -125,10 +125,10 @@ def alias_table(
     table: dict[str, str] = {}
     conflicts: list[AliasConflict] = []
     for t in types:
-        for alias in (t.terminus_class, t.label_it):
-            other = table.setdefault(_key(alias), t.terminus_class)
-            if other != t.terminus_class:
-                conflicts.append(AliasConflict(alias, other, t.terminus_class))
+        for alias in (t.ontology_class, t.label_it):
+            other = table.setdefault(_key(alias), t.ontology_class)
+            if other != t.ontology_class:
+                conflicts.append(AliasConflict(alias, other, t.ontology_class))
     return table, conflicts
 
 

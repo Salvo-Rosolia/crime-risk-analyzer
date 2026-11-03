@@ -21,7 +21,7 @@
         "lat": 41.8902602,
         "lon": 12.4923737,
         "osm_tags": "historic=archaeological_site",
-        "terminus_class": "Archaeological_site",
+        "ontology_class": "Archaeological_site",
         "citta": "Roma"
       },
       {
@@ -30,7 +30,7 @@
         "lat": 41.8910614,
         "lon": 12.4921912,
         "osm_tags": "highway=bus_stop",
-        "terminus_class": "Bus_stops",
+        "ontology_class": "Bus_stops",
         "citta": "Roma"
       },
       {
@@ -39,7 +39,7 @@
         "lat": 41.8908689,
         "lon": 12.4909922,
         "osm_tags": "historic=ruins",
-        "terminus_class": "Historical_monument",
+        "ontology_class": "Historical_monument",
         "citta": "Roma"
       },
       {
@@ -48,7 +48,7 @@
         "lat": 41.8912735,
         "lon": 12.4914758,
         "osm_tags": "highway=bus_stop",
-        "terminus_class": "Bus_stops",
+        "ontology_class": "Bus_stops",
         "citta": "Roma"
       },
       {
@@ -57,7 +57,7 @@
         "lat": 41.8900747,
         "lon": 12.4906771,
         "osm_tags": "tourism=attraction",
-        "terminus_class": "Historical_monument",
+        "ontology_class": "Historical_monument",
         "citta": "Roma"
       },
       {
@@ -66,7 +66,7 @@
         "lat": 41.8913606,
         "lon": 12.4915439,
         "osm_tags": "railway=subway_entrance",
-        "terminus_class": "Railway_station",
+        "ontology_class": "Railway_station",
         "citta": "Roma"
       },
       {
@@ -75,7 +75,7 @@
         "lat": 41.8912684,
         "lon": 12.4913087,
         "osm_tags": "railway=station",
-        "terminus_class": "Railway_station",
+        "ontology_class": "Railway_station",
         "citta": "Roma"
       },
       {
@@ -84,7 +84,7 @@
         "lat": 41.8897623,
         "lon": 12.4906668,
         "osm_tags": "historic=monument",
-        "terminus_class": "Historical_monument",
+        "ontology_class": "Historical_monument",
         "citta": "Roma"
       },
       {
@@ -93,7 +93,7 @@
         "lat": 41.8892718,
         "lon": 12.4939673,
         "osm_tags": "amenity=bureau_de_change",
-        "terminus_class": "Bank",
+        "ontology_class": "Bank",
         "citta": "Roma"
       },
       {
@@ -102,7 +102,7 @@
         "lat": 41.8917191,
         "lon": 12.4920286,
         "osm_tags": "historic=archaeological_site",
-        "terminus_class": "Archaeological_site",
+        "ontology_class": "Archaeological_site",
         "citta": "Roma"
       },
       {
@@ -111,7 +111,7 @@
         "lat": 41.8916255,
         "lon": 12.4914461,
         "osm_tags": "railway=subway_entrance",
-        "terminus_class": "Railway_station",
+        "ontology_class": "Railway_station",
         "citta": "Roma"
       },
       {
@@ -120,7 +120,7 @@
         "lat": 41.8893717,
         "lon": 12.4944117,
         "osm_tags": "shop=tobacco",
-        "terminus_class": "Tobacco_store",
+        "ontology_class": "Tobacco_store",
         "citta": "Roma"
       },
       {
@@ -129,7 +129,7 @@
         "lat": 41.8897072,
         "lon": 12.49017,
         "osm_tags": "landuse=forest",
-        "terminus_class": "Wooded_area",
+        "ontology_class": "Wooded_area",
         "citta": "Roma"
       },
       {
@@ -138,7 +138,7 @@
         "lat": 41.8892443,
         "lon": 12.4902258,
         "osm_tags": "landuse=forest",
-        "terminus_class": "Wooded_area",
+        "ontology_class": "Wooded_area",
         "citta": "Roma"
       },
       {
@@ -147,7 +147,7 @@
         "lat": 41.8901133,
         "lon": 12.494955,
         "osm_tags": "historic=archaeological_site",
-        "terminus_class": "Archaeological_site",
+        "ontology_class": "Archaeological_site",
         "citta": "Roma"
       },
       {
@@ -156,7 +156,7 @@
         "lat": 41.8886464,
         "lon": 12.4939608,
         "osm_tags": "highway=bus_stop",
-        "terminus_class": "Bus_stops",
+        "ontology_class": "Bus_stops",
         "citta": "Roma"
       },
       {
@@ -165,7 +165,7 @@
         "lat": 41.8899554,
         "lon": 12.4897362,
         "osm_tags": "landuse=forest",
-        "terminus_class": "Wooded_area",
+        "ontology_class": "Wooded_area",
         "citta": "Roma"
       },
       {
@@ -174,7 +174,7 @@
         "lat": 41.8921704,
         "lon": 12.4911284,
         "osm_tags": "amenity=school",
-        "terminus_class": "School",
+        "ontology_class": "School",
         "citta": "Roma"
       },
       {
@@ -183,7 +183,7 @@
         "lat": 41.8892151,
         "lon": 12.4951407,
         "osm_tags": "amenity=pharmacy",
-        "terminus_class": "Pharmacy",
+        "ontology_class": "Pharmacy",
         "citta": "Roma"
       },
       {
@@ -192,7 +192,7 @@
         "lat": 41.8898049,
         "lon": 12.4954479,
         "osm_tags": "amenity=atm",
-        "terminus_class": "Bank",
+        "ontology_class": "Bank",
         "citta": "Roma"
       }
     ],

@@ -14,7 +14,7 @@ from crime_risk_analyzer.poi_narrative import PoiNarrativeRequest
 def _poi(
     poi_id: str = "node/1",
     name: str = "Banca A",
-    terminus_class: str = "Bank",
+    ontology_class: str = "Bank",
     lat: float = 41.8900,
     lon: float = 12.4920,
 ) -> Poi:
@@ -24,7 +24,7 @@ def _poi(
         "lat": lat,
         "lon": lon,
         "osm_tags": "amenity=bank",
-        "terminus_class": terminus_class,
+        "ontology_class": ontology_class,
         "citta": "Roma",
     }
 
@@ -57,7 +57,7 @@ def test_different_name_changes_the_digest() -> None:
 
 def test_different_class_changes_the_digest() -> None:
     """The TERMINUS class drives the zone composition and the IT labels."""
-    assert fingerprint([_poi()]) != fingerprint([_poi(terminus_class="School")])
+    assert fingerprint([_poi()]) != fingerprint([_poi(ontology_class="School")])
 
 
 def test_different_coordinate_changes_the_digest() -> None:

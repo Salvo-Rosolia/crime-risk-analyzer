@@ -28,7 +28,7 @@ underscore e apostrofi tipografici equivalenti (`bank`, `Banca`,
 filtro, un tipo non riconosciuto dà 422
 (`{"errore": "tipo_poi_non_riconosciuto", "messaggio": ...}`) invece di una lista
 vuota. `GET /poi-types` restituisce l'elenco dei tipi accettati
-(`[{"terminus_class": "Bank", "label_it": "Banca"}, ...]`): le classi che il
+(`[{"ontology_class": "Bank", "label_it": "Banca"}, ...]`): le classi che il
 mapping OSM→TERMINUS può produrre, ordinate per etichetta italiana. È sempre l'elenco
 del set di default: la rotta non dipende dalla sessione delle fonti (niente
 `X-Session-Id`, mai 410 `fonti_scadute`). `GET /geocode`

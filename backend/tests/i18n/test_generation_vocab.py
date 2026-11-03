@@ -28,7 +28,7 @@ def _context() -> dict[str, Any]:
         "validated_risks": [
             {
                 "poi": "Banca X",
-                "terminus_class": "Bank",
+                "ontology_class": "Bank",
                 "risks": [
                     {
                         "hazard": "Bank_robbery",

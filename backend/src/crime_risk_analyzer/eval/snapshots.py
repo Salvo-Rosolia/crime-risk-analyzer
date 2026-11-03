@@ -207,19 +207,37 @@ def load_snapshot(path: Path) -> list[Poi]:
     by :func:`save_snapshot`, and the bare list of the files captured before #241 --
     the 4 snapshots committed with #231, which must stay replayable.
 
-    Raises :class:`ValueError` on any other form: a valid JSON snapshot
+    Raises :class:`ValueError` on any other form, or if a POI lacks
+    ``ontology_class`` (snapshot older than the rename): a valid JSON snapshot
     that is not recognisable must not be silently replayed as an empty list. The
     caller (``_snapshot_reusable``, #148) treats it as a snapshot to
     re-capture.
     """
     data: object = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(data, list):
-        return cast(list[Poi], data)
+        return _checked_pois(cast(list[object], data), path)
     if isinstance(data, dict):
         pois = cast(dict[str, object], data).get("poi")
         if isinstance(pois, list):
-            return cast(list[Poi], pois)
+            return _checked_pois(cast(list[object], pois), path)
     raise ValueError(f"snapshot in un formato non riconosciuto: {path}")
+
+
+def _checked_pois(pois: list[object], path: Path) -> list[Poi]:
+    """Cast the POIs, refusing those without ``ontology_class``.
+
+    A snapshot captured before the ``terminus_class`` -> ``ontology_class``
+    rename would otherwise fail later with an opaque ``KeyError`` in the
+    harness. No alias on the old name: the operator re-captures.
+    """
+    for poi in pois:
+        if not isinstance(poi, dict) or "ontology_class" not in poi:
+            raise ValueError(
+                f"snapshot con POI privi di 'ontology_class' (catturata prima "
+                f"della rinomina da 'terminus_class'?): {path}. "
+                "Ricatturarla con --force."
+            )
+    return cast(list[Poi], pois)
 
 
 def snapshot_provenance(path: Path) -> SnapshotProvenance | None:

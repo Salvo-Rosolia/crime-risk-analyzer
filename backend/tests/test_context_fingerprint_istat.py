@@ -34,14 +34,14 @@ _POI_ID = "node/1"
 
 
 class _Profiler:
-    def profile(self, terminus_class: str) -> PoiRiskProfile:
-        if terminus_class == "Bank":
+    def profile(self, ontology_class: str) -> PoiRiskProfile:
+        if ontology_class == "Bank":
             return PoiRiskProfile(
-                terminus_class="Bank",
+                ontology_class="Bank",
                 hazards=["Bank_robbery"],
                 sparql_paths=["Bank → havingHazard → Bank_robbery"],
             )
-        return PoiRiskProfile(terminus_class=terminus_class)
+        return PoiRiskProfile(ontology_class=ontology_class)
 
 
 class _LLM:
@@ -66,7 +66,7 @@ def _pois(citta: str) -> list[Poi]:
             "lat": 41.8900,
             "lon": 12.4920,
             "osm_tags": "amenity=bank",
-            "terminus_class": "Bank",
+            "ontology_class": "Bank",
             "citta": citta,
         },
         {
@@ -75,7 +75,7 @@ def _pois(citta: str) -> list[Poi]:
             "lat": 41.8901,
             "lon": 12.4921,
             "osm_tags": "amenity=school",
-            "terminus_class": "School",
+            "ontology_class": "School",
             "citta": citta,
         },
     ]

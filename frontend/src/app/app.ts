@@ -104,7 +104,7 @@ export class App {
   protected readonly city = signal('');
   protected readonly zone = signal('');
   /**
-   * `terminus_class` selected in the "Tipo POI" select of the base-system panel (#143), same
+   * `ontology_class` selected in the "Tipo POI" select of the base-system panel (#143), same
    * state shared in the shell as `city`/`zone`: `BasePanelComponent` is remounted at every
    * Full↔Base round trip (`@switch (store.screen())`, `app.html`), so a local copy in the panel
    * would silently lose the selection. It does not enter `area` (unlike `city`/`zone`): it is an

@@ -19,16 +19,16 @@ from crime_risk_analyzer.rag import retrieval
 from crime_risk_analyzer.sources.context import current_executor
 
 _BANK = PoiRiskProfile(
-    terminus_class="Bank",
+    ontology_class="Bank",
     hazards=["Bank_robbery"],
     sparql_paths=["Bank → havingHazard → Bank_robbery"],
 )
 
 
 class _FakeProfiler:
-    def profile(self, terminus_class: str) -> PoiRiskProfile:
+    def profile(self, ontology_class: str) -> PoiRiskProfile:
         return {"Bank": _BANK}.get(
-            terminus_class, PoiRiskProfile(terminus_class=terminus_class)
+            ontology_class, PoiRiskProfile(ontology_class=ontology_class)
         )
 
 
@@ -40,7 +40,7 @@ def _pois(citta: str) -> list[Poi]:
             "lat": 41.89,
             "lon": 12.49,
             "osm_tags": "amenity=bank",
-            "terminus_class": "Bank",
+            "ontology_class": "Bank",
             "citta": citta,
         },
         {
@@ -49,7 +49,7 @@ def _pois(citta: str) -> list[Poi]:
             "lat": 41.90,
             "lon": 12.50,
             "osm_tags": "amenity=bar",
-            "terminus_class": "GenericUrbanPOI",
+            "ontology_class": "GenericUrbanPOI",
             "citta": citta,
         },
     ]
@@ -166,7 +166,7 @@ def _pois_by_radius(citta: str) -> list[Poi]:
             "lat": 41.89,
             "lon": 12.49,
             "osm_tags": "amenity=bank",
-            "terminus_class": "Bank",
+            "ontology_class": "Bank",
             "citta": citta,
         },
         {
@@ -175,7 +175,7 @@ def _pois_by_radius(citta: str) -> list[Poi]:
             "lat": 41.90,
             "lon": 12.50,
             "osm_tags": "amenity=bar",
-            "terminus_class": "GenericUrbanPOI",
+            "ontology_class": "GenericUrbanPOI",
             "citta": citta,
         },
     ]
@@ -329,11 +329,11 @@ def test_baseline_filters_by_tipo_poi(monkeypatch: pytest.MonkeyPatch) -> None:
     assert filtered.status_code == 200
     # tipo_poi is now WIRED server-side (#119): without a filter both classes, with
     # tipo_poi=Bank only the POIs of TERMINUS class "Bank" (no GenericUrbanPOI).
-    assert [p["terminus_class"] for p in base.json()["poi"]] == [
+    assert [p["ontology_class"] for p in base.json()["poi"]] == [
         "Bank",
         "GenericUrbanPOI",
     ]
-    assert [p["terminus_class"] for p in filtered.json()["poi"]] == ["Bank"]
+    assert [p["ontology_class"] for p in filtered.json()["poi"]] == ["Bank"]
     assert [p["name"] for p in filtered.json()["poi"]] == ["Banca A"]
     assert [m["poi"] for m in filtered.json()["risk_models"]] == ["Banca A"]
 
@@ -360,7 +360,7 @@ def test_baseline_tipo_poi_is_normalized_to_canonical_class(
         ),
     )
     assert resp.status_code == 200
-    assert [p["terminus_class"] for p in resp.json()["poi"]] == ["Bank"]
+    assert [p["ontology_class"] for p in resp.json()["poi"]] == ["Bank"]
 
 
 @pytest.mark.parametrize("tipo_poi", ["", "   "])
@@ -380,7 +380,7 @@ def test_baseline_blank_tipo_poi_is_no_filter(
         ),
     )
     assert resp.status_code == 200
-    assert [p["terminus_class"] for p in resp.json()["poi"]] == [
+    assert [p["ontology_class"] for p in resp.json()["poi"]] == [
         "Bank",
         "GenericUrbanPOI",
     ]

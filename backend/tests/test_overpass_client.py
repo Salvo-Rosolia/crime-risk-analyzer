@@ -54,7 +54,7 @@ def _no_retry_pause(monkeypatch: pytest.MonkeyPatch) -> None:  # pyright: ignore
     )
 
 
-def _poi_at(poi_id: str, lat: float, lon: float, terminus_class: str = "Bank") -> Poi:
+def _poi_at(poi_id: str, lat: float, lon: float, ontology_class: str = "Bank") -> Poi:
     """Synthetic POI placed by hand (for the selection tests, #254)."""
     return Poi(
         id=poi_id,
@@ -62,7 +62,7 @@ def _poi_at(poi_id: str, lat: float, lon: float, terminus_class: str = "Bank") -
         lat=lat,
         lon=lon,
         osm_tags="amenity=bank",
-        terminus_class=terminus_class,
+        ontology_class=ontology_class,
         citta="Roma",
     )
 
@@ -104,7 +104,7 @@ def test_select_pois_caps_a_dense_class_while_other_classes_are_present() -> Non
         banks + others, (lat, lon), max_pois=5, per_class_cap=3
     )
 
-    per_class = Counter(p["terminus_class"] for p in selected)
+    per_class = Counter(p["ontology_class"] for p in selected)
     assert per_class == Counter({"Bank": 3, "School": 1, "Museum": 1})
 
 
@@ -277,12 +277,12 @@ async def test_fetch_pois_keeps_the_nearest_even_if_emitted_last() -> None:
 
     assert len(pois) == MAX_POIS
     assert pois[0]["id"] == "node/9999"
-    assert "Museum" in {p["terminus_class"] for p in pois}
+    assert "Museum" in {p["ontology_class"] for p in pois}
 
 
 @respx.mock
 async def test_fetch_pois_maps_contract_fields() -> None:
-    """POI in the retrieval contract: id/name/lat/lon/osm_tags/terminus_class/citta."""
+    """POI in the retrieval contract: id/name/lat/lon/osm_tags/ontology_class/citta."""
     respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(200, json=_sample())
     )
@@ -296,7 +296,7 @@ async def test_fetch_pois_maps_contract_fields() -> None:
         "lat": pytest.approx(41.8902),
         "lon": pytest.approx(12.4922),
         "osm_tags": "amenity=bank",
-        "terminus_class": "Bank",
+        "ontology_class": "Bank",
         "citta": "Roma",
     }
 
@@ -343,12 +343,12 @@ async def test_fetch_pois_discards_the_cut_and_behaves_as_before() -> None:
     pois = await fetch_pois(_BBOX, "Roma")
 
     assert isinstance(pois, list)
-    assert pois and "terminus_class" in pois[0]
+    assert pois and "ontology_class" in pois[0]
 
 
 @respx.mock
-async def test_fetch_pois_enriches_terminus_class() -> None:
-    """terminus_class derives from map_to_terminus; unknown tag -> GenericUrbanPOI."""
+async def test_fetch_pois_enriches_ontology_class() -> None:
+    """ontology_class derives from map_to_terminus; unknown tag -> GenericUrbanPOI."""
     respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(200, json=_sample())
     )
@@ -356,9 +356,9 @@ async def test_fetch_pois_enriches_terminus_class() -> None:
     pois = await fetch_pois(_BBOX, "Roma")
     by_id = {p["id"]: p for p in pois}
 
-    assert by_id["node/1002"]["terminus_class"] == "Museum"
-    assert by_id["node/1003"]["terminus_class"] == "GenericUrbanPOI"
-    assert by_id["way/2001"]["terminus_class"] == "Railway_station"
+    assert by_id["node/1002"]["ontology_class"] == "Museum"
+    assert by_id["node/1003"]["ontology_class"] == "GenericUrbanPOI"
+    assert by_id["way/2001"]["ontology_class"] == "Railway_station"
 
 
 @respx.mock
@@ -864,7 +864,7 @@ async def test_relation_becomes_poi_with_typed_id_and_coordinates_from_center() 
             "lat": pytest.approx(45.4641844),
             "lon": pytest.approx(9.1916105),
             "osm_tags": "amenity=place_of_worship",
-            "terminus_class": "Place_of_worship",
+            "ontology_class": "Place_of_worship",
             "citta": "Milano",
         }
     ]
@@ -1173,7 +1173,7 @@ def test_discarded_duplicate_frees_the_class_slot() -> None:
 
     assert len(chosen) == MAX_POIS
     archaeological = [
-        p["id"] for p in chosen if p["terminus_class"] == "Archaeological_site"
+        p["id"] for p in chosen if p["ontology_class"] == "Archaeological_site"
     ]
     assert archaeological == ["relation/1835450", "node/9000", "node/9001"]
 
@@ -1372,7 +1372,7 @@ async def test_fetch_pois_tag_priority_amenity_over_shop() -> None:
     pois = await fetch_pois(_BBOX, "Roma")
 
     assert pois[0]["osm_tags"] == "amenity=bank"
-    assert pois[0]["terminus_class"] == "Bank"
+    assert pois[0]["ontology_class"] == "Bank"
 
 
 @respx.mock
@@ -1398,7 +1398,7 @@ async def test_fetch_pois_picks_first_mapped_selector_not_first_present() -> Non
     # amenity=bar is present and of higher priority but is NOT in the dict -> skipped;
     # building=warehouse is mapped -> wins.
     assert pois[0]["osm_tags"] == "building=warehouse"
-    assert pois[0]["terminus_class"] == "Warehouse"
+    assert pois[0]["ontology_class"] == "Warehouse"
 
 
 @respx.mock
@@ -1416,11 +1416,11 @@ async def test_colosseo_relation_resolves_archaeological_site() -> None:
 
     assert pois[0]["id"] == f"relation/{_COLOSSEO_ID}"
     assert pois[0]["osm_tags"] == "historic=archaeological_site"
-    assert pois[0]["terminus_class"] == "Archaeological_site"
+    assert pois[0]["ontology_class"] == "Archaeological_site"
 
 
 @pytest.mark.parametrize(
-    ("tags", "osm_tag", "terminus_class"),
+    ("tags", "osm_tag", "ontology_class"),
     [
         pytest.param(
             _COLOSSEO_TAGS,
@@ -1460,7 +1460,7 @@ async def test_colosseo_relation_resolves_archaeological_site() -> None:
     ],
 )
 def test_historic_wins_only_over_tourism_attraction(
-    tags: dict[str, str], osm_tag: str, terminus_class: str
+    tags: dict[str, str], osm_tag: str, ontology_class: str
 ) -> None:
     """``tourism=attraction`` is a generic tag: on an element that also carries a
     mapped ``historic=*`` the historic tag wins (#373). The other precedences do not
@@ -1469,7 +1469,7 @@ def test_historic_wins_only_over_tourism_attraction(
     selector = overpass_client._extract_osm_tag(tags)  # pyright: ignore[reportPrivateUsage]
 
     assert selector == osm_tag
-    assert map_to_terminus(selector) == terminus_class
+    assert map_to_terminus(selector) == ontology_class
 
 
 @respx.mock
@@ -1493,7 +1493,7 @@ async def test_fetch_pois_unknown_tag_yields_generic() -> None:
     pois = await fetch_pois(_BBOX, "Roma")
 
     assert pois[0]["osm_tags"] == ""
-    assert pois[0]["terminus_class"] == "GenericUrbanPOI"
+    assert pois[0]["ontology_class"] == "GenericUrbanPOI"
 
 
 @respx.mock

@@ -86,8 +86,10 @@ def _snapshot_reusable(path: Path) -> bool:
     Boundary of the check (deliberate):
     - Guaranteed invariant = **parse-safe for replay**: if the check passes, the
       replay's ``load_snapshot`` will not blow up in parse. It is NOT "shape-valid":
-      a valid JSON snapshot that is semantically wrong (e.g. POIs lacking the
-      expected keys) is NOT caught -- schema validation is out of scope.
+      a valid JSON snapshot that is semantically wrong is NOT caught -- schema
+      validation is out of scope. Single exception: POIs lacking
+      ``ontology_class`` (snapshot older than the rename) raise ``ValueError``
+      in ``load_snapshot`` and are re-captured.
       Since #241 the boundary shifts slightly: a valid JSON file whose shape
       ``load_snapshot`` does not recognise (neither bare list nor envelope) raises
       ``ValueError`` and is treated as not reusable, hence re-captured,

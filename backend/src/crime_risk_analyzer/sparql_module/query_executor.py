@@ -163,8 +163,8 @@ class RiskQueryExecutor:
                     "TERMINUS restriction discarded (non-URIRef term): %s", detail
                 )
 
-    def _fillers_by_property(self, terminus_class: str) -> dict[str, list[str]]:
-        """Fillers reachable from ``terminus_class``, grouped by property.
+    def _fillers_by_property(self, ontology_class: str) -> dict[str, list[str]]:
+        """Fillers reachable from ``ontology_class``, grouped by property.
 
         Closes ``rdfs:subClassOf*`` on the class (native rdflib traversal) and
         collects the restrictions of all the ancestors that declare any. The fillers
@@ -172,7 +172,7 @@ class RiskQueryExecutor:
         stable order on the blank nodes of the restrictions).
         """
         ancestors = self._graph.transitive_objects(
-            self._ns[terminus_class], RDFS.subClassOf
+            self._ns[ontology_class], RDFS.subClassOf
         )
         collected: dict[str, set[str]] = {}
         for ancestor in ancestors:
@@ -183,9 +183,9 @@ class RiskQueryExecutor:
         return {prop: sorted(fillers) for prop, fillers in collected.items()}
 
     def profile(
-        self, terminus_class: str, *, poi_name: str | None = None
+        self, ontology_class: str, *, poi_name: str | None = None
     ) -> PoiRiskProfile:
-        """Risk profile of the class ``terminus_class``.
+        """Risk profile of the class ``ontology_class``.
 
         An unmapped / non-existent / ``GenericUrbanPOI`` class simply produces
         empty lists: no exception, because it does not appear in the
@@ -193,15 +193,15 @@ class RiskQueryExecutor:
         ``sparql.md``).
 
         Args:
-            terminus_class: bare TERMINUS class name (e.g. ``"Bank"``), without
-                prefix.
+            ontology_class: bare class name of the active ontology (e.g.
+                ``"Bank"``), without prefix.
             poi_name: readable name of the OSM POI, reported as is.
 
         Returns:
             :class:`PoiRiskProfile` with hazard, critical event, vulnerabilities,
             stakeholders and the related ``sparql_path`` (one hop per filler).
         """
-        by_prop = self._fillers_by_property(terminus_class)
+        by_prop = self._fillers_by_property(ontology_class)
 
         voc = self._vocabulary
         hazards = by_prop.get(voc.hazard, [])
@@ -215,7 +215,7 @@ class RiskQueryExecutor:
         # Unicode arrow glyph "→" (U+2192) as per the canonical schema of sparql.md /
         # orchestrator.md / grounding.md: byte-consistent with the citation layer (#24).
         sparql_paths = [
-            f"{terminus_class} → {prop} → {filler}"
+            f"{ontology_class} → {prop} → {filler}"
             for prop in (
                 voc.hazard,
                 voc.critical_event,
@@ -227,7 +227,7 @@ class RiskQueryExecutor:
 
         return PoiRiskProfile(
             poi_name=poi_name,
-            terminus_class=terminus_class,
+            ontology_class=ontology_class,
             hazards=hazards,
             critical_events=critical_events,
             vulnerabilities=vulnerabilities,

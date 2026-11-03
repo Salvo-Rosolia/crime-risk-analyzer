@@ -895,7 +895,7 @@ def _dedup_by(
     return out
 
 
-def _class_block_lines(terminus: str, pois: list[dict[str, Any]]) -> list[str]:
+def _class_block_lines(ontology_class: str, pois: list[dict[str, Any]]) -> list[str]:
     """Lines of the block of a TERMINUS CLASS and of the points that belong to it.
 
     Hazards, vulnerabilities and citation are written ONCE: they depend on the
@@ -913,7 +913,7 @@ def _class_block_lines(terminus: str, pois: list[dict[str, Any]]) -> list[str]:
         conf = _poi_confidence(p)
         entries.append(f"{name} [{conf}]" if conf else name)
     lines = [
-        f"  Classe: {terminus} / {label_it(terminus)}",
+        f"  Classe: {ontology_class} / {label_it(ontology_class)}",
         f"  Punti ({len(pois)}): {'; '.join(entries)}",
     ]
 
@@ -959,7 +959,7 @@ def _group_by_class(pois: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]
     """
     grouped: dict[str, list[dict[str, Any]]] = {}
     for poi in pois:
-        grouped.setdefault(str(poi.get("terminus_class", "")), []).append(poi)
+        grouped.setdefault(str(poi.get("ontology_class", "")), []).append(poi)
     return grouped
 
 
@@ -984,20 +984,20 @@ def poi_line(poi: dict[str, Any]) -> str:
     ontological block (:func:`_poi_block_lines`), which the ablated arm
     does not emit.
     """
-    terminus = str(poi.get("terminus_class", ""))
-    return f"  POI: {_poi_display_name(poi)} ({terminus})"
+    ontology_class = str(poi.get("ontology_class", ""))
+    return f"  POI: {_poi_display_name(poi)} ({ontology_class})"
 
 
 def _poi_block_lines(poi: dict[str, Any]) -> list[str]:
     """Lines of the block of a single POI (hazard + vulnerabilities + path)."""
-    terminus = str(poi.get("terminus_class", ""))
+    ontology_class = str(poi.get("ontology_class", ""))
     lines: list[str] = [poi_line(poi)]
     # Line of the ONTOLOGICAL block (the ablated arm does not emit it): it gives the
     # class its Italian term, as the per-class format already does. Without it, the
     # [CONTESTO] block — which reasons precisely on the mix of classes — had no Italian
     # term to use and quoted the English identifier in quotation marks (#332).
-    if terminus:
-        lines.append(f"  Classe: {terminus} / {label_it(terminus)}")
+    if ontology_class:
+        lines.append(f"  Classe: {ontology_class} / {label_it(ontology_class)}")
 
     risks = poi.get("risks", [])
     if risks:
@@ -1047,7 +1047,7 @@ def _assemble_context(
     # inside an Italian text.
     exposed = [
         *(str(risk.get("hazard", "")) for poi in pois for risk in poi.get("risks", [])),
-        *(str(poi.get("terminus_class", "")) for poi in pois),
+        *(str(poi.get("ontology_class", "")) for poi in pois),
         *(
             str(v.get("name", ""))
             for poi in pois
@@ -1075,8 +1075,8 @@ def _assemble_context(
             "POI RILEVANTI (raggruppati per classe TERMINUS: hazard, "
             "vulnerabilita' e citazione dipendono dalla classe, non dal punto):"
         )
-        for terminus, group in _group_by_class(pois).items():
-            lines.extend(_class_block_lines(terminus, group))
+        for ontology_class, group in _group_by_class(pois).items():
+            lines.extend(_class_block_lines(ontology_class, group))
     else:
         lines.append("POI RILEVANTI:")
         for poi in pois:

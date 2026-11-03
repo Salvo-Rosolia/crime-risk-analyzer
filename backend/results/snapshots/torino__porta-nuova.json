@@ -5,7 +5,7 @@
     "lat": 45.0582422,
     "lon": 7.6838002,
     "osm_tags": "amenity=bank",
-    "terminus_class": "Bank",
+    "ontology_class": "Bank",
     "citta": "Torino"
   },
   {
@@ -14,7 +14,7 @@
     "lat": 45.05923,
     "lon": 7.6809975,
     "osm_tags": "amenity=bank",
-    "terminus_class": "Bank",
+    "ontology_class": "Bank",
     "citta": "Torino"
   },
   {
@@ -23,7 +23,7 @@
     "lat": 45.0674531,
     "lon": 7.6809185,
     "osm_tags": "amenity=bank",
-    "terminus_class": "Bank",
+    "ontology_class": "Bank",
     "citta": "Torino"
   },
   {
@@ -32,7 +32,7 @@
     "lat": 45.0598576,
     "lon": 7.6831263,
     "osm_tags": "amenity=atm",
-    "terminus_class": "Bank",
+    "ontology_class": "Bank",
     "citta": "Torino"
   },
   {
@@ -41,7 +41,7 @@
     "lat": 45.0628802,
     "lon": 7.6773183,
     "osm_tags": "amenity=atm",
-    "terminus_class": "Bank",
+    "ontology_class": "Bank",
     "citta": "Torino"
   },
   {
@@ -50,7 +50,7 @@
     "lat": 45.0595146,
     "lon": 7.6778534,
     "osm_tags": "amenity=atm",
-    "terminus_class": "Bank",
+    "ontology_class": "Bank",
     "citta": "Torino"
   },
   {
@@ -59,7 +59,7 @@
     "lat": 45.0664364,
     "lon": 7.6837303,
     "osm_tags": "amenity=bureau_de_change",
-    "terminus_class": "Bank",
+    "ontology_class": "Bank",
     "citta": "Torino"
   },
   {
@@ -68,7 +68,7 @@
     "lat": 45.0609797,
     "lon": 7.682993,
     "osm_tags": "amenity=bureau_de_change",
-    "terminus_class": "Bank",
+    "ontology_class": "Bank",
     "citta": "Torino"
   },
   {
@@ -77,7 +77,7 @@
     "lat": 45.0600922,
     "lon": 7.6752654,
     "osm_tags": "amenity=clinic",
-    "terminus_class": "Hospital",
+    "ontology_class": "Hospital",
     "citta": "Torino"
   },
   {
@@ -86,7 +86,7 @@
     "lat": 45.0625208,
     "lon": 7.6770144,
     "osm_tags": "amenity=pharmacy",
-    "terminus_class": "Pharmacy",
+    "ontology_class": "Pharmacy",
     "citta": "Torino"
   },
   {
@@ -95,7 +95,7 @@
     "lat": 45.0582612,
     "lon": 7.6831173,
     "osm_tags": "amenity=pharmacy",
-    "terminus_class": "Pharmacy",
+    "ontology_class": "Pharmacy",
     "citta": "Torino"
   },
   {
@@ -104,7 +104,7 @@
     "lat": 45.0585688,
     "lon": 7.6777588,
     "osm_tags": "amenity=pharmacy",
-    "terminus_class": "Pharmacy",
+    "ontology_class": "Pharmacy",
     "citta": "Torino"
   },
   {
@@ -113,7 +113,7 @@
     "lat": 45.0604273,
     "lon": 7.6783348,
     "osm_tags": "amenity=police",
-    "terminus_class": "National_police",
+    "ontology_class": "National_police",
     "citta": "Torino"
   },
   {
@@ -122,7 +122,7 @@
     "lat": 45.065608,
     "lon": 7.677361,
     "osm_tags": "amenity=school",
-    "terminus_class": "School",
+    "ontology_class": "School",
     "citta": "Torino"
   },
   {
@@ -131,7 +131,7 @@
     "lat": 45.0656268,
     "lon": 7.6772895,
     "osm_tags": "amenity=school",
-    "terminus_class": "School",
+    "ontology_class": "School",
     "citta": "Torino"
   },
   {
@@ -140,7 +140,7 @@
     "lat": 45.0647406,
     "lon": 7.6759854,
     "osm_tags": "amenity=school",
-    "terminus_class": "School",
+    "ontology_class": "School",
     "citta": "Torino"
   },
   {
@@ -149,7 +149,7 @@
     "lat": 45.0579021,
     "lon": 7.6818556,
     "osm_tags": "amenity=kindergarten",
-    "terminus_class": "Kindergarten",
+    "ontology_class": "Kindergarten",
     "citta": "Torino"
   },
   {
@@ -158,7 +158,7 @@
     "lat": 45.0656681,
     "lon": 7.6771768,
     "osm_tags": "amenity=kindergarten",
-    "terminus_class": "Kindergarten",
+    "ontology_class": "Kindergarten",
     "citta": "Torino"
   },
   {
@@ -167,7 +167,7 @@
     "lat": 45.0584312,
     "lon": 7.6784592,
     "osm_tags": "amenity=community_centre",
-    "terminus_class": "Public_building",
+    "ontology_class": "Public_building",
     "citta": "Torino"
   },
   {
@@ -176,7 +176,7 @@
     "lat": 45.0602703,
     "lon": 7.6821417,
     "osm_tags": "amenity=place_of_worship",
-    "terminus_class": "Place_of_worship",
+    "ontology_class": "Place_of_worship",
     "citta": "Torino"
   }
 ]
