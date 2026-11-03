@@ -1,6 +1,7 @@
 import {
   ChangeDetectionStrategy,
   Component,
+  DestroyRef,
   OnInit,
   computed,
   effect,
@@ -12,6 +13,7 @@ import {
 } from '@angular/core';
 import { ApiService } from '@core/api/api.service';
 import { AnalyzeResponse, BaselineParams, PoiType, SearchArea } from '@core/models/models';
+import { SourcesStore } from '@core/state/sources.store';
 import { buildBaseRows, validateInputPanel } from '@core/ui-helpers';
 
 /**
@@ -71,6 +73,10 @@ export class BasePanelComponent implements OnInit {
   readonly analyzeBaseline = output<BaselineParams>();
 
   private readonly api = inject(ApiService);
+  private readonly sources = inject(SourcesStore);
+  private readonly destroyRef = inject(DestroyRef);
+  /** Generation of the last `/poi-types` load: a response from a superseded one is dropped. */
+  private poiTypesLoad = 0;
 
   protected readonly cities = signal<string[]>([]);
   /** Options of the "Tipo POI" select (`GET /poi-types`, #143), already sorted by `label_it` by the
@@ -116,11 +122,19 @@ export class BasePanelComponent implements OnInit {
       const err = this.serverError();
       this.serverErrorArea.set(err ? untracked(() => this.area()) : null);
     });
+    // The "Tipo POI" list follows the active source set (#463): first run loads it, every set
+    // change (upload, example, reset, expiry) reloads it.
+    effect(() => {
+      const key = this.sources.setKey();
+      untracked(() => void this.loadPoiTypes(key));
+    });
+    // The panel is destroyed on every search and mode switch: bumping the generation drops the
+    // pending response instead of letting it emit on a destroyed output.
+    this.destroyRef.onDestroy(() => this.poiTypesLoad++);
   }
 
   ngOnInit(): void {
     void this.loadCities();
-    void this.loadPoiTypes();
   }
 
   protected onCityInput(event: Event): void {
@@ -171,12 +185,23 @@ export class BasePanelComponent implements OnInit {
   }
 
   /** Fails without blocking the search (#143): the Tipo POI filter is optional, an empty list
-   * leaves only "Tutti i tipi" in the select instead of showing an error. */
-  private async loadPoiTypes(): Promise<void> {
+   * leaves only "Tutti i tipi" in the select instead of showing an error. If the set changed
+   * and the selected type is gone (or the list could not be loaded), the selection is reset
+   * (an unknown class would give 422). */
+  private async loadPoiTypes(setKey: string): Promise<void> {
+    const mine = ++this.poiTypesLoad;
     try {
-      this.poiTypes.set(await this.api.poiTypes());
+      const types = await this.api.poiTypes(setKey);
+      if (mine !== this.poiTypesLoad) return;
+      this.poiTypes.set(types);
+      const selected = this.poiType();
+      if (selected && !types.some((t) => t.ontology_class === selected)) {
+        this.poiTypeChange.emit('');
+      }
     } catch {
+      if (mine !== this.poiTypesLoad) return;
       this.poiTypes.set([]);
+      if (this.poiType()) this.poiTypeChange.emit('');
     }
   }
 }

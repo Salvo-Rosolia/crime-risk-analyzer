@@ -208,6 +208,27 @@ async def activate_session(
         yield
 
 
+async def activate_session_readonly(
+    sessions: Sessions,
+    x_session_id: Annotated[str | None, Header(alias=SESSION_HEADER)] = None,
+) -> AsyncGenerator[None]:
+    """Like :func:`activate_session`, for routes that only read the active set.
+
+    It reads the session with ``peek``: it neither renews the TTL nor raises the
+    expiry warning, and an expired set is not an error (410) but the default.
+    """
+    entry = (
+        sessions.peek(x_session_id)
+        if x_session_id is not None and is_valid_session_id(x_session_id)
+        else None
+    )
+    if entry is None:
+        yield
+        return
+    with bind(entry.source_set):
+        yield
+
+
 class SetSummary(BaseModel):
     """What the active set contains (for the status screen)."""
 

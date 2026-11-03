@@ -114,14 +114,21 @@ async def cities(settings: Annotated[Settings, Depends(get_settings)]) -> list[s
     return settings.supported_cities
 
 
-@router.get("/poi-types")
+@router.get(
+    "/poi-types",
+    dependencies=[Depends(sources_routes.activate_session_readonly)],
+)
 async def list_poi_types() -> list[PoiType]:
     """Catalogue of the POI types accepted as ``tipo_poi`` (#143).
 
     The TERMINUS classes that the OSM mapping can produce, with the IT label of
-    the controlled vocabulary, sorted by label. It always serves the list of the
-    default set (cached), without ``_SESSION``: it neither reads nor validates the
-    sources session, so it never answers 410 ``fonti_scadute`` (#438). No network.
+    the controlled vocabulary, sorted by label. It serves the catalogue of the
+    session's active set (#463), the same one ``tipo_poi`` is validated against;
+    without a header, with a malformed one, without a set or with an expired set it
+    serves the default (cached) one. It never answers 410 ``fonti_scadute`` nor 422
+    (#438): the list must not break the panel. It reads the session with ``peek``,
+    so it neither renews the TTL nor raises the expiry warning, which stays for the
+    analysis routes. No network.
     """
     return list(poi_types())
 

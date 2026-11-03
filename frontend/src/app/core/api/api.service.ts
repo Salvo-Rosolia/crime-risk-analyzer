@@ -33,8 +33,8 @@ export class ApiService {
    * INPUT→ERROR remount remounts one of the two at every change — without memoization, each
    * remount would repeat the same GET for a list that does not change within a session. */
   private citiesPromise: Promise<string[]> | null = null;
-  /** Same memoization as `citiesPromise`, for `poiTypes()` (#143). */
-  private poiTypesPromise: Promise<PoiType[]> | null = null;
+  /** Same memoization as `citiesPromise`, for `poiTypes()` (#143), valid for one source-set key (#463). */
+  private poiTypesMemo: { key: string; promise: Promise<PoiType[]> } | null = null;
 
   /**
    * List of cities suggested for the search panels' datalist (`GET /cities`): a SINGLE HTTP call
@@ -54,17 +54,24 @@ export class ApiService {
 
   /**
    * POI types selectable in the optional filter of the base-system panel (`GET /poi-types`, #143):
-   * already sorted by `label_it` by the backend. Same memoization as `cities()` (a single HTTP
-   * call per session, cleared on error so a later remount can retry).
+   * already sorted by `label_it` by the backend, which answers with the classes of the session's
+   * active source set (#463). Memoized like `cities()` (cleared on error so a later call can
+   * retry), but only for the given `setKey` (required: omitting it would never invalidate the
+   * memo, #463): a different key means the set changed and refetches.
    */
-  poiTypes(): Promise<PoiType[]> {
-    if (!this.poiTypesPromise) {
-      this.poiTypesPromise = firstValueFrom(this.http.get<PoiType[]>('/poi-types')).catch((err) => {
-        this.poiTypesPromise = null;
-        throw err;
-      });
+  poiTypes(setKey: string): Promise<PoiType[]> {
+    if (this.poiTypesMemo?.key !== setKey) {
+      const memo = {
+        key: setKey,
+        promise: firstValueFrom(this.http.get<PoiType[]>('/poi-types')).catch((err) => {
+          // A superseded request failing must not wipe the memo of the newer set.
+          if (this.poiTypesMemo === memo) this.poiTypesMemo = null;
+          throw err;
+        }),
+      };
+      this.poiTypesMemo = memo;
     }
-    return this.poiTypesPromise;
+    return this.poiTypesMemo.promise;
   }
 
   /**

@@ -124,7 +124,7 @@ describe('ApiService', () => {
     expect(await promise).toEqual(['Roma', 'Milano']);
   });
 
-  it('cities: a single HTTP call per session, even when invoking the method several times (review finding: InputPanel + BasePanel both call it)', async () => {
+  it('cities: a single HTTP call per set key, even when invoking the method several times (review finding: InputPanel + BasePanel both call it)', async () => {
     const p1 = api.cities();
     const p2 = api.cities();
     const req = http.expectOne('/cities');
@@ -150,31 +150,58 @@ describe('ApiService', () => {
   });
 
   it('poiTypes: GET /poi-types returns the list of POI types for the base-system panel select', async () => {
-    const promise = api.poiTypes();
+    const promise = api.poiTypes('0:default');
     const req = http.expectOne('/poi-types');
     expect(req.request.method).toBe('GET');
     req.flush(poiTypes);
     expect(await promise).toEqual(poiTypes);
   });
 
-  it('poiTypes: a single HTTP call per session, even when invoking the method several times (same memoization as cities())', async () => {
-    const p1 = api.poiTypes();
-    const p2 = api.poiTypes();
+  it('poiTypes: a single HTTP call per set key, even when invoking the method several times (same memoization as cities())', async () => {
+    const p1 = api.poiTypes('0:default');
+    const p2 = api.poiTypes('0:default');
     const req = http.expectOne('/poi-types');
     req.flush(poiTypes);
     expect(await p1).toEqual(poiTypes);
     expect(await p2).toEqual(poiTypes);
 
-    const p3 = api.poiTypes();
+    const p3 = api.poiTypes('0:default');
     expect(await p3).toEqual(poiTypes);
   });
 
+  it('poiTypes: a different set key refetches, the same key keeps the memoized list (#463)', async () => {
+    const p1 = api.poiTypes('0:default');
+    http.expectOne('/poi-types').flush(poiTypes);
+    expect(await p1).toEqual(poiTypes);
+
+    expect(await api.poiTypes('0:default')).toEqual(poiTypes);
+    http.expectNone('/poi-types');
+
+    const p2 = api.poiTypes('1:example');
+    http.expectOne('/poi-types').flush([poiTypes[0]]);
+    expect(await p2).toEqual([poiTypes[0]]);
+  });
+
+  it('poiTypes: the failure of a superseded request does not clear the memoization of the newer one (#463)', async () => {
+    const old = api.poiTypes('0:default');
+    const oldReq = http.expectOne('/poi-types');
+    const fresh = api.poiTypes('1:example');
+    const freshReq = http.expectOne('/poi-types');
+    oldReq.flush('boom', { status: 503, statusText: 'Service Unavailable' });
+    await expect(old).rejects.toBeTruthy();
+    freshReq.flush([poiTypes[0]]);
+    expect(await fresh).toEqual([poiTypes[0]]);
+
+    expect(await api.poiTypes('1:example')).toEqual([poiTypes[0]]);
+    http.expectNone('/poi-types');
+  });
+
   it('poiTypes: on error the memoization is cleared, a later call retries', async () => {
-    const p1 = api.poiTypes();
+    const p1 = api.poiTypes('0:default');
     http.expectOne('/poi-types').flush('boom', { status: 503, statusText: 'Service Unavailable' });
     await expect(p1).rejects.toBeTruthy();
 
-    const p2 = api.poiTypes();
+    const p2 = api.poiTypes('0:default');
     const req2 = http.expectOne('/poi-types');
     req2.flush([poiTypes[0]]);
     expect(await p2).toEqual([poiTypes[0]]);
@@ -316,7 +343,7 @@ describe('ApiService', () => {
     // happened twice with a path forgotten in the proxy.
     const httpMethods: { name: string; invoke: () => Promise<unknown> }[] = [
       { name: 'cities', invoke: () => api.cities() },
-      { name: 'poiTypes', invoke: () => api.poiTypes() },
+      { name: 'poiTypes', invoke: () => api.poiTypes('0:default') },
       {
         name: 'analyze',
         invoke: () =>
