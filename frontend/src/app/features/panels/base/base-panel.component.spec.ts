@@ -320,6 +320,22 @@ describe('BasePanelComponent', () => {
         poiType: 'Railway_station',
       });
     });
+
+    it('submit does not send a poiType the select does not offer (list reloading after a 422, #467)', () => {
+      const spy = jest.fn();
+      fixture.componentInstance.analyzeBaseline.subscribe(spy);
+      fixture.componentRef.setInput('area', {
+        kind: 'circle',
+        center: { lat: 41.9, lon: 12.5 },
+        radiusM: 500,
+      });
+      fixture.componentRef.setInput('poiType', 'Custom_Class');
+      fixture.detectChanges();
+      submitForm();
+      expect(spy).toHaveBeenCalledWith({
+        area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 },
+      });
+    });
   });
 
   it('lists what is absent in the base system', () => {

@@ -123,7 +123,7 @@ export class BasePanelComponent implements OnInit {
       this.serverErrorArea.set(err ? untracked(() => this.area()) : null);
     });
     // The "Tipo POI" list follows the active source set (#463): first run loads it, every set
-    // change (upload, example, reset, expiry) reloads it.
+    // change (upload, example, reset, expiry, a 422 on an unknown type) reloads it.
     effect(() => {
       const key = this.sources.setKey();
       untracked(() => void this.loadPoiTypes(key));
@@ -167,7 +167,11 @@ export class BasePanelComponent implements OnInit {
     this.clearValidation();
     const poiType = this.poiType().trim();
     const params: BaselineParams = { area };
-    if (poiType) params.poiType = poiType;
+    // Only a type the select actually offers: while the list reloads after a 422 (#467) the select
+    // shows "Tutti i tipi", and the rejected class must not be sent again.
+    if (poiType && this.poiTypes().some((t) => t.ontology_class === poiType)) {
+      params.poiType = poiType;
+    }
     this.analyzeBaseline.emit(params);
   }
 
