@@ -1,8 +1,10 @@
 import type { Page } from '@playwright/test';
 import cities from '../fixtures/cities.json';
 import poiTypes from '../fixtures/poi-types.json';
+import examplePoiTypes from '../fixtures/poi-types.example.json';
 import type {
   AnalyzeResponse,
+  PoiType,
   SourceProblem,
   SourcesStatus,
 } from '../../src/app/core/models/models';
@@ -16,11 +18,15 @@ import type {
 export interface MockOpts {
   cities?: unknown;
   /** Response of `GET /poi-types` (#143, "Tipo POI" select of the base-system panel): by default
-   * the shared fixture `poi-types.json`, overridable per scenario. */
+   * the classes of the ACTIVE source set (#468: `poi-types.json` for the default set,
+   * `poi-types.example.json` for the example/custom ones, same order as the backend: by `label_it`),
+   * overridable per scenario with a fixed list. */
   poiTypes?: unknown;
   /** HTTP status of the `/poi-types` response (default 200; use a 4xx/5xx to verify the
    * fallback — select with only "Tutti i tipi", no blocking error). */
   poiTypesStatus?: number;
+  /** Options of the mocked `/sources` routes (one registration per page: `mockApi` owns it). */
+  sources?: MockSourcesOpts;
   analyze?: unknown;
   baseline?: unknown;
   /** HTTP status of the `/analyze/baseline` response (default 200; use 4xx/5xx — e.g. 422 "Tipo
@@ -46,11 +52,14 @@ export interface MockOpts {
   zoneNarrativeStatus?: number;
 }
 
-export async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
-  await mockSources(page);
+export async function mockApi(page: Page, opts: MockOpts = {}): Promise<SourcesMock> {
+  const sources = await mockSources(page, opts.sources);
   await page.route('**/cities', (route) => route.fulfill({ json: opts.cities ?? cities }));
   await page.route('**/poi-types', (route) =>
-    route.fulfill({ status: opts.poiTypesStatus ?? 200, json: opts.poiTypes ?? poiTypes }),
+    route.fulfill({
+      status: opts.poiTypesStatus ?? 200,
+      json: opts.poiTypes ?? sources.poiTypes(),
+    }),
   );
 
   if (opts.analyze !== undefined || opts.analyzeStatus !== undefined) {
@@ -109,6 +118,8 @@ export async function mockApi(page: Page, opts: MockOpts = {}): Promise<void> {
       }),
     );
   }
+
+  return sources;
 }
 
 export interface MockSourcesOpts {
@@ -116,7 +127,21 @@ export interface MockSourcesOpts {
   rejectUpload?: { errors: SourceProblem[]; warnings?: SourceProblem[] };
 }
 
-const DEFAULT_SOURCES: SourcesStatus = { stato: 'default', scade_tra_secondi: null, set: null };
+/** Handle on the server side of the mocked `/sources` routes. */
+export interface SourcesMock {
+  /** The status the mocked backend would answer right now. */
+  active(): Readonly<SourcesStatus>;
+  /** The POI types the mocked backend serves right now: the example classes if a set is active, else the default ones. */
+  poiTypes(): readonly PoiType[];
+  /** The backend restarts: the session's set is gone and the default is served, with no 410 (#467). */
+  restart(): void;
+}
+
+const DEFAULT_SOURCES: Readonly<SourcesStatus> = Object.freeze({
+  stato: 'default',
+  scade_tra_secondi: null,
+  set: null,
+});
 
 function activeSet(kind: 'example' | 'custom'): SourcesStatus {
   return {
@@ -138,8 +163,8 @@ function activeSet(kind: 'example' | 'custom'): SourcesStatus {
  * backend does for the same session. Registered by `mockApi` so no scenario calls the
  * static server for the sources indicator.
  */
-export async function mockSources(page: Page, opts: MockSourcesOpts = {}): Promise<void> {
-  let current: SourcesStatus = DEFAULT_SOURCES;
+export async function mockSources(page: Page, opts: MockSourcesOpts = {}): Promise<SourcesMock> {
+  let current: Readonly<SourcesStatus> = DEFAULT_SOURCES;
   await page.route('**/sources', (route) => {
     const method = route.request().method();
     if (method === 'POST') {
@@ -166,4 +191,11 @@ export async function mockSources(page: Page, opts: MockSourcesOpts = {}): Promi
     current = activeSet('example');
     return route.fulfill({ json: current });
   });
+  return {
+    active: () => current,
+    poiTypes: () => (current.stato === 'attivo' ? examplePoiTypes : poiTypes),
+    restart: () => {
+      current = DEFAULT_SOURCES;
+    },
+  };
 }

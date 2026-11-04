@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { mockApi, mockSources } from './support/mocking';
+import { mockApi } from './support/mocking';
 
 const indicator = (page: import('@playwright/test').Page) =>
   page.getByRole('button', { name: /Apri la pagina Fonti/ });
@@ -27,13 +27,14 @@ test("Usa l'esempio and Torna al default update the indicator", async ({ page })
 test('rejected upload: the errors appear under the file and the sources do not change', async ({
   page,
 }) => {
-  await mockApi(page);
-  await mockSources(page, {
-    rejectUpload: {
-      errors: [
-        { code: 'colonna_mancante', file: 'data', message: 'Manca la colonna anno', line: 1 },
-      ],
-      warnings: [{ code: 'riga_vuota', file: 'osm_table', message: 'Riga vuota', line: 3 }],
+  await mockApi(page, {
+    sources: {
+      rejectUpload: {
+        errors: [
+          { code: 'colonna_mancante', file: 'data', message: 'Manca la colonna anno', line: 1 },
+        ],
+        warnings: [{ code: 'riga_vuota', file: 'osm_table', message: 'Riga vuota', line: 3 }],
+      },
     },
   });
   await page.goto('/');

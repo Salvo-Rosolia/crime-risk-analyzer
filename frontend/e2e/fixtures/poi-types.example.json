@@ -1,0 +1,5 @@
+[
+  { "ontology_class": "Bar", "label_it": "Bar" },
+  { "ontology_class": "Pharmacy", "label_it": "Farmacia" },
+  { "ontology_class": "Supermarket", "label_it": "Supermercato" }
+]
