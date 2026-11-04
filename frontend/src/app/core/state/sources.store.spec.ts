@@ -184,7 +184,7 @@ describe('SourcesStore', () => {
   });
 
   describe('setKey (identity of the active set, #463)', () => {
-    it('changes on example, expiry and reset; stays put on a refresh that changes nothing', async () => {
+    it('changes on example and expiry; stays put on a refresh that changes nothing', async () => {
       const keys = [store.setKey()];
       api.useExampleSources.mockResolvedValue(set('example'));
       await store.useExample();
@@ -193,11 +193,20 @@ describe('SourcesStore', () => {
       await store.refresh();
       expect(store.setKey()).toBe(keys[1]);
       store.markExpired();
-      keys.push(store.setKey());
+      expect(store.setKey()).not.toBe(keys[1]);
+      expect(new Set(keys).size).toBe(keys.length);
+    });
+
+    it('expired and default share the key: the step from one to the other reloads nothing', async () => {
+      const initial = store.setKey();
+      api.useExampleSources.mockResolvedValue(set('example'));
+      await store.useExample();
+      store.markExpired();
+      const expired = store.setKey();
       api.resetSources.mockResolvedValue(DEFAULT);
       await store.reset();
-      keys.push(store.setKey());
-      expect(new Set(keys).size).toBe(keys.length);
+      expect(expired).toBe(initial);
+      expect(store.setKey()).toBe(initial);
     });
 
     it('markPoiTypesStale re-reads the status and changes the key even if the status does not (#467)', async () => {

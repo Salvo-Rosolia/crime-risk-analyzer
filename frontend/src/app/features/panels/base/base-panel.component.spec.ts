@@ -62,7 +62,7 @@ const poiTypesFixture = [
 
 describe('BasePanelComponent', () => {
   let fixture: ComponentFixture<BasePanelComponent>;
-  let api: { cities: jest.Mock; poiTypes: jest.Mock };
+  let api: { cities: jest.Mock; poiTypes: jest.Mock; sourcesStatus: jest.Mock };
 
   function submitForm(): void {
     const form: HTMLFormElement = fixture.nativeElement.querySelector('form');
@@ -85,6 +85,9 @@ describe('BasePanelComponent', () => {
     api = {
       cities: jest.fn().mockResolvedValue(['Roma', 'Milano']),
       poiTypes: jest.fn().mockResolvedValue(poiTypesFixture),
+      sourcesStatus: jest
+        .fn()
+        .mockResolvedValue({ stato: 'default', scade_tra_secondi: null, set: null }),
     };
     await TestBed.configureTestingModule({
       imports: [BasePanelComponent],
@@ -160,7 +163,7 @@ describe('BasePanelComponent', () => {
       it('reloads the list when the set changes, passing the set key to the API', async () => {
         expect(api.poiTypes).toHaveBeenLastCalledWith(TestBed.inject(SourcesStore).setKey());
         api.poiTypes.mockResolvedValueOnce([{ ontology_class: 'Bar', label_it: 'Bar' }]);
-        TestBed.inject(SourcesStore).markExpired();
+        await TestBed.inject(SourcesStore).markPoiTypesStale();
         await settle();
         expect(api.poiTypes).toHaveBeenCalledTimes(2);
         expect(api.poiTypes).toHaveBeenLastCalledWith(TestBed.inject(SourcesStore).setKey());
@@ -172,7 +175,7 @@ describe('BasePanelComponent', () => {
         fixture.componentInstance.poiTypeChange.subscribe(spy);
         fixture.componentRef.setInput('poiType', 'Bank');
         api.poiTypes.mockResolvedValueOnce([{ ontology_class: 'Bar', label_it: 'Bar' }]);
-        TestBed.inject(SourcesStore).markExpired();
+        await TestBed.inject(SourcesStore).markPoiTypesStale();
         await settle();
         expect(spy).toHaveBeenCalledWith('');
       });
@@ -181,7 +184,7 @@ describe('BasePanelComponent', () => {
         const spy = jest.fn();
         fixture.componentInstance.poiTypeChange.subscribe(spy);
         fixture.componentRef.setInput('poiType', 'Bank');
-        TestBed.inject(SourcesStore).markExpired();
+        await TestBed.inject(SourcesStore).markPoiTypesStale();
         await settle();
         expect(api.poiTypes).toHaveBeenCalledTimes(2);
         expect(spy).not.toHaveBeenCalled();
@@ -192,7 +195,7 @@ describe('BasePanelComponent', () => {
         fixture.componentInstance.poiTypeChange.subscribe(spy);
         fixture.componentRef.setInput('poiType', 'Bank');
         api.poiTypes.mockRejectedValueOnce(new Error('503'));
-        TestBed.inject(SourcesStore).markExpired();
+        await TestBed.inject(SourcesStore).markPoiTypesStale();
         await settle();
         expect(optionValues()).toEqual(['']);
         expect(spy).toHaveBeenCalledWith('');
@@ -205,15 +208,10 @@ describe('BasePanelComponent', () => {
         fixture.componentRef.setInput('poiType', 'Bank');
         let rejectOld!: (e: Error) => void;
         api.poiTypes.mockReturnValueOnce(new Promise((_, rej) => (rejectOld = rej)));
-        store.markExpired();
+        await store.markPoiTypesStale();
         fixture.detectChanges();
         api.poiTypes.mockResolvedValueOnce(poiTypesFixture);
-        Object.assign(api, {
-          resetSources: jest
-            .fn()
-            .mockResolvedValue({ stato: 'default', scade_tra_secondi: null, set: null }),
-        });
-        await store.reset();
+        await store.markPoiTypesStale();
         await settle();
         rejectOld(new Error('503'));
         await settle();
@@ -228,14 +226,14 @@ describe('BasePanelComponent', () => {
           fixture.componentRef.setInput('poiType', 'Bank');
           let resolveLate!: (v: unknown[]) => void;
           api.poiTypes.mockReturnValueOnce(new Promise((r) => (resolveLate = r)));
-          TestBed.inject(SourcesStore).markExpired();
+          await TestBed.inject(SourcesStore).markPoiTypesStale();
           fixture.detectChanges();
           const options = fixture.componentInstance['poiTypes'];
           fixture.destroy();
           resolveLate([{ ontology_class: 'Bar', label_it: 'Bar' }]);
           await Promise.resolve();
           await new Promise((r) => setTimeout(r));
-          expect(options()).toEqual(poiTypesFixture);
+          expect(options()).not.toContainEqual({ ontology_class: 'Bar', label_it: 'Bar' });
           expect(warn).not.toHaveBeenCalled();
           expect(error).not.toHaveBeenCalled();
         } finally {
@@ -252,6 +250,7 @@ describe('BasePanelComponent', () => {
         remounted.componentRef.setInput('poiType', 'Bank');
         remounted.detectChanges();
         await remounted.whenStable();
+        remounted.detectChanges();
         expect(spy).toHaveBeenCalledWith('');
       });
 
@@ -259,15 +258,10 @@ describe('BasePanelComponent', () => {
         const store = TestBed.inject(SourcesStore);
         let resolveOld!: (v: unknown[]) => void;
         api.poiTypes.mockReturnValueOnce(new Promise((r) => (resolveOld = r)));
-        store.markExpired();
+        await store.markPoiTypesStale();
         fixture.detectChanges();
         api.poiTypes.mockResolvedValueOnce([{ ontology_class: 'New', label_it: 'Nuovo' }]);
-        Object.assign(api, {
-          resetSources: jest
-            .fn()
-            .mockResolvedValue({ stato: 'default', scade_tra_secondi: null, set: null }),
-        });
-        await store.reset();
+        await store.markPoiTypesStale();
         await settle();
         resolveOld([{ ontology_class: 'Old', label_it: 'Vecchio' }]);
         await settle();
