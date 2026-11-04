@@ -98,6 +98,14 @@ def test_status_without_header_is_default(client: TestClient) -> None:
     assert r.json() == {"stato": "default", "scade_tra_secondi": None, "set": None}
 
 
+def test_status_is_not_shared_cacheable_across_sessions(client: TestClient) -> None:
+    """#469: the body depends on X-Session-Id, so shared caches must not reuse it."""
+    for headers in ({}, {H: SID}):
+        r = client.get("/sources", headers=headers)
+        assert r.headers["Vary"] == "X-Session-Id"
+        assert r.headers["Cache-Control"] == "private"
+
+
 def test_upload_activates_the_set(client: TestClient) -> None:
     r = _upload(client)
     assert r.status_code == 200, r.text

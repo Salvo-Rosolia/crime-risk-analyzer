@@ -116,7 +116,10 @@ async def cities(settings: Annotated[Settings, Depends(get_settings)]) -> list[s
 
 @router.get(
     "/poi-types",
-    dependencies=[Depends(sources_routes.activate_session_readonly)],
+    dependencies=[
+        Depends(sources_routes.activate_session_readonly),
+        Depends(sources_routes.session_scoped_response),
+    ],
 )
 async def list_poi_types() -> list[PoiType]:
     """Catalogue of the POI types accepted as ``tipo_poi`` (#143).

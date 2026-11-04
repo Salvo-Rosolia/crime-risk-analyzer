@@ -58,7 +58,7 @@ from crime_risk_analyzer.sources.vocabulary import (
     OntologyVocabulary,
 )
 
-__all__ = ["activate_session", "get_sessions", "router"]
+__all__ = ["activate_session", "get_sessions", "router", "session_scoped_response"]
 
 router = APIRouter()
 
@@ -229,6 +229,16 @@ async def activate_session_readonly(
         yield
 
 
+async def session_scoped_response(response: Response) -> None:
+    """Marks a response whose body depends on ``X-Session-Id`` as per-session (#469).
+
+    ``Vary`` makes shared caches key on the header and ``Cache-Control: private``
+    keeps them from storing it at all, so one session never receives another's body.
+    """
+    response.headers["Vary"] = SESSION_HEADER
+    response.headers["Cache-Control"] = "private"
+
+
 class SetSummary(BaseModel):
     """What the active set contains (for the status screen)."""
 
@@ -276,7 +286,7 @@ def _summary(entry: SessionEntry) -> SetSummary:
     )
 
 
-@router.get("/sources")
+@router.get("/sources", dependencies=[Depends(session_scoped_response)])
 async def sources_status(
     sessions: Sessions, x_session_id: OptionalSession = None
 ) -> SourcesStatus:
