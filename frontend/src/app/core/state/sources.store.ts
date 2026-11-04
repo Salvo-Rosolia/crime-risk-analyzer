@@ -79,9 +79,13 @@ export class SourcesStore {
    * "Tipo POI" list, #463) key it on this value and reload when it changes; it is not a reason to
    * reset the analysis (that is `revision`).
    */
-  readonly setKey = computed(
-    () => `${this._revision()}:${this._staleTypes()}:${signature(this._status())}`,
-  );
+  readonly setKey = computed(() => {
+    const status = this._status();
+    // Expired and default sources are served the same catalog: they share one key, and the revision
+    // (which also counts the expired → default step) does not enter it, so no extra reload.
+    if (status?.stato !== 'attivo' || !status.set) return `${this._staleTypes()}:default`;
+    return `${this._revision()}:${this._staleTypes()}:${signature(status)}`;
+  });
 
   readonly indicator = computed<SourcesIndicator>(() => {
     const status = this._status();

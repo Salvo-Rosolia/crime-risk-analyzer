@@ -28,28 +28,37 @@ function areaBody(area: SearchArea): Record<string, unknown> {
 export class ApiService {
   private readonly http = inject(HttpClient);
 
-  /** Memoized Promise of `cities()` (review finding): both `InputPanelComponent` and
-   * `BasePanelComponent` call it in their own `ngOnInit`, and a Full↔Base round trip or an
-   * INPUT→ERROR remount remounts one of the two at every change — without memoization, each
-   * remount would repeat the same GET for a list that does not change within a session. */
-  private citiesPromise: Promise<string[]> | null = null;
-  /** Same memoization as `citiesPromise`, for `poiTypes()` (#143), valid for one source-set key (#463). */
-  private poiTypesMemo: { key: string; promise: Promise<PoiType[]> } | null = null;
+  /** Memoized Promises of `cities()` and `poiTypes()` (see `memoized`). */
+  private readonly memos = new Map<string, { key: string; promise: Promise<unknown> }>();
+
+  /**
+   * One Promise per `name`, reused while `key` stays the same; a different key refetches. On error the
+   * memo is cleared (so a later call can retry) unless a newer key superseded it: a superseded
+   * request failing must not wipe the memo of the newer one.
+   */
+  private memoized<T>(name: string, key: string, load: () => Promise<T>): Promise<T> {
+    const current = this.memos.get(name);
+    if (current?.key === key) return current.promise as Promise<T>;
+    const memo = {
+      key,
+      promise: load().catch((err) => {
+        if (this.memos.get(name) === memo) this.memos.delete(name);
+        throw err;
+      }),
+    };
+    this.memos.set(name, memo);
+    return memo.promise;
+  }
 
   /**
    * List of cities suggested for the search panels' datalist (`GET /cities`): a SINGLE HTTP call
-   * per session, later calls (from any panel) reuse the same Promise. If the request fails the
-   * memoization is cleared, so a later remount (e.g. after the network is back) can retry instead
-   * of staying stuck on an old failure.
+   * per session, later calls (from any panel) reuse the same Promise — both `InputPanelComponent`
+   * and `BasePanelComponent` call it in their own `ngOnInit`, and a Full↔Base round trip or an
+   * INPUT→ERROR remount would otherwise repeat the same GET for a list that does not change. If the
+   * request fails the memoization is cleared, so a later remount can retry.
    */
   cities(): Promise<string[]> {
-    if (!this.citiesPromise) {
-      this.citiesPromise = firstValueFrom(this.http.get<string[]>('/cities')).catch((err) => {
-        this.citiesPromise = null;
-        throw err;
-      });
-    }
-    return this.citiesPromise;
+    return this.memoized('cities', '', () => firstValueFrom(this.http.get<string[]>('/cities')));
   }
 
   /**
@@ -61,18 +70,9 @@ export class ApiService {
    * #467) and refetches.
    */
   poiTypes(setKey: string): Promise<PoiType[]> {
-    if (this.poiTypesMemo?.key !== setKey) {
-      const memo = {
-        key: setKey,
-        promise: firstValueFrom(this.http.get<PoiType[]>('/poi-types')).catch((err) => {
-          // A superseded request failing must not wipe the memo of the newer set.
-          if (this.poiTypesMemo === memo) this.poiTypesMemo = null;
-          throw err;
-        }),
-      };
-      this.poiTypesMemo = memo;
-    }
-    return this.poiTypesMemo.promise;
+    return this.memoized('poiTypes', setKey, () =>
+      firstValueFrom(this.http.get<PoiType[]>('/poi-types')),
+    );
   }
 
   /**

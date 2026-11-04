@@ -1,13 +1,13 @@
 import {
   ChangeDetectionStrategy,
   Component,
-  DestroyRef,
   OnInit,
   computed,
   effect,
   inject,
   input,
   output,
+  resource,
   signal,
   untracked,
 } from '@angular/core';
@@ -74,15 +74,18 @@ export class BasePanelComponent implements OnInit {
 
   private readonly api = inject(ApiService);
   private readonly sources = inject(SourcesStore);
-  private readonly destroyRef = inject(DestroyRef);
-  /** Generation of the last `/poi-types` load: a response from a superseded one is dropped. */
-  private poiTypesLoad = 0;
+  /** `GET /poi-types` (#143) following the active source set (#463): reloaded on every key change,
+   * a superseded response is dropped and the request dies with the panel. A failure gives an empty
+   * list: the filter is optional, it must not block the search. */
+  private readonly poiTypesLoad = resource({
+    params: () => this.sources.setKey(),
+    loader: ({ params }) => this.api.poiTypes(params).catch((): PoiType[] => []),
+  });
 
   protected readonly cities = signal<string[]>([]);
-  /** Options of the "Tipo POI" select (`GET /poi-types`, #143), already sorted by `label_it` by the
-   * backend. Empty if the request fails: the select shows only "Tutti i tipi" — the filter is
-   * optional, it must not block the search. */
-  protected readonly poiTypes = signal<PoiType[]>([]);
+  /** Options of the "Tipo POI" select, already sorted by `label_it` by the backend. Empty while
+   * loading or if the request failed: the select shows only "Tutti i tipi". */
+  protected readonly poiTypes = computed(() => this.poiTypesLoad.value() ?? []);
   protected readonly validationError = signal<string | null>(null);
   protected readonly validationField = signal<'city' | 'zone' | null>(null);
   /** The area for which the last server error arrived (review finding, same convention as
@@ -122,15 +125,17 @@ export class BasePanelComponent implements OnInit {
       const err = this.serverError();
       this.serverErrorArea.set(err ? untracked(() => this.area()) : null);
     });
-    // The "Tipo POI" list follows the active source set (#463): first run loads it, every set
-    // change (upload, example, reset, expiry, a 422 on an unknown type) reloads it.
+    // The one place that keeps the selection valid for the active catalog: whenever a list arrives
+    // (first load, set change, a 422 on an unknown type, #467) a selected type that is gone — or a
+    // list that could not be loaded — resets it, since an unknown class would give 422.
     effect(() => {
-      const key = this.sources.setKey();
-      untracked(() => void this.loadPoiTypes(key));
+      const types = this.poiTypesLoad.value();
+      if (types === undefined) return;
+      const selected = untracked(() => this.poiType());
+      if (selected && !types.some((t) => t.ontology_class === selected)) {
+        this.poiTypeChange.emit('');
+      }
     });
-    // The panel is destroyed on every search and mode switch: bumping the generation drops the
-    // pending response instead of letting it emit on a destroyed output.
-    this.destroyRef.onDestroy(() => this.poiTypesLoad++);
   }
 
   ngOnInit(): void {
@@ -185,27 +190,6 @@ export class BasePanelComponent implements OnInit {
       this.cities.set(await this.api.cities());
     } catch {
       this.cities.set([]);
-    }
-  }
-
-  /** Fails without blocking the search (#143): the Tipo POI filter is optional, an empty list
-   * leaves only "Tutti i tipi" in the select instead of showing an error. If the set changed
-   * and the selected type is gone (or the list could not be loaded), the selection is reset
-   * (an unknown class would give 422). */
-  private async loadPoiTypes(setKey: string): Promise<void> {
-    const mine = ++this.poiTypesLoad;
-    try {
-      const types = await this.api.poiTypes(setKey);
-      if (mine !== this.poiTypesLoad) return;
-      this.poiTypes.set(types);
-      const selected = this.poiType();
-      if (selected && !types.some((t) => t.ontology_class === selected)) {
-        this.poiTypeChange.emit('');
-      }
-    } catch {
-      if (mine !== this.poiTypesLoad) return;
-      this.poiTypes.set([]);
-      if (this.poiType()) this.poiTypeChange.emit('');
     }
   }
 }
