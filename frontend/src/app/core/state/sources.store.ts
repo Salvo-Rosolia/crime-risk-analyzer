@@ -52,8 +52,11 @@ export class SourcesStore {
   private readonly _busy = signal<SourcesBusy | null>(null);
   private readonly _open = signal(false);
   private readonly _revision = signal(0);
+  /** Times the server rejected a POI type the client still offered (#467): part of `setKey`. */
+  private readonly _staleTypes = signal(0);
   /** State generation: a read started before an action or a 410 does not override it. */
   private seq = 0;
+  private staleInFlight = false;
 
   readonly status = this._status.asReadonly();
   /** Problems of the last rejected upload; `null` after any different outcome. */
@@ -71,10 +74,14 @@ export class SourcesStore {
 
   /**
    * Identity of the active set: changes whenever the classes the backend serves may have changed
-   * (effective upload/example/reset, expiry). Panels that cache per-set data (the "Tipo POI" list,
-   * #463) key it on this value and reload when it changes.
+   * (effective upload/example/reset, expiry) or the client found out it is stale (a 422
+   * `tipo_poi_non_riconosciuto`, #467, via `markPoiTypesStale`). Panels that cache per-set data (the
+   * "Tipo POI" list, #463) key it on this value and reload when it changes; it is not a reason to
+   * reset the analysis (that is `revision`).
    */
-  readonly setKey = computed(() => `${this._revision()}:${signature(this._status())}`);
+  readonly setKey = computed(
+    () => `${this._revision()}:${this._staleTypes()}:${signature(this._status())}`,
+  );
 
   readonly indicator = computed<SourcesIndicator>(() => {
     const status = this._status();
@@ -100,6 +107,24 @@ export class SourcesStore {
   markExpired(): void {
     this.seq++;
     this._status.set({ stato: 'scaduto', scade_tra_secondi: null, set: null });
+  }
+
+  /**
+   * A 422 `tipo_poi_non_riconosciuto`: the server no longer knows a class the client offered (backend
+   * restarted or session expired with no 410, #467). The status is re-read so the indicator follows the
+   * real set; if that does not change the key by itself the stale counter does, so the cached "Tipo POI"
+   * list is reloaded exactly once. Calls made while a reload is in flight are ignored.
+   */
+  async markPoiTypesStale(): Promise<void> {
+    if (this.staleInFlight) return;
+    this.staleInFlight = true;
+    try {
+      const before = this.setKey();
+      await this.refresh();
+      if (this.setKey() === before) this._staleTypes.update((n) => n + 1);
+    } finally {
+      this.staleInFlight = false;
+    }
   }
 
   closePage(): void {

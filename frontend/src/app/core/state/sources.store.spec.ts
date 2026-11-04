@@ -199,6 +199,35 @@ describe('SourcesStore', () => {
       keys.push(store.setKey());
       expect(new Set(keys).size).toBe(keys.length);
     });
+
+    it('markPoiTypesStale re-reads the status and changes the key even if the status does not (#467)', async () => {
+      const before = store.setKey();
+      await store.markPoiTypesStale();
+      expect(api.sourcesStatus).toHaveBeenCalledTimes(1);
+      expect(store.setKey()).not.toBe(before);
+    });
+
+    it('markPoiTypesStale with a changed status applies it and changes the key once, revision untouched', async () => {
+      api.sourcesStatus.mockResolvedValue(set('custom'));
+      const before = store.setKey();
+      await store.markPoiTypesStale();
+      expect(store.indicator().kind).toBe('custom');
+      expect(store.setKey()).not.toBe(before);
+      expect(store.setKey()).toMatch(/^0:0:custom:/);
+      expect(store.revision()).toBe(0);
+    });
+
+    it('markPoiTypesStale with the backend down still invalidates the key', async () => {
+      api.sourcesStatus.mockRejectedValue(new HttpErrorResponse({ status: 0 }));
+      const before = store.setKey();
+      await store.markPoiTypesStale();
+      expect(store.setKey()).not.toBe(before);
+    });
+
+    it('markPoiTypesStale calls made while one is in flight are ignored', async () => {
+      await Promise.all([store.markPoiTypesStale(), store.markPoiTypesStale()]);
+      expect(api.sourcesStatus).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('markExpired brings the indicator to Scadute without calling the network', () => {

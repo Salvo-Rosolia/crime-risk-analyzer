@@ -2,6 +2,7 @@ import { HttpClient, provideHttpClient, withInterceptors } from '@angular/common
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { HttpErrorResponse } from '@angular/common/http';
+import type { SourcesStatus } from '@core/models/models';
 import { SourcesStore } from '@core/state/sources.store';
 import { sessionInterceptor } from './session.interceptor';
 import { SESSION_HEADER, sessionId } from './session-id';
@@ -66,6 +67,77 @@ describe('sessionInterceptor', () => {
     http.post('/analyze', {}).subscribe({ error: (e: HttpErrorResponse) => e });
     ctrl.expectOne('/analyze').flush({}, { status: 500, statusText: 'x' });
     expect(store.indicator().kind).toBe('default');
+  });
+
+  describe('422 tipo_poi_non_riconosciuto (#467)', () => {
+    const UNKNOWN = {
+      detail: { errore: 'tipo_poi_non_riconosciuto', messaggio: 'tipo sconosciuto' },
+    };
+    const CUSTOM: SourcesStatus = {
+      stato: 'attivo',
+      scade_tra_secondi: 900,
+      set: {
+        kind: 'custom',
+        classi: 2,
+        selettori_osm: 4,
+        versione_dati: '2024',
+        luoghi: [],
+        avvisi: [],
+      },
+    };
+    const settle = () => new Promise((resolve) => setTimeout(resolve));
+
+    function failWith(url: string, status: number, body: unknown): void {
+      http.post(url, {}).subscribe({ error: (e: HttpErrorResponse) => e });
+      ctrl.expectOne(url).flush(body, { status, statusText: 'x' });
+    }
+
+    afterEach(() => ctrl.verify());
+
+    it('re-reads the status and changes the set key once even if the status is unchanged', async () => {
+      const store = TestBed.inject(SourcesStore);
+      const before = store.setKey();
+      failWith('/analyze/baseline', 422, UNKNOWN);
+      ctrl.expectOne('/sources').flush({ stato: 'default', scade_tra_secondi: null, set: null });
+      await settle();
+      expect(store.setKey()).not.toBe(before);
+    });
+
+    it('a status that changed is applied and the key changes by itself, with no extra bump', async () => {
+      const store = TestBed.inject(SourcesStore);
+      failWith('/analyze/baseline', 422, UNKNOWN);
+      ctrl.expectOne('/sources').flush(CUSTOM);
+      await settle();
+      expect(store.indicator().kind).toBe('custom');
+      expect(store.setKey()).toMatch(/^0:0:custom:/);
+    });
+
+    it('repeated 422 while the re-read is in flight cause a single re-read', async () => {
+      failWith('/analyze/baseline', 422, UNKNOWN);
+      failWith('/analyze/baseline', 422, UNKNOWN);
+      ctrl.expectOne('/sources').flush(CUSTOM);
+      await settle();
+    });
+
+    it.each([
+      ['a list detail', '/analyze/baseline', 422, { detail: [{ msg: 'x' }] }],
+      [
+        'another object errore',
+        '/analyze/baseline',
+        422,
+        { detail: { errore: 'zona_non_geocodificabile' } },
+      ],
+      ['a null body', '/analyze/baseline', 422, null],
+      ['a string body', '/analyze/baseline', 422, 'boom'],
+      ['the same body with another status', '/analyze/baseline', 500, UNKNOWN],
+      ['the same error from another route', '/sources', 422, UNKNOWN],
+    ])('does not react to %s', async (_label, url, status, body) => {
+      const store = TestBed.inject(SourcesStore);
+      const before = store.setKey();
+      failWith(url, status, body);
+      await settle();
+      expect(store.setKey()).toBe(before);
+    });
   });
 
   it('the 410 fonti_scadute also applies to the POI narrative', () => {

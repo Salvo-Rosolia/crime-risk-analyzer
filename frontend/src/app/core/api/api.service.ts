@@ -57,7 +57,8 @@ export class ApiService {
    * already sorted by `label_it` by the backend, which answers with the classes of the session's
    * active source set (#463). Memoized like `cities()` (cleared on error so a later call can
    * retry), but only for the given `setKey` (required: omitting it would never invalidate the
-   * memo, #463): a different key means the set changed and refetches.
+   * memo, #463): a different key means the set may have changed (or the client found its list stale,
+   * #467) and refetches.
    */
   poiTypes(setKey: string): Promise<PoiType[]> {
     if (this.poiTypesMemo?.key !== setKey) {
