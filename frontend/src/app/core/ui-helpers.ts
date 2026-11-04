@@ -576,9 +576,10 @@ export interface BaseRow {
  * Rows of the "POI · Hazard · Categoria" table of the Base system State (ablation,
  * spec-frontend.md §Base system State): one row for each (POI, hazard) pair, same
  * POI↔RiskModel matching by `poi_id` used by `buildDetailModel`. "Categoria" stays the raw
- * terminus class (`tc:` prefix), deliberately technical and untranslated — consistent
- * with the visual poverty wanted by the ablation comparison (the full system instead shows
- * the curated IT label in `poiDisplayLabel`).
+ * ontology class (no namespace prefix: the active source set may not be TERMINUS),
+ * deliberately technical and untranslated — consistent with the visual poverty wanted by the
+ * ablation comparison (the full system instead shows the curated IT label in
+ * `poiDisplayLabel`).
  */
 export function buildBaseRows(
   poi: Poi[] | null | undefined,
@@ -592,7 +593,7 @@ export function buildBaseRows(
         poiId: p.id,
         poiName: p.name,
         hazardLabel: hazardDisplayLabel(risk),
-        category: `tc:${p.ontology_class}`,
+        category: p.ontology_class,
       });
     }
   }

@@ -36,7 +36,7 @@
 /*
  * Header in vertical blocks (UI rework): "‹ indietro" on its own row, then the identity block
  * [pin | name+badge / class subtitle]. Avoids the collision of the old single row, where the
- * `tc:…` subtitle wrapped ending up under the confidence badge.
+ * class subtitle wrapped ending up under the confidence badge.
  */
 .cra-detail-header {
   flex: 0 0 auto;
