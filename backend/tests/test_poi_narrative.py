@@ -26,6 +26,7 @@ from crime_risk_analyzer.poi_narrative import (
 )
 from crime_risk_analyzer.rag import retrieval
 from crime_risk_analyzer.sources.context import current_executor
+from tests.eval._doubles import FakeProfiler, make_poi
 
 _POI_ID = "node/1"
 
@@ -35,13 +36,6 @@ _BANK = PoiRiskProfile(
     vulnerabilities=["Accesso non controllato"],
     sparql_paths=["Bank → havingHazard → Bank_robbery"],
 )
-
-
-class _FakeProfiler:
-    def profile(self, ontology_class: str) -> PoiRiskProfile:
-        return {"Bank": _BANK}.get(
-            ontology_class, PoiRiskProfile(ontology_class=ontology_class)
-        )
 
 
 class _FakeLLMClient:
@@ -69,24 +63,16 @@ class _RaisingLLMClient:
 
 def _pois(citta: str) -> list[Poi]:
     return [
-        {
-            "id": _POI_ID,
-            "name": "Banca A",
-            "lat": 41.8900,
-            "lon": 12.4920,
-            "osm_tags": "amenity=bank",
-            "ontology_class": "Bank",
-            "citta": citta,
-        },
-        {
-            "id": "node/2",
-            "name": "Liceo Cavour",
-            "lat": 41.8901,
-            "lon": 12.4921,
-            "osm_tags": "amenity=school",
-            "ontology_class": "School",
-            "citta": citta,
-        },
+        make_poi(id=_POI_ID, lon=12.4920, citta=citta),
+        make_poi(
+            id="node/2",
+            name="Liceo Cavour",
+            lat=41.8901,
+            lon=12.4921,
+            osm_tags="amenity=school",
+            ontology_class="School",
+            citta=citta,
+        ),
     ]
 
 
@@ -113,7 +99,7 @@ async def _prime_cache() -> str:
     resp = await run_analysis_fast(
         "Roma",
         "Colosseo",
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         poi_source=_poi_source,
         geo_source=_geo_source,
     )
@@ -144,7 +130,7 @@ def _patch_io(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _client(llm: object = None) -> TestClient:
     app = create_app()
-    app.dependency_overrides[current_executor] = lambda: _FakeProfiler()
+    app.dependency_overrides[current_executor] = lambda: FakeProfiler({"Bank": _BANK})
     app.dependency_overrides[get_llm_client] = lambda: llm or _FakeLLMClient()
     return TestClient(app, raise_server_exceptions=False)
 
@@ -169,7 +155,7 @@ def test_poi_route_reads_the_switch_from_settings(
     _patch_io(monkeypatch)
     settings = Settings(istat_context_enabled=enabled)
     app = create_app()
-    app.dependency_overrides[current_executor] = lambda: _FakeProfiler()
+    app.dependency_overrides[current_executor] = lambda: FakeProfiler({"Bank": _BANK})
     app.dependency_overrides[get_llm_client] = lambda: _Spy()
     app.dependency_overrides[get_settings] = lambda: settings
     client = TestClient(app, raise_server_exceptions=False)
@@ -220,7 +206,7 @@ async def test_returns_narrative_for_a_poi_in_the_cached_zone() -> None:
         "Colosseo",
         _POI_ID,
         contesto_hash=context_hash,
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         llm_client=_FakeLLMClient(),
     )
     assert out.poi_id == _POI_ID
@@ -243,7 +229,7 @@ async def test_cache_hit_does_not_touch_overpass() -> None:
         "Colosseo",
         _POI_ID,
         contesto_hash=context_hash,
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         llm_client=_FakeLLMClient(),
         poi_source=_exploding,
     )
@@ -265,7 +251,7 @@ async def test_cold_cache_rebuilds_the_context() -> None:
         "Colosseo",
         _POI_ID,
         contesto_hash=context_hash,
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         llm_client=_FakeLLMClient(),
         poi_source=_poi_source,
         geo_source=_geo_source,
@@ -298,7 +284,7 @@ async def test_narrative_context_carries_the_neighbourhood() -> None:
         "Colosseo",
         _POI_ID,
         contesto_hash=context_hash,
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         llm_client=_Recording(),
     )
     assert "PUNTO SELEZIONATO: Banca A" in seen[0]
@@ -317,7 +303,7 @@ async def test_unknown_poi_id_raises_poi_not_found() -> None:
             "Colosseo",
             "non-esiste",
             contesto_hash=context_hash,
-            executor=_FakeProfiler(),
+            executor=FakeProfiler({"Bank": _BANK}),
             llm_client=_FakeLLMClient(),
         )
 
@@ -330,7 +316,7 @@ async def test_llm_error_falls_back_without_raising() -> None:
         "Colosseo",
         _POI_ID,
         contesto_hash=context_hash,
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         llm_client=_RaisingLLMClient(),
     )
     assert out.fallback is True
@@ -350,15 +336,15 @@ async def _divergent_poi_source(bbox: Bbox, citta: str) -> list[Poi]:
     """
     return [
         *_pois(citta),
-        {
-            "id": "node/3",
-            "name": "Farmacia Nuova",
-            "lat": 41.8902,
-            "lon": 12.4922,
-            "osm_tags": "amenity=pharmacy",
-            "ontology_class": "Pharmacy",
-            "citta": citta,
-        },
+        make_poi(
+            id="node/3",
+            name="Farmacia Nuova",
+            lat=41.8902,
+            lon=12.4922,
+            osm_tags="amenity=pharmacy",
+            ontology_class="Pharmacy",
+            citta=citta,
+        ),
     ]
 
 
@@ -379,7 +365,7 @@ async def test_warm_cache_overwritten_by_a_second_analysis_rejects() -> None:
     second = await run_analysis_fast(
         "Roma",
         "Colosseo",
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         poi_source=_divergent_poi_source,
         geo_source=_geo_source,
     )
@@ -390,7 +376,7 @@ async def test_warm_cache_overwritten_by_a_second_analysis_rejects() -> None:
             "Colosseo",
             _POI_ID,
             contesto_hash=first,
-            executor=_FakeProfiler(),
+            executor=FakeProfiler({"Bank": _BANK}),
             llm_client=_FakeLLMClient(),
         )
 
@@ -411,7 +397,7 @@ async def test_mismatched_fingerprint_spends_no_llm_call() -> None:
             "Colosseo",
             _POI_ID,
             contesto_hash="non-combacia",
-            executor=_FakeProfiler(),
+            executor=FakeProfiler({"Bank": _BANK}),
             llm_client=_Exploding(),
         )
 
@@ -427,7 +413,7 @@ async def test_cold_cache_with_divergent_rebuild_rejects() -> None:
             "Colosseo",
             _POI_ID,
             contesto_hash=context_hash,
-            executor=_FakeProfiler(),
+            executor=FakeProfiler({"Bank": _BANK}),
             llm_client=_FakeLLMClient(),
             poi_source=_divergent_poi_source,
             geo_source=_geo_source,
@@ -463,7 +449,7 @@ async def test_cold_cache_geocode_failure_becomes_context_mismatch(
             "Colosseo",
             _POI_ID,
             contesto_hash=context_hash,
-            executor=_FakeProfiler(),
+            executor=FakeProfiler({"Bank": _BANK}),
             llm_client=_FakeLLMClient(),
         )
 
@@ -493,7 +479,7 @@ async def test_fingerprint_does_not_enter_the_prompt() -> None:
         "Colosseo",
         _POI_ID,
         contesto_hash=context_hash,
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         llm_client=_Recorder(),
     )
     assert context_hash not in seen[0]

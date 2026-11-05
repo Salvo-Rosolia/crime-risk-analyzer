@@ -1,8 +1,11 @@
-"""Shared test doubles and helpers for test_orchestrator, test_harness and
-test_no_ontology_generation (#34, #349).
+"""Shared test doubles, factories and helpers (#34, #349, #465).
+
+Used by the eval tests and by the tests of the analysis pipeline that need a
+profiler double or a POI factory (``FakeProfiler``, ``make_poi``). It lives
+here, imported as ``tests.eval._doubles``, because it has no dependency on any
+test module (no circular import) and moving it would touch dozens of imports.
 
 This is not a test file (no test_* function): pytest collects nothing.
-Extracted from test_orchestrator.py to avoid duplication.
 """
 
 from __future__ import annotations
@@ -31,17 +34,46 @@ def write_snapshot(path: Path, pois: list[Poi], *, citta: str = "Roma") -> None:
     save_snapshot(path, pois, bbox=TEST_BBOX, citta=citta)
 
 
+def make_poi(
+    *,
+    id: str = "node/1",  # noqa: A002 -- mirrors the Poi field name
+    name: str = "Banca A",
+    lat: float = 41.89,
+    lon: float = 12.49,
+    osm_tags: str = "amenity=bank",
+    ontology_class: str = "Bank",
+    citta: str = "Roma",
+) -> Poi:
+    """Build a fresh ``Poi`` dict with sensible defaults; override per field."""
+    return {
+        "id": id,
+        "name": name,
+        "lat": lat,
+        "lon": lon,
+        "osm_tags": osm_tags,
+        "ontology_class": ontology_class,
+        "citta": citta,
+    }
+
+
 class FakeProfiler:
     """RiskProfiler double for tests without SPARQL.
 
     Constructible without arguments (harness test); accepts an optional dictionary
-    for the orchestrator tests that inject specific profiles.
+    of canned profiles by ontology class, kept as passed (not copied), so it can
+    be filled after construction. An unknown class gets an empty profile for that
+    class. ``calls`` records the requested classes in call order; through
+    ``retrieve()`` the order is unspecified (it iterates a set).
     """
 
     def __init__(self, profiles: dict[str, PoiRiskProfile] | None = None) -> None:
-        self._profiles: dict[str, PoiRiskProfile] = profiles or {}
+        self._profiles: dict[str, PoiRiskProfile] = (
+            profiles if profiles is not None else {}
+        )
+        self.calls: list[str] = []
 
     def profile(self, ontology_class: str) -> PoiRiskProfile:
+        self.calls.append(ontology_class)
         return self._profiles.get(
             ontology_class, PoiRiskProfile(ontology_class=ontology_class)
         )

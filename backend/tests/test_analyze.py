@@ -24,20 +24,13 @@ from crime_risk_analyzer.rag import retrieval
 from crime_risk_analyzer.rag.grounding import GroundedContext
 from crime_risk_analyzer.rag.retrieval import RetrievalContext
 from crime_risk_analyzer.sources.context import current_executor
+from tests.eval._doubles import FakeProfiler, make_poi
 
 _BANK = PoiRiskProfile(
     ontology_class="Bank",
     hazards=["Bank_robbery"],
     sparql_paths=["Bank → havingHazard → Bank_robbery"],
 )
-
-
-class _FakeProfiler:
-    def profile(self, ontology_class: str) -> PoiRiskProfile:
-        profiles = {"Bank": _BANK}
-        return profiles.get(
-            ontology_class, PoiRiskProfile(ontology_class=ontology_class)
-        )
 
 
 class _FakeLLMClient:
@@ -76,24 +69,16 @@ class _RecordingLLMClient:
 
 def _pois(citta: str) -> list[Poi]:
     return [
-        {
-            "id": "1",
-            "name": "Banca A",
-            "lat": 41.89,
-            "lon": 12.49,
-            "osm_tags": "amenity=bank",
-            "ontology_class": "Bank",
-            "citta": citta,
-        },
-        {
-            "id": "2",
-            "name": "Bar Roma",
-            "lat": 41.90,
-            "lon": 12.50,
-            "osm_tags": "amenity=bar",
-            "ontology_class": "GenericUrbanPOI",
-            "citta": citta,
-        },
+        make_poi(id="1", citta=citta),
+        make_poi(
+            id="2",
+            name="Bar Roma",
+            lat=41.90,
+            lon=12.50,
+            osm_tags="amenity=bar",
+            ontology_class="GenericUrbanPOI",
+            citta=citta,
+        ),
     ]
 
 
@@ -123,7 +108,7 @@ def _patch_io(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _client(llm: object = None, *, settings: Settings | None = None) -> TestClient:
     app = create_app()
-    app.dependency_overrides[current_executor] = lambda: _FakeProfiler()
+    app.dependency_overrides[current_executor] = lambda: FakeProfiler({"Bank": _BANK})
     app.dependency_overrides[get_llm_client] = lambda: llm or _FakeLLMClient()
     if settings is not None:
         app.dependency_overrides[get_settings] = lambda: settings
@@ -315,24 +300,16 @@ def test_analyze_rejects_out_of_range_radius(monkeypatch: pytest.MonkeyPatch) ->
 def _pois_by_radius(citta: str) -> list[Poi]:
     """One POI at the exact center of the request + one more than a km away (#318)."""
     return [
-        {
-            "id": "vicino",
-            "name": "Banca A",
-            "lat": 41.89,
-            "lon": 12.49,
-            "osm_tags": "amenity=bank",
-            "ontology_class": "Bank",
-            "citta": citta,
-        },
-        {
-            "id": "lontano",
-            "name": "Bar Roma",
-            "lat": 41.90,
-            "lon": 12.50,
-            "osm_tags": "amenity=bar",
-            "ontology_class": "GenericUrbanPOI",
-            "citta": citta,
-        },
+        make_poi(id="vicino", citta=citta),
+        make_poi(
+            id="lontano",
+            name="Bar Roma",
+            lat=41.90,
+            lon=12.50,
+            osm_tags="amenity=bar",
+            ontology_class="GenericUrbanPOI",
+            citta=citta,
+        ),
     ]
 
 
@@ -437,7 +414,7 @@ async def test_run_analysis_threads_geo_source(
     await run_analysis(
         "Roma",
         "Colosseo",
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         llm_client=_FakeLLMClient(),
         poi_source=_pois,
         geo_source=_geo,
@@ -466,7 +443,7 @@ async def test_analyze_populates_the_zone_context_cache() -> None:
     await run_analysis_fast(
         "Roma",
         "Colosseo",
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         poi_source=_fetch,
         geo_source=_geo,
     )
@@ -503,7 +480,7 @@ async def test_run_analysis_exposes_the_context_fingerprint() -> None:
     resp = await run_analysis(
         "Roma",
         "Colosseo",
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         llm_client=_FakeLLMClient(),
         poi_source=_fetch,
         geo_source=_geo,
@@ -527,7 +504,7 @@ async def test_different_fingerprint_if_the_poi_set_changes() -> None:
     full = await run_analysis(
         "Roma",
         "Colosseo",
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         llm_client=_FakeLLMClient(),
         poi_source=_fetch_full,
         geo_source=_geo,
@@ -535,7 +512,7 @@ async def test_different_fingerprint_if_the_poi_set_changes() -> None:
     reduced = await run_analysis(
         "Roma",
         "Colosseo",
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         llm_client=_FakeLLMClient(),
         poi_source=_fetch_reduced,
         geo_source=_geo,
@@ -556,7 +533,7 @@ async def test_baseline_exposes_the_context_fingerprint() -> None:
     resp = await run_baseline(
         "Roma",
         "Colosseo",
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         poi_source=_fetch,
         geo_source=_geo,
     )
@@ -580,7 +557,7 @@ async def test_baseline_fingerprint_computed_after_the_tipo_poi_filter() -> None
     resp = await run_baseline(
         "Roma",
         "Colosseo",
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         poi_source=_fetch,
         geo_source=_geo,
         tipo_poi="Bank",

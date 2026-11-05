@@ -17,6 +17,7 @@ from crime_risk_analyzer.orchestrator import run_baseline
 from crime_risk_analyzer.overpass_client import OverpassError, Poi
 from crime_risk_analyzer.rag import retrieval
 from crime_risk_analyzer.sources.context import current_executor
+from tests.eval._doubles import FakeProfiler, make_poi
 
 _BANK = PoiRiskProfile(
     ontology_class="Bank",
@@ -25,33 +26,18 @@ _BANK = PoiRiskProfile(
 )
 
 
-class _FakeProfiler:
-    def profile(self, ontology_class: str) -> PoiRiskProfile:
-        return {"Bank": _BANK}.get(
-            ontology_class, PoiRiskProfile(ontology_class=ontology_class)
-        )
-
-
 def _pois(citta: str) -> list[Poi]:
     return [
-        {
-            "id": "1",
-            "name": "Banca A",
-            "lat": 41.89,
-            "lon": 12.49,
-            "osm_tags": "amenity=bank",
-            "ontology_class": "Bank",
-            "citta": citta,
-        },
-        {
-            "id": "2",
-            "name": "Bar Roma",
-            "lat": 41.90,
-            "lon": 12.50,
-            "osm_tags": "amenity=bar",
-            "ontology_class": "GenericUrbanPOI",
-            "citta": citta,
-        },
+        make_poi(id="1", citta=citta),
+        make_poi(
+            id="2",
+            name="Bar Roma",
+            lat=41.90,
+            lon=12.50,
+            osm_tags="amenity=bar",
+            ontology_class="GenericUrbanPOI",
+            citta=citta,
+        ),
     ]
 
 
@@ -80,7 +66,7 @@ def _patch_io(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _client() -> TestClient:
     app = create_app()
-    app.dependency_overrides[current_executor] = lambda: _FakeProfiler()
+    app.dependency_overrides[current_executor] = lambda: FakeProfiler({"Bank": _BANK})
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -160,24 +146,16 @@ def test_baseline_rejects_out_of_range_radius(
 def _pois_by_radius(citta: str) -> list[Poi]:
     """One POI at the exact center of the request + one more than a km away (#318)."""
     return [
-        {
-            "id": "vicino",
-            "name": "Banca A",
-            "lat": 41.89,
-            "lon": 12.49,
-            "osm_tags": "amenity=bank",
-            "ontology_class": "Bank",
-            "citta": citta,
-        },
-        {
-            "id": "lontano",
-            "name": "Bar Roma",
-            "lat": 41.90,
-            "lon": 12.50,
-            "osm_tags": "amenity=bar",
-            "ontology_class": "GenericUrbanPOI",
-            "citta": citta,
-        },
+        make_poi(id="vicino", citta=citta),
+        make_poi(
+            id="lontano",
+            name="Bar Roma",
+            lat=41.90,
+            lon=12.50,
+            osm_tags="amenity=bar",
+            ontology_class="GenericUrbanPOI",
+            citta=citta,
+        ),
     ]
 
 
@@ -441,7 +419,7 @@ async def test_run_baseline_threads_geo_source(
     await run_baseline(
         "Roma",
         "Colosseo",
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         poi_source=_pois,
         geo_source=_geo,
     )

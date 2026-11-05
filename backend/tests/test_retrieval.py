@@ -17,6 +17,7 @@ from crime_risk_analyzer.models.risk import PoiRiskProfile
 from crime_risk_analyzer.overpass_client import OverpassError, Poi
 from crime_risk_analyzer.rag import retrieval
 from crime_risk_analyzer.rag.retrieval import retrieve
+from tests.eval._doubles import FakeProfiler, make_poi
 
 _GEO: GeoResult = GeoResult(
     lat=41.9,
@@ -28,29 +29,14 @@ _GEO: GeoResult = GeoResult(
 def _poi(
     poi_id: str, name: str, ontology_class: str, *, osm_tags: str = "amenity=bank"
 ) -> Poi:
-    return Poi(
+    return make_poi(
         id=poi_id,
         name=name,
         lat=41.9,
         lon=12.5,
         osm_tags=osm_tags,
         ontology_class=ontology_class,
-        citta="Roma",
     )
-
-
-class _FakeProfiler:
-    """Fake SPARQL executor: returns canned profiles and tracks requested classes."""
-
-    def __init__(self, profiles: dict[str, PoiRiskProfile]) -> None:
-        self._profiles = profiles
-        self.calls: list[str] = []
-
-    def profile(self, ontology_class: str) -> PoiRiskProfile:
-        self.calls.append(ontology_class)
-        return self._profiles.get(
-            ontology_class, PoiRiskProfile(ontology_class=ontology_class)
-        )
 
 
 def _patch_io(
@@ -82,7 +68,7 @@ async def test_retrieve_happy_path_multi_class(monkeypatch: pytest.MonkeyPatch) 
     }
     _patch_io(monkeypatch, pois=pois)
 
-    ctx = await retrieve("Roma", "Centro", executor=_FakeProfiler(profiles))
+    ctx = await retrieve("Roma", "Centro", executor=FakeProfiler(profiles))
 
     assert ctx["citta"] == "Roma"
     assert ctx["zona"] == "Centro"
@@ -98,7 +84,7 @@ async def test_retrieve_profiles_once_per_distinct_class(
 ) -> None:
     pois = [_poi("1", "A", "Bank"), _poi("2", "B", "Bank"), _poi("3", "C", "Bank")]
     _patch_io(monkeypatch, pois=pois)
-    executor = _FakeProfiler({})
+    executor = FakeProfiler()
 
     await retrieve("Roma", "Centro", executor=executor)
 
@@ -111,7 +97,7 @@ async def test_retrieve_includes_generic_poi_with_empty_profile(
     pois = [_poi("1", "Qualcosa", "GenericUrbanPOI", osm_tags="")]
     _patch_io(monkeypatch, pois=pois)
 
-    ctx = await retrieve("Roma", "Centro", executor=_FakeProfiler({}))
+    ctx = await retrieve("Roma", "Centro", executor=FakeProfiler())
 
     assert len(ctx["pois"]) == 1
     prof = ctx["profiles"]["GenericUrbanPOI"]
@@ -123,7 +109,7 @@ async def test_retrieve_zero_pois_returns_empty_context(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _patch_io(monkeypatch, pois=[])
-    executor = _FakeProfiler({})
+    executor = FakeProfiler()
 
     ctx = await retrieve("Roma", "Zona Vuota", executor=executor)
 
@@ -146,7 +132,7 @@ async def test_retrieve_propagates_zone_not_found(
     monkeypatch.setattr(retrieval, "fetch_pois", _fetch)
 
     with pytest.raises(ZoneNotFoundError):
-        await retrieve("Roma", "Ignota", executor=_FakeProfiler({}))
+        await retrieve("Roma", "Ignota", executor=FakeProfiler())
 
 
 async def test_retrieve_propagates_overpass_error(
@@ -162,7 +148,7 @@ async def test_retrieve_propagates_overpass_error(
     monkeypatch.setattr(retrieval, "fetch_pois", _raise)
 
     with pytest.raises(OverpassError):
-        await retrieve("Roma", "Centro", executor=_FakeProfiler({}))
+        await retrieve("Roma", "Centro", executor=FakeProfiler())
 
 
 async def test_retrieve_context_has_exact_keys(
@@ -170,7 +156,7 @@ async def test_retrieve_context_has_exact_keys(
 ) -> None:
     _patch_io(monkeypatch, pois=[_poi("1", "A", "Bank")])
 
-    ctx = await retrieve("Roma", "Centro", executor=_FakeProfiler({}))
+    ctx = await retrieve("Roma", "Centro", executor=FakeProfiler())
 
     assert set(ctx.keys()) == {"citta", "zona", "geo", "pois", "profiles", "stats"}
     assert set(ctx["stats"].keys()) == {"n_pois", "n_classes"}
@@ -199,7 +185,7 @@ async def test_retrieve_uses_injected_geo_source_without_geocoding(
     ctx = await retrieve(
         "Roma",
         "Colosseo",
-        executor=_FakeProfiler({}),
+        executor=FakeProfiler(),
         poi_source=_pois,
         geo_source=_geo_src,
     )
@@ -219,29 +205,15 @@ async def test_retrieve_uses_injected_poi_source(
     monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode)
     captured: list[str] = []
 
-    async def fake_source(bbox: object, citta: str) -> list[dict[str, object]]:
+    async def fake_source(bbox: object, citta: str) -> list[Poi]:
         captured.append(citta)
-        return [
-            {
-                "id": "1",
-                "name": "Banca A",
-                "lat": 41.89,
-                "lon": 12.49,
-                "osm_tags": "amenity=bank",
-                "ontology_class": "Bank",
-                "citta": "Roma",
-            }
-        ]
-
-    class _Prof:
-        def profile(self, ontology_class: str) -> PoiRiskProfile:
-            return PoiRiskProfile(ontology_class=ontology_class)
+        return [make_poi(id="1")]
 
     ctx = await retrieval.retrieve(
         "Roma",
         "Centro",
-        executor=_Prof(),
-        poi_source=fake_source,  # type: ignore[arg-type]
+        executor=FakeProfiler(),
+        poi_source=fake_source,
     )
     assert captured == ["Roma"]
     assert ctx["pois"][0]["name"] == "Banca A"
