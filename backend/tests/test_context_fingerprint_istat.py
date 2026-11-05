@@ -102,11 +102,11 @@ def _phase_1(client: TestClient) -> str:
     return str(resp.json()["contesto_hash"])
 
 
-def _click(client: TestClient, route: str, contesto_hash: str) -> httpx.Response:
+def _click(client: TestClient, route: str, context_hash: str) -> httpx.Response:
     body: dict[str, str] = {
         "citta": "Roma",
         "zona": "Colosseo",
-        "contesto_hash": contesto_hash,
+        "contesto_hash": context_hash,
     }
     if route == "/analyze/poi":
         body["poi_id"] = _POI_ID
@@ -145,9 +145,9 @@ def test_phase_1_on_carries_the_data_version(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client = _client(monkeypatch, enabled=True)
-    contesto_hash = _phase_1(client)
-    assert contesto_hash == fingerprint(_pois("Roma"), istat_version=data_version())
-    assert contesto_hash != fingerprint(_pois("Roma"))
+    context_hash = _phase_1(client)
+    assert context_hash == fingerprint(_pois("Roma"), istat_version=data_version())
+    assert context_hash != fingerprint(_pois("Roma"))
 
 
 @pytest.mark.parametrize("route", ["/analyze/poi", "/analyze/narrativa"])
@@ -155,15 +155,15 @@ def test_data_updated_between_phase_1_and_click_gives_409(
     route: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     client = _client(monkeypatch, enabled=True)
-    contesto_hash = _phase_1(client)
+    context_hash = _phase_1(client)
     _updated_data(monkeypatch)
-    resp = _click(client, route, contesto_hash)
+    resp = _click(client, route, context_hash)
     assert resp.status_code == 409
     assert resp.json()["detail"]["errore"] == "contesto_disallineato"
 
 
 @pytest.mark.parametrize("route", ["/analyze/poi", "/analyze/narrativa"])
-@pytest.mark.parametrize("enabled", [True, False], ids=["istat-acceso", "istat-spento"])
+@pytest.mark.parametrize("enabled", [True, False], ids=["istat-on", "istat-off"])
 def test_same_version_no_409(
     route: str, enabled: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -179,15 +179,15 @@ def test_switch_off_ignores_the_data_version(
     """Off, the ISTAT data does not enter the prompt: an update of it must not
     invalidate the analysis on screen."""
     client = _client(monkeypatch, enabled=False)
-    contesto_hash = _phase_1(client)
+    context_hash = _phase_1(client)
     _updated_data(monkeypatch)
-    assert _click(client, route, contesto_hash).status_code == 200
+    assert _click(client, route, context_hash).status_code == 200
 
 
 # --- Evaluation paths: run switch ---
 
 
-@pytest.mark.parametrize("enabled", [True, False], ids=["istat-acceso", "istat-spento"])
+@pytest.mark.parametrize("enabled", [True, False], ids=["istat-on", "istat-off"])
 async def test_run_analysis_uses_the_run_switch(enabled: bool) -> None:
     resp = await run_analysis(
         "Roma",
@@ -202,7 +202,7 @@ async def test_run_analysis_uses_the_run_switch(enabled: bool) -> None:
     assert resp.contesto_hash == fingerprint(_pois("Roma"), istat_version=expected)
 
 
-@pytest.mark.parametrize("enabled", [True, False], ids=["istat-acceso", "istat-spento"])
+@pytest.mark.parametrize("enabled", [True, False], ids=["istat-on", "istat-off"])
 async def test_no_ontology_arm_uses_the_run_switch(
     enabled: bool,
 ) -> None:

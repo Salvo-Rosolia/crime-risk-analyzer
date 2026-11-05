@@ -92,7 +92,7 @@ async def test_fast_response_has_no_narrativa_yet() -> None:
     assert out.messaggio is None
 
 
-@pytest.mark.parametrize("enabled", [True, False], ids=["istat-acceso", "istat-spento"])
+@pytest.mark.parametrize("enabled", [True, False], ids=["istat-on", "istat-off"])
 async def test_fast_response_exposes_istat_only_with_the_switch(
     enabled: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -352,11 +352,11 @@ async def _prime_cache() -> str:
 async def test_zone_narrative_returns_text_for_the_cached_zone() -> None:
     from crime_risk_analyzer.analyze_narrative import run_zone_narrative
 
-    contesto_hash = await _prime_cache()
+    context_hash = await _prime_cache()
     out = await run_zone_narrative(
         "Roma",
         "Colosseo",
-        contesto_hash=contesto_hash,
+        contesto_hash=context_hash,
         executor=FakeProfiler({"Bank": _BANK}),
         llm_client=_FakeLLMClient(),
     )
@@ -367,7 +367,7 @@ async def test_zone_narrative_returns_text_for_the_cached_zone() -> None:
 async def test_zone_narrative_cache_hit_does_not_touch_overpass() -> None:
     from crime_risk_analyzer.analyze_narrative import run_zone_narrative
 
-    contesto_hash = await _prime_cache()
+    context_hash = await _prime_cache()
 
     async def _exploding(bbox: Bbox, citta: str) -> list[Poi]:
         raise AssertionError("Overpass non deve essere chiamato su cache hit")
@@ -375,7 +375,7 @@ async def test_zone_narrative_cache_hit_does_not_touch_overpass() -> None:
     out = await run_zone_narrative(
         "Roma",
         "Colosseo",
-        contesto_hash=contesto_hash,
+        contesto_hash=context_hash,
         executor=FakeProfiler({"Bank": _BANK}),
         llm_client=_FakeLLMClient(),
         poi_source=_exploding,
@@ -394,12 +394,12 @@ async def test_zone_narrative_cold_cache_rebuilds_the_context() -> None:
     """
     from crime_risk_analyzer.analyze_narrative import run_zone_narrative
 
-    contesto_hash = await _prime_cache()
+    context_hash = await _prime_cache()
     zone_context_cache.clear()
     out = await run_zone_narrative(
         "Roma",
         "Colosseo",
-        contesto_hash=contesto_hash,
+        contesto_hash=context_hash,
         executor=FakeProfiler({"Bank": _BANK}),
         llm_client=_FakeLLMClient(),
         poi_source=_poi_source,
@@ -419,13 +419,13 @@ async def test_zone_narrative_cold_cache_divergent_rebuild_refuses() -> None:
     """
     from crime_risk_analyzer.analyze_narrative import run_zone_narrative
 
-    contesto_hash = await _prime_cache()
+    context_hash = await _prime_cache()
     zone_context_cache.clear()
     with pytest.raises(ContextMismatchError):
         await run_zone_narrative(
             "Roma",
             "Colosseo",
-            contesto_hash=contesto_hash,
+            contesto_hash=context_hash,
             executor=FakeProfiler({"Bank": _BANK}),
             llm_client=_FakeLLMClient(),
             poi_source=_divergent_poi_source,
@@ -445,7 +445,7 @@ async def test_zone_narrative_cold_cache_geocode_failure_becomes_context_mismatc
     becomes the same ``ContextMismatchError`` -> 409 as the ``contesto_hash``
     branch, with the same invitation to rerun the analysis.
     """
-    contesto_hash = await _prime_cache()
+    context_hash = await _prime_cache()
     zone_context_cache.clear()
 
     def _boom(zona: str, citta: str) -> GeoResult:
@@ -459,7 +459,7 @@ async def test_zone_narrative_cold_cache_geocode_failure_becomes_context_mismatc
         await run_zone_narrative(
             "Roma",
             "Colosseo",
-            contesto_hash=contesto_hash,
+            contesto_hash=context_hash,
             executor=FakeProfiler({"Bank": _BANK}),
             llm_client=_FakeLLMClient(),
         )
@@ -483,11 +483,11 @@ async def test_zone_narrative_context_mismatch_raises() -> None:
 async def test_zone_narrative_llm_error_falls_back_without_raising() -> None:
     from crime_risk_analyzer.analyze_narrative import run_zone_narrative
 
-    contesto_hash = await _prime_cache()
+    context_hash = await _prime_cache()
     out = await run_zone_narrative(
         "Roma",
         "Colosseo",
-        contesto_hash=contesto_hash,
+        contesto_hash=context_hash,
         executor=FakeProfiler({"Bank": _BANK}),
         llm_client=_RaisingLLMClient(),
     )
@@ -506,11 +506,11 @@ async def test_zone_narrative_declares_the_model_that_wrote() -> None:
     """
     from crime_risk_analyzer.analyze_narrative import run_zone_narrative
 
-    contesto_hash = await _prime_cache()
+    context_hash = await _prime_cache()
     out = await run_zone_narrative(
         "Roma",
         "Colosseo",
-        contesto_hash=contesto_hash,
+        contesto_hash=context_hash,
         executor=FakeProfiler({"Bank": _BANK}),
         llm_client=_FakeLLMClient(),
     )
@@ -522,11 +522,11 @@ async def test_zone_narrative_fallback_does_not_attribute_the_text_to_a_model() 
     ``_structured_response`` for the branch without LLM."""
     from crime_risk_analyzer.analyze_narrative import run_zone_narrative
 
-    contesto_hash = await _prime_cache()
+    context_hash = await _prime_cache()
     out = await run_zone_narrative(
         "Roma",
         "Colosseo",
-        contesto_hash=contesto_hash,
+        contesto_hash=context_hash,
         executor=FakeProfiler({"Bank": _BANK}),
         llm_client=_RaisingLLMClient(),
     )
@@ -564,7 +564,7 @@ def test_zone_narrative_response_has_no_numeric_danger_scoring_field() -> None:
 
 def test_zone_narrative_request_surface_is_citta_zona_domanda_contesto_hash() -> None:
     """Twin guard of
-    ``test_baseline_request_surface_is_cerchio_or_citta_zona_tipo_poi``
+    ``test_baseline_request_surface_is_circle_or_citta_zona_tipo_poi``
     (`test_orchestrator.py`, #263): it fixes the other side of the iso-input
     asymmetry.
 
@@ -669,35 +669,35 @@ def _client(llm: object = None, settings: Settings | None = None) -> TestClient:
 def _post_analyze(client: TestClient) -> str:
     """Phase 1: zone analysis; returns the fingerprint, as the client would."""
     zone_context_cache.clear()
-    zona = cast(
+    zone_resp = cast(
         httpx.Response,
         client.post(  # pyright: ignore[reportUnknownMemberType]
             "/analyze",
             json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0},
         ),
     )
-    assert zona.status_code == 200
-    return str(zona.json()["contesto_hash"])
+    assert zone_resp.status_code == 200
+    return str(zone_resp.json()["contesto_hash"])
 
 
-def _post_narrativa(
-    client: TestClient, contesto_hash: str, *, domanda: str | None = None
+def _post_narrative(
+    client: TestClient, context_hash: str, *, question: str | None = None
 ) -> httpx.Response:
     """Phase 2: the same call the frontend makes after rendering the data."""
     body: dict[str, str] = {
         "citta": "Roma",
         "zona": "Colosseo",
-        "contesto_hash": contesto_hash,
+        "contesto_hash": context_hash,
     }
-    if domanda is not None:
-        body["domanda"] = domanda
+    if question is not None:
+        body["domanda"] = question
     return cast(
         httpx.Response,
         client.post("/analyze/narrativa", json=body),  # pyright: ignore[reportUnknownMemberType]
     )
 
 
-@pytest.mark.parametrize("enabled", [True, False], ids=["istat-acceso", "istat-spento"])
+@pytest.mark.parametrize("enabled", [True, False], ids=["istat-on", "istat-off"])
 def test_zone_route_follows_the_switch(
     enabled: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -706,7 +706,7 @@ def test_zone_route_follows_the_switch(
     _patch_io(monkeypatch)
     llm = _RecordingLLMClient()
     client = _client(llm=llm, settings=Settings(istat_context_enabled=enabled))
-    resp = _post_narrativa(client, _post_analyze(client))
+    resp = _post_narrative(client, _post_analyze(client))
     assert resp.status_code == 200
     assert llm.calls[0][0] == (SYSTEM_PROMPT_ISTAT if enabled else SYSTEM_PROMPT)
     assert resp.json()["istat_attivo"] is enabled
@@ -728,7 +728,7 @@ def test_zone_route_with_model_selection_uses_the_selection_prompt(
         llm=llm,
         settings=Settings(istat_context_enabled=True, istat_scelta_modello=True),
     )
-    assert _post_narrativa(client, _post_analyze(client)).status_code == 200
+    assert _post_narrative(client, _post_analyze(client)).status_code == 200
     assert llm.calls[0][0] == SYSTEM_PROMPT_ISTAT_SELECTION
 
     llm_off = _RecordingLLMClient()
@@ -736,7 +736,7 @@ def test_zone_route_with_model_selection_uses_the_selection_prompt(
         llm=llm_off,
         settings=Settings(istat_context_enabled=False, istat_scelta_modello=True),
     )
-    assert _post_narrativa(disabled, _post_analyze(disabled)).status_code == 200
+    assert _post_narrative(disabled, _post_analyze(disabled)).status_code == 200
     assert llm_off.calls[0][0] == SYSTEM_PROMPT
 
 
@@ -760,17 +760,17 @@ def test_with_model_selection_the_weight_does_not_leave_the_responses(
         settings=Settings(istat_context_enabled=True, istat_scelta_modello=True),
     )
     zone_context_cache.clear()
-    zona = cast(
+    zone_resp = cast(
         httpx.Response,
         client.post(  # pyright: ignore[reportUnknownMemberType]
             "/analyze",
             json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0},
         ),
     )
-    assert zona.status_code == 200
-    narrativa = _post_narrativa(client, str(zona.json()["contesto_hash"]))
-    assert narrativa.status_code == 200
-    for response_obj in (zona, narrativa):
+    assert zone_resp.status_code == 200
+    narrative_resp = _post_narrative(client, str(zone_resp.json()["contesto_hash"]))
+    assert narrative_resp.status_code == 200
+    for response_obj in (zone_resp, narrative_resp):
         resp_body = response_obj.json()
         assert not {k for k in _keys(resp_body) if "scelta" in k or "peso" in k}
         assert "SCELTA DATI ISTAT" not in response_obj.text
@@ -787,17 +787,17 @@ def test_endpoint_completes_the_narrativa_left_open_by_phase_1(
     """
     _patch_io(monkeypatch)
     client = _client()
-    zona = cast(
+    zone_resp = cast(
         httpx.Response,
         client.post(  # pyright: ignore[reportUnknownMemberType]
             "/analyze",
             json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0},
         ),
     )
-    assert zona.status_code == 200
-    assert zona.json()["narrativa"] is None
+    assert zone_resp.status_code == 200
+    assert zone_resp.json()["narrativa"] is None
 
-    resp = _post_narrativa(client, str(zona.json()["contesto_hash"]))
+    resp = _post_narrative(client, str(zone_resp.json()["contesto_hash"]))
 
     assert resp.status_code == 200
     body = resp.json()
@@ -817,13 +817,13 @@ def test_endpoint_warm_cache_does_not_call_overpass_again(
     service."""
     _patch_io(monkeypatch)
     client = _client()
-    contesto_hash = _post_analyze(client)
+    context_hash = _post_analyze(client)
 
     async def _explodes(*args: object, **kwargs: object) -> list[Poi]:
         raise AssertionError("Overpass non deve essere chiamato in fase 2")
 
     monkeypatch.setattr(retrieval, "fetch_pois", _explodes)
-    resp = _post_narrativa(client, contesto_hash)
+    resp = _post_narrative(client, context_hash)
 
     assert resp.status_code == 200
     assert resp.json()["narrativa"] != ""
@@ -833,13 +833,13 @@ def test_endpoint_returns_409_for_mismatched_context(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """#242 on the zone path: a fingerprint that does not identify the context -> 409
-    with an invitation to rerun, not a normal-looking narrativa. Same register
+    with an invitation to rerun, not a normal-looking narrative. Same register
     (central handler) as ``/analyze/poi``."""
     _patch_io(monkeypatch)
     client = _client()
     _post_analyze(client)
 
-    resp = _post_narrativa(client, "0" * 64)
+    resp = _post_narrative(client, "0" * 64)
 
     assert resp.status_code == 409
     assert resp.json()["detail"]["errore"] == "contesto_disallineato"
@@ -855,7 +855,7 @@ def test_endpoint_409_does_not_spend_an_llm_call(
     client = _client(llm=llm)
     _post_analyze(client)
 
-    resp = _post_narrativa(client, "0" * 64)
+    resp = _post_narrative(client, "0" * 64)
 
     assert resp.status_code == 409
     assert llm.calls == []
@@ -888,7 +888,7 @@ def test_endpoint_rejects_overlong_citta(monkeypatch: pytest.MonkeyPatch) -> Non
     string that ends up in the cache key and in the Nominatim query (#170)."""
     _patch_io(monkeypatch)
     client = _client()
-    contesto_hash = _post_analyze(client)
+    context_hash = _post_analyze(client)
     resp = cast(
         httpx.Response,
         client.post(  # pyright: ignore[reportUnknownMemberType]
@@ -896,7 +896,7 @@ def test_endpoint_rejects_overlong_citta(monkeypatch: pytest.MonkeyPatch) -> Non
             json={
                 "citta": "A" * 101,
                 "zona": "Colosseo",
-                "contesto_hash": contesto_hash,
+                "contesto_hash": context_hash,
             },
         ),
     )
@@ -907,7 +907,7 @@ def test_endpoint_rejects_overlong_zona(monkeypatch: pytest.MonkeyPatch) -> None
     """``zona`` over max_length=200 -> 422 (same bound as ``AnalyzeRequest``)."""
     _patch_io(monkeypatch)
     client = _client()
-    contesto_hash = _post_analyze(client)
+    context_hash = _post_analyze(client)
     resp = cast(
         httpx.Response,
         client.post(  # pyright: ignore[reportUnknownMemberType]
@@ -915,7 +915,7 @@ def test_endpoint_rejects_overlong_zona(monkeypatch: pytest.MonkeyPatch) -> None
             json={
                 "citta": "Roma",
                 "zona": "z" * 201,
-                "contesto_hash": contesto_hash,
+                "contesto_hash": context_hash,
             },
         ),
     )
@@ -934,9 +934,9 @@ def test_endpoint_rejects_overlong_domanda(monkeypatch: pytest.MonkeyPatch) -> N
     _patch_io(monkeypatch)
     llm = _RecordingLLMClient()
     client = _client(llm=llm)
-    contesto_hash = _post_analyze(client)
+    context_hash = _post_analyze(client)
 
-    resp = _post_narrativa(client, contesto_hash, domanda="x" * 501)
+    resp = _post_narrative(client, context_hash, question="x" * 501)
 
     assert resp.status_code == 422
     assert llm.calls == []
@@ -980,7 +980,7 @@ def test_endpoint_rejects_too_short_contesto_hash(
     _patch_io(monkeypatch)
     client = _client()
     _post_analyze(client)
-    resp = _post_narrativa(client, "0" * 8)
+    resp = _post_narrative(client, "0" * 8)
     assert resp.status_code == 422
 
 
@@ -993,9 +993,9 @@ def test_endpoint_domanda_reaches_prompt(monkeypatch: pytest.MonkeyPatch) -> Non
     _patch_io(monkeypatch)
     llm = _RecordingLLMClient()
     client = _client(llm=llm)
-    contesto_hash = _post_analyze(client)
+    context_hash = _post_analyze(client)
 
-    resp = _post_narrativa(client, contesto_hash, domanda="Rischi di notte?")
+    resp = _post_narrative(client, context_hash, question="Rischi di notte?")
 
     assert resp.status_code == 200
     assert len(llm.calls) == 1
@@ -1010,9 +1010,9 @@ def test_endpoint_without_domanda_omits_section(
     _patch_io(monkeypatch)
     llm = _RecordingLLMClient()
     client = _client(llm=llm)
-    contesto_hash = _post_analyze(client)
+    context_hash = _post_analyze(client)
 
-    assert _post_narrativa(client, contesto_hash).status_code == 200
+    assert _post_narrative(client, context_hash).status_code == 200
 
     _system, user = llm.calls[0]
     assert "DOMANDA UTENTE" not in user
@@ -1025,9 +1025,9 @@ def test_endpoint_llm_down_returns_200_with_fallback(
     the structured data is already on screen from phase 1 and stays valid."""
     _patch_io(monkeypatch)
     client = _client(llm=_RaisingLLMClient())
-    contesto_hash = _post_analyze(client)
+    context_hash = _post_analyze(client)
 
-    resp = _post_narrativa(client, contesto_hash)
+    resp = _post_narrative(client, context_hash)
 
     assert resp.status_code == 200
     assert resp.json()["fallback"] is True
@@ -1039,8 +1039,8 @@ def _phase_2_user_content(monkeypatch: pytest.MonkeyPatch, settings: Settings) -
     _patch_io(monkeypatch, dense=True)
     llm = _RecordingLLMClient()
     client = _client(llm=llm, settings=settings)
-    contesto_hash = _post_analyze(client)
-    assert _post_narrativa(client, contesto_hash).status_code == 200
+    context_hash = _post_analyze(client)
+    assert _post_narrative(client, context_hash).status_code == 200
     return llm.calls[0][1]
 
 
@@ -1078,9 +1078,9 @@ def test_endpoint_response_never_contains_a_danger_score(
     """Anti-scoring guard extended to the new route (#184)."""
     _patch_io(monkeypatch)
     client = _client()
-    contesto_hash = _post_analyze(client)
+    context_hash = _post_analyze(client)
 
-    resp = _post_narrativa(client, contesto_hash)
+    resp = _post_narrative(client, context_hash)
 
     assert resp.status_code == 200
     payload = resp.text.lower()
@@ -1116,7 +1116,7 @@ _TIGHT_CAPS: _Caps = (1, 900)
 
 
 async def _product_prompt(
-    domanda: str | None, caps: _Caps, *, istat: bool = False
+    question: str | None, caps: _Caps, *, istat: bool = False
 ) -> tuple[str, str]:
     """Prompt that the PRODUCT sends to the model: phase 1 + ``/analyze/narrativa``.
 
@@ -1147,7 +1147,7 @@ async def _product_prompt(
         contesto_hash=phase_1.contesto_hash,
         executor=FakeProfiler({"Bank": _BANK}),
         llm_client=spy,
-        domanda=domanda,
+        domanda=question,
         request_token_budget=budget,
         max_tokens=max_tokens,
         istat_context_enabled=istat,
@@ -1158,7 +1158,7 @@ async def _product_prompt(
 
 
 async def _evaluation_prompt(
-    domanda: str | None, caps: _Caps, *, istat: bool = False
+    question: str | None, caps: _Caps, *, istat: bool = False
 ) -> tuple[str, str]:
     """Prompt that the EVALUATION measures: ``run_analysis``, the entry point of
     ``eval/harness``.
@@ -1178,7 +1178,7 @@ async def _evaluation_prompt(
         llm_client=spy,
         poi_source=_divergent_poi_source,
         geo_source=_geo_source,
-        domanda=domanda,
+        domanda=question,
         request_token_budget=budget,
         max_tokens=max_tokens,
         istat_context_enabled=istat,
@@ -1189,17 +1189,17 @@ async def _evaluation_prompt(
 
 
 @pytest.mark.parametrize(
-    "domanda", [None, "Rischi di notte?"], ids=["senza-domanda", "con-domanda"]
+    "question", [None, "Rischi di notte?"], ids=["without-question", "with-question"]
 )
 @pytest.mark.parametrize(
     "caps",
     [
-        pytest.param(_DEFAULT_CAPS, id="tetti-default"),
-        pytest.param(_TIGHT_CAPS, id="tetti-non-default"),
+        pytest.param(_DEFAULT_CAPS, id="default-caps"),
+        pytest.param(_TIGHT_CAPS, id="tight-caps"),
     ],
 )
 async def test_product_prompt_identical_to_the_evaluation_one(
-    caps: _Caps, domanda: str | None
+    caps: _Caps, question: str | None
 ) -> None:
     """With the same grounded context AND THE SAME CAPS the two paths send the SAME
     prompt.
@@ -1220,31 +1220,31 @@ async def test_product_prompt_identical_to_the_evaluation_one(
     (which is a separate fact, and has its own test). With and without ``domanda``
     because the untrusted input enters the user_content only on one branch.
     """
-    product = await _product_prompt(domanda, caps)
-    valutazione = await _evaluation_prompt(domanda, caps)
+    product = await _product_prompt(question, caps)
+    evaluation = await _evaluation_prompt(question, caps)
 
-    assert product == valutazione
+    assert product == evaluation
 
 
-@pytest.mark.parametrize("istat", [False, True], ids=["istat-spento", "istat-acceso"])
+@pytest.mark.parametrize("istat", [False, True], ids=["istat-off", "istat-on"])
 async def test_product_prompt_identical_to_the_evaluation_one_with_istat(
     istat: bool,
 ) -> None:
     """#345: the #292 parity holds with the ISTAT data too (the test POIs are in
     Rome)."""
     product = await _product_prompt(None, _DEFAULT_CAPS, istat=istat)
-    valutazione = await _evaluation_prompt(None, _DEFAULT_CAPS, istat=istat)
-    assert product == valutazione
+    evaluation = await _evaluation_prompt(None, _DEFAULT_CAPS, istat=istat)
+    assert product == evaluation
     assert ("DATI ISTAT" in product[1]) is istat
 
 
 async def test_tight_caps_really_change_the_prompt() -> None:
     """The parity with non-default caps is not a vacuous proof: the prompt feels those
     values (truncated context), so passing them on one side only would show."""
-    ai_default = await _product_prompt(None, _DEFAULT_CAPS)
+    default_prompt = await _product_prompt(None, _DEFAULT_CAPS)
     tight = await _product_prompt(None, _TIGHT_CAPS)
 
-    assert tight != ai_default
+    assert tight != default_prompt
     assert "piu' rilevanti su 2" in tight[1]
 
 
@@ -1259,9 +1259,9 @@ async def test_prompt_diverges_if_the_two_paths_have_different_caps() -> None:
     two prompts that would be identical anyway.
     """
     product = await _product_prompt(None, _TIGHT_CAPS)
-    valutazione = await _evaluation_prompt(None, _DEFAULT_CAPS)
+    evaluation = await _evaluation_prompt(None, _DEFAULT_CAPS)
 
-    assert product != valutazione
+    assert product != evaluation
 
 
 def test_the_two_paths_start_from_the_same_caps() -> None:
@@ -1287,23 +1287,23 @@ def test_the_two_paths_start_from_the_same_caps() -> None:
     from crime_risk_analyzer.orchestrator import run_analysis
 
     product = inspect.signature(run_zone_narrative).parameters
-    valutazione = inspect.signature(run_analysis).parameters
+    evaluation = inspect.signature(run_analysis).parameters
 
     assert (
         product["request_token_budget"].default
-        == valutazione["request_token_budget"].default
+        == evaluation["request_token_budget"].default
         == Settings.model_fields["llm_request_token_budget"].default
         == DEFAULT_REQUEST_TOKEN_BUDGET
     )
     assert (
         product["max_tokens"].default
-        == valutazione["max_tokens"].default
+        == evaluation["max_tokens"].default
         == Settings.model_fields["llm_max_tokens"].default
         == DEFAULT_MAX_TOKENS
     )
     assert (
         product["istat_context_enabled"].default
-        is valutazione["istat_context_enabled"].default
+        is evaluation["istat_context_enabled"].default
         is False
     )
 
@@ -1402,12 +1402,12 @@ def test_zone_mode_rebuilds_the_same_context_on_a_cold_cache(
 
     zone_context_cache.clear()
     geocoding._CACHE.clear()  # pyright: ignore[reportPrivateUsage]
-    narrativa = cast(
+    narrative_resp = cast(
         httpx.Response,
         client.post("/analyze/narrativa", json=body),  # pyright: ignore[reportUnknownMemberType]
     )
-    assert narrativa.status_code == 200
-    assert narrativa.json()["fallback"] is False
+    assert narrative_resp.status_code == 200
+    assert narrative_resp.json()["fallback"] is False
 
     zone_context_cache.clear()
     geocoding._CACHE.clear()  # pyright: ignore[reportPrivateUsage]

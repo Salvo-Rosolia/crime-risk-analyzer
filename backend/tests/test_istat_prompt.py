@@ -56,7 +56,7 @@ def _sha(text: str) -> str:
             "2075418d79b5e17a4aeaf30690047ac2ffea6510dcf81b19b6735d3553c271e1",
         ),
     ],
-    ids=["zona", "poi", "senza-ontologia"],
+    ids=["zone", "poi", "without-ontology"],
 )
 def test_existing_prompts_byte_identical(prompt: str, expected: str) -> None:
     """Switch off = today's prompt: the comparisons already made stay valid."""
@@ -68,7 +68,7 @@ def test_rule_3_unchanged() -> None:
 
 
 @pytest.mark.parametrize(
-    "prompt", [SYSTEM_PROMPT_ISTAT, POI_SYSTEM_PROMPT_ISTAT], ids=["zona", "poi"]
+    "prompt", [SYSTEM_PROMPT_ISTAT, POI_SYSTEM_PROMPT_ISTAT], ids=["zone", "poi"]
 )
 def test_with_istat_no_third_block(prompt: str) -> None:
     """#365 D1: the structure stays at TWO blocks, as without ISTAT."""

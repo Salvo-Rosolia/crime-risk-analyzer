@@ -40,7 +40,7 @@ __all__ = ["ContextHash", "fingerprint", "active_sources_id", "istat_version_for
 
 #: Exact length of a fingerprint: the sha256 hexdigest that :func:`fingerprint`
 #: returns (32 bytes, two characters per byte). Anchored to the real digest by
-#: ``test_la_richiesta_accetta_esattamente_la_lunghezza_del_digest``, so an
+#: ``test_the_request_accepts_exactly_the_digest_length``, so an
 #: algorithm change cannot leave the requests' bound behind.
 _FINGERPRINT_LENGTH = 64
 

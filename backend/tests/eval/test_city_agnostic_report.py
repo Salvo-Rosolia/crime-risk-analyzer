@@ -118,20 +118,20 @@ def test_committed_snapshots_have_provenance_and_single_config() -> None:
     provenance, and written with a SINGLE canonical configuration. They are not compared
     with the current config (every change to the selectors would break CI): only
     the homogeneity among files."""
-    cartella = Path(__file__).parents[2] / "results" / "city_agnostic" / "snapshots"
-    file = sorted(cartella.glob("*.json"))
-    assert file, "attesi gli esiti C1 versionati in results/city_agnostic/snapshots/"
-    firme: dict[str, str] = {}
-    for f in file:
+    snapshot_dir = Path(__file__).parents[2] / "results" / "city_agnostic" / "snapshots"
+    files = sorted(snapshot_dir.glob("*.json"))
+    assert files, "attesi gli esiti C1 versionati in results/city_agnostic/snapshots/"
+    signatures: dict[str, str] = {}
+    for f in files:
         outcome = ca.load_outcome(f)
         assert outcome.status == "ok", f"esito non ok: {f.name}"
         assert outcome.provenienza is not None, f"senza provenienza: {f.name}"
-        firme[f.name] = json.dumps(
+        signatures[f.name] = json.dumps(
             outcome.provenienza.configurazione_canonica, sort_keys=True
         )
-    assert len(set(firme.values())) == 1, (
+    assert len(set(signatures.values())) == 1, (
         "configurazioni canoniche miste fra gli snapshot versionati "
-        f"({sorted(firme)}): una ricattura parziale va ripetuta per l'INTERO "
+        f"({sorted(signatures)}): una ricattura parziale va ripetuta per l'INTERO "
         "roster, altrimenti gli esiti non sono confrontabili"
     )
 

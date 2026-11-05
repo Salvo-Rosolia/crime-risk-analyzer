@@ -378,11 +378,11 @@ describe('NarrativeSheetComponent', () => {
       withIstat(makeSources(`Il furto ${pua} qui e il${pua} danno cala.`), twoRisks);
       const p = panel('ONTOLOGIA').querySelector('.cra-narr-prose') as HTMLElement;
       const children = Array.from(p.children) as HTMLElement[];
-      const testo = children
+      const text = children
         .filter((f) => !f.classList.contains('cra-narr-istat'))
         .map((f) => f.textContent)
         .join('');
-      expect(testo).toBe('Il furto  qui e il danno cala.');
+      expect(text).toBe('Il furto  qui e il danno cala.');
       expect(p.textContent).not.toContain(pua);
       expect(
         children[children.findIndex((f) => f.classList.contains('cra-narr-istat')) - 1].textContent,

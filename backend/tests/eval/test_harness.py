@@ -855,7 +855,7 @@ async def test_no_ontology_arm_replays_the_snapshot_of_the_complete_arm(
         }
     )
 
-    client_completo = _HashingLLMClient()
+    full_client = _HashingLLMClient()
     ablated_client = _HashingLLMClient()
     full_rec = (
         await run_experiment(
@@ -866,7 +866,7 @@ async def test_no_ontology_arm_replays_the_snapshot_of_the_complete_arm(
                 cases=[RunCase(citta="Roma", zona="Centro")],
             ),
             executor=profiler,
-            llm_client=client_completo,
+            llm_client=full_client,
             results_dir=tmp_path,
             code_commit="abc",
             ontology_hash="def",
@@ -902,7 +902,7 @@ async def test_no_ontology_arm_replays_the_snapshot_of_the_complete_arm(
     assert ablated_rec.run_id != full_rec.run_id
     assert ablated_rec.provenance.prompt_hash != full_rec.provenance.prompt_hash
     # The isolated variable: the ontology reaches the prompt only in the full arm.
-    assert "Bank_robbery" in client_completo.calls[0][1]
+    assert "Bank_robbery" in full_client.calls[0][1]
     assert "Bank_robbery" not in ablated_client.calls[0][1]
     assert "  POI: Banca A (Bank)" in ablated_client.calls[0][1]
 
