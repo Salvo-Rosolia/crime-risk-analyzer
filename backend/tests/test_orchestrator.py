@@ -710,7 +710,7 @@ async def test_run_analysis_accepts_poi_source(monkeypatch: pytest.MonkeyPatch) 
         "Centro",
         executor=_FakeProfiler({"Bank": _BANK_PROFILE}),
         llm_client=_FakeLLMClient(_llm_response()),
-        poi_source=src,  # type: ignore[arg-type]
+        poi_source=src,
     )
     assert [p.name for p in resp.poi] == ["Banca A"]
 
@@ -1276,13 +1276,15 @@ async def test_run_analysis_does_not_touch_the_zone_cache(
 async def test_run_analysis_exposes_the_istat_fields_and_hides_the_raw() -> None:
     from tests.eval._doubles import FakeLLMClient
 
-    class _FakeProfilerRome:
-        def profile(self, ontology_class: str) -> PoiRiskProfile:
-            return PoiRiskProfile(
+    profiler = _FakeProfiler(
+        {
+            "Bank": PoiRiskProfile(
                 ontology_class="Bank",
                 hazards=["Bank_robbery", "Property_theft"],
                 sparql_paths=["Bank → havingHazard → Bank_robbery"],
             )
+        }
+    )
 
     async def _poi_source_rome(bbox: Bbox, citta: str) -> list[Poi]:
         return [make_poi(lat=41.8902, lon=12.4922, citta=citta)]
@@ -1293,7 +1295,7 @@ async def test_run_analysis_exposes_the_istat_fields_and_hides_the_raw() -> None
     resp = await run_analysis(
         "Roma",
         "Colosseo",
-        executor=_FakeProfilerRome(),
+        executor=profiler,
         llm_client=FakeLLMClient(),
         poi_source=_poi_source_rome,
         geo_source=_geo_source_rome,

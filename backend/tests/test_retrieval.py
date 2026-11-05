@@ -29,14 +29,13 @@ _GEO: GeoResult = GeoResult(
 def _poi(
     poi_id: str, name: str, ontology_class: str, *, osm_tags: str = "amenity=bank"
 ) -> Poi:
-    return Poi(
+    return make_poi(
         id=poi_id,
         name=name,
         lat=41.9,
         lon=12.5,
         osm_tags=osm_tags,
         ontology_class=ontology_class,
-        citta="Roma",
     )
 
 
@@ -214,7 +213,7 @@ async def test_retrieve_uses_injected_poi_source(
         "Roma",
         "Centro",
         executor=FakeProfiler(),
-        poi_source=fake_source,  # type: ignore[arg-type]
+        poi_source=fake_source,
     )
     assert captured == ["Roma"]
     assert ctx["pois"][0]["name"] == "Banca A"

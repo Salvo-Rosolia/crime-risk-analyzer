@@ -24,21 +24,13 @@ from crime_risk_analyzer.istat.data import data_version
 from crime_risk_analyzer.llm.client import LLMResponse, get_llm_client
 from crime_risk_analyzer.main import create_app
 from crime_risk_analyzer.models.geo import Bbox
-from crime_risk_analyzer.models.risk import PoiRiskProfile
 from crime_risk_analyzer.orchestrator import run_analysis, run_no_ontology_prompt
 from crime_risk_analyzer.overpass_client import Poi
 from crime_risk_analyzer.rag import retrieval
 from crime_risk_analyzer.sources.context import current_executor
-from tests.eval._doubles import FakeProfiler
+from tests.eval._doubles import FakeProfiler, make_poi
 
 _POI_ID = "node/1"
-
-
-_BANK = PoiRiskProfile(
-    ontology_class="Bank",
-    hazards=["Bank_robbery"],
-    sparql_paths=["Bank → havingHazard → Bank_robbery"],
-)
 
 
 class _LLM:
@@ -57,24 +49,16 @@ class _LLM:
 
 def _pois(citta: str) -> list[Poi]:
     return [
-        {
-            "id": _POI_ID,
-            "name": "Banca A",
-            "lat": 41.8900,
-            "lon": 12.4920,
-            "osm_tags": "amenity=bank",
-            "ontology_class": "Bank",
-            "citta": citta,
-        },
-        {
-            "id": "node/2",
-            "name": "Liceo Cavour",
-            "lat": 41.8901,
-            "lon": 12.4921,
-            "osm_tags": "amenity=school",
-            "ontology_class": "School",
-            "citta": citta,
-        },
+        make_poi(id=_POI_ID, lat=41.8900, lon=12.4920, citta=citta),
+        make_poi(
+            id="node/2",
+            name="Liceo Cavour",
+            lat=41.8901,
+            lon=12.4921,
+            osm_tags="amenity=school",
+            ontology_class="School",
+            citta=citta,
+        ),
     ]
 
 
@@ -100,7 +84,7 @@ def _client(monkeypatch: pytest.MonkeyPatch, *, enabled: bool) -> TestClient:
     monkeypatch.setattr(retrieval, "fetch_pois", _fetch)
     custom_settings = Settings(istat_context_enabled=enabled)
     app = create_app()
-    app.dependency_overrides[current_executor] = lambda: FakeProfiler({"Bank": _BANK})
+    app.dependency_overrides[current_executor] = lambda: FakeProfiler()
     app.dependency_overrides[get_llm_client] = lambda: _LLM()
     app.dependency_overrides[get_settings] = lambda: custom_settings
     return TestClient(app, raise_server_exceptions=False)
@@ -208,7 +192,7 @@ async def test_run_analysis_uses_the_run_switch(enabled: bool) -> None:
     resp = await run_analysis(
         "Roma",
         "Colosseo",
-        executor=FakeProfiler({"Bank": _BANK}),
+        executor=FakeProfiler(),
         llm_client=_LLM(),
         poi_source=_poi_source,
         geo_source=_geo_source,
@@ -225,7 +209,7 @@ async def test_no_ontology_arm_uses_the_run_switch(
     resp = await run_no_ontology_prompt(
         "Roma",
         "Colosseo",
-        executor=FakeProfiler({"Bank": _BANK}),
+        executor=FakeProfiler(),
         llm_client=_LLM(),
         poi_source=_poi_source,
         geo_source=_geo_source,

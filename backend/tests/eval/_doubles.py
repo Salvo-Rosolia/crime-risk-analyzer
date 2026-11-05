@@ -1,9 +1,9 @@
 """Shared test doubles, factories and helpers (#34, #349, #465).
 
-Used by the eval tests and by the analyze/baseline/retrieval/narrative tests
-(``FakeProfiler``, ``make_poi``). It lives here, imported as
-``tests.eval._doubles``, because it has no dependency on any test module (no
-circular import) and moving it would touch dozens of imports.
+Used by the eval tests and by the tests of the analysis pipeline that need a
+profiler double or a POI factory (``FakeProfiler``, ``make_poi``). It lives
+here, imported as ``tests.eval._doubles``, because it has no dependency on any
+test module (no circular import) and moving it would touch dozens of imports.
 
 This is not a test file (no test_* function): pytest collects nothing.
 """
@@ -60,12 +60,16 @@ class FakeProfiler:
     """RiskProfiler double for tests without SPARQL.
 
     Constructible without arguments (harness test); accepts an optional dictionary
-    for the orchestrator tests that inject specific profiles. ``calls`` records
-    the requested classes, in order.
+    of canned profiles by ontology class, kept as passed (not copied), so it can
+    be filled after construction. An unknown class gets an empty profile for that
+    class. ``calls`` records the requested classes in call order; through
+    ``retrieve()`` the order is unspecified (it iterates a set).
     """
 
     def __init__(self, profiles: dict[str, PoiRiskProfile] | None = None) -> None:
-        self._profiles: dict[str, PoiRiskProfile] = profiles or {}
+        self._profiles: dict[str, PoiRiskProfile] = (
+            profiles if profiles is not None else {}
+        )
         self.calls: list[str] = []
 
     def profile(self, ontology_class: str) -> PoiRiskProfile:
