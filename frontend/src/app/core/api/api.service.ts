@@ -1,6 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
+import { expectShape, isAnalyzeResponse, isPoiTypeList } from '@core/api/response-guards';
 import {
   AnalyzeResponse,
   BaselineParams,
@@ -71,7 +72,9 @@ export class ApiService {
    */
   poiTypes(setKey: string): Promise<PoiType[]> {
     return this.memoized('poiTypes', setKey, () =>
-      firstValueFrom(this.http.get<PoiType[]>('/poi-types')),
+      firstValueFrom(this.http.get<unknown>('/poi-types')).then((body) =>
+        expectShape(body, isPoiTypeList),
+      ),
     );
   }
 
@@ -82,13 +85,17 @@ export class ApiService {
    * because `SearchArea` does not allow it.
    */
   analyze(area: SearchArea): Promise<AnalyzeResponse> {
-    return firstValueFrom(this.http.post<AnalyzeResponse>('/analyze', areaBody(area)));
+    return firstValueFrom(this.http.post<unknown>('/analyze', areaBody(area))).then((body) =>
+      expectShape(body, isAnalyzeResponse),
+    );
   }
 
   analyzeBaseline(params: BaselineParams): Promise<AnalyzeResponse> {
     const body: Record<string, unknown> = { ...areaBody(params.area) };
     if (params.poiType) body['tipo_poi'] = params.poiType;
-    return firstValueFrom(this.http.post<AnalyzeResponse>('/analyze/baseline', body));
+    return firstValueFrom(this.http.post<unknown>('/analyze/baseline', body)).then((res) =>
+      expectShape(res, isAnalyzeResponse),
+    );
   }
 
   geocodePlace(query: string): Promise<{ lat: number; lon: number }> {

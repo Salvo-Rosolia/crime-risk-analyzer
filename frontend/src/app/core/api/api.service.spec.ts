@@ -291,6 +291,105 @@ describe('ApiService', () => {
     await p;
   });
 
+  // An unexpected response shape (e.g. a renamed key, as in #418) must be a failed load: the
+  // existing error path of the callers handles a rejection, `undefined` fields must never reach the UI.
+  describe('response shape validation (#464)', () => {
+    const SHAPE_ERROR = 'Risposta del server in un formato inatteso.';
+    const poiItem = {
+      id: 'node/1',
+      name: 'Banca',
+      ontology_class: 'Bank',
+      lat: 41.9,
+      lon: 12.5,
+      confidence: null,
+      sparql_path: null,
+      ontology_label_it: '',
+      ontology_label_en: '',
+    };
+    const circle = { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 } as const;
+
+    it('poiTypes: a renamed key (ontology_class → class) rejects instead of yielding undefined options', async () => {
+      const p = api.poiTypes('0:default');
+      http.expectOne('/poi-types').flush([{ class: 'Bank', label_it: 'Banca' }]);
+      await expect(p).rejects.toThrow(SHAPE_ERROR);
+    });
+
+    it('poiTypes: a missing label_it rejects', async () => {
+      const p = api.poiTypes('0:default');
+      http.expectOne('/poi-types').flush([{ ontology_class: 'Bank' }]);
+      await expect(p).rejects.toThrow(SHAPE_ERROR);
+    });
+
+    it('poiTypes: a non-array body (e.g. an error envelope) rejects', async () => {
+      const p = api.poiTypes('0:default');
+      http.expectOne('/poi-types').flush({ detail: 'x' });
+      await expect(p).rejects.toThrow(SHAPE_ERROR);
+    });
+
+    it('poiTypes: an empty list is valid', async () => {
+      const p = api.poiTypes('0:default');
+      http.expectOne('/poi-types').flush([]);
+      await expect(p).resolves.toEqual([]);
+    });
+
+    it('poiTypes: a malformed response is not memoized, a later call retries', async () => {
+      const p1 = api.poiTypes('0:default');
+      http.expectOne('/poi-types').flush([{ class: 'Bank', label_it: 'Banca' }]);
+      await expect(p1).rejects.toThrow(SHAPE_ERROR);
+
+      const p2 = api.poiTypes('0:default');
+      http.expectOne('/poi-types').flush(poiTypes);
+      await expect(p2).resolves.toEqual(poiTypes);
+    });
+
+    it('analyze: a body without the poi list rejects', async () => {
+      const broken: Record<string, unknown> = { ...resp };
+      delete broken['poi'];
+      const p = api.analyze(circle);
+      http.expectOne('/analyze').flush(broken);
+      await expect(p).rejects.toThrow(SHAPE_ERROR);
+    });
+
+    it('analyze: a renamed key (zona_normalizzata) rejects', async () => {
+      const renamed: Record<string, unknown> = { ...resp, zona: 'Colosseo' };
+      delete renamed['zona_normalizzata'];
+      const p = api.analyze(circle);
+      http.expectOne('/analyze').flush(renamed);
+      await expect(p).rejects.toThrow(SHAPE_ERROR);
+    });
+
+    it('analyze: a POI with a renamed key (ontology_class) rejects', async () => {
+      const brokenPoi: Record<string, unknown> = { ...poiItem, tipo: 'Bank' };
+      delete brokenPoi['ontology_class'];
+      const p = api.analyze(circle);
+      http.expectOne('/analyze').flush({ ...resp, poi: [brokenPoi] });
+      await expect(p).rejects.toThrow(SHAPE_ERROR);
+    });
+
+    it('analyze: a null or non-object body rejects', async () => {
+      const p = api.analyze(circle);
+      http.expectOne('/analyze').flush(null);
+      await expect(p).rejects.toThrow(SHAPE_ERROR);
+    });
+
+    it('analyze: a well-formed response with POIs resolves unchanged', async () => {
+      const full = { ...resp, poi: [poiItem] };
+      const p = api.analyze(circle);
+      http.expectOne('/analyze').flush(full);
+      await expect(p).resolves.toEqual(full);
+    });
+
+    it('analyzeBaseline: a malformed response rejects, a well-formed one resolves', async () => {
+      const bad = api.analyzeBaseline({ area: circle });
+      http.expectOne('/analyze/baseline').flush({ ...resp, risk_models: undefined });
+      await expect(bad).rejects.toThrow(SHAPE_ERROR);
+
+      const ok = api.analyzeBaseline({ area: circle });
+      http.expectOne('/analyze/baseline').flush(resp);
+      await expect(ok).resolves.toEqual(resp);
+    });
+  });
+
   describe('AnalyzeRequest/BaselineRequest contract (backend orchestrator.py)', () => {
     it('analyze(): the emitted payload is a valid subset of AnalyzeRequest (center+radius_m mandatory)', async () => {
       const p = api.analyze({ kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 500 });
