@@ -391,6 +391,34 @@ def test_poi_types_endpoint_with_expired_or_malformed_session_200() -> None:
         assert r.json() == expected
 
 
+def _set_ids(response: httpx.Response) -> set[str]:
+    return {t["source_set_id"] for t in response.json()}
+
+
+def test_poi_types_endpoint_exposes_the_id_of_the_session_set() -> None:
+    """#473: every entry carries the id of the set the catalogue belongs to."""
+    store = SessionStore(ttl_seconds=100, max_sessions=4)
+    store.activate(SID, _custom("c1"), [])
+    store.activate(OTHER_SID, _bank2_set(), [])
+    client = _client(store)
+
+    assert _set_ids(_get_poi_types(client, SID)) == {"c1"}
+    assert _set_ids(_get_poi_types(client, OTHER_SID)) == {"c2"}
+    assert _set_ids(_get_poi_types(client)) == {"default"}
+
+
+def test_poi_types_endpoint_id_is_stable_and_default_after_expiry() -> None:
+    t = [0.0]
+    store = SessionStore(ttl_seconds=100, max_sessions=4, clock=lambda: t[0])
+    store.activate(SID, _custom("c1"), [])
+    client = _client(store)
+
+    assert _set_ids(_get_poi_types(client, SID)) == {"c1"}
+    assert _set_ids(_get_poi_types(client, SID)) == {"c1"}
+    t[0] = 101.0
+    assert _set_ids(_get_poi_types(client, SID)) == {"default"}
+
+
 # --- Overpass: selectors of the set ---
 
 

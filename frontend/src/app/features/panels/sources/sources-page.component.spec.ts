@@ -7,6 +7,7 @@ import { SourcesPageComponent } from './sources-page.component';
 
 const status = (kind: 'example' | 'custom', avvisi: SourceProblem[] = []): SourcesStatus => ({
   stato: 'attivo',
+  source_set_id: kind === 'example' ? 'example' : 'custom-aaaaaaaaaaaaaaaa',
   scade_tra_secondi: 900,
   set: { kind, classi: 7, selettori_osm: 12, versione_dati: '2024', luoghi: ['Roma'], avvisi },
 });

@@ -76,10 +76,17 @@ export class BasePanelComponent implements OnInit {
   private readonly sources = inject(SourcesStore);
   /** `GET /poi-types` (#143) following the active source set (#463): reloaded on every key change,
    * a superseded response is dropped and the request dies with the panel. A failure gives an empty
-   * list: the filter is optional, it must not block the search. */
+   * list: the filter is optional, it must not block the search. The id every list carries (#473) is
+   * handed to the sources store: if it is not the one the client believes in, the store resets the
+   * indicator and signals the change, and the new key reloads the list. */
   private readonly poiTypesLoad = resource({
     params: () => this.sources.setKey(),
-    loader: ({ params }) => this.api.poiTypes(params).catch((): PoiType[] => []),
+    loader: async ({ params, abortSignal }) => {
+      const types = await this.api.poiTypes(params).catch((): PoiType[] => []);
+      // A superseded request answers for a key nobody looks at any more: its id says nothing new.
+      if (!abortSignal.aborted && types.length > 0) this.sources.noteSetId(types[0].source_set_id);
+      return types;
+    },
   });
 
   protected readonly cities = signal<string[]>([]);

@@ -94,3 +94,26 @@ test('silent backend restart (#467): the first 422 reloads the list of the set t
   await expect(S.baseTableRows(page)).toHaveCount(2);
   expect(sentType).toBeUndefined();
 });
+
+test('silent restart (#473): with "Tutti i tipi" there is no 422, yet the next analysis brings the indicator and the results back in line', async ({
+  page,
+}) => {
+  const sources = await mockApi(page, { baseline: baselineFixture });
+  await page.goto('/');
+  await changeSources(page, "Usa l'esempio", 'Fonti: Esempio');
+  await enterBase(page);
+  await S.baseCityField(page).fill('Roma');
+  await S.baseZoneField(page).fill('Colosseo');
+  await S.baseSubmitButton(page).click();
+  await expect(S.baseTableRows(page)).toHaveCount(2);
+
+  // The backend restarts: no 410. The same search (no class, so no 422) is answered by the default set.
+  sources.restart();
+  await S.baseSubmitButton(page).click();
+
+  // The id of the server no longer matches: indicator back to the default, results cleared, form kept.
+  await expect(indicator(page)).toContainText('Fonti: Predefinite');
+  await expect(S.baseTableRows(page)).toHaveCount(0);
+  await expect(S.baseCityField(page)).toHaveValue('Roma');
+  await expect(S.baseZoneField(page)).toHaveValue('Colosseo');
+});

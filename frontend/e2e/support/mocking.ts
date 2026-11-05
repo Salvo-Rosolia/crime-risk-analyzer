@@ -133,7 +133,7 @@ export interface SourcesMock {
   active(): Readonly<SourcesStatus>;
   /** The POI types the mocked backend serves right now: the example classes if a set is active, else the default ones. */
   poiTypes(): readonly PoiType[];
-  /** The backend restarts: the session's set is gone and the default is served, with no 410 (#467). */
+  /** The backend restarts: the session's set is gone and the default is served, with no 410 (#467, #473). */
   restart(): void;
 }
 
@@ -141,11 +141,16 @@ const DEFAULT_SOURCES: Readonly<SourcesStatus> = Object.freeze({
   stato: 'default',
   scade_tra_secondi: null,
   set: null,
+  source_set_id: 'default',
 });
+
+/** Server identity of a set (#473): `example` for the bundled one, a stable hash-like id for an upload. */
+const SET_IDS = { example: 'example', custom: 'custom-0123456789abcdef' } as const;
 
 function activeSet(kind: 'example' | 'custom'): SourcesStatus {
   return {
     stato: 'attivo',
+    source_set_id: SET_IDS[kind],
     scade_tra_secondi: 900,
     set: {
       kind,
@@ -193,7 +198,11 @@ export async function mockSources(page: Page, opts: MockSourcesOpts = {}): Promi
   });
   return {
     active: () => current,
-    poiTypes: () => (current.stato === 'attivo' ? examplePoiTypes : poiTypes),
+    // Every element carries the id of the set served, as the backend does (#473).
+    poiTypes: () =>
+      current.stato === 'attivo'
+        ? examplePoiTypes.map((t) => ({ ...t, source_set_id: current.source_set_id }))
+        : poiTypes,
     restart: () => {
       current = DEFAULT_SOURCES;
     },

@@ -56,13 +56,18 @@ const dataWithRows: AnalyzeResponse = {
 };
 
 const poiTypesFixture = [
-  { ontology_class: 'Bank', label_it: 'Banca' },
-  { ontology_class: 'Railway_station', label_it: 'Stazione ferroviaria' },
+  { ontology_class: 'Bank', label_it: 'Banca', source_set_id: 'default' },
+  { ontology_class: 'Railway_station', label_it: 'Stazione ferroviaria', source_set_id: 'default' },
 ];
 
 describe('BasePanelComponent', () => {
   let fixture: ComponentFixture<BasePanelComponent>;
-  let api: { cities: jest.Mock; poiTypes: jest.Mock; sourcesStatus: jest.Mock };
+  let api: {
+    cities: jest.Mock;
+    poiTypes: jest.Mock;
+    sourcesStatus: jest.Mock;
+    uploadSources: jest.Mock;
+  };
 
   function submitForm(): void {
     const form: HTMLFormElement = fixture.nativeElement.querySelector('form');
@@ -85,9 +90,15 @@ describe('BasePanelComponent', () => {
     api = {
       cities: jest.fn().mockResolvedValue(['Roma', 'Milano']),
       poiTypes: jest.fn().mockResolvedValue(poiTypesFixture),
+      uploadSources: jest.fn(),
       sourcesStatus: jest
         .fn()
-        .mockResolvedValue({ stato: 'default', scade_tra_secondi: null, set: null }),
+        .mockResolvedValue({
+          stato: 'default',
+          scade_tra_secondi: null,
+          set: null,
+          source_set_id: 'default',
+        }),
     };
     await TestBed.configureTestingModule({
       imports: [BasePanelComponent],
@@ -147,6 +158,56 @@ describe('BasePanelComponent', () => {
       expect(f.nativeElement.querySelector('.cra-input-error')).toBeNull();
     });
 
+    describe('identity of the set carried by the list (#473)', () => {
+      const CUSTOM = {
+        stato: 'attivo',
+        scade_tra_secondi: 900,
+        source_set_id: 'custom-aaaaaaaaaaaaaaaa',
+        set: { kind: 'custom', classi: 2, selettori_osm: 3, versione_dati: null, luoghi: [], avvisi: [] },
+      };
+      const settle = async (): Promise<void> => {
+        for (let i = 0; i < 3; i++) {
+          fixture.detectChanges();
+          await fixture.whenStable();
+        }
+      };
+
+      it('a list of the set the client already knows signals nothing', async () => {
+        expect(TestBed.inject(SourcesStore).serverChanges()).toBe(0);
+        api.uploadSources.mockResolvedValue(CUSTOM);
+        api.poiTypes.mockResolvedValue(
+          poiTypesFixture.map((t) => ({ ...t, source_set_id: CUSTOM.source_set_id })),
+        );
+        await TestBed.inject(SourcesStore).upload({} as never);
+        await settle();
+        expect(api.poiTypes).toHaveBeenLastCalledWith('custom-aaaaaaaaaaaaaaaa:0');
+        expect(TestBed.inject(SourcesStore).serverChanges()).toBe(0);
+        expect(TestBed.inject(SourcesStore).indicator().kind).toBe('custom');
+      });
+
+      it('a list of another set than the one the client believes in signals one change, resets the indicator and reloads for the real key', async () => {
+        const store = TestBed.inject(SourcesStore);
+        api.uploadSources.mockResolvedValue(CUSTOM);
+        await store.upload({} as never);
+        expect(store.indicator().kind).toBe('custom');
+        // the server lost the set with no 410: the list read for the custom key is the default one
+        await settle();
+        expect(api.poiTypes).toHaveBeenLastCalledWith('default:0');
+        expect(store.setKey()).toBe('default:0');
+        expect(store.indicator().kind).toBe('default');
+        expect(store.serverChanges()).toBe(1);
+      });
+
+      it('an empty list carries no id: nothing is noted', async () => {
+        const store = TestBed.inject(SourcesStore);
+        const note = jest.spyOn(store, 'noteSetId');
+        api.poiTypes.mockResolvedValue([]);
+        await store.markPoiTypesStale();
+        await settle();
+        expect(note).not.toHaveBeenCalled();
+      });
+    });
+
     describe('follows the active source set (#463)', () => {
       const optionValues = (): string[] =>
         Array.from(
@@ -162,7 +223,7 @@ describe('BasePanelComponent', () => {
 
       it('reloads the list when the set changes, passing the set key to the API', async () => {
         expect(api.poiTypes).toHaveBeenLastCalledWith(TestBed.inject(SourcesStore).setKey());
-        api.poiTypes.mockResolvedValueOnce([{ ontology_class: 'Bar', label_it: 'Bar' }]);
+        api.poiTypes.mockResolvedValueOnce([{ ontology_class: 'Bar', label_it: 'Bar', source_set_id: 'default' }]);
         await TestBed.inject(SourcesStore).markPoiTypesStale();
         await settle();
         expect(api.poiTypes).toHaveBeenCalledTimes(2);
@@ -174,7 +235,7 @@ describe('BasePanelComponent', () => {
         const spy = jest.fn();
         fixture.componentInstance.poiTypeChange.subscribe(spy);
         fixture.componentRef.setInput('poiType', 'Bank');
-        api.poiTypes.mockResolvedValueOnce([{ ontology_class: 'Bar', label_it: 'Bar' }]);
+        api.poiTypes.mockResolvedValueOnce([{ ontology_class: 'Bar', label_it: 'Bar', source_set_id: 'default' }]);
         await TestBed.inject(SourcesStore).markPoiTypesStale();
         await settle();
         expect(spy).toHaveBeenCalledWith('');
@@ -230,10 +291,10 @@ describe('BasePanelComponent', () => {
           fixture.detectChanges();
           const options = fixture.componentInstance['poiTypes'];
           fixture.destroy();
-          resolveLate([{ ontology_class: 'Bar', label_it: 'Bar' }]);
+          resolveLate([{ ontology_class: 'Bar', label_it: 'Bar', source_set_id: 'default' }]);
           await Promise.resolve();
           await new Promise((r) => setTimeout(r));
-          expect(options()).not.toContainEqual({ ontology_class: 'Bar', label_it: 'Bar' });
+          expect(options()).not.toContainEqual({ ontology_class: 'Bar', label_it: 'Bar', source_set_id: 'default' });
           expect(warn).not.toHaveBeenCalled();
           expect(error).not.toHaveBeenCalled();
         } finally {
@@ -243,7 +304,7 @@ describe('BasePanelComponent', () => {
       });
 
       it('a remounted panel reconciles the selection kept by the shell with the active list', async () => {
-        api.poiTypes.mockResolvedValue([{ ontology_class: 'Bar', label_it: 'Bar' }]);
+        api.poiTypes.mockResolvedValue([{ ontology_class: 'Bar', label_it: 'Bar', source_set_id: 'default' }]);
         const remounted = TestBed.createComponent(BasePanelComponent);
         const spy = jest.fn();
         remounted.componentInstance.poiTypeChange.subscribe(spy);
@@ -260,10 +321,10 @@ describe('BasePanelComponent', () => {
         api.poiTypes.mockReturnValueOnce(new Promise((r) => (resolveOld = r)));
         await store.markPoiTypesStale();
         fixture.detectChanges();
-        api.poiTypes.mockResolvedValueOnce([{ ontology_class: 'New', label_it: 'Nuovo' }]);
+        api.poiTypes.mockResolvedValueOnce([{ ontology_class: 'New', label_it: 'Nuovo', source_set_id: 'default' }]);
         await store.markPoiTypesStale();
         await settle();
-        resolveOld([{ ontology_class: 'Old', label_it: 'Vecchio' }]);
+        resolveOld([{ ontology_class: 'Old', label_it: 'Vecchio', source_set_id: 'default' }]);
         await settle();
         expect(optionValues()).toEqual(['', 'New']);
       });

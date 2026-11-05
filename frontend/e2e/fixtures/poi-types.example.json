@@ -1,5 +1,5 @@
 [
-  { "ontology_class": "Bar", "label_it": "Bar" },
-  { "ontology_class": "Pharmacy", "label_it": "Farmacia" },
-  { "ontology_class": "Supermarket", "label_it": "Supermercato" }
+  { "ontology_class": "Bar", "label_it": "Bar", "source_set_id": "example" },
+  { "ontology_class": "Pharmacy", "label_it": "Farmacia", "source_set_id": "example" },
+  { "ontology_class": "Supermarket", "label_it": "Supermercato", "source_set_id": "example" }
 ]

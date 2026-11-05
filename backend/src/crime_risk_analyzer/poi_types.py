@@ -51,6 +51,18 @@ class PoiType(BaseModel):
     label_it: str
 
 
+class PoiTypeEntry(PoiType):
+    """Item of the ``GET /poi-types`` body: a catalogue entry plus the id of the
+    set it belongs to (#473).
+
+    ``source_set_id`` is the same on every item (the list shape is kept so that
+    existing clients still parse it); the client compares it with the id it holds
+    to notice that the server serves a different set.
+    """
+
+    source_set_id: str
+
+
 class UnknownPoiTypeError(Exception):
     """``tipo_poi`` does not match any class of the catalogue (-> 422)."""
 
@@ -102,6 +114,17 @@ _CUSTOM_CATALOGS: weakref.WeakKeyDictionary[SourceSet, tuple[PoiType, ...]] = (
 
 def _is_default() -> bool:
     return current_id() == DEFAULT_ID
+
+
+def poi_type_entries() -> list[PoiTypeEntry]:
+    """Catalogue of the active set, each entry tagged with the set id (#473)."""
+    set_id = current_id()
+    return [
+        PoiTypeEntry(
+            ontology_class=t.ontology_class, label_it=t.label_it, source_set_id=set_id
+        )
+        for t in poi_types()
+    ]
 
 
 def poi_types() -> tuple[PoiType, ...]:

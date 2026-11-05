@@ -12,8 +12,8 @@ import {
 } from '@core/models/models';
 
 const poiTypes = [
-  { ontology_class: 'Bank', label_it: 'Banca' },
-  { ontology_class: 'Railway_station', label_it: 'Stazione ferroviaria' },
+  { ontology_class: 'Bank', label_it: 'Banca', source_set_id: 'default' },
+  { ontology_class: 'Railway_station', label_it: 'Stazione ferroviaria', source_set_id: 'default' },
 ];
 
 const resp: AnalyzeResponse = {
@@ -311,6 +311,20 @@ describe('ApiService', () => {
     it('poiTypes: a renamed key (ontology_class → class) rejects instead of yielding undefined options', async () => {
       const p = api.poiTypes('0:default');
       http.expectOne('/poi-types').flush([{ class: 'Bank', label_it: 'Banca' }]);
+      await expect(p).rejects.toThrow(SHAPE_ERROR);
+    });
+
+    it('poiTypes: an element without source_set_id rejects (#473)', async () => {
+      const p = api.poiTypes('0:default');
+      http.expectOne('/poi-types').flush([{ ontology_class: 'Bank', label_it: 'Banca' }]);
+      await expect(p).rejects.toThrow(SHAPE_ERROR);
+    });
+
+    it('poiTypes: a non-string source_set_id rejects (#473)', async () => {
+      const p = api.poiTypes('0:default');
+      http
+        .expectOne('/poi-types')
+        .flush([{ ontology_class: 'Bank', label_it: 'Banca', source_set_id: 3 }]);
       await expect(p).rejects.toThrow(SHAPE_ERROR);
     });
 

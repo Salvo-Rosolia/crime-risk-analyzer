@@ -1,4 +1,4 @@
 [
-  { "ontology_class": "Bank", "label_it": "Banca" },
-  { "ontology_class": "Railway_station", "label_it": "Stazione ferroviaria" }
+  { "ontology_class": "Bank", "label_it": "Banca", "source_set_id": "default" },
+  { "ontology_class": "Railway_station", "label_it": "Stazione ferroviaria", "source_set_id": "default" }
 ]

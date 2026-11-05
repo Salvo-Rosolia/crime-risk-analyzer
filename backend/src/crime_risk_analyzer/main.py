@@ -45,7 +45,11 @@ from crime_risk_analyzer.poi_narrative import (
     PoiNarrativeResponse,
     run_poi_narrative,
 )
-from crime_risk_analyzer.poi_types import PoiType, poi_types, resolve_poi_type
+from crime_risk_analyzer.poi_types import (
+    PoiTypeEntry,
+    poi_type_entries,
+    resolve_poi_type,
+)
 from crime_risk_analyzer.rag.retrieval import GeoSource
 from crime_risk_analyzer.sources import routes as sources_routes
 from crime_risk_analyzer.sources.context import current_executor
@@ -121,7 +125,7 @@ async def cities(settings: Annotated[Settings, Depends(get_settings)]) -> list[s
         Depends(sources_routes.session_scoped_response),
     ],
 )
-async def list_poi_types() -> list[PoiType]:
+async def list_poi_types() -> list[PoiTypeEntry]:
     """Catalogue of the POI types accepted as ``tipo_poi`` (#143).
 
     The TERMINUS classes that the OSM mapping can produce, with the IT label of
@@ -131,9 +135,10 @@ async def list_poi_types() -> list[PoiType]:
     serves the default (cached) one. It never answers 410 ``fonti_scadute`` nor 422
     (#438): the list must not break the panel. It reads the session with ``peek``,
     so it neither renews the TTL nor raises the expiry warning, which stays for the
-    analysis routes. No network.
+    analysis routes. No network. Every entry carries ``source_set_id`` (#473), the
+    id of the set served, so the client can tell when the server changed set.
     """
-    return list(poi_types())
+    return poi_type_entries()
 
 
 def _non_empty_query(query: str) -> str:

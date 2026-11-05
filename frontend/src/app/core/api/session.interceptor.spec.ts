@@ -75,6 +75,7 @@ describe('sessionInterceptor', () => {
     };
     const CUSTOM: SourcesStatus = {
       stato: 'attivo',
+      source_set_id: 'custom-aaaaaaaaaaaaaaaa',
       scade_tra_secondi: 900,
       set: {
         kind: 'custom',
@@ -98,7 +99,9 @@ describe('sessionInterceptor', () => {
       const store = TestBed.inject(SourcesStore);
       const before = store.setKey();
       failWith('/analyze/baseline', 422, UNKNOWN);
-      ctrl.expectOne('/sources').flush({ stato: 'default', scade_tra_secondi: null, set: null });
+      ctrl
+        .expectOne('/sources')
+        .flush({ stato: 'default', scade_tra_secondi: null, set: null, source_set_id: 'default' });
       await settle();
       expect(store.setKey()).not.toBe(before);
     });
@@ -109,7 +112,7 @@ describe('sessionInterceptor', () => {
       ctrl.expectOne('/sources').flush(CUSTOM);
       await settle();
       expect(store.indicator().kind).toBe('custom');
-      expect(store.setKey()).toMatch(/^0:0:custom:/);
+      expect(store.setKey()).toBe('custom-aaaaaaaaaaaaaaaa:0');
     });
 
     it('repeated 422 while the re-read is in flight cause a single re-read', async () => {
@@ -137,6 +140,49 @@ describe('sessionInterceptor', () => {
       failWith(url, status, body);
       await settle();
       expect(store.setKey()).toBe(before);
+    });
+  });
+
+  describe('re-read of the sources after an analysis (#473)', () => {
+    const DEFAULT = { stato: 'default', scade_tra_secondi: null, set: null, source_set_id: 'default' };
+    const settle = () => new Promise((resolve) => setTimeout(resolve));
+
+    afterEach(() => ctrl.verify());
+
+    function succeed(method: 'GET' | 'POST', url: string): void {
+      http.request(method, url, { body: method === 'POST' ? {} : undefined }).subscribe();
+      ctrl.expectOne(url).flush({});
+    }
+
+    it.each(['/analyze', '/analyze/baseline'])(
+      'a successful %s re-reads /sources once, to catch a set the server lost silently',
+      async (url) => {
+        TestBed.inject(SourcesStore);
+        succeed('POST', url);
+        ctrl.expectOne('/sources').flush(DEFAULT);
+        await settle();
+      },
+    );
+
+    it('an id that differs from the known one is signaled as a server change', async () => {
+      const store = TestBed.inject(SourcesStore);
+      void store.refresh();
+      ctrl.expectOne('/sources').flush({ ...DEFAULT, stato: 'attivo', source_set_id: 'custom-aaaaaaaaaaaaaaaa' });
+      await settle();
+      succeed('POST', '/analyze');
+      ctrl.expectOne('/sources').flush(DEFAULT);
+      await settle();
+      expect(store.serverChanges()).toBe(1);
+    });
+
+    it('does not re-read after a failed analysis nor after other routes', async () => {
+      TestBed.inject(SourcesStore);
+      http.post('/analyze', {}).subscribe({ error: (e: HttpErrorResponse) => e });
+      ctrl.expectOne('/analyze').flush({}, { status: 500, statusText: 'x' });
+      succeed('POST', '/analyze/narrativa');
+      succeed('POST', '/analyze/poi');
+      succeed('GET', '/cities');
+      await settle();
     });
   });
 
