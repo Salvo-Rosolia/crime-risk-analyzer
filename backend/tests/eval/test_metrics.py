@@ -807,7 +807,7 @@ def _m1_and_istat_sentences(
 @pytest.mark.parametrize("raw", _ALL_ISTAT)
 def test_parity_of_m1_and_check_sentences(raw: str) -> None:
     measured, istat = _m1_and_istat_sentences(raw)
-    assert measured, "il corpus deve avere un blocco misurato non vuoto"
+    assert measured, "the corpus must have a non-empty measured block"
     assert list(istat) == measured
 
 

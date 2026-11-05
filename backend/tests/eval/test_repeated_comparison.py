@@ -838,7 +838,7 @@ def test_build_repeated_report_still_raises_no_usable_output_if_report_write_fai
     _write_arm(tmp_path, _all_error_arm("groq-exp", GROQ_MODEL))
 
     def _boom(*args: object, **kwargs: object) -> None:
-        raise OSError("permessi negati (simulato)")
+        raise OSError("permission denied (simulated)")
 
     monkeypatch.setattr(repeated_mod, "write_no_usable_output_report", _boom)
 

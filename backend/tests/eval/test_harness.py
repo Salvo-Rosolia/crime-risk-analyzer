@@ -474,7 +474,7 @@ async def test_run_experiment_rejects_at_once_an_arm_without_client(
             ontology_hash="def",
         )
 
-    assert not (tmp_path / "runs").exists(), "nessun record scritto: non si parte"
+    assert not (tmp_path / "runs").exists(), "no record written: the run must not start"
 
 
 async def test_run_experiment_isolates_a_configuration_error_and_continues(
@@ -587,9 +587,9 @@ async def test_a_configuration_error_does_not_go_unnoticed(
         )
 
     errors = [rec for rec in caplog.records if rec.levelname == "ERROR"]
-    assert errors, "l'eccezione isolata deve restare visibile nei log"
+    assert errors, "the isolated exception must stay visible in the logs"
     assert any(rec.exc_info is not None for rec in errors), (
-        "senza traceback il log dice che qualcosa e' fallito ma non dove"
+        "without a traceback the log says something failed but not where"
     )
     assert any("Centro" in rec.getMessage() for rec in errors)
 
@@ -611,7 +611,7 @@ async def test_run_does_not_geocode_when_replaying(
 
     def _boom(zona: str, citta: str) -> GeoResult:
         calls["n"] += 1
-        raise AssertionError("la run non deve geocodificare")
+        raise AssertionError("the run must not geocode")
 
     monkeypatch.setattr(retrieval, "geocode_zone", _boom)
 

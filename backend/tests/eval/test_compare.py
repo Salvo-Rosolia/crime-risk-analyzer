@@ -802,7 +802,7 @@ def test_compare_experiments_still_raises_no_usable_output_if_report_write_fails
         write_record(tmp_path, rec)
 
     def _boom(*args: object, **kwargs: object) -> None:
-        raise OSError("disco pieno (simulato)")
+        raise OSError("disk full (simulated)")
 
     monkeypatch.setattr(compare_mod, "write_no_usable_output_report", _boom)
 

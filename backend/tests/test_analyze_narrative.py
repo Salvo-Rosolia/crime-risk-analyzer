@@ -370,7 +370,7 @@ async def test_zone_narrative_cache_hit_does_not_touch_overpass() -> None:
     context_hash = await _prime_cache()
 
     async def _exploding(bbox: Bbox, citta: str) -> list[Poi]:
-        raise AssertionError("Overpass non deve essere chiamato su cache hit")
+        raise AssertionError("Overpass must not be called on a cache hit")
 
     out = await run_zone_narrative(
         "Roma",
@@ -820,7 +820,7 @@ def test_endpoint_warm_cache_does_not_call_overpass_again(
     context_hash = _post_analyze(client)
 
     async def _explodes(*args: object, **kwargs: object) -> list[Poi]:
-        raise AssertionError("Overpass non deve essere chiamato in fase 2")
+        raise AssertionError("Overpass must not be called in phase 2")
 
     monkeypatch.setattr(retrieval, "fetch_pois", _explodes)
     resp = _post_narrative(client, context_hash)
@@ -1338,7 +1338,7 @@ class _FakeNominatim:
         return _FakeNominatimLocation()
 
     def reverse(self, query: object, **kwargs: object) -> None:
-        raise AssertionError("la modalita' zona non deve fare reverse geocode")
+        raise AssertionError("zone mode must not reverse geocode")
 
 
 def _patch_nominatim(monkeypatch: pytest.MonkeyPatch) -> _FakeNominatim:

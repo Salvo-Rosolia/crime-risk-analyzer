@@ -78,7 +78,7 @@ class _FakeGeolocator:
     def geocode(self, query: str, **kwargs: object) -> _FakeLocation | None:
         self.calls.append({"query": query, **kwargs})
         if self._raise_service_error:
-            raise GeocoderServiceError("nominatim non raggiungibile")
+            raise GeocoderServiceError("nominatim unreachable")
         return self._result
 
 

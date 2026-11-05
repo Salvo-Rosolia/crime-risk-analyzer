@@ -161,11 +161,11 @@ def test_committed_snapshots_stay_readable() -> None:
     ``results/snapshots/`` are the root of the reproducibility chain."""
     snapshot_dir = Path(__file__).parents[2] / "results" / "snapshots"
     files = sorted(snapshot_dir.glob("*.json"))
-    assert files, "attese le fixture POI versionate in results/snapshots/"
+    assert files, "expected the committed POI fixtures in results/snapshots/"
     for f in files:
         pois = load_snapshot(f)
         assert isinstance(pois, list)
-        assert pois, f"snapshot vuoto: {f.name}"
+        assert pois, f"empty snapshot: {f.name}"
 
 
 def test_committed_snapshots_pois_have_the_poi_keys() -> None:
@@ -176,7 +176,7 @@ def test_committed_snapshots_pois_have_the_poi_keys() -> None:
     expected = set(Poi.__required_keys__)
     assert "ontology_class" in expected
     for name, pois in snaps:
-        assert pois, f"snapshot vuoto: {name}"
+        assert pois, f"empty snapshot: {name}"
         for poi in pois:
             assert set(poi) == expected, (name, poi.get("id"))
             assert "terminus_class" not in poi

@@ -78,7 +78,7 @@ async def test_resolve_zone_labels_are_the_typed_ones(
     """
 
     def _forbidden_reverse(lat: float, lon: float) -> tuple[str, str]:
-        raise AssertionError("la modalita' zona non deve chiamare il reverse")
+        raise AssertionError("zone mode must not call the reverse geocoder")
 
     monkeypatch.setattr(area_search, "geocode_zone", _fake_geocode_zone)
     monkeypatch.setattr(area_search, "reverse_geocode_label", _forbidden_reverse)

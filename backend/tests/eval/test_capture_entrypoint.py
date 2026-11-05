@@ -169,7 +169,7 @@ async def test_capture_warns_on_reuse_with_diverging_configuration(
     config_path = _write_config(tmp_path, "Roma", "Centro")
 
     async def fake_live(bbox: Bbox, citta: str) -> list[Poi]:
-        raise AssertionError("non deve ricatturare: e' un riuso, non un force")
+        raise AssertionError("must not recapture: this is a reuse, not a force")
 
     with caplog.at_level(logging.WARNING):
         await _capture(config_path, tmp_path, poi_source=fake_live)
@@ -297,7 +297,7 @@ async def test_capture_analyze_arms_share_key(
     the config declares mode=analyze."""
 
     def _exploding_builder(config: ExperimentConfig) -> object:
-        raise AssertionError("la cattura non deve costruire il client LLM (#233)")
+        raise AssertionError("capture must not build the LLM client (#233)")
 
     monkeypatch.setattr(eval_main, "build_llm_eval_client", _exploding_builder)
 
@@ -332,12 +332,12 @@ async def test_capture_all_present_never_builds_client(
     The builder blows up if invoked: if the test passes, it was never called."""
 
     def _exploding_builder(config: ExperimentConfig) -> object:
-        raise AssertionError("build_llm_eval_client non deve essere invocato")
+        raise AssertionError("build_llm_eval_client must not be invoked")
 
     monkeypatch.setattr(eval_main, "build_llm_eval_client", _exploding_builder)
 
     async def unused_live(bbox: Bbox, citta: str) -> list[Poi]:
-        raise AssertionError("nessuna query live: snapshot già presente")
+        raise AssertionError("no live query: snapshot already present")
 
     config_path = _write_config(
         tmp_path, "Roma", "Centro", mode="analyze", model="claude"
@@ -359,7 +359,7 @@ async def test_capture_baseline_never_builds_client(
     not even when the snapshot must be captured from scratch."""
 
     def _exploding_builder(config: ExperimentConfig) -> object:
-        raise AssertionError("baseline non deve costruire il client LLM")
+        raise AssertionError("baseline must not build the LLM client")
 
     monkeypatch.setattr(eval_main, "build_llm_eval_client", _exploding_builder)
 
@@ -389,7 +389,7 @@ async def test_capture_analyze_never_builds_client(
     def _exploding_builder(config: ExperimentConfig) -> object:
         nonlocal builds
         builds += 1
-        raise AssertionError("la cattura non deve costruire il client LLM (#233)")
+        raise AssertionError("capture must not build the LLM client (#233)")
 
     monkeypatch.setattr(eval_main, "build_llm_eval_client", _exploding_builder)
 
@@ -517,7 +517,7 @@ async def test_capture_isolates_failure_of_any_kind(
 
     async def flaky_live(bbox: Bbox, citta: str) -> list[Poi]:
         if citta == "Milano":
-            raise ValueError("POI malformato")
+            raise ValueError("malformed POI")
         return _sample_pois()
 
     cfg = ExperimentConfig(
@@ -545,7 +545,7 @@ async def test_capture_isolates_failure_of_any_kind(
     failure = summary.failed[0]
     assert failure.error_type == "ValueError"
     assert failure.error is not None
-    assert "POI malformato" in failure.error
+    assert "malformed POI" in failure.error
     assert any("riepilogo cattura" in r.getMessage() for r in caplog.records)
 
 
@@ -559,7 +559,7 @@ async def test_capture_removes_freshly_written_snapshot_on_downstream_failure(
     from crime_risk_analyzer import orchestrator
 
     def _boom(*args: object, **kwargs: object) -> object:
-        raise ValueError("bug nel grounding")
+        raise ValueError("bug in grounding")
 
     monkeypatch.setattr(orchestrator, "ground", _boom)
 
@@ -605,7 +605,7 @@ async def test_capture_isolates_environmental_error_on_skip_check(
     capture -- the second case must still be captured."""
 
     def _boom(path: Path) -> bool:
-        raise OSError("disco non raggiungibile")
+        raise OSError("disk unreachable")
 
     monkeypatch.setattr(eval_main, "_snapshot_reusable", _boom)
 

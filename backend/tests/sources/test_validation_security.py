@@ -177,7 +177,7 @@ def _block_network(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
     def forbidden(*args: object, **kwargs: object) -> object:
         calls.append(repr(args))
-        raise AssertionError("accesso alla rete vietato")
+        raise AssertionError("network access forbidden")
 
     monkeypatch.setattr(socket.socket, "connect", forbidden)
     monkeypatch.setattr(socket, "getaddrinfo", forbidden)
