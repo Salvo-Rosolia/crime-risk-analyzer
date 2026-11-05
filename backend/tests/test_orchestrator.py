@@ -48,20 +48,12 @@ from crime_risk_analyzer.rag.retrieval import RetrievalContext, RetrievalStats
 from tests.eval._doubles import FakeLLMClient as _FakeLLMClient
 from tests.eval._doubles import FakeProfiler as _FakeProfiler
 from tests.eval._doubles import default_llm_response as _llm_response
-from tests.eval._doubles import poi_lines
+from tests.eval._doubles import make_poi, poi_lines
 from tests.istat._factories import BANKROB, istat_poi
 
 
-def _poi(poi_id: str, name: str, ontology_class: str) -> dict[str, object]:
-    return {
-        "id": poi_id,
-        "name": name,
-        "lat": 41.89,
-        "lon": 12.49,
-        "osm_tags": "amenity=bank",
-        "ontology_class": ontology_class,
-        "citta": "Roma",
-    }
+def _poi(poi_id: str, name: str, ontology_class: str) -> Poi:
+    return make_poi(id=poi_id, name=name, ontology_class=ontology_class)
 
 
 def _vr(
@@ -114,21 +106,7 @@ def _patch_io(monkeypatch: pytest.MonkeyPatch, pois: list[Poi] | None = None) ->
     from crime_risk_analyzer.models.geo import Bbox
     from crime_risk_analyzer.rag import retrieval
 
-    resolved_pois: list[Poi] = (
-        pois
-        if pois is not None
-        else [
-            {
-                "id": "1",
-                "name": "Banca A",
-                "lat": 41.89,
-                "lon": 12.49,
-                "osm_tags": "amenity=bank",
-                "ontology_class": "Bank",
-                "citta": "Roma",
-            }
-        ]
-    )
+    resolved_pois: list[Poi] = pois if pois is not None else [make_poi(id="1")]
 
     geo: dict[str, object] = {
         "lat": 41.89,
@@ -156,15 +134,14 @@ async def _geo_source(citta: str, zona: str) -> GeoResult:
 
 async def _poi_source(bbox: Bbox, citta: str) -> list[Poi]:
     return [
-        {
-            "id": "node/1",
-            "name": "Colosseo",
-            "lat": 41.8902,
-            "lon": 12.4922,
-            "osm_tags": "historic=monument",
-            "ontology_class": "Historical_monument",
-            "citta": citta,
-        }
+        make_poi(
+            name="Colosseo",
+            lat=41.8902,
+            lon=12.4922,
+            osm_tags="historic=monument",
+            ontology_class="Historical_monument",
+            citta=citta,
+        )
     ]
 
 
@@ -589,17 +566,7 @@ async def test_run_analysis_anonymous_poi_da_confermare_end_to_end(
     """#202/m3: an ANONYMOUS POI with ontological risks propagates ``da_confermare`` all
     the way to the AnalyzeResponse. risk_models[].risks[].confidence, confidence_summary
     and poi[].confidence are consistent (no badge-vs-risks divergence, M1)."""
-    anon: list[Poi] = [
-        {
-            "id": "1",
-            "name": "",
-            "lat": 41.89,
-            "lon": 12.49,
-            "osm_tags": "amenity=bank",
-            "ontology_class": "Bank",
-            "citta": "Roma",
-        }
-    ]
+    anon: list[Poi] = [make_poi(id="1", name="")]
     _patch_io(monkeypatch, pois=anon)
     resp = await run_analysis(
         "Roma",
@@ -624,24 +591,15 @@ async def test_risk_models_distinguish_two_anonymous_pois_of_different_class(
     always present, so the ``id`` is the only key that holds.
     """
     anonymous: list[Poi] = [
-        {
-            "id": "11",
-            "name": "",
-            "lat": 41.89,
-            "lon": 12.49,
-            "osm_tags": "amenity=bank",
-            "ontology_class": "Bank",
-            "citta": "Roma",
-        },
-        {
-            "id": "22",
-            "name": "",
-            "lat": 41.90,
-            "lon": 12.50,
-            "osm_tags": "amenity=school",
-            "ontology_class": "School",
-            "citta": "Roma",
-        },
+        make_poi(id="11", name=""),
+        make_poi(
+            id="22",
+            name="",
+            lat=41.90,
+            lon=12.50,
+            osm_tags="amenity=school",
+            ontology_class="School",
+        ),
     ]
     _patch_io(monkeypatch, pois=anonymous)
     resp = await run_analysis(
@@ -744,18 +702,8 @@ async def test_run_analysis_accepts_poi_source(monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr(retrieval, "geocode_zone", _fake_geocode)
 
-    async def src(bbox: object, citta: str) -> list[dict[str, object]]:
-        return [
-            {
-                "id": "1",
-                "name": "Banca A",
-                "lat": 41.89,
-                "lon": 12.49,
-                "osm_tags": "amenity=bank",
-                "ontology_class": "Bank",
-                "citta": "Roma",
-            }
-        ]
+    async def src(bbox: object, citta: str) -> list[Poi]:
+        return [make_poi(id="1")]
 
     resp = await run_analysis(
         "Roma",
@@ -861,24 +809,8 @@ async def test_run_analysis_llm_fallback_narrativa_fonti_empty(
 
 
 def _ctx_with_two_pois() -> RetrievalContext:
-    near: Poi = {
-        "id": "node/1",
-        "name": "Vicino",
-        "lat": 41.900,
-        "lon": 12.500,
-        "osm_tags": "amenity=bank",
-        "ontology_class": "Bank",
-        "citta": "Roma",
-    }
-    far: Poi = {
-        "id": "node/2",
-        "name": "Lontano",
-        "lat": 42.100,
-        "lon": 12.700,
-        "osm_tags": "amenity=bank",
-        "ontology_class": "Bank",
-        "citta": "Roma",
-    }
+    near: Poi = make_poi(name="Vicino", lat=41.900, lon=12.500)
+    far: Poi = make_poi(id="node/2", name="Lontano", lat=42.100, lon=12.700)
     return RetrievalContext(
         citta="Roma",
         zona="Trastevere",
@@ -912,24 +844,15 @@ def test_center_validates_the_bounds() -> None:
 
 def _two_pois() -> list[Poi]:
     return [
-        {
-            "id": "1",
-            "name": "Banca A",
-            "lat": 41.89,
-            "lon": 12.49,
-            "osm_tags": "amenity=bank",
-            "ontology_class": "Bank",
-            "citta": "Roma",
-        },
-        {
-            "id": "2",
-            "name": "Bar Roma",
-            "lat": 41.90,
-            "lon": 12.50,
-            "osm_tags": "amenity=bar",
-            "ontology_class": "GenericUrbanPOI",
-            "citta": "Roma",
-        },
+        make_poi(id="1"),
+        make_poi(
+            id="2",
+            name="Bar Roma",
+            lat=41.90,
+            lon=12.50,
+            osm_tags="amenity=bar",
+            ontology_class="GenericUrbanPOI",
+        ),
     ]
 
 
@@ -996,33 +919,16 @@ async def test_run_baseline_tipo_poi_no_match_yields_empty(
 
 def _pois_for_radius() -> list[Poi]:
     return [
-        {
-            "id": "1",
-            "name": "Banca A",
-            "lat": 41.89,
-            "lon": 12.49,
-            "osm_tags": "amenity=bank",
-            "ontology_class": "Bank",
-            "citta": "Roma",
-        },
-        {
-            "id": "2",
-            "name": "Bar Roma",
-            "lat": 41.90,
-            "lon": 12.50,
-            "osm_tags": "amenity=bar",
-            "ontology_class": "GenericUrbanPOI",
-            "citta": "Roma",
-        },
-        {
-            "id": "3",
-            "name": "Banca Lontana",
-            "lat": 42.10,
-            "lon": 12.70,
-            "osm_tags": "amenity=bank",
-            "ontology_class": "Bank",
-            "citta": "Roma",
-        },
+        make_poi(id="1"),
+        make_poi(
+            id="2",
+            name="Bar Roma",
+            lat=41.90,
+            lon=12.50,
+            osm_tags="amenity=bar",
+            ontology_class="GenericUrbanPOI",
+        ),
+        make_poi(id="3", name="Banca Lontana", lat=42.10, lon=12.70),
     ]
 
 
@@ -1111,15 +1017,12 @@ def _banks_and_schools(n: int) -> list[Poi]:
     for i in range(n):
         class_name = "School" if i % 2 else "Bank"
         pois.append(
-            {
-                "id": str(i),
-                "name": f"Punto {i:02d}",
-                "lat": 41.89,
-                "lon": 12.49,
-                "osm_tags": "amenity=x",
-                "ontology_class": class_name,
-                "citta": "Roma",
-            }
+            make_poi(
+                id=str(i),
+                name=f"Punto {i:02d}",
+                osm_tags="amenity=x",
+                ontology_class=class_name,
+            )
         )
     return pois
 
@@ -1382,17 +1285,7 @@ async def test_run_analysis_exposes_the_istat_fields_and_hides_the_raw() -> None
             )
 
     async def _poi_source_rome(bbox: Bbox, citta: str) -> list[Poi]:
-        return [
-            {
-                "id": "node/1",
-                "name": "Banca A",
-                "lat": 41.8902,
-                "lon": 12.4922,
-                "osm_tags": "amenity=bank",
-                "ontology_class": "Bank",
-                "citta": citta,
-            }
-        ]
+        return [make_poi(lat=41.8902, lon=12.4922, citta=citta)]
 
     async def _geo_source_rome(citta: str, zona: str) -> GeoResult:
         return GeoResult(lat=41.89, lon=12.49, bbox=Bbox(41.88, 12.48, 41.90, 12.50))

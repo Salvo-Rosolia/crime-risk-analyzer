@@ -31,6 +31,7 @@ from crime_risk_analyzer.rag.generation import (
 from crime_risk_analyzer.rag.grounding import GroundedContext
 from crime_risk_analyzer.rag.retrieval import RetrievalContext
 from crime_risk_analyzer.sources.context import current_executor
+from tests.eval._doubles import FakeProfiler, make_poi
 
 _BANK = PoiRiskProfile(
     ontology_class="Bank",
@@ -40,24 +41,9 @@ _BANK = PoiRiskProfile(
 )
 
 
-class _FakeProfiler:
-    def profile(self, ontology_class: str) -> PoiRiskProfile:
-        return {"Bank": _BANK}.get(
-            ontology_class, PoiRiskProfile(ontology_class=ontology_class)
-        )
-
-
 def _pois(citta: str) -> list[Poi]:
     return [
-        {
-            "id": "node/1",
-            "name": "Banca A",
-            "lat": 41.8900,
-            "lon": 12.4920,
-            "osm_tags": "amenity=bank",
-            "ontology_class": "Bank",
-            "citta": citta,
-        },
+        make_poi(lon=12.4920, citta=citta),
     ]
 
 
@@ -71,15 +57,7 @@ def _dense_pois(citta: str) -> list[Poi]:
     """
     return [
         *_pois(citta),
-        {
-            "id": "node/2",
-            "name": "Banca B",
-            "lat": 41.8901,
-            "lon": 12.4921,
-            "osm_tags": "amenity=bank",
-            "ontology_class": "Bank",
-            "citta": citta,
-        },
+        make_poi(id="node/2", name="Banca B", lat=41.8901, lon=12.4921, citta=citta),
     ]
 
 
@@ -102,7 +80,7 @@ async def test_fast_response_has_no_narrativa_yet() -> None:
     out = await run_analysis_fast(
         "Roma",
         "Colosseo",
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         poi_source=_poi_source,
         geo_source=_geo_source,
     )
@@ -137,7 +115,7 @@ async def test_fast_response_exposes_istat_only_with_the_switch(
     out = await analyze_narrative.run_analysis_fast(
         "Roma",
         "Colosseo",
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         poi_source=_poi_source,
         geo_source=_geo_source,
         istat_context_enabled=enabled,
@@ -158,7 +136,7 @@ async def test_fast_response_zero_poi_has_explicit_message() -> None:
     out = await run_analysis_fast(
         "Roma",
         "Zona senza POI",
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         poi_source=_no_pois,
         geo_source=_geo_source,
     )
@@ -185,7 +163,7 @@ async def test_phase1_then_phase2_zero_poi_real_narrativa_cancels_message() -> N
     phase1 = await run_analysis_fast(
         "Roma",
         "Zona senza POI fase2",
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         poi_source=_no_pois,
         geo_source=_geo_source,
     )
@@ -197,7 +175,7 @@ async def test_phase1_then_phase2_zero_poi_real_narrativa_cancels_message() -> N
         "Roma",
         "Zona senza POI fase2",
         contesto_hash=phase1.contesto_hash,
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         llm_client=_FakeLLMClient(),
     )
     assert phase2.narrativa != ""
@@ -220,7 +198,7 @@ async def test_phase1_then_phase2_zero_poi_llm_fallback_keeps_message() -> None:
     phase1 = await run_analysis_fast(
         "Roma",
         "Zona senza POI fase2 fallback",
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         poi_source=_no_pois,
         geo_source=_geo_source,
     )
@@ -228,7 +206,7 @@ async def test_phase1_then_phase2_zero_poi_llm_fallback_keeps_message() -> None:
         "Roma",
         "Zona senza POI fase2 fallback",
         contesto_hash=phase1.contesto_hash,
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         llm_client=_RaisingLLMClient(),
     )
     assert phase2.narrativa == ""
@@ -246,7 +224,7 @@ async def test_fast_response_warms_the_zone_context_cache() -> None:
     await run_analysis_fast(
         "Roma",
         "Colosseo",
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         poi_source=_poi_source,
         geo_source=_geo_source,
     )
@@ -263,7 +241,7 @@ async def test_fast_response_contesto_hash_matches_the_cached_context() -> None:
     out = await run_analysis_fast(
         "Roma",
         "Colosseo",
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         poi_source=_poi_source,
         geo_source=_geo_source,
     )
@@ -281,15 +259,9 @@ async def test_fast_response_contesto_hash_matches_the_cached_context() -> None:
 def _pois_by_radius(citta: str) -> list[Poi]:
     return [
         *_pois(citta),
-        {
-            "id": "node/2",
-            "name": "Banca Lontana",
-            "lat": 42.100,
-            "lon": 12.700,
-            "osm_tags": "amenity=bank",
-            "ontology_class": "Bank",
-            "citta": citta,
-        },
+        make_poi(
+            id="node/2", name="Banca Lontana", lat=42.100, lon=12.700, citta=citta
+        ),
     ]
 
 
@@ -310,7 +282,7 @@ async def test_run_analysis_fast_filters_by_radius() -> None:
     out = await run_analysis_fast(
         "Roma",
         "Raggio",
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         poi_source=_poi_source_by_radius,
         geo_source=_geo_source,
         radius_m=300.0,
@@ -328,7 +300,7 @@ async def test_run_analysis_fast_without_radius_m_is_identical_to_today() -> Non
     out = await run_analysis_fast(
         "Roma",
         "Colosseo",
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         poi_source=_poi_source,
         geo_source=_geo_source,
     )
@@ -369,7 +341,7 @@ async def _prime_cache() -> str:
     resp = await run_analysis_fast(
         "Roma",
         "Colosseo",
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         poi_source=_poi_source,
         geo_source=_geo_source,
     )
@@ -385,7 +357,7 @@ async def test_zone_narrative_returns_text_for_the_cached_zone() -> None:
         "Roma",
         "Colosseo",
         contesto_hash=contesto_hash,
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         llm_client=_FakeLLMClient(),
     )
     assert out.narrativa != ""
@@ -404,7 +376,7 @@ async def test_zone_narrative_cache_hit_does_not_touch_overpass() -> None:
         "Roma",
         "Colosseo",
         contesto_hash=contesto_hash,
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         llm_client=_FakeLLMClient(),
         poi_source=_exploding,
     )
@@ -428,7 +400,7 @@ async def test_zone_narrative_cold_cache_rebuilds_the_context() -> None:
         "Roma",
         "Colosseo",
         contesto_hash=contesto_hash,
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         llm_client=_FakeLLMClient(),
         poi_source=_poi_source,
         geo_source=_geo_source,
@@ -454,7 +426,7 @@ async def test_zone_narrative_cold_cache_divergent_rebuild_refuses() -> None:
             "Roma",
             "Colosseo",
             contesto_hash=contesto_hash,
-            executor=_FakeProfiler(),
+            executor=FakeProfiler({"Bank": _BANK}),
             llm_client=_FakeLLMClient(),
             poi_source=_divergent_poi_source,
             geo_source=_geo_source,
@@ -488,7 +460,7 @@ async def test_zone_narrative_cold_cache_geocode_failure_becomes_context_mismatc
             "Roma",
             "Colosseo",
             contesto_hash=contesto_hash,
-            executor=_FakeProfiler(),
+            executor=FakeProfiler({"Bank": _BANK}),
             llm_client=_FakeLLMClient(),
         )
 
@@ -503,7 +475,7 @@ async def test_zone_narrative_context_mismatch_raises() -> None:
             "Roma",
             "Colosseo",
             contesto_hash="hash-vecchio-non-valido",
-            executor=_FakeProfiler(),
+            executor=FakeProfiler({"Bank": _BANK}),
             llm_client=_FakeLLMClient(),
         )
 
@@ -516,7 +488,7 @@ async def test_zone_narrative_llm_error_falls_back_without_raising() -> None:
         "Roma",
         "Colosseo",
         contesto_hash=contesto_hash,
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         llm_client=_RaisingLLMClient(),
     )
     assert out.fallback is True
@@ -539,7 +511,7 @@ async def test_zone_narrative_declares_the_model_that_wrote() -> None:
         "Roma",
         "Colosseo",
         contesto_hash=contesto_hash,
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         llm_client=_FakeLLMClient(),
     )
     assert out.llm_used == "test-model"
@@ -555,7 +527,7 @@ async def test_zone_narrative_fallback_does_not_attribute_the_text_to_a_model() 
         "Roma",
         "Colosseo",
         contesto_hash=contesto_hash,
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         llm_client=_RaisingLLMClient(),
     )
     assert out.fallback is True
@@ -687,7 +659,7 @@ def _patch_io(monkeypatch: pytest.MonkeyPatch, *, dense: bool = False) -> None:
 
 def _client(llm: object = None, settings: Settings | None = None) -> TestClient:
     app = create_app()
-    app.dependency_overrides[current_executor] = lambda: _FakeProfiler()
+    app.dependency_overrides[current_executor] = lambda: FakeProfiler({"Bank": _BANK})
     app.dependency_overrides[get_llm_client] = lambda: llm or _FakeLLMClient()
     if settings is not None:
         app.dependency_overrides[get_settings] = lambda: settings
@@ -1161,7 +1133,7 @@ async def _product_prompt(
     phase_1 = await run_analysis_fast(
         "Roma",
         "Colosseo",
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         poi_source=_divergent_poi_source,
         geo_source=_geo_source,
         # Same switch of the two phases, as in the route (Settings): since #354 the
@@ -1173,7 +1145,7 @@ async def _product_prompt(
         "Roma",
         "Colosseo",
         contesto_hash=phase_1.contesto_hash,
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         llm_client=spy,
         domanda=domanda,
         request_token_budget=budget,
@@ -1202,7 +1174,7 @@ async def _evaluation_prompt(
     await run_analysis(
         "Roma",
         "Colosseo",
-        executor=_FakeProfiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         llm_client=spy,
         poi_source=_divergent_poi_source,
         geo_source=_geo_source,

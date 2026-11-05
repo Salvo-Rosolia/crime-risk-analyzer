@@ -28,6 +28,7 @@ from crime_risk_analyzer.sources import routes
 from crime_risk_analyzer.sources.context import current_executor, default_set
 from crime_risk_analyzer.sources.model import IstatSource, SourceSet
 from crime_risk_analyzer.sources.session import SessionStore
+from tests.eval._doubles import FakeProfiler, make_poi
 
 SID = "a" * 24
 _POI_ID = "node/1"
@@ -56,15 +57,6 @@ _BANK = PoiRiskProfile(
 )
 
 
-class _FakeProfiler:
-    def profile(self, ontology_class: str) -> PoiRiskProfile:
-        return (
-            _BANK
-            if ontology_class == _CLASS
-            else PoiRiskProfile(ontology_class=ontology_class)
-        )
-
-
 class _CapturingLLM:
     """Records the prompts the route actually sends to the model."""
 
@@ -90,24 +82,22 @@ def _pois(city: str) -> list[Poi]:
     # The second POI, of another class, is the neighbour of the first one: it feeds
     # the VICINATO section of the single-POI prompt.
     return [
-        {
-            "id": _POI_ID,
-            "name": "Sportello Centrale",
-            "lat": 41.8900,
-            "lon": 12.4920,
-            "osm_tags": "amenity=bank",
-            "ontology_class": _CLASS,
-            "citta": city,
-        },
-        {
-            "id": "node/2",
-            "name": "Liceo Nord",
-            "lat": 41.8905,
-            "lon": 12.4925,
-            "osm_tags": "amenity=school",
-            "ontology_class": _NEIGHBOUR_CLASS,
-            "citta": city,
-        },
+        make_poi(
+            id=_POI_ID,
+            name="Sportello Centrale",
+            lon=12.4920,
+            ontology_class=_CLASS,
+            citta=city,
+        ),
+        make_poi(
+            id="node/2",
+            name="Liceo Nord",
+            lat=41.8905,
+            lon=12.4925,
+            osm_tags="amenity=school",
+            ontology_class=_NEIGHBOUR_CLASS,
+            citta=city,
+        ),
     ]
 
 
@@ -180,7 +170,7 @@ def client(llm: _CapturingLLM, monkeypatch: pytest.MonkeyPatch) -> Iterator[Test
     store.activate(SID, _custom_set(), [])
     app = create_app()
     app.dependency_overrides[routes.get_sessions] = lambda: store
-    app.dependency_overrides[current_executor] = lambda: _FakeProfiler()
+    app.dependency_overrides[current_executor] = lambda: FakeProfiler({_CLASS: _BANK})
     app.dependency_overrides[get_llm_client] = lambda: llm
     yield TestClient(app, raise_server_exceptions=False)
     zone_context_cache.clear()

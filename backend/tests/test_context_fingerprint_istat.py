@@ -29,19 +29,16 @@ from crime_risk_analyzer.orchestrator import run_analysis, run_no_ontology_promp
 from crime_risk_analyzer.overpass_client import Poi
 from crime_risk_analyzer.rag import retrieval
 from crime_risk_analyzer.sources.context import current_executor
+from tests.eval._doubles import FakeProfiler
 
 _POI_ID = "node/1"
 
 
-class _Profiler:
-    def profile(self, ontology_class: str) -> PoiRiskProfile:
-        if ontology_class == "Bank":
-            return PoiRiskProfile(
-                ontology_class="Bank",
-                hazards=["Bank_robbery"],
-                sparql_paths=["Bank → havingHazard → Bank_robbery"],
-            )
-        return PoiRiskProfile(ontology_class=ontology_class)
+_BANK = PoiRiskProfile(
+    ontology_class="Bank",
+    hazards=["Bank_robbery"],
+    sparql_paths=["Bank → havingHazard → Bank_robbery"],
+)
 
 
 class _LLM:
@@ -103,7 +100,7 @@ def _client(monkeypatch: pytest.MonkeyPatch, *, enabled: bool) -> TestClient:
     monkeypatch.setattr(retrieval, "fetch_pois", _fetch)
     custom_settings = Settings(istat_context_enabled=enabled)
     app = create_app()
-    app.dependency_overrides[current_executor] = lambda: _Profiler()
+    app.dependency_overrides[current_executor] = lambda: FakeProfiler({"Bank": _BANK})
     app.dependency_overrides[get_llm_client] = lambda: _LLM()
     app.dependency_overrides[get_settings] = lambda: custom_settings
     return TestClient(app, raise_server_exceptions=False)
@@ -211,7 +208,7 @@ async def test_run_analysis_uses_the_run_switch(enabled: bool) -> None:
     resp = await run_analysis(
         "Roma",
         "Colosseo",
-        executor=_Profiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         llm_client=_LLM(),
         poi_source=_poi_source,
         geo_source=_geo_source,
@@ -228,7 +225,7 @@ async def test_no_ontology_arm_uses_the_run_switch(
     resp = await run_no_ontology_prompt(
         "Roma",
         "Colosseo",
-        executor=_Profiler(),
+        executor=FakeProfiler({"Bank": _BANK}),
         llm_client=_LLM(),
         poi_source=_poi_source,
         geo_source=_geo_source,
