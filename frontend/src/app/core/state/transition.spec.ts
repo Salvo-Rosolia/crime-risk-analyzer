@@ -527,3 +527,85 @@ describe('transition (FSM)', () => {
     });
   });
 });
+
+describe('transition: SOURCE_SET_CHANGED (#473)', () => {
+  const loaded = (screen: AppState['screen']): AppState => ({
+    ...initialState,
+    screen,
+    fullData: data,
+    baselineData: data,
+    selectedPoiId: '1',
+    filter: 'verificato',
+    lastQuery: {
+      area: { kind: 'circle', center: { lat: 1, lon: 2 }, radiusM: 300 },
+      city: 'Roma',
+      zone: 'Colosseo',
+      question: 'di sera?',
+    },
+    pendingQuestion: 'di sera?',
+    poiNarratives: {},
+  });
+
+  it.each(['RESULTS', 'DETAIL', 'FILTER'] as const)(
+    'from %s clears the results and goes back to INPUT, keeping the question',
+    (screen) => {
+      const s = transition(loaded(screen), { type: 'SOURCE_SET_CHANGED' });
+      expect(s.screen).toBe('INPUT');
+      expect(s.fullData).toBeNull();
+      expect(s.baselineData).toBeNull();
+      expect(s.selectedPoiId).toBeNull();
+      expect(s.filter).toBeNull();
+      expect(s.lastQuery).toBeNull();
+      expect(s.pendingQuestion).toBe('di sera?');
+    },
+  );
+
+  it('in BASE it clears the table but stays in BASE (the form is the panel)', () => {
+    const s = transition({ ...loaded('BASE'), mode: 'base' }, { type: 'SOURCE_SET_CHANGED' });
+    expect(s.screen).toBe('BASE');
+    expect(s.mode).toBe('base');
+    expect(s.baselineData).toBeNull();
+    expect(s.fullData).toBeNull();
+  });
+
+  it('keeps the error message and the ERROR screen', () => {
+    const s = transition(
+      { ...loaded('ERROR'), error: 'Zona non trovata' },
+      { type: 'SOURCE_SET_CHANGED' },
+    );
+    expect(s.screen).toBe('ERROR');
+    expect(s.error).toBe('Zona non trovata');
+    expect(s.fullData).toBeNull();
+  });
+
+  it('keeps an error shown in the BASE form', () => {
+    const s = transition(
+      { ...loaded('BASE'), mode: 'base', error: 'Tipo POI non riconosciuto' },
+      { type: 'SOURCE_SET_CHANGED' },
+    );
+    expect(s.error).toBe('Tipo POI non riconosciuto');
+  });
+
+  it('does not interrupt a request in flight', () => {
+    const s = transition(loaded('LOADING'), { type: 'SOURCE_SET_CHANGED' });
+    expect(s.screen).toBe('LOADING');
+  });
+
+  it('clears the narratives of the cleared results', () => {
+    const s = transition(
+      {
+        ...loaded('RESULTS'),
+        zoneNarrativeLoading: true,
+        zoneNarrativeError: 'x',
+        poiNarrativeLoading: '1',
+        poiNarrativeError: 'y',
+      },
+      { type: 'SOURCE_SET_CHANGED' },
+    );
+    expect(s.poiNarratives).toEqual({});
+    expect(s.zoneNarrativeLoading).toBe(false);
+    expect(s.zoneNarrativeError).toBeNull();
+    expect(s.poiNarrativeLoading).toBeNull();
+    expect(s.poiNarrativeError).toBeNull();
+  });
+});

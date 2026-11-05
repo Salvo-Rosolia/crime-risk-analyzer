@@ -28,7 +28,7 @@ from pydantic import BaseModel
 
 from crime_risk_analyzer.config import get_settings
 from crime_risk_analyzer.sources.build import build_source_set, fallback_places
-from crime_risk_analyzer.sources.context import bind
+from crime_risk_analyzer.sources.context import DEFAULT_ID, bind
 from crime_risk_analyzer.sources.example import example_bundle
 from crime_risk_analyzer.sources.limits import (
     MAX_BYTES_CSV,
@@ -258,6 +258,10 @@ class SourcesStatus(BaseModel):
     stato: Literal["default", "attivo", "scaduto"]
     scade_tra_secondi: int | None
     set: SetSummary | None
+    #: Id of the set the server uses for this session (#473): ``default`` without
+    #: an active set (also when ``scaduto``), ``example``, or the opaque random id of
+    #: an upload. The client keys its state on it to notice a server-side change.
+    source_set_id: str
 
 
 def _status(sessions: SessionStore, session_id: str | None) -> SourcesStatus:
@@ -267,10 +271,21 @@ def _status(sessions: SessionStore, session_id: str | None) -> SourcesStatus:
             stato="attivo",
             scade_tra_secondi=sessions.remaining_seconds(session_id),
             set=_summary(entry),
+            source_set_id=entry.source_set.id,
         )
     if session_id is not None and sessions.was_expired(session_id):
-        return SourcesStatus(stato="scaduto", scade_tra_secondi=None, set=None)
-    return SourcesStatus(stato="default", scade_tra_secondi=None, set=None)
+        return SourcesStatus(
+            stato="scaduto",
+            scade_tra_secondi=None,
+            set=None,
+            source_set_id=DEFAULT_ID,
+        )
+    return SourcesStatus(
+        stato="default",
+        scade_tra_secondi=None,
+        set=None,
+        source_set_id=DEFAULT_ID,
+    )
 
 
 def _summary(entry: SessionEntry) -> SetSummary:

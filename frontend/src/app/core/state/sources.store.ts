@@ -19,14 +19,17 @@ export interface SourcesIndicator {
 
 export type SourcesBusy = 'upload' | 'example' | 'reset';
 
-/** Fingerprint of the active set: two states with the same fingerprint give the same analyses. */
-function signature(status: SourcesStatus | null): string {
-  if (status?.stato === 'attivo' && status.set) {
-    const { kind, versione_dati, classi, selettori_osm } = status.set;
-    return `${kind}:${versione_dati}:${classi}:${selettori_osm}`;
-  }
-  return status?.stato === 'scaduto' ? 'scaduto' : 'default';
+/**
+ * What the results on screen are based on: the server identity of the set plus the expired state
+ * (the server keeps `default` as id while expired, but the results still come from the lost set).
+ * Two equal values give the same analyses.
+ */
+function basis(status: SourcesStatus | null, id: string | null): string {
+  return `${status?.stato === 'scaduto' ? 'expired' : 'live'}:${id ?? DEFAULT_SET_ID}`;
 }
+
+/** Identity of the set served when nothing else is known (also what an expired session gets). */
+const DEFAULT_SET_ID = 'default';
 
 /** Body of a 422 `fonti_non_valide`, if `err` is one. */
 function reportFrom(err: unknown): SourcesReport | null {
@@ -52,6 +55,9 @@ export class SourcesStore {
   private readonly _busy = signal<SourcesBusy | null>(null);
   private readonly _open = signal(false);
   private readonly _revision = signal(0);
+  /** Identity the server last declared for the active set (#473); `null` until something carries it. */
+  private readonly _setId = signal<string | null>(null);
+  private readonly _serverChanges = signal(0);
   /** Times the server rejected a POI type the client still offered (#467): part of `setKey`. */
   private readonly _staleTypes = signal(0);
   /** State generation: a read started before an action or a 410 does not override it. */
@@ -71,21 +77,22 @@ export class SourcesStore {
    * an operation is in flight does not lose the notification. The shell observes it to clear the analysis.
    */
   readonly revision = this._revision.asReadonly();
+  /**
+   * Counter of the changes of the server's set identity that the user did NOT make (#473): backend
+   * restarted or session expired with no 410, found out by a re-read of `/sources` or by the id that
+   * `/poi-types` carries. The shell observes it to clear the results on screen (the indicator is already
+   * corrected here) while keeping the form and the error. The first id ever seen is not a change.
+   */
+  readonly serverChanges = this._serverChanges.asReadonly();
 
   /**
-   * Identity of the active set: changes whenever the classes the backend serves may have changed
-   * (effective upload/example/reset, expiry) or the client found out it is stale (a 422
-   * `tipo_poi_non_riconosciuto`, #467, via `markPoiTypesStale`). Panels that cache per-set data (the
-   * "Tipo POI" list, #463) key it on this value and reload when it changes; it is not a reason to
-   * reset the analysis (that is `revision`).
+   * Key of the active set for the caches that depend on it (the "Tipo POI" list, #463): the identity the
+   * SERVER declares (#473: `default`, `example`, `custom-<hex>`), plus the counter that forces one reload
+   * after a 422 `tipo_poi_non_riconosciuto` (#467, `markPoiTypesStale`). Until an id is known the server is
+   * assumed to serve the default. It is not a reason to reset the analysis (that is `revision` and
+   * `serverChanges`).
    */
-  readonly setKey = computed(() => {
-    const status = this._status();
-    // Expired and default sources are served the same catalog: they share one key, and the revision
-    // (which also counts the expired → default step) does not enter it, so no extra reload.
-    if (status?.stato !== 'attivo' || !status.set) return `${this._staleTypes()}:default`;
-    return `${this._revision()}:${this._staleTypes()}:${signature(status)}`;
-  });
+  readonly setKey = computed(() => `${this._setId() ?? DEFAULT_SET_ID}:${this._staleTypes()}`);
 
   readonly indicator = computed<SourcesIndicator>(() => {
     const status = this._status();
@@ -110,7 +117,14 @@ export class SourcesStore {
   /** A 410 `fonti_scadute` from the analysis routes: the indicator reflects it with no further network. */
   markExpired(): void {
     this.seq++;
-    this._status.set({ stato: 'scaduto', scade_tra_secondi: null, set: null });
+    // The server keeps `default` as id while expired; the 410 itself is already known to the shell, so it is not a change to signal.
+    this._setId.set(DEFAULT_SET_ID);
+    this._status.set({
+      stato: 'scaduto',
+      scade_tra_secondi: null,
+      set: null,
+      source_set_id: DEFAULT_SET_ID,
+    });
   }
 
   /**
@@ -140,9 +154,34 @@ export class SourcesStore {
     const mine = ++this.seq;
     try {
       const status = await this.api.sourcesStatus();
-      if (mine === this.seq) this._status.set(status);
+      if (mine === this.seq) this.applyRead(status);
     } catch {
       // Backend unreachable: no message, the analysis will show its own error.
+    }
+  }
+
+  /**
+   * The id carried by a `/poi-types` answer (#473). Equal to the known one: nothing. Different: the
+   * server is serving another set than the one the indicator and the results refer to, so the indicator
+   * goes back to the default at once (the real status is re-read right after) and the change is signaled.
+   */
+  noteSetId(id: string): void {
+    const known = this._setId();
+    this._setId.set(id);
+    if (known === null || known === id) return;
+    this.seq++;
+    this._status.set(null);
+    this._serverChanges.update((n) => n + 1);
+    void this.refresh();
+  }
+
+  /** A status read (not caused by an action of the user): applies it and signals an identity change. */
+  private applyRead(status: SourcesStatus): void {
+    const known = this._setId();
+    this._status.set(status);
+    this._setId.set(status.source_set_id);
+    if (known !== null && known !== status.source_set_id) {
+      this._serverChanges.update((n) => n + 1);
     }
   }
 
@@ -170,7 +209,7 @@ export class SourcesStore {
     alwaysChanges = false,
   ): Promise<boolean> {
     this.seq++;
-    const before = signature(this._status());
+    const before = basis(this._status(), this._setId());
     this._busy.set(busy);
     this._report.set(null);
     this._message.set(null);
@@ -179,8 +218,11 @@ export class SourcesStore {
       // Reads started during the action, and closed after it, must not override it either.
       this.seq++;
       this._status.set(status);
-      // A successful upload brings new files even if the fingerprint coincides with the previous one.
-      if (alwaysChanges || signature(status) !== before) this._revision.update((n) => n + 1);
+      this._setId.set(status.source_set_id);
+      // A successful upload brings new files even if the identity coincides with the previous one.
+      if (alwaysChanges || basis(status, status.source_set_id) !== before) {
+        this._revision.update((n) => n + 1);
+      }
       return true;
     } catch (err) {
       const report = reportFrom(err);

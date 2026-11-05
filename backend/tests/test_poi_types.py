@@ -112,9 +112,15 @@ def test_get_poi_types_endpoint_shape_and_order() -> None:
     resp = cast(httpx.Response, client.get("/poi-types"))  # pyright: ignore[reportUnknownMemberType]
     assert resp.status_code == 200
     body = cast(list[dict[str, str]], resp.json())
-    assert all(set(item) == {"ontology_class", "label_it"} for item in body)
-    assert body == [t.model_dump() for t in poi_types()]
-    assert {"ontology_class": "Bank", "label_it": "Banca"} in body
+    assert all(
+        set(item) == {"ontology_class", "label_it", "source_set_id"} for item in body
+    )
+    assert body == [{**t.model_dump(), "source_set_id": "default"} for t in poi_types()]
+    assert {
+        "ontology_class": "Bank",
+        "label_it": "Banca",
+        "source_set_id": "default",
+    } in body
 
 
 def test_get_poi_types_is_not_shared_cacheable_across_sessions() -> None:

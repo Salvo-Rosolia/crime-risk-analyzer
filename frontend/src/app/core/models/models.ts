@@ -17,6 +17,8 @@ export type NarrativeSourceTag = SourceTag | 'ISTAT';
 export interface PoiType {
   ontology_class: string;
   label_it: string;
+  /** Identity of the source set the server is serving (#473): equal on every element of the list. */
+  source_set_id: string;
 }
 
 /**
@@ -364,6 +366,8 @@ export type Action =
   | { type: 'CLEAR_FILTER' }
   | { type: 'TOGGLE_MODE'; mode: Mode }
   | { type: 'RESET' }
+  /** The server serves another source set than the one the results were computed on (#473). */
+  | { type: 'SOURCE_SET_CHANGED' }
   | { type: 'TOGGLE_POI_PANEL' }
   | { type: 'TOGGLE_NARR' }
   /** Generation of a POI's narrative started (#197): the panel shows the loading state. */
@@ -411,6 +415,8 @@ export interface SourcesStatus {
   stato: 'default' | 'attivo' | 'scaduto';
   scade_tra_secondi: number | null;
   set: SourceSetSummary | null;
+  /** Identity of the set the server serves: `default`, `example` or `custom-<hex>`; `default` also when expired (#473). */
+  source_set_id: string;
 }
 
 /** Vocabulary of the loaded ontology: empty = the TERMINUS one (decided by the backend). */

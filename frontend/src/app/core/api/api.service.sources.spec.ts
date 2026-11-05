@@ -6,6 +6,7 @@ import type { SourcesStatus } from '@core/models/models';
 
 const attivo: SourcesStatus = {
   stato: 'attivo',
+  source_set_id: 'example',
   scade_tra_secondi: 600,
   set: {
     kind: 'example',
@@ -51,7 +52,7 @@ describe('ApiService - sources', () => {
     const p = api.resetSources();
     const req = ctrl.expectOne('/sources');
     expect(req.request.method).toBe('DELETE');
-    req.flush({ stato: 'default', scade_tra_secondi: null, set: null });
+    req.flush({ stato: 'default', scade_tra_secondi: null, set: null, source_set_id: 'default' });
     expect((await p).stato).toBe('default');
   });
 
@@ -90,6 +91,54 @@ describe('ApiService - sources', () => {
     expect((req.request.body as FormData).has('boundaries')).toBe(true);
     req.flush(attivo);
     await p;
+  });
+
+  describe('response shape (#473)', () => {
+    const SHAPE_ERROR = 'Risposta del server in un formato inatteso.';
+    const noId = { stato: 'default', scade_tra_secondi: null, set: null };
+
+    it.each([
+      ['sourcesStatus', () => api.sourcesStatus(), '/sources'],
+      ['useExampleSources', () => api.useExampleSources(), '/sources/example'],
+      ['resetSources', () => api.resetSources(), '/sources'],
+    ])('%s: a status without source_set_id rejects', async (_name, call, url) => {
+      const p = call();
+      ctrl.expectOne(url).flush(noId);
+      await expect(p).rejects.toThrow(SHAPE_ERROR);
+    });
+
+    it('uploadSources: a status without source_set_id rejects', async () => {
+      const f = (n: string) => new File(['x'], n);
+      const p = api.uploadSources({
+        ontology: f('o.ttl'),
+        osm_table: f('osm.csv'),
+        data: f('d.csv'),
+        hazard_table: f('h.csv'),
+      });
+      ctrl.expectOne('/sources').flush(noId);
+      await expect(p).rejects.toThrow(SHAPE_ERROR);
+    });
+
+    it('sourcesStatus: an unknown stato or a non-string id rejects', async () => {
+      const p1 = api.sourcesStatus();
+      ctrl.expectOne('/sources').flush({ ...noId, source_set_id: 'default', stato: 'boh' });
+      await expect(p1).rejects.toThrow(SHAPE_ERROR);
+      const p2 = api.sourcesStatus();
+      ctrl.expectOne('/sources').flush({ ...noId, source_set_id: 7 });
+      await expect(p2).rejects.toThrow(SHAPE_ERROR);
+    });
+
+    it('sourcesStatus: an expired status keeps the default id', async () => {
+      const expired = {
+        stato: 'scaduto',
+        scade_tra_secondi: null,
+        set: null,
+        source_set_id: 'default',
+      };
+      const p = api.sourcesStatus();
+      ctrl.expectOne('/sources').flush(expired);
+      await expect(p).resolves.toEqual(expired);
+    });
   });
 
   it('templateUrl: relative path of the template', () => {

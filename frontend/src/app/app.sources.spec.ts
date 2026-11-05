@@ -23,11 +23,12 @@ import { sessionInterceptor } from '@core/api/session.interceptor';
 import { ApiService } from '@core/api/api.service';
 import { SourcesStore } from '@core/state/sources.store';
 import { StateStore } from '@core/state/state.store';
-import type { SourcesStatus } from '@core/models/models';
+import type { AnalyzeResponse, SourcesStatus } from '@core/models/models';
 import { App } from './app';
 
 const EXAMPLE: SourcesStatus = {
   stato: 'attivo',
+  source_set_id: 'example',
   scade_tra_secondi: 900,
   set: {
     kind: 'example',
@@ -48,9 +49,12 @@ describe('App shell - sources (#419)', () => {
       poiTypes: jest.fn().mockResolvedValue([]),
       sourcesStatus: jest.fn().mockResolvedValue(EXAMPLE),
       useExampleSources: jest.fn().mockResolvedValue(EXAMPLE),
-      resetSources: jest
-        .fn()
-        .mockResolvedValue({ stato: 'default', scade_tra_secondi: null, set: null }),
+      resetSources: jest.fn().mockResolvedValue({
+        stato: 'default',
+        scade_tra_secondi: null,
+        set: null,
+        source_set_id: 'default',
+      }),
       templateUrl: jest.fn((n: string) => `/sources/templates/${n}`),
     };
     await TestBed.configureTestingModule({
@@ -92,7 +96,12 @@ describe('App shell - sources (#419)', () => {
     expect(f.nativeElement.querySelector('cra-sources-page')).toBeNull();
   });
 
-  const DEFAULT: SourcesStatus = { stato: 'default', scade_tra_secondi: null, set: null };
+  const DEFAULT: SourcesStatus = {
+    stato: 'default',
+    scade_tra_secondi: null,
+    set: null,
+    source_set_id: 'default',
+  };
   const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
   async function startLoading(f: ReturnType<typeof TestBed.createComponent<App>>) {
@@ -169,6 +178,128 @@ describe('App shell - sources (#419)', () => {
   });
 });
 
+describe('App shell - set identity changed by the server (#473)', () => {
+  const CUSTOM: SourcesStatus = {
+    ...EXAMPLE,
+    source_set_id: 'custom-aaaaaaaaaaaaaaaa',
+    set: { ...EXAMPLE.set!, kind: 'custom' },
+  };
+  const LOST: SourcesStatus = {
+    stato: 'default',
+    scade_tra_secondi: null,
+    set: null,
+    source_set_id: 'default',
+  };
+  const results = {
+    citta: 'Roma',
+    zona_normalizzata: 'Centro',
+    poi: [],
+    risk_models: [],
+    narrativa: '',
+    narrativa_fonti: { overview: '', ontologia: '', contesto: '', speculativo: '' },
+    confidence_summary: { verificato: 0, da_confermare: 0 },
+    llm_used: '',
+    latenza_ms: 0,
+    tokens_input: 0,
+    tokens_output: 0,
+    repro: { temperature: 0, seed: 0, prompt_hash: '' },
+    cache_hit: false,
+    fallback: false,
+    contesto_hash: 'h',
+  } as AnalyzeResponse;
+  const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+  let api: Record<string, jest.Mock>;
+
+  beforeEach(async () => {
+    api = {
+      cities: jest.fn().mockResolvedValue([]),
+      poiTypes: jest.fn().mockResolvedValue([]),
+      sourcesStatus: jest.fn().mockResolvedValue(CUSTOM),
+    };
+    await TestBed.configureTestingModule({
+      imports: [App],
+      providers: [{ provide: ApiService, useValue: api }],
+    }).compileComponents();
+  });
+
+  async function start() {
+    const f = TestBed.createComponent(App);
+    f.detectChanges();
+    await f.whenStable();
+    return {
+      f,
+      state: TestBed.inject(StateStore),
+      sources: TestBed.inject(SourcesStore),
+      form: f.componentInstance as unknown as {
+        city: { set(v: string): void; (): string };
+        zone: { set(v: string): void; (): string };
+        poiType: { set(v: string): void; (): string };
+      },
+    };
+  }
+
+  it('another id on a re-read: results and indicator cleared, form kept', async () => {
+    const { f, state, sources, form } = await start();
+    expect(sources.indicator().kind).toBe('custom');
+    form.city.set('Roma');
+    form.zone.set('Centro');
+    state.dispatch({ type: 'LOAD_SUCCESS', data: results, pipeline: 'full' });
+    expect(state.screen()).toBe('RESULTS');
+
+    api['sourcesStatus'].mockResolvedValue(LOST);
+    await sources.refresh();
+    await tick();
+    f.detectChanges();
+
+    expect(state.screen()).toBe('INPUT');
+    expect(state.fullData()).toBeNull();
+    expect(sources.indicator()).toEqual({ label: 'Predefinite', kind: 'default' });
+    expect(form.city()).toBe('Roma');
+    expect(form.zone()).toBe('Centro');
+  });
+
+  it('the same id on a re-read: nothing is cleared', async () => {
+    const { f, state, sources } = await start();
+    state.dispatch({ type: 'LOAD_SUCCESS', data: results, pipeline: 'full' });
+    await sources.refresh();
+    await tick();
+    f.detectChanges();
+    expect(state.screen()).toBe('RESULTS');
+    expect(state.fullData()).not.toBeNull();
+    expect(sources.indicator().kind).toBe('custom');
+  });
+
+  it('the error message survives the reset', async () => {
+    const { f, state, sources } = await start();
+    state.dispatch({
+      type: 'ANALYZE',
+      area: { kind: 'zone', city: 'Roma', zone: 'X' },
+      pipeline: 'full',
+    });
+    state.dispatch({ type: 'LOAD_ERROR', message: 'Zona non trovata', pipeline: 'full' });
+    api['sourcesStatus'].mockResolvedValue(LOST);
+    await sources.refresh();
+    await tick();
+    f.detectChanges();
+    expect(state.screen()).toBe('ERROR');
+    expect(state.error()).toBe('Zona non trovata');
+  });
+
+  it('a change the user made (Torna al default) still resets the form too (#419)', async () => {
+    api['resetSources'] = jest.fn().mockResolvedValue(LOST);
+    const { f, state, sources, form } = await start();
+    form.city.set('Roma');
+    form.zone.set('Centro');
+    state.dispatch({ type: 'LOAD_SUCCESS', data: results, pipeline: 'full' });
+    await sources.reset();
+    await tick();
+    f.detectChanges();
+    expect(state.screen()).toBe('INPUT');
+    expect(form.city()).toBe('');
+    expect(sources.serverChanges()).toBe(0);
+  });
+});
+
 describe('App shell - 410 fonti_scadute (#419)', () => {
   it('a 410 that answers an analysis brings the indicator to Scadute', async () => {
     await TestBed.configureTestingModule({
@@ -181,9 +312,14 @@ describe('App shell - 410 fonti_scadute (#419)', () => {
     const ctrl = TestBed.inject(HttpTestingController);
     const f = TestBed.createComponent(App);
     f.detectChanges();
-    ctrl
-      .match('/sources')
-      .forEach((r) => r.flush({ stato: 'default', scade_tra_secondi: null, set: null }));
+    ctrl.match('/sources').forEach((r) =>
+      r.flush({
+        stato: 'default',
+        scade_tra_secondi: null,
+        set: null,
+        source_set_id: 'default',
+      }),
+    );
     ctrl.match('/cities').forEach((r) => r.flush([]));
     ctrl.match('/poi-types').forEach((r) => r.flush([]));
     await tick2(); // lets the initial read of the sources state finish

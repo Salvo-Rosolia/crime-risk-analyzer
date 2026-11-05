@@ -1,4 +1,4 @@
-import { AnalyzeResponse, PoiType } from '@core/models/models';
+import { AnalyzeResponse, PoiType, SourcesStatus } from '@core/models/models';
 
 /**
  * Minimal runtime checks of backend responses (#464): `HttpClient.get<T>()` is only a cast, so a
@@ -23,7 +23,8 @@ function isPoiType(value: unknown): value is PoiType {
   return (
     isRecord(value) &&
     typeof value['ontology_class'] === 'string' &&
-    typeof value['label_it'] === 'string'
+    typeof value['label_it'] === 'string' &&
+    typeof value['source_set_id'] === 'string'
   );
 }
 
@@ -40,6 +41,15 @@ function isPoi(value: unknown): boolean {
 
 export function isPoiTypeList(value: unknown): value is PoiType[] {
   return Array.isArray(value) && value.every(isPoiType);
+}
+
+/** `/sources` answers: the server identity of the set (#473) is what the client keys its caches on. */
+export function isSourcesStatus(value: unknown): value is SourcesStatus {
+  return (
+    isRecord(value) &&
+    (value['stato'] === 'default' || value['stato'] === 'attivo' || value['stato'] === 'scaduto') &&
+    typeof value['source_set_id'] === 'string'
+  );
 }
 
 export function isAnalyzeResponse(value: unknown): value is AnalyzeResponse {

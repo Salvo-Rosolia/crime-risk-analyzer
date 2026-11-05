@@ -95,7 +95,12 @@ def _upload(
 def test_status_without_header_is_default(client: TestClient) -> None:
     r = client.get("/sources")
     assert r.status_code == 200
-    assert r.json() == {"stato": "default", "scade_tra_secondi": None, "set": None}
+    assert r.json() == {
+        "stato": "default",
+        "scade_tra_secondi": None,
+        "set": None,
+        "source_set_id": "default",
+    }
 
 
 def test_status_is_not_shared_cacheable_across_sessions(client: TestClient) -> None:
@@ -190,6 +195,38 @@ def test_different_sessions_do_not_see_each_other(client: TestClient) -> None:
     assert client.get("/sources", headers={H: SID2}).json()["stato"] == "default"
     assert client.get("/probe", headers={H: SID2}).json() == {"set": "default"}
     assert client.get("/probe", headers={H: SID}).json()["set"] != "default"
+
+
+def test_status_exposes_the_id_of_the_set_in_use(client: TestClient) -> None:
+    """#473: the id in the body is the one the server binds to the session."""
+    upload = _upload(client).json()
+    status = client.get("/sources", headers={H: SID}).json()
+    probe = client.get("/probe", headers={H: SID}).json()["set"]
+    assert upload["source_set_id"] == status["source_set_id"] == probe
+    assert status["source_set_id"] != "default"
+    # stable across reads, different for another session and after a new upload
+    assert client.get("/sources", headers={H: SID}).json() == status
+    assert (
+        client.get("/sources", headers={H: SID2}).json()["source_set_id"] == "default"
+    )
+    assert _upload(client).json()["source_set_id"] != status["source_set_id"]
+
+
+def test_status_id_is_default_after_expiry_and_reset(
+    client: TestClient, clock: Clock
+) -> None:
+    _upload(client)
+    clock.t = 200
+    expired = client.get("/sources", headers={H: SID}).json()
+    assert expired["stato"] == "scaduto"
+    assert expired["source_set_id"] == "default"
+    reset = client.delete("/sources", headers={H: SID}).json()
+    assert reset["source_set_id"] == "default"
+
+
+def test_status_id_of_the_example_set(client: TestClient) -> None:
+    r = client.post("/sources/example", headers={H: SID}).json()
+    assert r["source_set_id"] == "example"
 
 
 def test_every_upload_has_a_new_set_id(client: TestClient) -> None:

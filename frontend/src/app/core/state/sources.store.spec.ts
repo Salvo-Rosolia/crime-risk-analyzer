@@ -4,9 +4,19 @@ import { ApiService } from '@core/api/api.service';
 import type { SourceProblem, SourcesStatus, SourceUpload } from '@core/models/models';
 import { SourcesStore } from './sources.store';
 
-const DEFAULT: SourcesStatus = { stato: 'default', scade_tra_secondi: null, set: null };
-const set = (kind: 'example' | 'custom', avvisi: SourceProblem[] = []): SourcesStatus => ({
+const DEFAULT: SourcesStatus = {
+  stato: 'default',
+  scade_tra_secondi: null,
+  set: null,
+  source_set_id: 'default',
+};
+const set = (
+  kind: 'example' | 'custom',
+  avvisi: SourceProblem[] = [],
+  id = kind === 'example' ? 'example' : 'custom-aaaaaaaaaaaaaaaa',
+): SourcesStatus => ({
   stato: 'attivo',
+  source_set_id: id,
   scade_tra_secondi: 900,
   set: { kind, classi: 2, selettori_osm: 4, versione_dati: '2024', luoghi: ['Roma'], avvisi },
 });
@@ -56,7 +66,12 @@ describe('SourcesStore', () => {
   });
 
   it('expired: indicator Scadute', async () => {
-    api.sourcesStatus.mockResolvedValue({ stato: 'scaduto', scade_tra_secondi: null, set: null });
+    api.sourcesStatus.mockResolvedValue({
+      stato: 'scaduto',
+      scade_tra_secondi: null,
+      set: null,
+      source_set_id: 'default',
+    });
     await store.refresh();
     expect(store.indicator()).toEqual({ label: 'Scadute', kind: 'expired' });
   });
@@ -183,18 +198,26 @@ describe('SourcesStore', () => {
     });
   });
 
-  describe('setKey (identity of the active set, #463)', () => {
-    it('changes on example and expiry; stays put on a refresh that changes nothing', async () => {
-      const keys = [store.setKey()];
+  describe('setKey (identity of the active set, #463, #473)', () => {
+    it('is the server identity: changes on example and on expiry back to default, not on a no-op refresh', async () => {
+      expect(store.setKey()).toBe('default:0');
       api.useExampleSources.mockResolvedValue(set('example'));
       await store.useExample();
-      keys.push(store.setKey());
+      expect(store.setKey()).toBe('example:0');
       api.sourcesStatus.mockResolvedValue(set('example'));
       await store.refresh();
-      expect(store.setKey()).toBe(keys[1]);
+      expect(store.setKey()).toBe('example:0');
       store.markExpired();
-      expect(store.setKey()).not.toBe(keys[1]);
-      expect(new Set(keys).size).toBe(keys.length);
+      expect(store.setKey()).toBe('default:0');
+    });
+
+    it('two different custom sets have different keys (the server id, not a local counter)', async () => {
+      api.uploadSources.mockResolvedValue(set('custom', [], 'custom-1111111111111111'));
+      await store.upload(upload);
+      const first = store.setKey();
+      api.uploadSources.mockResolvedValue(set('custom', [], 'custom-2222222222222222'));
+      await store.upload(upload);
+      expect(store.setKey()).not.toBe(first);
     });
 
     it('expired and default share the key: the step from one to the other reloads nothing', async () => {
@@ -222,7 +245,7 @@ describe('SourcesStore', () => {
       await store.markPoiTypesStale();
       expect(store.indicator().kind).toBe('custom');
       expect(store.setKey()).not.toBe(before);
-      expect(store.setKey()).toMatch(/^0:0:custom:/);
+      expect(store.setKey()).toBe('custom-aaaaaaaaaaaaaaaa:0');
       expect(store.revision()).toBe(0);
     });
 
@@ -236,6 +259,88 @@ describe('SourcesStore', () => {
     it('markPoiTypesStale calls made while one is in flight are ignored', async () => {
       await Promise.all([store.markPoiTypesStale(), store.markPoiTypesStale()]);
       expect(api.sourcesStatus).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('server identity change not made by the user (#473)', () => {
+    async function knowCustom(): Promise<void> {
+      api.sourcesStatus.mockResolvedValue(set('custom'));
+      await store.refresh();
+    }
+
+    it('the first read is not a change', async () => {
+      await knowCustom();
+      expect(store.serverChanges()).toBe(0);
+    });
+
+    it('a refresh that finds another id signals one change and shows the real status', async () => {
+      await knowCustom();
+      api.sourcesStatus.mockResolvedValue(DEFAULT);
+      await store.refresh();
+      expect(store.serverChanges()).toBe(1);
+      expect(store.indicator()).toEqual({ label: 'Predefinite', kind: 'default' });
+      expect(store.revision()).toBe(0);
+    });
+
+    it('a refresh that finds the same id signals nothing', async () => {
+      await knowCustom();
+      await store.refresh();
+      await store.refresh();
+      expect(store.serverChanges()).toBe(0);
+    });
+
+    it('the server answering expired with the default id is a change too (silent expiry)', async () => {
+      await knowCustom();
+      api.sourcesStatus.mockResolvedValue({ ...DEFAULT, stato: 'scaduto' });
+      await store.refresh();
+      expect(store.serverChanges()).toBe(1);
+      expect(store.indicator().kind).toBe('expired');
+    });
+
+    it('actions of the user do not count as server changes (they have their own revision)', async () => {
+      await knowCustom();
+      api.resetSources.mockResolvedValue(DEFAULT);
+      await store.reset();
+      expect(store.serverChanges()).toBe(0);
+      expect(store.revision()).toBe(1);
+    });
+
+    it('a 410 (markExpired) is not a server change either: the interceptor already shows it', async () => {
+      await knowCustom();
+      store.markExpired();
+      expect(store.serverChanges()).toBe(0);
+      expect(store.setKey()).toBe('default:0');
+    });
+
+    describe('noteSetId (identity carried by /poi-types)', () => {
+      it('a different id clears the indicator at once, signals the change and re-reads /sources', async () => {
+        await knowCustom();
+        api.sourcesStatus.mockClear();
+        api.sourcesStatus.mockResolvedValue(DEFAULT);
+        store.noteSetId('default');
+        expect(store.serverChanges()).toBe(1);
+        expect(store.indicator().kind).toBe('default');
+        expect(api.sourcesStatus).toHaveBeenCalledTimes(1);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(store.serverChanges()).toBe(1);
+        expect(store.setKey()).toBe('default:0');
+      });
+
+      it('the same id does nothing', async () => {
+        await knowCustom();
+        api.sourcesStatus.mockClear();
+        store.noteSetId('custom-aaaaaaaaaaaaaaaa');
+        expect(store.serverChanges()).toBe(0);
+        expect(api.sourcesStatus).not.toHaveBeenCalled();
+        expect(store.indicator().kind).toBe('custom');
+      });
+
+      it('before any id is known it only records it', () => {
+        store.noteSetId('custom-aaaaaaaaaaaaaaaa');
+        expect(store.serverChanges()).toBe(0);
+        expect(store.setKey()).toBe('custom-aaaaaaaaaaaaaaaa:0');
+      });
     });
   });
 

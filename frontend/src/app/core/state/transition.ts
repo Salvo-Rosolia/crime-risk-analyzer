@@ -160,6 +160,27 @@ export function transition(state: AppState, action: Action): AppState {
     }
     case 'RESET':
       return { ...initialState };
+    case 'SOURCE_SET_CHANGED':
+      // Partial reset (#473): only what the previous set computed goes away. The form inputs (they
+      // live in the shell and in `pendingQuestion`) and `error` stay: the user did not touch the
+      // sources, so nothing else is taken from them. A request in flight keeps its LOADING screen.
+      return {
+        ...state,
+        screen:
+          state.screen === 'LOADING' || state.screen === 'ERROR' || state.screen === 'BASE'
+            ? state.screen
+            : 'INPUT',
+        fullData: null,
+        baselineData: null,
+        selectedPoiId: null,
+        filter: null,
+        lastQuery: null,
+        poiNarratives: {},
+        poiNarrativeLoading: null,
+        poiNarrativeError: null,
+        zoneNarrativeLoading: false,
+        zoneNarrativeError: null,
+      };
     case 'TOGGLE_POI_PANEL':
       return { ...state, poiPanelOpen: !state.poiPanelOpen };
     case 'TOGGLE_NARR':

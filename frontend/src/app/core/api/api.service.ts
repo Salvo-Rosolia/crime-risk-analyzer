@@ -1,7 +1,12 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
-import { expectShape, isAnalyzeResponse, isPoiTypeList } from '@core/api/response-guards';
+import {
+  expectShape,
+  isAnalyzeResponse,
+  isPoiTypeList,
+  isSourcesStatus,
+} from '@core/api/response-guards';
 import {
   AnalyzeResponse,
   BaselineParams,
@@ -150,7 +155,9 @@ export class ApiService {
 
   /** State of the session's sources (`GET /sources`): default, active or expired. */
   sourcesStatus(): Promise<SourcesStatus> {
-    return firstValueFrom(this.http.get<SourcesStatus>('/sources'));
+    return firstValueFrom(this.http.get<unknown>('/sources')).then((body) =>
+      expectShape(body, isSourcesStatus),
+    );
   }
 
   /**
@@ -173,17 +180,23 @@ export class ApiService {
     for (const value of v?.vulnerability ?? []) {
       if (value.trim()) body.append('vulnerability', value.trim());
     }
-    return firstValueFrom(this.http.post<SourcesStatus>('/sources', body));
+    return firstValueFrom(this.http.post<unknown>('/sources', body)).then((res) =>
+      expectShape(res, isSourcesStatus),
+    );
   }
 
   /** Activates the example set without uploading files (`POST /sources/example`). */
   useExampleSources(): Promise<SourcesStatus> {
-    return firstValueFrom(this.http.post<SourcesStatus>('/sources/example', null));
+    return firstValueFrom(this.http.post<unknown>('/sources/example', null)).then((res) =>
+      expectShape(res, isSourcesStatus),
+    );
   }
 
   /** Goes back to the default sources (`DELETE /sources`, idempotent). */
   resetSources(): Promise<SourcesStatus> {
-    return firstValueFrom(this.http.delete<SourcesStatus>('/sources'));
+    return firstValueFrom(this.http.delete<unknown>('/sources')).then((res) =>
+      expectShape(res, isSourcesStatus),
+    );
   }
 
   /** URL of the downloadable CSV template: a `download` link is enough, the backend sends the attachment. */

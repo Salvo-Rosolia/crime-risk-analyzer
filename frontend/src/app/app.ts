@@ -178,6 +178,18 @@ export class App {
         this.onResetConfirmed();
       });
     });
+    // The server serves another set than the one the client believed in, and the user did not touch
+    // the sources (restart, silent expiry, #473): only what the old set computed goes away. The form
+    // and the error stay, unlike the reset above — nothing the user did is thrown out.
+    let seenServerChanges = this.sources.serverChanges();
+    effect(() => {
+      const changes = this.sources.serverChanges();
+      if (changes === seenServerChanges) return;
+      seenServerChanges = changes;
+      untracked(() => {
+        this.store.dispatch({ type: 'SOURCE_SET_CHANGED' });
+      });
+    });
     // The sources live in the server session: at startup we re-read which ones are active (a
     // reload finds the ones uploaded before), so the indicator is right immediately.
     void this.sources.refresh();
