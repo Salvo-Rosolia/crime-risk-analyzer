@@ -91,14 +91,12 @@ describe('BasePanelComponent', () => {
       cities: jest.fn().mockResolvedValue(['Roma', 'Milano']),
       poiTypes: jest.fn().mockResolvedValue(poiTypesFixture),
       uploadSources: jest.fn(),
-      sourcesStatus: jest
-        .fn()
-        .mockResolvedValue({
-          stato: 'default',
-          scade_tra_secondi: null,
-          set: null,
-          source_set_id: 'default',
-        }),
+      sourcesStatus: jest.fn().mockResolvedValue({
+        stato: 'default',
+        scade_tra_secondi: null,
+        set: null,
+        source_set_id: 'default',
+      }),
     };
     await TestBed.configureTestingModule({
       imports: [BasePanelComponent],
@@ -163,7 +161,14 @@ describe('BasePanelComponent', () => {
         stato: 'attivo',
         scade_tra_secondi: 900,
         source_set_id: 'custom-aaaaaaaaaaaaaaaa',
-        set: { kind: 'custom', classi: 2, selettori_osm: 3, versione_dati: null, luoghi: [], avvisi: [] },
+        set: {
+          kind: 'custom',
+          classi: 2,
+          selettori_osm: 3,
+          versione_dati: null,
+          luoghi: [],
+          avvisi: [],
+        },
       };
       const settle = async (): Promise<void> => {
         for (let i = 0; i < 3; i++) {
@@ -223,7 +228,9 @@ describe('BasePanelComponent', () => {
 
       it('reloads the list when the set changes, passing the set key to the API', async () => {
         expect(api.poiTypes).toHaveBeenLastCalledWith(TestBed.inject(SourcesStore).setKey());
-        api.poiTypes.mockResolvedValueOnce([{ ontology_class: 'Bar', label_it: 'Bar', source_set_id: 'default' }]);
+        api.poiTypes.mockResolvedValueOnce([
+          { ontology_class: 'Bar', label_it: 'Bar', source_set_id: 'default' },
+        ]);
         await TestBed.inject(SourcesStore).markPoiTypesStale();
         await settle();
         expect(api.poiTypes).toHaveBeenCalledTimes(2);
@@ -235,7 +242,9 @@ describe('BasePanelComponent', () => {
         const spy = jest.fn();
         fixture.componentInstance.poiTypeChange.subscribe(spy);
         fixture.componentRef.setInput('poiType', 'Bank');
-        api.poiTypes.mockResolvedValueOnce([{ ontology_class: 'Bar', label_it: 'Bar', source_set_id: 'default' }]);
+        api.poiTypes.mockResolvedValueOnce([
+          { ontology_class: 'Bar', label_it: 'Bar', source_set_id: 'default' },
+        ]);
         await TestBed.inject(SourcesStore).markPoiTypesStale();
         await settle();
         expect(spy).toHaveBeenCalledWith('');
@@ -294,7 +303,11 @@ describe('BasePanelComponent', () => {
           resolveLate([{ ontology_class: 'Bar', label_it: 'Bar', source_set_id: 'default' }]);
           await Promise.resolve();
           await new Promise((r) => setTimeout(r));
-          expect(options()).not.toContainEqual({ ontology_class: 'Bar', label_it: 'Bar', source_set_id: 'default' });
+          expect(options()).not.toContainEqual({
+            ontology_class: 'Bar',
+            label_it: 'Bar',
+            source_set_id: 'default',
+          });
           expect(warn).not.toHaveBeenCalled();
           expect(error).not.toHaveBeenCalled();
         } finally {
@@ -304,7 +317,9 @@ describe('BasePanelComponent', () => {
       });
 
       it('a remounted panel reconciles the selection kept by the shell with the active list', async () => {
-        api.poiTypes.mockResolvedValue([{ ontology_class: 'Bar', label_it: 'Bar', source_set_id: 'default' }]);
+        api.poiTypes.mockResolvedValue([
+          { ontology_class: 'Bar', label_it: 'Bar', source_set_id: 'default' },
+        ]);
         const remounted = TestBed.createComponent(BasePanelComponent);
         const spy = jest.fn();
         remounted.componentInstance.poiTypeChange.subscribe(spy);
@@ -321,7 +336,9 @@ describe('BasePanelComponent', () => {
         api.poiTypes.mockReturnValueOnce(new Promise((r) => (resolveOld = r)));
         await store.markPoiTypesStale();
         fixture.detectChanges();
-        api.poiTypes.mockResolvedValueOnce([{ ontology_class: 'New', label_it: 'Nuovo', source_set_id: 'default' }]);
+        api.poiTypes.mockResolvedValueOnce([
+          { ontology_class: 'New', label_it: 'Nuovo', source_set_id: 'default' },
+        ]);
         await store.markPoiTypesStale();
         await settle();
         resolveOld([{ ontology_class: 'Old', label_it: 'Vecchio', source_set_id: 'default' }]);

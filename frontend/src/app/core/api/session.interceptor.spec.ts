@@ -144,7 +144,12 @@ describe('sessionInterceptor', () => {
   });
 
   describe('re-read of the sources after an analysis (#473)', () => {
-    const DEFAULT = { stato: 'default', scade_tra_secondi: null, set: null, source_set_id: 'default' };
+    const DEFAULT = {
+      stato: 'default',
+      scade_tra_secondi: null,
+      set: null,
+      source_set_id: 'default',
+    };
     const settle = () => new Promise((resolve) => setTimeout(resolve));
 
     afterEach(() => ctrl.verify());
@@ -167,7 +172,9 @@ describe('sessionInterceptor', () => {
     it('an id that differs from the known one is signaled as a server change', async () => {
       const store = TestBed.inject(SourcesStore);
       void store.refresh();
-      ctrl.expectOne('/sources').flush({ ...DEFAULT, stato: 'attivo', source_set_id: 'custom-aaaaaaaaaaaaaaaa' });
+      ctrl
+        .expectOne('/sources')
+        .flush({ ...DEFAULT, stato: 'attivo', source_set_id: 'custom-aaaaaaaaaaaaaaaa' });
       await settle();
       succeed('POST', '/analyze');
       ctrl.expectOne('/sources').flush(DEFAULT);

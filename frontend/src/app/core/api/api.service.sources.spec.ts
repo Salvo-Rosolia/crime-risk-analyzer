@@ -129,7 +129,12 @@ describe('ApiService - sources', () => {
     });
 
     it('sourcesStatus: an expired status keeps the default id', async () => {
-      const expired = { stato: 'scaduto', scade_tra_secondi: null, set: null, source_set_id: 'default' };
+      const expired = {
+        stato: 'scaduto',
+        scade_tra_secondi: null,
+        set: null,
+        source_set_id: 'default',
+      };
       const p = api.sourcesStatus();
       ctrl.expectOne('/sources').flush(expired);
       await expect(p).resolves.toEqual(expired);

@@ -93,7 +93,11 @@ describe('App shell', () => {
       cities: jest.fn().mockResolvedValue(['Roma', 'Milano']),
       poiTypes: jest.fn().mockResolvedValue([
         { ontology_class: 'Bank', label_it: 'Banca', source_set_id: 'default' },
-        { ontology_class: 'Railway_station', label_it: 'Stazione ferroviaria', source_set_id: 'default' },
+        {
+          ontology_class: 'Railway_station',
+          label_it: 'Stazione ferroviaria',
+          source_set_id: 'default',
+        },
       ]),
     };
     await TestBed.configureTestingModule({

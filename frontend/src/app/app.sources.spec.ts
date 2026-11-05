@@ -49,14 +49,12 @@ describe('App shell - sources (#419)', () => {
       poiTypes: jest.fn().mockResolvedValue([]),
       sourcesStatus: jest.fn().mockResolvedValue(EXAMPLE),
       useExampleSources: jest.fn().mockResolvedValue(EXAMPLE),
-      resetSources: jest
-        .fn()
-        .mockResolvedValue({
-          stato: 'default',
-          scade_tra_secondi: null,
-          set: null,
-          source_set_id: 'default',
-        }),
+      resetSources: jest.fn().mockResolvedValue({
+        stato: 'default',
+        scade_tra_secondi: null,
+        set: null,
+        source_set_id: 'default',
+      }),
       templateUrl: jest.fn((n: string) => `/sources/templates/${n}`),
     };
     await TestBed.configureTestingModule({
@@ -273,7 +271,11 @@ describe('App shell - set identity changed by the server (#473)', () => {
 
   it('the error message survives the reset', async () => {
     const { f, state, sources } = await start();
-    state.dispatch({ type: 'ANALYZE', area: { kind: 'zone', city: 'Roma', zone: 'X' }, pipeline: 'full' });
+    state.dispatch({
+      type: 'ANALYZE',
+      area: { kind: 'zone', city: 'Roma', zone: 'X' },
+      pipeline: 'full',
+    });
     state.dispatch({ type: 'LOAD_ERROR', message: 'Zona non trovata', pipeline: 'full' });
     api['sourcesStatus'].mockResolvedValue(LOST);
     await sources.refresh();
@@ -310,16 +312,14 @@ describe('App shell - 410 fonti_scadute (#419)', () => {
     const ctrl = TestBed.inject(HttpTestingController);
     const f = TestBed.createComponent(App);
     f.detectChanges();
-    ctrl
-      .match('/sources')
-      .forEach((r) =>
-        r.flush({
-          stato: 'default',
-          scade_tra_secondi: null,
-          set: null,
-          source_set_id: 'default',
-        }),
-      );
+    ctrl.match('/sources').forEach((r) =>
+      r.flush({
+        stato: 'default',
+        scade_tra_secondi: null,
+        set: null,
+        source_set_id: 'default',
+      }),
+    );
     ctrl.match('/cities').forEach((r) => r.flush([]));
     ctrl.match('/poi-types').forEach((r) => r.flush([]));
     await tick2(); // lets the initial read of the sources state finish

@@ -1,7 +1,12 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
-import { expectShape, isAnalyzeResponse, isPoiTypeList, isSourcesStatus } from '@core/api/response-guards';
+import {
+  expectShape,
+  isAnalyzeResponse,
+  isPoiTypeList,
+  isSourcesStatus,
+} from '@core/api/response-guards';
 import {
   AnalyzeResponse,
   BaselineParams,
