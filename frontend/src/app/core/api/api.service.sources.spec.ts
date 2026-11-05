@@ -4,7 +4,7 @@ import { TestBed } from '@angular/core/testing';
 import { ApiService } from '@core/api/api.service';
 import type { SourcesStatus } from '@core/models/models';
 
-const attivo: SourcesStatus = {
+const active: SourcesStatus = {
   stato: 'attivo',
   source_set_id: 'example',
   scade_tra_secondi: 600,
@@ -36,16 +36,16 @@ describe('ApiService - sources', () => {
     const p = api.sourcesStatus();
     const req = ctrl.expectOne('/sources');
     expect(req.request.method).toBe('GET');
-    req.flush(attivo);
-    expect(await p).toEqual(attivo);
+    req.flush(active);
+    expect(await p).toEqual(active);
   });
 
   it('useExampleSources: POST /sources/example', async () => {
     const p = api.useExampleSources();
     const req = ctrl.expectOne('/sources/example');
     expect(req.request.method).toBe('POST');
-    req.flush(attivo);
-    expect(await p).toEqual(attivo);
+    req.flush(active);
+    expect(await p).toEqual(active);
   });
 
   it('resetSources: DELETE /sources', async () => {
@@ -74,7 +74,7 @@ describe('ApiService - sources', () => {
     expect(body.get('namespace')).toBe('http://x/#');
     expect(body.has('hazard')).toBe(false);
     expect(body.getAll('vulnerability')).toEqual(['a', 'b']);
-    req.flush(attivo);
+    req.flush(active);
     await p;
   });
 
@@ -89,7 +89,7 @@ describe('ApiService - sources', () => {
     });
     const req = ctrl.expectOne('/sources');
     expect((req.request.body as FormData).has('boundaries')).toBe(true);
-    req.flush(attivo);
+    req.flush(active);
     await p;
   });
 

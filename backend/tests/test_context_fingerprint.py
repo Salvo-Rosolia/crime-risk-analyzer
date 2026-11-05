@@ -97,7 +97,7 @@ def test_fields_outside_the_fingerprint_do_not_change_the_digest() -> None:
 #: valid: the (model, fields) pair serves to prove the SAME bound on both.
 _REQUESTS_WITH_FINGERPRINT = [
     pytest.param(
-        ZoneNarrativeRequest, {"citta": "Roma", "zona": "Colosseo"}, id="zona"
+        ZoneNarrativeRequest, {"citta": "Roma", "zona": "Colosseo"}, id="zone"
     ),
     pytest.param(
         PoiNarrativeRequest,
@@ -108,7 +108,7 @@ _REQUESTS_WITH_FINGERPRINT = [
 
 
 @pytest.mark.parametrize(("model_cls", "rest"), _REQUESTS_WITH_FINGERPRINT)
-def test_la_richiesta_accetta_esattamente_la_lunghezza_del_digest(
+def test_the_request_accepts_exactly_the_digest_length(
     model_cls: type[BaseModel], rest: dict[str, str]
 ) -> None:
     """Both routes bind the fingerprint to the REAL length of the digest.
@@ -132,12 +132,12 @@ def test_the_two_requests_describe_the_fingerprint_the_same_way() -> None:
     """One field, one prose: bound and description come from the shared alias of this
     module, not copied in two models. The description ends up in the OpenAPI, so
     two copies diverge toward the client as well."""
-    zona = ZoneNarrativeRequest.model_fields["contesto_hash"]
+    zone = ZoneNarrativeRequest.model_fields["contesto_hash"]
     poi = PoiNarrativeRequest.model_fields["contesto_hash"]
 
-    assert zona.description is not None
-    assert zona.description == poi.description
-    assert zona.metadata == poi.metadata
+    assert zone.description is not None
+    assert zone.description == poi.description
+    assert zone.metadata == poi.metadata
 
 
 # --- ISTAT data version in the fingerprint (#354) ---
@@ -154,7 +154,7 @@ _PINNED_POIS: list[Poi] = [
 _MAIN_DIGEST = "15d9ca577fa82f386a3e2192991e326e017f61eba9c0c734dda0e6aa4f4d08c2"
 
 
-def test_senza_versione_istat_il_digest_e_quello_di_prima() -> None:
+def test_without_istat_version_the_digest_is_the_previous_one() -> None:
     assert fingerprint(_PINNED_POIS) == _MAIN_DIGEST
     assert fingerprint(_PINNED_POIS, istat_version=None) == _MAIN_DIGEST
 

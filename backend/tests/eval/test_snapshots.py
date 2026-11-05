@@ -159,10 +159,10 @@ def _tracked_snapshot_pois() -> list[tuple[str, list[dict[str, object]]]]:
 def test_committed_snapshots_stay_readable() -> None:
     """Guard on the real files, not on an imitation of them: the fixtures in
     ``results/snapshots/`` are the root of the reproducibility chain."""
-    cartella = Path(__file__).parents[2] / "results" / "snapshots"
-    file = sorted(cartella.glob("*.json"))
-    assert file, "attese le fixture POI versionate in results/snapshots/"
-    for f in file:
+    snapshot_dir = Path(__file__).parents[2] / "results" / "snapshots"
+    files = sorted(snapshot_dir.glob("*.json"))
+    assert files, "attese le fixture POI versionate in results/snapshots/"
+    for f in files:
         pois = load_snapshot(f)
         assert isinstance(pois, list)
         assert pois, f"snapshot vuoto: {f.name}"

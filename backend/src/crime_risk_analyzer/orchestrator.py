@@ -216,7 +216,7 @@ class BaselineRequest(_AreaRequest):
     catalogue, normalisation to the canonical class in
     :func:`~crime_risk_analyzer.poi_types.resolve_poi_type`), but the asymmetry
     remains: it is documented here and in the test
-    ``test_baseline_request_surface_is_cerchio_or_citta_zona_tipo_poi``, not closed.
+    ``test_baseline_request_surface_is_circle_or_citta_zona_tipo_poi``, not closed.
 
     The model only does strip and length cap; the recognition of the type
     happens in the route, because an unknown type is a domain error (422

@@ -633,8 +633,8 @@ describe('DetailPanelComponent', () => {
     expect(indicators(lists[0])).toEqual([
       'furti (voce ISTAT più ampia del rischio) · 134.169 delitti denunciati nel 2024 · 4.876,4 ogni 100.000 ab. (Italia: 1.673,3) · ▲ in crescita (+2114% dal 2014, erano 22)',
     ]);
-    const freccia = lists[0].querySelector('.cra-istat-indicator [aria-hidden="true"]');
-    expect(freccia?.textContent?.trim()).toBe('▲');
+    const arrow = lists[0].querySelector('.cra-istat-indicator [aria-hidden="true"]');
+    expect(arrow?.textContent?.trim()).toBe('▲');
   });
 
   it('#347 (a11y): in the DOM the badge comes right after the label and before the indicator; the tail has the same structure without an indicator', () => {

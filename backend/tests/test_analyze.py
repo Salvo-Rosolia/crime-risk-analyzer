@@ -170,7 +170,7 @@ def test_analyze_contesto_hash_changes_with_the_session(
     assert default != with_set
 
 
-@pytest.mark.parametrize("enabled", [True, False], ids=["istat-acceso", "istat-spento"])
+@pytest.mark.parametrize("enabled", [True, False], ids=["istat-on", "istat-off"])
 def test_analyze_route_passes_the_switch(
     enabled: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:

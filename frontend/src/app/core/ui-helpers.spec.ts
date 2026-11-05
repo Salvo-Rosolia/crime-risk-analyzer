@@ -640,8 +640,8 @@ describe('ui-helpers', () => {
     function indicatorText(ind: IstatIndicator | null): string | null {
       if (!ind) return null;
       if (ind.trend === null) return ind.data;
-      const tendenza = ind.arrow ? `${ind.arrow} ${ind.trend}` : ind.trend;
-      return `${ind.data} · ${tendenza}`;
+      const trendText = ind.arrow ? `${ind.arrow} ${ind.trend}` : ind.trend;
+      return `${ind.data} · ${trendText}`;
     }
 
     function texts(hazards: string[], data: IstatPoi | null | undefined): (string | null)[] {
@@ -699,11 +699,11 @@ describe('ui-helpers', () => {
     });
 
     it('unknown match (out of contract or inherited key): generic warning, not no warning', () => {
-      for (const corrispondenza of ['boh', 'constructor', 'toString']) {
+      for (const match of ['boh', 'constructor', 'toString']) {
         const row = istatRow('THEFT', ['Theft'], {
           voce_label: 'furti',
           collegamenti: [
-            { hazard: 'Theft', hazard_label_it: 'Furto', corrispondenza: corrispondenza as never },
+            { hazard: 'Theft', hazard_label_it: 'Furto', corrispondenza: match as never },
           ],
         });
         expect(texts(['Theft'], istatPoi(row))[0]).toMatch(

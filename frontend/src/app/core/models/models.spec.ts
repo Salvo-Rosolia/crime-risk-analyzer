@@ -170,7 +170,7 @@ describe('models (/analyze contract)', () => {
   it('#345: a risk cannot have an ISTAT source (distinct type for the narrative)', () => {
     // @ts-expect-error -- ISTAT is a source of the narrative, never of a risk.
     const tag: RiskItem['tag'] = 'ISTAT';
-    const fonte: NarrativeSourceTag = 'ISTAT';
-    expect([tag, fonte]).toEqual(['ISTAT', 'ISTAT']);
+    const source: NarrativeSourceTag = 'ISTAT';
+    expect([tag, source]).toEqual(['ISTAT', 'ISTAT']);
   });
 });
