@@ -117,6 +117,18 @@ def test_get_poi_types_endpoint_shape_and_order() -> None:
     assert {"ontology_class": "Bank", "label_it": "Banca"} in body
 
 
+def test_get_poi_types_is_not_shared_cacheable_across_sessions() -> None:
+    """#469: the body depends on X-Session-Id, so shared caches must not reuse it."""
+    client = TestClient(create_app())
+    for headers in ({}, {"X-Session-Id": "test-session-AAAAAA"}):
+        resp = cast(httpx.Response, client.get("/poi-types", headers=headers))  # pyright: ignore[reportUnknownMemberType]
+        assert resp.status_code == 200
+        # The app's gzip middleware may append Accept-Encoding to Vary.
+        vary = {token.strip() for token in resp.headers["Vary"].split(",")}
+        assert "X-Session-Id" in vary
+        assert resp.headers["Cache-Control"] == "private"
+
+
 # --- BaselineRequest: shape of the field ---
 
 _CIRCLE: dict[str, object] = {
