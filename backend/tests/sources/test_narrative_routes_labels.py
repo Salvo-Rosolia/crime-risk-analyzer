@@ -30,7 +30,7 @@ from crime_risk_analyzer.sources.model import IstatSource, SourceSet
 from crime_risk_analyzer.sources.session import SessionStore
 from tests.eval._doubles import FakeProfiler, make_poi
 
-SID = "a" * 24
+SID = "abcdefghij" * 3 + "kl"
 _POI_ID = "node/1"
 
 _CLASS = "Bank"

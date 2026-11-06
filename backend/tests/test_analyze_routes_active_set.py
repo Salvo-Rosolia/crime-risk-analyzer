@@ -19,7 +19,7 @@ from crime_risk_analyzer.sources import routes
 from crime_risk_analyzer.sources.context import default_set
 from crime_risk_analyzer.sources.session import SessionStore
 
-SID = "sessione-di-prova-AAAA"
+SID = "sessione-di-prova-AAAA-0123456789ab"
 H = "X-Session-Id"
 
 _CENTER = {"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0}

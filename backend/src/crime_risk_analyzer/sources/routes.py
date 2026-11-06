@@ -23,9 +23,10 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, File, Form, Header, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
-from pydantic import BaseModel
+from pydantic import AfterValidator, BaseModel
 
 from crime_risk_analyzer.config import get_settings
 from crime_risk_analyzer.sources.build import build_source_set, fallback_places
@@ -45,6 +46,7 @@ from crime_risk_analyzer.sources.parsing import UploadedFiles, check_sources
 from crime_risk_analyzer.sources.report import Problem, SourceValidationError
 from crime_risk_analyzer.sources.session import (
     SESSION_HEADER,
+    SESSION_ID_MIN_LENGTH,
     SessionEntry,
     SessionStore,
     is_valid_session_id,
@@ -63,21 +65,31 @@ __all__ = ["activate_session", "get_sessions", "router", "session_scoped_respons
 
 router = APIRouter()
 
-_ID_PATTERN = r"^[A-Za-z0-9_\-]{16,128}$"
+_ID_PATTERN = rf"^[A-Za-z0-9_\-]{{{SESSION_ID_MIN_LENGTH},128}}$"
+
 
 #: Mandatory header (the ``/sources`` routes that write) or optional
 #: (status: without a header we are at the default). The format is checked here,
 #: so a malformed value is a 422 before reading any file.
+def _check_session_entropy(value: str | None) -> str | None:
+    """Rejects a well-formed but trivially guessable id (#498)."""
+    if value is not None and not is_valid_session_id(value):
+        raise ValueError("session id too easy to guess")
+    return value
+
+
 RequiredSession = Annotated[
     str,
+    AfterValidator(_check_session_entropy),
     Header(
         alias=SESSION_HEADER,
         pattern=_ID_PATTERN,
-        description="Token di sessione scelto dal client (16-128 caratteri).",
+        description="Token di sessione scelto dal client (32-128 caratteri).",
     ),
 ]
 OptionalSession = Annotated[
     str | None,
+    AfterValidator(_check_session_entropy),
     Header(alias=SESSION_HEADER, pattern=_ID_PATTERN),
 ]
 
@@ -141,6 +153,33 @@ def _too_large() -> JSONResponse:
     )
 
 
+def _require_session_header(request: Request) -> None:
+    """422 if ``X-Session-Id`` is missing or malformed, before reading the body."""
+    value = request.headers.get(SESSION_HEADER)
+    if value is None:
+        raise RequestValidationError(
+            [
+                {
+                    "type": "missing",
+                    "loc": ("header", SESSION_HEADER.lower()),
+                    "msg": "Field required",
+                    "input": None,
+                }
+            ]
+        )
+    if not is_valid_session_id(value):
+        raise RequestValidationError(
+            [
+                {
+                    "type": "string_pattern_mismatch",
+                    "loc": ("header", SESSION_HEADER.lower()),
+                    "msg": f"String should match pattern '{_ID_PATTERN}'",
+                    "input": value,
+                }
+            ]
+        )
+
+
 class _UploadRoute(APIRoute):
     """Upload route with the checks that FastAPI does not expose.
 
@@ -162,6 +201,9 @@ class _UploadRoute(APIRoute):
         original = super().get_route_handler()
 
         async def handler(request: Request) -> Response:
+            # The session header is checked BEFORE anything is read or reserved
+            # (#498): FastAPI would validate it only after the multipart.
+            _require_session_header(request)
             declared = request.headers.get("content-length", "")
             if declared.isdigit() and int(declared) > MAX_BYTES_REQUEST:
                 return _too_large()

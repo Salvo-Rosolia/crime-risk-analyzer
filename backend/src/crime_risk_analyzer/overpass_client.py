@@ -54,6 +54,7 @@ import httpx
 
 from crime_risk_analyzer.models.geo import Bbox, haversine_m
 from crime_risk_analyzer.sources.context import current_osm
+from crime_risk_analyzer.sources.limits import MAX_OSM_SELECTORS
 
 __all__ = [
     "MAX_DUPLICATE_DISTANCE_M",
@@ -306,6 +307,12 @@ def _build_query(bbox: Bbox, osm_selectors: Sequence[str]) -> str:
     proximity (:func:`select_pois`) penalises them in proportion to the distance,
     without a dedicated filter.
     """
+    if len(osm_selectors) > MAX_OSM_SELECTORS:
+        # Defensive: the upload already caps the OSM table (#498); an oversized
+        # list must never become a huge query.
+        raise ValueError(
+            f"too many OSM selectors: {len(osm_selectors)} > {MAX_OSM_SELECTORS}"
+        )
     lat_min, lon_min, lat_max, lon_max = bbox
     bbox_str = f"{lat_min},{lon_min},{lat_max},{lon_max}"
     blocks: list[str] = []

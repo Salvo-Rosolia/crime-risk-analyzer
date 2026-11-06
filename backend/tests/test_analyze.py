@@ -154,7 +154,7 @@ def test_analyze_contesto_hash_changes_with_the_session(
     _patch_io(monkeypatch)
     zone_context_cache.clear()
     store = SessionStore(ttl_seconds=100, max_sessions=2)
-    sid = "sessione-di-prova-AAAA"
+    sid = "sessione-di-prova-AAAA-0123456789ab"
     store.activate(
         sid, dataclasses.replace(default_set(), id="custom-x", kind="custom"), []
     )
