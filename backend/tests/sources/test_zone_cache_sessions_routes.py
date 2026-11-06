@@ -29,8 +29,8 @@ from crime_risk_analyzer.sources.context import current_executor, default_set
 from crime_risk_analyzer.sources.session import SessionStore
 from tests.eval._doubles import FakeProfiler, make_poi
 
-SID_A = "session-a-0000000000"
-SID_B = "session-b-0000000000"
+SID_A = "session-a-0123456789abcdef012345"
+SID_B = "session-b-0123456789abcdef012345"
 
 _CIRCLE_A: dict[str, object] = {
     "center": {"lat": 41.89, "lon": 12.49},
