@@ -156,6 +156,16 @@ export interface SourceProse {
   istat?: string;
 }
 
+/** Centre and bbox of the geocoded zone (#260): lets the map recentre when `poi` is empty. */
+export interface GeoZone {
+  lat: number;
+  lon: number;
+  bbox_min_lat: number;
+  bbox_min_lon: number;
+  bbox_max_lat: number;
+  bbox_max_lon: number;
+}
+
 /** Backend response: field names are the API contract (Italian), do not rename. */
 export interface AnalyzeResponse {
   citta: string;
@@ -187,6 +197,10 @@ export interface AnalyzeResponse {
    * narrative is born on the context shown, not on a different rebuilt one.
    */
   contesto_hash: string;
+  /** Geocoded zone (#260). Always sent by the backend; optional here only for older fixtures. */
+  zona_geo?: GeoZone;
+  /** Explicit explanation when `poi` is empty and no narrative covers the case (#260). */
+  messaggio?: string | null;
 }
 
 /** Response of `POST /analyze/poi` (#197): narrative of the single selected POI. */

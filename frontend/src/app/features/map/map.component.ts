@@ -12,7 +12,7 @@ import {
   viewChild,
 } from '@angular/core';
 import * as L from 'leaflet';
-import type { AnalyzeResponse, Confidence } from '@core/models/models';
+import type { AnalyzeResponse, Confidence, GeoZone } from '@core/models/models';
 import { pinHTML } from '@core/confidence';
 import { matchesFilter, poiPopupHTML } from '@core/ui-helpers';
 
@@ -27,6 +27,9 @@ type DrawState = 'idle' | 'drawing-radius' | 'ready';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div #mapEl class="cra-map"></div>
+    @if (zeroPoiMessage(); as message) {
+      <p class="cra-map-notice" role="status">{{ message }}</p>
+    }
     @if (showRadiusInput()) {
       <div class="cra-radius-control">
         <label for="cra-radius-input">Raggio (m)</label>
@@ -82,6 +85,22 @@ type DrawState = 'idle' | 'drawing-radius' | 'ready';
        *    between the two, where the horizontal anchoring below reuses var(--panel-max-width) instead of a
        *    fixed px value to stay correct if that constant changes.
        */
+      /* Zero-POI explanation (#488): same free corridor as the radius control, one row below. */
+      .cra-map-notice {
+        position: absolute;
+        top: calc(var(--space-4, 16px) + 3rem);
+        left: calc(var(--panel-max-width, 340px) + var(--space-4, 16px) * 2);
+        z-index: 500;
+        max-width: 28rem;
+        margin: 0;
+        padding: 6px 10px;
+        background: var(--paper, #fff);
+        border: 1px solid var(--ink, #1a1a1a);
+        border-radius: 3px;
+        font-family: var(--font-sans, sans-serif);
+        font-size: 0.78rem;
+      }
+
       .cra-radius-control {
         position: absolute;
         top: var(--space-4, 16px);
@@ -110,7 +129,11 @@ type DrawState = 'idle' | 'drawing-radius' | 'ready';
   ],
 })
 export class MapComponent implements OnDestroy {
+  /** Response whose POIs are drawn as markers (always the full pipeline). */
   readonly data = input<AnalyzeResponse | null>(null);
+  /** Response of the pipeline currently shown (full or base): used only to explain and recentre
+   * on a zero-POI result, which must work in Base mode too (#488). */
+  readonly activeResponse = input<AnalyzeResponse | null>(null);
   readonly filter = input<Confidence | null>(null);
   readonly selectedId = input<string | null>(null);
   readonly poiClick = output<string>();
@@ -129,6 +152,15 @@ export class MapComponent implements OnDestroy {
    * handlers (`map.on(...)`), not from `(event)` bindings in the template — only a signal, not a private
    * field, redraws the OnPush view in that case.
    */
+  private readonly zeroPoiZone = computed<GeoZone | null>(() => {
+    const r = this.activeResponse();
+    return r && r.poi.length === 0 ? (r.zona_geo ?? null) : null;
+  });
+  protected readonly zeroPoiMessage = computed<string | null>(() => {
+    const r = this.activeResponse();
+    return r && r.poi.length === 0 ? (r.messaggio ?? null) : null;
+  });
+
   private readonly drawState = signal<DrawState>('idle');
   private circleLayer: L.Circle | null = null;
   private centerLatLng: { lat: number; lon: number } | null = null;
@@ -191,6 +223,19 @@ export class MapComponent implements OnDestroy {
       const map = this.map;
       if (!map || !d || d.poi.length === 0) return;
       const bounds = L.latLngBounds(d.poi.map((p) => [p.lat, p.lon] as [number, number]));
+      map.flyToBounds(bounds, { padding: [40, 40] });
+    });
+
+    // Zero POI (#488): without this the map stayed still and the user could not tell an empty
+    // zone from a mistyped one. Recentre on the geocoded zone.
+    effect(() => {
+      const zone = this.zeroPoiZone();
+      const map = this.map;
+      if (!map || !zone) return;
+      const bounds = L.latLngBounds([
+        [zone.bbox_min_lat, zone.bbox_min_lon],
+        [zone.bbox_max_lat, zone.bbox_max_lon],
+      ]);
       map.flyToBounds(bounds, { padding: [40, 40] });
     });
 

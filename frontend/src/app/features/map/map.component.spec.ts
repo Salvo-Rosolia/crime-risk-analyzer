@@ -149,6 +149,76 @@ describe('MapComponent', () => {
     expect(mockMap.flyToBounds).not.toHaveBeenCalled();
   });
 
+  describe('zero POI (#488): recenter on the geocoded zone and explain why', () => {
+    const ZONA_GEO = {
+      lat: 45.1,
+      lon: 7.6,
+      bbox_min_lat: 45.0,
+      bbox_min_lon: 7.5,
+      bbox_max_lat: 45.2,
+      bbox_max_lon: 7.7,
+    };
+    const MESSAGE = 'Zona geocodificata, ma nessun punto trovato.';
+    const emptyResp = (): AnalyzeResponse => ({
+      ...makeResp([]),
+      zona_geo: ZONA_GEO,
+      messaggio: MESSAGE,
+    });
+    const notice = (): HTMLElement | null => fixture.nativeElement.querySelector('.cra-map-notice');
+
+    it('recenters on the zone bbox when there are no POIs', () => {
+      fixture.componentRef.setInput('activeResponse', emptyResp());
+      fixture.detectChanges();
+      expect(L.latLngBounds).toHaveBeenCalledWith([
+        [45.0, 7.5],
+        [45.2, 7.7],
+      ]);
+      expect(mockMap.flyToBounds).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows the backend message (role=status) when there are no POIs', () => {
+      fixture.componentRef.setInput('activeResponse', emptyResp());
+      fixture.detectChanges();
+      expect(notice()?.textContent).toContain(MESSAGE);
+      expect(notice()?.getAttribute('role')).toBe('status');
+    });
+
+    it('does not show the message or recenter when there are POIs', () => {
+      fixture.componentRef.setInput('activeResponse', {
+        ...makeResp([makePoi()]),
+        zona_geo: ZONA_GEO,
+        messaggio: MESSAGE,
+      });
+      fixture.detectChanges();
+      expect(notice()).toBeNull();
+      expect(mockMap.flyToBounds).not.toHaveBeenCalled();
+    });
+
+    it('works for a response that is not the one feeding the markers (Base mode)', () => {
+      fixture.componentRef.setInput('data', null);
+      fixture.componentRef.setInput('activeResponse', emptyResp());
+      fixture.detectChanges();
+      expect(mockMap.flyToBounds).toHaveBeenCalledTimes(1);
+      expect(notice()).not.toBeNull();
+    });
+
+    it('tolerates a response without zona_geo/messaggio (no recenter, no message)', () => {
+      fixture.componentRef.setInput('activeResponse', makeResp([]));
+      fixture.detectChanges();
+      expect(mockMap.flyToBounds).not.toHaveBeenCalled();
+      expect(notice()).toBeNull();
+    });
+
+    it('a new response object with the same zone (narrative arrival) does not recenter again', () => {
+      const first = emptyResp();
+      fixture.componentRef.setInput('activeResponse', first);
+      fixture.detectChanges();
+      fixture.componentRef.setInput('activeResponse', { ...first, narrativa: 'testo' });
+      fixture.detectChanges();
+      expect(mockMap.flyToBounds).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('marker POI', () => {
     it('creates a numbered marker for each POI; cleans the layer at every redraw', () => {
       fixture.componentRef.setInput('data', makeResp([makePoi({ id: '0' }), makePoi({ id: '1' })]));
