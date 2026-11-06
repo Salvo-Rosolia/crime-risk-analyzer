@@ -4,7 +4,8 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "outDir": "./out-tsc/spec",
-    "types": ["jest"],
+    // `node`: some specs read the sources from disk (fs, path, __dirname).
+    "types": ["jest", "node"],
     // Tests only: async/await must be downleveled (ES2016) because zone.js does not track the native one;
     // the production bundle is already downleveled by the Angular build. `lib` keeps the ES2022 APIs.
     // With the ES2022 target a mock that rejects a promise inside a DOM event was reported

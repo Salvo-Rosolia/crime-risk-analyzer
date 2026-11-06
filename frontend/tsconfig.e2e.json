@@ -1,0 +1,9 @@
+/* Type-check only: Playwright transpiles the E2E specs without checking types (#484). */
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["e2e/**/*.ts", "playwright.config.ts"]
+}

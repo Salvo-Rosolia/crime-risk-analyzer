@@ -830,7 +830,9 @@ describe('App shell', () => {
         citta: 'Milano',
         zona_normalizzata: 'Duomo',
       });
-      await store.startBaselineAnalysis({ center: milanoCenter, radiusM: 500 });
+      await store.startBaselineAnalysis({
+        area: { kind: 'circle', center: milanoCenter, radiusM: 500 },
+      });
       f.detectChanges();
       expect(store.screen()).toBe('BASE');
 
