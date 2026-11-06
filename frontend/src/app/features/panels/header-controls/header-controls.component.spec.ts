@@ -161,7 +161,7 @@ describe('HeaderControlsComponent', () => {
   it('with data in full mode it shows the qualitative Copertura badge (via deriveCoverage/coverageBadgeText, of the 4 fixture POIs 3 have non-null confidence)', () => {
     setup({ data, mode: 'full' });
     expect(fixture.nativeElement.textContent).toContain(
-      'Copertura 3 su 4 POI coperti da ontologia',
+      'Copertura: 3 POI su 4 coperti da ontologia',
     );
   });
 
@@ -235,6 +235,25 @@ describe('HeaderControlsComponent', () => {
       );
       buttons.forEach((b) => b.click());
       expect(spy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('confidence chips during LOADING (#491)', () => {
+    it('are disabled while loading and enabled otherwise', () => {
+      setup({ data, loading: true });
+      const chips: HTMLButtonElement[] = Array.from(
+        fixture.nativeElement.querySelectorAll('.cra-chip'),
+      );
+      expect(chips.length).toBeGreaterThan(0);
+      expect(chips.every((c) => c.disabled)).toBe(true);
+    });
+
+    it('are enabled when not loading', () => {
+      setup({ data, loading: false });
+      const chips: HTMLButtonElement[] = Array.from(
+        fixture.nativeElement.querySelectorAll('.cra-chip'),
+      );
+      expect(chips.every((c) => !c.disabled)).toBe(true);
     });
   });
 });

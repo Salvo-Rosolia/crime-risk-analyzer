@@ -1,15 +1,5 @@
 import { Action, AppState, Screen } from '@core/models/models';
 
-export const STATES = Object.freeze({
-  INPUT: 'INPUT',
-  LOADING: 'LOADING',
-  RESULTS: 'RESULTS',
-  DETAIL: 'DETAIL',
-  ERROR: 'ERROR',
-  FILTER: 'FILTER',
-  BASE: 'BASE',
-}) satisfies Record<string, Screen>;
-
 export const initialState: AppState = {
   screen: 'INPUT',
   fullData: null,
@@ -29,6 +19,13 @@ export const initialState: AppState = {
   zoneNarrativeError: null,
 };
 
+/** Screens on which the results are not interactive (#491): the old pins and filters are still
+ * on the map while a regeneration is in flight or after it failed, but acting on them would
+ * mutate a state that is about to be replaced (LOADING) or that has no results panel (ERROR). */
+function resultsLocked(state: AppState): boolean {
+  return state.screen === 'LOADING' || state.screen === 'ERROR';
+}
+
 export function transition(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'ANALYZE': {
@@ -41,7 +38,8 @@ export function transition(state: AppState, action: Action): AppState {
       return {
         ...state,
         screen: 'LOADING',
-        pendingQuestion: action.question ?? null,
+        // The base pipeline has no question: the one typed in Full must survive its search (#494).
+        pendingQuestion: isBase ? state.pendingQuestion : (action.question ?? null),
         error: null,
         selectedPoiId: null,
         filter: null,
@@ -124,8 +122,10 @@ export function transition(state: AppState, action: Action): AppState {
     // selection of another POI. It is done here and not in `loadPoiNarrative`, which for a POI
     // already in cache exits before dispatching `POI_NARRATIVE_START` and would leave the banner hanging.
     case 'SELECT_POI':
+      if (resultsLocked(state)) return state;
       return { ...state, screen: 'DETAIL', selectedPoiId: action.id, poiNarrativeError: null };
     case 'DESELECT_POI':
+      if (resultsLocked(state)) return state;
       return {
         ...state,
         screen: state.filter != null ? 'FILTER' : 'RESULTS',
@@ -133,6 +133,7 @@ export function transition(state: AppState, action: Action): AppState {
         poiNarrativeError: null,
       };
     case 'SET_FILTER': {
+      if (resultsLocked(state)) return state;
       // Filter/detail exist only in the full system: the lookup of the selected POI always uses
       // fullData, never baselineData (which has no selection/detail).
       const selectedPoi =
@@ -148,6 +149,7 @@ export function transition(state: AppState, action: Action): AppState {
       };
     }
     case 'CLEAR_FILTER':
+      if (resultsLocked(state)) return state;
       return { ...state, screen: 'RESULTS', filter: null };
     case 'TOGGLE_MODE': {
       // Towards base it always goes to BASE (the BasePanel handles form/table/error itself, empty
@@ -163,13 +165,17 @@ export function transition(state: AppState, action: Action): AppState {
     case 'SOURCE_SET_CHANGED':
       // Partial reset (#473): only what the previous set computed goes away. The form inputs (they
       // live in the shell and in `pendingQuestion`) and `error` stay: the user did not touch the
-      // sources, so nothing else is taken from them. A request in flight keeps its LOADING screen.
+      // sources, so nothing else is taken from them. A request in flight is dropped by the store
+      // (#490, it was computed on the old set), so LOADING goes back to the form of the current
+      // mode: nothing would ever leave it otherwise. The mode itself is not touched.
       return {
         ...state,
         screen:
-          state.screen === 'LOADING' || state.screen === 'ERROR' || state.screen === 'BASE'
+          state.screen === 'ERROR' || state.screen === 'BASE'
             ? state.screen
-            : 'INPUT',
+            : state.screen === 'LOADING' && state.mode === 'base'
+              ? 'BASE'
+              : 'INPUT',
         fullData: null,
         baselineData: null,
         selectedPoiId: null,

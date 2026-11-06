@@ -25,7 +25,7 @@
     (openPage)="sources.openPage()"
   />
   <cra-header-controls
-    [data]="store.fullData()"
+    [data]="headerData()"
     [mode]="store.mode()"
     [filter]="store.filter()"
     [loading]="store.screen() === 'LOADING'"
@@ -109,7 +109,7 @@
         </div>
       }
       @case ('LOADING') {
-        <cra-loading-overlay />
+        <cra-loading-overlay [mode]="store.mode()" />
       }
       @case ('ERROR') {
         <div class="cra-panel">

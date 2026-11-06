@@ -3,13 +3,14 @@
 
   <div class="cra-header-divider" aria-hidden="true"></div>
 
-  <div class="cra-chip-group" role="group" aria-label="Filtra per confidence">
+  <div class="cra-chip-group" role="group" aria-label="Filtra per confidenza">
     @for (level of levels; track level) {
       <button
         type="button"
         class="cra-chip"
         [class.cra-chip-active]="filter() === level"
         [attr.aria-pressed]="filter() === level"
+        [disabled]="loading()"
         [style.borderColor]="conf[level].color"
         [style.color]="filter() === level ? '#fff' : conf[level].color"
         [style.background]="filter() === level ? conf[level].color : 'transparent'"

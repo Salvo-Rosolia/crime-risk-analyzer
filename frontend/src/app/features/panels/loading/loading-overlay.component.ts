@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, Component, OnDestroy, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  OnDestroy,
+  computed,
+  input,
+  signal,
+} from '@angular/core';
+import { Mode } from '@core/models/models';
 
 /**
  * Cosmetic phases aligned with the real pipeline of phase 1 of `POST /analyze`
@@ -14,6 +22,9 @@ export const LOADING_STEPS: readonly string[] = Object.freeze([
   'Grounding anti-hallucination',
 ]);
 
+/** The base pipeline does no SPARQL query and no grounding (#494): only the first two steps. */
+const BASE_STEPS_COUNT = 2;
+
 const STEP_INTERVAL_MS = 1400;
 
 @Component({
@@ -23,11 +34,14 @@ const STEP_INTERVAL_MS = 1400;
   styleUrl: './loading-overlay.component.css',
 })
 export class LoadingOverlayComponent implements OnDestroy {
-  protected readonly steps = LOADING_STEPS;
+  readonly mode = input<Mode>('full');
+  protected readonly steps = computed(() =>
+    this.mode() === 'base' ? LOADING_STEPS.slice(0, BASE_STEPS_COUNT) : LOADING_STEPS,
+  );
   protected readonly currentStep = signal(0);
 
   private readonly timer: ReturnType<typeof setInterval> = setInterval(() => {
-    this.currentStep.update((i) => (i < LOADING_STEPS.length - 1 ? i + 1 : i));
+    this.currentStep.update((i) => (i < this.steps().length - 1 ? i + 1 : i));
   }, STEP_INTERVAL_MS);
 
   ngOnDestroy(): void {

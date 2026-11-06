@@ -285,7 +285,7 @@ describe('App shell - set identity changed by the server (#473)', () => {
     expect(state.error()).toBe('Zona non trovata');
   });
 
-  it('a change the user made (Torna al default) still resets the form too (#419)', async () => {
+  it('a change the user made (Torna al default) clears the results but keeps form and mode (#490)', async () => {
     api['resetSources'] = jest.fn().mockResolvedValue(LOST);
     const { f, state, sources, form } = await start();
     form.city.set('Roma');
@@ -295,8 +295,21 @@ describe('App shell - set identity changed by the server (#473)', () => {
     await tick();
     f.detectChanges();
     expect(state.screen()).toBe('INPUT');
-    expect(form.city()).toBe('');
+    expect(form.city()).toBe('Roma');
     expect(sources.serverChanges()).toBe(0);
+  });
+
+  it('a change the user made while in Base stays in Base (#490)', async () => {
+    api['resetSources'] = jest.fn().mockResolvedValue(LOST);
+    const { f, state, sources } = await start();
+    state.dispatch({ type: 'TOGGLE_MODE', mode: 'base' });
+    state.dispatch({ type: 'LOAD_SUCCESS', data: results, pipeline: 'base' });
+    await sources.reset();
+    await tick();
+    f.detectChanges();
+    expect(state.mode()).toBe('base');
+    expect(state.screen()).toBe('BASE');
+    expect(state.baselineData()).toBeNull();
   });
 });
 

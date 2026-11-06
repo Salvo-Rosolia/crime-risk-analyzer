@@ -213,6 +213,45 @@ describe('App shell', () => {
     expect(f.nativeElement.textContent).toContain('non corrisponde ad alcuna area');
   });
 
+  it('ERROR state hides the header results controls (#491), LOADING keeps them disabled', async () => {
+    const f = TestBed.createComponent(App);
+    f.detectChanges();
+    await f.whenStable();
+
+    store.dispatch({ type: 'LOAD_SUCCESS', data: emptyResp, pipeline: 'full' });
+    store.dispatch({
+      type: 'ANALYZE',
+      area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 300 },
+      pipeline: 'full',
+    });
+    f.detectChanges();
+    const chips: HTMLButtonElement[] = Array.from(f.nativeElement.querySelectorAll('.cra-chip'));
+    expect(chips.length).toBeGreaterThan(0);
+    expect(chips.every((c) => c.disabled)).toBe(true);
+
+    store.dispatch({ type: 'LOAD_ERROR', message: 'boom', pipeline: 'full' });
+    f.detectChanges();
+    expect(f.nativeElement.querySelector('.cra-chip')).toBeNull();
+    expect(f.nativeElement.querySelector('.cra-coverage-badge')).toBeNull();
+  });
+
+  it('a pin click during LOADING neither selects nor requests a narrative (#491)', async () => {
+    const f = TestBed.createComponent(App);
+    f.detectChanges();
+    await f.whenStable();
+    store.dispatch({ type: 'LOAD_SUCCESS', data: emptyResp, pipeline: 'full' });
+    store.dispatch({
+      type: 'ANALYZE',
+      area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 300 },
+      pipeline: 'full',
+    });
+    const spy = jest.spyOn(store, 'loadPoiNarrative');
+    f.debugElement.query(By.directive(MapComponent)).triggerEventHandler('poiClick', 'x');
+    expect(store.screen()).toBe('LOADING');
+    expect(store.selectedPoiId()).toBeNull();
+    expect(spy).not.toHaveBeenCalled();
+  });
+
   describe('#492: the map accepts circle drawing only while a search form is visible', () => {
     const drawingEnabled = (f: ComponentFixture<App>): boolean =>
       f.debugElement.query(By.directive(MapComponent)).componentInstance.drawingEnabled();

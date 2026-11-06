@@ -171,18 +171,26 @@ export class App {
     return index >= 0 ? { poi: poi[index], number: index + 1 } : null;
   });
 
+  /** Data for the header's Copertura badge and confidence chips: not offered after an error (#491),
+   * when the results on screen are the ones the failed request was meant to replace. */
+  protected readonly headerData = computed(() =>
+    this.store.screen() === 'ERROR' ? null : this.store.fullData(),
+  );
+
   constructor() {
     // The active set really changed (#419): the results on screen were computed on the
-    // previous set, so we start over from a new request (same reset as "+ Nuova
-    // richiesta"). It observes the store, not the dialog: it works even if the page was closed
-    // while the upload was in flight. The initial value is not a change.
+    // previous set, so they are cleared (mode and form kept, #490). It observes the store, not
+    // the dialog: it works even if the page was closed while the upload was in flight. The
+    // initial value is not a change.
     let seen = this.sources.revision();
     effect(() => {
       const revision = this.sources.revision();
       if (revision === seen) return;
       seen = revision;
       untracked(() => {
-        this.onResetConfirmed();
+        // Not the explicit reset (#490): that one also switches back to Full mode and empties the
+        // form. A source change must keep both, like the server-side change below.
+        this.store.dispatch({ type: 'SOURCE_SET_CHANGED' });
       });
     });
     // The server serves another set than the one the client believed in, and the user did not touch
@@ -298,6 +306,10 @@ export class App {
   }
 
   protected onPoiClick(id: string): void {
+    // The old pins stay on the map while a regeneration is loading or after an error (#491): the
+    // FSM ignores the selection there, so no narrative must be requested for it either.
+    const screen = this.store.screen();
+    if (screen === 'LOADING' || screen === 'ERROR') return;
     this.store.dispatch({ type: 'SELECT_POI', id });
     // Narrative specific to the point (#197): generated at selection, not in advance for all
     // POIs (it would be one LLM call per pin). The store skips the call if it is already cached.

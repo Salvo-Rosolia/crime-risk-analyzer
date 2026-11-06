@@ -656,9 +656,13 @@ describe('transition: SOURCE_SET_CHANGED (#473)', () => {
     expect(s.error).toBe('Tipo POI non riconosciuto');
   });
 
-  it('does not interrupt a request in flight', () => {
-    const s = transition(loaded('LOADING'), { type: 'SOURCE_SET_CHANGED' });
-    expect(s.screen).toBe('LOADING');
+  it('drops a request in flight back to the form of the current mode, keeping the mode (#490)', () => {
+    const full = transition(loaded('LOADING'), { type: 'SOURCE_SET_CHANGED' });
+    expect(full.screen).toBe('INPUT');
+    expect(full.mode).toBe('full');
+    const base = transition({ ...loaded('LOADING'), mode: 'base' }, { type: 'SOURCE_SET_CHANGED' });
+    expect(base.screen).toBe('BASE');
+    expect(base.mode).toBe('base');
   });
 
   it('clears the narratives of the cleared results', () => {
@@ -677,5 +681,44 @@ describe('transition: SOURCE_SET_CHANGED (#473)', () => {
     expect(s.zoneNarrativeError).toBeNull();
     expect(s.poiNarrativesLoading).toEqual([]);
     expect(s.poiNarrativeError).toBeNull();
+  });
+});
+
+describe('transition: results locked on LOADING and ERROR (#491)', () => {
+  const poi = { id: 'p1', confidence: 'verificato' } as unknown as AnalyzeResponse['poi'][number];
+  const withResults = (screen: AppState['screen']): AppState => ({
+    ...initialState,
+    screen,
+    fullData: { ...data, poi: [poi] },
+  });
+
+  it.each(['LOADING', 'ERROR'] as const)(
+    '%s ignores SELECT_POI, SET_FILTER, CLEAR_FILTER',
+    (screen) => {
+      const s = withResults(screen);
+      expect(transition(s, { type: 'SELECT_POI', id: 'p1' })).toBe(s);
+      expect(transition(s, { type: 'SET_FILTER', level: 'verificato' })).toBe(s);
+      expect(transition(s, { type: 'CLEAR_FILTER' })).toBe(s);
+      expect(transition(s, { type: 'DESELECT_POI' })).toBe(s);
+    },
+  );
+
+  it('RESULTS still accepts them', () => {
+    const s = transition(withResults('RESULTS'), { type: 'SELECT_POI', id: 'p1' });
+    expect(s.screen).toBe('DETAIL');
+  });
+});
+
+describe('transition: base ANALYZE keeps the Full question (#494)', () => {
+  it('does not clear pendingQuestion', () => {
+    const s = transition(
+      { ...initialState, pendingQuestion: 'di sera?' },
+      {
+        type: 'ANALYZE',
+        area: { kind: 'zone', city: 'Roma', zone: 'Centro' },
+        pipeline: 'base',
+      },
+    );
+    expect(s.pendingQuestion).toBe('di sera?');
   });
 });
