@@ -374,7 +374,7 @@ def test_baseline_unknown_tipo_poi_is_422_before_any_io(
     """
 
     def _boom(*args: object, **kwargs: object) -> object:
-        raise AssertionError("nessun I/O atteso su tipo_poi invalido")
+        raise AssertionError("no I/O expected on an invalid tipo_poi")
 
     monkeypatch.setattr(area_search, "reverse_geocode_label", _boom)
     monkeypatch.setattr(retrieval, "fetch_pois", _boom)
@@ -404,7 +404,7 @@ async def test_run_baseline_threads_geo_source(
     """#169: geo_source passed to run_baseline reaches retrieve (no geocode)."""
 
     def _boom_geocode(zona: str, citta: str) -> GeoResult:
-        raise AssertionError("geocode_zone non deve essere chiamato con geo_source")
+        raise AssertionError("geocode_zone must not be called with geo_source")
 
     monkeypatch.setattr(retrieval, "geocode_zone", _boom_geocode)
     seen: list[tuple[str, str]] = []

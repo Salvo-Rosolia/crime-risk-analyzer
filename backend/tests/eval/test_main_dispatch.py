@@ -148,7 +148,7 @@ def test_main_run_baseline_routes_without_llm_client(
     monkeypatch.setattr(eval_main, "get_executor", lambda: object())
 
     def _explode(config: ExperimentConfig) -> object:
-        raise AssertionError("baseline non deve costruire il client LLM")
+        raise AssertionError("baseline must not build the LLM client")
 
     monkeypatch.setattr(eval_main, "build_llm_eval_client", _explode)
 

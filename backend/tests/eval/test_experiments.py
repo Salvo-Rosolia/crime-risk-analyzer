@@ -70,7 +70,7 @@ def test_ablation_zones_anchored_to_c1_roster() -> None:
     roster_pairs = [(city.citta, city.zona) for city in ROSTER]
     zones = _zones("ablation-analyze")
     for zona in zones:
-        assert zona in roster_pairs, f"{zona} non è nel roster di validazione C1"
+        assert zona in roster_pairs, f"{zona} is not in the C1 validation roster"
     assert zones == roster_pairs[:4]
 
 

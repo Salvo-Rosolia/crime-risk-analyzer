@@ -688,7 +688,7 @@ def test_reverse_geocode_label_fallback_on_service_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def _boom(op: str, arg: object) -> object:
-        raise GeocoderServiceError("giu")
+        raise GeocoderServiceError("down")
 
     monkeypatch.setattr(geocoding, "_get_rate_limited_call", lambda: _boom)
     citta, zona = geocoding.reverse_geocode_label(41.8, 12.5)

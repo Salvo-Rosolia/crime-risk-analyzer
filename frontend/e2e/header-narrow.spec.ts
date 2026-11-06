@@ -39,10 +39,12 @@ for (const width of [390, 600]) {
       const el = items.nth(i);
       const b = (await el.boundingBox())!;
       const name = (await el.evaluate((e) => e.className || e.tagName)) as string;
-      expect(b.x, `${name} a sinistra`).toBeGreaterThanOrEqual(0);
-      expect(b.x + b.width, `${name} a destra del viewport`).toBeLessThanOrEqual(width + 0.5);
-      expect(b.y, `${name} sopra l'header`).toBeGreaterThanOrEqual(hBox.y - 0.5);
-      expect(b.y + b.height, `${name} sotto l'header`).toBeLessThanOrEqual(
+      expect(b.x, `${name} past the left edge`).toBeGreaterThanOrEqual(0);
+      expect(b.x + b.width, `${name} past the right edge of the viewport`).toBeLessThanOrEqual(
+        width + 0.5,
+      );
+      expect(b.y, `${name} above the header`).toBeGreaterThanOrEqual(hBox.y - 0.5);
+      expect(b.y + b.height, `${name} below the header`).toBeLessThanOrEqual(
         hBox.y + hBox.height + 0.5,
       );
     }

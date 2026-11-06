@@ -120,19 +120,21 @@ def test_committed_snapshots_have_provenance_and_single_config() -> None:
     the homogeneity among files."""
     snapshot_dir = Path(__file__).parents[2] / "results" / "city_agnostic" / "snapshots"
     files = sorted(snapshot_dir.glob("*.json"))
-    assert files, "attesi gli esiti C1 versionati in results/city_agnostic/snapshots/"
+    assert files, (
+        "expected the C1 outcomes committed in results/city_agnostic/snapshots/"
+    )
     signatures: dict[str, str] = {}
     for f in files:
         outcome = ca.load_outcome(f)
-        assert outcome.status == "ok", f"esito non ok: {f.name}"
-        assert outcome.provenienza is not None, f"senza provenienza: {f.name}"
+        assert outcome.status == "ok", f"outcome not ok: {f.name}"
+        assert outcome.provenienza is not None, f"no provenance: {f.name}"
         signatures[f.name] = json.dumps(
             outcome.provenienza.configurazione_canonica, sort_keys=True
         )
     assert len(set(signatures.values())) == 1, (
-        "configurazioni canoniche miste fra gli snapshot versionati "
-        f"({sorted(signatures)}): una ricattura parziale va ripetuta per l'INTERO "
-        "roster, altrimenti gli esiti non sono confrontabili"
+        "mixed canonical configurations across the committed snapshots "
+        f"({sorted(signatures)}): a partial recapture must be repeated for the "
+        "WHOLE roster, otherwise the outcomes are not comparable"
     )
 
 

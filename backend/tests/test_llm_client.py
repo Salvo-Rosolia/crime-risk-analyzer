@@ -445,7 +445,7 @@ async def test_claude_timeout_is_mapped_to_llm_error() -> None:
 
     async def _slow(**_kwargs: Any) -> _AnthropicMessage:
         await asyncio.sleep(1)  # beyond the timeout: it will be cancelled
-        raise AssertionError("create doveva essere cancellato dal timeout")
+        raise AssertionError("create should have been cancelled by the timeout")
 
     fake.messages.create = _slow  # type: ignore[method-assign]
     client = LLMClient.for_claude(fake, temperature=0.0, seed=0, timeout=0.01)
@@ -460,7 +460,7 @@ async def test_groq_timeout_is_mapped_to_llm_error() -> None:
 
     async def _slow(**_kwargs: Any) -> _GroqCompletion:
         await asyncio.sleep(1)
-        raise AssertionError("create doveva essere cancellato dal timeout")
+        raise AssertionError("create should have been cancelled by the timeout")
 
     fake.chat.completions.create = _slow  # type: ignore[method-assign]
     client = LLMClient.for_groq(fake, temperature=0.0, seed=0, timeout=0.01)

@@ -399,7 +399,7 @@ async def test_run_analysis_threads_geo_source(
     """#169: the geo_source passed to run_analysis reaches retrieve (no geocode)."""
 
     def _boom_geocode(zona: str, citta: str) -> GeoResult:
-        raise AssertionError("geocode_zone non deve essere chiamato con geo_source")
+        raise AssertionError("geocode_zone must not be called with geo_source")
 
     monkeypatch.setattr(retrieval, "geocode_zone", _boom_geocode)
     seen: list[tuple[str, str]] = []
