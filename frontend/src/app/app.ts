@@ -172,8 +172,9 @@ export class App {
 
   constructor() {
     // The active set really changed (#419): the results on screen were computed on the
-    // previous set, so they are cleared (mode and form kept, #490). It observes the store, not the dialog: it works even if the page was closed
-    // while the upload was in flight. The initial value is not a change.
+    // previous set, so they are cleared (mode and form kept, #490). It observes the store, not
+    // the dialog: it works even if the page was closed while the upload was in flight. The
+    // initial value is not a change.
     let seen = this.sources.revision();
     effect(() => {
       const revision = this.sources.revision();
