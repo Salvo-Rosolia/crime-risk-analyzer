@@ -9,6 +9,7 @@ is registered in a single place, via ``@app.exception_handler`` (orchestrator.md
 
 Map (orchestrator.md):
   * :class:`ZoneNotFoundError`  -> ``422`` (zone not geocodable)
+  * :class:`AreaTooLargeError`  -> ``422`` (area above the cap, #497)
   * :class:`GeocodingError`     -> ``503`` (geocoding service unreachable)
   * :class:`OverpassError`      -> ``503`` (Overpass unreachable, or a 200
     response with an interruption remark, after retry: #372, can cost ~2x26 s)
@@ -38,7 +39,11 @@ from __future__ import annotations
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from crime_risk_analyzer.geocoding import GeocodingError, ZoneNotFoundError
+from crime_risk_analyzer.geocoding import (
+    AreaTooLargeError,
+    GeocodingError,
+    ZoneNotFoundError,
+)
 from crime_risk_analyzer.overpass_client import OverpassError
 from crime_risk_analyzer.poi_narrative import ContextMismatchError, PoiNotFoundError
 from crime_risk_analyzer.poi_types import UnknownPoiTypeError
@@ -58,6 +63,16 @@ async def _handle_zone_not_found(
                 "messaggio": str(exc),
             }
         },
+    )
+
+
+async def _handle_area_too_large(
+    _request: Request, exc: AreaTooLargeError
+) -> JSONResponse:
+    """``AreaTooLargeError`` -> ``422`` (city/zone area above the cap, #497)."""
+    return JSONResponse(
+        status_code=422,
+        content={"detail": {"errore": "area_troppo_estesa", "messaggio": str(exc)}},
     )
 
 
@@ -182,6 +197,7 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     ``LLMError`` is deliberately not registered (see the module docstring).
     """
+    app.add_exception_handler(AreaTooLargeError, _handle_area_too_large)  # pyright: ignore[reportArgumentType]
     app.add_exception_handler(ZoneNotFoundError, _handle_zone_not_found)  # pyright: ignore[reportArgumentType]
     app.add_exception_handler(GeocodingError, _handle_geocoding_error)  # pyright: ignore[reportArgumentType]
     app.add_exception_handler(OverpassError, _handle_overpass_error)  # pyright: ignore[reportArgumentType]

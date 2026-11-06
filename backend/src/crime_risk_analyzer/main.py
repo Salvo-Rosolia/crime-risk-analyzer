@@ -27,7 +27,11 @@ from crime_risk_analyzer.analyze_narrative import (
     run_analysis_fast,
     run_zone_narrative,
 )
-from crime_risk_analyzer.area_search import resolve_circle, resolve_zone
+from crime_risk_analyzer.area_search import (
+    capped_zone_geo_source,
+    resolve_circle,
+    resolve_zone,
+)
 from crime_risk_analyzer.config import Settings, get_settings
 from crime_risk_analyzer.errors import register_exception_handlers
 from crime_risk_analyzer.istat.data import istat_data, istat_data_or_none
@@ -262,6 +266,7 @@ async def analyze_narrativa(
         contesto_hash=request.contesto_hash,
         executor=executor,
         llm_client=llm_client,
+        geo_source=capped_zone_geo_source,
         domanda=request.domanda,
         request_token_budget=settings.llm_request_token_budget,
         max_tokens=settings.llm_max_tokens,
@@ -328,6 +333,7 @@ async def analyze_poi(
         contesto_hash=request.contesto_hash,
         executor=executor,
         llm_client=llm_client,
+        geo_source=capped_zone_geo_source,
         istat_context_enabled=settings.istat_context_enabled,
     )
 
