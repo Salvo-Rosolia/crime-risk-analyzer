@@ -428,7 +428,7 @@ describe('StateStore', () => {
       await inFlight;
 
       expect(store.state().poiNarratives['node/1']).toBeUndefined();
-      expect(store.poiNarrativeLoading()).toBeNull();
+      expect(store.poiNarrativesLoading()).toEqual([]);
     });
 
     it('also discards the FAILURE of a generation overtaken by a new analysis (#242)', async () => {
@@ -454,6 +454,7 @@ describe('StateStore', () => {
 
     it('loadPoiNarrative on 409 shows the backend message (#242)', async () => {
       await analyzed();
+      store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
       api.poiNarrative.mockRejectedValue(
         new HttpErrorResponse({
           status: 409,
@@ -490,14 +491,139 @@ describe('StateStore', () => {
 
     it('loadPoiNarrative on error populates poiNarrativeError and unblocks the loading state', async () => {
       await analyzed();
+      store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
       api.poiNarrative.mockRejectedValue(new Error('boom'));
       await store.loadPoiNarrative('node/1');
       expect(store.poiNarrativeError()).toBe('boom');
-      expect(store.poiNarrativeLoading()).toBeNull();
+      expect(store.poiNarrativesLoading()).toEqual([]);
+    });
+
+    describe('several POI generations in flight (#489)', () => {
+      interface Deferred {
+        promise: Promise<PoiNarrativeResponse>;
+        resolve: (v: PoiNarrativeResponse) => void;
+        reject: (e: unknown) => void;
+      }
+      function deferred(): Deferred {
+        let resolve!: (v: PoiNarrativeResponse) => void;
+        let reject!: (e: unknown) => void;
+        const promise = new Promise<PoiNarrativeResponse>((res, rej) => {
+          resolve = res;
+          reject = rej;
+        });
+        return { promise, resolve, reject };
+      }
+
+      /** Starts A then B while both are in flight; B ends up selected. */
+      async function startAThenB(): Promise<{
+        a: Deferred;
+        b: Deferred;
+        runA: Promise<void>;
+        runB: Promise<void>;
+      }> {
+        await analyzed();
+        const a = deferred();
+        const b = deferred();
+        api.poiNarrative.mockReturnValueOnce(a.promise).mockReturnValueOnce(b.promise);
+        store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
+        const runA = store.loadPoiNarrative('node/1');
+        store.dispatch({ type: 'SELECT_POI', id: 'node/2' });
+        const runB = store.loadPoiNarrative('node/2');
+        return { a, b, runA, runB };
+      }
+
+      it('the result of A does not clear the loading state of B', async () => {
+        const { a, b, runA, runB } = await startAThenB();
+        expect(store.poiNarrativePending()).toBe(true);
+
+        a.resolve(poiResp);
+        await runA;
+
+        expect(store.poiNarrativePending()).toBe(true);
+        // The result of A still goes into the cache.
+        expect(store.state().poiNarratives['node/1']).toBeDefined();
+
+        b.resolve(poiResp);
+        await runB;
+        expect(store.poiNarrativePending()).toBe(false);
+      });
+
+      it('the failure of A does not show its error under B nor clears the loading of B', async () => {
+        const { a, b, runA, runB } = await startAThenB();
+
+        a.reject(new Error('boom A'));
+        await runA;
+
+        expect(store.poiNarrativeError()).toBeNull();
+        expect(store.poiNarrativePending()).toBe(true);
+
+        b.resolve(poiResp);
+        await runB;
+        expect(store.poiNarrativePending()).toBe(false);
+        expect(store.poiNarrativeError()).toBeNull();
+      });
+
+      it('the failure of the POI currently selected is shown', async () => {
+        const { a, b, runA, runB } = await startAThenB();
+
+        b.reject(new Error('boom B'));
+        await runB;
+        expect(store.poiNarrativeError()).toBe('boom B');
+        expect(store.poiNarrativePending()).toBe(false);
+
+        a.resolve(poiResp);
+        await runA;
+      });
+
+      it('going back to A while it is still in flight shows it as loading, without a second request', async () => {
+        const { a, b, runA, runB } = await startAThenB();
+
+        store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
+        await store.loadPoiNarrative('node/1');
+
+        expect(api.poiNarrative).toHaveBeenCalledTimes(2);
+        expect(store.poiNarrativePending()).toBe(true);
+
+        a.resolve(poiResp);
+        b.resolve(poiResp);
+        await Promise.all([runA, runB]);
+        expect(store.poiNarrativePending()).toBe(false);
+      });
+
+      it('a second click on a POI in flight does not launch a duplicate request, not even with force', async () => {
+        await analyzed();
+        const a = deferred();
+        api.poiNarrative.mockReturnValue(a.promise);
+        const first = store.loadPoiNarrative('node/1');
+        await store.loadPoiNarrative('node/1');
+        await store.loadPoiNarrative('node/1', { force: true });
+        expect(api.poiNarrative).toHaveBeenCalledTimes(1);
+
+        a.resolve(poiResp);
+        await first;
+      });
+
+      it('after the request settles the POI can be requested again (force)', async () => {
+        await analyzed();
+        await store.loadPoiNarrative('node/1');
+        expect(store.poiNarrativesLoading()).toEqual([]);
+        await store.loadPoiNarrative('node/1', { force: true });
+        expect(api.poiNarrative).toHaveBeenCalledTimes(2);
+      });
+
+      it('after a failure the same POI can be retried', async () => {
+        await analyzed();
+        api.poiNarrative.mockRejectedValueOnce(new Error('boom'));
+        await store.loadPoiNarrative('node/1');
+        expect(store.poiNarrativesLoading()).toEqual([]);
+        await store.loadPoiNarrative('node/1');
+        expect(api.poiNarrative).toHaveBeenCalledTimes(2);
+      });
     });
 
     it('loadPoiNarrative on 404 shows the backend message', async () => {
       await analyzed();
+      store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
       api.poiNarrative.mockRejectedValue(
         new HttpErrorResponse({
           status: 404,

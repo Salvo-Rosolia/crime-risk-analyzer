@@ -23,7 +23,7 @@ export const initialState: AppState = {
   poiPanelOpen: true,
   narrOpen: true,
   poiNarratives: {},
-  poiNarrativeLoading: null,
+  poiNarrativesLoading: [],
   poiNarrativeError: null,
   zoneNarrativeLoading: false,
   zoneNarrativeError: null,
@@ -50,7 +50,7 @@ export function transition(state: AppState, action: Action): AppState {
         // another one. They are invalidated here, not at SELECT_POI, so the LLM cost is paid
         // only once per POI as long as the zone does not change.
         poiNarratives: isBase ? state.poiNarratives : {},
-        poiNarrativeLoading: isBase ? state.poiNarrativeLoading : null,
+        poiNarrativesLoading: isBase ? state.poiNarrativesLoading : [],
         poiNarrativeError: isBase ? state.poiNarrativeError : null,
         // ZONE narrative (#292): same reasoning, a new context makes irrelevant one in flight (if
         // still pending) or already shown (if an error had remained).
@@ -176,7 +176,7 @@ export function transition(state: AppState, action: Action): AppState {
         filter: null,
         lastQuery: null,
         poiNarratives: {},
-        poiNarrativeLoading: null,
+        poiNarrativesLoading: [],
         poiNarrativeError: null,
         zoneNarrativeLoading: false,
         zoneNarrativeError: null,
@@ -185,18 +185,34 @@ export function transition(state: AppState, action: Action): AppState {
       return { ...state, poiPanelOpen: !state.poiPanelOpen };
     case 'TOGGLE_NARR':
       return { ...state, narrOpen: !state.narrOpen };
+    // Several POI generations can be in flight at once (#489): each result or failure removes
+    // only ITS id from `poiNarrativesLoading`, so the answer of A never clears the loading of B.
     case 'POI_NARRATIVE_START':
-      return { ...state, poiNarrativeLoading: action.poiId, poiNarrativeError: null };
+      return {
+        ...state,
+        poiNarrativesLoading: state.poiNarrativesLoading.includes(action.poiId)
+          ? state.poiNarrativesLoading
+          : [...state.poiNarrativesLoading, action.poiId],
+        poiNarrativeError: null,
+      };
     case 'POI_NARRATIVE_SUCCESS':
+      // The result always goes into the cache, even if the user has moved on to another POI.
       return {
         ...state,
         poiNarratives: { ...state.poiNarratives, [action.poiId]: action.data },
-        poiNarrativeLoading: null,
-        poiNarrativeError: null,
+        poiNarrativesLoading: state.poiNarrativesLoading.filter((id) => id !== action.poiId),
       };
     case 'POI_NARRATIVE_ERROR':
       // Narratives already in cache remain: the failure concerns only the generation in progress.
-      return { ...state, poiNarrativeLoading: null, poiNarrativeError: action.message };
+      // The error is shown only if it belongs to the POI selected now; otherwise it is dropped,
+      // consistently with the clearing of `poiNarrativeError` at every scope change (see
+      // SELECT_POI): going back to that POI selects it again and the generation can be retried.
+      return {
+        ...state,
+        poiNarrativesLoading: state.poiNarrativesLoading.filter((id) => id !== action.poiId),
+        poiNarrativeError:
+          action.poiId === state.selectedPoiId ? action.message : state.poiNarrativeError,
+      };
     case 'ZONE_NARRATIVE_START':
       return { ...state, zoneNarrativeLoading: true, zoneNarrativeError: null };
     case 'ZONE_NARRATIVE_SUCCESS':
