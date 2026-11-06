@@ -152,11 +152,4 @@ export class NarrativeSheetComponent {
     event.stopPropagation();
     this.regenerate.emit();
   }
-
-  /** Space on a non-native `role="button"` element: prevents the page scroll (browser default
-   * behavior for space) before activating the toggle, as a real button would. */
-  protected onHeaderSpace(event: Event): void {
-    event.preventDefault();
-    this.toggleNarrative.emit();
-  }
 }

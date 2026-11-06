@@ -7,6 +7,8 @@ const mockMarker = {
   addTo: jest.fn().mockReturnThis(),
   bindPopup: jest.fn().mockReturnThis(),
   on: jest.fn(),
+  setIcon: jest.fn(),
+  getElement: jest.fn((): HTMLElement | undefined => undefined),
 };
 
 const mockCircle = {
@@ -24,6 +26,7 @@ const mockMap = {
   setView: jest.fn().mockReturnThis(),
   flyToBounds: jest.fn(),
   flyTo: jest.fn(),
+  getCenter: jest.fn(() => ({ lat: 41.9, lng: 12.5 })),
   remove: jest.fn(),
   addLayer: jest.fn(),
   distance: jest.fn(() => 500),
@@ -149,6 +152,92 @@ describe('MapComponent', () => {
     expect(mockMap.flyToBounds).not.toHaveBeenCalled();
   });
 
+  describe('zero POI (#488): recenter on the geocoded zone and explain why', () => {
+    const ZONA_GEO = {
+      lat: 45.1,
+      lon: 7.6,
+      bbox_min_lat: 45.0,
+      bbox_min_lon: 7.5,
+      bbox_max_lat: 45.2,
+      bbox_max_lon: 7.7,
+    };
+    const MESSAGE = 'Zona geocodificata, ma nessun punto trovato.';
+    const emptyResp = (): AnalyzeResponse => ({
+      ...makeResp([]),
+      zona_geo: ZONA_GEO,
+      messaggio: MESSAGE,
+    });
+    const notice = (): HTMLElement | null => fixture.nativeElement.querySelector('.cra-map-notice');
+
+    it('recenters on the zone bbox when there are no POIs', () => {
+      fixture.componentRef.setInput('activeResponse', emptyResp());
+      fixture.detectChanges();
+      expect(L.latLngBounds).toHaveBeenCalledWith([
+        [45.0, 7.5],
+        [45.2, 7.7],
+      ]);
+      expect(mockMap.flyToBounds).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows the backend message (role=status) when there are no POIs', () => {
+      fixture.componentRef.setInput('activeResponse', emptyResp());
+      fixture.detectChanges();
+      expect(notice()?.textContent).toContain(MESSAGE);
+      expect(notice()?.getAttribute('role')).toBe('status');
+    });
+
+    it('does not show the message or recenter when there are POIs', () => {
+      fixture.componentRef.setInput('activeResponse', {
+        ...makeResp([makePoi()]),
+        zona_geo: ZONA_GEO,
+        messaggio: MESSAGE,
+      });
+      fixture.detectChanges();
+      expect(notice()).toBeNull();
+      expect(mockMap.flyToBounds).not.toHaveBeenCalled();
+    });
+
+    it('works for a response that is not the one feeding the markers (Base mode)', () => {
+      fixture.componentRef.setInput('data', null);
+      fixture.componentRef.setInput('activeResponse', emptyResp());
+      fixture.detectChanges();
+      expect(mockMap.flyToBounds).toHaveBeenCalledTimes(1);
+      expect(notice()).not.toBeNull();
+    });
+
+    it('tolerates a response without zona_geo/messaggio (no recenter, no message)', () => {
+      fixture.componentRef.setInput('activeResponse', makeResp([]));
+      fixture.detectChanges();
+      expect(mockMap.flyToBounds).not.toHaveBeenCalled();
+      expect(notice()).toBeNull();
+    });
+
+    it('#492: a new response object with the same zone (narrative arrival) does not recenter again', () => {
+      const first = emptyResp();
+      fixture.componentRef.setInput('activeResponse', first);
+      fixture.detectChanges();
+      fixture.componentRef.setInput('activeResponse', { ...first, narrativa: 'testo' });
+      fixture.detectChanges();
+      expect(mockMap.flyToBounds).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('#492: the narrative arriving does not rearrange the map', () => {
+    it('same POI list in a new response object: no new flyToBounds, no marker redraw', () => {
+      const pois = [makePoi({ id: '0' }), makePoi({ id: '1' })];
+      const first = makeResp(pois);
+      fixture.componentRef.setInput('data', first);
+      fixture.detectChanges();
+      expect(mockMap.flyToBounds).toHaveBeenCalledTimes(1);
+      expect(mockLayerGroup.clearLayers).toHaveBeenCalledTimes(1);
+
+      fixture.componentRef.setInput('data', { ...first, narrativa: 'testo', llm_used: 'x' });
+      fixture.detectChanges();
+      expect(mockMap.flyToBounds).toHaveBeenCalledTimes(1);
+      expect(mockLayerGroup.clearLayers).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('marker POI', () => {
     it('creates a numbered marker for each POI; cleans the layer at every redraw', () => {
       fixture.componentRef.setInput('data', makeResp([makePoi({ id: '0' }), makePoi({ id: '1' })]));
@@ -269,6 +358,208 @@ describe('MapComponent', () => {
       handler();
 
       expect(onClick).toHaveBeenCalledWith('poi-42');
+    });
+  });
+
+  describe('#492: selection and filter restyle markers instead of recreating them', () => {
+    it('selecting a POI updates only the markers whose style changed, without clearing the layer', () => {
+      const pois = [makePoi({ id: '0' }), makePoi({ id: '1' })];
+      fixture.componentRef.setInput('data', makeResp(pois));
+      fixture.detectChanges();
+      jest.clearAllMocks();
+
+      fixture.componentRef.setInput('selectedId', '1');
+      fixture.detectChanges();
+      expect(mockLayerGroup.clearLayers).not.toHaveBeenCalled();
+      expect(L.marker).not.toHaveBeenCalled();
+      expect(mockMarker.setIcon).toHaveBeenCalledTimes(1);
+      const [opts] = (L.divIcon as jest.Mock).mock.calls.at(-1) as [{ iconSize: [number, number] }];
+      expect(opts.iconSize).toEqual([34, 34]);
+
+      jest.clearAllMocks();
+      fixture.componentRef.setInput('selectedId', null);
+      fixture.detectChanges();
+      expect(mockMarker.setIcon).toHaveBeenCalledTimes(1);
+      expect(mockLayerGroup.clearLayers).not.toHaveBeenCalled();
+    });
+
+    it('changing the filter does not recreate the markers either', () => {
+      fixture.componentRef.setInput('data', makeResp([makePoi({ id: '0' })]));
+      fixture.detectChanges();
+      jest.clearAllMocks();
+      fixture.componentRef.setInput('filter', 'da_confermare');
+      fixture.detectChanges();
+      expect(L.marker).not.toHaveBeenCalled();
+      expect(mockMarker.setIcon).toHaveBeenCalled();
+    });
+  });
+
+  describe('#492: map clicks outside the search-form states do not start a circle', () => {
+    it('ignores the click when drawing is disabled (results/loading/error): no circle, no circleChange', () => {
+      const spy = jest.fn();
+      fixture.componentInstance.circleChange.subscribe(spy);
+      fixture.componentRef.setInput('drawingEnabled', false);
+      fixture.detectChanges();
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      expect(L.circle).not.toHaveBeenCalled();
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('does not discard a confirmed circle (no null) when a click arrives while disabled', () => {
+      const spy = jest.fn();
+      fixture.componentInstance.circleChange.subscribe(spy);
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      spy.mockClear();
+      (L.circle as jest.Mock).mockClear();
+      fixture.componentRef.setInput('drawingEnabled', false);
+      fixture.detectChanges();
+      fireMap('click', { latlng: { lat: 42, lng: 12.6 } });
+      expect(spy).not.toHaveBeenCalled();
+      expect(L.circle).not.toHaveBeenCalled();
+    });
+
+    it('a mousemove while drawing-radius stops changing the radius once drawing gets disabled', () => {
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fixture.componentRef.setInput('drawingEnabled', false);
+      fixture.detectChanges();
+      mockCircle.setRadius.mockClear();
+      fireMap('mousemove', { latlng: { lat: 41.905, lng: 12.5 } });
+      expect(mockCircle.setRadius).not.toHaveBeenCalled();
+    });
+
+    it('the keyboard draw button is disabled too', () => {
+      fixture.componentRef.setInput('drawingEnabled', false);
+      fixture.detectChanges();
+      const btn = fixture.nativeElement.querySelector('.cra-draw-btn') as HTMLButtonElement;
+      expect(btn.disabled).toBe(true);
+    });
+
+    it('drawing stays enabled by default (form states)', () => {
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      expect(L.circle).toHaveBeenCalled();
+    });
+  });
+
+  describe('#493: accessibility', () => {
+    it('gives each marker an accessible name (title/alt with number and POI name)', () => {
+      fixture.componentRef.setInput(
+        'data',
+        makeResp([makePoi({ id: 'a', name: 'Stazione Termini' })]),
+      );
+      fixture.detectChanges();
+      const [, options] = (L.marker as jest.Mock).mock.calls.at(-1) as [
+        unknown,
+        { title: string; keyboard: boolean },
+      ];
+      expect(options.title).toContain('Stazione Termini');
+      expect(options.title).toContain('1');
+      expect(options.keyboard).not.toBe(false);
+    });
+
+    describe('aria-label on the marker element (alt is ignored on divIcons)', () => {
+      let el: HTMLElement;
+      beforeEach(() => {
+        el = document.createElement('div');
+        el.tabIndex = 0;
+        document.body.appendChild(el);
+        mockMarker.getElement.mockImplementation(() => el);
+        mockMarker.setIcon.mockImplementation(() => {
+          // Leaflet recreates the icon DOM element on setIcon.
+          const next = document.createElement('div');
+          next.tabIndex = 0;
+          el.replaceWith(next);
+          el = next;
+        });
+      });
+      afterEach(() => {
+        el.remove();
+        mockMarker.getElement.mockImplementation(() => undefined);
+        mockMarker.setIcon.mockReset();
+      });
+
+      it('sets aria-label after adding the marker', () => {
+        fixture.componentRef.setInput('data', makeResp([makePoi({ name: 'Stazione Termini' })]));
+        fixture.detectChanges();
+        expect(el.getAttribute('aria-label')).toBe('1. Stazione Termini');
+      });
+
+      it('restores aria-label and keyboard focus on the new element after a restyle (setIcon)', () => {
+        fixture.componentRef.setInput(
+          'data',
+          makeResp([makePoi({ id: 'a', name: 'Stazione Termini' })]),
+        );
+        fixture.detectChanges();
+        el.focus();
+        const old = el;
+        expect(document.activeElement).toBe(old);
+
+        fixture.componentRef.setInput('selectedId', 'a');
+        fixture.detectChanges();
+        expect(el).not.toBe(old);
+        expect(el.getAttribute('aria-label')).toBe('1. Stazione Termini');
+        expect(document.activeElement).toBe(el);
+      });
+
+      it('does not steal focus when the marker was not focused', () => {
+        fixture.componentRef.setInput('data', makeResp([makePoi({ id: 'a' })]));
+        fixture.detectChanges();
+        fixture.componentRef.setInput('selectedId', 'a');
+        fixture.detectChanges();
+        expect(document.activeElement).not.toBe(el);
+      });
+    });
+
+    it('falls back to the IT ontology label when the POI has no name', () => {
+      fixture.componentRef.setInput(
+        'data',
+        makeResp([makePoi({ name: '', ontology_label_it: 'Banca' })]),
+      );
+      fixture.detectChanges();
+      const [, options] = (L.marker as jest.Mock).mock.calls.at(-1) as [unknown, { title: string }];
+      expect(options.title).toContain('Banca');
+    });
+
+    describe('circle drawable from the keyboard', () => {
+      const drawBtn = (): HTMLButtonElement | null =>
+        fixture.nativeElement.querySelector('.cra-draw-btn');
+      const confirmBtn = (): HTMLButtonElement | null =>
+        fixture.nativeElement.querySelector('.cra-confirm-btn');
+
+      it('the draw button places the circle at the map centre and enters drawing-radius', () => {
+        expect(drawBtn()).toBeTruthy();
+        drawBtn()!.click();
+        fixture.detectChanges();
+        expect(L.circle).toHaveBeenCalledWith(
+          [41.9, 12.5],
+          expect.objectContaining({ radius: 300 }),
+        );
+        expect(fixture.nativeElement.querySelector('#cra-radius-input')).toBeTruthy();
+        expect(confirmBtn()).toBeTruthy();
+      });
+
+      it('the confirm button emits circleChange with centre and radius', () => {
+        const spy = jest.fn();
+        fixture.componentInstance.circleChange.subscribe(spy);
+        drawBtn()!.click();
+        fixture.detectChanges();
+        confirmBtn()!.click();
+        fixture.detectChanges();
+        expect(spy).toHaveBeenCalledWith({ lat: 41.9, lon: 12.5, radiusM: 300 });
+        expect(confirmBtn()).toBeNull();
+      });
+
+      it('drawing again from ready invalidates the confirmed circle first (null), like a map click', () => {
+        const spy = jest.fn();
+        fixture.componentInstance.circleChange.subscribe(spy);
+        drawBtn()!.click();
+        fixture.detectChanges();
+        confirmBtn()!.click();
+        fixture.detectChanges();
+        spy.mockClear();
+        drawBtn()!.click();
+        expect(spy).toHaveBeenCalledWith(null);
+      });
     });
   });
 

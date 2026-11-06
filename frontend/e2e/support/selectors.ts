@@ -109,8 +109,8 @@ export const S = {
    * search circle via `page.mouse` — not a locator on a semantic element of the circle
    * itself, which does not exist (the circle is an internal state of `MapComponent`, not inspectable markup). */
   mapEl: (p: Page): Locator => p.locator('cra-map'),
-  /** Floating radius bar (`.cra-radius-control`, `map.component.ts`): mounted only in
-   * `drawing-radius`/`ready`, i.e. from when a center has been fixed. It is anchored at the top in the
+  /** Floating radius bar (`.cra-radius-control`, `map.component.ts`): always mounted (the
+   * keyboard draw button lives in it; the numeric input only in `drawing-radius`/`ready`). It is anchored at the top in the
    * free corridor to the right of the search panel, so its box is the only way to
    * verify from the REAL layout that no panel covers it — a jsdom test does not compute
    * geometry and could not notice. */
@@ -159,9 +159,9 @@ export const S = {
   /** BASE state: rows of the "POI · Hazard · Categoria" table (`.cra-base-table tbody tr`,
    * one per POI/hazard pair — `buildBaseRows`, `core/ui-helpers.ts`). */
   baseTableRows: (p: Page): Locator => p.locator('cra-base-panel .cra-base-table tbody tr'),
-  /** Narrative bottom sheet: clickable header that opens/closes the body (`role="button"`,
-   * `aria-expanded` = `store.narrOpen()`, `narrative-sheet.component.html:1`). */
-  narrativeHeader: (p: Page): Locator => p.locator('cra-narrative-sheet .cra-narr-header'),
+  /** Narrative bottom sheet: native toggle button inside the heading that opens/closes the body
+   * (`aria-expanded` = `store.narrOpen()`, `narrative-sheet.component.html`). */
+  narrativeHeader: (p: Page): Locator => p.locator('cra-narrative-sheet .cra-narr-toggle'),
   /** Anti-hallucination banner (`.cra-hallucination-banner`): lives in the bottom-sheet header,
    * OUTSIDE the collapsible body (`@if (open())`) — by construction it stays in the DOM both collapsed
    * and expanded (`narrative-sheet.component.ts`, class comment). */
