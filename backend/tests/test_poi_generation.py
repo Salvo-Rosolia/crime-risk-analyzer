@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from crime_risk_analyzer.llm.client import LLMResponse
 from crime_risk_analyzer.rag.generation import (
     RULE_NO_DANGER_RATING,
@@ -177,6 +179,51 @@ def test_context_str_neutralizes_a_neighbour_name_that_forges_prompt_structure()
         zone_summary="2 punti di interesse.",
     )
     assert sum(r.startswith("COMPOSIZIONE DELLA ZONA") for r in out.splitlines()) == 1
+
+
+@pytest.mark.parametrize("empty_name", ["", "   ", "\n\t "])
+def test_context_str_marks_an_unnamed_selected_poi_as_anonymous(
+    empty_name: str,
+) -> None:
+    """#496: an empty name must not reach the model as a hole it may fill with an
+    invented name; same placeholder as the zone narrative."""
+    out = build_poi_context_str(
+        citta="Roma",
+        zona="Colosseo",
+        poi_name=empty_name,
+        poi_label_it="Banca",
+        risks=[],
+        vulnerabilities=[],
+        sparql_path=None,
+        neighbours=[],
+        zone_summary="1 punto di interesse.",
+    )
+    assert "PUNTO SELEZIONATO: (punto anonimo) (classe: Banca)" in out.splitlines()
+
+
+@pytest.mark.parametrize("empty_name", ["", "   ", "\n\t "])
+def test_context_str_marks_an_unnamed_neighbour_as_anonymous(
+    empty_name: str,
+) -> None:
+    """#496: same defect on the neighbours list."""
+    out = build_poi_context_str(
+        citta="Roma",
+        zona="Colosseo",
+        poi_name="Banca Centrale",
+        poi_label_it="Banca",
+        risks=[],
+        vulnerabilities=[],
+        sparql_path=None,
+        neighbours=[NeighbourPoi(name=empty_name, label_it="Farmacia", distance_m=40)],
+        zone_summary="2 punti di interesse.",
+    )
+    assert "  - (punto anonimo) (Farmacia), 40 m" in out.splitlines()
+
+
+def test_context_str_keeps_the_real_names_unchanged() -> None:
+    out = _context_str()
+    assert "(punto anonimo)" not in out
+    assert "PUNTO SELEZIONATO: Banca Centrale (classe: Banca)" in out.splitlines()
 
 
 def test_context_str_neutralizes_a_zona_that_forges_prompt_structure() -> None:

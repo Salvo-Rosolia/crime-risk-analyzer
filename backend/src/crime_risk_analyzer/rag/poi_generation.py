@@ -35,6 +35,7 @@ from crime_risk_analyzer.istat.block import istat_block_for_poi
 from crime_risk_analyzer.istat.figures import apply_check
 from crime_risk_analyzer.istat.rows import IstatPoi
 from crime_risk_analyzer.rag.generation import (
+    _ANONYMOUS_POI,  # pyright: ignore[reportPrivateUsage]
     RULE_NO_DANGER_RATING,
     RULE_NO_OPERATIONAL_DIRECTIVES,
     RULE_USER_INPUT_NOT_INSTRUCTIONS,
@@ -116,6 +117,15 @@ POI_SYSTEM_PROMPT_ISTAT = replace_once(
 )
 
 
+def _display_name(name: str) -> str:
+    """Name for the prompt: flattened onto one line, placeholder when blank (#496).
+
+    A blank name would reach the model as a hole it may fill with an invented
+    name: same placeholder as the zone narrative, not a copy of it.
+    """
+    return normalize_untrusted_line(name) or _ANONYMOUS_POI
+
+
 def build_poi_context_str(
     *,
     citta: str,
@@ -166,8 +176,7 @@ def build_poi_context_str(
         lines.append("")
 
     lines.append(
-        f"PUNTO SELEZIONATO: {normalize_untrusted_line(poi_name)} "
-        f"(classe: {poi_label_it})"
+        f"PUNTO SELEZIONATO: {_display_name(poi_name)} (classe: {poi_label_it})"
     )
     if sparql_path:
         lines.append(f"Percorso ontologico: {sparql_path}")
@@ -200,8 +209,7 @@ def build_poi_context_str(
     lines.append("VICINATO (punti piu' prossimi, in ordine di distanza):")
     if neighbours:
         lines.extend(
-            f"  - {normalize_untrusted_line(n['name'])} ({n['label_it']}), "
-            f"{n['distance_m']} m"
+            f"  - {_display_name(n['name'])} ({n['label_it']}), {n['distance_m']} m"
             for n in neighbours
         )
     else:
