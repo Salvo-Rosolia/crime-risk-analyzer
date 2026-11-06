@@ -323,9 +323,11 @@ export interface AppState {
    * longer holds. An ANALYZE of the base pipeline preserves them intact instead: that pipeline
    * never shows them and does not replace the context (fullData) they are anchored to (#245). */
   poiNarratives: Record<string, PoiNarrative>;
-  /** Id of the POI whose narrative is loading, `null` if none. */
-  poiNarrativeLoading: string | null;
-  /** Error message of the last failed POI generation. */
+  /** Ids of the POIs whose narrative is in flight, in start order (#489): the user can click
+   * another POI before the first generation answers, and each one is tracked on its own. */
+  poiNarrativesLoading: string[];
+  /** Error message of the failed generation of the POI currently selected (#489): the error of a
+   * POI that is not the selected one when it arrives is dropped, never shown under another. */
   poiNarrativeError: string | null;
   /**
    * ZONE narrative (phase 2, #259/#292) loading in the background after `/analyze` has already
@@ -373,7 +375,7 @@ export type Action =
   /** Generation of a POI's narrative started (#197): the panel shows the loading state. */
   | { type: 'POI_NARRATIVE_START'; poiId: string }
   | { type: 'POI_NARRATIVE_SUCCESS'; poiId: string; data: PoiNarrative }
-  | { type: 'POI_NARRATIVE_ERROR'; message: string }
+  | { type: 'POI_NARRATIVE_ERROR'; poiId: string; message: string }
   /** Generation of the ZONE narrative started in the background (#259 phase 2, #292): the panel
    * shows the loading state without leaving RESULTS (no new FSM state). */
   | { type: 'ZONE_NARRATIVE_START' }
