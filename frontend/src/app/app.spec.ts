@@ -13,6 +13,7 @@ jest.mock('leaflet', () => ({
     bindPopup: jest.fn().mockReturnThis(),
     on: jest.fn(),
     setIcon: jest.fn(),
+    getElement: jest.fn(),
   })),
   divIcon: jest.fn(() => ({})),
 }));
@@ -944,7 +945,7 @@ describe('App shell', () => {
       expect(store.narrOpen()).toBe(true);
       expect(dock.classList.contains('cra-dock-narr-open')).toBe(true);
 
-      (f.nativeElement.querySelector('.cra-narr-header') as HTMLElement).click();
+      (f.nativeElement.querySelector('.cra-narr-toggle') as HTMLElement).click();
       f.detectChanges();
 
       expect(store.narrOpen()).toBe(false);

@@ -31,8 +31,8 @@ type DrawState = 'idle' | 'drawing-radius' | 'ready';
     @if (zeroPoiMessage(); as message) {
       <p class="cra-map-notice" role="status">{{ message }}</p>
     }
-    @if (showRadiusInput()) {
-      <div class="cra-radius-control">
+    <div class="cra-radius-control">
+      @if (showRadiusInput()) {
         <label for="cra-radius-input">Raggio (m)</label>
         <input
           id="cra-radius-input"
@@ -43,8 +43,23 @@ type DrawState = 'idle' | 'drawing-radius' | 'ready';
           (input)="onRadiusInput($event)"
           (change)="onRadiusChange($event)"
         />
-      </div>
-    }
+      }
+      <!-- Keyboard / screen-reader way to draw the circle (#493): the map click flow alone
+           excludes them. The circle is placed at the map centre (pannable with the arrow keys). -->
+      <button
+        type="button"
+        class="cra-draw-btn"
+        [disabled]="!drawingEnabled()"
+        (click)="drawAtCenter()"
+      >
+        {{ drawState() === 'idle' ? 'Disegna cerchio al centro' : 'Ridisegna al centro' }}
+      </button>
+      @if (drawState() === 'drawing-radius') {
+        <button type="button" class="cra-confirm-btn" (click)="confirmCircle()">
+          Conferma area
+        </button>
+      }
+    </div>
   `,
   styles: [
     `
@@ -118,6 +133,13 @@ type DrawState = 'idle' | 'drawing-radius' | 'ready';
         font-size: 0.78rem;
       }
 
+      .cra-radius-control button {
+        font-family: var(--font-sans, sans-serif);
+        font-size: 0.78rem;
+        padding: 2px 8px;
+        cursor: pointer;
+      }
+
       .cra-radius-control input {
         width: 5.5em;
         font-family: var(--font-mono, monospace);
@@ -151,7 +173,7 @@ export class MapComponent implements OnDestroy {
   private markers: L.LayerGroup | null = null;
   private readonly poiMarkers = new Map<
     string,
-    { marker: L.Marker; poi: Poi; n: number; key: string }
+    { marker: L.Marker; poi: Poi; n: number; label: string; key: string }
   >();
 
   /**
@@ -175,7 +197,7 @@ export class MapComponent implements OnDestroy {
     return r && r.poi.length === 0 ? (r.messaggio ?? null) : null;
   });
 
-  private readonly drawState = signal<DrawState>('idle');
+  protected readonly drawState = signal<DrawState>('idle');
   private circleLayer: L.Circle | null = null;
   private centerLatLng: { lat: number; lon: number } | null = null;
 
@@ -267,15 +289,22 @@ export class MapComponent implements OnDestroy {
 
       pois.forEach((poi, index) => {
         const n = index + 1;
+        // title+alt give the marker its accessible name (#493): Leaflet makes divIcon markers
+        // focusable (keyboard:true) and Enter fires `click`, but without a name they read as an
+        // unlabeled button.
+        const label = `${n}. ${poi.name || poi.ontology_label_it}`;
         const marker = L.marker([poi.lat, poi.lon], {
           icon: this.pinIcon(poi, n, filter, selectedId),
+          title: label,
         }).addTo(layer);
+        this.labelMarker(marker, label);
         marker.bindPopup(poiPopupHTML(poi, n));
         marker.on('click', () => this.poiClick.emit(poi.id));
         this.poiMarkers.set(poi.id, {
           marker,
           poi,
           n,
+          label,
           key: this.styleKey(poi, filter, selectedId),
         });
       });
@@ -290,9 +319,21 @@ export class MapComponent implements OnDestroy {
         const key = this.styleKey(entry.poi, filter, selectedId);
         if (key === entry.key) continue;
         entry.key = key;
+        // setIcon recreates the marker DOM element: restore the accessible name and, if the old
+        // element held the keyboard focus, move it to the new one (#493).
+        const hadFocus =
+          !!entry.marker.getElement() && document.activeElement === entry.marker.getElement();
         entry.marker.setIcon(this.pinIcon(entry.poi, entry.n, filter, selectedId));
+        this.labelMarker(entry.marker, entry.label);
+        if (hadFocus) entry.marker.getElement()?.focus();
       }
     });
+  }
+
+  /** Leaflet ignores `alt` on divIcons and the visible number would otherwise be the name, so the
+   * accessible name is set explicitly as `aria-label` on the marker element (#493). */
+  private labelMarker(marker: L.Marker, label: string): void {
+    marker.getElement()?.setAttribute('aria-label', label);
   }
 
   private styleKey(poi: Poi, filter: Confidence | null, selectedId: string | null): string {
@@ -319,25 +360,40 @@ export class MapComponent implements OnDestroy {
   private onMapClick(e: L.LeafletMouseEvent): void {
     if (!this.drawingEnabled()) return;
     const { lat, lng } = e.latlng;
-    if (this.drawState() === 'idle' || this.drawState() === 'ready') {
-      // ready -> new center: the previously confirmed circle is no longer valid.
-      if (this.drawState() === 'ready') this.circleChange.emit(null);
-      this.centerLatLng = { lat, lon: lng };
-      this.circleLayer?.remove();
-      this.circleLayer = L.circle([lat, lng], { radius: DEFAULT_RADIUS_M }).addTo(this.map!);
-      this.radiusM.set(DEFAULT_RADIUS_M);
-      this.drawState.set('drawing-radius');
+    if (this.drawState() === 'drawing-radius') {
+      this.confirmCircle();
       return;
     }
-    // drawing-radius -> ready: confirms the current radius.
-    if (this.centerLatLng && this.circleLayer) {
-      this.drawState.set('ready');
-      this.circleChange.emit({
-        lat: this.centerLatLng.lat,
-        lon: this.centerLatLng.lon,
-        radiusM: this.circleLayer.getRadius(),
-      });
-    }
+    this.startCircle(lat, lng);
+  }
+
+  /** idle/ready -> drawing-radius on a new center. */
+  private startCircle(lat: number, lon: number): void {
+    // ready -> new center: the previously confirmed circle is no longer valid.
+    if (this.drawState() === 'ready') this.circleChange.emit(null);
+    this.centerLatLng = { lat, lon };
+    this.circleLayer?.remove();
+    this.circleLayer = L.circle([lat, lon], { radius: DEFAULT_RADIUS_M }).addTo(this.map!);
+    this.radiusM.set(DEFAULT_RADIUS_M);
+    this.drawState.set('drawing-radius');
+  }
+
+  /** Keyboard equivalent of the first map click: the circle is centered on the map view. */
+  protected drawAtCenter(): void {
+    if (!this.map || !this.drawingEnabled()) return;
+    const { lat, lng } = this.map.getCenter();
+    this.startCircle(lat, lng);
+  }
+
+  /** drawing-radius -> ready: confirms the current radius (second click, or the confirm button). */
+  protected confirmCircle(): void {
+    if (!this.centerLatLng || !this.circleLayer) return;
+    this.drawState.set('ready');
+    this.circleChange.emit({
+      lat: this.centerLatLng.lat,
+      lon: this.centerLatLng.lon,
+      radiusM: this.circleLayer.getRadius(),
+    });
   }
 
   private onMapMouseMove(e: L.LeafletMouseEvent): void {

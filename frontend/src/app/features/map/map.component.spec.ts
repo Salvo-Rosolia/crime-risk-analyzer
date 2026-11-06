@@ -8,6 +8,7 @@ const mockMarker = {
   bindPopup: jest.fn().mockReturnThis(),
   on: jest.fn(),
   setIcon: jest.fn(),
+  getElement: jest.fn((): HTMLElement | undefined => undefined),
 };
 
 const mockCircle = {
@@ -25,6 +26,7 @@ const mockMap = {
   setView: jest.fn().mockReturnThis(),
   flyToBounds: jest.fn(),
   flyTo: jest.fn(),
+  getCenter: jest.fn(() => ({ lat: 41.9, lng: 12.5 })),
   remove: jest.fn(),
   addLayer: jest.fn(),
   distance: jest.fn(() => 500),
@@ -210,7 +212,7 @@ describe('MapComponent', () => {
       expect(notice()).toBeNull();
     });
 
-    it('a new response object with the same zone (narrative arrival) does not recenter again', () => {
+    it('#492: a new response object with the same zone (narrative arrival) does not recenter again', () => {
       const first = emptyResp();
       fixture.componentRef.setInput('activeResponse', first);
       fixture.detectChanges();
@@ -426,9 +428,138 @@ describe('MapComponent', () => {
       expect(mockCircle.setRadius).not.toHaveBeenCalled();
     });
 
+    it('the keyboard draw button is disabled too', () => {
+      fixture.componentRef.setInput('drawingEnabled', false);
+      fixture.detectChanges();
+      const btn = fixture.nativeElement.querySelector('.cra-draw-btn') as HTMLButtonElement;
+      expect(btn.disabled).toBe(true);
+    });
+
     it('drawing stays enabled by default (form states)', () => {
       fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
       expect(L.circle).toHaveBeenCalled();
+    });
+  });
+
+  describe('#493: accessibility', () => {
+    it('gives each marker an accessible name (title/alt with number and POI name)', () => {
+      fixture.componentRef.setInput(
+        'data',
+        makeResp([makePoi({ id: 'a', name: 'Stazione Termini' })]),
+      );
+      fixture.detectChanges();
+      const [, options] = (L.marker as jest.Mock).mock.calls.at(-1) as [
+        unknown,
+        { title: string; keyboard: boolean },
+      ];
+      expect(options.title).toContain('Stazione Termini');
+      expect(options.title).toContain('1');
+      expect(options.keyboard).not.toBe(false);
+    });
+
+    describe('aria-label on the marker element (alt is ignored on divIcons)', () => {
+      let el: HTMLElement;
+      beforeEach(() => {
+        el = document.createElement('div');
+        el.tabIndex = 0;
+        document.body.appendChild(el);
+        mockMarker.getElement.mockImplementation(() => el);
+        mockMarker.setIcon.mockImplementation(() => {
+          // Leaflet recreates the icon DOM element on setIcon.
+          const next = document.createElement('div');
+          next.tabIndex = 0;
+          el.replaceWith(next);
+          el = next;
+        });
+      });
+      afterEach(() => {
+        el.remove();
+        mockMarker.getElement.mockImplementation(() => undefined);
+        mockMarker.setIcon.mockReset();
+      });
+
+      it('sets aria-label after adding the marker', () => {
+        fixture.componentRef.setInput('data', makeResp([makePoi({ name: 'Stazione Termini' })]));
+        fixture.detectChanges();
+        expect(el.getAttribute('aria-label')).toBe('1. Stazione Termini');
+      });
+
+      it('restores aria-label and keyboard focus on the new element after a restyle (setIcon)', () => {
+        fixture.componentRef.setInput(
+          'data',
+          makeResp([makePoi({ id: 'a', name: 'Stazione Termini' })]),
+        );
+        fixture.detectChanges();
+        el.focus();
+        const old = el;
+        expect(document.activeElement).toBe(old);
+
+        fixture.componentRef.setInput('selectedId', 'a');
+        fixture.detectChanges();
+        expect(el).not.toBe(old);
+        expect(el.getAttribute('aria-label')).toBe('1. Stazione Termini');
+        expect(document.activeElement).toBe(el);
+      });
+
+      it('does not steal focus when the marker was not focused', () => {
+        fixture.componentRef.setInput('data', makeResp([makePoi({ id: 'a' })]));
+        fixture.detectChanges();
+        fixture.componentRef.setInput('selectedId', 'a');
+        fixture.detectChanges();
+        expect(document.activeElement).not.toBe(el);
+      });
+    });
+
+    it('falls back to the IT ontology label when the POI has no name', () => {
+      fixture.componentRef.setInput(
+        'data',
+        makeResp([makePoi({ name: '', ontology_label_it: 'Banca' })]),
+      );
+      fixture.detectChanges();
+      const [, options] = (L.marker as jest.Mock).mock.calls.at(-1) as [unknown, { title: string }];
+      expect(options.title).toContain('Banca');
+    });
+
+    describe('circle drawable from the keyboard', () => {
+      const drawBtn = (): HTMLButtonElement | null =>
+        fixture.nativeElement.querySelector('.cra-draw-btn');
+      const confirmBtn = (): HTMLButtonElement | null =>
+        fixture.nativeElement.querySelector('.cra-confirm-btn');
+
+      it('the draw button places the circle at the map centre and enters drawing-radius', () => {
+        expect(drawBtn()).toBeTruthy();
+        drawBtn()!.click();
+        fixture.detectChanges();
+        expect(L.circle).toHaveBeenCalledWith(
+          [41.9, 12.5],
+          expect.objectContaining({ radius: 300 }),
+        );
+        expect(fixture.nativeElement.querySelector('#cra-radius-input')).toBeTruthy();
+        expect(confirmBtn()).toBeTruthy();
+      });
+
+      it('the confirm button emits circleChange with centre and radius', () => {
+        const spy = jest.fn();
+        fixture.componentInstance.circleChange.subscribe(spy);
+        drawBtn()!.click();
+        fixture.detectChanges();
+        confirmBtn()!.click();
+        fixture.detectChanges();
+        expect(spy).toHaveBeenCalledWith({ lat: 41.9, lon: 12.5, radiusM: 300 });
+        expect(confirmBtn()).toBeNull();
+      });
+
+      it('drawing again from ready invalidates the confirmed circle first (null), like a map click', () => {
+        const spy = jest.fn();
+        fixture.componentInstance.circleChange.subscribe(spy);
+        drawBtn()!.click();
+        fixture.detectChanges();
+        confirmBtn()!.click();
+        fixture.detectChanges();
+        spy.mockClear();
+        drawBtn()!.click();
+        expect(spy).toHaveBeenCalledWith(null);
+      });
     });
   });
 
