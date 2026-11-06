@@ -29,6 +29,13 @@ export const initialState: AppState = {
   zoneNarrativeError: null,
 };
 
+/** Screens on which the results are not interactive (#491): the old pins and filters are still
+ * on the map while a regeneration is in flight or after it failed, but acting on them would
+ * mutate a state that is about to be replaced (LOADING) or that has no results panel (ERROR). */
+function resultsLocked(state: AppState): boolean {
+  return state.screen === 'LOADING' || state.screen === 'ERROR';
+}
+
 export function transition(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'ANALYZE': {
@@ -124,8 +131,10 @@ export function transition(state: AppState, action: Action): AppState {
     // selection of another POI. It is done here and not in `loadPoiNarrative`, which for a POI
     // already in cache exits before dispatching `POI_NARRATIVE_START` and would leave the banner hanging.
     case 'SELECT_POI':
+      if (resultsLocked(state)) return state;
       return { ...state, screen: 'DETAIL', selectedPoiId: action.id, poiNarrativeError: null };
     case 'DESELECT_POI':
+      if (resultsLocked(state)) return state;
       return {
         ...state,
         screen: state.filter != null ? 'FILTER' : 'RESULTS',
@@ -133,6 +142,7 @@ export function transition(state: AppState, action: Action): AppState {
         poiNarrativeError: null,
       };
     case 'SET_FILTER': {
+      if (resultsLocked(state)) return state;
       // Filter/detail exist only in the full system: the lookup of the selected POI always uses
       // fullData, never baselineData (which has no selection/detail).
       const selectedPoi =
@@ -148,6 +158,7 @@ export function transition(state: AppState, action: Action): AppState {
       };
     }
     case 'CLEAR_FILTER':
+      if (resultsLocked(state)) return state;
       return { ...state, screen: 'RESULTS', filter: null };
     case 'TOGGLE_MODE': {
       // Towards base it always goes to BASE (the BasePanel handles form/table/error itself, empty

@@ -10,6 +10,7 @@
         class="cra-chip"
         [class.cra-chip-active]="filter() === level"
         [attr.aria-pressed]="filter() === level"
+        [disabled]="loading()"
         [style.borderColor]="conf[level].color"
         [style.color]="filter() === level ? '#fff' : conf[level].color"
         [style.background]="filter() === level ? conf[level].color : 'transparent'"

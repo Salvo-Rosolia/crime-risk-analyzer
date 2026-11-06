@@ -41,6 +41,11 @@
   white-space: nowrap;
 }
 
+.cra-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .cra-mode-toggle {
   display: flex;
   border: 1px solid var(--header-border);

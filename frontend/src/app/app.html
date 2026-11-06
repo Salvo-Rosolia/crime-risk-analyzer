@@ -25,7 +25,7 @@
     (openPage)="sources.openPage()"
   />
   <cra-header-controls
-    [data]="store.fullData()"
+    [data]="headerData()"
     [mode]="store.mode()"
     [filter]="store.filter()"
     [loading]="store.screen() === 'LOADING'"

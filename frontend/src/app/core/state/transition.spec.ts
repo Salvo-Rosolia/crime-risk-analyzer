@@ -683,3 +683,28 @@ describe('transition: SOURCE_SET_CHANGED (#473)', () => {
     expect(s.poiNarrativeError).toBeNull();
   });
 });
+
+describe('transition: results locked on LOADING and ERROR (#491)', () => {
+  const poi = { id: 'p1', confidence: 'verificato' } as unknown as AnalyzeResponse['poi'][number];
+  const withResults = (screen: AppState['screen']): AppState => ({
+    ...initialState,
+    screen,
+    fullData: { ...data, poi: [poi] },
+  });
+
+  it.each(['LOADING', 'ERROR'] as const)(
+    '%s ignores SELECT_POI, SET_FILTER, CLEAR_FILTER',
+    (screen) => {
+      const s = withResults(screen);
+      expect(transition(s, { type: 'SELECT_POI', id: 'p1' })).toBe(s);
+      expect(transition(s, { type: 'SET_FILTER', level: 'verificato' })).toBe(s);
+      expect(transition(s, { type: 'CLEAR_FILTER' })).toBe(s);
+      expect(transition(s, { type: 'DESELECT_POI' })).toBe(s);
+    },
+  );
+
+  it('RESULTS still accepts them', () => {
+    const s = transition(withResults('RESULTS'), { type: 'SELECT_POI', id: 'p1' });
+    expect(s.screen).toBe('DETAIL');
+  });
+});

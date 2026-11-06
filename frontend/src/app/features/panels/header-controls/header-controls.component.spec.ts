@@ -237,4 +237,23 @@ describe('HeaderControlsComponent', () => {
       expect(spy).not.toHaveBeenCalled();
     });
   });
+
+  describe('confidence chips during LOADING (#491)', () => {
+    it('are disabled while loading and enabled otherwise', () => {
+      setup({ data, loading: true });
+      const chips: HTMLButtonElement[] = Array.from(
+        fixture.nativeElement.querySelectorAll('.cra-chip'),
+      );
+      expect(chips.length).toBeGreaterThan(0);
+      expect(chips.every((c) => c.disabled)).toBe(true);
+    });
+
+    it('are enabled when not loading', () => {
+      setup({ data, loading: false });
+      const chips: HTMLButtonElement[] = Array.from(
+        fixture.nativeElement.querySelectorAll('.cra-chip'),
+      );
+      expect(chips.every((c) => !c.disabled)).toBe(true);
+    });
+  });
 });
