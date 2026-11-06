@@ -22,7 +22,6 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
         "ONTOLOGY_PATH",
         "LLM_PROVIDER",
         "CACHE_ENABLED",
-        "DEFAULT_CITY",
     ):
         monkeypatch.delenv(var, raising=False)
 
@@ -33,20 +32,17 @@ def test_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert settings.ontology_path == "ontology/terminus_crime_materialized.ttl"
     assert settings.llm_provider == "claude"
     assert settings.cache_enabled is True
-    assert settings.default_city == "Roma"
 
 
 def test_settings_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """The values from the environment override the defaults and are typed."""
     monkeypatch.setenv("LLM_PROVIDER", "groq")
     monkeypatch.setenv("CACHE_ENABLED", "false")
-    monkeypatch.setenv("DEFAULT_CITY", "Milano")
 
     settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
 
     assert settings.llm_provider == "groq"
     assert settings.cache_enabled is False
-    assert settings.default_city == "Milano"
 
 
 def test_invalid_llm_provider(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -399,3 +395,38 @@ def test_istat_model_selection_default_off_and_from_env(
 def test_env_example_has_the_selection_switch_off() -> None:
     assert _env_example_values()["ISTAT_SCELTA_MODELLO"] == "false"
     assert Settings.model_fields["istat_scelta_modello"].default is False
+
+
+# Fields intentionally absent from the template: none today. Add a name here
+# only with a reason, otherwise document the variable in ``.env.example``.
+_ENV_EXAMPLE_NOT_DOCUMENTED: frozenset[str] = frozenset()
+
+# Secrets are documented with an empty value: they differ from the ``None`` default.
+_ENV_EXAMPLE_VALUE_DIFFERS: frozenset[str] = frozenset(
+    {"anthropic_api_key", "groq_api_key"}
+)
+
+
+def test_env_example_lists_every_setting() -> None:
+    """Every ``Settings`` field appears in ``.env.example`` (#500)."""
+    documented = set(_env_example_values())
+    missing = sorted(
+        name.upper()
+        for name in Settings.model_fields
+        if name not in _ENV_EXAMPLE_NOT_DOCUMENTED and name.upper() not in documented
+    )
+    assert not missing, f"missing from .env.example: {missing}"
+    unknown = sorted(documented - {name.upper() for name in Settings.model_fields})
+    assert not unknown, f".env.example lists unknown settings: {unknown}"
+
+
+def test_env_example_values_match_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The values in the template are the real defaults (no silent drift)."""
+    for name in Settings.model_fields:
+        monkeypatch.delenv(name.upper(), raising=False)
+    template = Path(__file__).resolve().parents[1] / ".env.example"
+    loaded = Settings(_env_file=template)  # pyright: ignore[reportCallIssue]
+    for name, field in Settings.model_fields.items():
+        if name in _ENV_EXAMPLE_VALUE_DIFFERS:
+            continue
+        assert getattr(loaded, name) == field.default, name

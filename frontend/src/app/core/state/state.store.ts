@@ -57,9 +57,9 @@ export class StateStore {
   /** Open/closed state of the POI List/Detail dock (`TOGGLE_POI_PANEL`, #199): collapsible to
    * free the map completely. */
   readonly poiPanelOpen = computed(() => this._state().poiPanelOpen);
-  /** Id of the POI whose narrative is being generated (#197), `null` if none. */
-  readonly poiNarrativeLoading = computed(() => this._state().poiNarrativeLoading);
-  /** Error of the last failed POI generation (#197), raw state. */
+  /** Ids of the POIs whose narrative is being generated (#197, #489), empty if none. */
+  readonly poiNarrativesLoading = computed(() => this._state().poiNarrativesLoading);
+  /** Error of the failed generation of the selected POI (#197, #489), raw state. */
   readonly poiNarrativeError = computed(() => this._state().poiNarrativeError);
   /** ZONE narrative (#259 phase 2, #292) loading in the background, raw state. */
   readonly zoneNarrativeLoading = computed(() => this._state().zoneNarrativeLoading);
@@ -132,7 +132,11 @@ export class StateStore {
    */
   readonly poiNarrativePending = computed(() => {
     const s = this._state();
-    return s.screen === 'DETAIL' && s.poiNarrativeLoading === s.selectedPoiId;
+    return (
+      s.screen === 'DETAIL' &&
+      s.selectedPoiId !== null &&
+      s.poiNarrativesLoading.includes(s.selectedPoiId)
+    );
   });
   /** The LLM failed on the displayed point (#197): no prose, the structured risks remain. */
   readonly poiNarrativeFallback = computed(() => this.currentPoiNarrative()?.fallback ?? false);
@@ -268,6 +272,9 @@ export class StateStore {
     const contextHash = this._state().fullData?.contesto_hash;
     if (!contextHash) return;
     if (!options?.force && this._state().poiNarratives[poiId]) return;
+    // A request for this POI is already in flight: a second one would be a duplicate LLM call, so
+    // it is skipped even with `force` (the one in flight will produce the same kind of result).
+    if (this._state().poiNarrativesLoading.includes(poiId)) return;
     this.dispatch({ type: 'POI_NARRATIVE_START', poiId });
     try {
       const res = await this.api.poiNarrative(query.city, query.zone, poiId, contextHash);
@@ -286,6 +293,7 @@ export class StateStore {
       if (this.contextChanged(contextHash)) return;
       this.dispatch({
         type: 'POI_NARRATIVE_ERROR',
+        poiId,
         message: errorMessage(err, 'Errore nella generazione della narrativa del punto.'),
       });
     }
@@ -338,10 +346,10 @@ export class StateStore {
    * in flight: `ANALYZE` empties `poiNarratives` and `fullData` carries another fingerprint. The
    * late result concerns a context that is no longer on screen, so it must be neither deposited
    * nor declared: the session cache would then serve it WITHOUT a request, bypassing the
-   * server-side check. `poiNarrativeLoading` has already been cleared by that `ANALYZE`, so
+   * server-side check. `poiNarrativesLoading` has already been emptied by that `ANALYZE`, so
    * nothing is left hanging — the fingerprint changes only by going through there. An `ANALYZE`
    * of the base pipeline does not trigger this guard: it does not touch `fullData` (the
-   * fingerprint does not change) nor clear `poiNarrativeLoading` (#245), so a generation started
+   * fingerprint does not change) nor empty `poiNarrativesLoading` (#245), so a generation started
    * before the round trip to base is deposited anyway on return — correct behavior, because the
    * context on screen is still the same.
    */

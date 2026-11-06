@@ -67,6 +67,27 @@ e `GET /geocode?query=...` → `{"lat": <float>, "lon": <float>}` (forward-geoco
 luogo libero, per la casella "vai a un luogo" del frontend — 404 se non trovato,
 422 se la query è vuota o di soli spazi).
 
+## Fonti dell'utente (`/sources`)
+
+L'utente può sostituire le fonti di default (ontologia, tabella OSM, dati statistici,
+tabella hazard, confini) con un proprio set, valido per la sessione. La sessione è
+quella dell'header `X-Session-Id` (token scelto dal client, 16-128 caratteri
+`A-Za-z0-9_-`; formato errato = 422).
+
+| Rotta | Scopo | Header | Esiti |
+|---|---|---|---|
+| `POST /sources` | Carica i file (multipart: `ontology`, `osm_table`, `data`, `hazard_table`, facoltativo `boundaries`; campi `namespace`, `hazard`, `critical_event`, `performer`, `vulnerability`), li controlla e, se validi, attiva il set. Sostituisce il precedente | `X-Session-Id` obbligatorio | 200 stato; 422 `fonti_non_valide` (rapporto completo dei problemi, il set attivo resta); 413 `richiesta_troppo_grande` (`Content-Length` oltre il tetto); 503 `caricamento_occupato` (troppi caricamenti in corso, `Retry-After: 5`); 400 o 422 se il multipart non è conforme (file obbligatori assenti, troppi file o campi) |
+| `POST /sources/example` | Attiva il set di esempio, senza caricare file. Sostituisce il precedente | `X-Session-Id` obbligatorio | 200 stato |
+| `GET /sources` | Stato: `default`, `attivo` (con riepilogo e secondi alla scadenza) o `scaduto`. Non rinnova la scadenza | `X-Session-Id` facoltativo | 200 stato |
+| `DELETE /sources` | Torna alle fonti di default (idempotente) | `X-Session-Id` obbligatorio | 200 stato |
+| `GET /sources/templates/{name}` | Scarica il template CSV (intestazione e righe di esempio); `name` è `osm_table`, `data` o `hazard_table` | nessuno | 200 `text/csv`; 422 se `name` è sconosciuto |
+
+Il set scade dopo `SOURCES_SESSION_TTL_SECONDS` dall'ultimo uso. Le rotte di analisi
+(`POST /analyze`, `/analyze/narrativa`, `/analyze/baseline`, `/analyze/poi`) lavorano
+sul set della sessione; se è scaduto rispondono 410
+`{"errore": "fonti_scadute", "messaggio": ...}` invece di analizzare sul default.
+Con header assente o malformato, o senza un set, analizzano sul default.
+
 ## Test
 
 ```bash

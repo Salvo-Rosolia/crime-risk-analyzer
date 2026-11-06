@@ -126,7 +126,6 @@ class Settings(BaseSettings):
     # misconfig (0/negative) is rejected at load.
     search_radius_min_m: float = Field(default=150.0, gt=0)
     search_radius_max_m: float = Field(default=3000.0, gt=0)
-    default_city: str = "Roma"
     # SUGGESTED cities, exposed as autocomplete by ``GET /cities`` — NOT a
     # validation constraint (#191): the city + zone mode of
     # ``POST /analyze``/``/analyze/baseline`` accepts any Italian city and passes
