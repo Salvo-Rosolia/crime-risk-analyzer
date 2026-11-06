@@ -1055,6 +1055,30 @@ def test_endpoint_llm_down_returns_200_with_fallback(
     assert resp.json()["narrativa"] == ""
 
 
+@pytest.mark.parametrize("defect", ["empty_choices", "missing_usage"])
+def test_endpoint_malformed_groq_response_returns_200_with_fallback(
+    monkeypatch: pytest.MonkeyPatch, defect: str
+) -> None:
+    """#499: a Groq response with ``choices=[]`` or ``usage=None`` goes through the
+    real client and must end as 200 + ``fallback=True``, not as a 500."""
+    from crime_risk_analyzer.llm.client import LLMClient
+    from tests.test_llm_client import _FakeGroq  # pyright: ignore[reportPrivateUsage]
+
+    fake = _FakeGroq()
+    # Explicit flags: a typo in ``defect`` leaves both False and the test fails.
+    fake.empty_choices = defect == "empty_choices"
+    fake.missing_usage = defect == "missing_usage"
+    _patch_io(monkeypatch)
+    client = _client(llm=LLMClient.for_groq(fake, temperature=0.2, seed=42))
+    context_hash = _post_analyze(client)
+
+    resp = _post_narrative(client, context_hash)
+
+    assert resp.status_code == 200
+    assert resp.json()["fallback"] is True
+    assert resp.json()["narrativa"] == ""
+
+
 def _phase_2_user_content(monkeypatch: pytest.MonkeyPatch, settings: Settings) -> str:
     """Runs the two phases with the given ``settings`` and returns the user_content."""
     _patch_io(monkeypatch, dense=True)

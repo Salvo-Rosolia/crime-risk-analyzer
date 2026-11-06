@@ -324,13 +324,23 @@ class LLMClient:
                 "narrativa vuota scartata"
             )
 
+        # ``usage=None`` (or without counters) -> LLMError, not AttributeError.
         usage = message.usage
+        try:
+            tokens_input = int(usage.input_tokens)
+            tokens_output = int(usage.output_tokens)
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise LLMError(
+                "Risposta Claude senza conteggio dei token (usage mancante): "
+                "narrativa scartata"
+            ) from exc
+        # Optional counter: kept outside the try, a bad value is not a missing usage.
         cache_read = int(getattr(usage, "cache_read_input_tokens", 0) or 0)
         return LLMResponse(
             text=text,
             llm_used=str(message.model),
-            tokens_input=int(usage.input_tokens),
-            tokens_output=int(usage.output_tokens),
+            tokens_input=tokens_input,
+            tokens_output=tokens_output,
             cache_hit=cache_read > 0,
             temperature=self._temperature,
             seed=self._seed,
@@ -369,7 +379,16 @@ class LLMClient:
         # Truncation: the Groq/OpenAI equivalent of ``stop_reason=max_tokens`` is
         # ``finish_reason=="length"``. Same choice as the Claude branch: truncated
         # narrative -> LLMError -> fallback, never silently served.
-        if getattr(completion.choices[0], "finish_reason", None) == "length":
+        # A malformed response (``choices=[]``) is a provider failure like any
+        # other: LLMError -> structured fallback, never an IndexError (-> 500).
+        try:
+            choice = completion.choices[0]
+        except (IndexError, TypeError, AttributeError) as exc:
+            raise LLMError(
+                "Risposta Groq senza scelte utilizzabili (choices vuoto): "
+                "narrativa non disponibile"
+            ) from exc
+        if getattr(choice, "finish_reason", None) == "length":
             raise LLMError(
                 f"Risposta Groq troncata (finish_reason=length, "
                 f"max_tokens={self._max_tokens}): narrativa incompleta scartata"
@@ -382,22 +401,30 @@ class LLMClient:
         # written a line of narrative. Without this check it became a
         # SUCCESSFUL ``LLMResponse(text="")``: no structured fallback,
         # no error, a mute analysis served as if it were an analysis.
-        text = str(completion.choices[0].message.content or "")
+        text = str(getattr(choice.message, "content", None) or "")
         if not text.strip():
             raise LLMError(
                 f"Risposta Groq senza testo utilizzabile "
                 f"(finish_reason="
-                f"{getattr(completion.choices[0], 'finish_reason', None)!r}, "
+                f"{getattr(choice, 'finish_reason', None)!r}, "
                 f"max_tokens={self._max_tokens}): narrativa vuota scartata — "
                 "possibile budget di reasoning esaurito"
             )
 
-        usage = completion.usage
+        # ``usage=None`` (or without counters) -> LLMError, not AttributeError.
+        try:
+            tokens_input = int(completion.usage.prompt_tokens)
+            tokens_output = int(completion.usage.completion_tokens)
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise LLMError(
+                "Risposta Groq senza conteggio dei token (usage mancante): "
+                "narrativa scartata"
+            ) from exc
         return LLMResponse(
             text=text,
             llm_used=str(completion.model),
-            tokens_input=int(usage.prompt_tokens),
-            tokens_output=int(usage.completion_tokens),
+            tokens_input=tokens_input,
+            tokens_output=tokens_output,
             cache_hit=False,  # Groq does not expose prompt caching
             temperature=self._temperature,
             seed=self._seed,

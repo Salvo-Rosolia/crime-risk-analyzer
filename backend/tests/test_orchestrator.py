@@ -651,6 +651,29 @@ async def test_run_analysis_zero_pois_llm_fallback_has_explicit_message(
     assert resp.messaggio is not None
 
 
+async def test_run_baseline_hash_depends_on_the_active_source_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#499: the baseline fingerprint carries the active set id, like the other
+    three call sites (otherwise a custom set would share the default hash)."""
+    from dataclasses import replace
+
+    from crime_risk_analyzer.sources.context import bind, default_set
+
+    _patch_io(monkeypatch)
+    executor = _FakeProfiler({"Bank": _BANK_PROFILE})
+
+    default_resp = await run_baseline("Roma", "Centro", executor=executor)
+    with bind(replace(default_set(), id="a", kind="custom")):
+        set_a = await run_baseline("Roma", "Centro", executor=executor)
+    with bind(replace(default_set(), id="b", kind="custom")):
+        set_b = await run_baseline("Roma", "Centro", executor=executor)
+
+    hashes = {default_resp.contesto_hash, set_a.contesto_hash, set_b.contesto_hash}
+    assert None not in hashes
+    assert len(hashes) == 3
+
+
 async def test_run_baseline_no_llm(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_io(monkeypatch)
     resp = await run_baseline(

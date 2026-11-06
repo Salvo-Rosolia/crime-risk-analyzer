@@ -1027,7 +1027,8 @@ async def run_baseline(
     # Fingerprint computed AFTER any ``tipo_poi`` filter (#119): it must
     # identify the list actually returned, not the pre-filter one.
     # Without ISTAT version (#354): the baseline never feeds /analyze/poi, the
-    # frontend only clicks with the contesto_hash of the full analysis.
+    # frontend only clicks with the contesto_hash of the full analysis. The
+    # active set id IS included (#499), like at the other call sites.
     return _structured_response(
         citta,
         zona,
@@ -1035,6 +1036,8 @@ async def run_baseline(
         grounded,
         latenza_ms=_elapsed_ms(start),
         fallback=False,
-        contesto_hash=fingerprint(retrieval_ctx["pois"]),
+        contesto_hash=fingerprint(
+            retrieval_ctx["pois"], sources_id=active_sources_id()
+        ),
         geo=retrieval_ctx["geo"],
     )
