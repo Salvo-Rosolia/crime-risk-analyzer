@@ -6,7 +6,7 @@ from typing import Any, cast
 import pytest
 
 from crime_risk_analyzer import zone_context_cache as cache
-from crime_risk_analyzer.sources.context import bind, default_set
+from crime_risk_analyzer.sources.context import bind, bind_session, default_set
 from crime_risk_analyzer.sources.model import SourceSet
 from crime_risk_analyzer.sources.session import (
     SessionStore,
@@ -130,10 +130,10 @@ def test_new_upload_replaces_and_clears_the_cache_of_the_old_one() -> None:
     cache.clear()
     old = _set("vecchio")
     store.activate(SID, old, [])
-    with bind(old):
+    with bind_session(SID), bind(old):
         cache.put("Roma", "Monti", _ctx(), now=0.0)
     store.activate(SID, _set("nuovo"), [])
-    with bind(old):
+    with bind_session(SID), bind(old):
         assert cache.get("Roma", "Monti", now=1.0) is None
     entry = store.get(SID)
     assert entry is not None and entry.source_set.id == "nuovo"
@@ -158,15 +158,15 @@ def test_cap_eviction_empties_the_zone_cache_of_the_evicted_set() -> None:
     cache.clear()
     old, new = _set("vecchio"), _set("nuovo")
     store.activate(SID, old, [])
-    with bind(old):
-        cache.put("Roma", "Monti", _ctx(), now=0.0)
-    with bind(new):
+    with bind_session(SID), bind(old):
         cache.put("Roma", "Monti", _ctx(), now=0.0)
     clock.t = 1
     store.activate(SID2, new, [])  # cap 1: SID gets evicted
-    with bind(old):
+    with bind_session(SID2), bind(new):
+        cache.put("Roma", "Monti", _ctx(), now=0.0)
+    with bind_session(SID), bind(old):
         assert cache.get("Roma", "Monti", now=1.0) is None
-    with bind(new):
+    with bind_session(SID2), bind(new):
         assert cache.get("Roma", "Monti", now=1.0) is not None
 
 

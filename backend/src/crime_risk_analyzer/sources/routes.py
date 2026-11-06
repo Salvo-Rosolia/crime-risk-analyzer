@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncGenerator, Callable, Coroutine
+from contextlib import ExitStack
 from functools import lru_cache
 from typing import Annotated, Any, Literal
 
@@ -29,7 +30,7 @@ from pydantic import AfterValidator, BaseModel
 
 from crime_risk_analyzer.config import get_settings
 from crime_risk_analyzer.sources.build import build_source_set, fallback_places
-from crime_risk_analyzer.sources.context import DEFAULT_ID, bind
+from crime_risk_analyzer.sources.context import DEFAULT_ID, bind, bind_session
 from crime_risk_analyzer.sources.example import example_bundle
 from crime_risk_analyzer.sources.limits import (
     MAX_BYTES_CSV,
@@ -238,15 +239,13 @@ async def activate_session(
     analyse on the default behind the back of whoever believes they are using their
     sources.
     """
-    entry = (
-        sessions.get(x_session_id)
-        if x_session_id is not None and is_valid_session_id(x_session_id)
-        else None
-    )
-    if entry is None:
-        yield
-        return
-    with bind(entry.source_set):
+    valid = x_session_id is not None and is_valid_session_id(x_session_id)
+    entry = sessions.get(x_session_id) if valid and x_session_id else None
+    with ExitStack() as stack:
+        if valid and x_session_id:
+            stack.enter_context(bind_session(x_session_id))
+        if entry is not None:
+            stack.enter_context(bind(entry.source_set))
         yield
 
 
@@ -259,15 +258,13 @@ async def activate_session_readonly(
     It reads the session with ``peek``: it neither renews the TTL nor raises the
     expiry warning, and an expired set is not an error (410) but the default.
     """
-    entry = (
-        sessions.peek(x_session_id)
-        if x_session_id is not None and is_valid_session_id(x_session_id)
-        else None
-    )
-    if entry is None:
-        yield
-        return
-    with bind(entry.source_set):
+    valid = x_session_id is not None and is_valid_session_id(x_session_id)
+    entry = sessions.peek(x_session_id) if valid and x_session_id else None
+    with ExitStack() as stack:
+        if valid and x_session_id:
+            stack.enter_context(bind_session(x_session_id))
+        if entry is not None:
+            stack.enter_context(bind(entry.source_set))
         yield
 
 
