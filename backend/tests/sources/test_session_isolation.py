@@ -6,8 +6,14 @@ from typing import Any, cast
 from crime_risk_analyzer import zone_context_cache as cache
 from crime_risk_analyzer.context_fingerprint import active_sources_id, fingerprint
 from crime_risk_analyzer.overpass_client import Poi
-from crime_risk_analyzer.sources.context import bind, current_id, default_set
+from crime_risk_analyzer.sources.context import (
+    bind,
+    bind_session,
+    current_id,
+    default_set,
+)
 from crime_risk_analyzer.sources.model import SourceSet
+from crime_risk_analyzer.sources.session import SessionStore
 from crime_risk_analyzer.zone_context_cache import ZoneContext
 
 
@@ -95,3 +101,48 @@ def test_fingerprint_with_istat_and_sources_does_not_collide() -> None:
     assert fingerprint(_pois(), istat_version="v1", sources_id="a") != fingerprint(
         _pois(), istat_version="v1", sources_id="b"
     )
+
+
+def test_same_set_id_in_different_sessions_does_not_mix() -> None:
+    """The example set id is shared: the session id must separate slots (#495)."""
+    shared = _other_set("example")
+    with bind_session("session-a-0000000000"), bind(shared):
+        cache.put("Roma", "Monti", _ctx("a"), now=0.0)
+    with bind_session("session-b-0000000000"), bind(shared):
+        assert cache.get("Roma", "Monti", now=1.0) is None
+        cache.put("Roma", "Monti", _ctx("b"), now=0.0)
+    with bind_session("session-a-0000000000"), bind(shared):
+        hit = cache.get("Roma", "Monti", now=1.0)
+        assert hit is not None and hit["grounded"]["zona"] == "a"
+
+
+def test_purge_session_leaves_other_sessions_with_the_same_set_id() -> None:
+    shared = _other_set("example")
+    for sid in ("session-a-0000000000", "session-b-0000000000"):
+        with bind_session(sid), bind(shared):
+            cache.put("Roma", "Monti", _ctx(sid), now=0.0)
+    cache.purge_session("session-a-0000000000")
+    with bind_session("session-a-0000000000"), bind(shared):
+        assert cache.get("Roma", "Monti", now=1.0) is None
+    with bind_session("session-b-0000000000"), bind(shared):
+        assert cache.get("Roma", "Monti", now=1.0) is not None
+
+
+def test_session_store_reset_keeps_other_sessions_cache_on_the_shared_set() -> None:
+    store = SessionStore(ttl_seconds=100.0, max_sessions=4)
+    shared = _other_set("example")
+    store.activate("session-a-0000000000", shared, [])
+    store.activate("session-b-0000000000", shared, [])
+    with bind_session("session-b-0000000000"), bind(shared):
+        cache.put("Roma", "Monti", _ctx("b"), now=0.0)
+    store.reset("session-a-0000000000")
+    with bind_session("session-b-0000000000"), bind(shared):
+        assert cache.get("Roma", "Monti", now=1.0) is not None
+
+
+def test_default_set_cache_is_per_session_too() -> None:
+    """Two sessions on the default set must not overwrite each other's circle."""
+    with bind_session("session-a-0000000000"):
+        cache.put("Roma", "Monti", _ctx("a"), now=0.0)
+    with bind_session("session-b-0000000000"):
+        assert cache.get("Roma", "Monti", now=1.0) is None
