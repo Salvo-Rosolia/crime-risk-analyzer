@@ -23,8 +23,8 @@ from tests.sources._factories import (
     boundaries_json,
 )
 
-SID = "test-session-AAAAAA"
-SID2 = "test-session-BBBBBB"
+SID = "test-session-AAAAAA-0123456789ab"
+SID2 = "test-session-BBBBBB-0123456789ab"
 H = "X-Session-Id"
 
 

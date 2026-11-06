@@ -21,6 +21,7 @@ __all__ = [
     "MAX_MULTIPART_FIELDS",
     "MAX_FIELD_PART_BYTES",
     "MAX_NOTE_LENGTH",
+    "MAX_OSM_SELECTORS",
     "MAX_TEXT_LENGTH",
     "check_note",
     "check_text",
@@ -40,6 +41,11 @@ MAX_MULTIPART_FILES = 5
 MAX_MULTIPART_FIELDS = 20
 #: Maximum size of a text field (not of the files).
 MAX_FIELD_PART_BYTES = 64 * 1024
+
+#: Cap on the rows of the OSM table, i.e. on the selectors queried on Overpass:
+#: each one becomes two blocks of the query, so an unbounded table would build an
+#: enormous query (#498). The default mapping has ~75, the cap leaves room.
+MAX_OSM_SELECTORS = 150
 
 MAX_TEXT_LENGTH = 120
 #: The notes of the hazard-item table do not enter the prompt: only length and

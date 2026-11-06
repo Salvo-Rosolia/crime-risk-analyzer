@@ -15,8 +15,8 @@ from crime_risk_analyzer.sources.session import (
 )
 from crime_risk_analyzer.zone_context_cache import ZoneContext
 
-SID = "a" * 24
-SID2 = "b" * 24
+SID = "abcdefghij" * 3 + "kl"
+SID2 = "klmnopqrst" * 3 + "uv"
 
 
 class Clock:
@@ -41,12 +41,13 @@ def _store(ttl: float = 100.0, maximum: int = 2) -> tuple[SessionStore, Clock]:
 
 
 def test_session_id_format() -> None:
-    assert is_valid_session_id("abcDEF012345_-xyz9876")
+    ok = "abcDEF012345_-xyz9876QWERTYuiopAB"
+    assert is_valid_session_id(ok)
     assert not is_valid_session_id("corto")
     assert not is_valid_session_id("a" * 129)
-    assert not is_valid_session_id("a" * 15 + " ")
-    assert not is_valid_session_id("a" * 15 + "\n")
-    assert not is_valid_session_id("a" * 15 + "è")
+    assert not is_valid_session_id(ok[:31] + " ")
+    assert not is_valid_session_id(ok[:31] + "\n")
+    assert not is_valid_session_id(ok[:31] + "è")
 
 
 def test_no_set_means_nothing() -> None:

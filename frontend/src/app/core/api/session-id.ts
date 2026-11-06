@@ -3,7 +3,10 @@ export const SESSION_HEADER = 'X-Session-Id';
 
 const STORAGE_KEY = 'cra.session-id';
 
-/** The backend accepts 16-128 `[A-Za-z0-9_-]` characters: a UUID without dashes has 32. */
+/**
+ * The backend accepts 32-128 `[A-Za-z0-9_-]` characters, at least 10 of them distinct: a UUID
+ * without dashes has exactly 32.
+ */
 function newSessionId(): string {
   return crypto.randomUUID().replaceAll('-', '');
 }
