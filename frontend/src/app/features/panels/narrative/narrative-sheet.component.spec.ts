@@ -451,6 +451,16 @@ describe('NarrativeSheetComponent', () => {
       expect(fixture.nativeElement.querySelector('.cra-narr-fallback')).toBeNull();
     });
 
+    it('#510: while loading, the previous text (lead and source tabs) is not shown under the indicator', () => {
+      setup({ loading: true, poiName: 'Bar Centrale' });
+      const el: HTMLElement = fixture.nativeElement;
+      expect(el.querySelector('.cra-narr-loading')).toBeTruthy();
+      expect(el.querySelector('.cra-narr-lead')).toBeNull();
+      expect(el.querySelector('.cra-narr-tablist')).toBeNull();
+      expect(el.querySelector('.cra-narr-panel')).toBeNull();
+      expect(el.textContent).not.toContain('Sintesi generale della zona.');
+    });
+
     it('loading has priority over the error: if both are present only the loading is seen', () => {
       setup({ loading: true, error: 'boom' });
       expect(fixture.nativeElement.querySelector('.cra-narr-loading')).toBeTruthy();
