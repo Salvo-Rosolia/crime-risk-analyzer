@@ -1218,7 +1218,11 @@ describe('App shell', () => {
     it('a generation error is shown in the panel', async () => {
       const f = await analyzed();
       store.dispatch({ type: 'SELECT_POI', id: 'poi-1' });
-      store.dispatch({ type: 'POI_NARRATIVE_ERROR', message: 'rilancia l’analisi' });
+      store.dispatch({
+        type: 'POI_NARRATIVE_ERROR',
+        poiId: 'poi-1',
+        message: 'rilancia l’analisi',
+      });
       f.detectChanges();
       const err = f.nativeElement.querySelector('.cra-narr-error');
       expect(err).toBeTruthy();
@@ -1228,7 +1232,7 @@ describe('App shell', () => {
     it('an error that arrived after the return to the list does not invade the zone narrative', async () => {
       const f = await analyzed();
       // The generation fails when the user has already gone back to the List view.
-      store.dispatch({ type: 'POI_NARRATIVE_ERROR', message: 'boom' });
+      store.dispatch({ type: 'POI_NARRATIVE_ERROR', poiId: 'poi-1', message: 'boom' });
       f.detectChanges();
       expect(f.nativeElement.querySelector('.cra-narr-error')).toBeFalsy();
     });
