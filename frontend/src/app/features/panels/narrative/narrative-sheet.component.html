@@ -46,7 +46,7 @@
         un'interpretazione del contesto urbano, non un dato ancorato.
       </p>
     }
-    @if (leadText()) {
+    @if (!loading() && leadText()) {
       <p class="cra-narr-lead">
         <ng-container
           [ngTemplateOutlet]="nodesTpl"
@@ -54,7 +54,7 @@
         />
       </p>
     }
-    @if (model().tabs.length) {
+    @if (!loading() && model().tabs.length) {
       <div class="cra-narr-tablist" role="tablist" aria-label="Fonti dell'analisi">
         @for (t of model().tabs; track t.tag; let i = $index) {
           <button
