@@ -12,6 +12,7 @@ jest.mock('leaflet', () => ({
     addTo: jest.fn().mockReturnThis(),
     bindPopup: jest.fn().mockReturnThis(),
     on: jest.fn(),
+    setIcon: jest.fn(),
   })),
   divIcon: jest.fn(() => ({})),
 }));
@@ -209,6 +210,50 @@ describe('App shell', () => {
 
     expect(f.nativeElement.querySelector('cra-input-panel')).toBeTruthy();
     expect(f.nativeElement.textContent).toContain('non corrisponde ad alcuna area');
+  });
+
+  describe('#492: the map accepts circle drawing only while a search form is visible', () => {
+    const drawingEnabled = (f: ComponentFixture<App>): boolean =>
+      f.debugElement.query(By.directive(MapComponent)).componentInstance.drawingEnabled();
+
+    it('INPUT: enabled', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+      expect(drawingEnabled(f)).toBe(true);
+    });
+
+    it('ERROR (input panel mounted): enabled', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+      store.dispatch({ type: 'LOAD_ERROR', message: 'boom', pipeline: 'full' });
+      f.detectChanges();
+      expect(f.nativeElement.querySelector('cra-input-panel')).toBeTruthy();
+      expect(drawingEnabled(f)).toBe(true);
+    });
+
+    it('LOADING: disabled', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+      store.dispatch({
+        type: 'ANALYZE',
+        area: { kind: 'circle', center: { lat: 41.9, lon: 12.5 }, radiusM: 300 },
+        pipeline: 'full',
+      });
+      f.detectChanges();
+      expect(drawingEnabled(f)).toBe(false);
+    });
+
+    it('RESULTS: disabled', async () => {
+      const f = TestBed.createComponent(App);
+      f.detectChanges();
+      await f.whenStable();
+      store.dispatch({ type: 'LOAD_SUCCESS', data: emptyResp, pipeline: 'full' });
+      f.detectChanges();
+      expect(drawingEnabled(f)).toBe(false);
+    });
   });
 
   it('FILTER state after SET_FILTER: POI panel present', async () => {

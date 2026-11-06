@@ -156,6 +156,13 @@ export class App {
    * state is RESULTS (UI↔FSM desync). The dock's view must depend EXCLUSIVELY on
    * `screen`, never be inferred from the mere presence of a leftover `selectedPoiId`.
    */
+  /** True while a search form is mounted (INPUT, ERROR and BASE all show one): only then may a map
+   * click draw the search circle (#492). RESULTS/FILTER/DETAIL/LOADING ignore it. */
+  protected readonly searchFormVisible = computed(() => {
+    const screen = this.store.screen();
+    return screen === 'INPUT' || screen === 'ERROR' || screen === 'BASE';
+  });
+
   protected readonly selectedDetail = computed<NumberedPoi | null>(() => {
     if (this.store.screen() !== 'DETAIL') return null;
     const id = this.store.selectedPoiId();

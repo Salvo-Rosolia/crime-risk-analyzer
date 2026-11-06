@@ -9,10 +9,11 @@ import {
   OnDestroy,
   output,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import * as L from 'leaflet';
-import type { AnalyzeResponse, Confidence, GeoZone } from '@core/models/models';
+import type { AnalyzeResponse, Confidence, GeoZone, Poi } from '@core/models/models';
 import { pinHTML } from '@core/confidence';
 import { matchesFilter, poiPopupHTML } from '@core/ui-helpers';
 
@@ -134,6 +135,9 @@ export class MapComponent implements OnDestroy {
   /** Response of the pipeline currently shown (full or base): used only to explain and recentre
    * on a zero-POI result, which must work in Base mode too (#488). */
   readonly activeResponse = input<AnalyzeResponse | null>(null);
+  /** False outside the search-form states (results/loading/error): a map click must not start a
+   * new circle there (#492). Bound by the shell. */
+  readonly drawingEnabled = input(true);
   readonly filter = input<Confidence | null>(null);
   readonly selectedId = input<string | null>(null);
   readonly poiClick = output<string>();
@@ -145,6 +149,10 @@ export class MapComponent implements OnDestroy {
   private readonly mapEl = viewChild.required<ElementRef<HTMLElement>>('mapEl');
   private map: L.Map | null = null;
   private markers: L.LayerGroup | null = null;
+  private readonly poiMarkers = new Map<
+    string,
+    { marker: L.Marker; poi: Poi; n: number; key: string }
+  >();
 
   /**
    * Signals (not plain fields) on purpose: `drawState`/`radiusM` are read by the template
@@ -152,6 +160,12 @@ export class MapComponent implements OnDestroy {
    * handlers (`map.on(...)`), not from `(event)` bindings in the template — only a signal, not a private
    * field, redraws the OnPush view in that case.
    */
+  /**
+   * Derived from the response so the effects below depend on the POI list / zone, NOT on the whole
+   * response object (#492): the zone narrative arriving replaces `fullData` with a new object that
+   * carries the same `poi` array, and that must not make the map flyTo/redraw again.
+   */
+  private readonly pois = computed<Poi[]>(() => this.data()?.poi ?? []);
   private readonly zeroPoiZone = computed<GeoZone | null>(() => {
     const r = this.activeResponse();
     return r && r.poi.length === 0 ? (r.zona_geo ?? null) : null;
@@ -219,10 +233,10 @@ export class MapComponent implements OnDestroy {
     });
 
     effect(() => {
-      const d = this.data();
+      const pois = this.pois();
       const map = this.map;
-      if (!map || !d || d.poi.length === 0) return;
-      const bounds = L.latLngBounds(d.poi.map((p) => [p.lat, p.lon] as [number, number]));
+      if (!map || pois.length === 0) return;
+      const bounds = L.latLngBounds(pois.map((p) => [p.lat, p.lon] as [number, number]));
       map.flyToBounds(bounds, { padding: [40, 40] });
     });
 
@@ -239,35 +253,71 @@ export class MapComponent implements OnDestroy {
       map.flyToBounds(bounds, { padding: [40, 40] });
     });
 
+    // Structure effect: (re)creates the markers only when the POI list changes (#492). Filter and
+    // selection are read untracked here; the restyle effect below applies them.
     effect(() => {
-      const d = this.data();
-      const filter = this.filter();
-      const selectedId = this.selectedId();
+      const pois = this.pois();
       const layer = this.markers;
       if (!layer) return;
+      const filter = untracked(() => this.filter());
+      const selectedId = untracked(() => this.selectedId());
 
       layer.clearLayers();
-      if (!d) return;
+      this.poiMarkers.clear();
 
-      d.poi.forEach((poi, index) => {
+      pois.forEach((poi, index) => {
         const n = index + 1;
-        const dim = !matchesFilter(poi.confidence, filter);
-        const focus = poi.id === selectedId;
-        const size = focus ? 34 : 26;
-        const icon = L.divIcon({
-          html: pinHTML(n, poi.confidence, { focus, dim }),
-          className: 'cra-poi-pin',
-          iconSize: [size, size],
-          iconAnchor: [size / 2, size],
-        });
-        const marker = L.marker([poi.lat, poi.lon], { icon }).addTo(layer);
+        const marker = L.marker([poi.lat, poi.lon], {
+          icon: this.pinIcon(poi, n, filter, selectedId),
+        }).addTo(layer);
         marker.bindPopup(poiPopupHTML(poi, n));
         marker.on('click', () => this.poiClick.emit(poi.id));
+        this.poiMarkers.set(poi.id, {
+          marker,
+          poi,
+          n,
+          key: this.styleKey(poi, filter, selectedId),
+        });
       });
+    });
+
+    // Restyle effect (#492): a selection/filter change only swaps the icon of the markers whose
+    // style actually changed, instead of recreating every marker.
+    effect(() => {
+      const filter = this.filter();
+      const selectedId = this.selectedId();
+      for (const entry of this.poiMarkers.values()) {
+        const key = this.styleKey(entry.poi, filter, selectedId);
+        if (key === entry.key) continue;
+        entry.key = key;
+        entry.marker.setIcon(this.pinIcon(entry.poi, entry.n, filter, selectedId));
+      }
+    });
+  }
+
+  private styleKey(poi: Poi, filter: Confidence | null, selectedId: string | null): string {
+    return `${matchesFilter(poi.confidence, filter)}|${poi.id === selectedId}`;
+  }
+
+  private pinIcon(
+    poi: Poi,
+    n: number,
+    filter: Confidence | null,
+    selectedId: string | null,
+  ): L.DivIcon {
+    const dim = !matchesFilter(poi.confidence, filter);
+    const focus = poi.id === selectedId;
+    const size = focus ? 34 : 26;
+    return L.divIcon({
+      html: pinHTML(n, poi.confidence, { focus, dim }),
+      className: 'cra-poi-pin',
+      iconSize: [size, size],
+      iconAnchor: [size / 2, size],
     });
   }
 
   private onMapClick(e: L.LeafletMouseEvent): void {
+    if (!this.drawingEnabled()) return;
     const { lat, lng } = e.latlng;
     if (this.drawState() === 'idle' || this.drawState() === 'ready') {
       // ready -> new center: the previously confirmed circle is no longer valid.
@@ -291,6 +341,7 @@ export class MapComponent implements OnDestroy {
   }
 
   private onMapMouseMove(e: L.LeafletMouseEvent): void {
+    if (!this.drawingEnabled()) return;
     if (this.drawState() !== 'drawing-radius' || !this.centerLatLng || !this.circleLayer) return;
     const radius = this.map!.distance(
       [this.centerLatLng.lat, this.centerLatLng.lon],

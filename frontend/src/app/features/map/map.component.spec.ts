@@ -7,6 +7,7 @@ const mockMarker = {
   addTo: jest.fn().mockReturnThis(),
   bindPopup: jest.fn().mockReturnThis(),
   on: jest.fn(),
+  setIcon: jest.fn(),
 };
 
 const mockCircle = {
@@ -219,6 +220,22 @@ describe('MapComponent', () => {
     });
   });
 
+  describe('#492: the narrative arriving does not rearrange the map', () => {
+    it('same POI list in a new response object: no new flyToBounds, no marker redraw', () => {
+      const pois = [makePoi({ id: '0' }), makePoi({ id: '1' })];
+      const first = makeResp(pois);
+      fixture.componentRef.setInput('data', first);
+      fixture.detectChanges();
+      expect(mockMap.flyToBounds).toHaveBeenCalledTimes(1);
+      expect(mockLayerGroup.clearLayers).toHaveBeenCalledTimes(1);
+
+      fixture.componentRef.setInput('data', { ...first, narrativa: 'testo', llm_used: 'x' });
+      fixture.detectChanges();
+      expect(mockMap.flyToBounds).toHaveBeenCalledTimes(1);
+      expect(mockLayerGroup.clearLayers).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('marker POI', () => {
     it('creates a numbered marker for each POI; cleans the layer at every redraw', () => {
       fixture.componentRef.setInput('data', makeResp([makePoi({ id: '0' }), makePoi({ id: '1' })]));
@@ -339,6 +356,79 @@ describe('MapComponent', () => {
       handler();
 
       expect(onClick).toHaveBeenCalledWith('poi-42');
+    });
+  });
+
+  describe('#492: selection and filter restyle markers instead of recreating them', () => {
+    it('selecting a POI updates only the markers whose style changed, without clearing the layer', () => {
+      const pois = [makePoi({ id: '0' }), makePoi({ id: '1' })];
+      fixture.componentRef.setInput('data', makeResp(pois));
+      fixture.detectChanges();
+      jest.clearAllMocks();
+
+      fixture.componentRef.setInput('selectedId', '1');
+      fixture.detectChanges();
+      expect(mockLayerGroup.clearLayers).not.toHaveBeenCalled();
+      expect(L.marker).not.toHaveBeenCalled();
+      expect(mockMarker.setIcon).toHaveBeenCalledTimes(1);
+      const [opts] = (L.divIcon as jest.Mock).mock.calls.at(-1) as [{ iconSize: [number, number] }];
+      expect(opts.iconSize).toEqual([34, 34]);
+
+      jest.clearAllMocks();
+      fixture.componentRef.setInput('selectedId', null);
+      fixture.detectChanges();
+      expect(mockMarker.setIcon).toHaveBeenCalledTimes(1);
+      expect(mockLayerGroup.clearLayers).not.toHaveBeenCalled();
+    });
+
+    it('changing the filter does not recreate the markers either', () => {
+      fixture.componentRef.setInput('data', makeResp([makePoi({ id: '0' })]));
+      fixture.detectChanges();
+      jest.clearAllMocks();
+      fixture.componentRef.setInput('filter', 'da_confermare');
+      fixture.detectChanges();
+      expect(L.marker).not.toHaveBeenCalled();
+      expect(mockMarker.setIcon).toHaveBeenCalled();
+    });
+  });
+
+  describe('#492: map clicks outside the search-form states do not start a circle', () => {
+    it('ignores the click when drawing is disabled (results/loading/error): no circle, no circleChange', () => {
+      const spy = jest.fn();
+      fixture.componentInstance.circleChange.subscribe(spy);
+      fixture.componentRef.setInput('drawingEnabled', false);
+      fixture.detectChanges();
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      expect(L.circle).not.toHaveBeenCalled();
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('does not discard a confirmed circle (no null) when a click arrives while disabled', () => {
+      const spy = jest.fn();
+      fixture.componentInstance.circleChange.subscribe(spy);
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      spy.mockClear();
+      (L.circle as jest.Mock).mockClear();
+      fixture.componentRef.setInput('drawingEnabled', false);
+      fixture.detectChanges();
+      fireMap('click', { latlng: { lat: 42, lng: 12.6 } });
+      expect(spy).not.toHaveBeenCalled();
+      expect(L.circle).not.toHaveBeenCalled();
+    });
+
+    it('a mousemove while drawing-radius stops changing the radius once drawing gets disabled', () => {
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      fixture.componentRef.setInput('drawingEnabled', false);
+      fixture.detectChanges();
+      mockCircle.setRadius.mockClear();
+      fireMap('mousemove', { latlng: { lat: 41.905, lng: 12.5 } });
+      expect(mockCircle.setRadius).not.toHaveBeenCalled();
+    });
+
+    it('drawing stays enabled by default (form states)', () => {
+      fireMap('click', { latlng: { lat: 41.9, lng: 12.5 } });
+      expect(L.circle).toHaveBeenCalled();
     });
   });
 

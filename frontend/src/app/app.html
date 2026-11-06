@@ -38,6 +38,7 @@
 <cra-map
   [data]="store.fullData()"
   [activeResponse]="store.mode() === 'base' ? store.baselineData() : store.fullData()"
+  [drawingEnabled]="searchFormVisible()"
   [filter]="store.filter()"
   [selectedId]="store.selectedPoiId()"
   (poiClick)="onPoiClick($event)"
