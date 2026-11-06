@@ -9,9 +9,13 @@ accidental leaks in logs and ``repr``.
 
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+#: Hosts for which a plain ``http`` Overpass mirror is accepted (dev/tests).
+_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1"})
 
 
 class Settings(BaseSettings):
@@ -143,6 +147,36 @@ class Settings(BaseSettings):
     # JSON, so ``CORS_ALLOW_ORIGINS='["https://app.example"]'`` (a CSV
     # would be rejected with ``SettingsError``).
     cors_allow_origins: list[str] = ["http://localhost:4200"]
+    # Overpass mirrors tried by the interactive policy after the primary endpoint
+    # (``overpass_client.DEFAULT_OVERPASS_URL``) fails transiently (#509). They
+    # are free public instances: keep the list short. Empty list = no failover,
+    # the retries repeat the primary. Parsing from env: JSON list, e.g.
+    # ``OVERPASS_FALLBACK_URLS='["https://mirror.example/api/interpreter"]'``.
+    overpass_fallback_urls: list[str] = [
+        "https://overpass.private.coffee/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter",
+    ]
+
+    @field_validator("overpass_fallback_urls")
+    @classmethod
+    def _validate_overpass_fallback_urls(cls, urls: list[str]) -> list[str]:
+        """Trims the mirror URLs and validates them at load (#509).
+
+        Each URL must be ``https`` with a non-empty host; plain ``http`` is only
+        accepted for ``localhost``/``127.0.0.1`` (dev and tests), because the
+        query and the POI data would travel in clear text otherwise.
+        """
+        cleaned = [url.strip() for url in urls]
+        for url in cleaned:
+            parts = urlsplit(url)
+            host = parts.hostname
+            local_http = parts.scheme == "http" and host in _LOCAL_HOSTS
+            if not host or not (parts.scheme == "https" or local_http):
+                raise ValueError(
+                    f"invalid overpass_fallback_urls entry {url!r}: expected an "
+                    "https URL with a host (http only for localhost/127.0.0.1)"
+                )
+        return cleaned
 
     @field_validator("cors_allow_origins")
     @classmethod

@@ -22,6 +22,8 @@ _FIXTURE = Path(__file__).parent / "fixtures" / "ontology_sample.ttl"
 os.environ.setdefault("ONTOLOGY_PATH", str(_FIXTURE))
 os.environ.setdefault("ANTHROPIC_API_KEY", "sk-ant-test-dummy")
 os.environ.setdefault("GROQ_API_KEY", "gsk-test-dummy")
+# No public Overpass mirrors in tests (#509): they must never touch the network.
+os.environ.setdefault("OVERPASS_FALLBACK_URLS", "[]")
 
 
 def pytest_collection_modifyitems(

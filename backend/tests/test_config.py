@@ -1,5 +1,6 @@
 """Tests for the centralized configuration module."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -430,3 +431,57 @@ def test_env_example_values_match_defaults(monkeypatch: pytest.MonkeyPatch) -> N
         if name in _ENV_EXAMPLE_VALUE_DIFFERS:
             continue
         assert getattr(loaded, name) == field.default, name
+
+
+def test_overpass_fallback_urls_default_has_public_mirrors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without env there are 1-2 public mirrors, all https (#509)."""
+    monkeypatch.delenv("OVERPASS_FALLBACK_URLS", raising=False)
+
+    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+
+    assert 1 <= len(settings.overpass_fallback_urls) <= 2
+    assert all(u.startswith("https://") for u in settings.overpass_fallback_urls)
+
+
+def test_overpass_fallback_urls_from_env_json_and_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OVERPASS_FALLBACK_URLS", '[" https://m.example/api "]')
+    assert Settings(_env_file=None).overpass_fallback_urls == [  # pyright: ignore[reportCallIssue]
+        "https://m.example/api"
+    ]
+
+    monkeypatch.setenv("OVERPASS_FALLBACK_URLS", "[]")
+    assert Settings(_env_file=None).overpass_fallback_urls == []  # pyright: ignore[reportCallIssue]
+
+
+def test_overpass_fallback_urls_rejects_non_http(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OVERPASS_FALLBACK_URLS", '["ftp://m.example"]')
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+
+
+@pytest.mark.parametrize(
+    "bad", ["https://", "http://example.com/api", "ftp://m.example", "m.example/api"]
+)
+def test_overpass_fallback_urls_rejects_bad_urls(
+    monkeypatch: pytest.MonkeyPatch, bad: str
+) -> None:
+    monkeypatch.setenv("OVERPASS_FALLBACK_URLS", json.dumps([bad]))
+
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
+
+
+def test_overpass_fallback_urls_accepts_http_only_for_localhost(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    urls = ["http://localhost:8080/api/interpreter", "http://127.0.0.1/api"]
+    monkeypatch.setenv("OVERPASS_FALLBACK_URLS", json.dumps(urls))
+
+    assert Settings(_env_file=None).overpass_fallback_urls == urls  # pyright: ignore[reportCallIssue]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections import Counter
 from collections.abc import Callable
@@ -14,10 +15,12 @@ import pytest
 import respx
 
 from crime_risk_analyzer import overpass_client
+from crime_risk_analyzer.config import get_settings
 from crime_risk_analyzer.eval.snapshots import capturing_source
 from crime_risk_analyzer.models.geo import Bbox, haversine_m
 from crime_risk_analyzer.overpass_client import (
     DEFAULT_OVERPASS_URL,
+    FAIL_FAST_RETRY,
     INTERACTIVE_RETRY,
     MAX_POIS,
     OFFLINE_RETRY,
@@ -50,7 +53,10 @@ def _no_retry_pause(monkeypatch: pytest.MonkeyPatch) -> None:  # pyright: ignore
     monkeypatch.setattr(
         overpass_client,
         "INTERACTIVE_RETRY",
-        replace(overpass_client.INTERACTIVE_RETRY, pause_s=(0.0,)),
+        replace(
+            overpass_client.INTERACTIVE_RETRY,
+            pause_s=tuple(0.0 for _ in overpass_client.INTERACTIVE_RETRY.pause_s),
+        ),
     )
 
 
@@ -441,7 +447,7 @@ async def test_fetch_pois_raises_after_retry_exhausted() -> None:
 
 @respx.mock
 async def test_fetch_pois_raises_on_http_error() -> None:
-    """Status 504 (retryable) on both attempts -> retry exhausted -> error."""
+    """Status 504 (retryable) on every attempt -> retry exhausted -> error."""
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         return_value=httpx.Response(504, text="gateway timeout")
     )
@@ -449,7 +455,7 @@ async def test_fetch_pois_raises_on_http_error() -> None:
     with pytest.raises(OverpassError):
         await fetch_pois(_BBOX, "Roma")
 
-    assert route.call_count == 2
+    assert route.call_count == 1 + len(INTERACTIVE_RETRY.pause_s)
 
 
 @respx.mock
@@ -503,10 +509,11 @@ async def test_offline_policy_survives_two_retryable_responses() -> None:
 
 
 @respx.mock
-async def test_interactive_policy_stays_at_a_single_retry() -> None:
-    """The /analyze path stays fail-fast: no latency regression (#232).
+async def test_fail_fast_policy_stays_at_a_single_retry() -> None:
+    """The pre-#232 policy of ``capture_city`` stays fail-fast (#232, #509).
 
-    A user is waiting: two attempts and then the error, as before #232.
+    Two attempts and then the error, with the timeouts from before #232: the
+    ``switch_ms`` metric must not change.
     """
     waits: list[float] = []
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
@@ -514,15 +521,17 @@ async def test_interactive_policy_stays_at_a_single_retry() -> None:
     )
 
     with pytest.raises(OverpassError):
-        await fetch_pois(_BBOX, "Roma", sleep=_recording_sleep(waits))
+        await fetch_pois(
+            _BBOX, "Roma", retry=FAIL_FAST_RETRY, sleep=_recording_sleep(waits)
+        )
 
     assert route.call_count == 2
-    assert len(INTERACTIVE_RETRY.pause_s) == 1
+    assert FAIL_FAST_RETRY.pause_s == (1.0,)
     assert len(waits) == 1
-    # The timeouts stay those from before #232: the worst-case latency on
-    # /analyze does not change (30s + 1s + 60s).
-    assert INTERACTIVE_RETRY.timeout_s == 30.0
-    assert INTERACTIVE_RETRY.retry_timeout_s == 60.0
+    assert FAIL_FAST_RETRY.timeout_s == 30.0
+    assert FAIL_FAST_RETRY.retry_timeout_s == 60.0
+    assert not FAIL_FAST_RETRY.failover
+    assert not FAIL_FAST_RETRY.retry_transport_errors
 
 
 @respx.mock
@@ -538,7 +547,9 @@ async def test_interactive_policy_ignores_retry_after() -> None:
     """
     waits: list[float] = []
     # Real policy, NOT the one zeroed by the fixture: here the value is the point.
-    monkeypatch_free = replace(overpass_client.INTERACTIVE_RETRY, pause_s=(1.0,))
+    monkeypatch_free = replace(
+        overpass_client.INTERACTIVE_RETRY, pause_s=(1.0,), jitter=0.0
+    )
     respx.post(DEFAULT_OVERPASS_URL).mock(
         side_effect=[
             httpx.Response(429, headers={"Retry-After": "60"}, text="rate limited"),
@@ -1211,15 +1222,15 @@ async def test_fetch_pois_user_agent_includes_contact_url() -> None:
 async def test_fetch_pois_raises_on_network_error() -> None:
     """Non-timeout network error (e.g. connection) -> immediate OverpassError.
 
-    Default (interactive) policy: the /analyze path must not gain latency for a
-    transport blip, so no additional retry (#247).
+    Fail-fast policy: ``capture_city`` must not gain latency for a transport
+    blip, so no additional retry (#247).
     """
     route = respx.post(DEFAULT_OVERPASS_URL).mock(
         side_effect=httpx.ConnectError("refused")
     )
 
     with pytest.raises(OverpassError):
-        await fetch_pois(_BBOX, "Roma")
+        await fetch_pois(_BBOX, "Roma", retry=FAIL_FAST_RETRY)
 
     assert route.call_count == 1
 
@@ -1333,7 +1344,7 @@ async def test_retry_on_transport_error_leaves_a_trace_in_the_logs(
         await fetch_pois(_BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep([]))
 
     messages = [r.getMessage() for r in caplog.records]
-    found = any("errore di trasporto" in m and "retry 1/4" in m for m in messages)
+    found = any("transport error" in m and "retry 1/4" in m for m in messages)
     assert found, messages
 
 
@@ -1673,11 +1684,13 @@ async def test_timeout_remark_is_not_accepted_as_a_complete_sample() -> None:
         await fetch_pois(_BBOX, "Roma")
 
     message = str(exc_info.value)
-    assert "Risposta incompleta di Overpass" in message
+    assert "incomplete response" in message
     assert _REMARK_TIMEOUT in message
-    assert "dopo 2 tentativi" in message
-    # Interactive policy: one attempt + one retry, then the error.
-    assert route.call_count == 1 + len(overpass_client.INTERACTIVE_RETRY.pause_s)
+    assert "after 2 attempts" in message
+    # Interactive policy: the first attempt plus every retry, then the error.
+    # Interactive policy: a truncation is the query being too heavy, so only one
+    # retry (#509), whatever the number of attempts the pauses would allow.
+    assert route.call_count == INTERACTIVE_RETRY.max_remark_attempts == 2
 
 
 @respx.mock
@@ -1687,9 +1700,7 @@ async def test_timeout_remark_also_exhausts_the_offline_policy() -> None:
         return_value=httpx.Response(200, json=_truncated())
     )
 
-    with pytest.raises(
-        OverpassError, match=r"Risposta incompleta di Overpass.*dopo 5 tentativi"
-    ):
+    with pytest.raises(OverpassError, match=r"incomplete response after 5 attempts"):
         await fetch_pois_with_cut(
             _BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep(waits)
         )
@@ -1712,8 +1723,8 @@ async def test_memory_remark_is_not_described_as_timeout() -> None:
 
     message = str(exc_info.value)
     assert "timeout" not in message.lower()
-    assert "tentativi" not in message
-    assert "Risposta incompleta di Overpass" in message
+    assert "attempts" not in message
+    assert "incomplete response" in message
     assert _REMARK_MEMORY in message
     assert route.call_count == 1
 
@@ -1736,7 +1747,7 @@ async def test_timeout_remark_then_complete_response_retries_and_uses_the_second
     # The sample is that of the second response, not the truncated one.
     assert sorted(p["id"] for p in pois) == _FULL_SAMPLE_IDS
     messages = [r.getMessage() for r in caplog.records]
-    assert any("risposta incompleta" in m and "retry 1/1" in m for m in messages), (
+    assert any("incomplete response" in m and "retry 1/3" in m for m in messages), (
         messages
     )
 
@@ -1784,7 +1795,7 @@ async def test_capture_does_not_write_a_snapshot_from_a_truncated_response(
     path = tmp_path / "snap.json"
     source = capturing_source(path, inner=inner, zona="Colosseo")
 
-    with pytest.raises(OverpassError, match="incompleta di Overpass"):
+    with pytest.raises(OverpassError, match="incomplete response"):
         await source(_BBOX, "Roma")
 
     assert not path.exists()
@@ -1797,3 +1808,388 @@ async def test_fetch_pois_integration_real_overpass() -> None:
         Bbox(41.889, 12.490, 41.892, 12.494), "Roma", ["amenity=bank", "tourism=museum"]
     )
     assert isinstance(pois, list)
+
+
+# --- #509: interactive failover over mirrors, with a declared latency ceiling ---
+
+_MIRROR_1 = "https://mirror-1.example/api/interpreter"
+_MIRROR_2 = "https://mirror-2.example/api/interpreter"
+
+
+@respx.mock
+async def test_interactive_transient_failure_moves_to_the_next_mirror() -> None:
+    """Primary 502 -> the retry goes to the mirror, not to the same server (#509)."""
+    primary = respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(502, text="bad gateway")
+    )
+    mirror = respx.post(_MIRROR_1).mock(
+        return_value=httpx.Response(200, json=_sample())
+    )
+
+    pois = await fetch_pois(_BBOX, "Roma", fallback_urls=[_MIRROR_1, _MIRROR_2])
+
+    assert primary.call_count == 1
+    assert mirror.call_count == 1
+    assert len(pois) > 0
+
+
+@respx.mock
+async def test_interactive_rotates_over_all_endpoints_then_wraps() -> None:
+    """Primary, mirror 1, mirror 2, then back to the primary (#509)."""
+    primary = respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=[httpx.Response(502), httpx.Response(200, json=_sample())]
+    )
+    m1 = respx.post(_MIRROR_1).mock(return_value=httpx.Response(504))
+    m2 = respx.post(_MIRROR_2).mock(side_effect=httpx.TimeoutException("slow"))
+
+    pois = await fetch_pois(_BBOX, "Roma", fallback_urls=[_MIRROR_1, _MIRROR_2])
+
+    assert (primary.call_count, m1.call_count, m2.call_count) == (2, 1, 1)
+    assert len(pois) > 0
+
+
+@respx.mock
+async def test_interactive_transport_error_also_moves_to_the_next_mirror() -> None:
+    """A refused connection on the primary is retried on the mirror (#509)."""
+    respx.post(DEFAULT_OVERPASS_URL).mock(side_effect=httpx.ConnectError("refused"))
+    respx.post(_MIRROR_1).mock(return_value=httpx.Response(200, json=_sample()))
+
+    pois = await fetch_pois(_BBOX, "Roma", fallback_urls=[_MIRROR_1])
+
+    assert len(pois) > 0
+
+
+@respx.mock
+async def test_interactive_truncated_remark_moves_to_the_next_mirror() -> None:
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json=_truncated())
+    )
+    mirror = respx.post(_MIRROR_1).mock(
+        return_value=httpx.Response(200, json=_sample())
+    )
+
+    pois = await fetch_pois(_BBOX, "Roma", fallback_urls=[_MIRROR_1])
+
+    assert mirror.call_count == 1
+    assert sorted(p["id"] for p in pois) == _FULL_SAMPLE_IDS
+
+
+@respx.mock
+async def test_osm_cut_reports_the_endpoint_that_really_answered() -> None:
+    """``OsmCut.overpass_url`` is the mirror that answered, not the primary (#509)."""
+    respx.post(DEFAULT_OVERPASS_URL).mock(return_value=httpx.Response(502))
+    respx.post(_MIRROR_1).mock(return_value=httpx.Response(200, json=_sample()))
+
+    _, cut = await fetch_pois_with_cut(_BBOX, "Roma", fallback_urls=[_MIRROR_1])
+
+    assert cut["overpass_url"] == _MIRROR_1
+
+
+@respx.mock
+async def test_all_endpoints_failing_raises_overpass_error() -> None:
+    primary = respx.post(DEFAULT_OVERPASS_URL).mock(return_value=httpx.Response(502))
+    m1 = respx.post(_MIRROR_1).mock(return_value=httpx.Response(503))
+
+    with pytest.raises(OverpassError):
+        await fetch_pois(_BBOX, "Roma", fallback_urls=[_MIRROR_1])
+
+    assert primary.call_count + m1.call_count == 1 + len(INTERACTIVE_RETRY.pause_s)
+
+
+@respx.mock
+async def test_non_retryable_status_does_not_try_the_mirrors() -> None:
+    """A 400 is our query's fault: a mirror would answer the same (#509)."""
+    mirror = respx.post(_MIRROR_1).mock(
+        return_value=httpx.Response(200, json=_sample())
+    )
+    respx.post(DEFAULT_OVERPASS_URL).mock(return_value=httpx.Response(400))
+
+    with pytest.raises(OverpassError):
+        await fetch_pois(_BBOX, "Roma", fallback_urls=[_MIRROR_1])
+
+    assert mirror.call_count == 0
+
+
+@respx.mock
+async def test_without_mirrors_the_interactive_retries_repeat_the_primary() -> None:
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=[httpx.Response(502), httpx.Response(200, json=_sample())]
+    )
+
+    await fetch_pois(_BBOX, "Roma", fallback_urls=[])
+
+    assert route.call_count == 2
+
+
+@respx.mock
+async def test_mirrors_are_read_from_settings_for_the_default_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OVERPASS_FALLBACK_URLS", json.dumps([_MIRROR_1]))
+    get_settings.cache_clear()
+    try:
+        respx.post(DEFAULT_OVERPASS_URL).mock(return_value=httpx.Response(502))
+        mirror = respx.post(_MIRROR_1).mock(
+            return_value=httpx.Response(200, json=_sample())
+        )
+
+        await fetch_pois(_BBOX, "Roma")
+    finally:
+        get_settings.cache_clear()
+
+    assert mirror.call_count == 1
+
+
+@respx.mock
+async def test_explicit_overpass_url_does_not_get_the_settings_mirrors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A caller that picks a server does not get public mirrors behind its back."""
+    monkeypatch.setenv("OVERPASS_FALLBACK_URLS", json.dumps([_MIRROR_1]))
+    get_settings.cache_clear()
+    try:
+        mirror = respx.post(_MIRROR_1).mock(return_value=httpx.Response(200))
+        own = respx.post(_MIRROR_2).mock(
+            side_effect=[httpx.Response(502), httpx.Response(200, json=_sample())]
+        )
+
+        await fetch_pois(_BBOX, "Roma", overpass_url=_MIRROR_2)
+    finally:
+        get_settings.cache_clear()
+
+    assert mirror.call_count == 0
+    assert own.call_count == 2
+
+
+@respx.mock
+async def test_offline_policy_never_uses_the_mirrors() -> None:
+    """Snapshot provenance stays on one endpoint: no failover offline (#509)."""
+    mirror = respx.post(_MIRROR_1).mock(return_value=httpx.Response(200))
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=[httpx.Response(502), httpx.Response(200, json=_sample())]
+    )
+
+    _, cut = await fetch_pois_with_cut(
+        _BBOX,
+        "Roma",
+        fallback_urls=[_MIRROR_1],
+        retry=OFFLINE_RETRY,
+        sleep=_recording_sleep([]),
+    )
+
+    assert mirror.call_count == 0
+    assert cut["overpass_url"] == DEFAULT_OVERPASS_URL
+
+
+def test_interactive_worst_case_latency_is_the_declared_deadline() -> None:
+    """The worst case is the overall deadline of the policy, at most ~90 s (#509).
+
+    ``INTERACTIVE_RETRY`` is the name imported at module load: the real policy,
+    not the one with zeroed pauses that the autouse fixture patches in.
+    """
+    assert INTERACTIVE_RETRY.total_deadline_s is not None
+    assert INTERACTIVE_RETRY.total_deadline_s <= 90.0
+    assert len(INTERACTIVE_RETRY.pause_s) >= 2
+    assert INTERACTIVE_RETRY.failover
+    assert INTERACTIVE_RETRY.retry_after_cap_s is None
+    assert INTERACTIVE_RETRY.jitter == pytest.approx(0.3)
+
+
+def test_capture_city_policy_is_not_the_interactive_one() -> None:
+    """``capture_city`` keeps ``switch_ms`` honest: no mirrors, one retry (#509)."""
+    assert not FAIL_FAST_RETRY.failover
+    assert len(FAIL_FAST_RETRY.pause_s) == 1
+
+
+# --- #509 review: transient flag, deadline, rotation, jitter, settings failures ---
+
+
+def _urls_called() -> list[str]:
+    return [
+        str(call.request.url)  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+        for call in respx.calls  # pyright: ignore[reportUnknownVariableType]
+    ]
+
+
+@respx.mock
+async def test_exhausted_transient_failures_are_flagged_transient() -> None:
+    respx.post(DEFAULT_OVERPASS_URL).mock(return_value=httpx.Response(502))
+
+    with pytest.raises(OverpassError) as exc_info:
+        await fetch_pois(_BBOX, "Roma", fallback_urls=[])
+
+    assert exc_info.value.transient is True
+
+
+@respx.mock
+async def test_exhausted_timeouts_and_truncations_are_flagged_transient() -> None:
+    respx.post(DEFAULT_OVERPASS_URL).mock(side_effect=httpx.TimeoutException("x"))
+    with pytest.raises(OverpassError) as timeout_info:
+        await fetch_pois(_BBOX, "Roma", fallback_urls=[])
+    assert timeout_info.value.transient is True
+
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json=_truncated())
+    )
+    with pytest.raises(OverpassError) as remark_info:
+        await fetch_pois(_BBOX, "Roma", fallback_urls=[])
+    assert remark_info.value.transient is True
+
+
+@respx.mock
+async def test_client_errors_are_not_transient() -> None:
+    respx.post(DEFAULT_OVERPASS_URL).mock(return_value=httpx.Response(403))
+
+    with pytest.raises(OverpassError) as exc_info:
+        await fetch_pois(_BBOX, "Roma", fallback_urls=[])
+
+    assert exc_info.value.transient is False
+
+
+@respx.mock
+async def test_retry_after_beyond_the_cap_is_not_transient() -> None:
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(429, headers={"Retry-After": "3600"})
+    )
+
+    with pytest.raises(OverpassError) as exc_info:
+        await fetch_pois(_BBOX, "Roma", retry=OFFLINE_RETRY, sleep=_recording_sleep([]))
+
+    assert exc_info.value.transient is False
+
+
+@respx.mock
+async def test_overall_deadline_cuts_the_attempts_with_a_transient_error() -> None:
+    """A policy with a total deadline stops waiting when it expires (#509)."""
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(return_value=httpx.Response(502))
+    policy = replace(INTERACTIVE_RETRY, total_deadline_s=0.05)
+
+    async def slow_sleep(_seconds: float) -> None:
+        await asyncio.sleep(5)
+
+    with pytest.raises(OverpassError, match="deadline") as exc_info:
+        await fetch_pois(
+            _BBOX, "Roma", fallback_urls=[], retry=policy, sleep=slow_sleep
+        )
+
+    assert exc_info.value.transient is True
+    assert route.call_count == 1
+
+
+@respx.mock
+async def test_invalid_settings_do_not_break_fetch_pois(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A broken ``OVERPASS_FALLBACK_URLS`` degrades to the primary only (#509)."""
+    monkeypatch.setenv("OVERPASS_FALLBACK_URLS", '["ftp://nope"]')
+    get_settings.cache_clear()
+    route = respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=[httpx.Response(502), httpx.Response(200, json=_sample())]
+    )
+    try:
+        with caplog.at_level("WARNING"):
+            pois = await fetch_pois(_BBOX, "Roma")
+    finally:
+        get_settings.cache_clear()
+
+    assert len(pois) > 0
+    assert route.call_count == 2
+    assert any("mirror" in r.getMessage().lower() for r in caplog.records)
+
+
+@respx.mock
+async def test_answer_from_a_mirror_is_logged_as_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    respx.post(DEFAULT_OVERPASS_URL).mock(return_value=httpx.Response(502))
+    respx.post(_MIRROR_1).mock(return_value=httpx.Response(200, json=_sample()))
+
+    with caplog.at_level("WARNING"):
+        await fetch_pois(_BBOX, "Roma", fallback_urls=[_MIRROR_1])
+
+    assert any(
+        r.levelname == "WARNING"
+        and "mirror-1.example" in r.getMessage()
+        and "served by" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+@respx.mock
+async def test_untried_endpoints_come_before_revisiting_a_failed_one() -> None:
+    respx.post(DEFAULT_OVERPASS_URL).mock(return_value=httpx.Response(502))
+    respx.post(_MIRROR_1).mock(return_value=httpx.Response(502))
+    respx.post(_MIRROR_2).mock(return_value=httpx.Response(502))
+
+    with pytest.raises(OverpassError):
+        await fetch_pois(_BBOX, "Roma", fallback_urls=[_MIRROR_1, _MIRROR_2])
+
+    urls = _urls_called()
+    assert urls[:3] == [DEFAULT_OVERPASS_URL, _MIRROR_1, _MIRROR_2]
+    # All failed: only then the rotation starts over, on a different server.
+    assert urls[3] == DEFAULT_OVERPASS_URL
+
+
+@respx.mock
+async def test_truncation_gets_a_single_retry_on_one_mirror() -> None:
+    """A truncated answer means the query is heavy: no tour of the mirrors (#509)."""
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        return_value=httpx.Response(200, json=_truncated())
+    )
+    respx.post(_MIRROR_1).mock(return_value=httpx.Response(200, json=_truncated()))
+    m2 = respx.post(_MIRROR_2).mock(return_value=httpx.Response(200, json=_sample()))
+
+    with pytest.raises(OverpassError, match="incomplete response"):
+        await fetch_pois(_BBOX, "Roma", fallback_urls=[_MIRROR_1, _MIRROR_2])
+
+    assert _urls_called() == [DEFAULT_OVERPASS_URL, _MIRROR_1]
+    assert m2.call_count == 0
+
+
+@respx.mock
+async def test_final_error_names_the_last_endpoint_tried() -> None:
+    respx.post(DEFAULT_OVERPASS_URL).mock(return_value=httpx.Response(502))
+    respx.post(_MIRROR_1).mock(return_value=httpx.Response(503))
+
+    with pytest.raises(OverpassError, match="mirror-1.example"):
+        await fetch_pois(_BBOX, "Roma", fallback_urls=[_MIRROR_1])
+
+
+@respx.mock
+@pytest.mark.parametrize(("rand_value", "factor"), [(0.0, 0.7), (0.5, 1.0), (1.0, 1.3)])
+async def test_interactive_pauses_are_jittered_with_an_injectable_source(
+    rand_value: float, factor: float
+) -> None:
+    waits: list[float] = []
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=[httpx.Response(502), httpx.Response(200, json=_sample())]
+    )
+
+    await fetch_pois(
+        _BBOX,
+        "Roma",
+        fallback_urls=[],
+        retry=INTERACTIVE_RETRY,
+        sleep=_recording_sleep(waits),
+        rand=lambda: rand_value,
+    )
+
+    assert waits == [pytest.approx(INTERACTIVE_RETRY.pause_s[0] * factor)]
+
+
+@respx.mock
+async def test_offline_pauses_have_no_jitter() -> None:
+    waits: list[float] = []
+    respx.post(DEFAULT_OVERPASS_URL).mock(
+        side_effect=[httpx.Response(502), httpx.Response(200, json=_sample())]
+    )
+
+    await fetch_pois(
+        _BBOX,
+        "Roma",
+        retry=OFFLINE_RETRY,
+        sleep=_recording_sleep(waits),
+        rand=lambda: 1.0,
+    )
+
+    assert waits == [OFFLINE_RETRY.pause_s[0]]

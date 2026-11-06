@@ -12,7 +12,8 @@ Map (orchestrator.md):
   * :class:`AreaTooLargeError`  -> ``422`` (area above the cap, #497)
   * :class:`GeocodingError`     -> ``503`` (geocoding service unreachable)
   * :class:`OverpassError`      -> ``503`` (Overpass unreachable, or a 200
-    response with an interruption remark, after retry: #372, can cost ~2x26 s)
+    response with an interruption remark, after retry: #372; at most ~90 s on
+    the interactive path, #509)
   * :class:`PoiNotFoundError`   -> ``404`` (POI outside the current analysis, #197)
   * :class:`ContextMismatchError` -> ``409`` (zone context out of sync, #242)
   * :class:`UnknownPoiTypeError` -> ``422`` (``tipo_poi`` outside the catalogue, #143)
@@ -36,6 +37,8 @@ those branches remains a 500.
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
@@ -49,6 +52,20 @@ from crime_risk_analyzer.poi_narrative import ContextMismatchError, PoiNotFoundE
 from crime_risk_analyzer.poi_types import UnknownPoiTypeError
 from crime_risk_analyzer.sources.report import SourceValidationError
 from crime_risk_analyzer.sources.session import SourcesExpiredError
+
+logger = logging.getLogger(__name__)
+
+#: User-facing texts of the Overpass 503 (#509): they say what happens, without
+#: technical details (those go to the log). Only a transient failure invites to
+#: retry: a 403/400 will not go away by waiting.
+OVERPASS_TRANSIENT_MESSAGE = (
+    "Il servizio che fornisce i dati della mappa (Overpass/OpenStreetMap) e' "
+    "temporaneamente sovraccarico o non raggiungibile. Riprova tra qualche istante."
+)
+OVERPASS_PERMANENT_MESSAGE = (
+    "Il servizio che fornisce i dati della mappa (Overpass/OpenStreetMap) non ha "
+    "potuto elaborare la richiesta."
+)
 
 
 async def _handle_zone_not_found(
@@ -93,12 +110,26 @@ async def _handle_overpass_error(_request: Request, exc: OverpassError) -> JSONR
 
     Even a 200 response carrying an interruption remark is retried like a
     timeout and, once the attempts are exhausted, ends up here (#372): in
-    interactive mode it costs up to 2 attempts of ~26 s each before the 503.
+    interactive mode it costs up to 4 attempts across the mirrors, ~2 minutes at
+    worst (#509).
+
+    The ``messaggio`` is addressed to the user (the frontend shows it as is): the
+    technical reason carried by the exception (status, last endpoint host) goes
+    to the log, not to the screen. The invitation to retry shortly is only for
+    transient failures (``exc.transient``, #509).
     """
+    logger.warning("Overpass unavailable (transient=%s): %s", exc.transient, exc)
     return JSONResponse(
         status_code=503,
         content={
-            "detail": {"errore": "overpass_non_disponibile", "messaggio": str(exc)}
+            "detail": {
+                "errore": "overpass_non_disponibile",
+                "messaggio": (
+                    OVERPASS_TRANSIENT_MESSAGE
+                    if exc.transient
+                    else OVERPASS_PERMANENT_MESSAGE
+                ),
+            }
         },
     )
 
