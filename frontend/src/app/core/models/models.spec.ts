@@ -102,7 +102,7 @@ describe('models (/analyze contract)', () => {
       poiPanelOpen: true,
       narrOpen: true,
       poiNarratives: {},
-      poiNarrativeLoading: null,
+      poiNarrativesLoading: [],
       poiNarrativeError: null,
       zoneNarrativeLoading: false,
       zoneNarrativeError: null,

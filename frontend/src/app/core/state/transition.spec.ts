@@ -366,36 +366,106 @@ describe('transition (FSM)', () => {
         { ...initialState, poiNarrativeError: 'vecchio' },
         { type: 'POI_NARRATIVE_START', poiId: 'node/1' },
       );
-      expect(s.poiNarrativeLoading).toBe('node/1');
+      expect(s.poiNarrativesLoading).toEqual(['node/1']);
       expect(s.poiNarrativeError).toBeNull();
     });
 
     it('POI_NARRATIVE_SUCCESS stores the narrative and clears the loading state', () => {
       const s = transition(
-        { ...initialState, poiNarrativeLoading: 'node/1' },
+        { ...initialState, poiNarrativesLoading: ['node/1'] },
         { type: 'POI_NARRATIVE_SUCCESS', poiId: 'node/1', data: cachedNarrative },
       );
       expect(s.poiNarratives['node/1']).toEqual(cachedNarrative);
-      expect(s.poiNarrativeLoading).toBeNull();
+      expect(s.poiNarrativesLoading).toEqual([]);
     });
 
     it('POI_NARRATIVE_ERROR keeps the narratives already in cache', () => {
       const before: AppState = {
         ...initialState,
         poiNarratives: { 'node/9': cachedNarrative },
-        poiNarrativeLoading: 'node/1',
+        poiNarrativesLoading: ['node/1'],
+        selectedPoiId: 'node/1',
       };
-      const s = transition(before, { type: 'POI_NARRATIVE_ERROR', message: 'boom' });
+      const s = transition(before, {
+        type: 'POI_NARRATIVE_ERROR',
+        poiId: 'node/1',
+        message: 'boom',
+      });
       expect(s.poiNarrativeError).toBe('boom');
-      expect(s.poiNarrativeLoading).toBeNull();
+      expect(s.poiNarrativesLoading).toEqual([]);
       expect(s.poiNarratives['node/9']).toBeDefined();
+    });
+
+    describe('several POIs in flight (#489)', () => {
+      const two: AppState = {
+        ...initialState,
+        poiNarrativesLoading: ['node/1', 'node/2'],
+        selectedPoiId: 'node/2',
+      };
+
+      it('POI_NARRATIVE_START adds the POI to those in flight, without duplicates', () => {
+        const s1 = transition(
+          { ...initialState, poiNarrativesLoading: ['node/1'] },
+          { type: 'POI_NARRATIVE_START', poiId: 'node/2' },
+        );
+        expect(s1.poiNarrativesLoading).toEqual(['node/1', 'node/2']);
+        const s2 = transition(s1, { type: 'POI_NARRATIVE_START', poiId: 'node/2' });
+        expect(s2.poiNarrativesLoading).toEqual(['node/1', 'node/2']);
+      });
+
+      it('POI_NARRATIVE_SUCCESS of A caches A and leaves B loading', () => {
+        const s = transition(two, {
+          type: 'POI_NARRATIVE_SUCCESS',
+          poiId: 'node/1',
+          data: cachedNarrative,
+        });
+        expect(s.poiNarratives['node/1']).toEqual(cachedNarrative);
+        expect(s.poiNarrativesLoading).toEqual(['node/2']);
+      });
+
+      it('POI_NARRATIVE_ERROR of A leaves B loading and shows no error under B', () => {
+        const s = transition(two, {
+          type: 'POI_NARRATIVE_ERROR',
+          poiId: 'node/1',
+          message: 'boom A',
+        });
+        expect(s.poiNarrativesLoading).toEqual(['node/2']);
+        expect(s.poiNarrativeError).toBeNull();
+      });
+
+      it('POI_NARRATIVE_ERROR of the selected POI is shown', () => {
+        const s = transition(two, {
+          type: 'POI_NARRATIVE_ERROR',
+          poiId: 'node/2',
+          message: 'boom B',
+        });
+        expect(s.poiNarrativesLoading).toEqual(['node/1']);
+        expect(s.poiNarrativeError).toBe('boom B');
+      });
+
+      it('POI_NARRATIVE_ERROR with no POI selected is dropped', () => {
+        const s = transition(
+          { ...two, selectedPoiId: null },
+          { type: 'POI_NARRATIVE_ERROR', poiId: 'node/1', message: 'boom' },
+        );
+        expect(s.poiNarrativeError).toBeNull();
+      });
+
+      it('POI_NARRATIVE_ERROR of another POI keeps the error already shown for the selected one', () => {
+        const s = transition(
+          { ...two, poiNarrativeError: 'boom B' },
+          { type: 'POI_NARRATIVE_ERROR', poiId: 'node/1', message: 'boom A' },
+        );
+        expect(s.poiNarrativeError).toBe('boom B');
+        expect(s.poiNarrativesLoading).toEqual(['node/2']);
+      });
     });
 
     it('ANALYZE invalidates the POI narratives: the context has changed', () => {
       const before: AppState = {
         ...initialState,
         poiNarratives: { 'node/1': cachedNarrative },
-        poiNarrativeLoading: 'node/1',
+        poiNarrativesLoading: ['node/1'],
         poiNarrativeError: 'boom',
       };
       const s = transition(before, {
@@ -404,7 +474,7 @@ describe('transition (FSM)', () => {
         pipeline: 'full',
       });
       expect(s.poiNarratives).toEqual({});
-      expect(s.poiNarrativeLoading).toBeNull();
+      expect(s.poiNarrativesLoading).toEqual([]);
       expect(s.poiNarrativeError).toBeNull();
     });
 
@@ -412,7 +482,7 @@ describe('transition (FSM)', () => {
       const before: AppState = {
         ...initialState,
         poiNarratives: { 'node/1': cachedNarrative },
-        poiNarrativeLoading: 'node/1',
+        poiNarrativesLoading: ['node/1'],
         poiNarrativeError: 'boom',
       };
       const s = transition(before, {
@@ -421,7 +491,7 @@ describe('transition (FSM)', () => {
         pipeline: 'base',
       });
       expect(s.poiNarratives).toEqual({ 'node/1': cachedNarrative });
-      expect(s.poiNarrativeLoading).toBe('node/1');
+      expect(s.poiNarrativesLoading).toEqual(['node/1']);
       expect(s.poiNarrativeError).toBe('boom');
     });
 
@@ -597,7 +667,7 @@ describe('transition: SOURCE_SET_CHANGED (#473)', () => {
         ...loaded('RESULTS'),
         zoneNarrativeLoading: true,
         zoneNarrativeError: 'x',
-        poiNarrativeLoading: '1',
+        poiNarrativesLoading: ['1'],
         poiNarrativeError: 'y',
       },
       { type: 'SOURCE_SET_CHANGED' },
@@ -605,7 +675,7 @@ describe('transition: SOURCE_SET_CHANGED (#473)', () => {
     expect(s.poiNarratives).toEqual({});
     expect(s.zoneNarrativeLoading).toBe(false);
     expect(s.zoneNarrativeError).toBeNull();
-    expect(s.poiNarrativeLoading).toBeNull();
+    expect(s.poiNarrativesLoading).toEqual([]);
     expect(s.poiNarrativeError).toBeNull();
   });
 });
