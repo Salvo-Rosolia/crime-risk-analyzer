@@ -25,7 +25,7 @@ test('the radius control is not covered by the search panel', async ({ page }) =
   // confirm the radius. Click point chosen as in `support/map.ts` (70%/60% of the map),
   // far from the corner occupied by the panel.
   const map = await S.mapEl(page).boundingBox();
-  expect(map, 'cra-map deve avere una bounding box').not.toBeNull();
+  expect(map, 'cra-map must have a bounding box').not.toBeNull();
   await page.mouse.click(map!.x + map!.width * 0.7, map!.y + map!.height * 0.6);
 
   const control = S.radiusControl(page);
