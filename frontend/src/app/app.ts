@@ -166,8 +166,7 @@ export class App {
 
   constructor() {
     // The active set really changed (#419): the results on screen were computed on the
-    // previous set, so we start over from a new request (same reset as "+ Nuova
-    // richiesta"). It observes the store, not the dialog: it works even if the page was closed
+    // previous set, so they are cleared (mode and form kept, #490). It observes the store, not the dialog: it works even if the page was closed
     // while the upload was in flight. The initial value is not a change.
     let seen = this.sources.revision();
     effect(() => {
@@ -175,7 +174,9 @@ export class App {
       if (revision === seen) return;
       seen = revision;
       untracked(() => {
-        this.onResetConfirmed();
+        // Not the explicit reset (#490): that one also switches back to Full mode and empties the
+        // form. A source change must keep both, like the server-side change below.
+        this.store.dispatch({ type: 'SOURCE_SET_CHANGED' });
       });
     });
     // The server serves another set than the one the client believed in, and the user did not touch

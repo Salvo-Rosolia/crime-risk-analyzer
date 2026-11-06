@@ -656,9 +656,13 @@ describe('transition: SOURCE_SET_CHANGED (#473)', () => {
     expect(s.error).toBe('Tipo POI non riconosciuto');
   });
 
-  it('does not interrupt a request in flight', () => {
-    const s = transition(loaded('LOADING'), { type: 'SOURCE_SET_CHANGED' });
-    expect(s.screen).toBe('LOADING');
+  it('drops a request in flight back to the form of the current mode, keeping the mode (#490)', () => {
+    const full = transition(loaded('LOADING'), { type: 'SOURCE_SET_CHANGED' });
+    expect(full.screen).toBe('INPUT');
+    expect(full.mode).toBe('full');
+    const base = transition({ ...loaded('LOADING'), mode: 'base' }, { type: 'SOURCE_SET_CHANGED' });
+    expect(base.screen).toBe('BASE');
+    expect(base.mode).toBe('base');
   });
 
   it('clears the narratives of the cleared results', () => {

@@ -30,6 +30,20 @@ export function errorMessage(err: unknown, fallback: string): string {
 export class StateStore {
   private readonly api = inject(ApiService);
   private readonly _state = signal<AppState>(initialState);
+  /**
+   * Generation of the results the user is looking at (#490). It is bumped by every action that
+   * throws those results away (`RESET`, `SOURCE_SET_CHANGED`): a request started before the bump
+   * answers about a context that no longer exists, so `startAnalysis`/`startBaselineAnalysis`
+   * compare the generation they captured and drop a stale response (success or error).
+   */
+  private generation = 0;
+  /**
+   * Like `generation`, but also bumped by every FULL `ANALYZE` (#490): it identifies one
+   * analysis and the narratives requested on it. The `contesto_hash` guard alone cannot tell a
+   * late narrative of the previous run from the one of a new run on the same zone (same hash,
+   * e.g. after a reset or "Rigenera"), so late zone/POI narratives are dropped when it differs.
+   */
+  private epoch = 0;
 
   readonly state = this._state.asReadonly();
   readonly screen = computed(() => this._state().screen);
@@ -178,6 +192,11 @@ export class StateStore {
   });
 
   dispatch(action: Action): void {
+    if (action.type === 'RESET' || action.type === 'SOURCE_SET_CHANGED') {
+      this.generation++;
+      this.epoch++;
+    }
+    if (action.type === 'ANALYZE' && action.pipeline === 'full') this.epoch++;
     this._state.update((s) => transition(s, action));
   }
 
@@ -202,9 +221,12 @@ export class StateStore {
    */
   async startAnalysis(area: SearchArea, question?: string | null): Promise<void> {
     this.dispatch({ type: 'ANALYZE', area, question, pipeline: 'full' });
+    const generation = this.generation;
+    const epoch = this.epoch;
     try {
       // No `question` here (#292): phase 1 no longer calls the LLM, it goes only to `loadZoneNarrative`.
       const result = await this.api.analyze(area);
+      if (generation !== this.generation || epoch !== this.epoch) return;
       this.dispatch({
         type: 'LOAD_SUCCESS',
         data: result,
@@ -222,8 +244,10 @@ export class StateStore {
         result.citta,
         result.zona_normalizzata,
         question ?? null,
+        epoch,
       );
     } catch (err) {
+      if (generation !== this.generation || epoch !== this.epoch) return;
       this.dispatch({
         type: 'LOAD_ERROR',
         message: errorMessage(err, "Errore durante l'analisi."),
@@ -235,10 +259,13 @@ export class StateStore {
   /** 'base' pipeline: same logic as `startAnalysis`, fixed literal `pipeline: 'base'`. */
   async startBaselineAnalysis(params: BaselineParams): Promise<void> {
     this.dispatch({ type: 'ANALYZE', area: params.area, pipeline: 'base' });
+    const generation = this.generation;
     try {
       const result = await this.api.analyzeBaseline(params);
+      if (generation !== this.generation) return;
       this.dispatch({ type: 'LOAD_SUCCESS', data: result, pipeline: 'base' });
     } catch (err) {
+      if (generation !== this.generation) return;
       this.dispatch({
         type: 'LOAD_ERROR',
         message: errorMessage(err, 'Endpoint /analyze/baseline non ancora disponibile.'),
@@ -276,9 +303,10 @@ export class StateStore {
     // it is skipped even with `force` (the one in flight will produce the same kind of result).
     if (this._state().poiNarrativesLoading.includes(poiId)) return;
     this.dispatch({ type: 'POI_NARRATIVE_START', poiId });
+    const epoch = this.epoch;
     try {
       const res = await this.api.poiNarrative(query.city, query.zone, poiId, contextHash);
-      if (this.contextChanged(contextHash)) return;
+      if (this.contextChanged(contextHash, epoch)) return;
       this.dispatch({
         type: 'POI_NARRATIVE_SUCCESS',
         poiId,
@@ -290,7 +318,7 @@ export class StateStore {
         },
       });
     } catch (err) {
-      if (this.contextChanged(contextHash)) return;
+      if (this.contextChanged(contextHash, epoch)) return;
       this.dispatch({
         type: 'POI_NARRATIVE_ERROR',
         poiId,
@@ -317,12 +345,13 @@ export class StateStore {
     city: string,
     zone: string,
     question: string | null,
+    epoch: number,
   ): Promise<void> {
     if (!contextHash) return;
     this.dispatch({ type: 'ZONE_NARRATIVE_START' });
     try {
       const res = await this.api.zoneNarrative(city, zone, contextHash, question);
-      if (this.contextChanged(contextHash)) return;
+      if (this.contextChanged(contextHash, epoch)) return;
       this.dispatch({
         type: 'ZONE_NARRATIVE_SUCCESS',
         narrative: res.narrativa,
@@ -331,7 +360,7 @@ export class StateStore {
         llmUsed: res.llm_used,
       });
     } catch (err) {
-      if (this.contextChanged(contextHash)) return;
+      if (this.contextChanged(contextHash, epoch)) return;
       this.dispatch({
         type: 'ZONE_NARRATIVE_ERROR',
         message: errorMessage(err, 'Errore nella generazione della narrativa di zona.'),
@@ -353,7 +382,7 @@ export class StateStore {
    * before the round trip to base is deposited anyway on return — correct behavior, because the
    * context on screen is still the same.
    */
-  private contextChanged(contextHash: string): boolean {
-    return this._state().fullData?.contesto_hash !== contextHash;
+  private contextChanged(contextHash: string, epoch: number): boolean {
+    return this.epoch !== epoch || this._state().fullData?.contesto_hash !== contextHash;
   }
 }

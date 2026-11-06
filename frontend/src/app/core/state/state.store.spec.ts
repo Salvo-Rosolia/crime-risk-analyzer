@@ -123,6 +123,125 @@ describe('StateStore', () => {
     expect(api.zoneNarrative).toHaveBeenCalledWith('Roma', 'Colosseo', 'h-ctx', 'di sera?');
   });
 
+  describe('stale responses (#490)', () => {
+    const deferred = <T>() => {
+      let resolve!: (v: T) => void;
+      let reject!: (e: unknown) => void;
+      const promise = new Promise<T>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      return { promise, resolve, reject };
+    };
+
+    it.each(['RESET', 'SOURCE_SET_CHANGED'] as const)(
+      'a response arriving after %s is discarded',
+      async (type) => {
+        const d = deferred<AnalyzeResponse>();
+        api.analyze.mockReturnValue(d.promise);
+        const run = store.startAnalysis(AREA, null);
+        store.dispatch({ type });
+        d.resolve(data);
+        await run;
+        expect(store.fullData()).toBeNull();
+        expect(store.screen()).toBe('INPUT');
+        expect(api.zoneNarrative).not.toHaveBeenCalled();
+      },
+    );
+
+    it('an error arriving after a source change is discarded', async () => {
+      const d = deferred<AnalyzeResponse>();
+      api.analyze.mockReturnValue(d.promise);
+      const run = store.startAnalysis(AREA, null);
+      store.dispatch({ type: 'SOURCE_SET_CHANGED' });
+      d.reject(new Error('late'));
+      await run;
+      expect(store.screen()).toBe('INPUT');
+      expect(store.error()).toBeNull();
+    });
+
+    it('a baseline response arriving after a source change is discarded', async () => {
+      const d = deferred<AnalyzeResponse>();
+      api.analyzeBaseline.mockReturnValue(d.promise);
+      store.dispatch({ type: 'TOGGLE_MODE', mode: 'base' });
+      const run = store.startBaselineAnalysis({ area: AREA } as never);
+      store.dispatch({ type: 'SOURCE_SET_CHANGED' });
+      d.resolve(data);
+      await run;
+      expect(store.baselineData()).toBeNull();
+      expect(store.mode()).toBe('base');
+    });
+
+    describe('narratives in flight across a new run on the same zone', () => {
+      const zoneResp = (text: string): ZoneNarrativeResponse =>
+        ({
+          narrativa: text,
+          narrativa_fonti: data.narrativa_fonti,
+          fallback: false,
+          llm_used: 'm',
+        }) as unknown as ZoneNarrativeResponse;
+
+      it.each(['RESET', 'Rigenera'] as const)(
+        'a late ZONE narrative of the old run is dropped after %s on the same zone',
+        async (how) => {
+          const old = deferred<ZoneNarrativeResponse>();
+          const fresh = deferred<ZoneNarrativeResponse>();
+          api.analyze.mockResolvedValue(data);
+          api.zoneNarrative.mockReturnValueOnce(old.promise).mockReturnValueOnce(fresh.promise);
+          await store.startAnalysis(AREA, null);
+          if (how === 'RESET') store.dispatch({ type: 'RESET' });
+          await store.startAnalysis(AREA, null);
+          expect(store.zoneNarrativeLoading()).toBe(true);
+          old.resolve(zoneResp('OLD'));
+          await Promise.resolve();
+          await Promise.resolve();
+          expect(store.fullData()?.narrativa).not.toBe('OLD');
+          expect(store.zoneNarrativeLoading()).toBe(true);
+          fresh.resolve(zoneResp('NEW'));
+          await new Promise((r) => setTimeout(r, 0));
+          expect(store.fullData()?.narrativa).toBe('NEW');
+          expect(store.zoneNarrativeLoading()).toBe(false);
+        },
+      );
+
+      it('a late ZONE narrative error of the old run does not touch the new run', async () => {
+        const old = deferred<ZoneNarrativeResponse>();
+        api.analyze.mockResolvedValue(data);
+        api.zoneNarrative.mockReturnValueOnce(old.promise);
+        await store.startAnalysis(AREA, null);
+        store.dispatch({ type: 'RESET' });
+        await store.startAnalysis(AREA, null);
+        old.reject(new Error('late'));
+        await new Promise((r) => setTimeout(r, 0));
+        expect(store.zoneNarrativeError()).toBeNull();
+        expect(store.zoneNarrativeLoading()).toBe(true);
+      });
+
+      it.each(['RESET', 'Rigenera'] as const)(
+        'a late POI narrative of the old run is dropped after %s on the same zone',
+        async (how) => {
+          const old = deferred<PoiNarrativeResponse>();
+          api.analyze.mockResolvedValue(data);
+          api.poiNarrative.mockReturnValueOnce(old.promise);
+          await store.startAnalysis(AREA, null);
+          const pending = store.loadPoiNarrative('node/1');
+          if (how === 'RESET') store.dispatch({ type: 'RESET' });
+          await store.startAnalysis(AREA, null);
+          old.resolve(poiResp);
+          await pending;
+          expect(store.state().poiNarratives['node/1']).toBeUndefined();
+        },
+      );
+    });
+
+    it('a request started after the change is applied', async () => {
+      store.dispatch({ type: 'SOURCE_SET_CHANGED' });
+      api.analyze.mockResolvedValue(data);
+      await store.startAnalysis(AREA, null);
+      expect(store.fullData()).toBe(data);
+    });
+  });
+
   it('startAnalysis failure → LOAD_ERROR with message', async () => {
     api.analyze.mockRejectedValue(new Error('offline'));
     await store.startAnalysis(AREA);

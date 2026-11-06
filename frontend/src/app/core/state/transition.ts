@@ -163,13 +163,17 @@ export function transition(state: AppState, action: Action): AppState {
     case 'SOURCE_SET_CHANGED':
       // Partial reset (#473): only what the previous set computed goes away. The form inputs (they
       // live in the shell and in `pendingQuestion`) and `error` stay: the user did not touch the
-      // sources, so nothing else is taken from them. A request in flight keeps its LOADING screen.
+      // sources, so nothing else is taken from them. A request in flight is dropped by the store
+      // (#490, it was computed on the old set), so LOADING goes back to the form of the current
+      // mode: nothing would ever leave it otherwise. The mode itself is not touched.
       return {
         ...state,
         screen:
-          state.screen === 'LOADING' || state.screen === 'ERROR' || state.screen === 'BASE'
+          state.screen === 'ERROR' || state.screen === 'BASE'
             ? state.screen
-            : 'INPUT',
+            : state.screen === 'LOADING' && state.mode === 'base'
+              ? 'BASE'
+              : 'INPUT',
         fullData: null,
         baselineData: null,
         selectedPoiId: null,
