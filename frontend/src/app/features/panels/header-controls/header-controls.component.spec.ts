@@ -161,7 +161,7 @@ describe('HeaderControlsComponent', () => {
   it('with data in full mode it shows the qualitative Copertura badge (via deriveCoverage/coverageBadgeText, of the 4 fixture POIs 3 have non-null confidence)', () => {
     setup({ data, mode: 'full' });
     expect(fixture.nativeElement.textContent).toContain(
-      'Copertura 3 su 4 POI coperti da ontologia',
+      'Copertura: 3 POI su 4 coperti da ontologia',
     );
   });
 

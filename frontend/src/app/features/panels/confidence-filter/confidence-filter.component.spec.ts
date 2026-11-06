@@ -46,9 +46,9 @@ describe('ConfidenceFilterComponent', () => {
     expect(fixture.nativeElement.textContent).toContain(KEY_NOTE);
   });
 
-  it('each row is a toggle inside a role="group" with aria-label "Filtra per confidence"', () => {
+  it('each row is a toggle inside a role="group" with aria-label "Filtra per confidenza"', () => {
     const group = fixture.nativeElement.querySelector('[role="group"]');
-    expect(group.getAttribute('aria-label')).toBe('Filtra per confidence');
+    expect(group.getAttribute('aria-label')).toBe('Filtra per confidenza');
     const rows = fixture.nativeElement.querySelectorAll('.cra-confidence-row');
     expect(rows.length).toBe(2);
     rows.forEach((row: HTMLElement) => expect(row.tagName).toBe('BUTTON'));

@@ -31,8 +31,13 @@
       <p class="cra-narr-error" role="alert">{{ error() }}</p>
     } @else if (fallback()) {
       <p class="cra-narr-fallback" role="alert">
-        Il modello non ha prodotto una narrativa per questo punto. I fattori di rischio restano
-        disponibili nel pannello Dettaglio, con la citazione dell'ontologia accanto a ciascuno.
+        @if (poiName()) {
+          Il modello non ha prodotto una narrativa per questo punto. I fattori di rischio restano
+          disponibili nel pannello Dettaglio, con la citazione dell'ontologia accanto a ciascuno.
+        } @else {
+          Il modello non ha prodotto una narrativa per questa zona. I fattori di rischio restano
+          disponibili nell'elenco dei punti, con la citazione dell'ontologia accanto a ciascuno.
+        }
       </p>
     } @else if (ungrounded()) {
       <p class="cra-narr-ungrounded" role="note">

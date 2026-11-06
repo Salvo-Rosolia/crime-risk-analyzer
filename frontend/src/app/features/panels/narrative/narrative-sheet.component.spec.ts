@@ -25,6 +25,7 @@ describe('NarrativeSheetComponent', () => {
       loading?: boolean;
       error?: string | null;
       fallback?: boolean;
+      poiName?: string | null;
     } = {},
   ): void {
     fixture = TestBed.createComponent(NarrativeSheetComponent);
@@ -38,6 +39,7 @@ describe('NarrativeSheetComponent', () => {
     fixture.componentRef.setInput('open', inputs.open ?? true);
     if (inputs.loading !== undefined) fixture.componentRef.setInput('loading', inputs.loading);
     if (inputs.error !== undefined) fixture.componentRef.setInput('error', inputs.error);
+    if (inputs.poiName !== undefined) fixture.componentRef.setInput('poiName', inputs.poiName);
     if (inputs.fallback !== undefined) fixture.componentRef.setInput('fallback', inputs.fallback);
     fixture.detectChanges();
   }
@@ -477,6 +479,17 @@ describe('NarrativeSheetComponent', () => {
       expect(fallbackEl).toBeTruthy();
       expect(fallbackEl.textContent).toContain('non ha prodotto una narrativa');
       expect(fixture.nativeElement.querySelector('.cra-narr-error')).toBeNull();
+    });
+
+    it('fallback names the zone in zone scope and the point in point scope', () => {
+      setup({ fallback: true });
+      expect(fixture.nativeElement.querySelector('.cra-narr-fallback').textContent).toContain(
+        'per questa zona',
+      );
+      setup({ fallback: true, poiName: 'Banca A' });
+      expect(fixture.nativeElement.querySelector('.cra-narr-fallback').textContent).toContain(
+        'per questo punto',
+      );
     });
   });
 });

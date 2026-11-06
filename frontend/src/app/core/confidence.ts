@@ -108,7 +108,7 @@ export function deriveCoverage(poi: Poi[] | null | undefined): { total: number; 
 }
 
 export function coverageBadgeText(total: number, anchored: number): string {
-  return `Copertura ${anchored} su ${total} POI coperti da ontologia`;
+  return `Copertura: ${anchored} POI su ${total} coperti da ontologia`;
 }
 
 /**

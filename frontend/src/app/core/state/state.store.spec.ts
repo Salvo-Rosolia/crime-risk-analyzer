@@ -315,25 +315,6 @@ describe('StateStore', () => {
     expect(store.error()).toBe('404');
   });
 
-  describe('fromCache computed', () => {
-    it('is false in the initial state', () => {
-      expect(store.fromCache()).toBe(false);
-    });
-
-    it('becomes true with data.cache_hit === true', async () => {
-      const cached: AnalyzeResponse = { ...data, cache_hit: true };
-      api.analyze.mockResolvedValue(cached);
-      await store.startAnalysis(AREA);
-      expect(store.fromCache()).toBe(true);
-    });
-
-    it('stays false with a normal response (without cache_hit)', async () => {
-      api.analyze.mockResolvedValue(data);
-      await store.startAnalysis(AREA);
-      expect(store.fromCache()).toBe(false);
-    });
-  });
-
   describe('startBaselineAnalysis', () => {
     it('dispatches ANALYZE and stays in LOADING before the await; routes to BASE even without a prior TOGGLE_MODE (the pipeline tag does not depend on state.mode, review #67-bis blocker A)', async () => {
       let screenAtDispatch: string | null = null;

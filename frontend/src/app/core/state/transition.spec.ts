@@ -708,3 +708,17 @@ describe('transition: results locked on LOADING and ERROR (#491)', () => {
     expect(s.screen).toBe('DETAIL');
   });
 });
+
+describe('transition: base ANALYZE keeps the Full question (#494)', () => {
+  it('does not clear pendingQuestion', () => {
+    const s = transition(
+      { ...initialState, pendingQuestion: 'di sera?' },
+      {
+        type: 'ANALYZE',
+        area: { kind: 'zone', city: 'Roma', zone: 'Centro' },
+        pipeline: 'base',
+      },
+    );
+    expect(s.pendingQuestion).toBe('di sera?');
+  });
+});

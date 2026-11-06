@@ -52,4 +52,15 @@ describe('LoadingOverlayComponent', () => {
     fixture.destroy();
     expect(clearSpy).toHaveBeenCalled();
   });
+
+  it('in base mode shows only geocoding and Overpass, no SPARQL nor grounding (#494)', () => {
+    fixture = TestBed.createComponent(LoadingOverlayComponent);
+    fixture.componentRef.setInput('mode', 'base');
+    fixture.detectChanges();
+    const text = fixture.nativeElement.textContent;
+    expect(fixture.nativeElement.querySelectorAll('.cra-loading-step').length).toBe(2);
+    expect(text).toContain('Overpass');
+    expect(text).not.toContain('SPARQL');
+    expect(text).not.toContain('Grounding');
+  });
 });

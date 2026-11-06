@@ -61,7 +61,6 @@ export class StateStore {
   // panels): the drawn circle lives in MapComponent, which survives on its own across screen
   // remounts and needs no external reseeding.
   readonly mode = computed(() => this._state().mode);
-  readonly fromCache = computed(() => this._state().fullData?.cache_hit ?? false);
   /** Last full query (center+radiusM+question from the action, city+zone RESOLVED from the
    * response, #318): survives in RESULTS/DETAIL/FILTER, source of "Rigenera" and of the context
    * for /analyze/poi and /analyze/narrativa. */

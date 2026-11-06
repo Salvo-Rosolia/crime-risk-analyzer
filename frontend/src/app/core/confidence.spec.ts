@@ -77,8 +77,8 @@ describe('confidence', () => {
   });
 
   describe('coverageBadgeText', () => {
-    it('formats "Copertura X su Y POI coperti da ontologia"', () => {
-      expect(coverageBadgeText(3, 2)).toBe('Copertura 2 su 3 POI coperti da ontologia');
+    it('formats "Copertura: X POI su Y coperti da ontologia"', () => {
+      expect(coverageBadgeText(3, 2)).toBe('Copertura: 2 POI su 3 coperti da ontologia');
     });
   });
 

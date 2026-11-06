@@ -1,15 +1,5 @@
 import { Action, AppState, Screen } from '@core/models/models';
 
-export const STATES = Object.freeze({
-  INPUT: 'INPUT',
-  LOADING: 'LOADING',
-  RESULTS: 'RESULTS',
-  DETAIL: 'DETAIL',
-  ERROR: 'ERROR',
-  FILTER: 'FILTER',
-  BASE: 'BASE',
-}) satisfies Record<string, Screen>;
-
 export const initialState: AppState = {
   screen: 'INPUT',
   fullData: null,
@@ -48,7 +38,8 @@ export function transition(state: AppState, action: Action): AppState {
       return {
         ...state,
         screen: 'LOADING',
-        pendingQuestion: action.question ?? null,
+        // The base pipeline has no question: the one typed in Full must survive its search (#494).
+        pendingQuestion: isBase ? state.pendingQuestion : (action.question ?? null),
         error: null,
         selectedPoiId: null,
         filter: null,
