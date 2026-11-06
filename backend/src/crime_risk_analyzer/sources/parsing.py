@@ -63,6 +63,7 @@ from crime_risk_analyzer.sources.limits import (
     MAX_BYTES_CSV,
     MAX_BYTES_GEOJSON,
     MAX_BYTES_ONTOLOGY,
+    MAX_OSM_SELECTORS,
     check_note,
     check_text,
 )
@@ -281,7 +282,13 @@ class _Osm:
 def _read_osm(
     content: bytes, ontology_reading: OntologyReading | None, report: ValidationReport
 ) -> _Osm | None:
-    rows = read_csv(content, "osm_table", required=OSM_COLUMNS, report=report)
+    rows = read_csv(
+        content,
+        "osm_table",
+        required=OSM_COLUMNS,
+        report=report,
+        max_rows=MAX_OSM_SELECTORS,
+    )
     if rows is None:
         return None
     tag_to_class: dict[str, str] = {}

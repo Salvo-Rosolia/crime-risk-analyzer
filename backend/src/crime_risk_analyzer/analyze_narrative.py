@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import time
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from crime_risk_analyzer import zone_context_cache
 from crime_risk_analyzer.context_fingerprint import (
@@ -137,10 +137,14 @@ class ZoneNarrativeRequest(BaseModel):
     """
 
     citta: str = Field(
-        max_length=100, description="Città dell'analisi in corso (stessa di /analyze)."
+        min_length=1,
+        max_length=100,
+        description="Città dell'analisi in corso (stessa di /analyze).",
     )
     zona: str = Field(
-        max_length=200, description="Zona dell'analisi in corso (stessa di /analyze)."
+        min_length=1,
+        max_length=200,
+        description="Zona dell'analisi in corso (stessa di /analyze).",
     )
     domanda: str | None = Field(
         default=None,
@@ -155,6 +159,17 @@ class ZoneNarrativeRequest(BaseModel):
         ),
     )
     contesto_hash: ContextHash
+
+    @field_validator("citta", "zona", mode="before")
+    @classmethod
+    def _strip_text(cls, v: object) -> object:
+        """Edge spaces removed BEFORE ``min_length``/``max_length`` (#497).
+
+        A blank value is rejected (422) before any geocoding, and the cap is
+        measured on the value that would reach Nominatim, as in
+        :class:`~crime_risk_analyzer.orchestrator.AnalyzeRequest`.
+        """
+        return v.strip() if isinstance(v, str) else v
 
 
 class ZoneNarrativeResponse(IstatResponseFields):

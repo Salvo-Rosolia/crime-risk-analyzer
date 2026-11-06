@@ -190,7 +190,7 @@ def test_report_with_per_file_cap_and_real_count() -> None:
 
 
 def test_per_file_cap_with_different_codes() -> None:
-    rows = "".join(f"amenity=x{n},Inesistente{n}\n" for n in range(300))
+    rows = "".join(f"amenity=x{n},Inesistente{n}\n" for n in range(140))
     report = _report(with_fields(osm_table=(OSM_CSV + rows).encode()))
     assert len(report.errors) <= MAX_PROBLEMS_PER_FILE + 1
     assert report.errors[-1].code == CODE_OTHER_PROBLEMS
@@ -400,9 +400,12 @@ def test_file_with_200001_rows_rejected_immediately() -> None:
     assert _codes(report) == ["troppe_righe"]
 
 
-def test_file_with_200000_valid_rows_accepted() -> None:
-    osm = "osm_tag,classe\n" + "".join(f"amenity=a{n},Banca\n" for n in range(MAX_ROWS))
-    parsed, report = check_sources(with_fields(osm_table=osm.encode()), VOCABULARY)
+def test_csv_with_200000_valid_rows_accepted_by_the_reader() -> None:
+    """The generic row cap; the OSM table has its own, tighter one (#498)."""
+    rows_csv = "".join(f"a{n},Banca\n" for n in range(MAX_ROWS))
+    content = ("osm_tag,classe\n" + rows_csv).encode()
+    report = ValidationReport()
+    rows = read_csv(content, "osm_table", required=("osm_tag", "classe"), report=report)
     assert report.ok
-    assert parsed is not None
-    assert len(parsed.osm_to_class) == MAX_ROWS
+    assert rows is not None
+    assert len(rows) == MAX_ROWS

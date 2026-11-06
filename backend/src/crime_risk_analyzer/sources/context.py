@@ -45,12 +45,14 @@ __all__ = [
     "active_set",
     "active_istat",
     "bind",
+    "bind_session",
     "current",
     "current_executor",
     "current_id",
     "current_labels",
     "current_ontology",
     "current_osm",
+    "current_session_id",
     "default_set",
     "istat_data_version",
 ]
@@ -65,6 +67,10 @@ _DEFAULT_OSM = OsmBinding(
 )
 
 _ACTIVE: ContextVar[SourceSet | None] = ContextVar("active_source_set", default=None)
+
+#: Client session of the current request (``X-Session-Id``), bound even when the
+#: session has no set: per-session state (zone cache, #495) is keyed on it.
+_SESSION: ContextVar[str | None] = ContextVar("active_session_id", default=None)
 
 
 @lru_cache(maxsize=1)
@@ -169,3 +175,18 @@ def bind(source_set: SourceSet) -> Generator[None]:
         yield
     finally:
         _ACTIVE.reset(token)
+
+
+def current_session_id() -> str:
+    """Session id of the current request; empty string without a session."""
+    return _SESSION.get() or ""
+
+
+@contextmanager
+def bind_session(session_id: str) -> Generator[None]:
+    """Makes ``session_id`` the current session in the block (#495)."""
+    token = _SESSION.set(session_id)
+    try:
+        yield
+    finally:
+        _SESSION.reset(token)

@@ -39,14 +39,16 @@ from geopy.geocoders import (  # pyright: ignore[reportMissingTypeStubs]
 )
 
 from crime_risk_analyzer.config import get_settings
-from crime_risk_analyzer.models.geo import Bbox
+from crime_risk_analyzer.models.geo import Bbox, bbox_side_m
 
 __all__ = [
     "Bbox",
     "GeoResult",
     "GeocodingError",
     "ZoneNotFoundError",
+    "AreaTooLargeError",
     "geocode_zone",
+    "check_area_size",
     "geocode_freeform",
     "reverse_geocode_label",
 ]
@@ -112,6 +114,14 @@ class GeocodingError(RuntimeError):
 
 class ZoneNotFoundError(GeocodingError):
     """The zone is not geocodable in the given city."""
+
+
+class AreaTooLargeError(ZoneNotFoundError):
+    """The geocoded area exceeds the size cap (#497): e.g. a whole city.
+
+    Subclass of :class:`ZoneNotFoundError` so the cold-cache rebuild paths that
+    already catch it keep working; the central handler gives it its own code.
+    """
 
 
 #: In-memory cache of geocoding results (#115), gated by Settings.cache_enabled.
@@ -350,6 +360,27 @@ def _enforce_min_bbox(bbox: Bbox, half_span: float) -> Bbox:
         max_lat=max(bbox.max_lat, lat_mid + half_span),
         max_lon=max(bbox.max_lon, lon_mid + half_span),
     )
+
+
+def check_area_size(result: GeoResult, label: str) -> GeoResult:
+    """Rejects a geocoded area larger than the circle cap (#497) and returns it.
+
+    The text mode is held to the same area cap as the drawn circle: no side above
+    the diameter of the largest allowed circle. It is applied by the callers on
+    the product paths, not inside :func:`geocode_zone`, so the evaluation harness
+    (fixed zones, reproducibility) keeps calling it unchanged.
+
+    Raises:
+        AreaTooLargeError: a side of the bbox exceeds ``2 * search_radius_max_m``.
+    """
+    max_side_m = 2 * get_settings().search_radius_max_m
+    height, width = bbox_side_m(result["bbox"])
+    if max(height, width) > max_side_m:
+        raise AreaTooLargeError(
+            f"Area troppo estesa per {label!r}: massimo {max_side_m / 1000:.0f} km "
+            "per lato. Indica una zona o un quartiere piu' piccolo."
+        )
+    return result
 
 
 def geocode_zone(zona: str, citta: str) -> GeoResult:

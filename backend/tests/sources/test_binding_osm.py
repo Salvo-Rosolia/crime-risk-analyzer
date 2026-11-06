@@ -63,8 +63,8 @@ from crime_risk_analyzer.sparql_module.osm_mapping import (
     YIELDING_SELECTORS,
 )
 
-SID = "test-session-AAAAAA"
-OTHER_SID = "other-session-BBBBBB"
+SID = "test-session-AAAAAA-0123456789ab"
+OTHER_SID = "other-session-BBBBBB-0123456789ab"
 #: Classes of the set built by ``_custom()``.
 CUSTOM_CLASSES = {"Banca", "Gas_station", "Monumento", "Rovina"}
 
