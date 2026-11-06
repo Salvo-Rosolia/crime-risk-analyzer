@@ -360,7 +360,9 @@ describe('StateStore', () => {
       };
       api.analyzeBaseline.mockResolvedValue(baselineResp);
       const baseCenter = { lat: 45.4, lon: 9.2 };
-      await store.startBaselineAnalysis({ center: baseCenter, radiusM: 300 });
+      await store.startBaselineAnalysis({
+        area: { kind: 'circle', center: baseCenter, radiusM: 300 },
+      });
 
       expect(store.lastQuery()).toEqual({
         area: AREA,

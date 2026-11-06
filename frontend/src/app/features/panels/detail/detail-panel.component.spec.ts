@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { DetailPanelComponent, STAKEHOLDER_AXIS_NOTE } from './detail-panel.component';
-import type { Poi, RiskModel } from '@core/models/models';
+import type { Poi, RiskItem, RiskModel } from '@core/models/models';
 import { istatOrderNote } from '@core/ui-helpers';
 import { istatPoi, istatRow } from '@core/testing/istat-fixtures';
 
@@ -451,11 +451,13 @@ describe('DetailPanelComponent', () => {
   });
 
   it('accordion: changing POI the open state resets to the adaptive default of the new POI (no leftover state)', () => {
-    const r = (
-      hazard: string,
-      tag: RiskModel['risks'][number]['tag'],
-      confidence: Poi['confidence'],
-    ) => ({ hazard, confidence, tag, hazard_label_it: hazard, hazard_label_en: '' });
+    const r = (hazard: string, tag: RiskItem['tag'], confidence: RiskItem['confidence']) => ({
+      hazard,
+      confidence,
+      tag,
+      hazard_label_it: hazard,
+      hazard_label_en: '',
+    });
     const models: RiskModel[] = [
       {
         poi_id: '1',
@@ -484,7 +486,7 @@ describe('DetailPanelComponent', () => {
     setup(makePoi({ id: '1', name: 'Colosseo' }), models);
     // POI A (>3 factors): adaptive default → only ONTOLOGIA open
     expect(
-      Array.from(fixture.nativeElement.querySelectorAll('.cra-source-header')).map(aria),
+      Array.from<Element>(fixture.nativeElement.querySelectorAll('.cra-source-header')).map(aria),
     ).toEqual(['true', 'false', 'false']);
     // the user manually expands SPECULATIVO (state diverging from the default)
     (fixture.nativeElement.querySelectorAll('.cra-source-header')[2] as HTMLElement).click();
@@ -498,7 +500,7 @@ describe('DetailPanelComponent', () => {
     // POI B follows ITS adaptive default (>3 → only ONTOLOGIA): SPECULATIVO closed again,
     // no leftover state of the previous POI.
     expect(
-      Array.from(fixture.nativeElement.querySelectorAll('.cra-source-header')).map(aria),
+      Array.from<Element>(fixture.nativeElement.querySelectorAll('.cra-source-header')).map(aria),
     ).toEqual(['true', 'false', 'false']);
   });
 

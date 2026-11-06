@@ -1,5 +1,9 @@
 import { HttpClient, provideHttpClient, withInterceptors } from '@angular/common/http';
-import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import {
+  HttpTestingController,
+  provideHttpClientTesting,
+  TestRequest,
+} from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { HttpErrorResponse } from '@angular/common/http';
 import type { SourcesStatus } from '@core/models/models';
@@ -88,7 +92,11 @@ describe('sessionInterceptor', () => {
     };
     const settle = () => new Promise((resolve) => setTimeout(resolve));
 
-    function failWith(url: string, status: number, body: unknown): void {
+    function failWith(
+      url: string,
+      status: number,
+      body: Parameters<TestRequest['flush']>[0],
+    ): void {
       http.post(url, {}).subscribe({ error: (e: HttpErrorResponse) => e });
       ctrl.expectOne(url).flush(body, { status, statusText: 'x' });
     }

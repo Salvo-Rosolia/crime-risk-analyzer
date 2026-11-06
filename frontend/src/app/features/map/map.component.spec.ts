@@ -115,14 +115,14 @@ describe('MapComponent', () => {
    * the same way, silently.
    */
   it('no residual dependency on CARTO (neither URL nor attribution)', () => {
-    const [url, options] = (L.tileLayer as jest.Mock).mock.calls[0];
+    const [url, options] = jest.mocked(L.tileLayer).mock.calls[0];
     const attribution = (options as { attribution: string }).attribution;
     expect(url).not.toEqual(expect.stringContaining('carto'));
     expect(attribution).not.toEqual(expect.stringContaining('CARTO'));
   });
 
   it('attribution covers POI data and tiles (OSM/ODbL) and geocoding (Nominatim)', () => {
-    const [, options] = (L.tileLayer as jest.Mock).mock.calls[0];
+    const [, options] = jest.mocked(L.tileLayer).mock.calls[0];
     const attribution = (options as { attribution: string }).attribution;
     expect(attribution).toEqual(expect.stringContaining('OpenStreetMap'));
     expect(attribution).toEqual(expect.stringContaining('ODbL'));
@@ -130,7 +130,7 @@ describe('MapComponent', () => {
   });
 
   it('attribution: the 3 terms are clickable links to the respective sources', () => {
-    const [, options] = (L.tileLayer as jest.Mock).mock.calls[0];
+    const [, options] = jest.mocked(L.tileLayer).mock.calls[0];
     const attribution = (options as { attribution: string }).attribution;
     expect(attribution).toEqual(expect.stringContaining('openstreetmap.org/copyright'));
     expect(attribution).toEqual(expect.stringContaining('opendatacommons.org'));

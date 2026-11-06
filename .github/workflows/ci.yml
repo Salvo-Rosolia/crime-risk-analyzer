@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  # Sui push il numero di PR e' vuoto: il fallback su sha evita che i push su main si cancellino a vicenda.
+  # On pushes the PR number is empty: falling back to the sha keeps pushes to main from cancelling each other.
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
@@ -48,9 +48,9 @@ jobs:
         run: uv sync
       - name: Quality checks
         run: uv run python scripts/check.py
-      - name: Audit dipendenze (pip-audit)
-        # Esporta il set di dipendenze bloccate (uv.lock) e lo passa a pip-audit.
-        # Blocca la lane se emerge una vulnerabilita nota (nessuna oggi).
+      - name: Dependency audit (pip-audit)
+        # Exports the locked dependency set (uv.lock) and passes it to pip-audit.
+        # Fails the lane if a known vulnerability shows up (none today).
         run: |
           uv export --format requirements-txt --no-emit-project --no-hashes > "$RUNNER_TEMP/requirements.txt"
           uvx pip-audit -r "$RUNNER_TEMP/requirements.txt"
@@ -69,10 +69,10 @@ jobs:
         run: |
           if [ -f package.json ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
-            echo "package.json trovato: eseguo lint + test."
+            echo "package.json found: running lint + type-check + tests."
           else
             echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "Tooling FE non ancora presente (nessun package.json): skip-pass."
+            echo "No frontend tooling yet (no package.json): skip-pass."
           fi
       - name: Setup Node
         if: ${{ steps.tooling.outputs.present == 'true' }}
@@ -82,14 +82,17 @@ jobs:
       - name: Install dependencies
         if: ${{ steps.tooling.outputs.present == 'true' }}
         run: npm ci
-      - name: Audit dipendenze (npm audit)
-        # Blocca solo su vulnerabilita high/critical in produzione (devDependencies escluse dall'audit); le low restano informative.
+      - name: Dependency audit (npm audit)
+        # Fails only on high/critical vulnerabilities in production (devDependencies excluded from the audit); low ones stay informational.
         if: ${{ steps.tooling.outputs.present == 'true' }}
         run: npm audit --omit=dev --audit-level=high
       - name: Lint
         if: ${{ steps.tooling.outputs.present == 'true' }}
         run: npm run lint
-      - name: Tests (con coverage + soglia)
+      - name: Type-check specs (Jest and Playwright do not check types)
+        if: ${{ steps.tooling.outputs.present == 'true' }}
+        run: npm run typecheck:spec
+      - name: Tests (with coverage + threshold)
         if: ${{ steps.tooling.outputs.present == 'true' }}
         run: npm run test:coverage
 
@@ -107,10 +110,10 @@ jobs:
         run: |
           if [ -f package.json ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
-            echo "package.json trovato: eseguo build + format check."
+            echo "package.json found: running build + format check."
           else
             echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "Tooling FE non ancora presente (nessun package.json): skip-pass."
+            echo "No frontend tooling yet (no package.json): skip-pass."
           fi
       - name: Setup Node
         if: ${{ steps.tooling.outputs.present == 'true' }}
@@ -120,7 +123,7 @@ jobs:
       - name: Install dependencies
         if: ${{ steps.tooling.outputs.present == 'true' }}
         run: npm ci
-      - name: Build (ng build, configurazione production)
+      - name: Build (ng build, production configuration)
         if: ${{ steps.tooling.outputs.present == 'true' }}
         run: npm run build
       - name: Format check (prettier)
@@ -141,10 +144,10 @@ jobs:
         run: |
           if [ -f package.json ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
-            echo "package.json trovato: eseguo gli E2E Playwright."
+            echo "package.json found: running the Playwright E2E."
           else
             echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "Tooling FE non ancora presente (nessun package.json): skip-pass."
+            echo "No frontend tooling yet (no package.json): skip-pass."
           fi
       - name: Setup Node
         if: ${{ steps.tooling.outputs.present == 'true' }}
@@ -157,17 +160,17 @@ jobs:
       - name: Install Playwright browser (chromium)
         if: ${{ steps.tooling.outputs.present == 'true' }}
         run: npx playwright install --with-deps chromium
-      - name: E2E (Playwright build di produzione + server statico + chromium)
-        # `npm run e2e` avvia il webServer di Playwright (ng build + http-server su
-        # :4310, E2E_PORT) e gira gli spec; non riusa mai server esistenti.
+      - name: E2E (Playwright, production build + static server + chromium)
+        # `npm run e2e` starts the Playwright webServer (ng build + http-server on
+        # :4310, E2E_PORT) and runs the specs; it never reuses existing servers.
         if: ${{ steps.tooling.outputs.present == 'true' }}
         run: npm run e2e
-      - name: Upload report Playwright (solo su fallimento E2E)
-        # playwright.config genera HTML report + trace (on-first-retry) in CI; qui li
-        # carichiamo come artifact SOLO se gli E2E falliscono, per il debug post-mortem
-        # (scaricabile dalla run). On-failure per non gonfiare lo storage sui run verdi.
-        # NB: i path sono relativi alla repo-root (github.workspace), NON al
-        # working-directory 'frontend' del job (che vale solo per gli step run:).
+      - name: Upload Playwright report (only on E2E failure)
+        # playwright.config produces an HTML report + trace (on-first-retry) in CI; here we
+        # upload them as an artifact ONLY if the E2E fail, for post-mortem debugging
+        # (downloadable from the run). On failure only, so green runs do not bloat storage.
+        # NB: the paths are relative to the repo root (github.workspace), NOT to the job's
+        # 'frontend' working-directory (which only applies to run: steps).
         if: ${{ failure() && steps.tooling.outputs.present == 'true' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -197,8 +200,8 @@ jobs:
           echo "frontend-e2e   = $frontend_e2e_result"
           for r in "$changes_result" "$backend_result" "$frontend_result" "$frontend_build_result" "$frontend_e2e_result"; do
             if [ "$r" = "failure" ] || [ "$r" = "cancelled" ]; then
-              echo "::error::Un job CI non e stato superato ($r). Gate ROSSO."
+              echo "::error::A CI job did not pass ($r). Gate RED."
               exit 1
             fi
           done
-          echo "Tutti i job sono success o skipped. Gate VERDE."
+          echo "All jobs are success or skipped. Gate GREEN."

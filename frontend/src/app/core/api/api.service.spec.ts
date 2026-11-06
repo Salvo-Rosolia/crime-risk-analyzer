@@ -31,6 +31,7 @@ const resp: AnalyzeResponse = {
   repro: { temperature: 0.2, seed: 0, prompt_hash: 'x' },
   cache_hit: false,
   fallback: false,
+  contesto_hash: 'h-ctx',
 };
 
 const poiResp: PoiNarrativeResponse = {
