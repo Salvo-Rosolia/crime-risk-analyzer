@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
+import httpx
 import pytest
+import respx
 from geopy.exc import GeocoderServiceError  # pyright: ignore[reportMissingTypeStubs]
 
 from crime_risk_analyzer.config import get_settings
@@ -15,7 +18,11 @@ from crime_risk_analyzer.eval.geometry import CityBoundary
 from crime_risk_analyzer.eval.snapshots import current_canonical_config
 from crime_risk_analyzer.geocoding import GeocodingError, ZoneNotFoundError
 from crime_risk_analyzer.models.geo import Bbox
-from crime_risk_analyzer.overpass_client import OverpassError, Poi
+from crime_risk_analyzer.overpass_client import (
+    DEFAULT_OVERPASS_URL,
+    OverpassError,
+    Poi,
+)
 
 _BOUNDARY = CityBoundary(
     polygons=[[[(11.0, 40.0), (13.0, 40.0), (13.0, 42.0), (11.0, 42.0)]]]
@@ -446,3 +453,34 @@ async def test_capture_roster_live_roma(tmp_path: Path) -> None:
     assert outcome.capture is not None
     assert outcome.capture.boundary.polygons
     assert outcome.capture.pois
+
+
+@respx.mock
+async def test_capture_city_live_source_stays_fail_fast_on_a_single_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``switch_ms`` is wall-clock: the live source must not fail over (#509).
+
+    Same transient 502 as the interactive path, but exactly 2 attempts, all on the
+    primary endpoint, even with mirrors configured.
+    """
+    mirror = "https://mirror.example/api/interpreter"
+    monkeypatch.setenv("OVERPASS_FALLBACK_URLS", json.dumps([mirror]))
+    get_settings.cache_clear()
+
+    def _fake_geocode(zona: str, citta: str) -> dict[str, object]:
+        return {"lat": 41.89, "lon": 12.49, "bbox": Bbox(41.0, 12.0, 41.5, 12.5)}
+
+    monkeypatch.setattr(ca, "geocode_zone", _fake_geocode)
+    # Same policy, no real pause: the test is about attempts and endpoints.
+    monkeypatch.setattr(
+        ca, "FAIL_FAST_RETRY", replace(ca.FAIL_FAST_RETRY, pause_s=(0.0,))
+    )
+    primary = respx.post(DEFAULT_OVERPASS_URL).mock(return_value=httpx.Response(502))
+    mirror_route = respx.post(mirror).mock(return_value=httpx.Response(200))
+
+    with pytest.raises(OverpassError):
+        await ca.capture_city("Roma", "Colosseo", boundary_source=_fake_boundary)
+
+    assert primary.call_count == 2
+    assert mirror_route.call_count == 0

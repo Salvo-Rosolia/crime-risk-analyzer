@@ -363,6 +363,30 @@ def test_analyze_overpass_down(monkeypatch: pytest.MonkeyPatch) -> None:
     assert resp.json()["detail"]["errore"] == "overpass_non_disponibile"
 
 
+def test_overpass_503_message_is_for_the_user_not_technical(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 503 invites to retry shortly and hides the raw reason (#509)."""
+    monkeypatch.setattr(area_search, "reverse_geocode_label", _fake_reverse_geocode)
+
+    async def _raise_fetch(*args: object, **kwargs: object) -> list[Poi]:
+        raise OverpassError("Overpass answered 502", transient=True)
+
+    monkeypatch.setattr(retrieval, "fetch_pois", _raise_fetch)
+    resp = cast(
+        httpx.Response,
+        _client().post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze",
+            json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0},
+        ),
+    )
+    detail = resp.json()["detail"]
+    assert resp.status_code == 503
+    assert detail["errore"] == "overpass_non_disponibile"
+    assert "Riprova" in detail["messaggio"]
+    assert "502" not in detail["messaggio"]
+
+
 def test_analyze_never_calls_the_llm(monkeypatch: pytest.MonkeyPatch) -> None:
     """#292: phase 1 does not spend a model call -- that is its whole point.
 
@@ -707,3 +731,27 @@ def test_analyze_rejects_the_circle_without_radius(
         ),
     )
     assert resp.status_code == 422
+
+
+def test_overpass_503_for_a_non_transient_error_does_not_invite_to_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 403/400 from Overpass will not go away by itself: no "retry shortly"."""
+    monkeypatch.setattr(area_search, "reverse_geocode_label", _fake_reverse_geocode)
+
+    async def _raise_fetch(*args: object, **kwargs: object) -> list[Poi]:
+        raise OverpassError("Overpass answered 403")
+
+    monkeypatch.setattr(retrieval, "fetch_pois", _raise_fetch)
+    resp = cast(
+        httpx.Response,
+        _client().post(  # pyright: ignore[reportUnknownMemberType]
+            "/analyze",
+            json={"center": {"lat": 41.89, "lon": 12.49}, "radius_m": 2000.0},
+        ),
+    )
+    detail = resp.json()["detail"]
+    assert resp.status_code == 503
+    assert detail["errore"] == "overpass_non_disponibile"
+    assert "Riprova" not in detail["messaggio"]
+    assert "403" not in detail["messaggio"]

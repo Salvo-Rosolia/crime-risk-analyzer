@@ -12,15 +12,17 @@ transport blip (connection refused/closed/interrupted) it retries according to
 the :class:`RetryPolicy` received, then :class:`OverpassError` (mapped to 503
 by the orchestrator). A 200 response carrying an interruption remark is
 retried like a timeout and, once the attempts are exhausted, raises
-:class:`OverpassError` (503); the cost is latency: up to 2 attempts of ~26 s
-each in interactive mode, 5 in offline. The calls are async
-(``httpx.AsyncClient``): no blocking I/O.
+:class:`OverpassError` (503); the cost is latency: up to 4 attempts of ~26 s
+each in interactive mode (#509), 5 in offline. The calls
+are async (``httpx.AsyncClient``): no blocking I/O.
 
-Two policies, because the two contexts have opposite costs (#232):
-:data:`INTERACTIVE_RETRY` for ``/analyze``, where a user is waiting and failing
-early is correct; :data:`OFFLINE_RETRY` for the capture of the evaluation
-snapshots, where waiting is free and failing means having no experiment. A
-single implementation, parametrised.
+Three policies, because the contexts have different costs (#232, #509):
+:data:`INTERACTIVE_RETRY` for ``/analyze``, where a user is waiting: several
+short attempts that rotate over the primary endpoint and the configured mirrors
+(``Settings.overpass_fallback_urls``); :data:`OFFLINE_RETRY` for the capture of
+the evaluation snapshots, where waiting is free and failing means having no
+experiment; :data:`FAIL_FAST_RETRY` for ``capture_city`` (#31), where wall-clock
+time is the ``switch_ms`` metric. A single implementation, parametrised.
 
 Truncated responses (#372): when the query's ``[timeout:25]`` fires, or the
 server-side memory runs out, Overpass does NOT answer with an HTTP error but
@@ -46,18 +48,22 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TypedDict, cast
+from urllib.parse import urlsplit
 
 import httpx
 
+from crime_risk_analyzer.config import get_settings
 from crime_risk_analyzer.models.geo import Bbox, haversine_m
 from crime_risk_analyzer.sources.context import current_osm
 from crime_risk_analyzer.sources.limits import MAX_OSM_SELECTORS
 
 __all__ = [
     "MAX_DUPLICATE_DISTANCE_M",
+    "FAIL_FAST_RETRY",
     "INTERACTIVE_RETRY",
     "MAX_POIS",
     "OFFLINE_RETRY",
@@ -169,17 +175,61 @@ class RetryPolicy:
     retry_after_cap_s: float | None
     #: Whether a non-timeout transport blip (connection refused, connection
     #: closed mid-response, interrupted read) should be retried like a 429/5xx
-    #: instead of being definitive (#247). ``False`` in interactive mode: that path
+    #: instead of being definitive (#247). ``False`` for the fail-fast policy: it
     #: must not gain latency for an error that today fails at once.
     retry_transport_errors: bool = False
+    #: Whether each retry moves to the NEXT endpoint (primary, then the mirrors,
+    #: round-robin) instead of repeating the same one (#509). ``False`` keeps the
+    #: single endpoint of the pre-#509 policies.
+    failover: bool = False
+    #: Overall wall-clock ceiling for ALL the attempts and pauses, in seconds
+    #: (#509); ``None`` = no ceiling. When it expires the call raises a transient
+    #: :class:`OverpassError` instead of waiting for the slowest possible sequence.
+    total_deadline_s: float | None = None
+    #: How many truncated answers (200 with an interruption remark) are tolerated
+    #: before giving up, ``None`` = as many as the attempts allow. A truncation
+    #: means the query is too heavy for the server, so touring the mirrors would
+    #: only multiply the load: the interactive policy allows one retry (#509).
+    max_remark_attempts: int | None = None
+    #: Random spread of the pauses: each is multiplied by ``1 + jitter * u`` with
+    #: ``u`` uniform in [-1, 1] (#509). Avoids synchronised retries from several
+    #: users hitting the same struggling public server.
+    jitter: float = 0.0
 
 
-#: Interactive path (``/analyze``): a user is waiting, so failing early is
-#: correct. It is the pre-#232 behaviour to the letter — one retry, one second of
-#: pause, ``Retry-After`` ignored — because that path must not gain latency.
-#: It also holds for ``capture_city`` (#31), where wall-clock time is the
-#: ``switch_ms`` metric and a longer pause would falsify it.
+#: Interactive path (``/analyze``, #509): a user is waiting, but a single retry
+#: on a single endpoint turned a transient 502 of the primary into a 503 for the
+#: user (3 out of 4 live analyses on 2026-11-06). Up to 4 attempts, each on an
+#: endpoint not yet tried in this request (primary, mirror 1, mirror 2; once all
+#: failed the rotation starts over), with short jittered pauses because a
+#: different server needs no courtesy wait. ``Retry-After`` is ignored on
+#: purpose (it refers to the server we are leaving, and honouring it would
+#: extend the wait). A truncated 200 (query too heavy) gets one retry only.
+#: DECLARED WORST-CASE LATENCY: 90 s, enforced by ``total_deadline_s`` (4
+#: attempts of 28 s plus pauses would be ~115 s, so in the all-timeouts case the
+#: last attempt is cut short). 28 s per attempt sits just above the
+#: ``[timeout:25]`` of the query, so a server-side timeout (a 200 with a remark,
+#: ~26 s) is still seen as such, while a hung connection is cut earlier than the
+#: 30/60 s of the pre-#509 policy. Transport blips (refused/closed connection)
+#: are retried too: they fail fast and the next mirror is a real alternative.
 INTERACTIVE_RETRY = RetryPolicy(
+    pause_s=(0.5, 0.5, 1.0),
+    timeout_s=28.0,
+    retry_timeout_s=28.0,
+    retry_after_cap_s=None,
+    retry_transport_errors=True,
+    failover=True,
+    total_deadline_s=90.0,
+    max_remark_attempts=2,
+    jitter=0.3,
+)
+
+#: The pre-#232 behaviour to the letter: one retry on the same endpoint, one
+#: second of pause, ``Retry-After`` ignored, 30 s then 60 s of timeout. Used by
+#: ``capture_city`` (#31), where wall-clock time IS the ``switch_ms`` metric: a
+#: more insistent policy (more attempts, mirrors) would change what that metric
+#: measures, so it must not follow the evolution of :data:`INTERACTIVE_RETRY`.
+FAIL_FAST_RETRY = RetryPolicy(
     pause_s=(1.0,),
     timeout_s=30.0,
     retry_timeout_s=60.0,
@@ -247,9 +297,19 @@ class OverpassError(RuntimeError):
     """Overpass unreachable or invalid response (mappable to 503).
 
     Even a 200 response carrying an interruption remark, retried like a
-    timeout until the attempts run out (#372): it costs latency, up to 2 attempts
+    timeout until the attempts run out (#372): it costs latency, up to 4 attempts
     of ~26 s each in interactive mode, 5 in offline.
+
+    ``transient`` tells the API layer whether trying again shortly makes sense:
+    ``True`` when the attempts were exhausted on 429/5xx, timeouts, connection
+    errors or truncated answers, or the overall deadline expired; ``False`` for
+    errors that will not go away by waiting (400/403/404, a ``Retry-After``
+    beyond the cap, malformed answers).
     """
+
+    def __init__(self, message: str, *, transient: bool = False) -> None:
+        super().__init__(message)
+        self.transient = transient
 
 
 def remark_signals_incomplete_response(remark: str) -> bool:
@@ -664,10 +724,10 @@ class _Outcome:
     def reason(self) -> str:
         """Why the attempt did not go through, for the log and for the error."""
         if self.remark is not None:
-            return f"ha dato una risposta incompleta ({self.remark})"
+            return f"returned an incomplete response ({self.remark})"
         if self.response is None:
-            return self.transport_reason or "nessuna risposta"
-        return f"ha risposto {self.response.status_code}"
+            return self.transport_reason or "no response"
+        return f"answered {self.response.status_code}"
 
 
 async def _attempt(
@@ -707,9 +767,9 @@ async def _try_post(
     Returns ``(response, reason)``: ``response`` is ``None`` when the attempt
     must be retried and ``reason`` describes why, for the caller's log. A
     non-timeout transport error (:data:`_RETRYABLE_TRANSPORT_ERRORS`) is
-    retryable ONLY if ``retry_transport_errors`` (offline policy, #247):
-    otherwise it stays definitive as before, rethrown at once as
-    :class:`OverpassError` — the interactive path must not gain
+    retryable ONLY if ``retry_transport_errors`` (offline and interactive
+    policies, #247/#509): otherwise it stays definitive as before, rethrown at
+    once as :class:`OverpassError` — the fail-fast policy must not gain
     latency for a blip that today fails at once.
     """
     try:
@@ -718,10 +778,12 @@ async def _try_post(
         return None, "timeout"
     except _RETRYABLE_TRANSPORT_ERRORS as exc:
         if retry_transport_errors:
-            return None, f"errore di trasporto ({exc})"
-        raise OverpassError(f"Errore di rete verso Overpass: {exc}") from exc
+            return None, f"transport error ({exc})"
+        raise OverpassError(
+            f"Network error towards Overpass: {exc}", transient=True
+        ) from exc
     except httpx.HTTPError as exc:
-        raise OverpassError(f"Errore di rete verso Overpass: {exc}") from exc
+        raise OverpassError(f"Network error towards Overpass: {exc}") from exc
 
 
 def _retry_after_s(response: httpx.Response | None) -> float | None:
@@ -764,8 +826,8 @@ def _wait_before_retry(
         return planned
     if requested > cap:
         raise OverpassError(
-            f"Overpass ha chiesto di ritentare fra {requested:.0f}s, oltre il "
-            f"tetto di {cap:.0f}s di questa politica: riprova piu' tardi"
+            f"Overpass asked to retry in {requested:.0f}s, above the "
+            f"{cap:.0f}s cap of this policy: try again later"
         )
     return max(planned, requested)
 
@@ -776,8 +838,10 @@ async def fetch_pois(
     osm_selectors: Iterable[str] | None = None,
     *,
     overpass_url: str = DEFAULT_OVERPASS_URL,
+    fallback_urls: Sequence[str] | None = None,
     retry: RetryPolicy | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    rand: Callable[[], float] = random.random,
 ) -> list[Poi]:
     """Fetches the POIs inside ``bbox`` for the OSM selectors ``osm_selectors``.
 
@@ -787,29 +851,36 @@ async def fetch_pois(
     according to ``retry``; once the policy is exhausted, :class:`OverpassError`. A
     200 response carrying an interruption remark is retried like a
     timeout and, once the attempts are exhausted, raises
-    :class:`OverpassError` (503): it costs latency, up to 2 attempts of ~26 s
-    each in interactive mode, 5 in offline.
+    :class:`OverpassError` (503): it costs latency, up to 4 attempts of ~26 s
+    each in interactive mode (see :data:`INTERACTIVE_RETRY`), 5 in offline.
+
+    ``fallback_urls`` are the mirrors used by a ``failover`` policy; ``None`` =
+    ``Settings.overpass_fallback_urls`` when ``overpass_url`` is the default
+    endpoint, none when the caller chose a specific one.
 
     ``retry`` is resolved to :data:`INTERACTIVE_RETRY` when ``None``: the resolution
     happens at CALL time and not as a signature default, so a test can
     replace the default policy without rewriting every caller. The offline
     capture passes :data:`OFFLINE_RETRY` (#232), which also retries a transport
     blip (:data:`_RETRYABLE_TRANSPORT_ERRORS`) like a 504 (#247); the
-    interactive path instead treats it as definitive, fail-fast. ``sleep``
-    is injectable: the tests verify the pauses without waiting for them.
+    fail-fast policy instead treats it as definitive. ``sleep``
+    and ``rand`` (the jitter source) are injectable: the tests verify the pauses
+    without waiting for them or depending on chance.
 
     Core shared with :func:`fetch_pois_with_cut` (#251) via
     :func:`_fetch_payload`: here the OSM DB cut is NOT computed, not just not
     returned — the interactive path must not even pay for its extraction
     (isinstance + TypedDict construction) for a datum it would discard at once.
     """
-    payload = await _fetch_payload(
+    payload, _ = await _fetch_payload(
         bbox,
         citta,
         osm_selectors,
         overpass_url=overpass_url,
+        fallback_urls=fallback_urls,
         retry=retry,
         sleep=sleep,
+        rand=rand,
     )
     return select_pois(_parse_elements(payload, citta), bbox.center())
 
@@ -820,8 +891,10 @@ async def fetch_pois_with_cut(
     osm_selectors: Iterable[str] | None = None,
     *,
     overpass_url: str = DEFAULT_OVERPASS_URL,
+    fallback_urls: Sequence[str] | None = None,
     retry: RetryPolicy | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    rand: Callable[[], float] = random.random,
 ) -> tuple[list[Poi], OsmCut]:
     """Like :func:`fetch_pois`, but also returns the OSM DB cut (#251).
 
@@ -834,19 +907,167 @@ async def fetch_pois_with_cut(
     timeout and, once the attempts are exhausted, raises
     :class:`OverpassError` (503): with :data:`OFFLINE_RETRY` that is 5 attempts of
     ~26 s each, plus the pauses.
+
+    ``OsmCut.overpass_url`` is the endpoint that REALLY answered (#509), which
+    with a failover policy may be a mirror and not ``overpass_url``.
     """
-    payload = await _fetch_payload(
+    payload, answered_by = await _fetch_payload(
         bbox,
         citta,
         osm_selectors,
         overpass_url=overpass_url,
+        fallback_urls=fallback_urls,
         retry=retry,
         sleep=sleep,
+        rand=rand,
     )
     # The candidate pool arrives complete; the choice of the MAX_POIS that come out is
     # by proximity to the centre of the queried area, with per-class cap (#254).
     pois = select_pois(_parse_elements(payload, citta), bbox.center())
-    return pois, _osm_cut(payload, overpass_url)
+    return pois, _osm_cut(payload, answered_by)
+
+
+def _host(url: str) -> str:
+    """Host of ``url`` for logs and errors (never the full URL: it may carry a path)."""
+    return urlsplit(url).hostname or url
+
+
+def _configured_mirrors() -> Sequence[str]:
+    """Mirrors from the settings; a broken configuration degrades to no mirrors.
+
+    ``get_settings()`` validates the whole configuration: a bad value of an
+    unrelated setting must not turn a request into a 500 here, since the
+    primary endpoint alone still works.
+    """
+    try:
+        return get_settings().overpass_fallback_urls
+    except ValueError:
+        logger.warning(
+            "Invalid settings: no Overpass mirrors will be used, primary only",
+            exc_info=True,
+        )
+        return ()
+
+
+def _endpoints(
+    overpass_url: str, fallback_urls: Sequence[str] | None, policy: RetryPolicy
+) -> list[str]:
+    """Endpoints to rotate over: the primary, then the mirrors if the policy fails over.
+
+    ``fallback_urls=None`` reads ``Settings.overpass_fallback_urls``, but only
+    when ``overpass_url`` is the default endpoint: a caller that points to a
+    specific server (a test, a private instance) does not get public mirrors
+    behind its back. Duplicates of the primary are dropped.
+    """
+    if not policy.failover:
+        return [overpass_url]
+    if fallback_urls is None:
+        fallback_urls = (
+            _configured_mirrors() if overpass_url == DEFAULT_OVERPASS_URL else ()
+        )
+    mirrors = [u for u in dict.fromkeys(fallback_urls) if u != overpass_url]
+    return [overpass_url, *mirrors]
+
+
+def _next_endpoint(endpoints: Sequence[str], failed: set[str], current: str) -> str:
+    """Next endpoint to try: one not yet failed in this request, if any (#509).
+
+    When every endpoint has failed the memory is reset and the rotation starts
+    over on a server different from the one that has just failed (if there is
+    one): a transient 502 may well be gone by now.
+    """
+    untried = [e for e in endpoints if e not in failed]
+    if untried:
+        return untried[0]
+    failed.clear()
+    others = [e for e in endpoints if e != current]
+    return others[0] if others else current
+
+
+def _jittered(wait_s: float, jitter: float, rand: Callable[[], float]) -> float:
+    """``wait_s`` spread by +-``jitter`` (a fraction), from ``rand()`` in [0, 1)."""
+    if jitter <= 0.0:
+        return wait_s
+    return wait_s * (1.0 + jitter * (2.0 * rand() - 1.0))
+
+
+@dataclass
+class _Progress:
+    """Where the attempts are, readable even when the deadline interrupts them."""
+
+    url: str
+    attempts: int = 0
+
+
+async def _run_attempts(
+    client: httpx.AsyncClient,
+    endpoints: Sequence[str],
+    query: str,
+    policy: RetryPolicy,
+    progress: _Progress,
+    sleep: Callable[[float], Awaitable[None]],
+    rand: Callable[[], float],
+) -> _Outcome:
+    """The attempt loop: first attempt plus one retry for each declared pause.
+
+    A retry fires on no response (timeout or a transport blip), on a transient
+    status (429/5xx) and on a 200 truncated by Overpass (#372); with a failover
+    policy it goes to an endpoint not yet failed in this request. A
+    non-retryable non-2xx status (400/403/404) leaves the loop at once, without
+    waiting. A truncation is retried at most ``policy.max_remark_attempts - 1``
+    times: it means the query is too heavy, and mirrors would not fix that.
+    """
+    progress.url = endpoints[0]
+    progress.attempts = 1
+    outcome = await _attempt(
+        client,
+        progress.url,
+        query,
+        policy.timeout_s,
+        retry_transport_errors=policy.retry_transport_errors,
+    )
+    failed: set[str] = set()
+    remark_count = 0
+    for attempt_no, planned in enumerate(policy.pause_s, start=1):
+        if outcome.remark is not None:
+            remark_count += 1
+        if not outcome.should_retry:
+            break
+        if (
+            policy.max_remark_attempts is not None
+            and remark_count >= policy.max_remark_attempts
+        ):
+            break
+        wait_s = _jittered(
+            _wait_before_retry(outcome.response, planned, policy.retry_after_cap_s),
+            policy.jitter,
+            rand,
+        )
+        failed.add(progress.url)
+        next_url = _next_endpoint(endpoints, failed, progress.url)
+        # Log on every retry (#232): with the offline policy the overall wait
+        # reaches minutes, and without a trace "hung process" and "courtesy
+        # backoff in progress" are indistinguishable.
+        logger.warning(
+            "Overpass %s (%s): retry %d/%d on %s in %.1fs",
+            outcome.reason,
+            progress.url,
+            attempt_no,
+            len(policy.pause_s),
+            next_url,
+            wait_s,
+        )
+        await sleep(wait_s)
+        progress.url = next_url
+        progress.attempts += 1
+        outcome = await _attempt(
+            client,
+            progress.url,
+            query,
+            policy.retry_timeout_s,
+            retry_transport_errors=policy.retry_transport_errors,
+        )
+    return outcome
 
 
 async def _fetch_payload(
@@ -855,76 +1076,79 @@ async def _fetch_payload(
     osm_selectors: Iterable[str] | None,
     *,
     overpass_url: str,
+    fallback_urls: Sequence[str] | None,
     retry: RetryPolicy | None,
     sleep: Callable[[float], Awaitable[None]],
-) -> object:
-    """Queries Overpass with retries and returns the raw JSON payload (#251).
+    rand: Callable[[], float],
+) -> tuple[object, str]:
+    """Queries Overpass with retries; returns the raw payload and the URL that answered.
 
     Core shared by :func:`fetch_pois` and :func:`fetch_pois_with_cut`: neither
     duplicates the retry loop, and neither pays a cost it does not need
     (``fetch_pois`` never touches the payload for the OSM cut,
     ``fetch_pois_with_cut`` does not touch it twice).
 
+    The returned URL is the one of the successful attempt, so the provenance of a
+    snapshot names the server that really answered (#509); an answer from a
+    mirror is also logged as a warning, because mirrors may serve OSM data
+    that differs slightly from the primary's.
+
     A 200 with an interruption ``remark`` (#372) is retried like a timeout and,
     once the policy is exhausted, raises :class:`OverpassError`: the truncated
-    payload never leaves here.
+    payload never leaves here. Every error carries the host of the last endpoint
+    tried and a ``transient`` flag.
     """
     policy = retry or INTERACTIVE_RETRY
+    endpoints = _endpoints(overpass_url, fallback_urls, policy)
     selectors = list(
         current_osm().selectors if osm_selectors is None else osm_selectors
     )
     query = _build_query(bbox, selectors)
+    progress = _Progress(url=endpoints[0])
 
-    async with httpx.AsyncClient(headers={"User-Agent": _USER_AGENT}) as client:
-        outcome = await _attempt(
-            client,
-            overpass_url,
-            query,
-            policy.timeout_s,
-            retry_transport_errors=policy.retry_transport_errors,
-        )
-        # One retry for each declared pause: it fires on no response
-        # (timeout or, offline, a transport blip), on a transient
-        # status (429/5xx) and on a 200 truncated by Overpass (#372). A
-        # non-retryable non-2xx status (400/403/404) leaves the loop at once and
-        # fails below, without waiting.
-        for attempt_no, planned in enumerate(policy.pause_s, start=1):
-            if not outcome.should_retry:
-                break
-            wait_s = _wait_before_retry(
-                outcome.response, planned, policy.retry_after_cap_s
+    try:
+        async with (
+            asyncio.timeout(policy.total_deadline_s),
+            httpx.AsyncClient(headers={"User-Agent": _USER_AGENT}) as client,
+        ):
+            outcome = await _run_attempts(
+                client, endpoints, query, policy, progress, sleep, rand
             )
-            # Log on every retry (#232): with the offline policy the overall
-            # wait reaches minutes, and without a trace "hung process" and
-            # "courtesy backoff in progress" are indistinguishable — the condition
-            # that on 26/07 drove writing the backoff by hand in a shell.
-            logger.warning(
-                "Overpass %s: retry %d/%d in %.0fs",
-                outcome.reason,
-                attempt_no,
-                len(policy.pause_s),
-                wait_s,
-            )
-            await sleep(wait_s)
-            outcome = await _attempt(
-                client,
-                overpass_url,
-                query,
-                policy.retry_timeout_s,
-                retry_transport_errors=policy.retry_transport_errors,
-            )
+    except TimeoutError as exc:
+        raise OverpassError(
+            f"Overpass overall deadline of {policy.total_deadline_s}s exceeded "
+            f"after {progress.attempts} attempts "
+            f"(last endpoint {_host(progress.url)})",
+            transient=True,
+        ) from exc
 
+    host = _host(progress.url)
     if outcome.remark is not None:
-        # With a final remark the loop never stopped earlier: the attempts
-        # were all those of the policy. The remark states the reason itself
-        # (timeout, memory, other): here it is not requalified.
-        attempts = 1 + len(policy.pause_s)
-        after = f" dopo {attempts} tentativi" if attempts > 1 else ""
-        raise OverpassError(f"Risposta incompleta di Overpass{after}: {outcome.remark}")
+        # The remark states the reason itself (timeout, memory, other): here it
+        # is not requalified.
+        after = f" after {progress.attempts} attempts" if progress.attempts > 1 else ""
+        raise OverpassError(
+            f"Overpass returned an incomplete response{after} "
+            f"(last endpoint {host}): {outcome.remark}",
+            transient=True,
+        )
     if outcome.response is None:
         raise OverpassError(
-            f"Overpass irraggiungibile dopo i ritentativi: {outcome.reason}"
+            f"Overpass unreachable after retries (last endpoint {host}): "
+            f"{outcome.reason}",
+            transient=True,
         )
     if not outcome.response.is_success:
-        raise OverpassError(f"Overpass ha risposto {outcome.response.status_code}")
-    return outcome.payload
+        status = outcome.response.status_code
+        raise OverpassError(
+            f"Overpass answered {status} (last endpoint {host})",
+            transient=status in _RETRYABLE_STATUS,
+        )
+    if progress.url != endpoints[0]:
+        logger.warning(
+            "Overpass answer served by mirror %s instead of the primary %s: "
+            "the OSM data may differ slightly from the primary's",
+            host,
+            _host(endpoints[0]),
+        )
+    return outcome.payload, progress.url

@@ -67,6 +67,30 @@ e `GET /geocode?query=...` → `{"lat": <float>, "lon": <float>}` (forward-geoco
 luogo libero, per la casella "vai a un luogo" del frontend — 404 se non trovato,
 422 se la query è vuota o di soli spazi).
 
+## Resilienza di Overpass
+
+Overpass è un servizio pubblico gratuito e risponde spesso 502/504 sotto carico.
+`POST /analyze` prova fino a 4 volte, con un tetto complessivo di 90 s (il caso
+peggiore dichiarato). Ogni ritentativo passa a un endpoint non ancora provato in
+quella richiesta: prima `overpass-api.de`, poi i mirror di `OVERPASS_FALLBACK_URLS`
+(lista JSON di URL https; default due istanze pubbliche; `[]` disabilita il
+failover e i tentativi ripetono l'endpoint principale). Un tentativo viene ripetuto
+su timeout, 429/5xx, errore di connessione o risposta 200 interrotta, con pause
+brevi e un piccolo jitter casuale. Una risposta interrotta (query troppo pesante)
+ha un solo ritentativo: girare sui mirror non la risolverebbe.
+
+Se tutti i tentativi falliscono la risposta è `503` con
+`errore: overpass_non_disponibile`. Il messaggio invita a riprovare tra poco solo
+se il guasto è transitorio (carico, timeout, rete); per errori come 400/403/404 il
+messaggio non lo fa. Il motivo tecnico e l'host dell'ultimo endpoint provato
+restano nel log.
+
+Riproducibilità: i dati di un mirror possono differire leggermente da quelli del
+principale (stato OSM diverso). Quando risponde un mirror il backend lo scrive nel
+log come warning. Per la valutazione e per gli snapshot vale `OFFLINE_RETRY`, che
+non usa mai i mirror e registra in `OsmCut` l'endpoint che ha risposto; anche
+`capture_city` non li usa, per non alterare la metrica `switch_ms`.
+
 ## Fonti dell'utente (`/sources`)
 
 L'utente può sostituire le fonti di default (ontologia, tabella OSM, dati statistici,

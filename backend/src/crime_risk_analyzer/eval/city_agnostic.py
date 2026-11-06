@@ -41,7 +41,12 @@ from crime_risk_analyzer.geocoding import (
 )
 from crime_risk_analyzer.models.geo import Bbox
 from crime_risk_analyzer.ontology_namespaces import TERMINUS
-from crime_risk_analyzer.overpass_client import OverpassError, Poi, fetch_pois
+from crime_risk_analyzer.overpass_client import (
+    FAIL_FAST_RETRY,
+    OverpassError,
+    Poi,
+    fetch_pois,
+)
 from crime_risk_analyzer.sparql_module.osm_mapping import GENERIC_FALLBACK
 
 PoiSource = Callable[[Bbox, str], Awaitable[list[Poi]]]
@@ -348,6 +353,11 @@ def load_outcome(path: Path) -> CaptureOutcome:
     return CaptureOutcome.model_validate_json(path.read_text(encoding="utf-8"))
 
 
+async def _fetch_pois_fail_fast(bbox: Bbox, citta: str) -> list[Poi]:
+    """Live POI source of :func:`capture_city`: pre-#232 policy, single endpoint."""
+    return await fetch_pois(bbox, citta, retry=FAIL_FAST_RETRY)
+
+
 async def capture_city(
     citta: str,
     zona: str,
@@ -356,12 +366,13 @@ async def capture_city(
     boundary_source: BoundarySource = fetch_city_boundary,
 ) -> CityCapture:
     """Live capture: geocode + fetch POI (timed) + city polygon (not timed)."""
-    # INTERACTIVE retry policy on purpose, not the offline one of #232:
-    # here wall-clock time IS the metric (``switch_ms``, time to add a new
-    # city). A courtesy backoff of minutes would falsify it, measuring
-    # Overpass congestion instead of the switch cost. If the roster capture
-    # fails, it is rerun: there is nothing to preserve as in a run.
-    source = poi_source or fetch_pois
+    # FAIL-FAST retry policy on purpose, neither the offline one of #232 nor the
+    # failover one of ``/analyze`` (#509): here wall-clock time IS the metric
+    # (``switch_ms``, time to add a new city). A courtesy backoff of minutes, or
+    # extra attempts on mirrors, would falsify it, measuring Overpass congestion
+    # instead of the switch cost. If the roster capture fails, it is rerun:
+    # there is nothing to preserve as in a run.
+    source = poi_source or _fetch_pois_fail_fast
     start = time.perf_counter()
     geo = geocode_zone(zona, citta)
     pois = await source(geo["bbox"], citta)
