@@ -69,6 +69,26 @@ def bbox_from_circle(lat: float, lon: float, radius_m: float) -> Bbox:
     )
 
 
+def bbox_side_m(bbox: Bbox) -> tuple[float, float]:
+    """Approximate ``(height_m, width_m)`` of ``bbox``, from the same Earth radius.
+
+    The width is measured at the mid latitude (meridians converge with
+    ``cos(lat)``) and the longitude span is taken modulo 360, so a bbox crossing
+    the antimeridian (``min_lon > max_lon``) gets a positive width. Consistent
+    with :func:`bbox_from_circle`: a circle of radius
+    ``r`` gives a bbox of ``(2r, 2r)``.
+    """
+    meters_per_degree_lat = _EARTH_RADIUS_M * math.pi / 180
+    mid_lat = (bbox.min_lat + bbox.max_lat) / 2
+    height = (bbox.max_lat - bbox.min_lat) * meters_per_degree_lat
+    width = (
+        ((bbox.max_lon - bbox.min_lon) % 360)
+        * meters_per_degree_lat
+        * math.cos(math.radians(mid_lat))
+    )
+    return height, width
+
+
 class Bbox(NamedTuple):
     """Geographic bounding box in the order ``(min_lat, min_lon, max_lat, max_lon)``.
 

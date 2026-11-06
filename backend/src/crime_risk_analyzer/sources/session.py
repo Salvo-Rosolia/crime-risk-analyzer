@@ -40,6 +40,8 @@ from crime_risk_analyzer.sources.report import Problem
 
 __all__ = [
     "SESSION_HEADER",
+    "SESSION_ID_MIN_DISTINCT",
+    "SESSION_ID_MIN_LENGTH",
     "SessionEntry",
     "SessionStore",
     "SourcesExpiredError",
@@ -48,17 +50,34 @@ __all__ = [
 
 SESSION_HEADER = "X-Session-Id"
 
-#: URL-safe token of 16-128 characters (ASCII): long enough not to be
+#: Minimum length of the token (#498): 32 URL-safe characters are 128 bits at
+#: best (a UUID without dashes, what the client generates), out of reach of a
+#: guess. The server cannot measure the randomness the client put in.
+SESSION_ID_MIN_LENGTH = 32
+
+#: URL-safe token of 32-128 characters (ASCII): long enough not to be
 #: guessable, short enough to fit in a header.
-_SESSION_ID = re.compile(r"[A-Za-z0-9_\-]{16,128}")
+_SESSION_ID = re.compile(rf"[A-Za-z0-9_\-]{{{SESSION_ID_MIN_LENGTH},128}}")
 
 #: How many expired/evicted sessions to remember for the warning (bounded memory).
 _MAX_EXPIRED = 256
 
 
+#: Minimum number of distinct characters (#498): rejects trivial tokens such as
+#: 32 zeros or a repeated pattern. A random UUID without dashes has ~14.
+SESSION_ID_MIN_DISTINCT = 10
+
+
 def is_valid_session_id(value: str) -> bool:
-    """``True`` if ``value`` has the form of a session identifier."""
-    return _SESSION_ID.fullmatch(value) is not None
+    """``True`` if ``value`` has the form of a session identifier.
+
+    Besides length and alphabet, a token with too few distinct characters is
+    rejected: the id is the only secret protecting a session's set.
+    """
+    return (
+        _SESSION_ID.fullmatch(value) is not None
+        and len(set(value)) >= SESSION_ID_MIN_DISTINCT
+    )
 
 
 class SourcesExpiredError(Exception):
@@ -111,9 +130,8 @@ class SessionStore:
         """Activates ``source_set`` for the session, replacing the previous one."""
         self._prune()
         self._expired.pop(session_id, None)
-        previous = self._entries.pop(session_id, None)
-        if previous is not None:
-            zone_context_cache.purge(previous.source_set.id)
+        self._entries.pop(session_id, None)
+        zone_context_cache.purge_session(session_id)
         while len(self._entries) >= self._max:
             oldest = min(self._entries, key=lambda k: self._entries[k].expires_at)
             self._delete(oldest, remember=True)
@@ -171,7 +189,7 @@ class SessionStore:
         entry = self._entries.pop(session_id, None)
         if entry is None:
             return
-        zone_context_cache.purge(entry.source_set.id)
+        zone_context_cache.purge_session(session_id)
         if remember:
             self._expired[session_id] = None
             while len(self._expired) > _MAX_EXPIRED:

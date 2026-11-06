@@ -9,10 +9,11 @@ import {
   OnDestroy,
   output,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 import * as L from 'leaflet';
-import type { AnalyzeResponse, Confidence } from '@core/models/models';
+import type { AnalyzeResponse, Confidence, GeoZone, Poi } from '@core/models/models';
 import { pinHTML } from '@core/confidence';
 import { matchesFilter, poiPopupHTML } from '@core/ui-helpers';
 
@@ -27,8 +28,11 @@ type DrawState = 'idle' | 'drawing-radius' | 'ready';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div #mapEl class="cra-map"></div>
-    @if (showRadiusInput()) {
-      <div class="cra-radius-control">
+    @if (zeroPoiMessage(); as message) {
+      <p class="cra-map-notice" role="status">{{ message }}</p>
+    }
+    <div class="cra-radius-control">
+      @if (showRadiusInput()) {
         <label for="cra-radius-input">Raggio (m)</label>
         <input
           id="cra-radius-input"
@@ -39,8 +43,23 @@ type DrawState = 'idle' | 'drawing-radius' | 'ready';
           (input)="onRadiusInput($event)"
           (change)="onRadiusChange($event)"
         />
-      </div>
-    }
+      }
+      <!-- Keyboard / screen-reader way to draw the circle (#493): the map click flow alone
+           excludes them. The circle is placed at the map centre (pannable with the arrow keys). -->
+      <button
+        type="button"
+        class="cra-draw-btn"
+        [disabled]="!drawingEnabled()"
+        (click)="drawAtCenter()"
+      >
+        {{ drawState() === 'idle' ? 'Disegna cerchio al centro' : 'Ridisegna al centro' }}
+      </button>
+      @if (drawState() === 'drawing-radius') {
+        <button type="button" class="cra-confirm-btn" (click)="confirmCircle()">
+          Conferma area
+        </button>
+      }
+    </div>
   `,
   styles: [
     `
@@ -82,6 +101,22 @@ type DrawState = 'idle' | 'drawing-radius' | 'ready';
        *    between the two, where the horizontal anchoring below reuses var(--panel-max-width) instead of a
        *    fixed px value to stay correct if that constant changes.
        */
+      /* Zero-POI explanation (#488): same free corridor as the radius control, one row below. */
+      .cra-map-notice {
+        position: absolute;
+        top: calc(var(--space-4, 16px) + 3rem);
+        left: calc(var(--panel-max-width, 340px) + var(--space-4, 16px) * 2);
+        z-index: 500;
+        max-width: 28rem;
+        margin: 0;
+        padding: 6px 10px;
+        background: var(--paper, #fff);
+        border: 1px solid var(--ink, #1a1a1a);
+        border-radius: 3px;
+        font-family: var(--font-sans, sans-serif);
+        font-size: 0.78rem;
+      }
+
       .cra-radius-control {
         position: absolute;
         top: var(--space-4, 16px);
@@ -98,6 +133,13 @@ type DrawState = 'idle' | 'drawing-radius' | 'ready';
         font-size: 0.78rem;
       }
 
+      .cra-radius-control button {
+        font-family: var(--font-sans, sans-serif);
+        font-size: 0.78rem;
+        padding: 2px 8px;
+        cursor: pointer;
+      }
+
       .cra-radius-control input {
         width: 5.5em;
         font-family: var(--font-mono, monospace);
@@ -110,7 +152,14 @@ type DrawState = 'idle' | 'drawing-radius' | 'ready';
   ],
 })
 export class MapComponent implements OnDestroy {
+  /** Response whose POIs are drawn as markers (always the full pipeline). */
   readonly data = input<AnalyzeResponse | null>(null);
+  /** Response of the pipeline currently shown (full or base): used only to explain and recentre
+   * on a zero-POI result, which must work in Base mode too (#488). */
+  readonly activeResponse = input<AnalyzeResponse | null>(null);
+  /** False outside the search-form states (results/loading/error): a map click must not start a
+   * new circle there (#492). Bound by the shell. */
+  readonly drawingEnabled = input(true);
   readonly filter = input<Confidence | null>(null);
   readonly selectedId = input<string | null>(null);
   readonly poiClick = output<string>();
@@ -122,6 +171,10 @@ export class MapComponent implements OnDestroy {
   private readonly mapEl = viewChild.required<ElementRef<HTMLElement>>('mapEl');
   private map: L.Map | null = null;
   private markers: L.LayerGroup | null = null;
+  private readonly poiMarkers = new Map<
+    string,
+    { marker: L.Marker; poi: Poi; n: number; label: string; key: string }
+  >();
 
   /**
    * Signals (not plain fields) on purpose: `drawState`/`radiusM` are read by the template
@@ -129,7 +182,22 @@ export class MapComponent implements OnDestroy {
    * handlers (`map.on(...)`), not from `(event)` bindings in the template — only a signal, not a private
    * field, redraws the OnPush view in that case.
    */
-  private readonly drawState = signal<DrawState>('idle');
+  /**
+   * Derived from the response so the effects below depend on the POI list / zone, NOT on the whole
+   * response object (#492): the zone narrative arriving replaces `fullData` with a new object that
+   * carries the same `poi` array, and that must not make the map flyTo/redraw again.
+   */
+  private readonly pois = computed<Poi[]>(() => this.data()?.poi ?? []);
+  private readonly zeroPoiZone = computed<GeoZone | null>(() => {
+    const r = this.activeResponse();
+    return r && r.poi.length === 0 ? (r.zona_geo ?? null) : null;
+  });
+  protected readonly zeroPoiMessage = computed<string | null>(() => {
+    const r = this.activeResponse();
+    return r && r.poi.length === 0 ? (r.messaggio ?? null) : null;
+  });
+
+  protected readonly drawState = signal<DrawState>('idle');
   private circleLayer: L.Circle | null = null;
   private centerLatLng: { lat: number; lon: number } | null = null;
 
@@ -187,65 +255,149 @@ export class MapComponent implements OnDestroy {
     });
 
     effect(() => {
-      const d = this.data();
+      const pois = this.pois();
       const map = this.map;
-      if (!map || !d || d.poi.length === 0) return;
-      const bounds = L.latLngBounds(d.poi.map((p) => [p.lat, p.lon] as [number, number]));
+      if (!map || pois.length === 0) return;
+      const bounds = L.latLngBounds(pois.map((p) => [p.lat, p.lon] as [number, number]));
       map.flyToBounds(bounds, { padding: [40, 40] });
     });
 
+    // Zero POI (#488): without this the map stayed still and the user could not tell an empty
+    // zone from a mistyped one. Recentre on the geocoded zone.
     effect(() => {
-      const d = this.data();
-      const filter = this.filter();
-      const selectedId = this.selectedId();
+      const zone = this.zeroPoiZone();
+      const map = this.map;
+      if (!map || !zone) return;
+      const bounds = L.latLngBounds([
+        [zone.bbox_min_lat, zone.bbox_min_lon],
+        [zone.bbox_max_lat, zone.bbox_max_lon],
+      ]);
+      map.flyToBounds(bounds, { padding: [40, 40] });
+    });
+
+    // Structure effect: (re)creates the markers only when the POI list changes (#492). Filter and
+    // selection are read untracked here; the restyle effect below applies them.
+    effect(() => {
+      const pois = this.pois();
       const layer = this.markers;
       if (!layer) return;
+      const filter = untracked(() => this.filter());
+      const selectedId = untracked(() => this.selectedId());
 
       layer.clearLayers();
-      if (!d) return;
+      this.poiMarkers.clear();
 
-      d.poi.forEach((poi, index) => {
+      pois.forEach((poi, index) => {
         const n = index + 1;
-        const dim = !matchesFilter(poi.confidence, filter);
-        const focus = poi.id === selectedId;
-        const size = focus ? 34 : 26;
-        const icon = L.divIcon({
-          html: pinHTML(n, poi.confidence, { focus, dim }),
-          className: 'cra-poi-pin',
-          iconSize: [size, size],
-          iconAnchor: [size / 2, size],
-        });
-        const marker = L.marker([poi.lat, poi.lon], { icon }).addTo(layer);
+        // title+alt give the marker its accessible name (#493): Leaflet makes divIcon markers
+        // focusable (keyboard:true) and Enter fires `click`, but without a name they read as an
+        // unlabeled button.
+        const label = `${n}. ${poi.name || poi.ontology_label_it}`;
+        const marker = L.marker([poi.lat, poi.lon], {
+          icon: this.pinIcon(poi, n, filter, selectedId),
+          title: label,
+        }).addTo(layer);
+        this.labelMarker(marker, label);
         marker.bindPopup(poiPopupHTML(poi, n));
         marker.on('click', () => this.poiClick.emit(poi.id));
+        this.poiMarkers.set(poi.id, {
+          marker,
+          poi,
+          n,
+          label,
+          key: this.styleKey(poi, filter, selectedId),
+        });
       });
+    });
+
+    // Restyle effect (#492): a selection/filter change only swaps the icon of the markers whose
+    // style actually changed, instead of recreating every marker.
+    effect(() => {
+      const filter = this.filter();
+      const selectedId = this.selectedId();
+      for (const entry of this.poiMarkers.values()) {
+        const key = this.styleKey(entry.poi, filter, selectedId);
+        if (key === entry.key) continue;
+        entry.key = key;
+        // setIcon recreates the marker DOM element: restore the accessible name and, if the old
+        // element held the keyboard focus, move it to the new one (#493).
+        const hadFocus =
+          !!entry.marker.getElement() && document.activeElement === entry.marker.getElement();
+        entry.marker.setIcon(this.pinIcon(entry.poi, entry.n, filter, selectedId));
+        this.labelMarker(entry.marker, entry.label);
+        if (hadFocus) entry.marker.getElement()?.focus();
+      }
+    });
+  }
+
+  /** Leaflet ignores `alt` on divIcons and the visible number would otherwise be the name, so the
+   * accessible name is set explicitly as `aria-label` on the marker element (#493). */
+  private labelMarker(marker: L.Marker, label: string): void {
+    marker.getElement()?.setAttribute('aria-label', label);
+  }
+
+  private styleKey(poi: Poi, filter: Confidence | null, selectedId: string | null): string {
+    return `${matchesFilter(poi.confidence, filter)}|${poi.id === selectedId}`;
+  }
+
+  private pinIcon(
+    poi: Poi,
+    n: number,
+    filter: Confidence | null,
+    selectedId: string | null,
+  ): L.DivIcon {
+    const dim = !matchesFilter(poi.confidence, filter);
+    const focus = poi.id === selectedId;
+    const size = focus ? 34 : 26;
+    return L.divIcon({
+      html: pinHTML(n, poi.confidence, { focus, dim }),
+      className: 'cra-poi-pin',
+      iconSize: [size, size],
+      iconAnchor: [size / 2, size],
     });
   }
 
   private onMapClick(e: L.LeafletMouseEvent): void {
+    if (!this.drawingEnabled()) return;
     const { lat, lng } = e.latlng;
-    if (this.drawState() === 'idle' || this.drawState() === 'ready') {
-      // ready -> new center: the previously confirmed circle is no longer valid.
-      if (this.drawState() === 'ready') this.circleChange.emit(null);
-      this.centerLatLng = { lat, lon: lng };
-      this.circleLayer?.remove();
-      this.circleLayer = L.circle([lat, lng], { radius: DEFAULT_RADIUS_M }).addTo(this.map!);
-      this.radiusM.set(DEFAULT_RADIUS_M);
-      this.drawState.set('drawing-radius');
+    if (this.drawState() === 'drawing-radius') {
+      this.confirmCircle();
       return;
     }
-    // drawing-radius -> ready: confirms the current radius.
-    if (this.centerLatLng && this.circleLayer) {
-      this.drawState.set('ready');
-      this.circleChange.emit({
-        lat: this.centerLatLng.lat,
-        lon: this.centerLatLng.lon,
-        radiusM: this.circleLayer.getRadius(),
-      });
-    }
+    this.startCircle(lat, lng);
+  }
+
+  /** idle/ready -> drawing-radius on a new center. */
+  private startCircle(lat: number, lon: number): void {
+    // ready -> new center: the previously confirmed circle is no longer valid.
+    if (this.drawState() === 'ready') this.circleChange.emit(null);
+    this.centerLatLng = { lat, lon };
+    this.circleLayer?.remove();
+    this.circleLayer = L.circle([lat, lon], { radius: DEFAULT_RADIUS_M }).addTo(this.map!);
+    this.radiusM.set(DEFAULT_RADIUS_M);
+    this.drawState.set('drawing-radius');
+  }
+
+  /** Keyboard equivalent of the first map click: the circle is centered on the map view. */
+  protected drawAtCenter(): void {
+    if (!this.map || !this.drawingEnabled()) return;
+    const { lat, lng } = this.map.getCenter();
+    this.startCircle(lat, lng);
+  }
+
+  /** drawing-radius -> ready: confirms the current radius (second click, or the confirm button). */
+  protected confirmCircle(): void {
+    if (!this.centerLatLng || !this.circleLayer) return;
+    this.drawState.set('ready');
+    this.circleChange.emit({
+      lat: this.centerLatLng.lat,
+      lon: this.centerLatLng.lon,
+      radiusM: this.circleLayer.getRadius(),
+    });
   }
 
   private onMapMouseMove(e: L.LeafletMouseEvent): void {
+    if (!this.drawingEnabled()) return;
     if (this.drawState() !== 'drawing-radius' || !this.centerLatLng || !this.circleLayer) return;
     const radius = this.map!.distance(
       [this.centerLatLng.lat, this.centerLatLng.lon],

@@ -28,13 +28,14 @@ from fastapi.concurrency import run_in_threadpool
 
 from crime_risk_analyzer.geocoding import (
     GeoResult,
+    check_area_size,
     geocode_zone,
     reverse_geocode_label,
 )
 from crime_risk_analyzer.models.geo import bbox_from_circle
 from crime_risk_analyzer.rag.retrieval import GeoSource
 
-__all__ = ["resolve_circle", "resolve_zone"]
+__all__ = ["capped_zone_geo_source", "resolve_circle", "resolve_zone"]
 
 
 async def resolve_circle(
@@ -92,11 +93,25 @@ async def resolve_zone(citta: str, zona: str) -> tuple[str, str, GeoSource]:
 
     Raises:
         ZoneNotFoundError: zone not found in the city or without a bounding box.
+        AreaTooLargeError: the area exceeds the same cap as the circle (#497).
         GeocodingError: Nominatim unreachable.
     """
     geo = await run_in_threadpool(geocode_zone, zona, citta)
+    check_area_size(geo, zona)
 
     async def _geo_source(_city: str, _zone: str) -> GeoResult:
         return geo
 
     return citta, zona, _geo_source
+
+
+async def capped_zone_geo_source(citta: str, zona: str) -> GeoResult:
+    """``GeoSource`` for the cold-cache rebuild of the narrative routes (#497).
+
+    Same geocode and same area cap as :func:`resolve_zone`: without it a narrative
+    request on a cold cache would query Overpass on an area that ``/analyze``
+    would have refused. Kept out of ``retrieve`` so the evaluation harness, which
+    geocodes fixed zones, is not capped.
+    """
+    geo = await run_in_threadpool(geocode_zone, zona, citta)
+    return check_area_size(geo, zona)

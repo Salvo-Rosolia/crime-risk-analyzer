@@ -65,12 +65,23 @@ describe('NarrativeSheetComponent', () => {
     expect(fixture.nativeElement.textContent).toContain(ANTI_HALLUCINATION_TEXT);
   });
 
-  it('click on the header emits toggleNarrative', () => {
+  it('click on the toggle emits toggleNarrative', () => {
     setup();
     const spy = jest.fn();
     fixture.componentInstance.toggleNarrative.subscribe(spy);
-    (fixture.nativeElement.querySelector('.cra-narr-header') as HTMLElement).click();
+    (fixture.nativeElement.querySelector('.cra-narr-toggle') as HTMLElement).click();
     expect(spy).toHaveBeenCalled();
+  });
+
+  it('#493: no role="button" wrapper contains another button (Rigenera is not nested)', () => {
+    setup();
+    const el: HTMLElement = fixture.nativeElement;
+    expect(el.querySelector('[role="button"]')).toBeNull();
+    const toggle = el.querySelector('.cra-narr-toggle') as HTMLElement;
+    expect(toggle.tagName).toBe('BUTTON');
+    expect(toggle.querySelector('button')).toBeNull();
+    expect(el.querySelector('button button')).toBeNull();
+    expect(toggle.getAttribute('aria-expanded')).not.toBeNull();
   });
 
   it('click on Rigenera emits regenerate and NOT also toggleNarrative (stopPropagation)', () => {
@@ -185,16 +196,6 @@ describe('NarrativeSheetComponent', () => {
       fixture.nativeElement.querySelectorAll('[role="tab"]'),
     );
     expect(tabsAfter[0].getAttribute('aria-selected')).toBe('true');
-  });
-
-  it('pressing Space on the header emits toggleNarrative and prevents the default (page scroll)', () => {
-    setup();
-    const spy = jest.fn();
-    fixture.componentInstance.toggleNarrative.subscribe(spy);
-    const header = fixture.nativeElement.querySelector('.cra-narr-header') as HTMLElement;
-    const event = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
-    header.dispatchEvent(event);
-    expect(spy).toHaveBeenCalled();
   });
 
   it('without risk_models and without narrativeSources it does not fail and shows no tab', () => {

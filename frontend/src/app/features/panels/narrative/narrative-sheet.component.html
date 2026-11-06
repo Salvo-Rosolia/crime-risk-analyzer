@@ -1,23 +1,24 @@
-<div
-  class="cra-narr-header"
-  role="button"
-  tabindex="0"
-  [attr.aria-expanded]="open()"
-  aria-label="Comprimi o espandi la narrativa generata"
-  (click)="toggleNarrative.emit()"
-  (keydown.enter)="toggleNarrative.emit()"
-  (keydown.space)="onHeaderSpace($event)"
->
-  <span class="cra-narr-chevron" aria-hidden="true">{{ open() ? '▾' : '▸' }}</span>
-  <!-- The heading declares the SCOPE of the text shown (#197): without it, the narrative of a
-       single point would present itself with the same title as the zone one. -->
-  @if (poiName()) {
-    <h2 class="cra-eyebrow">
-      ◇ Narrativa del punto — {{ poiName() }} · {{ city() }} · {{ zone() }}
-    </h2>
-  } @else {
-    <h2 class="cra-eyebrow">◇ Narrativa generata — {{ city() }} · {{ zone() }}</h2>
-  }
+<div class="cra-narr-header">
+  <!-- The toggle is a native button INSIDE the heading, not a role="button" wrapper around the
+       whole header: a wrapper would nest the Rigenera button in another button (#493). The heading
+       declares the SCOPE of the text shown (#197): without it, the narrative of a single point
+       would present itself with the same title as the zone one. -->
+  <h2 class="cra-eyebrow">
+    <button
+      type="button"
+      class="cra-narr-toggle"
+      [attr.aria-expanded]="open()"
+      aria-label="Comprimi o espandi la narrativa generata"
+      (click)="toggleNarrative.emit()"
+    >
+      <span class="cra-narr-chevron" aria-hidden="true">{{ open() ? '▾' : '▸' }}</span>
+      @if (poiName()) {
+        ◇ Narrativa del punto — {{ poiName() }} · {{ city() }} · {{ zone() }}
+      } @else {
+        ◇ Narrativa generata — {{ city() }} · {{ zone() }}
+      }
+    </button>
+  </h2>
   <span class="cra-hallucination-banner">⚠ supporto decisionale · valuta con fonti primarie</span>
   <span class="cra-narr-spacer"></span>
   <button type="button" class="cra-btn-regen" (click)="onRegenerate($event)">↺ Rigenera</button>

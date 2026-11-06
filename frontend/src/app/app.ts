@@ -144,6 +144,13 @@ export class App {
    * dedup only, no caching of results (that lives in the backend). */
   private placeInFlightQuery: string | null = null;
 
+  /** True while a search form is mounted (INPUT, ERROR, BASE): only then may a map click
+   * draw the search circle. */
+  protected readonly searchFormVisible = computed(() => {
+    const screen = this.store.screen();
+    return screen === 'INPUT' || screen === 'ERROR' || screen === 'BASE';
+  });
+
   /**
    * Selected POI + its number (same order/number as the paired pin and card), for
    * the dock's Detail view (#199): a single computed prevents the two pieces of information from

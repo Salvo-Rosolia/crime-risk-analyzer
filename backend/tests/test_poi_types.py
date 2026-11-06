@@ -126,7 +126,7 @@ def test_get_poi_types_endpoint_shape_and_order() -> None:
 def test_get_poi_types_is_not_shared_cacheable_across_sessions() -> None:
     """#469: the body depends on X-Session-Id, so shared caches must not reuse it."""
     client = TestClient(create_app())
-    for headers in ({}, {"X-Session-Id": "test-session-AAAAAA"}):
+    for headers in ({}, {"X-Session-Id": "test-session-AAAAAA-0123456789ab"}):
         resp = cast(httpx.Response, client.get("/poi-types", headers=headers))  # pyright: ignore[reportUnknownMemberType]
         assert resp.status_code == 200
         # The app's gzip middleware may append Accept-Encoding to Vary.
