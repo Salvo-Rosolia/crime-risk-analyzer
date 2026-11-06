@@ -111,9 +111,8 @@ class SessionStore:
         """Activates ``source_set`` for the session, replacing the previous one."""
         self._prune()
         self._expired.pop(session_id, None)
-        previous = self._entries.pop(session_id, None)
-        if previous is not None:
-            zone_context_cache.purge(previous.source_set.id)
+        self._entries.pop(session_id, None)
+        zone_context_cache.purge_session(session_id)
         while len(self._entries) >= self._max:
             oldest = min(self._entries, key=lambda k: self._entries[k].expires_at)
             self._delete(oldest, remember=True)
@@ -171,7 +170,7 @@ class SessionStore:
         entry = self._entries.pop(session_id, None)
         if entry is None:
             return
-        zone_context_cache.purge(entry.source_set.id)
+        zone_context_cache.purge_session(session_id)
         if remember:
             self._expired[session_id] = None
             while len(self._expired) > _MAX_EXPIRED:
