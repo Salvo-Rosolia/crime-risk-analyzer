@@ -91,12 +91,15 @@ class _FakeAnthropicMessages:
             usage = _Usage(
                 input_tokens=830, output_tokens=42, cache_creation_input_tokens=820
             )
-        return _AnthropicMessage(
+        message = _AnthropicMessage(
             text=self._owner.text,
             model=str(kwargs["model"]),
             usage=usage,
             stop_reason=self._owner.stop_reason,
         )
+        if self._owner.missing_usage:
+            message.usage = None  # pyright: ignore[reportAttributeAccessIssue]
+        return message
 
 
 class _FakeAnthropic:
@@ -109,6 +112,8 @@ class _FakeAnthropic:
         # Text of the response block: the empty-content tests empty it without touching
         # ``stop_reason`` (the response stays "successful").
         self.text = "Analisi del rischio per la zona."
+        # #499: malformed response (``usage=None``).
+        self.missing_usage = False
         self.messages = _FakeAnthropicMessages(self)
 
 
@@ -140,7 +145,7 @@ class _GroqCompletion:
     ) -> None:
         self.choices = [_GroqChoice(content, finish_reason)]
         self.model = model
-        self.usage = usage
+        self.usage: _GroqUsage | None = usage
 
 
 class _FakeGroqCompletions:
@@ -149,12 +154,17 @@ class _FakeGroqCompletions:
 
     async def create(self, **kwargs: Any) -> _GroqCompletion:
         self._owner.calls.append(kwargs)
-        return _GroqCompletion(
+        completion = _GroqCompletion(
             content=self._owner.content,
             model=str(kwargs["model"]),
             usage=_GroqUsage(prompt_tokens=512, completion_tokens=88),
             finish_reason=self._owner.finish_reason,
         )
+        if self._owner.empty_choices:
+            completion.choices = []
+        if self._owner.missing_usage:
+            completion.usage = None
+        return completion
 
 
 class _FakeGroqChat:
@@ -171,6 +181,9 @@ class _FakeGroq:
         # Message content: the empty-content tests empty it leaving
         # ``finish_reason="stop"`` (the response declares itself successful).
         self.content = "Analisi del rischio per la zona."
+        # #499: malformed responses (``choices=[]`` / ``usage=None``).
+        self.empty_choices = False
+        self.missing_usage = False
         self.chat = _FakeGroqChat(self)
 
 
@@ -530,6 +543,36 @@ async def test_groq_empty_content_is_mapped_to_llm_error(empty_value: str) -> No
     client = LLMClient.for_groq(fake, temperature=0.2, seed=42)
 
     with pytest.raises(LLMError):
+        await client.generate(_SYSTEM, _USER)
+
+
+async def test_groq_empty_choices_is_mapped_to_llm_error() -> None:
+    """#499: ``choices=[]`` must not leak an IndexError (-> 500 on the route)."""
+    fake = _FakeGroq()
+    fake.empty_choices = True
+    client = LLMClient.for_groq(fake, temperature=0.2, seed=42)
+
+    with pytest.raises(LLMError, match="Groq"):
+        await client.generate(_SYSTEM, _USER)
+
+
+async def test_groq_missing_usage_is_mapped_to_llm_error() -> None:
+    """#499: ``usage=None`` must not leak an AttributeError (-> 500 on the route)."""
+    fake = _FakeGroq()
+    fake.missing_usage = True
+    client = LLMClient.for_groq(fake, temperature=0.2, seed=42)
+
+    with pytest.raises(LLMError, match="Groq"):
+        await client.generate(_SYSTEM, _USER)
+
+
+async def test_claude_missing_usage_is_mapped_to_llm_error() -> None:
+    """#499: same defect on the Claude branch (``usage=None``)."""
+    fake = _FakeAnthropic()
+    fake.missing_usage = True
+    client = LLMClient.for_claude(fake, temperature=0.2, seed=42)
+
+    with pytest.raises(LLMError, match="Claude"):
         await client.generate(_SYSTEM, _USER)
 
 
