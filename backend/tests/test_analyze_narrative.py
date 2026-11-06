@@ -7,6 +7,7 @@ Phase 1: fast structured response, narrativa not generated yet. Phase 2:
 from __future__ import annotations
 
 import inspect
+import re
 from typing import cast
 
 import httpx
@@ -618,13 +619,16 @@ def test_zone_narrative_request_accepts_domanda_at_max_length() -> None:
 class _RecordingLLMClient:
     """Spy: records the prompts the route sends to the model."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self, text: str = "Sintesi.\n\n[ONTOLOGIA]\nRischio rapina.\n"
+    ) -> None:
         self.calls: list[tuple[str, str]] = []
+        self._text = text
 
     async def generate(self, system_prompt: str, user_content: str) -> LLMResponse:
         self.calls.append((system_prompt, user_content))
         return LLMResponse(
-            text="Sintesi.\n\n[ONTOLOGIA]\nRischio rapina.\n",
+            text=self._text,
             llm_used="test-model",
             tokens_input=5,
             tokens_output=8,
@@ -753,10 +757,20 @@ def test_with_model_selection_the_weight_does_not_leave_the_responses(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """D9 (#366): the weight chosen by the model does not enter the API contract nor
-    the narrativa (no ranking)."""
+    the narrativa (no ranking).
+
+    The fake model really returns a selection anchored to the ISTAT block, so the
+    check on the narrativa is not vacuous: the ISTAT sentence composed by the app
+    proves the selection was read. The weight is ``medio`` because ``alto`` already
+    appears in the composed sentence ("tasso più alto").
+    """
     _patch_io(monkeypatch)
+    llm = _RecordingLLMClient(
+        "Sintesi.\n\nRischi da ontologia [ONTOLOGIA]\nRischio rapina.\n\n"
+        "SCELTA DATI ISTAT:\nFurto di beni | furti | medio\n"
+    )
     client = _client(
-        llm=_RecordingLLMClient(),
+        llm=llm,
         settings=Settings(istat_context_enabled=True, istat_scelta_modello=True),
     )
     zone_context_cache.clear()
@@ -770,10 +784,17 @@ def test_with_model_selection_the_weight_does_not_leave_the_responses(
     assert zone_resp.status_code == 200
     narrative_resp = _post_narrative(client, str(zone_resp.json()["contesto_hash"]))
     assert narrative_resp.status_code == 200
+    # Phase 1 never calls the model, so its response cannot carry the selection.
+    assert len(llm.calls) == 1
+    assert (
+        "la voce «furti» (rischio: Furto di beni)"
+        in (narrative_resp.json()["narrativa"])
+    )
     for response_obj in (zone_resp, narrative_resp):
         resp_body = response_obj.json()
         assert not {k for k in _keys(resp_body) if "scelta" in k or "peso" in k}
         assert "SCELTA DATI ISTAT" not in response_obj.text
+        assert not re.search(r"\bmedio\b", response_obj.text)
 
 
 def test_endpoint_completes_the_narrativa_left_open_by_phase_1(
