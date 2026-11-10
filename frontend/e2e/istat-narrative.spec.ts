@@ -89,3 +89,32 @@ test('inline ISTAT: the indicator appears after the first mention in the ONTOLOG
   await expect(page.locator('.cra-narr-istat')).toHaveCount(1); // only the (hidden) one of ONTOLOGIA
   await expect(page.locator('#cra-narr-panel-CONTESTO .cra-narr-istat')).toHaveCount(0);
 });
+
+test('inline ISTAT (#512): the indicator is one box that stays inside the paragraph and the panel', async ({
+  page,
+}) => {
+  await mockApi(page, { analyze: fastAnalyze, zoneNarrative });
+  await page.goto('/');
+  await drawSearchCircle(page);
+  await S.submitButton(page).click();
+
+  const ontology = page.locator('#cra-narr-panel-ONTOLOGIA');
+  const indicator = ontology.locator('.cra-narr-istat');
+  await expect(indicator).toBeVisible();
+
+  const geometry = await page.evaluate(() => {
+    const box = document.querySelector('#cra-narr-panel-ONTOLOGIA .cra-narr-istat')!;
+    const paragraph = box.closest('.cra-narr-prose')!;
+    const body = document.querySelector('.cra-narr-body')!;
+    return {
+      fragments: box.getClientRects().length,
+      boxRight: box.getBoundingClientRect().right,
+      paragraphRight: paragraph.getBoundingClientRect().right,
+      scrollWidth: body.scrollWidth,
+      clientWidth: body.clientWidth,
+    };
+  });
+  expect(geometry.fragments, 'one box, not line fragments').toBe(1);
+  expect(geometry.boxRight).toBeLessThanOrEqual(geometry.paragraphRight + 0.5);
+  expect(geometry.scrollWidth, 'no horizontal overflow').toBeLessThanOrEqual(geometry.clientWidth);
+});

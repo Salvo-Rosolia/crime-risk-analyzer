@@ -215,16 +215,46 @@ describe('inline ISTAT indicator in the prose (#365)', () => {
       expect(compact(out)).toEqual(['Il furto.', ['dati PRIMO']]);
     });
 
-    it('a single punctuation mark after the mention precedes the indicator; two do not', () => {
-      for (const p of [',', '.', ';', ':', ')']) {
+    it('punctuation attached to the mention precedes the indicator (never orphaned after the box)', () => {
+      for (const p of [',', '.', ';', ':', ')', '!', '?', '…', '/', '-']) {
         expect(compact(withIstatProseIndicators(`il furto${p} poi`, [cand('furto', 'T')]))).toEqual(
           [`il furto${p}`, ['dati T'], ' poi'],
         );
       }
-      expect(compact(withIstatProseIndicators('il furto.. poi', [cand('furto', 'T')]))).toEqual([
+      for (const run of ['..', '...', '?!', '.)', ').', '.”', '”.', ')**.']) {
+        const prose = `il furto${run} poi`;
+        const out = withIstatProseIndicators(prose, [cand('furto', 'T')]);
+        expect(compact(out)).toEqual([`il furto${run}`, ['dati T'], ' poi']);
+        expect(joinText(out)).toBe(prose);
+      }
+    });
+
+    it('the attached run stops at whitespace and at a word apostrophe', () => {
+      expect(compact(withIstatProseIndicators('il furto. Poi.', [cand('furto', 'T')]))).toEqual([
         'il furto.',
         ['dati T'],
-        '. poi',
+        ' Poi.',
+      ]);
+      expect(compact(withIstatProseIndicators('il furto.\nPoi', [cand('furto', 'T')]))).toEqual([
+        'il furto.',
+        ['dati T'],
+        '\nPoi',
+      ]);
+    });
+
+    it('a hyphen or slash followed by a letter joins two words: it is not consumed', () => {
+      expect(compact(withIstatProseIndicators('il furto-correlato', [cand('furto', 'T')]))).toEqual(
+        ['il furto', ['dati T'], '-correlato'],
+      );
+      expect(compact(withIstatProseIndicators('il furto/rapina', [cand('furto', 'T')]))).toEqual([
+        'il furto',
+        ['dati T'],
+        '/rapina',
+      ]);
+      expect(compact(withIstatProseIndicators('il furto - poi', [cand('furto', 'T')]))).toEqual([
+        'il furto',
+        ['dati T'],
+        ' - poi',
       ]);
     });
 

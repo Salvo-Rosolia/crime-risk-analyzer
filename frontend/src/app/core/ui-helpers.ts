@@ -468,11 +468,34 @@ export function buildIstatProseCandidates(
   return out;
 }
 
-/** Characters that close a quotation or markdown formatting after the mention (#365). */
-const CLOSERS = new Set(['\u201D', '"', '\u00BB', '\u2019', '\u2018', '*', '_']);
-const SINGLE_QUOTES = new Set(['’', '‘']);
-/** A single punctuation mark right after the mention: the indicator follows it, it does not precede it. */
-const TRAILING_PUNCTUATION = new Set([',', '.', ';', ':', ')']);
+/**
+ * Characters attached to the mention (closing quotes, markdown markers, punctuation): the
+ * indicator follows the WHOLE run (#365, #512). The box is inline-block, so anything left after
+ * it would wrap alone to the start of the next line.
+ */
+const TRAILING_RUN = new Set([
+  '”',
+  '"',
+  '»',
+  '’',
+  '‘',
+  '*',
+  '_',
+  ',',
+  '.',
+  ';',
+  ':',
+  ')',
+  ']',
+  '!',
+  '?',
+  '…',
+  '/',
+  '-',
+]);
+// These join two words when a letter follows (dell’area, furto-correlato, furto/rapina): they
+// belong to the run only when nothing alphanumeric comes right after.
+const WORD_JOINERS = new Set(['’', '‘', '-', '/']);
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -495,8 +518,8 @@ function normalizeApostrophes(value: string): string {
  * Known limit: attribution is by EXACT WORD of the label in the text. If a risk with data
  * ("Furto") appears inside a longer phrase that is not a risk of the scope ("Aggressione a
  * scopo di furto"), the indicator attaches there.
- * One indicator per ISTAT item. After the mention the indicator skips the closing quotes
- * and the closing markdown markers (`**`, `*`, `_`). No HTML: the template renders the segments.
+ * One indicator per ISTAT item. After the mention the indicator skips the whole attached run of
+ * closing quotes, closing markdown markers (`**`, `*`, `_`) and punctuation. No HTML: the template renders the segments.
  */
 export function withIstatProseIndicators(
   prose: string,
@@ -543,12 +566,10 @@ export function withIstatProseIndicators(
     if (!candidate || shownItems.has(candidate.item)) continue;
     shownItems.add(candidate.item);
     let end = m.index + m[0].length;
-    while (end < prose.length && CLOSERS.has(prose[end])) {
-      // ’ and ‘ close only if they are not a word's apostrophe (dell’area): no letter after.
-      if (SINGLE_QUOTES.has(prose[end]) && /[\p{L}\p{N}]/u.test(prose[end + 1] ?? '')) break;
+    while (end < prose.length && TRAILING_RUN.has(prose[end])) {
+      if (WORD_JOINERS.has(prose[end]) && /[\p{L}\p{N}]/u.test(prose[end + 1] ?? '')) break;
       end += 1;
     }
-    if (end < prose.length && TRAILING_PUNCTUATION.has(prose[end])) end += 1;
     segments.push({ kind: 'text', text: prose.slice(cursor, end) });
     segments.push({ kind: 'istat', indicator: candidate.indicator });
     cursor = end;
