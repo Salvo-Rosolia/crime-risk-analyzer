@@ -81,7 +81,7 @@ type DrawState = 'idle' | 'drawing-radius' | 'ready';
        * everywhere). .cra-panels (app.css) is z-index:500 in the ROOT stacking context, so it always sits
        * above cra-map (z-index:0): any panel inside .cra-panels covers this
        * control, regardless of LOCAL z-index/position in here. Corner by corner:
-       *  - top-left: ALWAYS occupied - .cra-panel in INPUT/ERROR (app.css, margin:16px) and
+       *  - (wide layouts; see the narrow-screen override below) top-left: ALWAYS occupied - .cra-panel in INPUT/ERROR (app.css, margin:16px) and
        *    the POI dock in RESULTS/FILTER/DETAIL (panel-dock.component.css, top/left:
        *    var(--space-4), fixed width var(--panel-max-width)) both start from there.
        *  - bottom-right: ALWAYS occupied by the Leaflet zoom control - zoomControl:false in
@@ -94,7 +94,7 @@ type DrawState = 'idle' | 'drawing-radius' | 'ready';
        *    max-height (not a fixed height) and with a full list it reaches almost the bottom; below
        *    1100px the narrative becomes a full-width bottom sheet (same
        *    narrative-sheet.component.css) and also occupies that corner when open.
-       *  - top, right next to the dock/panel: free on every screen. The dock/.cra-panel
+       *  - top, right next to the dock/panel: free from 768px up (below, see the override). The dock/.cra-panel
        *    have a FIXED width (var(--panel-max-width), never more even with a full list - only
        *    the height grows with the content), and the narrative (when present, on a wide layout) starts
        *    from the right with its own fixed width: a free vertical corridor therefore remains
@@ -131,6 +131,22 @@ type DrawState = 'idle' | 'drawing-radius' | 'ready';
         border-radius: 3px;
         font-family: var(--font-sans, sans-serif);
         font-size: 0.78rem;
+      }
+
+      /*
+       * Narrow screens (#511): there is no free corridor next to the panels (the corridor
+       * anchor above lands past the right edge of the viewport) and the bottom corners are taken
+       * by the narrative bottom sheet, the dock and the zoom control. Below 768px the control
+       * therefore spans the top of the map, wrapping if needed, and the panels and the dock start
+       * below it: --map-control-reserve (styles.css) is the band they leave free for it.
+       */
+      @media (max-width: 767px) {
+        .cra-radius-control {
+          left: var(--space-4, 16px);
+          right: var(--space-4, 16px);
+          flex-wrap: wrap;
+          box-sizing: border-box;
+        }
       }
 
       .cra-radius-control button {

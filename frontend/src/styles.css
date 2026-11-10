@@ -42,6 +42,10 @@
   --space-4: 16px;
   --header-height: 50px;
   --panel-max-width: 340px;
+  /* Vertical band at the top of the map reserved for the map's radius/draw control (#511): zero
+     on wide screens (the control floats in the free corridor next to the panels), reserved below
+     768px where the panels leave no corridor and must start below the control. */
+  --map-control-reserve: 0px;
   /* Width of the narrative panel on the right (#218, wide layout); next to --panel-max-width
      of the dock so the two widths of the side panels sit in a single place. */
   --narr-panel-width: 300px;
@@ -52,9 +56,16 @@
 
 /* Narrow screens: the header goes on two rows (title + Fonti, then search + mode), so nothing
    overflows the viewport. The token remains the only source of the height for map, panels and dialog. */
-@media (max-width: 767px) {
+@media (max-width: 1023px) {
   :root {
     --header-height: 88px;
+  }
+}
+
+@media (max-width: 767px) {
+  :root {
+    /* Two wrapped rows of the radius control (label + input, then buttons). */
+    --map-control-reserve: 5rem;
   }
 }
 
