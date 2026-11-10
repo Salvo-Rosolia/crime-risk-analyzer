@@ -1,5 +1,6 @@
 :host {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: var(--space-3);
 }
@@ -17,6 +18,10 @@
   padding: 3px var(--space-3);
   font-size: 0.78rem;
   white-space: nowrap;
+  /* On mid-width screens the badge text gives way (ellipsis) before the header overflows (#511). */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .cra-header-divider {
@@ -26,6 +31,7 @@
 }
 
 .cra-chip-group {
+  flex: none;
   display: flex;
   gap: var(--space-1);
 }
@@ -47,6 +53,7 @@
 }
 
 .cra-mode-toggle {
+  flex: none;
   display: flex;
   border: 1px solid var(--header-border);
   border-radius: 5px;
@@ -78,12 +85,12 @@
 }
 
 /*
- * Narrow screens (< 768px, #441): the host dissolves (`display: contents`) and its blocks
+ * Narrow screens (< 1024px, #441/#511): the host dissolves (`display: contents`) and its blocks
  * become flex items of the header, which wraps. Order: mode next to the search (row 2),
  * then Copertura badge and confidence chips (row 3, which wrap down if they do not fit). The
  * divider is no longer needed: the groups are separated by the gap.
  */
-@media (max-width: 767px) {
+@media (max-width: 1023px) {
   :host {
     display: contents;
   }

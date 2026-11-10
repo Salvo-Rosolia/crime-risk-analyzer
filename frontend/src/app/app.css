@@ -20,11 +20,19 @@
 
 .cra-title {
   font-weight: 600;
+  /* The title never wraps nor shrinks (#511): the tagline gives way first. */
+  flex: none;
+  white-space: nowrap;
 }
 
 .cra-tagline {
   font-size: 0.8rem;
   opacity: 0.8;
+  /* Single line with ellipsis, so that badge + chips do not squeeze the title (#511). */
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* Pushes cra-header-controls to the right end of the header (title+tagline stay on the left). */
@@ -33,11 +41,11 @@
 }
 
 /*
- * Narrow screens (< 768px): without wrap the header exceeded the viewport (691px) and the Fonti indicator
+ * Narrow screens (< 1024px, #511; it was 768px): without wrap the header exceeded the viewport (691px) and the Fonti indicator
  * and the Full/Base toggle stayed off screen. Row 1: title + Fonti; row 2: search +
  * mode. The tagline is decorative and is hidden. The height is `--header-height` (styles.css).
  */
-@media (max-width: 767px) {
+@media (max-width: 1023px) {
   .cra-header {
     flex-wrap: wrap;
     align-content: center;
@@ -116,6 +124,8 @@ cra-map {
   box-sizing: border-box;
   pointer-events: auto;
   margin: var(--space-4);
+  /* Below 768px the map's radius control sits above the panels (#511). */
+  margin-top: calc(var(--space-4) + var(--map-control-reserve));
   max-width: var(--panel-max-width);
   background: var(--panel-bg);
   border: var(--panel-border) solid var(--ink);
@@ -134,10 +144,15 @@ cra-map {
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  flex: 0 1 200px;
+  min-width: 100px;
 }
 
 .cra-place-search input {
+  /* Up to 200px, but it can shrink when badge + chips need the room (#511). */
   width: 200px;
+  min-width: 0;
+  max-width: 100%;
   padding: 5px var(--space-3);
   border: 1px solid var(--paper);
   border-radius: var(--radius);

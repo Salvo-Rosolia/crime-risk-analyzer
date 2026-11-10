@@ -13,7 +13,8 @@
      same box model avoids the invariant holding by chance. */
   box-sizing: border-box;
   position: absolute;
-  top: var(--space-4);
+  /* `--map-control-reserve` (styles.css): band for the map's radius control on narrow screens (#511). */
+  top: calc(var(--space-4) + var(--map-control-reserve));
   left: var(--space-4);
   z-index: 1;
   width: var(--panel-max-width);
@@ -21,7 +22,8 @@
      Below 1100px the reserve is restored by the media query at the bottom. */
   --dock-narr-reserve: 0px;
   max-height: calc(
-    100vh - var(--header-height) - var(--space-4) * 2 - var(--dock-narr-reserve, 56px)
+    100vh - var(--header-height) - var(--space-4) * 2 - var(--map-control-reserve) -
+      var(--dock-narr-reserve, 56px)
   );
   display: flex;
   flex-direction: column;
