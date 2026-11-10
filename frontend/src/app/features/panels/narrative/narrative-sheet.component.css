@@ -220,13 +220,19 @@
 }
 
 /*
- * #365: inline ISTAT indicator in the prose. It stays in the text flow (inline, can wrap):
- * smaller body, thin rule on the left in the ISTAT source color, neutral text color
- * — no red/green on the trend (D9: it is not a judgment of dangerousness).
+ * #365: inline ISTAT indicator in the prose: smaller body, thin rule on the left in the ISTAT
+ * source color, neutral text color — no red/green on the trend (D9: it is not a judgment of
+ * dangerousness).
+ * #512: with the old inline box the tint was painted on every line fragment, while the left rule
+ * and left padding only appeared on the first one. Now it is a single block that wraps to the
+ * next line as a whole; in the narrow panel it effectively takes the column width.
  */
 .cra-narr-istat {
+  display: inline-block;
+  position: relative; /* contains the absolutely positioned .cra-vh child inside the scroller */
+  white-space: normal; /* guard against newlines in the pre-wrap paragraph */
   margin: 0 0.25em;
-  padding: 0 0.4em;
+  padding: 0.1em 0.5em;
   font-size: 0.74rem;
   line-height: 1.4;
   color: var(--ink-2);
