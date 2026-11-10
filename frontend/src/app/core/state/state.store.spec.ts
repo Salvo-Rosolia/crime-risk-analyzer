@@ -799,6 +799,30 @@ describe('StateStore', () => {
       expect(store.currentScopePoiName()).toBeNull();
     });
 
+    it('the heading names the selected point while its narrative is loading, and only for that selection', async () => {
+      const bank: Poi = {
+        id: 'node/1',
+        name: 'Banca A',
+        ontology_class: 'Bank',
+        lat: 0,
+        lon: 0,
+        confidence: 'verificato',
+        sparql_path: null,
+        ontology_label_it: 'Banca',
+        ontology_label_en: 'Bank',
+      };
+      api.analyze.mockResolvedValue({ ...data, narrativa: 'narrativa di zona', poi: [bank] });
+      await store.startAnalysis(AREA, null);
+      store.dispatch({ type: 'SELECT_POI', id: 'node/1' });
+      store.dispatch({ type: 'POI_NARRATIVE_START', poiId: 'node/1' });
+      // The panel hides the zone text while loading (#510), so the heading must not name the zone.
+      expect(store.currentScopePoiName()).toBe('Banca A');
+
+      // Back to the list the generation stays in flight, but the scope shown is the zone again.
+      store.dispatch({ type: 'DESELECT_POI' });
+      expect(store.currentScopePoiName()).toBeNull();
+    });
+
     it('#365: the ISTAT occurrences follow the scope: zone → all POIs, point → only the POI', async () => {
       const istat = istatPoi(istatRow('BANKROB', ['Bank_robbery']));
       const mk = (id: string, i?: IstatPoi): Poi => ({
