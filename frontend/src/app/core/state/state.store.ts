@@ -119,10 +119,14 @@ export class StateStore {
     return flattenIstatOccurrences(data?.poi, data?.risk_models);
   });
   /**
-   * Name of the point THE PANEL IS SHOWING (#197), `null` in zone scope. It derives from the same
-   * response as the prose (`riskModels[0].poi`, always present on the BE), not from the POI
-   * list: so the heading cannot name a point while the body still shows the zone — which is
-   * exactly the case of a narrative requested but not yet arrived.
+   * Name of the point THE PANEL IS SHOWING (#197), `null` in zone scope. Once the narrative has
+   * arrived it derives from the same response as the prose (`riskModels[0].poi`, always present
+   * on the BE), not from the POI list: so the heading cannot name a point while the body still
+   * shows the zone.
+   *
+   * While the narrative of the selected point is loading the body shows only the loading
+   * indicator (the zone text is hidden, #510), so the heading already names the selected point,
+   * taken from `fullData.poi` by `id`.
    *
    * Fallback on the class (#261) if the POI is an anonymous OSM feature (`riskModels[0].poi`
    * empty): the raw name does not carry the class, so `fullData.poi` is consulted (by `id`, never
@@ -131,8 +135,8 @@ export class StateStore {
    */
   readonly currentScopePoiName = computed(() => {
     const narrative = this.currentPoiNarrative();
-    if (!narrative) return null;
-    const raw = narrative.riskModels[0]?.poi;
+    if (!narrative && !this.poiNarrativePending()) return null;
+    const raw = narrative?.riskModels[0]?.poi;
     if (raw) return raw;
     const id = this._state().selectedPoiId;
     const poi = this._state().fullData?.poi.find((p) => p.id === id);
