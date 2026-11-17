@@ -229,6 +229,7 @@ def test_unicode_separators_do_not_split_the_header() -> None:
 def test_semicolon_inside_a_quoted_field_is_not_the_separator() -> None:
     content = b'"osm_tag;x",classe\namenity=bank,Banca\n'
     report = _report(with_fields(osm_table=content))
+    assert "separatore_ambiguo" not in _codes(report)
     assert "separatore_non_valido" not in _codes(report)
 
 

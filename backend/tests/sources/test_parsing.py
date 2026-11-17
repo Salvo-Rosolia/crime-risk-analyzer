@@ -405,12 +405,71 @@ def test_osm_empty_file() -> None:
     assert "file_vuoto" in _codes(report.errors)
 
 
-def test_semicolon_separator_clear_error() -> None:
-    report = _report(with_fields(osm_table=b"osm_tag;classe\namenity=bank;Banca\n"))
+def _semicolon(text: str) -> bytes:
+    return text.replace(",", ";").encode()
+
+
+def test_semicolon_files_give_the_same_result_as_comma_files() -> None:
+    comma, comma_report = check_sources(valid_files(), VOCABULARY)
+    assert comma is not None
+    files = with_fields(
+        osm_table=_semicolon(OSM_CSV),
+        data=_semicolon(DATA_CSV),
+        hazard_table=_semicolon(HAZARD_CSV),
+    )
+    semicolon, report = check_sources(files, VOCABULARY)
+    assert semicolon is not None
+    assert report.errors == comma_report.errors == []
+    assert semicolon.osm_to_class == comma.osm_to_class
+    assert semicolon.istat.delitti.valori == comma.istat.delitti.valori
+    assert semicolon.mappatura == comma.mappatura
+
+
+def test_decimal_comma_accepted_in_semicolon_data() -> None:
+    row = "001,ROB,rapine,2024,100,80.0,no"
+    content = _semicolon(DATA_CSV.replace(row, row.replace("80.0", "80.5")))
+    content = content.replace(b"80.5", b"80,5")
+    parsed, report = check_sources(with_fields(data=content), VOCABULARY)
+    assert parsed is not None
+    assert report.errors == []
+    value = parsed.istat.delitti.valori["001"]["ROB"]["2024"]
+    assert value is not None
+    assert value.tasso == 80.5
+
+
+def test_decimal_comma_rejected_in_comma_data() -> None:
+    # Unquoted, the comma is a separator: the row has one cell too many.
+    row = "001,ROB,rapine,2024,100,80.0,no"
+    data = DATA_CSV.replace(row, "001,ROB,rapine,2024,100,80,5,no")
+    report = _report(with_fields(data=data.encode()))
+    assert "riga_malformata" in _codes(report.errors)
+
+
+def test_ambiguous_header_separator_clear_error() -> None:
+    osm = b"osm_tag;classe,extra\namenity=bank;Banca,x\n"
+    report = _report(with_fields(osm_table=osm))
+    (p,) = report.errors
+    assert p.code == "separatore_ambiguo"
+    assert p.line == 1
+    assert p.file == "osm_table"
+    assert "virgola" in p.message
+    assert "punto e virgola" in p.message
+
+
+def test_data_row_with_other_separator_than_header_is_reported() -> None:
+    osm = b"osm_tag;classe\namenity=bank;Banca\namenity=hospital,Ospedale\n"
+    report = _report(with_fields(osm_table=osm))
+    (p,) = report.errors
+    assert p.code == "riga_malformata"
+    assert p.line == 3
+    assert "separatore" in p.message
+
+
+def test_tab_separator_clear_error() -> None:
+    report = _report(with_fields(osm_table=b"osm_tag\tclasse\namenity=bank\tBanca\n"))
     (p,) = report.errors
     assert p.code == "separatore_non_valido"
-    assert ";" in p.message
-    assert "virgola" in p.message
+    assert "tabulazione" in p.message
     assert p.file == "osm_table"
 
 

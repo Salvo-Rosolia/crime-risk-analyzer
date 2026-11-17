@@ -1,10 +1,10 @@
 """Reading of the uploaded CSVs (#415): fixed format, errors that say what to do.
 
-Format: mandatory header, comma as separator, UTF-8 with or without
-BOM, LF or CRLF line ending (what Excel saves). A file with ``;`` or tab as
-separator (Italian Excel uses it by default) gives a clear error instead of a
-wrong reading. Empty rows ignored; each row carries the line number of the
-file (1 = header) for the messages.
+Format: mandatory header, comma or semicolon as separator (Italian Excel uses
+the semicolon by default), UTF-8 with or without BOM, LF or CRLF line ending
+(what Excel saves). A tab separator or a header mixing both separators gives a
+clear error instead of a wrong reading. Empty rows ignored; each row carries
+the line number of the file (1 = header) for the messages.
 """
 
 from __future__ import annotations
@@ -45,10 +45,18 @@ def read_csv(
     *,
     required: Sequence[str],
     optional: Sequence[str] = (),
+    decimal_columns: Sequence[str] = (),
     report: ValidationReport,
     max_rows: int | None = None,
 ) -> list[CsvRow] | None:
     """CSV rows, or ``None`` if the file is not readable (errors in the ``report``).
+
+    The separator (``,`` or ``;``) is taken from the header: if only one of the two
+    splits it into several columns, that is the separator; if both do, the
+    file is ambiguous (``separatore_ambiguo``). A data row with a different
+    separator than the header has the wrong number of cells and is reported as
+    malformed. In a ``;`` file the comma of the ``decimal_columns`` is a decimal
+    comma (``4069,6``) and is turned into a dot; in a ``,`` file nothing changes.
 
     It reports all the format problems at once: missing columns (one per
     column), extra columns (warning, ignored), rows with a wrong number of
@@ -79,9 +87,8 @@ def read_csv(
         return None
 
     # Same tokenisation to recognise the separator and to read the data.
-    reader = csv.reader(io.StringIO(text, newline=""))
     try:
-        fields = next(reader)
+        comma_fields = next(csv.reader(io.StringIO(text, newline="")))
     except csv.Error as exc:
         report.error(
             "intestazione_non_leggibile",
@@ -90,23 +97,34 @@ def read_csv(
             line=1,
         )
         return None
-    if len(fields) == 1 and ";" in fields[0]:
+    try:
+        semicolon_fields = next(
+            csv.reader(io.StringIO(text, newline=""), delimiter=";")
+        )
+    except csv.Error:  # pragma: no cover - the comma tokenisation failed first
+        semicolon_fields = []
+    if len(comma_fields) > 1 and len(semicolon_fields) > 1:
         report.error(
-            "separatore_non_valido",
+            "separatore_ambiguo",
             file,
-            "il separatore deve essere la virgola, non il punto e virgola (;): "
-            "salva il file come CSV con virgola",
+            "l'intestazione contiene sia la virgola sia il punto e virgola come "
+            "separatori: usa un solo separatore (virgola o punto e virgola)",
             line=1,
         )
         return None
+    delimiter = ";" if len(semicolon_fields) > 1 else ","
+    fields = semicolon_fields if delimiter == ";" else comma_fields
     if len(fields) == 1 and "\t" in fields[0]:
         report.error(
             "separatore_non_valido",
             file,
-            "il separatore deve essere la virgola, non la tabulazione",
+            "il separatore deve essere la virgola o il punto e virgola, "
+            "non la tabulazione",
             line=1,
         )
         return None
+    reader = csv.reader(io.StringIO(text, newline=""), delimiter=delimiter)
+    next(reader)  # header, already tokenised
     if len(fields) > MAX_COLUMNS:
         report.error(
             "troppe_colonne",
@@ -165,10 +183,16 @@ def read_csv(
                 )
                 return None
             if len(values) != len(columns):
+                other = ";" if delimiter == "," else ","
+                hint = (
+                    f": usa lo stesso separatore ({delimiter!r}) dell'intestazione"
+                    if len(values) == 1 and other in values[0]
+                    else ""
+                )
                 report.error(
                     "riga_malformata",
                     file,
-                    f"la riga ha {len(values)} celle invece di {len(columns)}",
+                    f"la riga ha {len(values)} celle invece di {len(columns)}{hint}",
                     line=line,
                 )
                 malformed = True
@@ -184,6 +208,10 @@ def read_csv(
                     return None
                 continue
             row_cells = {c: v.strip() for c, v in zip(columns, values, strict=True)}
+            if delimiter == ";":
+                for name in decimal_columns:
+                    if name in row_cells:
+                        row_cells[name] = row_cells[name].replace(",", ".")
             rows.append(CsvRow(line=line, cells=row_cells))
     except csv.Error as exc:
         report.error("csv_illeggibile", file, f"CSV non leggibile: {exc}")

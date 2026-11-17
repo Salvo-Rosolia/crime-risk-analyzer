@@ -352,6 +352,7 @@ def _read_data(content: bytes, report: ValidationReport) -> _Data | None:
         "data",
         required=DATA_COLUMNS,
         optional=DATA_OPTIONAL_COLUMNS,
+        decimal_columns=("tasso",),
         report=report,
     )
     if rows is None:
