@@ -58,7 +58,7 @@ from crime_risk_analyzer.models.geo import (
     boundary_from_geojson,
     point_in_polygon,
 )
-from crime_risk_analyzer.sources.csv_reader import CsvRow, read_csv
+from crime_risk_analyzer.sources.csv_reader import CsvRow, read_csv, read_csv_table
 from crime_risk_analyzer.sources.limits import (
     MAX_BYTES_CSV,
     MAX_BYTES_GEOJSON,
@@ -93,6 +93,8 @@ __all__ = [
     "read_sources",
 ]
 
+#: The only column with decimals; in a ``;`` file it can use the decimal comma.
+RATE_COLUMN = "tasso"
 OSM_COLUMNS = ("osm_tag", "classe")
 DATA_COLUMNS = (
     "luogo",
@@ -100,7 +102,7 @@ DATA_COLUMNS = (
     "voce_etichetta",
     "anno",
     "delitti",
-    "tasso",
+    RATE_COLUMN,
 )
 DATA_OPTIONAL_COLUMNS = ("tasso_sotto_soglia",)
 HAZARD_COLUMNS = ("hazard", "voce", "corrispondenza")
@@ -114,6 +116,9 @@ _ITEM_CODE = re.compile(r"[A-Za-z0-9_]{1,40}")
 _YEAR = re.compile(r"[0-9]{4}")
 _INTEGER = re.compile(r"[0-9]{1,12}")
 _DECIMAL = re.compile(r"[0-9]{1,15}(?:\.[0-9]{1,6})?")
+_DECIMAL_COMMA = re.compile(r"[0-9]{1,15}(?:[.,][0-9]{1,6})?")
+#: ``3.400``: in an Italian file that is 3400, but as a decimal it would be 3.4.
+_THOUSANDS_DOT = re.compile(r"[1-9][0-9]{0,2}\.[0-9]{3}")
 _COMPARISON_YEARS = 10
 
 
@@ -347,20 +352,20 @@ def _yes_no(value: str) -> bool | None:
 
 
 def _read_data(content: bytes, report: ValidationReport) -> _Data | None:
-    rows = read_csv(
+    table = read_csv_table(
         content,
         "data",
         required=DATA_COLUMNS,
         optional=DATA_OPTIONAL_COLUMNS,
-        decimal_columns=("tasso",),
         report=report,
     )
-    if rows is None:
+    if table is None:
         return None
+    decimal_comma = table.delimiter == ";"
     voci: dict[str, str] = {}
     valori: dict[str, dict[str, dict[str, YearValue | None]]] = {}
-    for row in rows:
-        _data_row(row, voci, valori, report)
+    for row in table.rows:
+        _data_row(row, voci, valori, report, decimal_comma=decimal_comma)
     if not valori:
         return None
     if ITALY_CODE not in valori:
@@ -403,6 +408,8 @@ def _data_row(
     voci: dict[str, str],
     valori: dict[str, dict[str, dict[str, YearValue | None]]],
     report: ValidationReport,
+    *,
+    decimal_comma: bool,
 ) -> None:
     c = row.cells
     ok = True
@@ -448,13 +455,26 @@ def _data_row(
             "o vuoto",
         )
     tasso: float | None = None
+    raw_rate = c[RATE_COLUMN]
     try:
-        tasso = _number(c["tasso"])
-    except ValueError:
+        tasso = _number(raw_rate, decimal_comma=decimal_comma)
+    except _ThousandsSeparatorError:
         add_error(
             "valore_non_valido",
-            f"tasso {c['tasso'][:20]!r} non valido: serve un numero non negativo "
-            "con il punto decimale, o vuoto",
+            f"{RATE_COLUMN} {raw_rate[:20]!r} non valido: il punto non e' ammesso "
+            "come separatore delle migliaia; scrivi il numero senza separatori "
+            "(3400) o con la virgola decimale (3,4)",
+        )
+    except ValueError:
+        decimal_hint = (
+            "con la virgola o il punto decimale"
+            if decimal_comma
+            else ("con il punto decimale")
+        )
+        add_error(
+            "valore_non_valido",
+            f"{RATE_COLUMN} {raw_rate[:20]!r} non valido: serve un numero non "
+            f"negativo {decimal_hint}, o vuoto",
         )
     below_threshold = _yes_no(c.get("tasso_sotto_soglia", ""))
     if below_threshold is None:
@@ -498,17 +518,31 @@ def _data_row(
     )
 
 
-def _number(testo: str) -> float | None:
+class _ThousandsSeparatorError(ValueError):
+    """A dot that, in a ``;`` file, could be an Italian thousands separator."""
+
+
+def _number(testo: str, *, decimal_comma: bool = False) -> float | None:
     """Non-negative decimal with the dot (``12`` or ``12.5``); ``None`` if empty.
 
-    No ``_`` separators, exponents, ``nan``/``inf`` or non-ASCII digits:
-    ``ValueError`` for everything else.
+    With ``decimal_comma`` (``;`` files) the comma is a decimal separator too
+    (``12,5``), but a dot followed by exactly three digits (``3.400``) is
+    refused: it is read as thousands by Italian users and as a decimal by us.
+    The text is converted only after it matched in full, so errors report it
+    as written. No ``_`` separators, exponents, ``nan``/``inf`` or non-ASCII
+    digits: ``ValueError`` for everything else.
     """
     if not testo:
         return None
-    if _DECIMAL.fullmatch(testo) is None:
+    if not decimal_comma:
+        if _DECIMAL.fullmatch(testo) is None:
+            raise ValueError(testo)
+        return float(testo)
+    if _THOUSANDS_DOT.fullmatch(testo) is not None:
+        raise _ThousandsSeparatorError(testo)
+    if _DECIMAL_COMMA.fullmatch(testo) is None:
         raise ValueError(testo)
-    return float(testo)
+    return float(testo.replace(",", "."))
 
 
 def _offences_file(parsed_data: _Data, content: bytes) -> OffencesFile:

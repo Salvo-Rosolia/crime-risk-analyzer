@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Literal
 
 from crime_risk_analyzer.sources.report import (
     MAX_PROBLEMS_PER_CODE,
@@ -21,7 +23,15 @@ from crime_risk_analyzer.sources.report import (
     ValidationReport,
 )
 
-__all__ = ["MAX_COLUMNS", "MAX_ROWS", "MAX_ROW_ERRORS", "CsvRow", "read_csv"]
+__all__ = [
+    "MAX_COLUMNS",
+    "MAX_ROWS",
+    "MAX_ROW_ERRORS",
+    "CsvRow",
+    "CsvTable",
+    "read_csv",
+    "read_csv_table",
+]
 
 #: After so many malformed rows the reading stops: the rest adds nothing.
 MAX_ROW_ERRORS = MAX_PROBLEMS_PER_CODE
@@ -29,6 +39,16 @@ MAX_ROW_ERRORS = MAX_PROBLEMS_PER_CODE
 MAX_COLUMNS = 50
 #: Data rows per file: beyond it, the reading stops (predictable time).
 MAX_ROWS = 200_000
+#: The ``sep=;`` first line that Excel can add to say which separator the file has.
+_EXCEL_SEP_HINT = re.compile(r"sep=.?", re.IGNORECASE)
+_LINE_END = re.compile(r"[\r\n]")
+_TAB_ERROR = (
+    "il separatore deve essere la virgola o il punto e virgola, non la tabulazione"
+)
+_AMBIGUOUS_ERROR = (
+    "l'intestazione contiene sia la virgola sia il punto e virgola come "
+    "separatori: usa un solo separatore (virgola o punto e virgola)"
+)
 
 
 @dataclass(frozen=True)
@@ -39,27 +59,60 @@ class CsvRow:
     cells: dict[str, str]
 
 
+@dataclass(frozen=True)
+class CsvTable:
+    """The rows of a file and the separator its header uses (``,`` or ``;``)."""
+
+    rows: list[CsvRow]
+    delimiter: str
+
+
 def read_csv(
     content: bytes,
     file: FileName,
     *,
     required: Sequence[str],
     optional: Sequence[str] = (),
-    decimal_columns: Sequence[str] = (),
     report: ValidationReport,
     max_rows: int | None = None,
 ) -> list[CsvRow] | None:
-    """CSV rows, or ``None`` if the file is not readable (errors in the ``report``).
+    """Rows of :func:`read_csv_table`, or ``None`` if the file is not readable."""
+    table = read_csv_table(
+        content,
+        file,
+        required=required,
+        optional=optional,
+        report=report,
+        max_rows=max_rows,
+    )
+    return None if table is None else table.rows
 
-    The separator (``,`` or ``;``) is taken from the header: if only one of the two
-    splits it into several columns, that is the separator; if both do, the
-    file is ambiguous (``separatore_ambiguo``). A data row with a different
-    separator than the header has the wrong number of cells and is reported as
-    malformed. In a ``;`` file the comma of the ``decimal_columns`` is a decimal
-    comma (``4069,6``) and is turned into a dot; in a ``,`` file nothing changes.
+
+def read_csv_table(
+    content: bytes,
+    file: FileName,
+    *,
+    required: Sequence[str],
+    optional: Sequence[str] = (),
+    report: ValidationReport,
+    max_rows: int | None = None,
+) -> CsvTable | None:
+    """The rows and the separator, or ``None`` if the file is not readable.
+
+    This is a tokeniser: the cells are the raw text of the file (edge spaces
+    stripped); the grammar of each value, decimal comma included, is up to the
+    caller, who knows the chosen ``delimiter``.
+
+    The separator (``,`` or ``;``) is the one whose tokenisation of the header
+    contains all the ``required`` columns (the comma if both do). If neither
+    does and both split the header, the file is ambiguous (``separatore_ambiguo``).
+    A separator inside an extra column name therefore does not matter. A data
+    row with a different separator than the header has the wrong number of
+    cells and is reported as malformed.
 
     It reports all the format problems at once: missing columns (one per
-    column), extra columns (warning, ignored), rows with a wrong number of
+    column), extra columns (warning, ignored; empty names, like the trailing
+    delimiters Excel adds, are ignored silently), rows with a wrong number of
     cells. With mandatory columns missing the rows are not read; the malformed
     rows are reported and skipped, the others are returned so the
     caller can continue the checks on the rest of the file.
@@ -86,9 +139,11 @@ def read_csv(
         )
         return None
 
-    # Same tokenisation to recognise the separator and to read the data.
+    # The separator is chosen on the header line alone, so that the verdict does
+    # not depend on what follows (an unterminated quote must not swallow rows).
+    header_line = text[: _first_line_end(text)]
     try:
-        comma_fields = next(csv.reader(io.StringIO(text, newline="")))
+        choice = _choose_separator(header_line, required, {*required, *optional})
     except csv.Error as exc:
         report.error(
             "intestazione_non_leggibile",
@@ -97,34 +152,10 @@ def read_csv(
             line=1,
         )
         return None
-    try:
-        semicolon_fields = next(
-            csv.reader(io.StringIO(text, newline=""), delimiter=";")
-        )
-    except csv.Error:  # pragma: no cover - the comma tokenisation failed first
-        semicolon_fields = []
-    if len(comma_fields) > 1 and len(semicolon_fields) > 1:
-        report.error(
-            "separatore_ambiguo",
-            file,
-            "l'intestazione contiene sia la virgola sia il punto e virgola come "
-            "separatori: usa un solo separatore (virgola o punto e virgola)",
-            line=1,
-        )
+    if isinstance(choice, _SeparatorProblem):
+        report.error(choice.code, file, choice.message, line=1)
         return None
-    delimiter = ";" if len(semicolon_fields) > 1 else ","
-    fields = semicolon_fields if delimiter == ";" else comma_fields
-    if len(fields) == 1 and "\t" in fields[0]:
-        report.error(
-            "separatore_non_valido",
-            file,
-            "il separatore deve essere la virgola o il punto e virgola, "
-            "non la tabulazione",
-            line=1,
-        )
-        return None
-    reader = csv.reader(io.StringIO(text, newline=""), delimiter=delimiter)
-    next(reader)  # header, already tokenised
+    delimiter, fields = choice
     if len(fields) > MAX_COLUMNS:
         report.error(
             "troppe_colonne",
@@ -133,6 +164,10 @@ def read_csv(
             line=1,
         )
         return None
+    # The data start right after the header line: the header is not tokenised twice.
+    stream = io.StringIO(text, newline="")
+    stream.seek(len(header_line))
+    reader = csv.reader(stream, delimiter=delimiter)
     columns = [c.strip().lower() for c in fields]
     present = set(columns)
 
@@ -145,13 +180,14 @@ def read_csv(
             f"(intestazione attesa: {', '.join([*required, *optional])})",
             line=1,
         )
-    duplicates = sorted(c for c, n in Counter(columns).items() if n > 1)
+    # Empty names (the trailing delimiters Excel adds) are ignored columns.
+    duplicates = sorted(c for c, n in Counter(columns).items() if n > 1 and c)
     for name in duplicates:
         report.error(
             "colonna_duplicata", file, f"la colonna {name!r} compare piu' volte", line=1
         )
     known = {*required, *optional}
-    extra = [c for c in present if c not in known]
+    extra = [c for c in present if c and c not in known]
     extra.sort(key=columns.index)
     if extra:
         report.warning(
@@ -183,10 +219,13 @@ def read_csv(
                 )
                 return None
             if len(values) != len(columns):
+                # A row written with the other separator has one of them between
+                # each pair of columns, wherever the tokeniser put the cells.
                 other = ";" if delimiter == "," else ","
+                other_count = sum(v.count(other) for v in values)
                 hint = (
                     f": usa lo stesso separatore ({delimiter!r}) dell'intestazione"
-                    if len(values) == 1 and other in values[0]
+                    if other_count > 0 and other_count >= len(columns) - 1
                     else ""
                 )
                 report.error(
@@ -208,10 +247,6 @@ def read_csv(
                     return None
                 continue
             row_cells = {c: v.strip() for c, v in zip(columns, values, strict=True)}
-            if delimiter == ";":
-                for name in decimal_columns:
-                    if name in row_cells:
-                        row_cells[name] = row_cells[name].replace(",", ".")
             rows.append(CsvRow(line=line, cells=row_cells))
     except csv.Error as exc:
         report.error("csv_illeggibile", file, f"CSV non leggibile: {exc}")
@@ -219,4 +254,91 @@ def read_csv(
     if not rows and not malformed:
         report.error("file_senza_righe", file, "il file ha solo l'intestazione")
         return None
-    return rows
+    return CsvTable(rows=rows, delimiter=delimiter)
+
+
+@dataclass(frozen=True)
+class _SeparatorProblem:
+    code: Literal["separatore_ambiguo", "separatore_non_valido"]
+    message: str
+
+
+def _tokenise(header_line: str, delimiter: str) -> list[str]:
+    """The cells of the header line; ``csv.Error`` if it is not readable."""
+    return next(csv.reader([header_line], delimiter=delimiter))
+
+
+def _has_columns(fields: list[str], required: Sequence[str]) -> bool:
+    """``True`` if the cells name all the ``required`` columns (not too many)."""
+    if len(fields) > MAX_COLUMNS:
+        return False
+    names = {c.strip().lower() for c in fields}
+    return all(name in names for name in required)
+
+
+def _tab_separated(candidates: Sequence[list[str]], known: set[str]) -> bool:
+    """``True`` if a header cell looks like columns glued by tabs."""
+    for fields in candidates:
+        if len(fields) > MAX_COLUMNS:
+            continue
+        for cell in fields:
+            if "\t" in cell and (
+                len(fields) == 1
+                or any(part.strip().lower() in known for part in cell.split("\t"))
+            ):
+                return True
+    return False
+
+
+def _choose_separator(
+    header_line: str, required: Sequence[str], known: set[str]
+) -> tuple[str, list[str]] | _SeparatorProblem:
+    """The separator and the header cells, or what is wrong with the header.
+
+    The comma wins if its tokenisation has all the required columns (also on
+    a tie); then the semicolon. If neither does, it is a tab or an Excel
+    ``sep=`` line, or a header mixing both separators, or the file is left to
+    the missing-column report. The semicolon pass runs only if the line has a
+    ``;`` and a comma pass of a sane width: hostile input does not burn CPU.
+
+    Raises:
+        csv.Error: the header is not readable as CSV.
+    """
+    if _EXCEL_SEP_HINT.fullmatch(header_line.strip()) is not None:
+        return _SeparatorProblem(
+            "separatore_non_valido",
+            f"la prima riga {header_line.strip()!r} e' il suggerimento di Excel "
+            "sul separatore: rimuovila, l'intestazione deve essere la prima riga",
+        )
+    comma_fields = _tokenise(header_line, ",")
+    if (
+        ";" not in header_line
+        or len(comma_fields) > MAX_COLUMNS
+        or _has_columns(comma_fields, required)
+    ):
+        if not _has_columns(comma_fields, required) and _tab_separated(
+            [comma_fields], known
+        ):
+            return _SeparatorProblem("separatore_non_valido", _TAB_ERROR)
+        return ",", comma_fields
+    try:
+        semicolon_fields = _tokenise(header_line, ";")
+    except csv.Error:
+        # The comma tokenisation worked, but a ';' cell is over the csv field
+        # limit: that is no ';' header, the comma stands.
+        return ",", comma_fields
+    if _has_columns(semicolon_fields, required):
+        return ";", semicolon_fields
+    if _tab_separated([comma_fields, semicolon_fields], known):
+        return _SeparatorProblem("separatore_non_valido", _TAB_ERROR)
+    if len(comma_fields) > 1 and len(semicolon_fields) > 1:
+        return _SeparatorProblem("separatore_ambiguo", _AMBIGUOUS_ERROR)
+    if len(semicolon_fields) > 1:
+        return ";", semicolon_fields
+    return ",", comma_fields
+
+
+def _first_line_end(text: str) -> int:
+    """Index of the end of the first line (CR, LF or end of text)."""
+    match = _LINE_END.search(text)
+    return len(text) if match is None else match.start()

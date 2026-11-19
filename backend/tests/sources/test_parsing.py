@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 from dataclasses import replace
 
@@ -405,8 +407,32 @@ def test_osm_empty_file() -> None:
     assert "file_vuoto" in _codes(report.errors)
 
 
+def _rows(text: str) -> list[list[str]]:
+    return list(csv.reader(io.StringIO(text)))
+
+
+def _delimited(rows: list[list[str]], delimiter: str) -> bytes:
+    """Serialises ``rows`` with ``delimiter``, checking the header really uses it."""
+    out = io.StringIO()
+    csv.writer(out, delimiter=delimiter, lineterminator="\n").writerows(rows)
+    payload = out.getvalue().encode()
+    header = payload.split(b"\n")[0].decode()
+    assert header.split(delimiter) == rows[0]
+    if delimiter == ";":
+        assert "," not in header
+    return payload
+
+
 def _semicolon(text: str) -> bytes:
-    return text.replace(",", ";").encode()
+    return _delimited(_rows(text), ";")
+
+
+def _data_with_rate(rate: str, delimiter: str) -> bytes:
+    """The valid data file with the 001/ROB/2024 rate replaced by ``rate``."""
+    rows = _rows(DATA_CSV)
+    target = next(r for r in rows if r[:4] == ["001", "ROB", "rapine", "2024"])
+    target[5] = rate
+    return _delimited(rows, delimiter)
 
 
 def test_semicolon_files_give_the_same_result_as_comma_files() -> None:
@@ -425,16 +451,54 @@ def test_semicolon_files_give_the_same_result_as_comma_files() -> None:
     assert semicolon.mappatura == comma.mappatura
 
 
-def test_decimal_comma_accepted_in_semicolon_data() -> None:
-    row = "001,ROB,rapine,2024,100,80.0,no"
-    content = _semicolon(DATA_CSV.replace(row, row.replace("80.0", "80.5")))
-    content = content.replace(b"80.5", b"80,5")
+def _data_tasso(content: bytes) -> float | None:
     parsed, report = check_sources(with_fields(data=content), VOCABULARY)
     assert parsed is not None
     assert report.errors == []
     value = parsed.istat.delitti.valori["001"]["ROB"]["2024"]
     assert value is not None
-    assert value.tasso == 80.5
+    return value.tasso
+
+
+@pytest.mark.parametrize(
+    ("rate", "expected"),
+    [
+        ("80,5", 80.5),
+        ("80.5", 80.5),
+        ("3400.0", 3400.0),
+        ("3400", 3400.0),
+        ("0.500", 0.5),
+        ("1,234", 1.234),
+    ],
+)
+def test_semicolon_data_accepts_decimal_comma_and_decimal_dot(
+    rate: str, expected: float
+) -> None:
+    assert _data_tasso(_data_with_rate(rate, ";")) == expected
+
+
+@pytest.mark.parametrize("rate", ["3.400", "100.000", "999.999"])
+def test_semicolon_data_rejects_thousands_dot_instead_of_reading_it_as_decimal(
+    rate: str,
+) -> None:
+    report = _report(with_fields(data=_data_with_rate(rate, ";")))
+    (p,) = report.errors
+    assert p.code == "valore_non_valido"
+    assert p.file == "data"
+    assert repr(rate) in p.message
+    assert "migliaia" in p.message
+
+
+def test_semicolon_data_error_echoes_the_raw_cell() -> None:
+    report = _report(with_fields(data=_data_with_rate("3.400,5", ";")))
+    (p,) = report.errors
+    assert p.code == "valore_non_valido"
+    assert "'3.400,5'" in p.message
+    assert "virgola" in p.message
+
+
+def test_comma_data_keeps_the_dot_decimal_grammar() -> None:
+    assert _data_tasso(_data_with_rate("3.400", ",")) == 3.4
 
 
 def test_decimal_comma_rejected_in_comma_data() -> None:
@@ -443,6 +507,16 @@ def test_decimal_comma_rejected_in_comma_data() -> None:
     data = DATA_CSV.replace(row, "001,ROB,rapine,2024,100,80,5,no")
     report = _report(with_fields(data=data.encode()))
     assert "riga_malformata" in _codes(report.errors)
+
+
+def test_quoted_decimal_comma_rejected_in_comma_data() -> None:
+    content = _data_with_rate("80,5", ",")
+    assert b'"80,5"' in content
+    report = _report(with_fields(data=content))
+    (p,) = report.errors
+    assert p.code == "valore_non_valido"
+    assert "'80,5'" in p.message
+    assert "punto decimale" in p.message
 
 
 def test_ambiguous_header_separator_clear_error() -> None:
@@ -456,13 +530,77 @@ def test_ambiguous_header_separator_clear_error() -> None:
     assert "punto e virgola" in p.message
 
 
+@pytest.mark.parametrize(
+    "content",
+    [
+        b'osm_tag,classe,"note;interne"\namenity=bank,Banca,x\n',
+        b"osm_tag,classe,note;interne\namenity=bank,Banca,x\n",
+        b'osm_tag,"a;b",classe\namenity=bank,x,Banca\n',
+        b"osm_tag;classe;Note, varie\namenity=bank;Banca;x\n",
+        b"osm_tag;classe;Fonte (ISTAT, 2023)\namenity=bank;Banca;x\n",
+    ],
+)
+def test_separator_inside_an_ignored_extra_header_cell_is_accepted(
+    content: bytes,
+) -> None:
+    parsed, report = check_sources(with_fields(osm_table=content), VOCABULARY)
+    assert parsed is not None
+    assert report.errors == []
+    assert _codes(report.warnings) == ["colonna_in_piu"]
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"osm_tag;classe;;\namenity=bank;Banca;;\n",
+        b"osm_tag,classe,,\namenity=bank,Banca,,\n",
+    ],
+)
+def test_trailing_empty_header_cells_are_ignored(content: bytes) -> None:
+    parsed, report = check_sources(with_fields(osm_table=content), VOCABULARY)
+    assert parsed is not None
+    assert report.errors == []
+    assert report.warnings == []
+
+
+def test_semicolon_header_missing_a_column_reports_the_column() -> None:
+    report = _report(with_fields(osm_table=b"osm_tag;x\namenity=bank;1\n"))
+    (p,) = report.errors
+    assert p.code == "colonna_mancante"
+    assert "'classe'" in p.message
+
+
 def test_data_row_with_other_separator_than_header_is_reported() -> None:
     osm = b"osm_tag;classe\namenity=bank;Banca\namenity=hospital,Ospedale\n"
     report = _report(with_fields(osm_table=osm))
     (p,) = report.errors
     assert p.code == "riga_malformata"
     assert p.line == 3
-    assert "separatore" in p.message
+    assert "usa lo stesso separatore (';')" in p.message
+
+
+def test_semicolon_row_in_a_comma_file_with_decimal_comma_gets_the_hint() -> None:
+    data = (
+        "luogo,voce,voce_etichetta,anno,delitti,tasso\n"
+        "IT,TOT,totale,2024,2000000,3400.0\n"
+        "IT;TOT;totale;2024;2000000;3400,5\n"
+    )
+    report = _report(with_fields(data=data.encode()))
+    (p,) = [p for p in report.errors if p.code == "riga_malformata"]
+    assert p.line == 3
+    assert "usa lo stesso separatore (',')" in p.message
+
+
+def test_footer_with_a_comma_in_a_semicolon_file_gets_no_separator_hint() -> None:
+    data = (
+        "luogo;voce;voce_etichetta;anno;delitti;tasso\n"
+        "IT;TOT;totale;2024;2000000;3400\n"
+        "Fonte: ISTAT, 2024\n"
+    )
+    report = _report(with_fields(data=data.encode()))
+    (p,) = [p for p in report.errors if p.code == "riga_malformata"]
+    assert p.line == 3
+    assert "separatore" not in p.message
 
 
 def test_tab_separator_clear_error() -> None:
@@ -471,6 +609,25 @@ def test_tab_separator_clear_error() -> None:
     assert p.code == "separatore_non_valido"
     assert "tabulazione" in p.message
     assert p.file == "osm_table"
+
+
+def test_tab_separated_header_containing_a_semicolon_is_still_a_tab_error() -> None:
+    report = _report(
+        with_fields(osm_table=b"osm_tag\tclasse;x\namenity=bank\tBanca;1\n")
+    )
+    (p,) = report.errors
+    assert p.code == "separatore_non_valido"
+    assert "tabulazione" in p.message
+
+
+def test_excel_sep_hint_line_gets_a_clear_error() -> None:
+    report = _report(
+        with_fields(osm_table=b"sep=;\nosm_tag;classe\namenity=bank;Banca\n")
+    )
+    (p,) = report.errors
+    assert p.code == "separatore_non_valido"
+    assert p.line == 1
+    assert "sep=" in p.message
 
 
 def test_non_utf8_csv() -> None:

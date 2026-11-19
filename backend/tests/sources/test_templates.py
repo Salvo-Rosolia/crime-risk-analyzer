@@ -58,6 +58,7 @@ def test_template_reread_without_format_errors(name: TemplateName) -> None:
         "colonna_mancante",
         "colonna_in_piu",
         "separatore_non_valido",
+        "separatore_ambiguo",
         "codifica_non_valida",
         "file_vuoto",
         "file_senza_righe",
