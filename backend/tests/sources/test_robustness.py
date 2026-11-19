@@ -13,7 +13,12 @@ from dataclasses import replace
 import pytest
 
 from crime_risk_analyzer.sources import parsing
-from crime_risk_analyzer.sources.csv_reader import MAX_ROW_ERRORS, MAX_ROWS, read_csv
+from crime_risk_analyzer.sources.csv_reader import (
+    MAX_ROW_ERRORS,
+    MAX_ROWS,
+    read_csv,
+    read_csv_table,
+)
 from crime_risk_analyzer.sources.parsing import UploadedFiles, check_sources
 from crime_risk_analyzer.sources.report import (
     CODE_OTHER_PROBLEMS,
@@ -229,7 +234,52 @@ def test_unicode_separators_do_not_split_the_header() -> None:
 def test_semicolon_inside_a_quoted_field_is_not_the_separator() -> None:
     content = b'"osm_tag;x",classe\namenity=bank,Banca\n'
     report = _report(with_fields(osm_table=content))
-    assert "separatore_non_valido" not in _codes(report)
+    assert _codes(report) == ["colonna_mancante"]
+
+
+@pytest.mark.parametrize("data_rows", [3, 9_000])
+def test_separator_verdict_does_not_depend_on_the_file_size(data_rows: int) -> None:
+    # An unterminated quote after a ';' in the header must not swallow the rows.
+    content = ('osm_tag,classe,x;"y\n' + "amenity=a,Banca,1\n" * data_rows).encode()
+    report = ValidationReport()
+    table = read_csv_table(
+        content, "osm_table", required=("osm_tag", "classe"), report=report
+    )
+    assert report.errors == []
+    assert table is not None
+    assert table.delimiter == ","
+    assert len(table.rows) == data_rows
+    assert [p.code for p in report.warnings] == ["colonna_in_piu"]
+
+
+def test_semicolon_pass_overrunning_the_field_limit_falls_back_to_comma() -> None:
+    # Each comma cell is small, but the ';' tokenisation has a cell over the csv limit.
+    extras = ",".join(f"{n:04d}" + "y" * 4000 for n in range(40))
+    content = f"osm_tag;classe;{extras}\namenity=bank;Banca\n".encode()
+    report = ValidationReport()
+    table = read_csv_table(
+        content, "osm_table", required=("osm_tag", "classe"), report=report
+    )
+    assert table is None
+    assert [p.code for p in report.errors] == ["colonna_mancante"] * 2
+
+
+def test_data_cell_over_the_field_limit_is_reported_not_raised() -> None:
+    content = ("osm_tag,classe\namenity=bank," + "x" * 200_000 + "\n").encode()
+    report = ValidationReport()
+    assert (
+        read_csv(content, "osm_table", required=("osm_tag", "classe"), report=report)
+        is None
+    )
+    assert [p.code for p in report.errors] == ["csv_illeggibile"]
+
+
+def test_wide_comma_header_with_a_semicolon_skips_the_semicolon_pass() -> None:
+    content = b"osm_tag,classe;x" + b",c" * 2_500_000 + b"\n"
+    start = time.monotonic()
+    report = _report(with_fields(osm_table=content))
+    assert time.monotonic() - start < 2
+    assert _codes(report) == ["troppe_colonne"]
 
 
 # --- 7. encodings ---
