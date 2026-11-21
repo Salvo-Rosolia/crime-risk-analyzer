@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
+from rdflib import OWL, RDF, Graph
 
 from crime_risk_analyzer import zone_context_cache as cache
 from crime_risk_analyzer.errors import register_exception_handlers
@@ -439,16 +440,40 @@ def test_example_reactivated_after_expiry(client: TestClient, clock: Clock) -> N
 
 
 @pytest.mark.parametrize("name", ["osm_table", "data", "hazard_table"])
-def test_downloadable_templates(client: TestClient, name: str) -> None:
+def test_downloadable_csv_templates(client: TestClient, name: str) -> None:
     r = client.get(f"/sources/templates/{name}")
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/csv")
     assert f"modello_{name}.csv" in r.headers["content-disposition"]
-    assert r.text.splitlines()[0]
+    assert r.content.startswith(b"\xef\xbb\xbf")
+    assert ";" in r.content.decode("utf-8-sig").splitlines()[0]
 
 
-def test_unknown_template_422(client: TestClient) -> None:
-    assert client.get("/sources/templates/boh").status_code == 422
+def test_downloadable_ontology_template(client: TestClient) -> None:
+    r = client.get("/sources/templates/ontology")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/turtle")
+    assert "modello_ontology.ttl" in r.headers["content-disposition"]
+    assert b"owl:Restriction" in r.content
+    graph = Graph().parse(data=r.content, format="turtle")
+    local_names = {
+        str(s).rsplit("#", 1)[-1].rsplit("/", 1)[-1]
+        for s in graph.subjects(RDF.type, OWL.Class)
+    }
+    assert {"Bank", "Hospital"} <= local_names
+
+
+@pytest.mark.parametrize("name", ["boh", "osm_table.csv", "ontology.ttl", "DATA"])
+def test_unknown_template_422(client: TestClient, name: str) -> None:
+    assert client.get(f"/sources/templates/{name}").status_code == 422
+
+
+@pytest.mark.parametrize("path", ["", "..%2fdata", "data/extra"])
+def test_template_path_without_a_single_name_segment_404(
+    client: TestClient, path: str
+) -> None:
+    """Empty name or an encoded slash is not the route: the router answers 404."""
+    assert client.get(f"/sources/templates/{path}").status_code == 404
 
 
 def test_get_sessions_is_a_singleton_with_the_config_values() -> None:
