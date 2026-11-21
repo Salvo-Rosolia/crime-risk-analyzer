@@ -33,7 +33,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -407,7 +407,12 @@ def _shape(
             result.append(
                 (
                     sr.record.as_dict(),
-                    transform(to_wgs84, shape(sr.shape.__geo_interface__)),
+                    # pyshp 3.x types ``__geo_interface__`` as a TypedDict that
+                    # shapely's ``shape`` stub does not accept; at runtime it is a dict.
+                    transform(
+                        to_wgs84,
+                        shape(cast("dict[str, Any]", sr.shape.__geo_interface__)),
+                    ),
                 )
             )
         return result
