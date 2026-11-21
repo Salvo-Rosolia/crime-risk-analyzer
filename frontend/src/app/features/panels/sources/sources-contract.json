@@ -1,0 +1,19 @@
+{
+  "osm_table": { "required": ["osm_tag", "classe"], "optional": [] },
+  "data": {
+    "required": ["luogo", "voce", "voce_etichetta", "anno", "delitti", "tasso"],
+    "optional": ["tasso_sotto_soglia"]
+  },
+  "hazard_table": {
+    "required": ["hazard", "voce", "corrispondenza"],
+    "optional": ["serie_non_confrontabile", "nota"]
+  },
+  "boundaries": {
+    "required": ["codice", "tipo", "nome", "nome_breve"],
+    "optional": ["provincia"]
+  },
+  "values": {
+    "corrispondenza": ["esatta", "piu_larga", "piu_stretta"],
+    "tipo": ["comune", "provincia"]
+  }
+}
