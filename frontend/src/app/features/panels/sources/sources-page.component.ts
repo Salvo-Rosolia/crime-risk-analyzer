@@ -14,6 +14,7 @@ import {
 import { ApiService } from '@core/api/api.service';
 import { SourcesStore } from '@core/state/sources.store';
 import type { SourceFile, SourceProblem, SourceTemplate } from '@core/models/models';
+import { SOURCE_LEGENDS, type SourceLegend } from './sources-legend';
 
 interface Slot {
   key: SourceFile;
@@ -31,6 +32,7 @@ const ONTOLOGY_SLOTS: readonly Slot[] = [
     hint: 'File Turtle (.ttl) oppure OWL/RDF-XML.',
     required: true,
     accept: '.ttl,.owl,.rdf,.xml',
+    template: 'ontology',
   },
 ];
 
@@ -112,7 +114,8 @@ function plural(n: number, one: string, many: string): string {
 
 /**
  * Fonti page (#419): uploads the ontology and data files, shows the check's errors and warnings
- * attached to the file they refer to, downloads the CSV templates, activates the example or
+ * attached to the file they refer to, explains each file in a foldable legend, downloads the
+ * templates to fill in (three CSVs and the `.ttl` ontology), activates the example or
  * goes back to the default. It opens above the map (modal dialog) from any screen. The state lives in
  * `SourcesStore`; only the chosen files and the vocabulary fields stay here, which belong to the form.
  */
@@ -254,6 +257,10 @@ export class SourcesPageComponent {
 
   protected templateUrl(name: SourceTemplate): string {
     return this.api.templateUrl(name);
+  }
+
+  protected legendFor(key: SourceFile): SourceLegend {
+    return SOURCE_LEGENDS[key];
   }
 
   protected onFile(key: SourceFile, event: Event): void {

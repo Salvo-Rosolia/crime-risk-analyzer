@@ -405,8 +405,8 @@ export type Action =
 /** Upload field a check problem attaches to (`Problem.file` of the backend). */
 export type SourceFile = 'ontology' | 'osm_table' | 'data' | 'hazard_table' | 'boundaries';
 
-/** Downloadable CSV templates (`GET /sources/templates/{name}`). */
-export type SourceTemplate = 'osm_table' | 'data' | 'hazard_table';
+/** Downloadable templates (`GET /sources/templates/{name}`): three CSVs and the `.ttl` ontology. */
+export type SourceTemplate = 'osm_table' | 'data' | 'hazard_table' | 'ontology';
 
 /** An error or warning from the file check: `message` is already in Italian, `line` only for CSVs. */
 export interface SourceProblem {
