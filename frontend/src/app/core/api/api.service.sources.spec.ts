@@ -143,5 +143,6 @@ describe('ApiService - sources', () => {
 
   it('templateUrl: relative path of the template', () => {
     expect(api.templateUrl('osm_table')).toBe('/sources/templates/osm_table');
+    expect(api.templateUrl('ontology')).toBe('/sources/templates/ontology');
   });
 });

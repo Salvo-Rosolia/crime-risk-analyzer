@@ -75,14 +75,48 @@ describe('SourcesPageComponent', () => {
     fixture.detectChanges();
   });
 
-  it('has the Ontologia and Dati sections and the three templates to download', () => {
+  it('has the Ontologia and Dati sections and the four templates to download', () => {
     expect(qa('h3').map((h) => h.textContent?.trim())).toEqual(['Ontologia', 'Dati']);
     const links = qa('a[download]');
     expect(links.map((a) => a.getAttribute('href'))).toEqual([
+      '/t/ontology',
       '/t/osm_table',
       '/t/data',
       '/t/hazard_table',
     ]);
+  });
+
+  it('every file has its own legend, closed by default', () => {
+    for (const key of ['ontology', 'osm_table', 'data', 'hazard_table', 'boundaries']) {
+      const details = q<HTMLDetailsElement>(`[data-slot=${key}] details.cra-legend`);
+      expect(details).not.toBeNull();
+      expect(details!.open).toBe(false);
+      expect(details!.querySelector('summary')).not.toBeNull();
+    }
+  });
+
+  it('the legends list the columns and the allowed values', () => {
+    const hazard = q(`[data-slot=hazard_table] details.cra-legend`)!;
+    expect(hazard.textContent).toContain('corrispondenza');
+    for (const value of ['esatta', 'piu_larga', 'piu_stretta']) {
+      expect(hazard.textContent).toContain(value);
+    }
+    expect(q('[data-slot=data] details.cra-legend')!.textContent).toContain('tasso_sotto_soglia');
+    expect(q('[data-slot=osm_table] details.cra-legend')!.textContent).toContain('amenity=bank');
+    expect(q('[data-slot=boundaries] details.cra-legend')!.textContent).toContain('nome_breve');
+    expect(q('[data-slot=ontology] details.cra-legend')!.textContent).toContain('havingHazard');
+  });
+
+  it('under Usa l esempio it says what the example loads', () => {
+    const note = q('.cra-example-note')!;
+    expect(note.textContent).toContain('non TERMINUS');
+    expect(note.textContent).toContain('Roma, Milano e Napoli');
+    expect(note.previousElementSibling?.classList).toContain('cra-sources-quick');
+  });
+
+  it('explains how the files link to each other', () => {
+    const chain = q('.cra-chain')!;
+    expect(chain.textContent).toMatch(/OSM[\s\S]*classe[\s\S]*hazard[\s\S]*voce[\s\S]*dati/);
   });
 
   it('Carica stays disabled until the mandatory files are there', () => {

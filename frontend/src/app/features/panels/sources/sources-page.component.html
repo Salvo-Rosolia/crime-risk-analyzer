@@ -61,6 +61,17 @@
         Torna al default
       </button>
     </div>
+    <p class="cra-example-note">
+      L'esempio carica un'ontologia inventata (non TERMINUS), tabelle compilate a mano e i dati
+      ISTAT ridotti a Roma, Milano e Napoli più il totale Italia.
+    </p>
+
+    <p class="cra-chain">
+      <b>Come si collegano i file: </b><code>OSM → classe → hazard → voce → dati</code>. Un elemento
+      di OpenStreetMap (tabella OSM) diventa una classe dell'ontologia; la classe ha uno o più
+      hazard (ontologia); ogni hazard punta a una voce (tabella hazard); la voce trova i suoi numeri
+      nei dati (dati statistici). I confini servono solo a collocare i luoghi dei dati.
+    </p>
 
     @if (store.report()) {
       <p class="cra-sources-alert" role="alert">
@@ -113,6 +124,34 @@
             <a [href]="templateUrl(tpl)" download>Scarica il modello</a>
           }
         </span>
+        @let legend = legendFor(slot.key);
+        <details class="cra-legend">
+          <summary [attr.aria-label]="'Cosa mettere in questo file: ' + slot.label">
+            Cosa mettere in questo file
+          </summary>
+          <p class="cra-slot-hint">{{ legend.intro }}</p>
+          <ul class="cra-legend-cols">
+            @for (col of legend.columns; track col.name) {
+              <li>
+                <code>{{ col.name }}</code>
+                @if (col.optional) {
+                  <span class="cra-optional">(facoltativa)</span>
+                }
+                <span>{{ col.meaning }}</span>
+                @if (col.values) {
+                  <span class="cra-legend-values">Valori: {{ col.values }}</span>
+                }
+              </li>
+            }
+          </ul>
+          <p class="cra-legend-example-label">{{ legend.exampleLabel }}</p>
+          <pre
+            class="cra-legend-example"
+            tabindex="0"
+            role="region"
+            [attr.aria-label]="legend.exampleLabel + ': ' + slot.label"
+            >{{ legend.example }}</pre>
+        </details>
         @if (errorsFor(slot.key); as list) {
           <ul class="cra-problems">
             @for (p of list; track $index) {
