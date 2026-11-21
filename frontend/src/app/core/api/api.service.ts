@@ -199,7 +199,7 @@ export class ApiService {
     );
   }
 
-  /** URL of the downloadable CSV template: a `download` link is enough, the backend sends the attachment. */
+  /** URL of the downloadable template (CSV or ontology .ttl): a `download` link is enough, the backend sends the attachment. */
   templateUrl(name: SourceTemplate): string {
     return `/sources/templates/${name}`;
   }

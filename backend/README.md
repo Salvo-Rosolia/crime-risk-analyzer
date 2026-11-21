@@ -104,7 +104,7 @@ quella dell'header `X-Session-Id` (token scelto dal client, 16-128 caratteri
 | `POST /sources/example` | Attiva il set di esempio, senza caricare file. Sostituisce il precedente | `X-Session-Id` obbligatorio | 200 stato |
 | `GET /sources` | Stato: `default`, `attivo` (con riepilogo e secondi alla scadenza) o `scaduto`. Non rinnova la scadenza | `X-Session-Id` facoltativo | 200 stato |
 | `DELETE /sources` | Torna alle fonti di default (idempotente) | `X-Session-Id` obbligatorio | 200 stato |
-| `GET /sources/templates/{name}` | Scarica il template CSV (intestazione e righe di esempio); `name` è `osm_table`, `data` o `hazard_table` | nessuno | 200 `text/csv`; 422 se `name` è sconosciuto |
+| `GET /sources/templates/{name}` | Scarica un modello da compilare (intestazione e poche righe di esempio; CSV con `;` e UTF-8 con BOM, oppure Turtle per l'ontologia); `name` è `osm_table`, `data`, `hazard_table` o `ontology` | nessuno | 200 `text/csv` (`modello_<name>.csv`) o `text/turtle` (`modello_ontology.ttl`); 422 se `name` è sconosciuto |
 
 Il set scade dopo `SOURCES_SESSION_TTL_SECONDS` dall'ultimo uso. Le rotte di analisi
 (`POST /analyze`, `/analyze/narrativa`, `/analyze/baseline`, `/analyze/poi`) lavorano
