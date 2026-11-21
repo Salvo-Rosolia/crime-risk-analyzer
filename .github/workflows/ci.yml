@@ -28,6 +28,9 @@ jobs:
           filters: |
             backend:
               - 'backend/**'
+              # Shared contract of the Sources legend (#538): backend/tests/sources/test_legend_contract.py
+              # checks it against the parser, so editing it must also run the backend lane.
+              - 'frontend/src/app/features/panels/sources/sources-contract.json'
             frontend:
               - 'frontend/**'
 
