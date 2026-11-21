@@ -2,9 +2,9 @@
 
 ``POST /sources`` uploads a set and activates it for the session, ``POST
 /sources/example`` activates the example one, ``GET /sources`` tells its status,
-``DELETE /sources`` returns to the default, ``GET /sources/templates/{nome}`` downloads
-the CSV templates. The session is the one of the ``X-Session-Id`` header (see
-:mod:`~crime_risk_analyzer.sources.session`).
+``DELETE /sources`` returns to the default, ``GET /sources/templates/{name}`` downloads
+the templates to fill in (CSV and Turtle). The session is the one of the
+``X-Session-Id`` header (see :mod:`~crime_risk_analyzer.sources.session`).
 
 :func:`activate_session` is the dependency that the analysis routes add in order to
 work on the session's set: it binds the set to the request context
@@ -53,8 +53,9 @@ from crime_risk_analyzer.sources.session import (
 )
 from crime_risk_analyzer.sources.templates import (
     TemplateName,
-    template_csv,
+    template_bytes,
     template_filename,
+    template_media_type,
 )
 from crime_risk_analyzer.sources.vocabulary import (
     TERMINUS_VOCABULARY,
@@ -441,10 +442,10 @@ async def reset_sources(
 
 @router.get("/sources/templates/{name}")
 async def download_template(name: TemplateName) -> Response:
-    """Downloadable CSV template: the right header and example rows."""
+    """Template to fill in (CSV ``;`` UTF-8 with BOM, or Turtle for the ontology)."""
     return Response(
-        content=template_csv(name),
-        media_type="text/csv; charset=utf-8",
+        content=template_bytes(name),
+        media_type=template_media_type(name),
         headers={
             "Content-Disposition": f'attachment; filename="{template_filename(name)}"'
         },
