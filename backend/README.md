@@ -98,6 +98,11 @@ tabella hazard, confini) con un proprio set, valido per la sessione. La sessione
 quella dell'header `X-Session-Id` (token scelto dal client, 32-128 caratteri
 `A-Za-z0-9_-`, con almeno 10 caratteri distinti; formato errato = 422).
 
+Anche la cache del contesto di zona (riusata dalla seconda fase di `/analyze/narrativa`
+e da `/analyze/poi`) è per sessione. Senza `X-Session-Id` non viene usata: ogni richiesta
+ricostruisce il contesto da Overpass, così due client anonimi non si sovrascrivono a
+vicenda (409 spurio). Il frontend invia sempre l'header.
+
 | Rotta | Scopo | Header | Esiti |
 |---|---|---|---|
 | `POST /sources` | Carica i file (multipart: `ontology`, `osm_table`, `data`, `hazard_table`, facoltativo `boundaries`; campi `namespace`, `hazard`, `critical_event`, `performer`, `vulnerability`), li controlla e, se validi, attiva il set. Sostituisce il precedente | `X-Session-Id` obbligatorio | 200 stato; 422 `fonti_non_valide` (rapporto completo dei problemi, il set attivo resta); 413 `richiesta_troppo_grande` (`Content-Length` oltre il tetto); 503 `caricamento_occupato` (troppi caricamenti in corso, `Retry-After: 5`); 400 o 422 se il multipart non è conforme (file obbligatori assenti, troppi file o campi) |

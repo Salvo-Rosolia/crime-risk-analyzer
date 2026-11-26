@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+import pytest
+
 from crime_risk_analyzer import zone_context_cache as cache
+from crime_risk_analyzer.sources.context import bind_session
 from crime_risk_analyzer.zone_context_cache import MAX_ZONES, TTL_SECONDS, ZoneContext
 
 
@@ -16,8 +19,28 @@ def _ctx(zone: str) -> ZoneContext:
     )
 
 
+SID = "session-cache-0000000000"
+
+
 def setup_function() -> None:
     cache.clear()
+
+
+def test_without_session_put_is_a_noop_and_get_misses() -> None:
+    """#541: no header means no private slot; sharing one would let two clients
+    overwrite each other (spurious 409 in phase 2), so nothing is stored."""
+    with bind_session(""):
+        cache.put("Roma", "Colosseo", _ctx("Colosseo"), now=0.0)
+        assert cache.get("Roma", "Colosseo", now=0.0) is None
+    with bind_session(SID):
+        assert cache.get("Roma", "Colosseo", now=0.0) is None
+    assert cache._STORE == {}  # pyright: ignore[reportPrivateUsage]
+
+
+@pytest.fixture(autouse=True)
+def _session():  # pyright: ignore[reportUnusedFunction]
+    with bind_session(SID):
+        yield
 
 
 def test_get_returns_what_put_stored() -> None:

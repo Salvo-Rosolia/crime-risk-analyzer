@@ -46,34 +46,40 @@ def test_current_id_default_without_building_the_default() -> None:
         assert current_id() == "x"
 
 
-def test_cache_of_different_sessions_does_not_mix() -> None:
-    with bind(_other_set("a")):
+SID_A = "session-a-0000000000"
+SID_B = "session-b-0000000000"
+
+
+def test_cache_of_different_sets_does_not_mix() -> None:
+    with bind_session(SID_A), bind(_other_set("a")):
         cache.put("Roma", "Monti", _ctx("a"), now=0.0)
-    with bind(_other_set("b")):
+    with bind_session(SID_A), bind(_other_set("b")):
         assert cache.get("Roma", "Monti", now=1.0) is None
         cache.put("Roma", "Monti", _ctx("b"), now=0.0)
-    with bind(_other_set("a")):
+    with bind_session(SID_A), bind(_other_set("a")):
         hit = cache.get("Roma", "Monti", now=1.0)
         assert hit is not None and hit["grounded"]["zona"] == "a"
-    assert cache.get("Roma", "Monti", now=1.0) is None  # the default sees nothing
+    with bind_session(SID_A):
+        assert cache.get("Roma", "Monti", now=1.0) is None  # the default sees nothing
 
 
-def test_default_cache_stays_visible_without_session() -> None:
-    cache.put("Roma", "Monti", _ctx("d"), now=0.0)
-    assert cache.get("Roma", "Monti", now=1.0) is not None
-    with bind(_other_set("a")):
-        assert cache.get("Roma", "Monti", now=1.0) is None
+def test_default_set_cache_is_visible_within_the_session() -> None:
+    with bind_session(SID_A):
+        cache.put("Roma", "Monti", _ctx("d"), now=0.0)
+        assert cache.get("Roma", "Monti", now=1.0) is not None
+        with bind(_other_set("a")):
+            assert cache.get("Roma", "Monti", now=1.0) is None
 
 
 def test_purge_removes_only_the_entries_of_the_set() -> None:
-    with bind(_other_set("a")):
+    with bind_session(SID_A), bind(_other_set("a")):
         cache.put("Roma", "Monti", _ctx("a"), now=0.0)
-    with bind(_other_set("b")):
+    with bind_session(SID_A), bind(_other_set("b")):
         cache.put("Roma", "Monti", _ctx("b"), now=0.0)
     cache.purge("a")
-    with bind(_other_set("a")):
+    with bind_session(SID_A), bind(_other_set("a")):
         assert cache.get("Roma", "Monti", now=1.0) is None
-    with bind(_other_set("b")):
+    with bind_session(SID_A), bind(_other_set("b")):
         assert cache.get("Roma", "Monti", now=1.0) is not None
 
 
