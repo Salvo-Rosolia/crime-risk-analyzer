@@ -34,6 +34,8 @@ from crime_risk_analyzer.rag.retrieval import RetrievalContext
 from crime_risk_analyzer.sources.context import current_executor
 from tests.eval._doubles import FakeProfiler, make_poi
 
+pytestmark = pytest.mark.usefixtures("client_session")
+
 _BANK = PoiRiskProfile(
     ontology_class="Bank",
     hazards=["Bank_robbery", "Property_theft"],

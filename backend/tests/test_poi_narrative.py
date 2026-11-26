@@ -28,6 +28,8 @@ from crime_risk_analyzer.rag import retrieval
 from crime_risk_analyzer.sources.context import current_executor
 from tests.eval._doubles import FakeProfiler, make_poi
 
+pytestmark = pytest.mark.usefixtures("client_session")
+
 _POI_ID = "node/1"
 
 _BANK = PoiRiskProfile(
