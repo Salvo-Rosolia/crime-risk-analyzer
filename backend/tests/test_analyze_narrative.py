@@ -1467,3 +1467,40 @@ def test_zone_mode_rebuilds_the_same_context_on_a_cold_cache(
     assert poi.status_code == 200
 
     assert nominatim.queries == ["Colosseo, Roma"] * 3
+
+
+def test_anonymous_two_phase_flow_rebuilds_without_409_and_caches_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#541: no ``X-Session-Id`` header, phase 1 then phase 2 on the routes.
+
+    The module-wide ``client_session`` fixture is overridden by binding an empty
+    session. The cache is a no-op for anonymous clients, so phase 2 rebuilds the
+    context (a new retrieve) and, being the same capture, gets 200 and not a
+    spurious 409; nothing ends up in the cache store.
+    """
+    from crime_risk_analyzer.sources.context import bind_session
+
+    _patch_io(monkeypatch)
+    fetch_calls: list[str] = []
+    real_fetch = retrieval.fetch_pois
+
+    async def _counting_fetch(
+        bbox: object, citta: str, *args: object, **kwargs: object
+    ) -> list[Poi]:
+        fetch_calls.append(citta)
+        return await real_fetch(bbox, citta, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(retrieval, "fetch_pois", _counting_fetch)
+
+    with bind_session(""):
+        client = _client()
+        context_hash = _post_analyze(client)
+        assert fetch_calls == ["Roma"]
+
+        resp = _post_narrative(client, context_hash)
+
+    assert resp.status_code == 200
+    assert resp.json()["fallback"] is False
+    assert fetch_calls == ["Roma", "Roma"]
+    assert zone_context_cache._STORE == {}  # pyright: ignore[reportPrivateUsage]
