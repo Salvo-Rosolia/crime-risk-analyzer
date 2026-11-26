@@ -95,8 +95,8 @@ non usa mai i mirror e registra in `OsmCut` l'endpoint che ha risposto; anche
 
 L'utente può sostituire le fonti di default (ontologia, tabella OSM, dati statistici,
 tabella hazard, confini) con un proprio set, valido per la sessione. La sessione è
-quella dell'header `X-Session-Id` (token scelto dal client, 16-128 caratteri
-`A-Za-z0-9_-`; formato errato = 422).
+quella dell'header `X-Session-Id` (token scelto dal client, 32-128 caratteri
+`A-Za-z0-9_-`, con almeno 10 caratteri distinti; formato errato = 422).
 
 | Rotta | Scopo | Header | Esiti |
 |---|---|---|---|
