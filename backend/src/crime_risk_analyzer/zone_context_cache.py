@@ -9,6 +9,13 @@ data. So what ``/analyze`` has just computed is kept.
 Same model as the ``_CACHE`` of :mod:`~crime_risk_analyzer.geocoding`: a
 module with bounded state, not a service. TTL because OpenStreetMap is a live
 source. Time is injectable (``now``) for tests without real waits.
+
+Without a session id (no ``X-Session-Id`` header) the cache is not used: ``put``
+does nothing and ``get`` misses (#541). Otherwise every anonymous request would
+share one slot and two clients would overwrite each other, giving a spurious 409
+in phase 2. A miss is safe: the routes rebuild the context and compare its
+fingerprint, at the cost of one more Overpass call. The frontend always sends
+the header.
 """
 
 from __future__ import annotations
@@ -64,7 +71,8 @@ def _key(citta: str, zona: str) -> tuple[str, str, str, str]:
     sets have a single id shared by all sessions, so the set id alone would let
     one session overwrite or purge another's slot (spurious 409). The second is the
     id of the active source set (#416). Without a session id (no header) the
-    session element is empty and requests share the slot, as before.
+    session element is empty: :func:`put` and :func:`get` never reach the key
+    in that case (#541), so a slot is never shared between anonymous clients.
     """
     return (
         current_session_id(),
@@ -75,7 +83,12 @@ def _key(citta: str, zona: str) -> tuple[str, str, str, str]:
 
 
 def put(citta: str, zona: str, ctx: ZoneContext, *, now: float | None = None) -> None:
-    """Stores the context, evicting the oldest entry beyond the cap."""
+    """Stores the context, evicting the oldest entry beyond the cap.
+
+    No-op without a session id (#541).
+    """
+    if not current_session_id():
+        return
     stamp = time.monotonic() if now is None else now
     key = _key(citta, zona)
     if len(_STORE) >= MAX_ZONES and key not in _STORE:
@@ -85,7 +98,12 @@ def put(citta: str, zona: str, ctx: ZoneContext, *, now: float | None = None) ->
 
 
 def get(citta: str, zona: str, *, now: float | None = None) -> ZoneContext | None:
-    """The context if present and not expired, otherwise ``None`` (miss)."""
+    """The context if present and not expired, otherwise ``None`` (miss).
+
+    Always a miss without a session id (#541).
+    """
+    if not current_session_id():
+        return None
     stamp = time.monotonic() if now is None else now
     key = _key(citta, zona)
     entry = _STORE.get(key)

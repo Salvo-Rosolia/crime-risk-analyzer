@@ -14,6 +14,7 @@ fail-fast test removes the key in a targeted way (see ``test_lifespan.py``).
 """
 
 import os
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -41,3 +42,12 @@ def pytest_collection_modifyitems(
     for item in items:
         if "integration" in item.keywords:
             item.add_marker(skip)
+
+
+@pytest.fixture
+def client_session() -> Iterator[str]:
+    """Binds a client session id: the zone-context cache only works with one (#541)."""
+    from crime_risk_analyzer.sources.context import bind_session
+
+    with bind_session("test-session-cache-0123456789"):
+        yield "test-session-cache-0123456789"
