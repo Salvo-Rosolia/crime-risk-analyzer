@@ -26,6 +26,10 @@ function resultsLocked(state: AppState): boolean {
   return state.screen === 'LOADING' || state.screen === 'ERROR';
 }
 
+/** Shown when the server's source set changes while an analysis is in flight (#542). */
+export const SOURCES_CHANGED_DURING_ANALYSIS =
+  "Le fonti sono cambiate durante l'analisi: il risultato è stato scartato. Rilancia l'analisi.";
+
 export function transition(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'ANALYZE': {
@@ -168,14 +172,18 @@ export function transition(state: AppState, action: Action): AppState {
       // sources, so nothing else is taken from them. A request in flight is dropped by the store
       // (#490, it was computed on the old set), so LOADING goes back to the form of the current
       // mode: nothing would ever leave it otherwise. The mode itself is not touched.
+      // The dropped request must not vanish silently (#542): from LOADING the existing error
+      // channel carries the notice (ERROR screen in Full, the BASE form's own error in Base).
+      if (state.screen === 'LOADING') {
+        return {
+          ...transition({ ...state, screen: 'INPUT' }, action),
+          screen: state.mode === 'base' ? 'BASE' : 'ERROR',
+          error: SOURCES_CHANGED_DURING_ANALYSIS,
+        };
+      }
       return {
         ...state,
-        screen:
-          state.screen === 'ERROR' || state.screen === 'BASE'
-            ? state.screen
-            : state.screen === 'LOADING' && state.mode === 'base'
-              ? 'BASE'
-              : 'INPUT',
+        screen: state.screen === 'ERROR' || state.screen === 'BASE' ? state.screen : 'INPUT',
         fullData: null,
         baselineData: null,
         selectedPoiId: null,

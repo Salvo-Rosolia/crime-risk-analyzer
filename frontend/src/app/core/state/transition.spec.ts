@@ -1,4 +1,4 @@
-import { initialState, transition } from '@core/state/transition';
+import { initialState, SOURCES_CHANGED_DURING_ANALYSIS, transition } from '@core/state/transition';
 import { AnalyzeResponse, AppState, PoiNarrative } from '@core/models/models';
 
 const data: AnalyzeResponse = {
@@ -656,13 +656,21 @@ describe('transition: SOURCE_SET_CHANGED (#473)', () => {
     expect(s.error).toBe('Tipo POI non riconosciuto');
   });
 
-  it('drops a request in flight back to the form of the current mode, keeping the mode (#490)', () => {
+  it('drops a request in flight back to a form that explains it, keeping the mode (#490, #542)', () => {
     const full = transition(loaded('LOADING'), { type: 'SOURCE_SET_CHANGED' });
-    expect(full.screen).toBe('INPUT');
+    expect(full.screen).toBe('ERROR');
     expect(full.mode).toBe('full');
+    expect(full.error).toBe(SOURCES_CHANGED_DURING_ANALYSIS);
+    expect(full.fullData).toBeNull();
     const base = transition({ ...loaded('LOADING'), mode: 'base' }, { type: 'SOURCE_SET_CHANGED' });
     expect(base.screen).toBe('BASE');
     expect(base.mode).toBe('base');
+    expect(base.error).toBe(SOURCES_CHANGED_DURING_ANALYSIS);
+  });
+
+  it('shows no notice when no request was in flight (#542)', () => {
+    const s = transition(loaded('RESULTS'), { type: 'SOURCE_SET_CHANGED' });
+    expect(s.error).toBeNull();
   });
 
   it('clears the narratives of the cleared results', () => {

@@ -23,6 +23,7 @@ import { sessionInterceptor } from '@core/api/session.interceptor';
 import { ApiService } from '@core/api/api.service';
 import { SourcesStore } from '@core/state/sources.store';
 import { StateStore } from '@core/state/state.store';
+import { SOURCES_CHANGED_DURING_ANALYSIS } from '@core/state/transition';
 import type { AnalyzeResponse, SourcesStatus } from '@core/models/models';
 import { App } from './app';
 
@@ -134,7 +135,8 @@ describe('App shell - sources (#419)', () => {
     await tick();
     f.detectChanges();
     expect(api['resetSources']).toHaveBeenCalled();
-    expect(state.screen()).toBe('INPUT');
+    expect(state.screen()).toBe('ERROR');
+    expect(state.error()).toBe(SOURCES_CHANGED_DURING_ANALYSIS);
   });
 
   it('Torna al default with sources already at default clears NOTHING', async () => {
@@ -174,7 +176,8 @@ describe('App shell - sources (#419)', () => {
     done(EXAMPLE);
     await tick();
     f.detectChanges();
-    expect(state.screen()).toBe('INPUT');
+    expect(state.screen()).toBe('ERROR');
+    expect(state.error()).toBe(SOURCES_CHANGED_DURING_ANALYSIS);
   });
 });
 
