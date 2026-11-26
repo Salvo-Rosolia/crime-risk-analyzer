@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ApiService } from '@core/api/api.service';
 import { StateStore } from '@core/state/state.store';
+import { SOURCES_CHANGED_DURING_ANALYSIS } from '@core/state/transition';
 import { istatPoi, istatRow } from '@core/testing/istat-fixtures';
 import {
   AnalyzeResponse,
@@ -144,7 +145,9 @@ describe('StateStore', () => {
         d.resolve(data);
         await run;
         expect(store.fullData()).toBeNull();
-        expect(store.screen()).toBe('INPUT');
+        // A discarded source-change response is explained to the user (#542); a reset is silent.
+        expect(store.screen()).toBe(type === 'RESET' ? 'INPUT' : 'ERROR');
+        expect(store.error()).toBe(type === 'RESET' ? null : SOURCES_CHANGED_DURING_ANALYSIS);
         expect(api.zoneNarrative).not.toHaveBeenCalled();
       },
     );
@@ -156,8 +159,8 @@ describe('StateStore', () => {
       store.dispatch({ type: 'SOURCE_SET_CHANGED' });
       d.reject(new Error('late'));
       await run;
-      expect(store.screen()).toBe('INPUT');
-      expect(store.error()).toBeNull();
+      expect(store.screen()).toBe('ERROR');
+      expect(store.error()).toBe(SOURCES_CHANGED_DURING_ANALYSIS);
     });
 
     it('a baseline response arriving after a source change is discarded', async () => {
