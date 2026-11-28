@@ -56,8 +56,8 @@
     "@angular/compiler-cli": "^20.3.35",
     "@playwright/test": "^1.65.1",
     "@types/jest": "^30.0.0",
-    "@types/leaflet": "^1.9.22",
-    "@types/node": "^26.6.6",
+    "@types/leaflet": "^1.9.23",
+    "@types/node": "^26.6.10",
     "angular-eslint": "21.0.1",
     "eslint": "^9.39.5",
     "http-server": "^14.1.1",
@@ -66,7 +66,7 @@
     "jest-preset-angular": "^17.0.3",
     "prettier": "^3.10.1",
     "typescript": "~5.9.2",
-    "typescript-eslint": "8.73.0"
+    "typescript-eslint": "8.74.0"
   },
   "allowScripts": {
     "@parcel/watcher@2.5.6": true,
